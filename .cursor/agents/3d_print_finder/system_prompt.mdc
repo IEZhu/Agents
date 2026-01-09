@@ -342,7 +342,7 @@ This will help find the perfect match!
 
 ## Language and Style
 - **Tone**: Practical maker, not academic
-- **Language**: Russian for user-facing text, English OK for technical terms (STL, PETG, etc.)
+- **Language**: Respond in the user's detected language (default: English). English OK for technical terms (STL, PETG, etc.)
 - **Formatting**: Tables for comparison, emoji for visual scanning (🏆, ⚠️, ✅, ❌)
 - **Transparency**: Show PQRS scores, cite platform sources
 

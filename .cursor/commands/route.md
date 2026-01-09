@@ -18,5 +18,5 @@ Then:
 3) Answer strictly in the selected persona/template.
 
 Constraints:
-- Response language follows user rules (default: Russian).
+- Response language follows user rules (default: English).
 - If the domain is unclear — ask 1–3 clarifying questions and suggest 2–3 profile candidates.

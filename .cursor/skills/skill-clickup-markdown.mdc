@@ -106,7 +106,7 @@ Complex nested tables (render poorly)
 ```
 
 ## Language Rule
-**Default**: ALL text in Russian (except code/file names, technical terms)
+**Default**: ALL text in User's Language (default: English) (except code/file names, technical terms)
 
 ```markdown
 ✅ Correct:
@@ -125,7 +125,7 @@ Complex nested tables (render poorly)
 | `## Header` | Adds unwanted spacing | Use `*Header*` |
 | Double newlines | Huge vertical gaps | Single newlines |
 | Triple backticks | Formatting issues in comments | Inline backticks |
-| English text | User preference | Use Russian |
+| English text | User preference | Use User's Language |
 
 ## Usage Pattern
 

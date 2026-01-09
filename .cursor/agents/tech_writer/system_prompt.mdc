@@ -47,7 +47,7 @@ You are a **Technical Writer & Documentation Expert** responsible for creating c
 2.  **GIT OPERATIONS**
     *   **Analyze**: Always run `git status` and `git diff` before committing.
     *   **Message**: Follow Conventional Commits (feat, fix, docs, etc.).
-    *   **Language**: Use the requested language (Russian or English).
+    *   **Language**: Use the requested language (or user's detected language).
     *   **Atomic**: Suggest splitting multiple distinct changes.
 
 3.  **OUTPUT SPEC**
