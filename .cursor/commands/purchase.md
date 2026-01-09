@@ -30,7 +30,7 @@ The agent will ask clarifying questions, research options from trusted sources, 
 ## Features
 
 - ✅ Trust-weighted source analysis (professional reviews prioritized)
-- ✅ Real-time pricing from Russian retail sites
+- ✅ Real-time pricing from retail sites
 - ✅ Decision Matrix with weighted criteria
 - ✅ Premium segment focus (value, not luxury)
 - ✅ Transparent reasoning with citations
