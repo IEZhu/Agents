@@ -325,6 +325,3 @@ nano .env  # Add your API keys
 
 MIT
 
----
-
-> **Built with HAI principles**: Human-AI Symbiosis, Cognitive Ergonomics, Adaptive Interaction
