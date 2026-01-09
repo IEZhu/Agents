@@ -30,6 +30,7 @@ else:
 from src.engine.router import SemanticRouter
 from src.engine.skills import SkillRetriever
 from src.engine.implants import ImplantRetriever
+from src.engine.context import ContextRetriever
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.schemas.protocol import AgentRequest, AgentResponse, RouterDecision
 
@@ -40,6 +41,7 @@ mcp = FastMCP("Agents-Core")
 router = SemanticRouter()
 skill_retriever = SkillRetriever()
 implant_retriever = ImplantRetriever()
+context_retriever = ContextRetriever()
 
 # Session Cache
 SESSION_CACHE: Dict[str, str] = {} # {agent_name: enriched_prompt}
@@ -85,11 +87,35 @@ async def get_dynamic_context_string(agent_name: str, query: str, chat_history: 
 
 async def enrich_agent_prompt(agent_name: str, base_prompt: str, query: str, chat_history: List[str] = [], preferred_skills: List[str] = None) -> str:
     """
-    Enriches the base system prompt with dynamic skills and implants.
+    Enriches the base system prompt with dynamic skills, implants, and language override.
     """
+    # 1. Add dynamic context (skills + implants)
     dynamic_context = await get_dynamic_context_string(agent_name, query, chat_history, preferred_skills)
     if dynamic_context:
         base_prompt += f"\n\n{dynamic_context}"
+    
+    # 2. Detect language and inject override directive
+    loop = asyncio.get_running_loop()
+    context_data = await loop.run_in_executor(
+        None,
+        lambda: context_retriever.retrieve(query, chat_history)
+    )
+    
+    detected_language = context_data.get("detected_language", "English")
+    
+    # Inject high-priority language directive at the end
+    language_directive = f"""
+
+## LANGUAGE OVERRIDE (CRITICAL)
+
+The user is communicating in **{detected_language}**. You MUST respond in **{detected_language}**.
+
+**This directive takes precedence over any previous language instructions.**
+"""
+    
+    base_prompt += language_directive
+    logger.info(f"Injected language directive: {detected_language}")
+    
     return base_prompt
 
 def trace_tool(tool_name: str = None):

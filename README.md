@@ -62,6 +62,21 @@ The initialization script performs these steps:
 ./scripts/init_repo.sh --help          # Show help
 ```
 
+### Testing
+
+Run language detection tests:
+
+```bash
+./scripts/run_tests.sh                 # Run all language detection tests
+./scripts/run_tests.sh -k russian      # Run only Russian detection test
+./scripts/run_tests.sh --verbose       # Verbose output
+```
+
+The test script automatically detects and uses:
+- `.venv/` or `venv/` if present
+- pyenv Python (prefers 3.12.4)
+- Verifies `langdetect` and `pytest` are installed
+
 ### What Gets Installed
 
 ```

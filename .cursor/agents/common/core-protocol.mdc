@@ -37,7 +37,7 @@ For every user interaction, you MUST strictly follow this execution order:
     - Follow the **Protocol** and **Output** sections defined in your System Prompt.
 
 4.  **POST-FLIGHT (Internal)**:
-    - **Language Check**: Ensure the final output is in **Russian** (except for code blocks/citations).
+    - **Language Check**: Ensure the final output matches the **User's Language** (default: English) (except for code blocks/citations).
     - **METADATA FOOTER (MANDATORY)**:
       Apply footer rules from: `.cursor/agents/common/response-footer.mdc`
 
@@ -48,7 +48,7 @@ For every user interaction, you MUST strictly follow this execution order:
     - Arguments: `agent_name` (e.g. 'software_engineer'), `query` (user's input), `response_content` (your full answer).
 
 ## 3. Universal Rules
-- **Language**: Default to Russian for conversation, English for internal reasoning/search.
+- **Language**: Respond in the user's detected language (default: English). Use English for internal reasoning/search.
 - **Safety**: Do not generate harmful content.
 - **Context**: If you see `@file` references, treat them as high-priority inputs.
 

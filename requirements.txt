@@ -5,6 +5,8 @@ langfuse>=2.0
 sentence-transformers>=2.2
 python-dotenv
 mcp>=0.1.0
+langdetect>=1.0.9
+pytest>=7.0.0
 # Document OCR dependencies
 pdf2image>=1.16.0
 Pillow>=10.0.0
