@@ -11,7 +11,7 @@ A semantic router that dynamically loads specialized agents, skills, and cogniti
 ### 1. Clone and Initialize
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/WonderMr/Agents
 cd Agents
 
 # Run initialization script
