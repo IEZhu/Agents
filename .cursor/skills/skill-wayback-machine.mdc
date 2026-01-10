@@ -1,0 +1,143 @@
+---
+description: "Temporal Forensic Layer: Access historical web snapshots via Archive.org Wayback Machine."
+tags: [research, archive, history, web, forensics, osint]
+globs: ["**/*.md"]
+---
+
+# Skill: Wayback Machine
+
+## Purpose
+Access web **as it was**. Recover deleted content, detect stealth edits, build timelines.
+
+---
+
+## Decision Tree
+
+| Situation | Method |
+|-----------|--------|
+| Page is 404/deleted | Method 1: Snapshot Lookup |
+| Compare versions over time | Method 2: CDX Timeline |
+| Preserve page before deletion | Method 3: Save Page Now |
+| JS-heavy archived page | Method 4: Browser Render |
+| Need raw HTML (no toolbar) | Add `id_` prefix to URL |
+
+---
+
+## Method 1: Snapshot Lookup
+
+**API**: `https://archive.org/wayback/available?url={URL}&timestamp={YYYYMMDD}`
+
+**Response fields**:
+- `archived_snapshots.closest.available` → `true` if exists
+- `archived_snapshots.closest.url` → archived page link
+- `archived_snapshots.closest.timestamp` → capture date (YYYYMMDDHHMMSS)
+
+---
+
+## Method 2: CDX Timeline
+
+**API**: `https://web.archive.org/cdx/search/cdx?url={URL}&output=json&filter=mimetype:text/html&filter=statuscode:200&collapse=digest&limit=50`
+
+**Parameters**:
+| Param | Purpose |
+|-------|---------|
+| `filter=mimetype:text/html` | HTML only |
+| `filter=statuscode:200` | Successful captures |
+| `collapse=digest` | **Critical**: deduplicate identical content |
+| `from/to={YYYYMMDD}` | Date range |
+
+**Response**: `[urlkey, timestamp, original, mimetype, statuscode, digest, length]`
+
+**Key**: Same `digest` = identical content.
+
+---
+
+## Method 3: Save Page Now
+
+**URL**: `https://web.archive.org/save/{URL}`
+
+**Limits**: ~15/min, respects robots.txt, may miss dynamic content.
+
+---
+
+## Method 4: Browser Render
+
+1. Get snapshot URL via Method 1/2
+2. `browser_navigate(url=snapshot_url)`
+3. `browser_wait_for(text="Wayback Machine")`
+4. `browser_snapshot()`
+
+**Note**: Toolbar element is `#wm-ipp-base`.
+
+---
+
+## Raw Mode
+
+Add `id_` after timestamp to get clean HTML without Wayback toolbar:
+- Standard: `web.archive.org/web/20230101/example.com`
+- Raw: `web.archive.org/web/20230101id_/example.com`
+
+---
+
+## URL Encoding
+
+Encode query params: `?` → `%3F`, `&` → `%26`, `=` → `%3D`
+
+---
+
+## Errors
+
+| Error | Fix |
+|-------|-----|
+| No snapshots | Try domain-only URL or Save Page Now |
+| 403 | Wait 60s (rate limit) |
+| 503 | Retry with backoff |
+| Empty CDX | Remove mimetype filter |
+
+---
+
+## Agent Protocols
+
+### Deep Researcher: Source Recovery
+```
+IF cited_url returns 404:
+  1. Call Method 1 with publication date
+  2. IF found: retrieve + cite as "Archived: {date}"
+  3. IF not: search mirrors/caches
+```
+
+### Investigative Analyst: Edit Detection
+```
+1. CDX search for URL
+2. Compare digest at T1 (publication) vs T2 (later)
+3. Same digest = unchanged
+4. Different = edited → retrieve both, diff
+```
+
+### Website Analyst: Evolution
+```
+1. CDX with collapse=timestamp:6 (6-month intervals)
+2. Track: design, features, tech stack changes
+3. Output chronological report
+```
+
+---
+
+## Quick Reference
+
+| Task | URL |
+|------|-----|
+| Check archived | `archive.org/wayback/available?url={URL}` |
+| All snapshots | `web.archive.org/cdx/search/cdx?url={URL}&output=json` |
+| View date | `web.archive.org/web/{YYYYMMDD}/{URL}` |
+| Raw (no toolbar) | `web.archive.org/web/{YYYYMMDD}id_/{URL}` |
+| Save now | `web.archive.org/save/{URL}` |
+| Domain-wide | `web.archive.org/cdx/search/cdx?url={DOMAIN}/*` |
+
+---
+
+## Ethics
+
+- **Rate**: Max 1 req/sec (nonprofit service)
+- **robots.txt**: Missing content may be owner-excluded
+- **Attribution**: Always cite Wayback Machine
