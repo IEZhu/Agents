@@ -45,9 +45,11 @@ Techniques that structure sequential reasoning:
 | Implant | Description |
 |---------|-------------|
 | `chain-of-note` | RAG annotation — annotate relevance before synthesis |
+| `chain-of-code` | Pseudocode-driven reasoning for logic puzzles and multi-step math |
 | `chain-of-draft` | Iterative drafting for complex outputs |
 | `chain-of-symbol` | Symbolic reasoning for logic problems |
 | `chain-of-table` | Tabular reasoning for structured data |
+| `chain-of-verification` | Draft-verify-correct cycle to reduce hallucinations |
 | `contrastive-cot` | Compare correct vs incorrect reasoning paths |
 | `self-harmonized-cot` | Multiple perspectives harmonized into one |
 | `reverse-cot` | Work backwards from conclusion to premises |
@@ -62,6 +64,8 @@ Techniques for self-reflection and improvement:
 | `self-discover` | Discover own reasoning patterns |
 | `metacognitive-prompting` | Reflect on thinking process |
 | `recursion-of-thought` | Recursive problem decomposition |
+| `reflexion` | Self-critique Actor-Critic-Reflector cycle for high-stakes tasks |
+| `step-back-prompting` | Abstract principle first, then apply to specifics |
 | `active-prompting` | Actively select most informative examples |
 
 ### Structured Thinking
@@ -73,6 +77,8 @@ Techniques for organizing complex reasoning:
 | `skeleton-of-thought` | Outline first, then fill details |
 | `graph-of-thoughts` | Non-linear reasoning graphs |
 | `layer-of-thoughts` | Hierarchical reasoning layers |
+| `logic-of-thought` | Formal logical reasoning: propositions → inference → conclusion |
+| `program-of-thoughts` | Write executable code to solve calculations |
 | `thread-of-thought` | Maintain coherent reasoning thread |
 | `buffer-of-thoughts` | Working memory management |
 | `narrative-of-thought` | Story-based reasoning |
@@ -110,8 +116,17 @@ Techniques for breaking down complex problems:
 | Implant | Description |
 |---------|-------------|
 | `least-to-most-prompting` | Solve simpler sub-problems first |
+| `plan-and-solve-plus` | Atomic planning before execution for multi-step tasks |
 | `complexity-based-prompting` | Order by complexity |
 | `contextual-compression` | Compress context to essentials |
+
+### Efficiency
+
+Techniques for optimizing token usage:
+
+| Implant | Description |
+|---------|-------------|
+| `token-economy` | Minimize output tokens by eliminating redundancy |
 
 ## Activation Methods
 
@@ -126,23 +141,23 @@ Implants are automatically selected based on query relevance:
 
 ```python
 # Request specific reasoning strategy
-get_reasoning_strategy(task_type="debugging")
+load_implants(task_type="debugging")
 # Returns: chain-of-code, reflexion
 
-get_reasoning_strategy(task_type="analysis")
+load_implants(task_type="analysis")
 # Returns: step-back-prompting, chain-of-verification
 
-get_reasoning_strategy(task_type="creative")
+load_implants(task_type="creative")
 # Returns: analogical-prompting, generated-knowledge
 
-get_reasoning_strategy(task_type="planning")
+load_implants(task_type="planning")
 # Returns: plan-and-solve, skeleton-of-thought
 ```
 
 ### 3. Direct Query
 
 ```python
-get_relevant_implants(query="How do I debug this race condition?")
+load_implants(query="How do I debug this race condition?")
 # Returns implants relevant to debugging
 ```
 

@@ -23,12 +23,11 @@ context:
   - analysis/**
 static_skills:
 - skill-analysis-critical.mdc
-- skill-reasoning-code.mdc
-- skill-reasoning-logic.mdc
 preferred_skills:
 - skill-analysis-critical
-- skill-reasoning-code
-- skill-reasoning-logic
+capabilities:
+- critical-analysis
+- data-investigation
 ---
 # Data Analyst System Prompt
 

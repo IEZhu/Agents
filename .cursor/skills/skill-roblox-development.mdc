@@ -1,0 +1,275 @@
+---
+description: Roblox development best practices. Covers Luau patterns, Roblox API, anti-exploit, performance, DataStore, networking. Role: Roblox Game Developer. Competency: Expert.
+compiled: "Server authority. Never trust client. pcall DataStore. Object pooling. Debounce. RemoteEvent vs RemoteFunction. WaitForChild; :Destroy() not Parent=nil."
+---
+## Role
+Roblox Game Developer: Create secure, performant, and engaging games.
+
+## Core Principles
+
+### 1. Security First (Anti-Exploit)
+- **NEVER trust client input**: Always validate on server
+- **Distance checks**: Verify player proximity for actions
+- **Rate limiting**: Prevent spam (debouncing)
+- **Server authority**: Server decides damage, rewards, spawns
+- **Sanity checks**: Validate data types and ranges
+
+```lua
+-- ❌ BAD: Trust client damage value
+RemoteEvent.OnServerEvent:Connect(function(player, damage)
+    enemy:TakeDamage(damage) -- Exploiter can send 999999
+end)
+
+-- ✅ GOOD: Server calculates damage
+RemoteEvent.OnServerEvent:Connect(function(player, targetEnemy)
+    if not isValidTarget(player, targetEnemy) then return end
+    local damage = calculateDamage(player) -- Server-side logic
+    targetEnemy:TakeDamage(damage)
+end)
+```
+
+### 2. Performance Optimization
+- **Object Pooling**: Reuse instances instead of creating/destroying
+- **Debouncing**: Prevent rapid-fire events
+- **Lazy Loading**: Load resources on-demand
+- **Anchored Parts**: Use Anchored = true for static objects
+- **Workspace Hierarchy**: Keep flat, avoid deep nesting
+
+```lua
+-- Object Pooling Example
+local BulletPool = {}
+local POOL_SIZE = 50
+
+local function getBullet()
+    local bullet = table.remove(BulletPool) or createBullet()
+    bullet.Parent = workspace
+    return bullet
+end
+
+local function returnBullet(bullet)
+    bullet.Parent = nil
+    table.insert(BulletPool, bullet)
+end
+```
+
+### 3. DataStore Best Practices
+- **pcall() everything**: Wrap all DataStore calls
+- **Auto-save**: Every 5 minutes + on player leaving
+- **Default values**: Handle nil data gracefully
+- **Versioning**: Use versioned keys (e.g., "PlayerData_v2")
+- **UpdateAsync for economy**: Prevent duplication exploits
+
+```lua
+-- Safe DataStore Pattern
+local function saveData(player, data)
+    local success, err = pcall(function()
+        playerDataStore:SetAsync(player.UserId, data)
+    end)
+    if not success then
+        warn("Save failed for", player.Name, ":", err)
+        -- Retry logic or notify player
+    end
+    return success
+end
+```
+
+### 4. Modular Architecture
+- **ModuleScripts**: Encapsulate logic
+- **Single Responsibility**: One module = one purpose
+- **OOP with Metatables**: Use classes for complex systems
+- **Service Structure**: Organize by functionality
+
+```
+ServerScriptService/
+├── Core/
+│   ├── DataManager.lua
+│   ├── GameManager.lua
+│   └── MonetizationManager.lua
+├── Systems/
+│   ├── InventorySystem.lua
+│   └── CombatSystem.lua
+└── Utils/
+    └── TableUtil.lua
+```
+
+### 5. Networking (RemoteEvents/Functions)
+- **Minimize traffic**: Batch updates when possible
+- **Server → Client**: Use RemoteEvents (one-way)
+- **Client → Server with response**: Use RemoteFunctions
+- **Never expose critical logic**: Client can be decompiled
+
+```lua
+-- ✅ Efficient: Batch player data update
+ReplicatedStorage.UpdatePlayerData:FireClient(player, {
+    Coins = newCoins,
+    Level = newLevel,
+    Health = newHealth
+})
+
+-- ❌ Inefficient: Multiple events
+ReplicatedStorage.UpdateCoins:FireClient(player, newCoins)
+ReplicatedStorage.UpdateLevel:FireClient(player, newLevel)
+ReplicatedStorage.UpdateHealth:FireClient(player, newHealth)
+```
+
+## Luau-Specific Patterns
+
+### Type Annotations (Strongly Recommended)
+```lua
+type PlayerData = {
+    Coins: number,
+    Level: number,
+    Inventory: {[string]: number}
+}
+
+function loadPlayerData(player: Player): PlayerData?
+    -- Type-safe implementation
+end
+```
+
+### Metatables for OOP
+```lua
+local Class = {}
+Class.__index = Class
+
+function Class.new(param: string)
+    local self = setmetatable({}, Class)
+    self.Value = param
+    return self
+end
+
+function Class:Method()
+    print(self.Value)
+end
+
+return Class
+```
+
+### Debouncing
+```lua
+local debounce = false
+local COOLDOWN = 2
+
+part.Touched:Connect(function(hit)
+    if debounce then return end
+    debounce = true
+
+    -- Action here
+    print("Touched!")
+
+    task.wait(COOLDOWN)
+    debounce = false
+end)
+```
+
+## Roblox API Essentials
+
+### Services (Always cache at top)
+```lua
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local DataStoreService = game:GetService("DataStoreService")
+```
+
+### WaitForChild (Prevent race conditions)
+```lua
+-- ✅ GOOD: Safe reference
+local part = workspace:WaitForChild("ImportantPart")
+
+-- ❌ BAD: May not exist yet
+local part = workspace.ImportantPart -- Can error!
+```
+
+### Destroy vs. :Destroy()
+```lua
+-- ✅ Proper cleanup
+instance:Destroy()
+
+-- ❌ BAD: Doesn't clean up connections
+instance.Parent = nil
+```
+
+## Common Pitfalls
+
+### 1. Infinite Loops
+```lua
+-- ❌ BAD: Freezes server
+while true do
+    print("Running")
+end
+
+-- ✅ GOOD: Yielding loop
+while true do
+    task.wait(1) -- or wait(1)
+    print("Running every second")
+end
+```
+
+### 2. Memory Leaks
+```lua
+-- ❌ BAD: Connection never disconnected
+part.Touched:Connect(function() end)
+-- If part is destroyed, connection persists!
+
+-- ✅ GOOD: Store and disconnect
+local connection = part.Touched:Connect(function() end)
+-- Later:
+connection:Disconnect()
+```
+
+### 3. Client-Server Confusion
+```lua
+-- Server Script: Players, DataStore, Authority
+-- Local Script: UI, Input, Visual effects
+-- Module Script: Shared logic (in ReplicatedStorage)
+```
+
+## Testing Checklist
+
+Before publishing:
+- [ ] Test in **Play Solo** (basic functionality)
+- [ ] Test in **Local Server** (client-server separation)
+- [ ] Test on **mobile device** or emulator
+- [ ] Test **DataStore** (save/load cycles)
+- [ ] Test **monetization** in emulation mode
+- [ ] Check **Output** for errors/warnings
+- [ ] Profile performance (FPS, memory, server stats)
+
+## Resources
+- **Roblox Creator Docs**: https://create.roblox.com/docs
+- **Luau Type Checking**: https://luau-lang.org/typecheck
+- **DevForum**: https://devforum.roblox.com/
+
+## Anti-Patterns to Avoid
+
+```lua
+-- ❌ Global variables
+myGlobalVar = 10
+
+-- ❌ Tight coupling
+local playerCoins = workspace.Player.Coins.Value
+
+-- ❌ Hard-coded values
+if damage == 100 then ... end
+
+-- ❌ Nested callbacks (callback hell)
+event1:Connect(function()
+    event2:Connect(function()
+        event3:Connect(function()
+            -- Too deep!
+        end)
+    end)
+end)
+```
+
+## Recommended Libraries
+
+- **Knit Framework**: Modular game structure
+- **ProfileService**: Robust DataStore wrapper
+- **Cmdr**: Admin command console
+- **Roact**: Declarative UI (advanced)
+
+---
+
+**Focus**: Security, Performance, Modularity, Scalability

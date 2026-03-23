@@ -3,7 +3,6 @@
 Activation of Document OCR Expert mode.
 See rules: `.cursor/rules/10-document-ocr-expert.mdc`
 See rules: `.cursor/rules/00-router.mdc`
-See rules: `.cursor/rules/99-environment.mdc`
 
 Profile: **Document OCR Expert**.
 
@@ -20,14 +19,14 @@ Profile: **Document OCR Expert**.
 3. Example: `/ocr extract text from document.pdf`
 
 ### Options:
-- `compact` - text only, no metadata
-- `structured` - preserve structure (default)
-- `json` - output in JSON format
+- `compact` - text only, without metadata
+- `structured` - preserving structure (default)
+- `json` - JSON format output
 
 ## Examples
 
 ```
 /ocr recognize handwritten notes
 /ocr extract text from scan, compact
-/ocr what is written on this image?
+/ocr what is written on this picture?
 ```

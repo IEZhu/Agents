@@ -1,35 +1,21 @@
 import logging
-import sys
 import os
 import json
 import asyncio
-from langfuse import observe
+from datetime import datetime, timezone
+from src.utils.langfuse_compat import observe
 
 logger = logging.getLogger(__name__)
 from typing import List, Optional, Dict, Any
-import chromadb
-from chromadb.utils import embedding_functions
-from openai import AsyncOpenAI
-from pydantic import ValidationError
 
 from src.schemas.protocol import RouterDecision, AgentRequest
-# Import REPO_ROOT to locate agents
-from src.utils.prompt_loader import REPO_ROOT
-
-# Configuration
-CHROMA_PATH = os.path.join(os.path.dirname(__file__), "../../chroma_db")
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-SIMILARITY_THRESHOLD = 0.95
+from src.engine.config import REPO_ROOT, ROUTER_SIMILARITY_THRESHOLD
+from src.engine.chroma import get_chroma_client, get_embedding_fn
 
 class SemanticRouter:
     def __init__(self):
-        # Initialize ChromaDB
-        self.chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-
-        # Use Sentence Transformers for embeddings
-        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=EMBEDDING_MODEL
-        )
+        self.chroma_client = get_chroma_client()
+        self.embedding_fn = get_embedding_fn()
 
         self.collection = self.chroma_client.get_or_create_collection(
             name="router_cache",
@@ -37,10 +23,8 @@ class SemanticRouter:
             metadata={"hnsw:space": "cosine"}
         )
 
-        # Initialize OpenAI (lazy load)
-        self.openai_client = None
-
         self.available_agents = self._scan_agents()
+        self._agent_descriptions = self._load_agent_descriptions()
 
     def _scan_agents(self) -> List[str]:
         """
@@ -68,6 +52,39 @@ class SemanticRouter:
             return ["universal_agent"]
 
         return sorted(agents)
+
+    def _load_agent_descriptions(self) -> Dict[str, Dict[str, str]]:
+        """Load display_name and role for each agent from frontmatter."""
+        import yaml
+        descriptions = {}
+        for name in self.available_agents:
+            path = os.path.join(REPO_ROOT, ".cursor", "agents", name, "system_prompt.mdc")
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if content.startswith("---"):
+                    parts = content.split("---", 2)
+                    if len(parts) >= 2:
+                        meta = yaml.safe_load(parts[1]) or {}
+                        identity = meta.get("identity", {})
+                        routing = meta.get("routing", {})
+                        descriptions[name] = {
+                            "display_name": identity.get("display_name", name),
+                            "role": identity.get("role", ""),
+                            "trigger_command": routing.get("trigger_command", ""),
+                        }
+                        continue
+            except Exception as e:
+                logger.warning(f"Failed to load metadata for {name}: {e}")
+            descriptions[name] = {"display_name": name, "role": "", "trigger_command": ""}
+        return descriptions
+
+    def get_agent_catalog(self) -> List[Dict[str, str]]:
+        """Returns agent list with descriptions for candidate selection."""
+        return [
+            {"name": name, **self._agent_descriptions.get(name, {"display_name": name, "role": ""})}
+            for name in self.available_agents
+        ]
 
     async def lookup_cache(self, query: str, context: Dict[str, Any] = None) -> Optional[RouterDecision]:
         """
@@ -97,7 +114,7 @@ class SemanticRouter:
 
         if results['ids'] and results['distances'] and len(results['distances'][0]) > 0:
             distance = results['distances'][0][0]
-            if distance < (1 - SIMILARITY_THRESHOLD):
+            if distance < (1 - ROUTER_SIMILARITY_THRESHOLD):
                 metadata = results['metadatas'][0][0]
                 return RouterDecision(
                     target_agent=metadata['target_agent'],
@@ -120,7 +137,7 @@ class SemanticRouter:
                     metadatas=[{
                         "target_agent": agent_name,
                         "reasoning": reasoning,
-                        "timestamp": str(1.0)
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }],
                     ids=[request_id]
                 )
@@ -128,91 +145,11 @@ class SemanticRouter:
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
 
-    @observe(name="router_llm_decision")
-    async def _get_llm_decision(self, query: str, context: Dict[str, Any] = None) -> RouterDecision:
-        """
-        Fallback to LLM if no cache hit.
-        """
-        if not self.openai_client:
-            try:
-                self.openai_client = AsyncOpenAI()
-            except Exception as e:
-                logger.error(f"Failed to init OpenAI: {e}")
-                return RouterDecision(
-                    target_agent="universal_agent",
-                    confidence=0.0,
-                    reasoning="OpenAI API Key missing or invalid",
-                    is_cached=False
-                )
-
-        system_prompt = f"""
-        You are the Master Router for the Agents system.
-        Your job is to classify the user's request into one of the following agent profiles:
-        {json.dumps(self.available_agents)}
-
-        Analyze the intent and complexity.
-        Return a JSON object with the following fields:
-        - "target_agent": (string) One of the available agents.
-        - "confidence": (float) 0.0 to 1.0.
-        - "reasoning": (string) Explanation for the choice.
-
-        Example:
-        {{
-            "target_agent": "security_expert",
-            "confidence": 0.95,
-            "reasoning": "User is asking about SQL injection prevention."
-        }}
-        """
-
-        messages = [{"role": "system", "content": system_prompt}]
-
-        if context:
-            history_text = context.get("history_text", "")
-            if history_text:
-                 messages.append({"role": "user", "content": f"Context/History:\n{history_text}"})
-
-        messages.append({"role": "user", "content": query})
-
-        try:
-            completion = await self.openai_client.chat.completions.create(
-                model="gpt-5-mini",
-                messages=messages,
-                response_format={"type": "json_object"}
-            )
-
-            response_content = completion.choices[0].message.content
-            decision_data = json.loads(response_content)
-
-            # Ensure it matches schema
-            return RouterDecision(**decision_data)
-
-        except Exception as e:
-            logger.error(f"Routing Error: {e}")
-            return RouterDecision(
-                target_agent="universal_agent",
-                confidence=0.0,
-                reasoning=f"Error in routing: {str(e)}",
-                is_cached=False
-            )
-
     @observe(name="route_request")
-    async def route(self, request: AgentRequest) -> RouterDecision:
+    async def route(self, request: AgentRequest) -> Optional[RouterDecision]:
         """
-        Full routing logic: Cache -> LLM -> Cache Update
+        Routing logic: Cache lookup only.
+        Returns None on cache miss — caller should return ROUTE_REQUIRED to the client LLM.
         """
-        query_text = request.query
-        context = request.context
-
-        # 1. Search Cache
-        cached = await self.lookup_cache(query_text, context)
-        if cached:
-            return cached
-
-        # 2. LLM Fallback
-        decision = await self._get_llm_decision(query_text, context)
-
-        # 3. Update Cache
-        if decision.confidence > 0.8:
-            await self.update_cache(query_text, decision.target_agent, decision.reasoning, request.request_id)
-
-        return decision
+        cached = await self.lookup_cache(request.query, request.context)
+        return cached

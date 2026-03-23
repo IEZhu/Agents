@@ -8,12 +8,13 @@ This `.cursor/` directory contains the complete agent framework that can be depl
 
 ```
 .cursor/
-├── agents/      # Agent personas with system prompts
-├── commands/    # Slash commands for agent routing  
-├── implants/    # Cognitive reasoning strategies
-├── skills/      # Domain-specific knowledge modules
-├── rules/       # Global routing and environment rules
-└── state/       # Runtime state (MCP status, etc.)
+├── agents/        # Agent personas with system prompts (32 agents)
+├── capabilities/  # Capability compositions (registry.yaml)
+├── commands/      # Slash commands for agent routing
+├── implants/      # Cognitive reasoning strategies
+├── skills/        # Domain-specific knowledge modules
+├── rules/         # Global routing and environment rules
+└── state/         # Runtime state (MCP status, etc.)
 ```
 
 See individual README files in each directory for detailed documentation.
@@ -81,24 +82,33 @@ After copying, restart Cursor IDE to:
 User Query
     │
     ▼
-┌─────────────────────┐
-│  get_routing_info() │  → Semantic cache check
-└─────────────────────┘
+┌──────────────────────────┐
+│   route_and_load(query)  │  → Single-hop routing
+│   ┌────────────────────┐ │
+│   │ Semantic Cache      │ │  → Cosine distance < 0.05?
+│   │ Meta-Query Detect   │ │  → Greeting/short → universal_agent
+│   │ Session TTLCache    │ │  → context_hash delta mode
+│   └────────────────────┘ │
+└──────────────────────────┘
+    │
+    ├── SUCCESS_SAMPLED → Agent response ready
+    ├── SUCCESS → Enriched system prompt returned
+    └── ROUTE_REQUIRED → Candidates list for client
     │
     ▼
-┌─────────────────────┐
-│ get_agent_context() │  → Load prompt + RAG skills/implants
-└─────────────────────┘
+┌──────────────────────────┐
+│   Tier-Based Enrichment  │
+│   lite:     no extras    │
+│   standard: 2 skills +   │
+│             2 implants   │
+│   deep:     4+ skills +  │
+│             3 implants   │
+└──────────────────────────┘
     │
     ▼
-┌─────────────────────┐
-│   Agent Execution   │  → Apply protocol, use skills
-└─────────────────────┘
-    │
-    ▼
-┌─────────────────────┐
-│  log_interaction()  │  → Trace to Langfuse
-└─────────────────────┘
+┌──────────────────────────┐
+│   log_interaction()      │  → Trace to Langfuse (optional)
+└──────────────────────────┘
 ```
 
 ### Request Flow (Static Mode / Fallback)
@@ -131,6 +141,7 @@ User Query
 | Directory | README | Description |
 |-----------|--------|-------------|
 | `agents/` | [README](agents/README.md) | Agent personas and system prompts |
+| `capabilities/` | — | Capability compositions (registry.yaml) |
 | `commands/` | [README](commands/README.md) | Slash commands for Cursor |
 | `implants/` | [README](implants/README.md) | Cognitive reasoning strategies |
 | `skills/` | [README](skills/README.md) | Domain-specific knowledge |

@@ -1,5 +1,6 @@
 ---
 description: Technical Writing and Documentation Best Practices. Clarity, Conciseness, Markdown.
+compiled: "Clarity; conciseness; consistency. Active voice. H1>H2>H3. Bullets for items; numbers for steps. Code: specify language."
 ---
 ## Principles
 - **Clarity**: Simple language, no jargon.

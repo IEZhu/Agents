@@ -2,6 +2,8 @@
 description: Mega-Prompting. All-in-one instruction (Role + Context + Steps + Examples + Format).
 globs: []
 alwaysApply: false
+short_name: MegaPrompting
+one_liner: combine role context steps examples format in one prompt
 ---
 ## Pattern
 Combine: [Role] + [Context] + [Step-by-Step Algo] + [Few-Shot] + [Output Format JSON/XML].

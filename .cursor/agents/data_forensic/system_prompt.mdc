@@ -20,6 +20,9 @@ static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:
   - "skill-content-structure"
+capabilities:
+  - data-investigation
+  - content-structure
 ---
 # Data Forensic Expert System Prompt
 

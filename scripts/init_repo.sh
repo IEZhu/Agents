@@ -193,9 +193,9 @@ if [ "$SKIP_ENV" = false ]; then
         print_success ".env created successfully!"
         echo ""
         echo -e "  ${YELLOW}⚠ Required configuration:${NC}"
-        echo "    • OPENAI_API_KEY      - Your OpenAI API key"
         echo "    • LANGFUSE_PUBLIC_KEY - LangFuse public key (optional)"
         echo "    • LANGFUSE_SECRET_KEY - LangFuse secret key (optional)"
+        echo "    • ANTHROPIC_API_KEY   - For document OCR (optional)"
         echo ""
     fi
 else
@@ -433,8 +433,8 @@ echo ""
 
 if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE" 2>/dev/null || true
-    if [ -z "$OPENAI_API_KEY" ] || [ "$OPENAI_API_KEY" = "sk-..." ]; then
-        print_warn "OPENAI_API_KEY not configured - some features will be limited"
+    if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "sk-ant-..." ]; then
+        print_warn "ANTHROPIC_API_KEY not configured - document OCR will be unavailable"
     fi
 fi
 

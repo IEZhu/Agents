@@ -20,10 +20,10 @@ context:
   - '**/*.md'
 static_skills:
 - skill-content-structure.mdc
-- skill-reasoning-logic.mdc
 preferred_skills:
 - skill-content-structure
-- skill-reasoning-logic
+capabilities:
+- content-structure
 ---
 # Presentation Coach
 

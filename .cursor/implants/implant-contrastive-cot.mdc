@@ -2,6 +2,8 @@
 description: Contrastive CoT. Shows Correct AND Incorrect solution examples to prevent common mistakes.
 globs: []
 alwaysApply: false
+short_name: ContrastiveCoT
+one_liner: prevent mistakes via correct and incorrect examples
 ---
 ## Pattern
 "Example Correct: [Solution]. Example Incorrect: [Error] (Why: explanation). Now solve..."

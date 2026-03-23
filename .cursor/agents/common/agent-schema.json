@@ -64,7 +64,12 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Preferred skills for MCP dynamic loading (without extension), e.g., 'skill-analysis-critical'"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Composable capabilities from .cursor/capabilities/registry.yaml, e.g., 'critical-analysis', 'trust-weighted-research'. Resolved to skills + directives at enrichment time."
     }
   },
-  "required": ["identity", "routing", "context", "static_skills"]
+  "required": ["identity", "routing", "context", "static_skills", "preferred_skills"]
 }

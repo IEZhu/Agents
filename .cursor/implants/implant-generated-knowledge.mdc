@@ -2,6 +2,8 @@
 description: Generated Knowledge. Generate facts before answering. Memory augmentation.
 globs: []
 alwaysApply: false
+short_name: GeneratedKnowledge
+one_liner: augment knowledge by generating facts before answering
 ---
 ## Pattern
 1. "Write 5 key facts about [Topic] that will help answer [Question]."

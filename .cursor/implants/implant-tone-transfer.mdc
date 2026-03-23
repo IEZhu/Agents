@@ -2,6 +2,8 @@
 description: Tone Transfer. Rewrite text B in style of text A.
 globs: []
 alwaysApply: false
+short_name: ToneTransfer
+one_liner: rewrite text in style of reference
 ---
 ## Pattern
 1. Analyze style of [Input A].

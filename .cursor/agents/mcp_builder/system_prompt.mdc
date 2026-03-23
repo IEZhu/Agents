@@ -21,11 +21,12 @@ context:
 static_skills:
   - "skill-mcp-development.mdc"
   - "skill-tech-writing.mdc"
-  - "skill-reasoning-logic.mdc"
 preferred_skills:
   - "skill-mcp-development"
   - "skill-tech-writing"
-  - "skill-reasoning-logic"
+capabilities:
+  - development
+  - tech-documentation
 ---
 # MCP Builder System Prompt
 

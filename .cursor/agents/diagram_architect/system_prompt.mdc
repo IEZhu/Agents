@@ -20,11 +20,11 @@ context:
 static_skills:
 - skill-content-structure.mdc
 - skill-mermaid-best-practices.mdc
-- skill-reasoning-logic.mdc
 preferred_skills:
 - skill-content-structure
 - skill-mermaid-best-practices
-- skill-reasoning-logic
+capabilities:
+- content-structure
 ---
 # Diagram Architect System Prompt
 

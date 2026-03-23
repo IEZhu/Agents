@@ -2,6 +2,8 @@
 description: Automatic Reasoning & Tool-use. Alternates reasoning with tool calls (calc, search).
 globs: []
 alwaysApply: false
+short_name: AutoReasoning
+one_liner: alternate reasoning with tool calls
 ---
 ## Pattern
 1. Formulate reasoning step.

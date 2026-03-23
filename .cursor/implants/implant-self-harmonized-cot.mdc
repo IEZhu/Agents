@@ -2,6 +2,8 @@
 description: Self-Harmonized CoT. Generates multiple solutions and harmonizes/merges them.
 globs: []
 alwaysApply: false
+short_name: SHCoT
+one_liner: merge multiple solutions into best combined answer
 ---
 ## Pattern
 1. Generate 3 independent solutions.

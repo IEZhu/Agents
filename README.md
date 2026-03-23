@@ -8,145 +8,53 @@ A semantic router that dynamically loads specialized agents, skills, and cogniti
 
 ## 🚀 Quick Start
 
-### 1. Clone and Initialize
+### After Cloning
 
 ```bash
-git clone https://github.com/WonderMr/Agents
+git clone <repository-url>
 cd Agents
 
 # Run initialization script
 ./scripts/init_repo.sh
 ```
 
-### 2. Configure API Keys
+The script will:
+- ✅ Create Python virtual environment (`.venv/`)
+- ✅ Install all dependencies
+- ✅ Create `.env` configuration file
+- ✅ Validate MCP server configuration
 
-Edit `.env` file created by the script:
+### Manual Setup
+
+```bash
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp env.example .env
+# Edit .env with your API keys
+```
+
+---
+
+## ⚙️ Configuration
+
+### Required Environment Variables
+
+Create `.env` file with:
 
 ```env
-OPENAI_API_KEY=sk-...           # Required: for embeddings
-LANGFUSE_PUBLIC_KEY=pk-lf-...   # Optional: observability
-LANGFUSE_SECRET_KEY=sk-lf-...   # Optional: observability
+LANGFUSE_PUBLIC_KEY=pk-lf-... # Optional: observability
+LANGFUSE_SECRET_KEY=sk-lf-... # Optional: observability
+LANGFUSE_HOST=https://cloud.langfuse.com
+ANTHROPIC_API_KEY=sk-ant-...  # Optional: for document OCR
 ```
 
-### 3. Restart Cursor IDE
-
-To load MCP server and agent rules.
-
-### 4. Test
-
-```
-/route "How do I fix this bug?"
-```
-
----
-
-## 📦 What init_repo.sh Does
-
-The initialization script performs these steps:
-
-| Step | Description |
-|------|-------------|
-| **1. Python Check** | Finds suitable Python (3.10-3.12), prefers 3.11 for ML compatibility |
-| **2. Environment Config** | Creates `.env` from `env.example`, merges missing keys if exists |
-| **3. Virtual Environment** | Creates `.venv/` with selected Python version |
-| **4. Dependencies** | Installs all packages from `requirements.txt` |
-| **5. MCP Integration** | Merges `mcp.json` into `~/.cursor/mcp.json` (global Cursor config) |
-| **6. ChromaDB** | Prepares vector database path (initialized on first run) |
-| **7. Validation** | Counts agents, skills, implants, commands |
-
-### Script Flags
-
-```bash
-./scripts/init_repo.sh --skip-env      # Skip .env creation
-./scripts/init_repo.sh --skip-chroma   # Skip ChromaDB check
-./scripts/init_repo.sh --help          # Show help
-```
-
-### Testing
-
-Run language detection tests:
-
-```bash
-./scripts/run_tests.sh                 # Run all language detection tests
-./scripts/run_tests.sh -k russian      # Run only Russian detection test
-./scripts/run_tests.sh --verbose       # Verbose output
-```
-
-The test script automatically detects and uses:
-- `.venv/` or `venv/` if present
-- pyenv Python (prefers 3.12.4)
-- Verifies `langdetect` and `pytest` are installed
-
-### What Gets Installed
-
-```
-pydantic>=2.0          # Data validation
-openai>=1.0            # OpenAI API client
-chromadb>=0.4          # Vector database for RAG
-langfuse>=2.0          # Observability/tracing
-sentence-transformers  # Embeddings
-python-dotenv          # Environment management
-mcp>=0.1.0             # Model Context Protocol
-pdf2image, Pillow      # Document OCR support
-anthropic>=0.18.0      # Claude API (optional)
-```
-
----
-
-## 🔄 Deploying to Another Repository
-
-After initializing the Agents repo, you can use the agent framework in **any other project**.
-
-### Method 1: Copy .cursor Directory
-
-```bash
-# From your target project
-cp -r /path/to/Agents/.cursor /path/to/your-project/
-```
-
-This copies:
-- ✅ All agent personas (`agents/`)
-- ✅ Slash commands (`commands/`)
-- ✅ Cognitive implants (`implants/`)
-- ✅ Domain skills (`skills/`)
-- ✅ Routing rules (`rules/`)
-
-### Method 2: Use /install_repo Command
-
-In Cursor IDE (from Agents repo):
-
-```
-/install_repo /path/to/target-repo
-```
-
-### Important Notes
-
-1. **MCP Server Location**: The MCP server (`Agents-Core`) runs from the original Agents repo. The `.cursor/` folder only contains agent definitions.
-
-2. **Global MCP Config**: The `~/.cursor/mcp.json` file points to the Agents repo. This is configured once during `init_repo.sh`.
-
-3. **Restart Required**: After copying `.cursor/`, restart Cursor to load new rules.
-
-4. **Project-Specific Rules**: You can add project-specific rules in the target repo's `.cursor/rules/` without affecting the Agents repo.
-
-### Architecture After Deployment
-
-```
-~/.cursor/
-└── mcp.json          # Points to Agents repo MCP server
-
-/path/to/Agents/      # Source repository
-├── src/server.py     # MCP server (runs here)
-├── .venv/            # Python environment
-└── .cursor/          # Agent definitions (source)
-
-/path/to/your-project/  # Target repository
-└── .cursor/            # Copied agent definitions
-    ├── agents/
-    ├── commands/
-    ├── skills/
-    └── rules/
-```
+> **Note**: Embeddings are handled locally by `sentence-transformers` (all-MiniLM-L6-v2). No external API key is required for core routing.
 
 ---
 
@@ -154,41 +62,73 @@ In Cursor IDE (from Agents repo):
 
 ### Available Commands
 
+#### System & Routing
+
 | Command | Agent | Purpose |
 |---------|-------|---------|
 | `/route` | Router | Check available agents |
-| `/universal` | Universal Agent | General tasks |
-| `/dev` | Software Engineer | Development tasks |
-| `/debug_ai` | AI Debugger | Debug AI systems |
-| `/security_audit` | Security Expert | Security analysis |
-| `/docs` | Tech Writer | Documentation |
-| `/research` | Deep Researcher | Deep dive research |
-| `/investigate` | Investigative Analyst | Fact-checking, OSINT |
-| `/doctor` | Medical Expert | Clinical analysis |
-| `/bio_protocol` | Bio-Hacker | Health protocols |
-| `/psy_session` | Psychologist | Psychological support |
+| `/universal` | Universal Agent | General tasks & orchestration |
+| `/new_agent` | Agent Builder | Create new agent personas |
+| `/new_mcp` | MCP Builder | Create new MCP servers |
+| `/install_repo` | Repo Installer | Deploy framework to another repo |
+| `/init_repo` | HAI Architect | Initialize repository structure |
+
+#### Development
+
+| Command | Agent | Purpose |
+|---------|-------|---------|
+| `/dev` | Software Engineer | Code, debugging, refactoring |
+| `/debug_ai` | AI Debugger | Debug AI/ML systems |
+| `/security_audit` | Security Expert | Vulnerability analysis |
+| `/ai_architect` | AI Senior Engineer | HAI system design |
+| `/blender` | Blender Scripter | Python bpy scripts for 3D printing |
+| `/roblox` | Roblox Studio Expert | Roblox game development |
+
+#### Research & Analysis
+
+| Command | Agent | Purpose |
+|---------|-------|---------|
+| `/research` | Deep Researcher | Deep dive research & summarization (80/20) |
+| `/investigate` | Investigative Analyst | OSINT & fact-checking |
+| `/analyse_data` | Data Analyst | Data analysis & statistics |
+| `/forensic` | Data Forensic | Forensic data analysis, timelines |
+| `/find_black_hole` | Black Hole Finder | Knowledge gap detection |
+| `/purchase` | Purchase Researcher | Product research, decision matrix |
+
+#### Documentation & Content
+
+| Command | Agent | Purpose |
+|---------|-------|---------|
+| `/docs` | Tech Writer | Documentation writing |
+| `/commit_en` / `/commit_ru` | Tech Writer | Git commit messages |
 | `/draw` | Diagram Architect | Mermaid diagrams |
-| `/purchase` | Purchase Researcher | Product research |
-| `/briefing` | Daily Briefing | News digest |
-| `/3dprint` | 3D Print Finder | 3D model search |
+| `/semantic_parse` | Semantic Expert | Meeting/transcript analysis |
+| `/presentation` | Presentation Coach | Slide structure & design |
+| `/literary` | Literary Writer | Artistic prose creation |
+
+#### Domain-Specific
+
+| Command | Agent | Purpose |
+|---------|-------|---------|
+| `/doctor` | Medical Expert | Diagnosis & treatment protocols |
+| `/bio_protocol` | Bio-Hacker | Health optimization |
+| `/psy_session` | Psychologist | Psychological sessions |
+| `/workout` | Fitness Coach | Spine-safe fitness programming |
+| `/briefing` | Daily Briefing | Strategic verified news digest |
+| `/site_audit` | Website Analyst | Website business & tech audit |
 | `/insta_audit` | Instagram Analyst | Social media analysis |
-| `/site_audit` | Website Analyst | Website audit |
-| `/ocr` | Document OCR Expert | Text from images/PDF |
-| `/forensic` | Data Forensic | Leak analysis |
-| `/new_agent` | Agent Builder | Create new agents |
-| `/new_mcp` | MCP Builder | Create MCP servers |
+| `/3dprint` | 3D Print Finder | 3D model search & print optimization |
+| `/ocr` | Document OCR Expert | Text extraction from images/PDF |
+| `/alerts` | Alerts Describer | Infrastructure alert documentation |
 
 ### How Routing Works
 
-```
-User Query → Semantic Router → Cache Check → Agent Selection → Context Enrichment → Response
-```
-
-1. **User Query** → Semantic Router analyzes intent
-2. **Cache Check** → Fast path if query pattern is cached
-3. **Agent Selection** → Best-fit agent loaded dynamically
-4. **Context Enrichment** → Skills + Implants injected via RAG
-5. **Response** → Agent-specific system prompt applied
+1. **`route_and_load(query)`** → Single-hop routing via semantic cache
+2. **Meta Detection** → Greetings/short queries auto-route to `universal_agent`
+3. **Cache Hit** → Returns enriched prompt (SUCCESS) or sampled response (SUCCESS_SAMPLED)
+4. **Cache Miss** → Returns ROUTE_REQUIRED with agent candidates for client selection
+5. **Tier-Based Enrichment** → lite (no extras) / standard (2 skills + 2 implants) / deep (4+ skills + 3 implants)
+6. **Multi-Turn** → `context_hash` enables delta optimization on follow-up queries
 
 ---
 
@@ -197,21 +137,28 @@ User Query → Semantic Router → Cache Check → Agent Selection → Context E
 ```
 Agents/
 ├── .cursor/
-│   ├── agents/           # Agent personas (system prompts)
+│   ├── agents/           # Agent personas (system prompts, 32 agents)
+│   ├── capabilities/     # Capability compositions (registry.yaml)
 │   ├── skills/           # Reusable capabilities (RAG)
 │   ├── implants/         # Cognitive strategies (RAG)
 │   ├── commands/         # Slash commands
-│   └── rules/            # Cursor rules
+│   └── rules/            # Routing rules & agent rules
 ├── src/
-│   ├── server.py         # MCP Server entrypoint
+│   ├── server.py         # MCP Server entrypoint (FastMCP)
 │   ├── engine/
-│   │   ├── router.py     # Semantic routing logic
+│   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── skills.py     # Skill retrieval (ChromaDB)
-│   │   └── implants.py   # Implant retrieval (ChromaDB)
-│   └── mcp_servers/      # Additional MCP servers
-├── scripts/
-│   └── init_repo.sh      # Initialization script
-├── chroma_db/            # Vector database (auto-created)
+│   │   ├── implants.py   # Implant retrieval (ChromaDB)
+│   │   ├── config.py     # Centralized configuration
+│   │   ├── chroma.py     # ChromaDB client singleton
+│   │   ├── enrichment.py # Tier-based context enrichment
+│   │   └── capabilities.py # Capability registry resolution
+│   └── utils/
+│       ├── prompt_loader.py
+│       └── langfuse_compat.py  # Optional Langfuse layer
+├── chroma_db/            # Vector database (auto-initialized)
+├── mcp.json              # MCP server configuration
+├── pyproject.toml        # Python project metadata
 └── requirements.txt
 ```
 
@@ -220,10 +167,9 @@ Agents/
 | Component | Description |
 |-----------|-------------|
 | **Agents** | Specialized personas with unique system prompts |
-| **Skills** | Domain-specific knowledge (retrieved via RAG) |
+| **Skills** | Domain-specific knowledge chunks (retrieved via RAG) |
 | **Implants** | Cognitive patterns & reasoning strategies |
-| **Router** | Semantic matching + caching for fast selection |
-| **ChromaDB** | Vector store for skills/implants embeddings |
+| **Router** | Semantic matching + caching for fast agent selection |
 
 ---
 
@@ -233,23 +179,20 @@ The framework runs as an MCP server, providing tools to Cursor:
 
 | Tool | Purpose |
 |------|---------|
-| `get_routing_info` | Check cache / get available agents |
-| `get_agent_context` | Load agent prompt + update cache |
-| `get_context` | Retrieve dynamic skills + implants |
-| `get_relevant_implants` | Query cognitive implants |
-| `get_reasoning_strategy` | Load task-specific reasoning |
-| `log_interaction` | Observability logging to Langfuse |
+| `route_and_load` | Single-hop routing + enriched prompt (primary) |
+| `get_agent_context` | Direct agent loading when target is known |
+| `load_implants` | Load implants by semantic query or task_type |
+| `log_interaction` | Observability logging |
+| `clear_session_cache` | Reset session cache |
 
-### MCP Configuration
-
-After `init_repo.sh`, your `~/.cursor/mcp.json` contains:
+### MCP Configuration (`mcp.json`)
 
 ```json
 {
   "mcpServers": {
     "Agents-Core": {
-      "command": "/absolute/path/to/Agents/.venv/bin/python",
-      "args": ["/absolute/path/to/Agents/src/server.py"]
+      "command": ".venv/bin/python",
+      "args": ["src/server.py"]
     }
   }
 }
@@ -259,10 +202,10 @@ After `init_repo.sh`, your `~/.cursor/mcp.json` contains:
 
 ## 🧠 Creating New Agents
 
-Use `/new_agent` command or manually:
+Use the `/new_agent` command or manually:
 
 1. Create directory: `.cursor/agents/<agent_name>/`
-2. Create `system_prompt.mdc`:
+2. Create `system_prompt.mdc` with frontmatter:
 
 ```yaml
 ---
@@ -273,66 +216,49 @@ identity:
   tone: "Professional, Clear"
 routing:
   domain_keywords: ["keyword1", "keyword2"]
-  trigger_command: "/mycmd"
-static_skills:
-  - "skill-relevant.mdc"
+  trigger_command: "/my_command"
 ---
 # My Agent System Prompt
 
 ## Identity
 You are an expert in X...
-
-## Protocol
-...
 ```
 
 3. Create rule: `.cursor/rules/10-my-agent.mdc`
-4. Create command: `.cursor/commands/mycmd.md`
+4. Create command: `.cursor/commands/my_command.md`
 
 ---
 
 ## 📊 Observability
 
-Integrates with LangFuse for tracing:
+The framework integrates with LangFuse for tracing:
 
-- All tool calls automatically traced
-- Routing decisions logged
-- Cache hits/misses tracked
+- All tool calls are automatically traced
+- Routing decisions are logged
+- Cache hits/misses are tracked
 
-Configure in `.env` or leave blank for local-only operation.
+Configure LangFuse in `.env` or leave blank for local-only operation.
 
 ---
 
-## 🛠️ Manual Setup (Alternative)
+## 🛠️ Development
 
-If you prefer not to use the script:
+### Running Server Manually
 
 ```bash
-# Create virtual environment
-python3.11 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp env.example .env
-nano .env  # Add your API keys
-
-# Configure MCP manually in ~/.cursor/mcp.json
+python src/server.py
 ```
 
----
+### Testing
 
-## 📁 Documentation
+```bash
+# Test specific agent
+/route "How do I fix this bug?"
 
-| Directory | README |
-|-----------|--------|
-| `.cursor/` | [Overview & Deployment](.cursor/README.md) |
-| `.cursor/agents/` | [Agent Personas](.cursor/agents/README.md) |
-| `.cursor/commands/` | [Slash Commands](.cursor/commands/README.md) |
-| `.cursor/implants/` | [Cognitive Implants](.cursor/implants/README.md) |
-| `.cursor/skills/` | [Domain Skills](.cursor/skills/README.md) |
+# Check semantic routing
+/route "Tell me about supplements for sleep"
+```
 
 ---
 
@@ -340,3 +266,6 @@ nano .env  # Add your API keys
 
 MIT
 
+---
+
+> **Built with HAI principles**: Human-AI Symbiosis, Cognitive Ergonomics, Adaptive Interaction

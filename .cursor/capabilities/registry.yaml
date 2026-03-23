@@ -1,0 +1,85 @@
+# Capability Registry
+# Each capability is a named composition of skills + optional behavioral directives.
+# Agents reference capabilities; the enrichment pipeline resolves them to skills.
+
+critical-analysis:
+  skills:
+    - skill-analysis-critical
+  directive: "Attack arguments, not people. Find enthymemes. First principles. Falsify."
+
+content-structure:
+  skills:
+    - skill-content-structure
+  directive: "BLUF. Minto pyramid. MECE. Atomic paragraphs."
+
+development:
+  skills:
+    - skill-dev-clean-code
+    - skill-dev-debugging
+  directive: "SOLID, DRY, KISS. Hypothesis-driven debugging. Reproduce first."
+
+dense-summary:
+  skills:
+    - skill-dense-summarization
+  directive: "80/20 rule. No fluff. BLUF → Findings → Nuance."
+
+trust-weighted-research:
+  skills:
+    - skill-analysis-critical
+    - skill-fact-verification
+  directive: "Trust tiers: peer-reviewed > expert community > media > marketing. Triangulate claims. Flag contradictions."
+
+bio-health:
+  skills:
+    - skill-bio-mechanism
+    - skill-bio-protocols
+  directive: "Mechanism first. Pathway before supplement. Dosage+timing+duration. Safety stop."
+
+tech-documentation:
+  skills:
+    - skill-tech-writing
+    - skill-git-conventions
+  directive: "Clarity. Active voice. Conventional commits. H1>H2>H3."
+
+dev-security:
+  skills:
+    - skill-dev-clean-code
+    - skill-dev-security
+  directive: "Trust no input. Sanitize. Parameterized SQL. OWASP top 10. CIA triad."
+
+consultative-intake:
+  skills:
+    - skill-content-structure
+  directive: "Phase 1: clarifying questions. Phase 2: confirm understanding. Phase 3: execute. Never assume."
+
+creative-writing:
+  skills:
+    - skill-literary-devices
+    - skill-narrative-craft
+    - skill-content-structure
+  directive: "Show don't tell. POV consistency. Subtext over exposition."
+
+psychology:
+  skills:
+    - skill-psy-cbt
+    - skill-psy-nvc
+  directive: "Socratic questions. I-statements. OFNR. Cognitive triangle."
+
+3d-printing:
+  skills:
+    - skill-3d-platforms
+    - skill-3d-print-search
+    - skill-analysis-critical
+  directive: "PQRS scoring. Tier 1 platforms first. FDM-specific filters."
+
+data-investigation:
+  skills:
+    - skill-analysis-critical
+    - skill-dense-summarization
+  directive: "Timeline reconstruction. Dedup. Fact extraction. Source triangulation."
+
+epistemic-analysis:
+  skills:
+    - skill-agnotology
+    - skill-analysis-critical
+  directive: "Semantic voids. Time-slicing. Cui bono. Triangulate anomalies."

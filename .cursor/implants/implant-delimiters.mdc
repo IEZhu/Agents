@@ -2,6 +2,8 @@
 description: Delimiters. Using tags/symbols to separate data from instructions. Security against injection.
 globs: []
 alwaysApply: false
+short_name: Delimiters
+one_liner: separate data from instructions for security
 ---
 ## Pattern
 Wrap data in `"""` or `<context>...</context>`.

@@ -1,0 +1,248 @@
+---
+description: Blender Python (bpy) scripting patterns and 3D printing best practices for procedural object generation.
+compiled: "bmesh>bpy.ops in loops. Manifold: watertight, normals out, no self-intersect. Min wall: FDM 1.2mm, SLA 0.8mm. Apply modifiers before export. validate_printability()."
+---
+# Blender Python Scripting & 3D Print Readiness
+
+## Role
+3D Print Engineer: Every mesh must be printable. Every script must be parametric.
+
+## Core API Patterns
+
+### Scene Setup
+```python
+import bpy
+import bmesh
+from mathutils import Vector, Matrix
+import math
+
+# Clean scene
+def clean_scene():
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    for col in bpy.data.collections:
+        if col.name != "Collection":
+            bpy.data.collections.remove(col)
+
+# Set units to millimeters (3D printing standard)
+def setup_print_units():
+    bpy.context.scene.unit_settings.system = 'METRIC'
+    bpy.context.scene.unit_settings.scale_length = 0.001
+    bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
+```
+
+### Mesh Creation via bmesh (Preferred)
+```python
+def create_mesh_object(name: str) -> tuple[bpy.types.Object, bmesh.types.BMesh]:
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    bm = bmesh.new()
+    return obj, bm
+
+def finalize_bmesh(obj: bpy.types.Object, bm: bmesh.types.BMesh):
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+```
+
+### Parametric Pattern
+```python
+# Always expose parameters at the top
+PARAMS = {
+    "width": 50.0,       # mm
+    "height": 30.0,      # mm
+    "depth": 20.0,       # mm
+    "wall_thickness": 2.0,  # mm — min 1.2mm for FDM
+    "fillet_radius": 1.0,   # mm
+}
+
+def generate(params: dict) -> bpy.types.Object:
+    """Main entry point — always a single function."""
+    ...
+```
+
+## 3D Print Rules (MANDATORY)
+
+### Manifold Geometry
+- **Watertight**: No holes, no open edges, no non-manifold vertices.
+- **Normals**: All face normals must point outward. Use `bpy.ops.mesh.normals_make_consistent(inside=False)`.
+- **No Zero-Thickness**: Every wall ≥ 1.2mm (FDM) or ≥ 0.8mm (SLA).
+- **No Self-Intersections**: Boolean operations must be clean.
+
+### Validation Checklist
+```python
+def validate_printability(obj: bpy.types.Object) -> list[str]:
+    """Returns list of issues. Empty = ready to print."""
+    issues = []
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+
+    # Check non-manifold edges
+    non_manifold = [e for e in bm.edges if not e.is_manifold]
+    if non_manifold:
+        issues.append(f"Non-manifold edges: {len(non_manifold)}")
+
+    # Check loose vertices
+    loose = [v for v in bm.verts if not v.link_edges]
+    if loose:
+        issues.append(f"Loose vertices: {len(loose)}")
+
+    # Check zero-area faces
+    zero_faces = [f for f in bm.faces if f.calc_area() < 1e-6]
+    if zero_faces:
+        issues.append(f"Zero-area faces: {len(zero_faces)}")
+
+    # Check normals consistency
+    # (simplified — full check requires more logic)
+
+    bm.free()
+    return issues
+```
+
+### Wall Thickness Reference
+| Technology | Min Wall | Recommended |
+|---|---|---|
+| FDM | 1.2 mm | 2.0 mm |
+| SLA/DLP | 0.8 mm | 1.5 mm |
+| SLS | 0.7 mm | 1.0 mm |
+| MJF | 0.5 mm | 0.8 mm |
+
+### Export
+```python
+def export_stl(obj: bpy.types.Object, filepath: str):
+    """Export single object as STL (binary, mm scale)."""
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_mesh.stl(
+        filepath=filepath,
+        use_selection=True,
+        ascii=False,
+        use_mesh_modifiers=True,
+    )
+
+def export_3mf(filepath: str):
+    """Export scene as 3MF (preferred for modern slicers)."""
+    bpy.ops.export_mesh.threemf(filepath=filepath)
+```
+
+## Common Primitives for 3D Printing
+
+### Rounded Box (Filleted Edges)
+```python
+def rounded_box(width, height, depth, radius, segments=8):
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    obj = bpy.context.active_object
+    obj.scale = (width / 2, depth / 2, height / 2)
+    bpy.ops.object.transform_apply(scale=True)
+
+    # Bevel for rounded edges
+    bevel = obj.modifiers.new("Bevel", 'BEVEL')
+    bevel.width = radius
+    bevel.segments = segments
+    bevel.limit_method = 'ANGLE'
+    bpy.ops.object.modifier_apply(modifier="Bevel")
+    return obj
+```
+
+### Hollow Shell (Box with Walls)
+```python
+def hollow_box(outer_w, outer_h, outer_d, wall_thickness):
+    """Create a hollow box — typical for enclosures."""
+    # Outer
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    outer = bpy.context.active_object
+    outer.scale = (outer_w / 2, outer_d / 2, outer_h / 2)
+    bpy.ops.object.transform_apply(scale=True)
+
+    # Inner (subtracted)
+    iw = outer_w - 2 * wall_thickness
+    ih = outer_h - wall_thickness  # open top
+    id_ = outer_d - 2 * wall_thickness
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    inner = bpy.context.active_object
+    inner.scale = (iw / 2, id_ / 2, ih / 2)
+    inner.location.z = wall_thickness / 2
+    bpy.ops.object.transform_apply(scale=True, location=True)
+
+    # Boolean difference
+    bool_mod = outer.modifiers.new("Hollow", 'BOOLEAN')
+    bool_mod.operation = 'DIFFERENCE'
+    bool_mod.object = inner
+    bpy.context.view_layer.objects.active = outer
+    bpy.ops.object.modifier_apply(modifier="Hollow")
+    bpy.data.objects.remove(inner)
+    return outer
+```
+
+### Thread (Screw Profile)
+```python
+def create_thread(radius, pitch, length, profile_depth=0.5):
+    """ISO-like thread via screw modifier."""
+    # Create triangle profile
+    bm = bmesh.new()
+    v1 = bm.verts.new((radius, 0, 0))
+    v2 = bm.verts.new((radius + profile_depth, 0, pitch / 4))
+    v3 = bm.verts.new((radius, 0, pitch / 2))
+    bm.edges.new((v1, v2))
+    bm.edges.new((v2, v3))
+
+    mesh = bpy.data.meshes.new("ThreadProfile")
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new("Thread", mesh)
+    bpy.context.collection.objects.link(obj)
+
+    # Screw modifier
+    screw = obj.modifiers.new("Screw", 'SCREW')
+    screw.screw_offset = pitch
+    screw.iterations = int(length / pitch)
+    screw.steps = 64
+    screw.render_steps = 64
+    return obj
+```
+
+## Boolean Operations (Print-Safe)
+```python
+def boolean_op(target: bpy.types.Object, tool: bpy.types.Object, operation: str = 'UNION'):
+    """Apply boolean with cleanup. operation: UNION, DIFFERENCE, INTERSECT."""
+    mod = target.modifiers.new("Bool", 'BOOLEAN')
+    mod.operation = operation
+    mod.object = tool
+    mod.solver = 'EXACT'  # More reliable for 3D printing
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.modifier_apply(modifier="Bool")
+    bpy.data.objects.remove(tool)
+
+    # Cleanup
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.remove_doubles(threshold=0.001)
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return target
+```
+
+## Anti-Patterns (AVOID)
+- **No `bpy.ops` in loops** — extremely slow. Use `bmesh` instead.
+- **No thin features** < min wall for target technology.
+- **No internal geometry** — slicers choke on hidden faces inside solid.
+- **No n-gons in curved regions** — triangulate or use quads.
+- **No modifiers left unapplied** before export — always apply.
+
+## Output Convention
+Every script MUST end with:
+```python
+if __name__ == "__main__":
+    clean_scene()
+    setup_print_units()
+    obj = generate(PARAMS)
+    issues = validate_printability(obj)
+    if issues:
+        print("⚠️ Printability issues:")
+        for i in issues:
+            print(f"  - {i}")
+    else:
+        print("✅ Mesh is print-ready")
+```

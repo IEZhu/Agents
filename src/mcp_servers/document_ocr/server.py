@@ -7,7 +7,7 @@ including handwritten text, using Vision API.
 Dependencies:
 - pdf2image (requires poppler-utils system package)
 - Pillow
-- anthropic (for Claude Vision) or openai (for GPT-4V)
+- anthropic (for Claude Vision)
 
 System Requirements:
 - Linux: sudo apt-get install poppler-utils
@@ -31,7 +31,7 @@ load_dotenv()
 
 # Configuration
 SERVER_NAME = "document-ocr"
-VISION_PROVIDER = os.getenv("OCR_VISION_PROVIDER", "anthropic")  # "anthropic" or "openai"
+VISION_PROVIDER = "anthropic"
 MAX_IMAGE_SIZE = 20 * 1024 * 1024  # 20MB max for Vision API
 
 # Setup Logging
@@ -91,12 +91,10 @@ async def call_vision_api(
     provider: str = "anthropic"
 ) -> str:
     """
-    Call Vision API (Claude or GPT-4V) to extract text from image.
+    Call Vision API (Claude Vision) to extract text from image.
     """
     if provider == "anthropic":
         return await _call_anthropic_vision(image_base64, prompt)
-    elif provider == "openai":
-        return await _call_openai_vision(image_base64, prompt)
     else:
         raise ValueError(f"Unknown vision provider: {provider}")
 
@@ -135,41 +133,6 @@ async def _call_anthropic_vision(image_base64: str, prompt: str) -> str:
     )
 
     return message.content[0].text
-
-async def _call_openai_vision(image_base64: str, prompt: str) -> str:
-    """Call OpenAI GPT-4 Vision API."""
-    from openai import AsyncOpenAI
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY environment variable not set")
-
-    client = AsyncOpenAI(api_key=api_key)
-
-    response = await client.chat.completions.create(
-        model="gpt-4o",
-        max_tokens=4096,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{image_base64}",
-                            "detail": "high"
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt
-                    }
-                ]
-            }
-        ]
-    )
-
-    return response.choices[0].message.content
 
 # ============================================================================
 # OCR Prompts
@@ -453,26 +416,15 @@ async def check_dependencies() -> str:
         results.append("❌ poppler: NOT installed or not in PATH")
 
     # Check Vision API
-    if VISION_PROVIDER == "anthropic":
-        try:
-            import anthropic
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if api_key:
-                results.append("✅ anthropic: installed, API key set")
-            else:
-                results.append("⚠️ anthropic: installed, but ANTHROPIC_API_KEY not set")
-        except ImportError:
-            results.append("❌ anthropic: NOT installed (pip install anthropic)")
-    else:
-        try:
-            import openai
-            api_key = os.getenv("OPENAI_API_KEY")
-            if api_key:
-                results.append("✅ openai: installed, API key set")
-            else:
-                results.append("⚠️ openai: installed, but OPENAI_API_KEY not set")
-        except ImportError:
-            results.append("❌ openai: NOT installed (pip install openai)")
+    try:
+        import anthropic
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            results.append("✅ anthropic: installed, API key set")
+        else:
+            results.append("⚠️ anthropic: installed, but ANTHROPIC_API_KEY not set")
+    except ImportError:
+        results.append("❌ anthropic: NOT installed (pip install anthropic)")
 
     return "## Dependency Check\n\n" + "\n".join(results)
 

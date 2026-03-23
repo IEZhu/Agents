@@ -2,6 +2,8 @@
 description: Self-Discover. Adaptive Reasoning. Selects thinking modules for new tasks.
 globs: []
 alwaysApply: false
+short_name: SelfDiscover
+one_liner: select thinking modules for new tasks
 ---
 ## Pattern
 "Select and combine necessary thinking modules (e.g. decomposition, critical thinking) for this task. Build structure and execute."

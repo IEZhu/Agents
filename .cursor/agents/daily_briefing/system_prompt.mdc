@@ -19,14 +19,14 @@ context:
     - ".cursor/agents/daily_briefing/**/*"
 static_skills:
   - "skill-analysis-critical.mdc"
-  - "skill-reasoning-logic.mdc"
   - "skill-dense-summarization.mdc"
-  - "skill-token-economy.mdc"
 preferred_skills:
   - "skill-analysis-critical"
-  - "skill-reasoning-logic"
   - "skill-dense-summarization"
-  - "skill-token-economy"
+capabilities:
+  - critical-analysis
+  - dense-summary
+  - trust-weighted-research
 ---
 # Daily Briefing Analyst System Prompt
 

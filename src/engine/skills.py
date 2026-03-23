@@ -1,29 +1,22 @@
 import logging
 import os
 import glob
+import hashlib
 import yaml
-import chromadb
-from chromadb.utils import embedding_functions
-from langfuse import observe
+from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any
+
+from src.engine.config import SKILLS_DIR, SKILLS_RELEVANCE_THRESHOLD, CHROMA_PATH
+from src.engine.chroma import get_chroma_client, get_embedding_fn
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-CHROMA_PATH = os.path.join(os.path.dirname(__file__), "../../chroma_db")
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-SKILLS_DIR = os.path.join(os.path.dirname(__file__), "../../.cursor/skills")
-RELEVANCE_THRESHOLD = 0.45  # Cosine distance threshold (lower is better)
-
 class SkillRetriever:
-    def __init__(self):
-        # Initialize ChromaDB
-        self.chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+    HASH_FILE = os.path.join(CHROMA_PATH, ".skills_hash")
 
-        # Use Sentence Transformers for embeddings
-        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=EMBEDDING_MODEL
-        )
+    def __init__(self):
+        self.chroma_client = get_chroma_client()
+        self.embedding_fn = get_embedding_fn()
 
         self.collection = self.chroma_client.get_or_create_collection(
             name="skills_store",
@@ -31,11 +24,33 @@ class SkillRetriever:
             metadata={"hnsw:space": "cosine"}
         )
 
-        # Determine if we need to index (simple check: if empty)
-        # In a production system, we'd check for file changes.
-        if self.collection.count() == 0:
-            logger.info("Skill store is empty. Indexing skills...")
+        changed, self._current_hash = self._needs_reindex()
+        if changed:
+            logger.info("Skills changed on disk. Re-indexing...")
             self.index_skills()
+
+    @staticmethod
+    def _compute_dir_hash() -> str:
+        h = hashlib.md5()
+        for path in sorted(glob.glob(os.path.join(SKILLS_DIR, "*.mdc"))):
+            h.update(path.encode())
+            h.update(str(os.path.getmtime(path)).encode())
+        return h.hexdigest()
+
+    def _needs_reindex(self) -> tuple[bool, str]:
+        current = self._compute_dir_hash()
+        if not os.path.exists(self.HASH_FILE):
+            return True, current
+        try:
+            with open(self.HASH_FILE, "r") as f:
+                return f.read().strip() != current, current
+        except Exception:
+            return True, current
+
+    def _save_hash(self, digest: str = None):
+        os.makedirs(os.path.dirname(self.HASH_FILE), exist_ok=True)
+        with open(self.HASH_FILE, "w") as f:
+            f.write(digest or self._compute_dir_hash())
 
     def index_skills(self):
         """
@@ -76,12 +91,15 @@ class SkillRetriever:
 
                 filename = os.path.basename(file_path)
 
+                compiled = frontmatter.get("compiled", "")
+
                 documents.append(full_text)
                 metadatas.append({
                     "filename": filename,
                     "description": description,
                     "path": file_path,
-                    "body": body  # Store clean body for injection
+                    "body": body,
+                    "compiled": compiled,
                 })
                 ids.append(filename)
 
@@ -96,6 +114,7 @@ class SkillRetriever:
                 metadatas=metadatas,
                 ids=ids
             )
+            self._save_hash(getattr(self, "_current_hash", None))
             logger.info(f"Successfully indexed {len(documents)} skills.")
 
     @observe(name="retrieve_skills")
@@ -110,82 +129,68 @@ class SkillRetriever:
         skills = []
 
         if preferred_skills:
-            # Normalize filenames (ensure .mdc extension)
-            target_ids = []
-            for ps in preferred_skills:
-                if not ps.endswith(".mdc"):
-                    target_ids.append(f"{ps}.mdc")
-                else:
-                    target_ids.append(ps)
-
+            target_ids = [
+                f"{ps}.mdc" if not ps.endswith(".mdc") else ps
+                for ps in preferred_skills
+            ]
             try:
-                # Use collection.get to fetch specific IDs
                 results = self.collection.get(ids=target_ids)
                 if results['ids']:
-                    for i, id in enumerate(results['ids']):
-                        # Prefer body from metadata (clean injection), fallback to document
+                    for i, skill_id in enumerate(results['ids']):
                         meta = results['metadatas'][i] or {}
                         content = meta.get('body', results['documents'][i])
-                        
                         skills.append({
-                            "filename": id,
+                            "filename": skill_id,
                             "content": content,
                             "metadata": meta,
-                            "distance": 0.0  # Exact match
+                            "distance": 0.0,
                         })
                 logger.info(f"Loaded {len(skills)} preferred skills: {target_ids}")
                 return skills
             except Exception as e:
                 logger.warning(f"Failed to retrieve preferred skills {target_ids}: {e}")
-                # Fallback to vector search handled below if skills is empty
-                pass
 
-        if skills: # If we found some but not all, or if we want to return what we found
-             return skills
-
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
-
-        skills = []
+        results = self.collection.query(query_texts=[query], n_results=n_results)
 
         if results['ids'] and results['distances']:
             for i, distance in enumerate(results['distances'][0]):
-                if distance < RELEVANCE_THRESHOLD:
+                if distance < SKILLS_RELEVANCE_THRESHOLD:
                     meta = results['metadatas'][0][i] or {}
-                    # Prefer body from metadata (clean injection), fallback to document
                     content = meta.get('body', results['documents'][0][i])
-                    
                     skills.append({
                         "filename": results['ids'][0][i],
                         "content": content,
                         "metadata": meta,
-                        "distance": distance
+                        "distance": distance,
                     })
 
         return skills
 
-    def format_skills_for_prompt(self, skills: List[Dict[str, Any]]) -> str:
-        """
-        Formats retrieved skills into a markdown string for the system prompt.
+    def format_skills_for_prompt(self, skills: List[Dict[str, Any]], compiled: bool = False) -> str:
+        """Formats retrieved skills for injection into the system prompt.
+        When compiled=True, uses the compressed one-liner version if available.
         """
         if not skills:
             return ""
 
+        if compiled:
+            lines = ["## Skills (compiled)"]
+            for skill in skills:
+                meta = skill.get("metadata", {})
+                c = meta.get("compiled", "")
+                if c:
+                    lines.append(f"- **{meta.get('filename', '?')}**: {c}")
+                else:
+                    lines.append(f"- **{meta.get('filename', '?')}**: {meta.get('description', '')}")
+            return "\n".join(lines)
+
         formatted = "## Dynamic Skills (Contextually Loaded)\n"
         formatted += "The following specialized skills have been loaded to help with the request:\n\n"
-
         for skill in skills:
             meta = skill.get("metadata", {})
             desc = meta.get("description", "No description")
             content = skill.get("content", "")
-            # We clean up the content slightly if it contains the full text we indexed
-            # Ideally we might want to just inject the 'body' part, but 'content' in search result is what we indexed.
-            # Let's rely on the indexed document being readable.
-
             formatted += f"### Skill: {meta.get('filename')}\n"
             formatted += f"**Description**: {desc}\n"
             formatted += f"{content}\n\n"
-
         return formatted

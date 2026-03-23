@@ -1,19 +1,14 @@
 # /briefing
 
-Generates a daily news digest.
-See rules: `.cursor/rules/10-daily-briefing.mdc`
-See rules: `.cursor/rules/00-router.mdc`
-See rules: `.cursor/rules/99-environment.mdc`
-
-Profile: **Daily Briefing Analyst**
+Starts the generation of a daily news summary.
 
 ## Description
 
-Activates the **Daily Briefing Analyst** agent, which:
-1. Collects news from the last 24 hours via `web_search`
+The command activates the **Daily Briefing Analyst** agent, which:
+1. Collects news over the last 24 hours via `web_search`
 2. Verifies data across multiple sources
-3. Filters down to 12 most important events
-4. Analyzes interconnections, stakeholders, and consequences
+3. Filters down to the top 12 most important events
+4. Analyzes connections, stakeholders, and consequences
 
 ## Usage
 
@@ -24,22 +19,27 @@ Activates the **Daily Briefing Analyst** agent, which:
 or
 
 ```
-/briefing focus on economics
+/briefing focus on economy
 /briefing Russia and CIS
-/briefing tech and AI
+/briefing technology and AI
 ```
 
 ## Output Format
 
 - **Events Table**: #, time, event, category, source, stakeholders, consequences
-- **Analytics Block**: relationship map, influence points, trends, red flags, forecast
+- **Analytical Block**: map of connections, influence points, trends, red flags, forecast
+
+## Rules
+
+See: `.cursor/rules/10-daily-briefing.mdc`
+Profile: **Daily Briefing Analyst**
 
 ## Event Categories
 
 | Icon | Category |
-|------|----------|
+|--------|-----------|
 | 🌍 | Geopolitics |
-| 💰 | Economics |
+| 💰 | Economy |
 | ⚔️ | Security/Conflicts |
 | 🏛️ | Domestic Politics |
 | 🔬 | Technology |
@@ -48,7 +48,7 @@ or
 ## Source Tiers
 
 | Tier | Reliability | Examples |
-|------|-------------|----------|
+|------|------------|---------|
 | Tier 1 | Highest | Reuters, AP, Bloomberg, official statements |
-| Tier 2 | High | BBC, NYT, TASS, think tanks |
-| Tier 3 | Requires verification | Telegram, social media, anonymous sources |
+| Tier 2 | High | BBC, NYT, TASS, analytical centers |
+| Tier 3 | Needs verification | Telegram, social media, anonymous sources |

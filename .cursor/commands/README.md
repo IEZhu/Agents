@@ -51,6 +51,8 @@ Optional additional context or instructions.
 | `/security_audit` | Security Expert | Vulnerability analysis |
 | `/debug_ai` | AI Debugger | Debug AI/ML systems |
 | `/ai_architect` | AI Senior Engineer | HAI system design |
+| `/blender` | Blender Scripter | Python bpy scripts for 3D printing |
+| `/roblox` | Roblox Studio Expert | Roblox game development |
 
 ### Documentation Commands
 
@@ -88,6 +90,9 @@ Optional additional context or instructions.
 | `/semantic_parse` | Semantic Expert | Meaning reconstruction |
 | `/alerts` | Alerts Describer | Infrastructure alerts |
 | `/presentation` | Presentation Coach | Slide design |
+| `/workout` | Fitness Coach | Spine-safe fitness programming |
+| `/literary` | Literary Writer | Artistic prose creation |
+| `/daily_report` | Work Reporter | Daily git activity report |
 
 ## Usage
 

@@ -2,6 +2,8 @@
 description: Emotion Prompting. Adds emotional urgency ("Career depends on it") to increase quality.
 globs: []
 alwaysApply: false
+short_name: EmotionPrompting
+one_liner: add urgency to boost response quality
 ---
 ## Pattern
 "This is critically important for me. Please be as accurate as possible. The success of the project depends on your answer."

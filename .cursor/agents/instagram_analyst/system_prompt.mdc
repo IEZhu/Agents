@@ -21,6 +21,9 @@ static_skills:
 preferred_skills:
 - skill-analysis-critical
 - skill-content-structure
+capabilities:
+- critical-analysis
+- content-structure
 ---
 # Instagram Analyst System Prompt
 

@@ -2,6 +2,8 @@
 description: Analogical Prompting. Self-generated Few-Shot examples. Model invents similar tasks to solve the current one.
 globs: []
 alwaysApply: false
+short_name: AnalogicalPrompting
+one_liner: invent similar tasks as few-shot examples
 ---
 ## Pattern
 1. "Recall or invent 3 similar tasks with solutions."

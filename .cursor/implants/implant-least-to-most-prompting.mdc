@@ -2,6 +2,8 @@
 description: Least-to-Most Prompting. Decompose complex task, solve sequentially using previous answers.
 globs: []
 alwaysApply: false
+short_name: LeastToMost
+one_liner: solve simple to complex sequentially
 ---
 ## Pattern
 "Break this complex task into simple subtasks. Solve them sequentially from simple to complex, using results from previous steps."

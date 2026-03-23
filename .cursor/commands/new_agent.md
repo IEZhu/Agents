@@ -8,5 +8,7 @@ See rules: `.cursor/rules/99-environment.mdc`
 Profile: **Agent Builder**
 Action:
 1.  Read `.cursor/agents/common/agent-schema.json`.
-2.  Interview the user to fill the schema.
-3.  Generate agent files and update the router.
+2.  Read `.cursor/capabilities/registry.yaml` to know available capabilities.
+3.  Interview the user to fill the schema (including `capabilities`).
+4.  Generate agent files: system_prompt.mdc (with capabilities in frontmatter), rule, command.
+5.  If new skills are created, include `compiled:` field in frontmatter.

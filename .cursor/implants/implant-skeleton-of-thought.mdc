@@ -2,6 +2,8 @@
 description: Skeleton-of-Thought. Speed & Coherence. Outline first, then expand parallel.
 globs: []
 alwaysApply: false
+short_name: SoT
+one_liner: outline first then expand in parallel
 ---
 ## Pattern
 1. **Skeleton**: Generate concise outline (headers only).

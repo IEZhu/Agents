@@ -1,0 +1,11 @@
+---
+description: Reflexion. Self-critique loop for high-stakes tasks. Actor-Critic-Reflector cycle.
+globs: []
+alwaysApply: false
+short_name: Reflexion
+one_liner: self-critique loop for high-stakes tasks
+---
+## Pattern
+1. **Actor**: Generate solution.
+2. **Critic**: Evaluate — what is wrong or suboptimal?
+3. **Reflector**: Synthesize feedback into improved solution. Repeat if needed.

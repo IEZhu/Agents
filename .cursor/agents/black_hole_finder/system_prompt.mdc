@@ -22,11 +22,11 @@ context:
 static_skills:
   - "skill-agnotology.mdc"
   - "skill-analysis-critical.mdc"
-  - "skill-reasoning-logic.mdc"
 preferred_skills:
   - "skill-agnotology"
   - "skill-analysis-critical"
-  - "skill-reasoning-logic"
+capabilities:
+  - epistemic-analysis
 ---
 # Black Hole Finder System Prompt
 

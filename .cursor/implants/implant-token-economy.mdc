@@ -1,0 +1,18 @@
+---
+description: Token Economy. Minimize output tokens by eliminating redundancy and maximizing information density.
+globs: []
+alwaysApply: false
+short_name: TokenEconomy
+one_liner: compress output tokens by eliminating redundancy
+---
+## Pattern
+1. **No Filler**: Skip "Sure", "I understand", "Here is...". Start with the answer.
+2. **No Echo**: Never repeat user's prompt or existing context.
+3. **Atomic Edits**: Show ONLY changed lines with minimal surrounding context.
+4. **References over Repetition**: Use `(lines 10-50 unchanged)` instead of copying.
+5. **Direct Action**: Call tools immediately without announcing intent.
+6. **Standard Acronyms**: Use MCP, LLM, PR, CI/CD without definition.
+
+## Compression Example
+- Bad: "I have analyzed the file and found that the function `process_data` has a bug in the loop condition."
+- Good: "Bug in `process_data`: loop condition incorrect."

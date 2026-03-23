@@ -1,0 +1,11 @@
+---
+description: Chain of Verification (CoV). Fact-checking via draft-verify-correct cycle. Reduces hallucinations.
+globs: []
+alwaysApply: false
+short_name: CoV
+one_liner: fact-check claims via draft-verify-correct cycle
+---
+## Pattern
+1. **Draft**: Generate initial answer.
+2. **Verify**: Generate specific verification questions for each claim.
+3. **Correct**: Answer questions independently, rewrite draft fixing errors.

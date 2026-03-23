@@ -1,10 +1,9 @@
 import os
 import re
+import yaml
 from typing import Set
 
-# Dynamically calculate the repository root
-# Assumes this file is in src/utils/
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+from src.engine.config import REPO_ROOT, SKILLS_DIR, IMPLANTS_DIR
 
 def resolve_path(path_ref: str) -> str:
     """
@@ -77,13 +76,46 @@ def load_file_content(path: str) -> str:
     except Exception as e:
         return f"[ERROR LOADING FILE: {path} - {str(e)}]"
 
+_skip_inline_cache: dict[str, bool] = {}
+
+def _should_skip_inline(abs_path: str) -> bool:
+    """Skip inlining files that are loaded via other mechanisms.
+
+    Results are cached per normalized path to avoid repeated file I/O
+    and YAML parsing on every @-reference.
+    """
+    norm = os.path.normpath(abs_path)
+
+    if norm in _skip_inline_cache:
+        return _skip_inline_cache[norm]
+
+    result = _compute_skip_inline(norm)
+    _skip_inline_cache[norm] = result
+    return result
+
+def _compute_skip_inline(norm: str) -> bool:
+    if norm.startswith(os.path.normpath(SKILLS_DIR)):
+        return True
+    if norm.startswith(os.path.normpath(IMPLANTS_DIR)):
+        return True
+
+    if os.path.exists(norm):
+        try:
+            with open(norm, "r", encoding="utf-8") as f:
+                raw = f.read()
+            if raw.startswith("---"):
+                parts = raw.split("---", 2)
+                if len(parts) >= 2:
+                    fm = yaml.safe_load(parts[1]) or {}
+                    if fm.get("alwaysApply") is True:
+                        return True
+        except Exception:
+            pass
+    return False
+
 def process_imports(content: str, seen_files: Set[str] = None) -> str:
     if seen_files is None:
         seen_files = set()
-
-    # Pattern to find @references
-    # This is a simple approximation. References often appear on their own lines or in lists.
-    # We'll look for @[\w\./-]+
 
     def replacer(match):
         ref = match.group(0)
@@ -95,18 +127,14 @@ def process_imports(content: str, seen_files: Set[str] = None) -> str:
         if abs_path in seen_files:
             return f"[CIRCULAR REFERENCE: {ref}]"
 
+        if _should_skip_inline(abs_path):
+            return f"[Loaded separately: {os.path.basename(abs_path)}]"
+
         seen_files.add(abs_path)
         sub_content = load_file_content(abs_path)
         return process_imports(sub_content, seen_files.copy())
 
-    # Replace references that are likely imports.
-    # The example shows: "Apply Core Protocol: @agents/common/core-protocol.mdc"
-    # and "- @.cursor/implants/..."
-
-    # We will replace the whole @ref token with the content.
     return re.sub(r'@[\w\./-]+\.mdc', replacer, content)
-
-import yaml
 
 def get_agent_metadata(agent_name: str) -> dict:
     """

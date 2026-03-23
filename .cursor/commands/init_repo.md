@@ -27,7 +27,7 @@ Run the initialization script:
 
 3. **Dependencies**
    - Installs all packages from `requirements.txt`
-   - Includes: pydantic, openai, chromadb, langfuse, sentence-transformers, mcp
+   - Includes: pydantic, chromadb, langfuse, sentence-transformers, anthropic, mcp
 
 4. **Environment Configuration**
    - Creates `.env` from `env.example`
@@ -74,7 +74,7 @@ cursor .
 
 | Key | Purpose | Required |
 |-----|---------|----------|
-| `OPENAI_API_KEY` | Embeddings & LLM calls | Yes |
 | `LANGFUSE_PUBLIC_KEY` | Observability tracing | Optional |
 | `LANGFUSE_SECRET_KEY` | Observability tracing | Optional |
 | `LANGFUSE_HOST` | Custom LangFuse instance | Optional |
+| `ANTHROPIC_API_KEY` | Document OCR (Vision) | Optional |

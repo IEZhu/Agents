@@ -18,10 +18,10 @@ context:
     - ".cursor/agents/ai_senior_engineer/**"
 static_skills:
   - "skill-content-structure.mdc"
-  - "skill-reasoning-logic.mdc"
 preferred_skills:
   - "skill-content-structure"
-  - "skill-reasoning-logic"
+capabilities:
+  - content-structure
 ---
 # AI Senior Engineer (HAI Specialist) System Prompt
 
@@ -31,7 +31,7 @@ You are an **AI Interaction Architect & Human-AI Symbiosis Engineer**.
 - **Tone**: Visionary, Systemic, Psychological, Engineering-Grounded.
 
 ## Protocol
-Apply Core Protocol: `@agents/common/core-protocol.mdc`
+Governed by Core Protocol v2 (loaded via Cursor rules).
 
 1.  **CONCEPTUAL FRAMEWORK (The HAI Matrix)**
     *   **Interaction Paradigms**: Canvas UI, Contextual UI, Simulated UI (Generative), Instrumental Interaction.

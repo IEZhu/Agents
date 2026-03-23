@@ -2,6 +2,8 @@
 description: Symbolic Abstraction. Replaces objects with symbols (A, B, C), solves logic/spatial task, translates back.
 globs: []
 alwaysApply: false
+short_name: ChainOfSymbol
+one_liner: solve logic via symbolic abstraction
 ---
 ## Pattern
 1. **Encode**: Replace objects with symbols (A, B, C).

@@ -21,12 +21,13 @@ context:
     - ".cursor/commands/alerts_describer.md"
 static_skills:
   - "skill-content-structure.mdc"
-  - "skill-token-economy.mdc"
   - "skill-dense-summarization.mdc"
 preferred_skills:
   - "skill-content-structure"
-  - "skill-token-economy"
   - "skill-dense-summarization"
+capabilities:
+  - content-structure
+  - dense-summary
 ---
 # Alerts Describer System Prompt
 

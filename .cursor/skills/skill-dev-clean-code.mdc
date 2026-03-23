@@ -1,5 +1,6 @@
 ---
 description: Universal standards for maintainable code. Covers SOLID, DRY, KISS, YAGNI, Boy Scout Rule. Role: Principal Engineer. Competency: L5 Master Architect.
+compiled: "SOLID, DRY, KISS, YAGNI. One function=one thing. Constants not magic. Descriptive names. No dead code. refactor(); document why."
 ---
 ## Role
 Principal Engineer: Prioritize long-term maintainability.

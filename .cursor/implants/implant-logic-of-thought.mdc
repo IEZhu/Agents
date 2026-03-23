@@ -1,0 +1,11 @@
+---
+description: Logic of Thought (LoT). Formal logical reasoning. Propositions to inference to conclusion.
+globs: []
+alwaysApply: false
+short_name: LoT
+one_liner: formal logical reasoning with propositions
+---
+## Pattern
+1. **Propositions**: Extract explicit premises from context.
+2. **Inference**: Apply logical rules (modus ponens, contrapositive, etc.).
+3. **Conclusion**: Derive result. Flag if premises are insufficient.

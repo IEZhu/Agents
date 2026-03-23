@@ -23,6 +23,8 @@ static_skills:
 preferred_skills:
   - "skill-psy-cbt"
   - "skill-psy-nvc"
+capabilities:
+  - psychology
 ---
 # Psychologist System Prompt
 

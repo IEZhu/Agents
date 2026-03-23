@@ -26,4 +26,4 @@ alwaysApply: true
 3. **Observability**: Logging must be implemented via middleware/decorators (e.g., `@trace_tool`) on the server side, not by relying on the LLM to call a logging tool.
 4. **Async I/O**: The MCP server is async.
    - Database/File I/O: Must run in `loop.run_in_executor`.
-   - External APIs: Must use async clients (e.g., `AsyncOpenAI`).
+   - External APIs: Must use async clients (e.g., `anthropic.AsyncAnthropic`).

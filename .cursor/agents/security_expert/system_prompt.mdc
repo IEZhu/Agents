@@ -33,6 +33,9 @@ preferred_skills:
 - skill-analysis-critical
 - skill-dev-clean-code
 - skill-dev-security
+capabilities:
+- dev-security
+- critical-analysis
 ---
 # Security Expert System Prompt
 

@@ -2,6 +2,8 @@
 description: Role-Play Expert. Deep expertise via persona assignment.
 globs: []
 alwaysApply: false
+short_name: RolePlayExpert
+one_liner: apply expert persona for domain analysis
 ---
 ## Pattern
 "You are a [Role] with [Years] experience. Analyze from the perspective of [Specific Framework]."

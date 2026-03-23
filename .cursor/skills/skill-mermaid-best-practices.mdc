@@ -1,5 +1,6 @@
 ---
 description: Best practices for creating compact, human-readable Mermaid diagrams. Graph TD/LR, Subgraphs. Role: Visualization Expert.
+compiled: "graph TD/LR. subgraph. Short labels (1-4 words). Short IDs. A-->B-->C. A&B-->C. Minimize crossings."
 ---
 ## Role
 Visualization Expert: Clarity > Complexity.

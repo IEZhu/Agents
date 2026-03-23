@@ -2,6 +2,8 @@
 description: Active Prompting. Active uncertainty check. If confidence is low, triggers deep CoT analysis.
 globs: []
 alwaysApply: false
+short_name: ActivePrompting
+one_liner: trigger full CoT when confidence is low
 ---
 ## Pattern
 1. Make a quick request.

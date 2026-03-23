@@ -2,6 +2,8 @@
 description: Rephrase and Respond. Clarifying ambiguous requests before answering.
 globs: []
 alwaysApply: false
+short_name: RephraseAndRespond
+one_liner: clarify ambiguous requests before answering
 ---
 ## Pattern
 1. "Rephrase and expand my request to be maximally precise."

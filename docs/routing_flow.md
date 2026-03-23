@@ -1,73 +1,75 @@
 # Request Routing Flow
 
-This diagram illustrates the decision-making process for routing user requests to the appropriate agent.
+This diagram illustrates the decision-making process for routing user requests to the appropriate agent via `route_and_load()`.
 
 ## Routing Flow Sequence
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Router as get_routing_info
+    participant RAL as route_and_load()
     participant Cache as Semantic Cache
     participant Meta as Meta-Query Detector
-    participant Cursor as Cursor Model
-    participant Context as get_agent_context
-    participant Session as Session Cache
+    participant Session as TTLCache (128, 600s)
     participant Enrich as Enrichment Pipeline
-    
-    User->>Router: User Request
-    Router->>Cache: Lookup Query
-    
-    alt Cache Hit (Distance < 0.05)
-        Cache-->>Router: Agent Found
-        Router->>Context: Load Agent Context
-    else Cache Miss
-        Cache-->>Router: No Match
-        Router->>Meta: Check Query Type
-        
-        alt Meta-Query (< 10 chars or greeting)
-            Meta-->>Router: Auto-route to universal_agent
-            Router->>Context: Load universal_agent
-        else Standard Query
-            Meta-->>Router: Return Agent List
-            Router->>Cursor: Select Best Agent
-            Cursor-->>Router: Agent Selected
-            Router->>Context: Load Agent Context
+    participant Tier as Tier Inference
+
+    User->>RAL: query + context_hash?
+
+    alt context_hash matches
+        RAL-->>User: NO_CHANGE (reuse prior context)
+    end
+
+    RAL->>Meta: Check Query Type
+    alt Meta-Query (greeting / < 10 chars)
+        Meta-->>RAL: Auto-route to universal_agent
+    else Standard Query
+        RAL->>Cache: Lookup Query (ChromaDB)
+        alt Cache Hit (Distance < 0.05)
+            Cache-->>RAL: Agent Found
+        else Cache Miss
+            Cache-->>RAL: No Match
+            RAL-->>User: ROUTE_REQUIRED + candidates list
+            Note over User: Client selects agent,<br/>calls get_agent_context()
         end
     end
-    
-    Context->>Session: Check Session Cache
-    
-    alt Session Cache Hit
-        Session-->>Context: Return Cached Prompt
-        Context-->>User: System Prompt Ready
-    else Session Cache Miss
-        Session-->>Context: Not Found
-        Context->>Enrich: Start Enrichment
-        
-        Enrich->>Enrich: Load Base Prompt
-        Enrich->>Enrich: Retrieve Skills
-        Enrich->>Enrich: Retrieve Implants (Top 3)
-        Enrich->>Enrich: Detect Language
-        
-        alt Language Detected
-            Enrich->>Enrich: Inject Language Directive
+
+    RAL->>Session: Check Session Cache
+    alt Session Hit
+        Session-->>RAL: Return Cached Prompt
+        RAL-->>User: SUCCESS (system_prompt + context_hash)
+    else Session Miss
+        RAL->>Tier: Infer tier from query
+        Tier-->>Enrich: lite / standard / deep
+
+        alt lite (short, simple)
+            Enrich->>Enrich: Load Base Prompt only
+        else standard (default)
+            Enrich->>Enrich: Load Base Prompt
+            Enrich->>Enrich: Retrieve 2 Skills + 2 Implants
+        else deep (complex / architecture)
+            Enrich->>Enrich: Load Base Prompt
+            Enrich->>Enrich: Retrieve 4+ Skills + 3 Implants
         end
-        
-        Enrich->>Enrich: Combine All Components
-        Enrich->>Session: Update Session Cache
-        Enrich->>Cache: Update Semantic Cache (if confidence > 0.8)
-        Enrich-->>User: System Prompt Ready
+
+        Enrich->>Enrich: Resolve Capabilities (registry.yaml)
+        Enrich->>Session: Store Enriched Prompt
+        Enrich-->>RAL: Enriched System Prompt
+        RAL-->>User: SUCCESS / SUCCESS_SAMPLED
     end
 ```
 
 ## Key Components
 
-1.  **Semantic Cache**: Uses ChromaDB to store and retrieve previous routing decisions. A match occurs if the cosine distance is less than 0.05 (Similarity > 0.95).
-2.  **Meta-Query Detection**: Automatically routes short queries (< 10 chars) or common greetings to `universal_agent` to reduce latency and model overhead.
-3.  **Cursor Fallback**: If no cache hit and not a meta-query, the system returns the list of agents, allowing the Cursor model to make a semantic decision based on the query.
-4.  **Enrichment Pipeline**:
-    *   **Skills**: Retrieves relevant reusable skills (e.g., `git_operations`).
-    *   **Implants**: Injects up to 3 cognitive implants (mental models) based on the query.
-    *   **Language**: Detects the user's language and injects a critical instruction to respond in that language.
-5.  **Session Cache**: Stores enriched prompts keyed by agent name and query hash to speed up repeated requests within the same session.
+1. **Semantic Cache**: Uses ChromaDB to store and retrieve previous routing decisions. A match occurs if the cosine distance is less than 0.05 (Similarity > 0.95).
+2. **Meta-Query Detection**: Regex-based detection of greetings and short queries (English + Russian) for auto-routing to `universal_agent`.
+3. **ROUTE_REQUIRED**: On cache miss, the system returns a list of agent candidates with descriptions, allowing the client LLM to select the best match via `get_agent_context()`.
+4. **Tier Inference**: Determines enrichment depth based on query complexity:
+    * **lite**: Short/simple queries — no skills or implants loaded.
+    * **standard**: Default — 2 skills + 2 implants selected via RAG.
+    * **deep**: Complex/architecture queries — 4+ skills + 3 implants with full capability resolution.
+5. **Enrichment Pipeline**:
+    * **Skills**: Domain-specific knowledge modules retrieved via ChromaDB.
+    * **Implants**: Cognitive reasoning strategies (e.g., chain-of-code, reflexion).
+    * **Capabilities**: High-level compositions from `registry.yaml` mapping to skill stacks + directives.
+6. **Session Cache**: TTLCache (max 128 entries, 600s TTL) storing enriched prompts keyed by agent name. Supports `context_hash` for multi-turn delta optimization.

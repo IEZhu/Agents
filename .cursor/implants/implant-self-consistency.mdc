@@ -2,6 +2,8 @@
 description: Self-Consistency. Majority Vote. Generate multiple answers, select most frequent.
 globs: []
 alwaysApply: false
+short_name: SelfConsistency
+one_liner: select answer by majority vote across multiple runs
 ---
 ## Pattern
 1. Generate 5 independent answers (CoT).

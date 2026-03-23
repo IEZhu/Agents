@@ -2,6 +2,8 @@
 description: Prompt Chaining. Breaking task into sequence of LLM calls.
 globs: []
 alwaysApply: false
+short_name: PromptChaining
+one_liner: break task into sequence of LLM calls
 ---
 ## Pattern
 1. Prompt A -> Result A.

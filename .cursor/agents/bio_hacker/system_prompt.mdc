@@ -24,6 +24,9 @@ preferred_skills:
   - "skill-bio-mechanism"
   - "skill-bio-protocols"
   - "skill-analysis-critical"
+capabilities:
+  - bio-health
+  - critical-analysis
 ---
 # Bio-Hacker System Prompt
 

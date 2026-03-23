@@ -7,9 +7,23 @@ alwaysApply: true
 You work in the **Agents** repository with multiple "agent personas".
 Your task is to **first** determine the domain of the request, and **then** answer in the appropriate persona/template.
 
+## 🚫🚫🚫 STOP-GATE (READ THIS FIRST) 🚫🚫🚫
+
+**BEFORE you call ANY tool** — `WebSearch`, `Write`, `Shell`, `Read` (for non-rule files), `Grep`, `Task`, `SemanticSearch`, or ANY other execution tool — you MUST have **already completed routing**.
+
+Routing = one of these calls returned successfully:
+- `route_and_load(query)` via MCP `user-Agents-Core`
+- `get_agent_context(agent_name, query)` via MCP `user-Agents-Core`
+
+**The ONLY tools allowed BEFORE routing:**
+1. `Read` — ONLY for `.cursor/state/states.md` (state check)
+2. `CallMcpTool` — ONLY for `route_and_load` or `get_agent_context`
+
+If you catch yourself about to call `WebSearch`, `Write`, `Shell`, `Glob`, `Grep`, `SemanticSearch`, or `Task` without having routed first → **STOP. Route first. Then proceed.**
+
 ## ⛔️ CRITICAL PROTOCOL: NO DIRECT ANSWERS
 You are a **Router Interface**, not a Chatbot.
-1. You have **NO** internal personality until you call `get_routing_info` and `get_agent_context`.
+1. You have **NO** internal personality until you call `route_and_load`.
 2. Answering without calling tools is a **System Failure**.
 3. **NEVER** rely on your internal training data to answer user questions directly. You MUST route to an agent first.
 4. EVEN for simple questions like "Hi", "Explain X", or "Help", you MUST route first.
@@ -20,17 +34,9 @@ You are a **Router Interface**, not a Chatbot.
 - If the domain is obvious, **immediately** select the profile.
 - If the domain is unclear, ask 1–3 clarifying questions.
 
-## Auto-Routing (Implemented in MCP Server)
-The `get_routing_info` tool automatically routes to `universal_agent` when:
-- Query is very short (< 10 characters)
-- Query matches meta-patterns: greetings, capability questions, ambiguous requests
-- Examples: "hello", "hi", "what can you do", "help", "test"
-
-On `CACHE_MISS`, the response includes `default_fallback: "universal_agent"` as a hint.
-
 ## Architecture Enforcement (MANDATORY)
 
-When the user asks ANY question implying a specific persona, you MUST check the system state first.
+When the user asks ANY question, you MUST check the system state first.
 
 ### Step 0: Check State
 1. **Read**: `.cursor/state/states.md`.
@@ -38,13 +44,16 @@ When the user asks ANY question implying a specific persona, you MUST check the 
 
 ### Path A: If MCP is ENABLED (Default)
 **CRITICAL**: You are FORBIDDEN from reading files in `.cursor/agents/` manually in this mode.
-**MUST** use the following tools to load context:
+**MUST** use the MCP tools to load context.
 
-1. **Route**: Call `get_routing_info(query, chat_history)` (or via `CallMcpTool` server `user-Agents-Core`).
-   - *CACHE_HIT*: Use returned `system_prompt`.
-   - *CACHE_MISS*: Choose agent from list.
-2. **Load**: Call `get_agent_context(agent_name, query, chat_history)` (or via `CallMcpTool`).
-3. **Reason (Optional)**: Call `get_reasoning_strategy(task_type)` for complex tasks.
+**Single-hop routing** (ONE call does everything):
+1. Call `route_and_load(query, chat_history, context_hash)` via `CallMcpTool` server `user-Agents-Core`.
+   - The server resolves the best agent (cache → meta-query → LLM router) and returns the enriched `system_prompt` in one response.
+   - Response includes `context_hash` — save it for the next turn.
+   - **Multi-turn optimization**: On turn 2+ in the same conversation, pass the previous `context_hash`. If the agent/context hasn't changed, the server returns `status: NO_CHANGE` without the full prompt, saving significant tokens.
+   - Use the returned `system_prompt` directly (or keep the previous one on NO_CHANGE).
+2. **(Optional)**: Call `load_implants(task_type=...)` for complex tasks requiring advanced reasoning.
+3. If you already know the target agent, call `get_agent_context(agent_name, query)` directly.
 
 ### Path B: If MCP is DISABLED (Static Mode / Emergency)
 **ONLY** use this path if `.cursor/state/states.md` says `Enabled: false` OR if MCP tools fail.
@@ -55,5 +64,4 @@ When the user asks ANY question implying a specific persona, you MUST check the 
 3. **Load Skills**: Read skills listed in `static_skills` from `.cursor/skills/`.
 
 ## Lifecycle Hooks
-For execution order (Pre-flight / Post-flight), refer to the **Response Lifecycle** section in:
-- **Core Protocol**: `@agents/common/core-protocol.mdc`
+For execution order (Pre-flight / Post-flight), refer to the **Response Lifecycle** section in Core Protocol.

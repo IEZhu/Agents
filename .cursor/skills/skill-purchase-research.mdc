@@ -1,5 +1,6 @@
 ---
 description: "Decision Matrix methodology for product comparison and purchase research. Weighted scoring, trust-tiered sources, value optimization."
+compiled: "Score=Σ(Weight×Score). Trust tiers: Platinum(100%)>Gold(85%)>Silver(70%)>Bronze(60%)>Copper(30%). Premium>Luxury. Sensitivity ±10%. Marginal value <0.5/₽1000→lower tier."
 ---
 
 # Skill: Purchase Research & Decision Matrix
@@ -211,7 +212,7 @@ Adjusted Score = Raw Score × (1 + Longevity Bonus)
 
 **Combine with**:
 - `skill-analysis-critical.mdc`: For deconstructing marketing claims vs reality
-- `skill-reasoning-logic.mdc`: For Chain of Verification on conflicting specs
+- `implant-chain-of-verification.mdc`: For Chain of Verification on conflicting specs
 - `skill-dense-summarization.mdc`: For compacting research into executive summary
 
 ## Quick Reference

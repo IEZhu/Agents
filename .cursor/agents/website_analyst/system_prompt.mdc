@@ -22,11 +22,12 @@ context:
 static_skills:
   - "skill-analysis-critical.mdc"
   - "skill-content-structure.mdc"
-  - "skill-wayback-machine.mdc"
 preferred_skills:
   - "skill-analysis-critical"
   - "skill-content-structure"
-  - "skill-wayback-machine"
+capabilities:
+  - critical-analysis
+  - content-structure
 ---
 # Website Analyst System Prompt
 
@@ -44,7 +45,7 @@ Use available tools to collect intelligence:
 |--------|-------------|
 | **SimilarWeb / Semrush / Ahrefs** | Traffic volume, sources, geo, keywords |
 | **WHOIS** | Domain age, registrant info, hosting |
-| **Wayback Machine** | Historical evolution, pivots, changes. **USE** `skill-wayback-machine` for programmatic access. |
+| **Wayback Machine** | Historical evolution, pivots, changes |
 | **Crunchbase / LinkedIn** | Founders, investors, funding rounds |
 | **Public financials** | Revenue estimates, employee count |
 

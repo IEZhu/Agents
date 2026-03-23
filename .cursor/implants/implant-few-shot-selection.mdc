@@ -2,6 +2,8 @@
 description: Few-Shot Selection. Dynamic selection of examples based on similarity to request.
 globs: []
 alwaysApply: false
+short_name: FewShotSelection
+one_liner: pick similar examples for few-shot context
 ---
 ## Pattern
 1. Search DB for 2-3 examples similar to current task.

@@ -2,6 +2,8 @@
 description: Maieutic Prompting. Socratic method. Explanation tree to find logical contradictions.
 globs: []
 alwaysApply: false
+short_name: MaieuticPrompting
+one_liner: find contradictions via Socratic explanation tree
 ---
 ## Pattern
 1. Generate explanations for True AND False answers.

@@ -1,5 +1,6 @@
 ---
 description: Fundamental security practices. OWASP, Input Validation, Secrets Management, CIA Triad. Role: Security Auditor.
+compiled: "Trust no input. sanitize(); parameterized SQL; encode output. No secrets in repo. CIA: Confidentiality, Integrity, Availability. Least privilege."
 ---
 ## Role
 Security Auditor: Assume all user input is malicious.

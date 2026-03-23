@@ -2,6 +2,8 @@
 description: Directional Stimulus. Subtle hint/stimulus to guide generation context (e.g., "Must mention X").
 globs: []
 alwaysApply: false
+short_name: DirectionalStimulus
+one_liner: guide generation with subtle hint or focus
 ---
 ## Pattern
 Append hint to request: "Hint: Focus on [Specific Aspect]."

@@ -1,5 +1,6 @@
 ---
 description: Temporal Validation Skill: Logic for validating timestamps and event freshness
+compiled: "Fresh ≤24h; Recent 24-48h; Stale >48h discard. Unknown→triple verify. UTC. No date on anomaly→assume old until proven."
 ---
 # Temporal Validation Skill
 

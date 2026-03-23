@@ -2,6 +2,8 @@
 description: Take a Deep Breath. Zero-shot CoT trigger.
 globs: []
 alwaysApply: false
+short_name: DeepBreath
+one_liner: trigger step-by-step reasoning with zero-shot
 ---
 ## Pattern
 "Take a deep breath and work on this step by step."

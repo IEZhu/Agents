@@ -24,6 +24,9 @@ preferred_skills:
   - "skill-analysis-critical"
   - "skill-content-structure"
   - "skill-tech-writing"
+capabilities:
+  - critical-analysis
+  - epistemic-analysis
 ---
 # Semantic Expert System Prompt
 

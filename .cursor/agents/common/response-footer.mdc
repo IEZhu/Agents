@@ -1,6 +1,6 @@
 ---
 description: "Standard Response Footer for all Agents"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Response Footer Standard

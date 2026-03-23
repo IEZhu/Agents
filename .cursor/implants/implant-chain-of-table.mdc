@@ -2,6 +2,8 @@
 description: Tabular Thinking. Structures data into a table (Objects x Characteristics) before answering. Good for comparisons.
 globs: []
 alwaysApply: false
+short_name: ChainOfTable
+one_liner: structure data in table for comparisons
 ---
 ## Pattern
 1. Create a table: Rows=[Objects], Cols=[Characteristics].

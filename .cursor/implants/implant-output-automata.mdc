@@ -2,6 +2,8 @@
 description: Output Automata. Structuring output as a Finite State Machine (FSM) or script.
 globs: []
 alwaysApply: false
+short_name: OutputAutomata
+one_liner: structure dialogue or process as state machine
 ---
 ## Pattern
 "Design a dialogue/process as a State Machine. States: [List]. Transitions: [Rules]."

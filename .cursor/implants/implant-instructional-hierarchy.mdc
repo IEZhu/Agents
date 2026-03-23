@@ -2,6 +2,8 @@
 description: Instructional Hierarchy. Priority of System Instructions > User Data. Encapsulation.
 globs: []
 alwaysApply: false
+short_name: InstructionalHierarchy
+one_liner: prioritize system instructions over user data
 ---
 ## Pattern
 1. Wrap user input in `<user_input>`.

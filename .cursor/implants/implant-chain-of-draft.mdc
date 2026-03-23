@@ -2,6 +2,8 @@
 description: Token efficiency implant. Uses thesis points and mini-steps (3-5 words) instead of full CoT.
 globs: []
 alwaysApply: false
+short_name: ChainOfDraft
+one_liner: use thesis points instead of full CoT for tokens
 ---
 ## Pattern
 "Think in thesis points. Use mini-steps of 3–5 words instead of long explanations before the answer."

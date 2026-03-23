@@ -1,0 +1,114 @@
+import logging
+import asyncio
+import re
+from typing import List, Literal, Optional
+
+from src.engine.skills import SkillRetriever
+from src.engine.implants import ImplantRetriever
+from src.engine.capabilities import resolve_capabilities
+
+logger = logging.getLogger(__name__)
+
+skill_retriever = SkillRetriever()
+implant_retriever = ImplantRetriever()
+
+Tier = Literal["lite", "standard", "deep"]
+
+_COMPLEX_SIGNALS = re.compile(
+    r"(```|```\w|архитектур|рефактор|оптимиз|debug|анализ|исследу|investigate"
+    r"|сравни|compare|план|design|ревью|review|audit|deep dive|/deep)",
+    re.IGNORECASE,
+)
+
+def infer_tier(query: str) -> Tier:
+    stripped = query.strip()
+    if len(stripped) < 50 and not _COMPLEX_SIGNALS.search(stripped):
+        return "lite"
+    if _COMPLEX_SIGNALS.search(stripped) or len(stripped) > 300:
+        return "deep"
+    return "standard"
+
+async def get_dynamic_context_string(
+    agent_name: str,
+    query: str,
+    chat_history: Optional[List[str]] = None,
+    preferred_skills: Optional[List[str]] = None,
+    tier: Tier = "standard",
+    capabilities: Optional[List[str]] = None,
+) -> str:
+    """Retrieve and format dynamic context (Skills + Implants) based on tier."""
+    if chat_history is None:
+        chat_history = []
+    loop = asyncio.get_running_loop()
+    context_parts: list[str] = []
+
+    effective_skills = list(preferred_skills or [])
+    cap_directive = ""
+    if capabilities:
+        cap_skills, cap_directive = await loop.run_in_executor(
+            None, resolve_capabilities, capabilities
+        )
+        for s in cap_skills:
+            if s not in effective_skills:
+                effective_skills.append(s)
+
+    if tier != "lite":
+        try:
+            n_skills = 2 if tier == "standard" else max(4, len(effective_skills))
+            use_compiled = tier == "standard"
+            skills = await loop.run_in_executor(
+                None,
+                lambda: skill_retriever.retrieve(
+                    query,
+                    n_results=n_skills,
+                    preferred_skills=effective_skills if effective_skills else None,
+                ),
+            )
+            if skills:
+                context_parts.append(
+                    skill_retriever.format_skills_for_prompt(skills, compiled=use_compiled)
+                )
+        except Exception as e:
+            logger.error(f"Failed to retrieve skills: {e}")
+
+    if cap_directive:
+        context_parts.append(f"## Capability Directives\n{cap_directive}")
+
+    if tier in ("standard", "deep"):
+        try:
+            n_implants = 2 if tier == "standard" else 3
+            implants = await loop.run_in_executor(
+                None,
+                lambda: implant_retriever.retrieve(query, n_results=n_implants, role=agent_name),
+            )
+            if implants:
+                context_parts.append(implant_retriever.format_implants_for_prompt(implants))
+            context_parts.append(
+                "**More reasoning implants available** — call `load_implants(query=...)` to load by topic."
+            )
+        except Exception as e:
+            logger.error(f"Failed to retrieve implants: {e}")
+
+    return "\n\n".join(context_parts)
+
+async def enrich_agent_prompt(
+    agent_name: str,
+    base_prompt: str,
+    query: str,
+    chat_history: Optional[List[str]] = None,
+    preferred_skills: Optional[List[str]] = None,
+    tier: Optional[Tier] = None,
+    capabilities: Optional[List[str]] = None,
+) -> str:
+    """Enrich the base system prompt with dynamic skills and implants."""
+    if chat_history is None:
+        chat_history = []
+    if tier is None:
+        tier = infer_tier(query)
+
+    dynamic_context = await get_dynamic_context_string(
+        agent_name, query, chat_history, preferred_skills, tier, capabilities
+    )
+    if dynamic_context:
+        base_prompt += f"\n\n{dynamic_context}"
+    return base_prompt

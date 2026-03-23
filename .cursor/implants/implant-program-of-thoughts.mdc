@@ -1,0 +1,11 @@
+---
+description: Program of Thoughts (PoT). Write executable code to solve calculations and data tasks instead of guessing.
+globs: []
+alwaysApply: false
+short_name: PoT
+one_liner: write code to compute answer instead of guessing
+---
+## Pattern
+1. **Code**: Write code that computes the answer.
+2. **Execute**: Run (or mentally simulate) the code.
+3. **Answer**: Report the computed result.

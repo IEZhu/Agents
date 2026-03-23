@@ -1,0 +1,11 @@
+---
+description: Step-Back Prompting. Abstract principle first, then apply to specifics. For complex problems.
+globs: []
+alwaysApply: false
+short_name: StepBack
+one_liner: abstract principle first for complex problems
+---
+## Pattern
+1. **Step Back**: "What is the underlying principle or concept?"
+2. **Abstract**: Formulate the general rule.
+3. **Apply**: Use the principle to solve the specific problem.

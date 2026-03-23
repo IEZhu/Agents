@@ -2,6 +2,8 @@
 description: Reverse CoT. Reconstructing conditions from the solution to check consistency.
 globs: []
 alwaysApply: false
+short_name: ReverseCoT
+one_liner: verify solution by reconstructing conditions
 ---
 ## Pattern
 1. Solve task.

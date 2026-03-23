@@ -2,6 +2,8 @@
 description: Thread of Thought. Long context understanding. Summarize steps holding the thread.
 globs: []
 alwaysApply: false
+short_name: ThreadOfThought
+one_liner: hold thread through long chaotic context
 ---
 ## Pattern
 "Walk sequentially through chaotic context. Summarize each step, holding the 'thread' of meaning."

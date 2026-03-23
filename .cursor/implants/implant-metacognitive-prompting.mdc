@@ -2,6 +2,8 @@
 description: Metacognitive Prompting. Self-evaluation of thinking process.
 globs: []
 alwaysApply: false
+short_name: MetacognitivePrompting
+one_liner: self-evaluate confidence in each reasoning step
 ---
 ## Pattern
 "Provide reasoning, and then comment: do you have confidence in each step? Self-diagnose."

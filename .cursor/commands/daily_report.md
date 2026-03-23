@@ -54,6 +54,6 @@ Profile: **Work Reporter**.
 📝 Active repos: 3 (Agents, AviStocks, ExchangeBot)
 📊 Commits: 12 | Files: 45 | Lines: +320/-89
 🤖 Agents used: 4 (software_engineer, ai_senior_engineer, ...)
-🎯 ClickUp: "2025.12.21 Воскресенье" (HOME-2978)
+🎯 ClickUp: "2025.12.21 Sunday" (HOME-2978)
 💬 Comment posted ✓
 ```

@@ -1,0 +1,61 @@
+---
+description: "Architecture Enforcement: Routing gate & tool-order invariants"
+alwaysApply: true
+---
+
+# Architecture Enforcement v1.0
+
+Mandatory invariants that protect the Router-first architecture.
+Violations here caused real incidents (protocol skip — tools called before routing).
+
+## 1. Routing Gate (MANDATORY)
+
+### Forbidden Before Routing
+The following tools are **BLOCKED** until `route_and_load` or `get_agent_context` has returned `status: SUCCESS`:
+
+| Tool | Why blocked |
+|---|---|
+| `WebSearch` | Execution tool — requires agent persona for quality |
+| `Write` | File mutation — agent determines format/location |
+| `Shell` | Side effects — agent determines safety constraints |
+| `Glob` | Codebase exploration — route first to know what to look for |
+| `Grep` | Codebase exploration — same |
+| `SemanticSearch` | Codebase exploration — same |
+| `Task` | Delegation — agent context needed for subtask prompt |
+| `Read` (non-rule files) | Project files — agent context needed for interpretation |
+
+### Allowed Before Routing
+| Tool | Condition |
+|---|---|
+| `Read` | ONLY `.cursor/state/states.md` or `.cursor/rules/*.mdc` |
+| `CallMcpTool` | ONLY `route_and_load` or `get_agent_context` on `user-Agents-Core` |
+
+### Self-Check Pattern
+Before every tool call, mentally verify:
+```
+✅ Have I called route_and_load / get_agent_context?
+✅ Did it return status: SUCCESS?
+✅ Am I now operating inside the returned agent persona?
+```
+If any answer is NO → **STOP and route first**.
+
+## 2. Post-Routing Obligations
+
+After routing succeeds, you MUST:
+1. **Adopt the persona** returned in `system_prompt`.
+2. **Follow skills/implants** listed in the response.
+3. **Complete post-flight**: Russian output language, metadata footer, `log_interaction`.
+
+Skipping post-flight is also a protocol violation.
+
+## 3. Exception: Cursor Slash-Commands
+
+If the user invokes a `/command` (e.g., `/commit_ru`, `/debug_ai`) that explicitly names an agent in its definition, you MAY call `get_agent_context(agent_name, query)` directly instead of `route_and_load`. The gate still applies — you must call one of them.
+
+## 4. Incident Reference
+
+| Date | Incident | Root Cause |
+|---|---|---|
+| 2026-03-19 | WebSearch called without routing for OSINT task | STOP-GATE absent; model optimized away pre-flight |
+
+This rule exists because of the above. Do not weaken it.

@@ -1,6 +1,6 @@
 # Document OCR MCP Server
 
-A local MCP server for extracting text from PDF documents and images, including handwritten text, using Vision API (Claude or GPT-4V).
+A local MCP server for extracting text from PDF documents and images, including handwritten text, using Claude Vision API.
 
 ## Features
 
@@ -38,8 +38,6 @@ brew install poppler
 
 ```bash
 pip install pdf2image Pillow anthropic
-# or for OpenAI:
-pip install pdf2image Pillow openai
 ```
 
 ## Configuration
@@ -47,12 +45,8 @@ pip install pdf2image Pillow openai
 Copy `.env.example` to `.env` and configure:
 
 ```env
-# Vision API Provider
-OCR_VISION_PROVIDER=anthropic  # or "openai"
-
 # API Keys
 ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_API_KEY=sk-...
 ```
 
 ## Usage

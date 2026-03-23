@@ -2,6 +2,8 @@
 description: Complexity-Based Prompting. Demands long reasoning chain. Chooses most complex answer in Self-Consistency.
 globs: []
 alwaysApply: false
+short_name: ComplexityPrompting
+one_liner: maximize reasoning chain length for complex tasks
 ---
 ## Pattern
 "Solve in maximum detail. Write every single logical step. The longer and more detailed the chain, the better."

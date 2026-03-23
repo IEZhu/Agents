@@ -3,8 +3,7 @@ import uuid
 import dotenv
 import asyncio
 from typing import List, Optional
-from langfuse import Langfuse
-from langfuse import observe
+from src.utils.langfuse_compat import observe, get_langfuse
 
 from src.schemas.protocol import AgentRequest, AgentResponse
 from src.engine.router import SemanticRouter
@@ -15,9 +14,7 @@ from src.engine.context import ContextRetriever
 # Load environment variables
 dotenv.load_dotenv()
 
-# Initialize Langfuse
-# Assumes LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST are set
-langfuse = Langfuse()
+langfuse = get_langfuse()
 
 class AgentSystem:
     def __init__(self):
@@ -61,24 +58,9 @@ class AgentSystem:
         if formatted_implants:
             system_prompt += "\n\n" + formatted_implants
 
-        # 5. Execute Agent (Mock execution for now, using OpenAI)
-        # In a real system, this would call the specific agent class
-
-        from openai import OpenAI
-        client = OpenAI()
-
-        completion = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query}
-            ]
-        )
-
-        response_content = completion.choices[0].message.content
-
+        # 5. Return enriched prompt (LLM execution is handled by the MCP client)
         return AgentResponse(
-            content=response_content,
+            content=system_prompt,
             agent_name=decision.target_agent,
             metadata={
                 "router_decision": decision.model_dump(),

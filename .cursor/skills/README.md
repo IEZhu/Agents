@@ -63,6 +63,8 @@ Persona for this skill.
 | `skill-dev-security` | Secure coding, OWASP, input validation |
 | `skill-reasoning-code` | Code-specific reasoning patterns |
 | `skill-mcp-development` | MCP server development best practices |
+| `skill-blender-scripting` | Blender Python (bpy) scripting, manifold geometry, 3D printing |
+| `skill-roblox-development` | Roblox Luau patterns, DataStore, anti-exploit, performance |
 
 ### Analysis & Research
 
@@ -73,6 +75,8 @@ Persona for this skill.
 | `skill-dense-summarization` | High-density information extraction (80/20) |
 | `skill-agnotology` | Study of ignorance/misinformation |
 | `skill-temporal-validation` | Time-sensitive fact verification |
+| `skill-fact-verification` | Source triangulation, chain-of-verification, anomaly detection |
+| `skill-wayback-machine` | Temporal forensic layer via Archive.org Wayback Machine |
 
 ### Content & Communication
 
@@ -83,6 +87,8 @@ Persona for this skill.
 | `skill-git-conventions` | Conventional Commits, atomic commits |
 | `skill-clickup-markdown` | ClickUp-compatible markdown formatting |
 | `skill-mermaid-best-practices` | Diagram creation with Mermaid |
+| `skill-literary-devices` | Literary devices, tropes, sound symbolism |
+| `skill-narrative-craft` | Story building, voice, pacing, emotional arcs |
 
 ### Domain-Specific
 
@@ -95,6 +101,14 @@ Persona for this skill.
 | `skill-purchase-research` | Decision matrix methodology |
 | `skill-3d-platforms` | 3D printing platforms knowledge |
 | `skill-3d-print-search` | 3D model search strategies |
+| `skill-fitness-programming` | Exercise programming, periodization, spine-safe biomechanics |
+
+### Platform Integration
+
+| Skill | Description |
+|-------|-------------|
+| `skill-plata-atalssian` | Jira, Confluence, Rovo via Plata MCP |
+| `skill-plata-gitlab` | GitLab Issues, MRs, Pipelines via Plata MCP |
 
 ### System
 

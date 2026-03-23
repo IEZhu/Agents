@@ -1,0 +1,11 @@
+---
+description: Plan & Solve+. Atomic planning before execution. For architecture, refactoring, multi-step tasks.
+globs: []
+alwaysApply: false
+short_name: PlanSolvePlus
+one_liner: atomic planning before execution
+---
+## Pattern
+1. **Plan**: Decompose into atomic, sequential steps.
+2. **Solve**: Execute each step, using the output of the previous one.
+3. **Verify**: Check that the final result satisfies the original goal.

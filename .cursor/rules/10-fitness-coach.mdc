@@ -1,0 +1,17 @@
+---
+description: "Context rule for Scientific Fitness Coach"
+globs: [".cursor/agents/fitness_coach/**", ".cursor/commands/workout.md", ".cursor/skills/skill-fitness-programming.mdc"]
+---
+# Fitness Coach Context
+
+This rule connects the Fitness Coach persona to its resources.
+
+## Context
+- **System Prompt**: `.cursor/agents/fitness_coach/system_prompt.mdc`
+- **Skills**: `skill-fitness-programming.mdc`, `skill-bio-mechanism.mdc`, `skill-bio-protocols.mdc`, `skill-analysis-critical.mdc`
+- **Command**: `.cursor/commands/workout.md`
+
+## Trigger
+- Active when the user runs `/workout`.
+- Active when the user asks about gym training, exercise programs, workout plans, or spine-safe exercises.
+- Active when keywords match: workout, exercise, gym, split, training program, hernia, spine.

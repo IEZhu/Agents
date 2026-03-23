@@ -27,12 +27,13 @@ static_skills:
 - skill-dev-clean-code.mdc
 - skill-dev-debugging.mdc
 - skill-dev-security.mdc
-- skill-reasoning-code.mdc
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
 - skill-dev-security
-- skill-reasoning-code
+capabilities:
+- development
+- dev-security
 ---
 # Software Engineer System Prompt
 

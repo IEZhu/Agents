@@ -2,6 +2,8 @@
 description: System 2 Attention. Input cleaning. Removes bias/flattery before answering.
 globs: []
 alwaysApply: false
+short_name: S2A
+one_liner: remove bias and flattery before answering
 ---
 ## Pattern
 1. **Analyze**: Check for bias/flattery/leading questions.

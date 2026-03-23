@@ -2,6 +2,8 @@
 description: Graph of Thoughts (GoT). Network reasoning. Generate nodes (ideas), score, branch, synthesize.
 globs: []
 alwaysApply: false
+short_name: GoT
+one_liner: network reasoning with branching and synthesis
 ---
 ## Pattern
 1. **Generate**: 3-5 alternative approaches.

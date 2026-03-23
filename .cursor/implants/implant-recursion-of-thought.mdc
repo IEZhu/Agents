@@ -2,6 +2,8 @@
 description: Recursion of Thought. Breaking recursive tasks (nested structures) into sub-calls.
 globs: []
 alwaysApply: false
+short_name: RoT
+one_liner: handle nested recursive structures via sub-calls
 ---
 ## Pattern
 "Identify recursive structure. Call abstract function 'solve_subtask' for each nested part."

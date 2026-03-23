@@ -1,0 +1,11 @@
+---
+description: Chain of Code (CoC). Pseudocode-driven reasoning. For logic puzzles and multi-step math.
+globs: []
+alwaysApply: false
+short_name: CoC
+one_liner: pseudocode-driven reasoning for logic and math
+---
+## Pattern
+1. **Pseudocode**: Express the problem as pseudocode or algorithm.
+2. **Mental Simulation**: Trace execution step by step.
+3. **Answer**: Extract result from the trace.

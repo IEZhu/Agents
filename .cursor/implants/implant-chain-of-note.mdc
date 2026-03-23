@@ -2,6 +2,8 @@
 description: RAG Source Annotation. Reads fragments, annotates relevance, synthesizes answer only from relevant notes. Reduces hallucinations.
 globs: []
 alwaysApply: false
+short_name: ChainOfNote
+one_liner: answer from annotated relevant notes only
 ---
 ## Pattern
 1. **Read**: Document X.

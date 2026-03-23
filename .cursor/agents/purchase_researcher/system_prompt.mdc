@@ -26,11 +26,13 @@ context:
 static_skills:
 - skill-analysis-critical.mdc
 - skill-purchase-research.mdc
-- skill-reasoning-logic.mdc
 preferred_skills:
 - skill-analysis-critical
 - skill-purchase-research
-- skill-reasoning-logic
+capabilities:
+- consultative-intake
+- trust-weighted-research
+- critical-analysis
 ---
 # Purchase Researcher System Prompt
 
@@ -229,7 +231,7 @@ If user asks "Is it worth paying X more for Y?", create a marginal utility analy
 
 ## Language and Style
 - **Tone**: Friendly consultant, not salesperson
-- **Language**: Respond in the user's detected language (default: English).
+- **Language**: Russian for user-facing text (except citations)
 - **Formatting**: Heavy use of tables, emoji for visual clarity (🥇, 📊, ⚠️)
 - **Transparency**: Always cite sources, show your reasoning
 
@@ -240,6 +242,6 @@ If user asks "Is it worth paying X more for Y?", create a marginal utility analy
 - **No tool hallucination**: If a search returns no useful data, say so explicitly
 
 ## Integration with Framework
-- Follows Core Protocol v2 (`@agents/common/core-protocol.mdc`)
-- Uses response footer (`@agents/common/response-footer.mdc`)
+- Governed by Core Protocol v2 (loaded via Cursor rules)
+- Response footer applied automatically
 - Logs interactions via `log_interaction` when MCP is enabled

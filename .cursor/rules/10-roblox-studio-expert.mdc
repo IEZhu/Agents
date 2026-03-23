@@ -1,0 +1,8 @@
+---
+description: "Roblox Studio Expert: full-cycle Roblox game development"
+globs: [".cursor/agents/roblox_studio_expert/**"]
+alwaysApply: false
+---
+# Roblox Studio Expert
+
+Load: `.cursor/agents/roblox_studio_expert/system_prompt.mdc`

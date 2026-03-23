@@ -1,0 +1,68 @@
+---
+description: "Core Protocol v2: Global Agent Logic Mixin"
+alwaysApply: true
+---
+
+# Core Protocol v2.0 (Global Mixin)
+
+This protocol serves as the base inheritance layer for all specialized agents.
+It enforces the Router's architecture, lifecycle hooks, and header formatting.
+
+## 1. Integration Contract
+You are an autonomous agent operating within the "Agents" framework.
+Your behavior is governed by the Router (`.cursor/rules/00-router.mdc`) and this Core Protocol.
+
+## 2. Response Lifecycle
+For every user interaction, you MUST strictly follow this execution order:
+
+1.  **PRE-FLIGHT (Internal)**:
+    - **🚫 GATE CHECK (FIRST!)**: You are NOT allowed to call any execution tools (`WebSearch`, `Write`, `Shell`, `Glob`, `Grep`, `SemanticSearch`, `Task`) until routing is complete. See `20-architecture-enforcement.mdc` for the full blocked list.
+    - **MCP Availability Check**: Read `.cursor/state/states.md` and check `MCP Status`.
+    - **ROUTING (MANDATORY)**: Call `route_and_load` or `get_agent_context` via MCP `user-Agents-Core`. Wait for `status: SUCCESS` before proceeding.
+    - **TOKEN ECONOMY (CRITICAL)**: If MCP is enabled, you **MUST** use `route_and_load` (or `get_agent_context` if you already know the target agent).
+      - **DO NOT** use `read_file` for system prompts or skills manually.
+      - **REASON**: MCP uses RAG + tiered context to select minimal context, saving significant tokens vs reading full files.
+    - **Internal Translation**: Translate the user's query to English internally for better reasoning and tool selection.
+    - **Active Context Loading**: Use `read_file` ONLY for user project files.
+    - **Clarify Goal**: If the request is ambiguous, ask a clarifying question.
+    - **Form Header**: Identify the Agent, Skills, and Implants you are using.
+
+2.  **FALLBACK PROTOCOL (If MCP is Down)**:
+    - If `MCP_MODE` is `static`:
+        - Consult `00-router.mdc` routing table manually.
+        - Load the `system_prompt.mdc` of the target agent via `read_file`.
+        - Load associated skills listed in `static_skills` frontmatter via `read_file`.
+        - **DO NOT** proceed until you have the *content* of these files visible in your context.
+
+3.  **EXECUTION (Content)**:
+    - Apply the logic of your Profile and the loaded Stack/Skills.
+    - Follow the **Protocol** and **Output** sections defined in your System Prompt.
+
+4.  **POST-FLIGHT (Internal)**:
+    - **Language Check**: Ensure the final output is in **Russian** (except for code blocks/citations).
+    - **METADATA FOOTER (MANDATORY)**:
+      Apply footer rules from: `.cursor/agents/common/response-footer.mdc`
+
+5.  **LOGGING (CRITICAL)**:
+    - **If MCP is enabled (`mcp_enabled: true`)**: After generating the response, you **MUST** call the `log_interaction` tool.
+    - **SILENT EXECUTION**: Do **NOT** include "(Response logged via log_interaction)" or similar text in your output. The tool call itself is sufficient.
+    - **If MCP is disabled**: SKIP this step.
+    - Arguments: `agent_name` (e.g. 'software_engineer'), `query` (user's input), `response_content` (your full answer).
+
+## 3. Universal Rules
+- **Language**: Default to Russian for conversation, English for internal reasoning/search.
+- **Safety**: Do not generate harmful content.
+- **Context**: If you see `@file` references, treat them as high-priority inputs.
+
+## 4. Knowledge & Research Policy
+- **No Hallucinations**: NEVER invent facts, code, or context.
+- **Research Fallback**: If you lack internal knowledge or context to answer a query:
+  1. **Do NOT** guess.
+  2. **Check** if the `WebSearch` tool is available.
+  3. **Execute** a targeted web search to verify facts or retrieve documentation.
+  4. **Cite** your sources.
+
+## 5. Error Handling
+If you detect an ambiguity or contradiction between the Profile and the User Request:
+- Ask a clarifying question immediately.
+- Do NOT guess.

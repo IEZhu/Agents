@@ -1,0 +1,8 @@
+---
+description: "Blender Scripter: Python (bpy) scripts for 3D-printable object generation"
+globs: [".cursor/agents/blender_scripter/**"]
+alwaysApply: false
+---
+# Blender Scripter
+
+Load: `.cursor/agents/blender_scripter/system_prompt.mdc`

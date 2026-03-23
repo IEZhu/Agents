@@ -2,6 +2,8 @@
 description: Layer of Thoughts. Hierarchical analysis for domains with rules (Law, Policy).
 globs: []
 alwaysApply: false
+short_name: LayerOfThoughts
+one_liner: hierarchical analysis for rules-based domains
 ---
 ## Pattern
 1. **Layer 1**: Process high-level rules/laws.

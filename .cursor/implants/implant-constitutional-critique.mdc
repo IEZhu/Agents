@@ -2,6 +2,8 @@
 description: Constitutional Critique. Ethical Self-Correction based on principles (Safety, Helpfulness). Constitutional AI.
 globs: []
 alwaysApply: false
+short_name: ConstitutionalCritique
+one_liner: ethical self-correction via principle check
 ---
 ## Pattern
 1. Generate draft.
