@@ -16,24 +16,18 @@ import yaml
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from path_utils import resolve_path
+
 # Add project root to path
 SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-def _resolve_path(primary: Path, fallback: Path) -> Path:
-    """Use the new path if it exists, fall back to legacy .cursor/ path."""
-    if primary.exists():
-        return primary
-    if fallback.exists():
-        return fallback
-    return primary
-
-AGENTS_DIR = _resolve_path(
+AGENTS_DIR = resolve_path(
     REPO_ROOT / "agents",
     REPO_ROOT / ".cursor" / "agents",
 )
-SCHEMA_PATH = _resolve_path(
+SCHEMA_PATH = resolve_path(
     REPO_ROOT / "agents" / "common" / "agent-schema.json",
     REPO_ROOT / ".cursor" / "agents" / "common" / "agent-schema.json",
 )

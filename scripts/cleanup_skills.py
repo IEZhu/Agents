@@ -8,17 +8,11 @@ import re
 import sys
 from pathlib import Path
 
+from path_utils import resolve_path
+
 REPO_ROOT = Path(__file__).parent.parent
 
-def _resolve_path(primary: Path, fallback: Path) -> Path:
-    """Use the new path if it exists, fall back to legacy .cursor/ path."""
-    if primary.exists():
-        return primary
-    if fallback.exists():
-        return fallback
-    return primary
-
-SKILLS_DIR = _resolve_path(
+SKILLS_DIR = resolve_path(
     REPO_ROOT / "skills",
     REPO_ROOT / ".cursor" / "skills",
 )

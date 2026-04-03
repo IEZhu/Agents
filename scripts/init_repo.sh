@@ -429,15 +429,16 @@ if [ "$SKIP_INSTALL" = false ]; then
     print_header "🧠 Pre-downloading Embedding Model"
 
     print_step "Downloading BAAI/bge-m3 (this may take a few minutes on first run)..."
+    set +e
     python -c "
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('BAAI/bge-m3')
 print('Model ready')
-" 2>&1 | while IFS= read -r line; do
-        echo "    $line"
-    done
+" 2>&1
+    MODEL_EXIT=$?
+    set -e
 
-    if [ $? -eq 0 ]; then
+    if [ $MODEL_EXIT -eq 0 ]; then
         print_success "Embedding model cached and ready"
     else
         print_warn "Model download failed — it will be downloaded on first MCP server start"
