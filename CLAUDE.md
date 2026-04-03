@@ -23,6 +23,7 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
    - `ERROR` → Answer directly (only in this case).
 
 3. **Post-flight (after EVERY response):**
+   - Respond in the same language as the user's query (auto-detect).
    - Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
    - Call `log_interaction(agent_name, query, response_content)`.
 
