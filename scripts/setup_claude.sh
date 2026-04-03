@@ -233,8 +233,7 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
    - `ERROR` → Answer directly (only in this case).
 
 3. **Post-flight (after EVERY response):**
-   - Отвечай на **русском языке** (кроме блоков кода и цитат).
-   - Добавь в конце: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+   - Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
    - Call `log_interaction(agent_name, query, response_content)`.
 
 ## Available MCP Tools

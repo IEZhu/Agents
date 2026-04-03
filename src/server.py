@@ -51,8 +51,7 @@ mcp = FastMCP(
         "- ROUTE_REQUIRED → pick best agent from `candidates`, call `get_agent_context(agent_name, query)`.\n"
         "- NO_CHANGE → context unchanged, continue.\n"
         "- ERROR → answer directly (only fallback).\n\n"
-        "Отвечай на русском языке (кроме блоков кода).\n"
-        "В конце добавь: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]"
+        "Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]"
     ),
 )
 
@@ -210,8 +209,7 @@ async def route_and_load(
     - NO_CHANGE → Context unchanged, continue with current persona.
     - ERROR → Answer directly (only fallback).
 
-    Отвечай на русском языке (кроме кода).
-    В конце: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     Pass `context_hash` from a previous response to enable delta mode.
     """
     try:
@@ -321,8 +319,7 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
     Pick the best agent from the candidates list and pass its name here.
     If the client supports sampling, returns a ready-made response (SUCCESS_SAMPLED).
     Otherwise returns the system_prompt for you to use as context.
-    Отвечай на русском языке (кроме кода).
-    Append: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     """
     try:
         chat_history_list = _normalize_chat_history(chat_history)
