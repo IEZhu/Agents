@@ -9,7 +9,15 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-SKILLS_DIR = REPO_ROOT / "skills"
+
+def _resolve_path(primary: Path, fallback: Path) -> Path:
+    """Use the new path if it exists, fall back to legacy .cursor/ path."""
+    return primary if primary.exists() else fallback
+
+SKILLS_DIR = _resolve_path(
+    REPO_ROOT / "skills",
+    REPO_ROOT / ".cursor" / "skills",
+)
 
 def process_skill_file(file_path: Path) -> bool:
     """Remove globs from a skill file."""

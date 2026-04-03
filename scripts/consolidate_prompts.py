@@ -11,7 +11,15 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-AGENTS_DIR = REPO_ROOT / "agents"
+
+def _resolve_path(primary: Path, fallback: Path) -> Path:
+    """Use the new path if it exists, fall back to legacy .cursor/ path."""
+    return primary if primary.exists() else fallback
+
+AGENTS_DIR = _resolve_path(
+    REPO_ROOT / "agents",
+    REPO_ROOT / ".cursor" / "agents",
+)
 
 def process_agent_prompt(file_path: Path) -> bool:
     """Process a single agent system_prompt.mdc file."""
