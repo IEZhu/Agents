@@ -224,7 +224,7 @@ else
 fi
 
 if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
-    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 1 -type d ! -name "common" ! -name ".*" ! -path "$AGENTS_BASE" | wc -l)
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" | wc -l)
     SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
     IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
     COMMAND_COUNT=$(find "$COMMANDS_BASE" -name "*.md" 2>/dev/null | wc -l)
