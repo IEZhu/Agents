@@ -21,8 +21,18 @@ SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-AGENTS_DIR = REPO_ROOT / "agents"
-SCHEMA_PATH = REPO_ROOT / "agents" / "common" / "agent-schema.json"
+def _resolve_path(primary: Path, fallback: Path) -> Path:
+    """Use the new path if it exists, fall back to legacy .cursor/ path."""
+    return primary if primary.exists() else fallback
+
+AGENTS_DIR = _resolve_path(
+    REPO_ROOT / "agents",
+    REPO_ROOT / ".cursor" / "agents",
+)
+SCHEMA_PATH = _resolve_path(
+    REPO_ROOT / "agents" / "common" / "agent-schema.json",
+    REPO_ROOT / ".cursor" / "agents" / "common" / "agent-schema.json",
+)
 
 def load_schema() -> dict:
     """Load the agent schema."""
