@@ -161,7 +161,11 @@ def load_agent_prompt(agent_name: str) -> str:
 
     # Security: ensure the resolved path stays within AGENTS_DIR (realpath resolves symlinks)
     abs_path = os.path.realpath(base_path)
-    if os.path.commonpath([os.path.realpath(AGENTS_DIR), abs_path]) != os.path.realpath(AGENTS_DIR):
+    agents_dir_real = os.path.realpath(AGENTS_DIR)
+    try:
+        if os.path.commonpath([agents_dir_real, abs_path]) != agents_dir_real:
+            raise ValueError(f"Invalid agent name: {agent_name}")
+    except ValueError:
         raise ValueError(f"Invalid agent name: {agent_name}")
 
     if not os.path.exists(base_path):
