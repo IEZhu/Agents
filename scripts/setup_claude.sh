@@ -71,7 +71,8 @@ echo -e "${CYAN}==================================================${NC}"
 check_command() { command -v "$1" &> /dev/null; }
 
 get_python_version() {
-    "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+    # Suppress stderr to avoid pyenv shim noise when a version isn't activated
+    "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null
 }
 
 version_gte() {
@@ -92,7 +93,8 @@ else
     SELECTED_PYTHON=""
     for candidate in python3.11 python3.10 python3.12 python3; do
         if check_command "$candidate"; then
-            VER=$(get_python_version "$candidate")
+            VER=$(get_python_version "$candidate") || continue
+            [ -z "$VER" ] && continue
             if version_gte "$VER" "$PYTHON_MIN_VERSION"; then
                 SELECTED_PYTHON="$candidate"
                 break

@@ -85,7 +85,8 @@ check_command() {
 }
 
 get_python_version() {
-    $1 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+    # Suppress stderr to avoid pyenv shim noise when a version isn't activated
+    $1 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null
 }
 
 version_gte() {
@@ -122,7 +123,8 @@ if [ -z "$SELECTED_PYTHON" ]; then
     # Order of preference: 3.11 -> 3.10 -> 3.12 (3.11 is most stable for ML now)
     for CANDIDATE in python3.11 python3.10 python3.12; do
         if check_command "$CANDIDATE"; then
-             VER=$(get_python_version "$CANDIDATE")
+             VER=$(get_python_version "$CANDIDATE") || continue
+             [ -z "$VER" ] && continue
              if version_gte "$VER" "$PYTHON_MIN_VERSION"; then
                  SELECTED_PYTHON="$CANDIDATE"
                  print_success "Found suitable Python: $SELECTED_PYTHON ($VER)"
