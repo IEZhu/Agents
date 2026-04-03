@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 #
-# Настройка Agents-Core MCP для Claude Code
+# Agents-Core MCP Setup for Claude Code
 #
-# Что делает:
-#   1. Создаёт/проверяет Python venv и устанавливает зависимости
-#   2. Инжектит Agents-Core в ~/.claude.json (глобальный MCP-конфиг)
-#   3. Генерирует CLAUDE.md с протоколом маршрутизации
-#   4. Опционально: создаёт .mcp.json (проектный конфиг, --local)
+# What it does:
+#   1. Creates/validates Python venv and installs dependencies
+#   2. Injects Agents-Core into ~/.claude.json (global MCP config)
+#   3. Injects into Claude Desktop config (macOS + Linux)
+#   4. Generates CLAUDE.md with the routing protocol
+#   5. Optionally creates .mcp.json (project-level config, --local)
 #
-# Использование:
+# Usage:
 #   ./scripts/setup_claude.sh [--local] [--skip-venv]
 #
-# Флаги:
-#   --local       Также создать .mcp.json в корне репо (проектный конфиг)
-#   --skip-venv   Пропустить создание venv (если уже есть)
-#   --help        Показать справку
+# Flags:
+#   --local       Also create .mcp.json in the repo root (project-level config)
+#   --skip-venv   Skip venv creation (if it already exists)
+#   --help        Show this help message
 
 set -euo pipefail
 
@@ -27,16 +28,16 @@ LOCAL_MCP=false
 SKIP_VENV=false
 
 show_help() {
-    echo "Настройка Agents-Core MCP для Claude Code"
+    echo "Agents-Core MCP Setup for Claude Code"
     echo ""
-    echo "Использование: ./scripts/setup_claude.sh [--local] [--skip-venv]"
+    echo "Usage: ./scripts/setup_claude.sh [--local] [--skip-venv]"
     echo ""
-    echo "По умолчанию настраивает глобально (~/.claude.json)."
+    echo "By default, configures globally (~/.claude.json)."
     echo ""
-    echo "Флаги:"
-    echo "  --local       Также создать .mcp.json в корне репо (проектный конфиг)"
-    echo "  --skip-venv   Пропустить создание venv (если уже есть)"
-    echo "  --help        Показать эту справку"
+    echo "Flags:"
+    echo "  --local       Also create .mcp.json in the repo root (project-level config)"
+    echo "  --skip-venv   Skip venv creation (if it already exists)"
+    echo "  --help        Show this help message"
     exit 0
 }
 
@@ -48,25 +49,25 @@ for arg in "$@"; do
     esac
 done
 
-# ── Цвета ─────────────────────────────────────────────────────────
+# -- Colors ----------------------------------------------------------------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-print_header()  { echo ""; echo -e "${CYAN}━━━ $1 ━━━${NC}"; }
-print_step()    { echo -e "  ${GREEN}→${NC} $1"; }
-print_warn()    { echo -e "  ${YELLOW}⚠${NC} $1"; }
-print_error()   { echo -e "  ${RED}✗${NC} $1"; }
-print_success() { echo -e "  ${GREEN}✓${NC} $1"; }
+print_header()  { echo ""; echo -e "${CYAN}--- $1 ---${NC}"; }
+print_step()    { echo -e "  ${GREEN}>${NC} $1"; }
+print_warn()    { echo -e "  ${YELLOW}!${NC} $1"; }
+print_error()   { echo -e "  ${RED}x${NC} $1"; }
+print_success() { echo -e "  ${GREEN}+${NC} $1"; }
 
 echo ""
-echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
-echo -e "  ${GREEN}Настройка Agents-Core MCP для Claude Code${NC}"
-echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}==================================================${NC}"
+echo -e "  ${GREEN}Agents-Core MCP Setup for Claude Code${NC}"
+echo -e "${CYAN}==================================================${NC}"
 
-# ── Утилиты ───────────────────────────────────────────────────────
+# -- Utilities -------------------------------------------------------------
 check_command() { command -v "$1" &> /dev/null; }
 
 get_python_version() {
@@ -77,14 +78,14 @@ version_gte() {
     printf '%s\n%s' "$2" "$1" | sort -V -C
 }
 
-# ── 1. Python & venv ─────────────────────────────────────────────
+# -- 1. Python & venv -----------------------------------------------------
 print_header "1/5  Python & Virtual Environment"
 
 if [ "$SKIP_VENV" = true ]; then
     if [ -d "$VENV_PATH" ]; then
-        print_step "Пропуск создания venv (--skip-venv)"
+        print_step "Skipping venv creation (--skip-venv)"
     else
-        print_error "--skip-venv указан, но venv не найден: $VENV_PATH"
+        print_error "--skip-venv specified, but venv not found: $VENV_PATH"
         exit 1
     fi
 else
@@ -100,38 +101,38 @@ else
     done
 
     if [ -z "$SELECTED_PYTHON" ]; then
-        print_error "Python >= $PYTHON_MIN_VERSION не найден!"
+        print_error "Python >= $PYTHON_MIN_VERSION not found!"
         exit 1
     fi
     print_success "Python: $SELECTED_PYTHON ($(get_python_version "$SELECTED_PYTHON"))"
 
     if [ ! -d "$VENV_PATH" ]; then
-        print_step "Создание venv..."
+        print_step "Creating venv..."
         "$SELECTED_PYTHON" -m venv "$VENV_PATH"
-        print_success "venv создан: $VENV_PATH"
+        print_success "venv created: $VENV_PATH"
     else
-        print_success "venv уже существует: $VENV_PATH"
+        print_success "venv already exists: $VENV_PATH"
     fi
 
-    print_step "Установка зависимостей..."
+    print_step "Installing dependencies..."
     "$VENV_PATH/bin/pip" install --quiet --upgrade pip
     "$VENV_PATH/bin/pip" install --quiet -r "$REPO_ROOT/requirements.txt"
-    print_success "Зависимости установлены"
+    print_success "Dependencies installed"
 fi
 
 PYTHON_ABS="$VENV_PATH/bin/python"
 SERVER_ABS="$REPO_ROOT/src/server.py"
 
 if [ ! -f "$PYTHON_ABS" ]; then
-    print_error "Не найден: $PYTHON_ABS"
+    print_error "Not found: $PYTHON_ABS"
     exit 1
 fi
 if [ ! -f "$SERVER_ABS" ]; then
-    print_error "Не найден: $SERVER_ABS"
+    print_error "Not found: $SERVER_ABS"
     exit 1
 fi
 
-# ── Helper: inject MCP into a JSON config file ──────────────────
+# -- Helper: inject MCP into a JSON config file ---------------------------
 inject_mcp_config() {
     local config_path="$1"
     local label="$2"
@@ -164,77 +165,83 @@ with open(config_path, 'w') as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
 
 print('OK')
-" && print_success "Agents-Core добавлен в $label" \
-  || { print_error "Не удалось обновить $label"; return 1; }
+" && print_success "Agents-Core added to $label" \
+  || { print_error "Failed to update $label"; return 1; }
 }
 
-# ── 2. Глобальный конфиг Claude Code (~/.claude.json) ────────────
-print_header "2/5  Claude Code MCP-конфиг (~/.claude.json)"
+# -- 2. Claude Code global config (~/.claude.json) ------------------------
+print_header "2/5  Claude Code MCP config (~/.claude.json)"
 
 CLAUDE_GLOBAL="$HOME/.claude.json"
 
 if [ ! -f "$CLAUDE_GLOBAL" ]; then
-    print_step "Создание ~/.claude.json..."
+    print_step "Creating ~/.claude.json..."
     echo '{}' > "$CLAUDE_GLOBAL"
 fi
 
 inject_mcp_config "$CLAUDE_GLOBAL" "~/.claude.json"
 
-# ── 3. Claude Desktop конфиг ─────────────────────────────────────
-print_header "3/5  Claude Desktop MCP-конфиг"
+# -- 3. Claude Desktop config ---------------------------------------------
+print_header "3/5  Claude Desktop MCP config"
 
-CLAUDE_DESKTOP_DIR="$HOME/Library/Application Support/Claude"
-CLAUDE_DESKTOP_CONFIG="$CLAUDE_DESKTOP_DIR/claude_desktop_config.json"
+CLAUDE_DESKTOP_DIR=""
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    CLAUDE_DESKTOP_DIR="$HOME/Library/Application Support/Claude"
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    CLAUDE_DESKTOP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/Claude"
+fi
 
-if [ -d "$CLAUDE_DESKTOP_DIR" ]; then
+if [ -n "$CLAUDE_DESKTOP_DIR" ] && [ -d "$CLAUDE_DESKTOP_DIR" ]; then
+    CLAUDE_DESKTOP_CONFIG="$CLAUDE_DESKTOP_DIR/claude_desktop_config.json"
     if [ ! -f "$CLAUDE_DESKTOP_CONFIG" ]; then
-        print_step "Создание claude_desktop_config.json..."
+        print_step "Creating claude_desktop_config.json..."
         echo '{}' > "$CLAUDE_DESKTOP_CONFIG"
     fi
     inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config"
 else
-    print_step "Claude Desktop не установлен — пропущено"
-    print_step "Путь: $CLAUDE_DESKTOP_DIR"
+    print_step "Claude Desktop not installed -- skipped"
 fi
 
-# ── 3. CLAUDE.md (протокол маршрутизации) ─────────────────────────
-print_header "4/5  CLAUDE.md (протокол маршрутизации)"
+# -- 4. CLAUDE.md (routing protocol) --------------------------------------
+print_header "4/5  CLAUDE.md (routing protocol)"
 
 CLAUDE_MD="$REPO_ROOT/CLAUDE.md"
 
 cat > "$CLAUDE_MD" << 'CLAUDEEOF'
-# Agents Framework — Router Protocol for Claude Code
+# CRITICAL: Agents-Core Routing Protocol
 
-You operate under the **Agents-Core** multi-agent routing system.
-Call `route_and_load(query)` to route any user query to the best specialist agent.
+IMPORTANT: These instructions OVERRIDE any default behavior. You MUST follow them exactly.
 
-## Routing Flow
+## BLOCKING REQUIREMENT — MCP Routing
 
-### Step 1: Route
-Call `route_and_load(query)` with the user's message.
-- On multi-turn: pass previous `context_hash` for delta mode.
+**Before answering ANY user query, you MUST call `route_and_load(query)` from the Agents-Core MCP server.** This is not optional. Do NOT answer directly — always route first.
 
-### Step 2: Handle Response
+This applies to ALL queries: coding, research, questions, documentation, debugging — everything.
 
-| Status | Action |
-|--------|--------|
-| **SUCCESS_SAMPLED** | `response` contains the agent's ready-made answer. Display it to the user as-is. |
-| **SUCCESS** | `system_prompt` is provided. Use it as context for your answer. |
-| **ROUTE_REQUIRED** | Pick the best agent from `candidates`, then call `get_agent_context(agent_name, query)`. |
-| **NO_CHANGE** | Context unchanged. Keep current persona. |
-| **ERROR** | Answer directly. |
+### Routing Flow
 
-### Step 3: Post-flight
-- **Язык ответа**: Отвечай на **русском языке** (кроме блоков кода и цитат).
-- **Footer** (в конце каждого ответа):
-  > **Agent**: [Agent Name] · **Skills**: [loaded skills] · **Implants**: [loaded implants]
-- **Logging**: Call `log_interaction(agent_name, query, response_content)` after responding.
+1. **ALWAYS call `route_and_load(query)` FIRST** with the user's message.
+   - On multi-turn: pass previous `context_hash` for delta mode.
+
+2. **Handle the response based on status:**
+   - `SUCCESS_SAMPLED` → Display `response` to the user as-is. Do not modify.
+   - `SUCCESS` → Use `system_prompt` as context for your answer.
+   - `ROUTE_REQUIRED` → **STOP all other actions.** Do NOT call any other tools in parallel.
+     Pick best agent from `candidates`, call `get_agent_context(agent_name, query)` as your ONLY next action.
+     Wait for its response before doing anything else.
+   - `NO_CHANGE` → Context unchanged. Keep current persona.
+   - `ERROR` → Answer directly (only in this case).
+
+3. **Post-flight (after EVERY response):**
+   - Отвечай на **русском языке** (кроме блоков кода и цитат).
+   - Добавь в конце: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+   - Call `log_interaction(agent_name, query, response_content)`.
 
 ## Available MCP Tools
 
 | Tool | Purpose |
 |---|---|
-| `route_and_load(query)` | Auto-route: returns agent response (sampling) or system_prompt (fallback) |
+| `route_and_load(query)` | **MUST call first** — routes to best specialist agent |
 | `get_agent_context(agent_name, query)` | Load a specific agent (after ROUTE_REQUIRED) |
 | `load_implants(task_type)` | Load reasoning strategies (debugging/analysis/creative/planning) |
 | `list_agents()` | List all available agents |
@@ -244,23 +251,24 @@ Call `route_and_load(query)` with the user's message.
 ## Environment
 
 - MCP server: `Agents-Core` (stdio transport, Python/FastMCP)
-- Agents: `.cursor/agents/[name]/system_prompt.mdc`
-- Skills: `.cursor/skills/skill-*.mdc`
-- Implants: `.cursor/implants/implant-*.mdc`
+- Agents: `agents/[name]/system_prompt.mdc`
+- Skills: `skills/skill-*.mdc`
+- Implants: `implants/implant-*.mdc`
+- Capabilities: `agents/capabilities/registry.yaml`
 - Config: `.env` (LANGFUSE_* optional, ANTHROPIC_API_KEY for document OCR)
 
 ## Fallback (if MCP is unavailable)
 
-If `route_and_load` fails:
-1. Read `.cursor/agents/` to find the right agent directory
-2. Read `.cursor/agents/[name]/system_prompt.mdc`
+If `route_and_load` fails or Agents-Core MCP is not connected:
+1. Read `agents/` to find the right agent directory
+2. Read `agents/[name]/system_prompt.mdc`
 3. Follow the prompt manually
 CLAUDEEOF
 
-print_success "Создан: $CLAUDE_MD"
+print_success "Created: $CLAUDE_MD"
 
-# ── 4. Проектный .mcp.json (опционально) ─────────────────────────
-print_header "5/5  Проектный MCP-конфиг (.mcp.json)"
+# -- 5. Project-level .mcp.json (optional) --------------------------------
+print_header "5/5  Project MCP config (.mcp.json)"
 
 if [ "$LOCAL_MCP" = true ]; then
     MCP_PROJECT="$REPO_ROOT/.mcp.json"
@@ -276,53 +284,43 @@ if [ "$LOCAL_MCP" = true ]; then
 }
 MCPEOF
 
-    print_success "Создан: $MCP_PROJECT"
+    print_success "Created: $MCP_PROJECT"
 else
-    print_step "Пропущено (используйте --local для проектного конфига)"
-    print_step "Глобальный ~/.claude.json уже настроен — этого достаточно"
+    print_step "Skipped (use --local for project-level config)"
+    print_step "Global ~/.claude.json is already configured -- that's enough"
 fi
 
-# ── .env проверка ─────────────────────────────────────────────────
+# -- .env check -----------------------------------------------------------
 echo ""
 ENV_FILE="$REPO_ROOT/.env"
 if [ ! -f "$ENV_FILE" ]; then
-    print_warn ".env не найден — копирую из env.example"
+    print_warn ".env not found -- copying from env.example"
     if [ -f "$REPO_ROOT/env.example" ]; then
         cp "$REPO_ROOT/env.example" "$ENV_FILE"
-        print_warn "Настройте .env — LANGFUSE_* опционально (observability)"
+        print_warn "Configure .env -- LANGFUSE_* is optional (observability)"
     else
-        print_error "env.example не найден!"
+        print_error "env.example not found!"
     fi
 else
-    print_success ".env существует"
+    print_success ".env exists"
 fi
 
-# ── Итог ──────────────────────────────────────────────────────────
+# -- Summary ---------------------------------------------------------------
 echo ""
-echo -e "${CYAN}━━━ Готово! ━━━${NC}"
+echo -e "${CYAN}--- Done! ---${NC}"
 echo ""
-echo -e "  ${GREEN}Созданные файлы:${NC}"
-echo "    • ~/.claude.json                  — Claude Code MCP-конфиг"
-[ -d "$HOME/Library/Application Support/Claude" ] && \
-echo "    • Claude Desktop config            — Claude Desktop MCP-конфиг"
-echo "    • CLAUDE.md                        — Протокол маршрутизации"
-[ "$LOCAL_MCP" = true ] && echo "    • .mcp.json                        — Проектный MCP-конфиг"
+echo -e "  ${GREEN}Created files:${NC}"
+echo "    * ~/.claude.json                  -- Claude Code MCP config"
+if [ -n "$CLAUDE_DESKTOP_DIR" ] && [ -d "$CLAUDE_DESKTOP_DIR" ]; then
+    echo "    * Claude Desktop config            -- Claude Desktop MCP config"
+fi
+echo "    * CLAUDE.md                        -- Routing protocol"
+[ "$LOCAL_MCP" = true ] && echo "    * .mcp.json                        -- Project MCP config"
 echo ""
-echo -e "  ${GREEN}Следующие шаги:${NC}"
-echo "    1. Настройте .env (LANGFUSE_* опционально, ANTHROPIC_API_KEY для OCR)"
-echo "    2. Запустите Claude Code:"
+echo -e "  ${GREEN}Next steps:${NC}"
+echo "    1. Configure .env (LANGFUSE_* optional, ANTHROPIC_API_KEY for OCR)"
+echo "    2. Start Claude Code:"
 echo -e "       ${CYAN}cd $REPO_ROOT && claude${NC}"
-echo "    3. Проверьте подключение MCP:"
-echo -e "       ${CYAN}/mcp${NC}  — должен показать Agents-Core"
-echo ""
-echo -e "  ${YELLOW}Для Claude Desktop Chat (опционально):${NC}"
-echo "    Settings → General → Personal preferences"
-echo "    Вставьте:"
-echo ""
-echo -e "    ${CYAN}When Agents-Core MCP server is connected, call route_and_load(query)"
-echo "    before answering. If status=SUCCESS_SAMPLED, display the response as-is."
-echo "    If status=SUCCESS, use system_prompt as context. If status=ROUTE_REQUIRED,"
-echo "    pick best agent from candidates and call get_agent_context(agent_name, query)."
-echo "    Отвечай на русском языке (кроме кода)."
-echo -e "    В конце: **Agent**: [имя] · **Skills**: [навыки]${NC}"
+echo "    3. Verify MCP connection:"
+echo -e "       ${CYAN}/mcp${NC}  -- should show Agents-Core"
 echo ""

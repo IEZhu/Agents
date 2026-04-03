@@ -206,21 +206,34 @@ fi
 
 print_header "🖥️  Cursor IDE & MCP Integration"
 
-CURSOR_DIR="$REPO_ROOT/.cursor"
+# Detect asset directories (new root-level layout, fallback to legacy .cursor/)
+if [ -d "$REPO_ROOT/agents" ]; then
+    AGENTS_BASE="$REPO_ROOT/agents"
+    SKILLS_BASE="$REPO_ROOT/skills"
+    IMPLANTS_BASE="$REPO_ROOT/implants"
+    COMMANDS_BASE="$REPO_ROOT/commands"
+elif [ -d "$REPO_ROOT/.cursor/agents" ]; then
+    AGENTS_BASE="$REPO_ROOT/.cursor/agents"
+    SKILLS_BASE="$REPO_ROOT/.cursor/skills"
+    IMPLANTS_BASE="$REPO_ROOT/.cursor/implants"
+    COMMANDS_BASE="$REPO_ROOT/.cursor/commands"
+else
+    AGENTS_BASE=""
+fi
 
-if [ -d "$CURSOR_DIR" ]; then
-    AGENT_COUNT=$(find "$CURSOR_DIR/agents" -maxdepth 1 -type d | wc -l)
-    SKILL_COUNT=$(find "$CURSOR_DIR/skills" -name "*.mdc" | wc -l)
-    IMPLANT_COUNT=$(find "$CURSOR_DIR/implants" -name "*.mdc" | wc -l)
-    COMMAND_COUNT=$(find "$CURSOR_DIR/commands" -name "*.md" | wc -l)
+if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 1 -type d | wc -l)
+    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    COMMAND_COUNT=$(find "$COMMANDS_BASE" -name "*.md" 2>/dev/null | wc -l)
 
-    print_success "Agents directory found"
+    print_success "Agents directory found: $AGENTS_BASE"
     echo -e "    • ${CYAN}$((AGENT_COUNT - 1))${NC} agents"
     echo -e "    • ${CYAN}$SKILL_COUNT${NC} skills"
     echo -e "    • ${CYAN}$IMPLANT_COUNT${NC} implants"
     echo -e "    • ${CYAN}$COMMAND_COUNT${NC} commands"
 else
-    print_error ".cursor directory not found!"
+    print_error "Agents directory not found (checked agents/ and .cursor/agents/)"
 fi
 
 # Detect OS and set Cursor config path
