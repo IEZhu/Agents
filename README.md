@@ -1,8 +1,8 @@
 # 🤖 Agents Framework
 
-**Multi-persona AI Agent System powered by MCP (Model Context Protocol)**
+**Universal MCP Server for AI Agent Roles, Skills & Cognitive Implants**
 
-A semantic router that dynamically loads specialized agents, skills, and cognitive implants based on user queries. Built for Cursor IDE with Human-AI symbiosis in mind.
+A semantic router that dynamically loads specialized agent personas, domain skills, and cognitive reasoning implants based on user queries. Works with any MCP-compatible client (Claude Code, Cursor, Windsurf, and others).
 
 ---
 
@@ -52,76 +52,27 @@ LANGFUSE_PUBLIC_KEY=pk-lf-... # Optional: observability
 LANGFUSE_SECRET_KEY=sk-lf-... # Optional: observability
 LANGFUSE_HOST=https://cloud.langfuse.com
 ANTHROPIC_API_KEY=sk-ant-...  # Optional: for document OCR
+AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 ```
 
 > **Note**: Embeddings are handled locally by `sentence-transformers` (all-MiniLM-L6-v2). No external API key is required for core routing.
 
 ---
 
-## 🎯 Usage in Cursor
+## 🎯 How It Works
 
-### Available Commands
+The server exposes MCP tools that any compatible client can call:
 
-#### System & Routing
+| Tool | Purpose |
+|------|---------|
+| `route_and_load(query)` | Semantic routing — finds the best agent, enriches its prompt with relevant skills & implants |
+| `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
+| `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
+| `list_agents()` | Enumerate all available agents with metadata |
+| `log_interaction(...)` | Observability logging (Langfuse) |
+| `clear_session_cache()` | Reset session cache |
 
-| Command | Agent | Purpose |
-|---------|-------|---------|
-| `/route` | Router | Check available agents |
-| `/universal` | Universal Agent | General tasks & orchestration |
-| `/new_agent` | Agent Builder | Create new agent personas |
-| `/new_mcp` | MCP Builder | Create new MCP servers |
-| `/install_repo` | Repo Installer | Deploy framework to another repo |
-| `/init_repo` | HAI Architect | Initialize repository structure |
-
-#### Development
-
-| Command | Agent | Purpose |
-|---------|-------|---------|
-| `/dev` | Software Engineer | Code, debugging, refactoring |
-| `/debug_ai` | AI Debugger | Debug AI/ML systems |
-| `/security_audit` | Security Expert | Vulnerability analysis |
-| `/ai_architect` | AI Senior Engineer | HAI system design |
-| `/blender` | Blender Scripter | Python bpy scripts for 3D printing |
-| `/roblox` | Roblox Studio Expert | Roblox game development |
-
-#### Research & Analysis
-
-| Command | Agent | Purpose |
-|---------|-------|---------|
-| `/research` | Deep Researcher | Deep dive research & summarization (80/20) |
-| `/investigate` | Investigative Analyst | OSINT & fact-checking |
-| `/analyse_data` | Data Analyst | Data analysis & statistics |
-| `/forensic` | Data Forensic | Forensic data analysis, timelines |
-| `/find_black_hole` | Black Hole Finder | Knowledge gap detection |
-| `/purchase` | Purchase Researcher | Product research, decision matrix |
-
-#### Documentation & Content
-
-| Command | Agent | Purpose |
-|---------|-------|---------|
-| `/docs` | Tech Writer | Documentation writing |
-| `/commit_en` / `/commit_ru` | Tech Writer | Git commit messages |
-| `/draw` | Diagram Architect | Mermaid diagrams |
-| `/semantic_parse` | Semantic Expert | Meeting/transcript analysis |
-| `/presentation` | Presentation Coach | Slide structure & design |
-| `/literary` | Literary Writer | Artistic prose creation |
-
-#### Domain-Specific
-
-| Command | Agent | Purpose |
-|---------|-------|---------|
-| `/doctor` | Medical Expert | Diagnosis & treatment protocols |
-| `/bio_protocol` | Bio-Hacker | Health optimization |
-| `/psy_session` | Psychologist | Psychological sessions |
-| `/workout` | Fitness Coach | Spine-safe fitness programming |
-| `/briefing` | Daily Briefing | Strategic verified news digest |
-| `/site_audit` | Website Analyst | Website business & tech audit |
-| `/insta_audit` | Instagram Analyst | Social media analysis |
-| `/3dprint` | 3D Print Finder | 3D model search & print optimization |
-| `/ocr` | Document OCR Expert | Text extraction from images/PDF |
-| `/alerts` | Alerts Describer | Infrastructure alert documentation |
-
-### How Routing Works
+### Routing Flow
 
 1. **`route_and_load(query)`** → Single-hop routing via semantic cache
 2. **Meta Detection** → Greetings/short queries auto-route to `universal_agent`
@@ -136,13 +87,18 @@ ANTHROPIC_API_KEY=sk-ant-...  # Optional: for document OCR
 
 ```
 Agents/
-├── .cursor/
-│   ├── agents/           # Agent personas (system prompts, 32 agents)
+├── agents/               # Agent personas (system prompts, 31 agents)
+│   ├── ai_debugger/
+│   │   └── system_prompt.mdc
+│   ├── software_engineer/
+│   │   └── system_prompt.mdc
+│   ├── common/           # Shared agent resources
 │   ├── capabilities/     # Capability compositions (registry.yaml)
-│   ├── skills/           # Reusable capabilities (RAG)
-│   ├── implants/         # Cognitive strategies (RAG)
-│   ├── commands/         # Slash commands
-│   └── rules/            # Routing rules & agent rules
+│   └── schemas/          # Validation schemas
+├── skills/               # Reusable knowledge chunks (RAG)
+│   └── skill-*.mdc
+├── implants/             # Cognitive reasoning strategies (RAG)
+│   └── implant-*.mdc
 ├── src/
 │   ├── server.py         # MCP Server entrypoint (FastMCP)
 │   ├── engine/
@@ -152,9 +108,12 @@ Agents/
 │   │   ├── config.py     # Centralized configuration
 │   │   ├── chroma.py     # ChromaDB client singleton
 │   │   ├── enrichment.py # Tier-based context enrichment
-│   │   └── capabilities.py # Capability registry resolution
+│   │   ├── capabilities.py # Capability registry resolution
+│   │   ├── context.py    # Context retrieval (history formatting)
+│   │   └── language.py   # Language detection
 │   └── utils/
 │       ├── prompt_loader.py
+│       ├── debug_logger.py     # Optional JSON debug logging
 │       └── langfuse_compat.py  # Optional Langfuse layer
 ├── chroma_db/            # Vector database (auto-initialized)
 ├── mcp.json              # MCP server configuration
@@ -173,19 +132,9 @@ Agents/
 
 ---
 
-## 🔌 MCP Integration
+## 🔌 MCP Client Configuration
 
-The framework runs as an MCP server, providing tools to Cursor:
-
-| Tool | Purpose |
-|------|---------|
-| `route_and_load` | Single-hop routing + enriched prompt (primary) |
-| `get_agent_context` | Direct agent loading when target is known |
-| `load_implants` | Load implants by semantic query or task_type |
-| `log_interaction` | Observability logging |
-| `clear_session_cache` | Reset session cache |
-
-### MCP Configuration (`mcp.json`)
+### Claude Code (`.mcp.json` in project root)
 
 ```json
 {
@@ -198,13 +147,32 @@ The framework runs as an MCP server, providing tools to Cursor:
 }
 ```
 
+### Cursor (`mcp.json` in project root)
+
+```json
+{
+  "mcpServers": {
+    "Agents-Core": {
+      "command": ".venv/bin/python",
+      "args": ["src/server.py"]
+    }
+  }
+}
+```
+
+### Generic stdio
+
+```bash
+source .venv/bin/activate
+python src/server.py
+# Server communicates via stdin/stdout using MCP protocol
+```
+
 ---
 
 ## 🧠 Creating New Agents
 
-Use the `/new_agent` command or manually:
-
-1. Create directory: `.cursor/agents/<agent_name>/`
+1. Create directory: `agents/<agent_name>/`
 2. Create `system_prompt.mdc` with frontmatter:
 
 ```yaml
@@ -224,8 +192,17 @@ routing:
 You are an expert in X...
 ```
 
-3. Create rule: `.cursor/rules/10-my-agent.mdc`
-4. Create command: `.cursor/commands/my_command.md`
+The agent will be auto-discovered by the MCP server on next startup.
+
+### Capabilities System
+
+Instead of listing skills per agent, you can declare high-level capabilities:
+
+```yaml
+capabilities: [development, dev-security]
+```
+
+The enrichment pipeline resolves capabilities to skill bundles via `agents/capabilities/registry.yaml`. Available capabilities: `critical-analysis`, `content-structure`, `development`, `dense-summary`, `trust-weighted-research`, `bio-health`, `tech-documentation`, `dev-security`, `consultative-intake`, `creative-writing`, `psychology`, `3d-printing`, `data-investigation`, `epistemic-analysis`.
 
 ---
 
@@ -250,22 +227,18 @@ source .venv/bin/activate
 python src/server.py
 ```
 
-### Testing
+### Debug Logging
+
+Enable detailed per-call JSON logging:
 
 ```bash
-# Test specific agent
-/route "How do I fix this bug?"
-
-# Check semantic routing
-/route "Tell me about supplements for sleep"
+AGENTS_DEBUG=1 python src/server.py
 ```
+
+Logs are written to `logs/{YYYY-MM-DD}/{HH-MM-SS.fff}_{tool}_{direction}.json`. Zero overhead when disabled.
 
 ---
 
 ## 📝 License
 
 MIT
-
----
-
-> **Built with HAI principles**: Human-AI Symbiosis, Cognitive Ergonomics, Adaptive Interaction
