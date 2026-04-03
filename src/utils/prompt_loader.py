@@ -129,6 +129,15 @@ def get_agent_metadata(agent_name: str) -> dict:
     """
     base_path = os.path.join(AGENTS_DIR, agent_name, "system_prompt.mdc")
 
+    # Security: ensure the resolved path stays within AGENTS_DIR (realpath resolves symlinks)
+    abs_path = os.path.realpath(base_path)
+    agents_dir_real = os.path.realpath(AGENTS_DIR)
+    try:
+        if os.path.commonpath([agents_dir_real, abs_path]) != agents_dir_real:
+            return {}
+    except ValueError:
+        return {}
+
     if not os.path.exists(base_path):
         return {}
 
