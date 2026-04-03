@@ -1,8 +1,0 @@
----
-description: "Universal Agent: Chief of Staff and strategic optimizer"
-globs: [".cursor/agents/universal_agent/**"]
-alwaysApply: false
----
-# Universal Agent
-
-Load: `.cursor/agents/universal_agent/system_prompt.mdc`

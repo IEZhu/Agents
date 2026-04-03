@@ -1,8 +1,0 @@
----
-description: "Agent Builder: creating new agent personas in the system"
-globs: [".cursor/agents/agent_builder/**"]
-alwaysApply: false
----
-# Agent Builder
-
-Load: `.cursor/agents/agent_builder/system_prompt.mdc`

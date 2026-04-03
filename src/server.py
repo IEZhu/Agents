@@ -31,25 +31,29 @@ from src.engine.enrichment import (
     enrich_agent_prompt,
     infer_tier,
     implant_retriever,
+    EnrichmentResult,
 )
 from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
+from src.utils.debug_logger import debug_log
 from src.schemas.protocol import AgentRequest
 from src.engine.config import REPO_ROOT
 
 mcp = FastMCP(
     "Agents-Core",
     instructions=(
-        "Agents-Core is a multi-agent routing system.\n"
-        "Call `route_and_load(query)` to route any user query to the best specialist agent.\n\n"
+        "CRITICAL: Agents-Core is a multi-agent routing system.\n"
+        "You MUST call `route_and_load(query)` BEFORE answering ANY user query.\n"
+        "This is a BLOCKING REQUIREMENT — do NOT answer without routing first.\n\n"
         "Response statuses:\n"
-        "- SUCCESS_SAMPLED → ready-made response from the agent. Display it to the user as-is.\n"
-        "- SUCCESS → system_prompt is provided. Use it as context for your answer.\n"
-        "- ROUTE_REQUIRED → pick the best agent from candidates, call get_agent_context(agent_name, query).\n"
+        "- SUCCESS_SAMPLED → display `response` as-is (ready-made agent answer).\n"
+        "- SUCCESS → use `system_prompt` as context for your answer.\n"
+        "- ROUTE_REQUIRED → pick best agent from `candidates`, call `get_agent_context(agent_name, query)`.\n"
         "- NO_CHANGE → context unchanged, continue.\n"
-        "- ERROR → answer directly.\n\n"
-        "Отвечай на русском языке (кроме блоков кода).\n"
-        "В конце добавь: **Agent**: [name] · **Skills**: [skills]"
+        "- ERROR → answer directly (only fallback).\n\n"
+        "Respond in the same language as the user's query (auto-detect). "
+        "Exceptions: code blocks, technical terms, and tool/CLI output stay in English.\n"
+        "Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]"
     ),
 )
 
@@ -108,34 +112,55 @@ CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=64, ttl=SESSION_CACHE_TTL_SECOND
 def _compute_context_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
 
-async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str]:
+async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], str]:
     """Shared helper: load prompt, enrich with skills/implants/capabilities.
-    Returns (final_prompt, context_hash).
+    Returns (final_prompt, context_hash, skills_loaded, implants_loaded, effective_tier).
     """
+    tier_explicit = tier is not None
     if tier is None:
         tier = infer_tier(query)
 
-    query_hash = hash(query)
-    cache_key = f"{agent_name}:{query_hash}:{tier}"
-    if cache_key in SESSION_CACHE:
-        prompt = SESSION_CACHE[cache_key]
-        logger.info(f"Session cache hit for {agent_name} (tier={tier})")
-        return prompt, _compute_context_hash(prompt)
-
     loop = asyncio.get_running_loop()
-    base_prompt = await loop.run_in_executor(None, load_agent_prompt, agent_name)
     metadata = await loop.run_in_executor(None, get_agent_metadata, agent_name)
     preferred_skills = metadata.get("preferred_skills", [])
     capabilities = metadata.get("capabilities", [])
 
-    final_prompt = await enrich_agent_prompt(
+    # Promote tier to at least "standard" when agent declares skills/capabilities,
+    # but only if tier was inferred (not explicitly set by the caller)
+    if not tier_explicit and tier == "lite" and (preferred_skills or capabilities):
+        tier = "standard"
+        logger.info(f"Tier promoted to 'standard' for {agent_name} (has preferred_skills or capabilities)")
+
+    query_hash = hash(query)
+    cache_key = f"{agent_name}:{query_hash}:{tier}"
+    if cache_key in SESSION_CACHE:
+        cached = SESSION_CACHE[cache_key]
+        if isinstance(cached, tuple):
+            prompt, skills_loaded, implants_loaded = cached
+        else:
+            prompt, skills_loaded, implants_loaded = cached, [], []
+        logger.info(f"Session cache hit for {agent_name} (tier={tier})")
+        debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
+        return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, tier
+
+    base_prompt = await loop.run_in_executor(None, load_agent_prompt, agent_name)
+
+    enrichment = await enrich_agent_prompt(
         agent_name, base_prompt, query, chat_history_list,
         preferred_skills, tier, capabilities
     )
-    SESSION_CACHE[cache_key] = final_prompt
+    final_prompt = enrichment.prompt
+    SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded)
     ctx_hash = _compute_context_hash(final_prompt)
     CONTEXT_HASH_CACHE[ctx_hash] = agent_name
-    return final_prompt, ctx_hash
+    debug_log("_load_and_enrich", "res", {
+        "agent": agent_name, "tier": tier, "cache": "miss",
+        "prompt_len": len(final_prompt), "preferred_skills": preferred_skills,
+        "capabilities": capabilities,
+        "skills_loaded": enrichment.skills_loaded,
+        "implants_loaded": enrichment.implants_loaded,
+    })
+    return final_prompt, ctx_hash, enrichment.skills_loaded, enrichment.implants_loaded, tier
 
 
 async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> str:
@@ -145,6 +170,7 @@ async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> st
     no API key needed on the server side. The systemPrompt is delivered
     as a proper system prompt field, not as tool result text.
     """
+    debug_log("_sample_with_agent", "req", {"query": query, "system_prompt_len": len(system_prompt)})
     result = await ctx.session.create_message(
         messages=[SamplingMessage(
             role="user",
@@ -155,12 +181,15 @@ async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> st
     )
     # Extract text from the sampling result
     if hasattr(result.content, "text"):
-        return result.content.text
+        text = result.content.text
     elif isinstance(result.content, list):
-        return "\n".join(
+        text = "\n".join(
             block.text for block in result.content if hasattr(block, "text")
         )
-    return str(result.content)
+    else:
+        text = str(result.content)
+    debug_log("_sample_with_agent", "res", {"response_len": len(text), "response_preview": text[:500]})
+    return text
 
 
 @mcp.tool()
@@ -172,21 +201,19 @@ async def route_and_load(
     ctx: Context | None = None,
 ) -> str:
     """
-    Route a user query to the best specialist agent. Call this before answering.
-
-    The tool selects the right agent via semantic routing, loads its system prompt
-    enriched with skills and implants, and (if the client supports sampling)
-    generates a ready-made response using the agent's persona.
+    Route a user query to the best specialist agent. Call this BEFORE answering ANY query.
 
     Response statuses:
-    - SUCCESS_SAMPLED → `response` contains the agent's answer. Display it as-is.
-    - SUCCESS → `system_prompt` is provided. Use it as context for your answer.
-      Отвечай на русском (кроме кода). Append: **Agent**: [name] · **Skills**: [skills]
-    - ROUTE_REQUIRED → pick the best agent from `candidates`, then call
-      get_agent_context(agent_name, query).
-    - NO_CHANGE → context unchanged (same context_hash).
-    - ERROR → answer directly.
+    - SUCCESS_SAMPLED → Display `response` to the user as-is. Do not modify.
+    - SUCCESS → Use `system_prompt` as context for your answer.
+    - ROUTE_REQUIRED → You MUST immediately call get_agent_context(agent_name, query)
+      with the best agent from `candidates`. Do NOT answer without completing this step.
+    - NO_CHANGE → Context unchanged, continue with current persona.
+    - ERROR → Answer directly (only fallback).
 
+    Respond in the same language as the user's query (auto-detect).
+    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
+    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     Pass `context_hash` from a previous response to enable delta mode.
     """
     try:
@@ -194,8 +221,13 @@ async def route_and_load(
         history_text = "\n".join(chat_history_list)
         request_id = str(uuid.uuid4())
         tier = infer_tier(query)
+        debug_log("route_and_load", "req", {
+            "query": query, "tier": tier, "context_hash": context_hash,
+            "history_len": len(chat_history_list), "request_id": request_id,
+        })
 
         # 1. Try semantic cache
+        explicit_tier = None  # only set for intentional overrides (e.g. meta-query)
         cached_decision = await router.lookup_cache(query, {"history_text": history_text})
         if cached_decision:
             agent_name = cached_decision.target_agent
@@ -203,29 +235,43 @@ async def route_and_load(
         elif _is_meta_query(query):
             agent_name = "universal_agent"
             reasoning = "Auto-fallback: meta-query detected"
-            tier = "lite"
+            explicit_tier = "lite"
         else:
             # 2. Cache miss — return candidates for the calling LLM to decide
             candidates = router.get_agent_catalog()
-            return json.dumps({
+            result = {
                 "status": "ROUTE_REQUIRED",
                 "request_id": request_id,
                 "tier": tier,
                 "candidates": candidates,
-                "instruction": "Select the best agent from candidates based on the user query. Then call get_agent_context(agent_name, query) to load the agent prompt.",
-            }, ensure_ascii=False)
+                "instruction": (
+                    "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
+                    "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
+                    "Do NOT explore the codebase. Do NOT answer the user. "
+                    "FIRST pick the single best agent from candidates, THEN call ONLY: "
+                    "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
+                    "Wait for its response. Only THEN proceed with the user's request."
+                ),
+            }
+            debug_log("route_and_load", "res", result)
+            return json.dumps(result, ensure_ascii=False)
 
         # 3. Cache hit or meta-query — load enriched prompt
-        final_prompt, new_hash = await _load_and_enrich(agent_name, query, chat_history_list, tier)
+        # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote
+        final_prompt, new_hash, skills_loaded, implants_loaded, tier = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
 
         if context_hash and context_hash == new_hash:
-            return json.dumps({
+            result = {
                 "status": "NO_CHANGE",
                 "agent": agent_name,
                 "context_hash": new_hash,
                 "request_id": request_id,
                 "tier": tier,
-            }, ensure_ascii=False)
+                "skills_loaded": skills_loaded,
+                "implants_loaded": implants_loaded,
+            }
+            debug_log("route_and_load", "res", result)
+            return json.dumps(result, ensure_ascii=False)
 
         await router.update_cache(query, agent_name, reasoning, request_id)
 
@@ -233,7 +279,7 @@ async def route_and_load(
         if ctx:
             try:
                 response = await _sample_with_agent(ctx, final_prompt, query)
-                return json.dumps({
+                result = {
                     "status": "SUCCESS_SAMPLED",
                     "agent": agent_name,
                     "reasoning": reasoning,
@@ -241,12 +287,17 @@ async def route_and_load(
                     "tier": tier,
                     "context_hash": new_hash,
                     "response": response,
-                }, ensure_ascii=False)
+                    "skills_loaded": skills_loaded,
+                    "implants_loaded": implants_loaded,
+                }
+                debug_log("route_and_load", "res", result)
+                return json.dumps(result, ensure_ascii=False)
             except Exception as sampling_err:
                 logger.debug(f"Sampling not supported, falling back: {sampling_err}")
+                debug_log("route_and_load", "sampling_error", {"error": str(sampling_err)})
 
         # Fallback: return system_prompt for clients without sampling support
-        return json.dumps({
+        result = {
             "status": "SUCCESS",
             "agent": agent_name,
             "reasoning": reasoning,
@@ -254,9 +305,15 @@ async def route_and_load(
             "tier": tier,
             "context_hash": new_hash,
             "system_prompt": final_prompt,
-        }, ensure_ascii=False)
+            "skills_loaded": skills_loaded,
+            "implants_loaded": implants_loaded,
+        }
+        debug_log("route_and_load", "res", result)
+        return json.dumps(result, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"status": "ERROR", "message": str(e)}, ensure_ascii=False)
+        result = {"status": "ERROR", "message": str(e)}
+        debug_log("route_and_load", "error", result)
+        return json.dumps(result, ensure_ascii=False)
 
 @mcp.tool()
 @observe(name="get_agent_context")
@@ -268,40 +325,53 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
     Pick the best agent from the candidates list and pass its name here.
     If the client supports sampling, returns a ready-made response (SUCCESS_SAMPLED).
     Otherwise returns the system_prompt for you to use as context.
-    Отвечай на русском языке (кроме кода).
-    Append: **Agent**: [name] · **Skills**: [skills]
+    Respond in the same language as the user's query (auto-detect).
+    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
+    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     """
     try:
         chat_history_list = _normalize_chat_history(chat_history)
         request_id = str(uuid.uuid4())
+        debug_log("get_agent_context", "req", {"agent_name": agent_name, "query": query, "reasoning": reasoning})
 
-        final_prompt, ctx_hash = await _load_and_enrich(agent_name, query, chat_history_list)
+        final_prompt, ctx_hash, skills_loaded, implants_loaded, _ = await _load_and_enrich(agent_name, query, chat_history_list)
         await router.update_cache(query, agent_name, reasoning, request_id)
 
         # Try sampling: generate response with agent's system prompt via client LLM
         if ctx:
             try:
                 response = await _sample_with_agent(ctx, final_prompt, query)
-                return json.dumps({
+                result = {
                     "status": "SUCCESS_SAMPLED",
                     "agent": agent_name,
                     "request_id": request_id,
                     "context_hash": ctx_hash,
                     "response": response,
-                }, ensure_ascii=False)
+                    "skills_loaded": skills_loaded,
+                    "implants_loaded": implants_loaded,
+                }
+                debug_log("get_agent_context", "res", result)
+                return json.dumps(result, ensure_ascii=False)
             except Exception as sampling_err:
                 logger.debug(f"Sampling not supported, falling back: {sampling_err}")
+                debug_log("get_agent_context", "sampling_error", {"error": str(sampling_err)})
 
         # Fallback: return system_prompt for clients without sampling support
-        return json.dumps({
+        result = {
             "status": "SUCCESS",
             "agent": agent_name,
             "request_id": request_id,
             "context_hash": ctx_hash,
             "system_prompt": final_prompt,
-        }, ensure_ascii=False)
+            "skills_loaded": skills_loaded,
+            "implants_loaded": implants_loaded,
+        }
+        debug_log("get_agent_context", "res", result)
+        return json.dumps(result, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"status": "ERROR", "message": str(e)}, ensure_ascii=False)
+        result = {"status": "ERROR", "message": str(e)}
+        debug_log("get_agent_context", "error", result)
+        return json.dumps(result, ensure_ascii=False)
 
 @mcp.tool()
 @observe(name="load_implants")
@@ -330,6 +400,7 @@ async def load_implants(
     }
 
     loop = asyncio.get_running_loop()
+    debug_log("load_implants", "req", {"query": query, "task_type": task_type, "limit": limit})
 
     try:
         if task_type:
@@ -362,9 +433,12 @@ async def load_implants(
                 lambda: implant_retriever.retrieve(query=query, n_results=limit),
             )
 
-        return implant_retriever.format_implants_for_prompt(implants)
+        result = implant_retriever.format_implants_for_prompt(implants)
+        debug_log("load_implants", "res", {"implant_count": len(implants), "result_len": len(result)})
+        return result
     except Exception as e:
         logger.error(f"Failed to load implants: {e}")
+        debug_log("load_implants", "error", {"error": str(e)})
         return f"Error loading implants: {str(e)}"
 
 @mcp.tool()
@@ -448,7 +522,7 @@ async def ask(query: str) -> list:
                 f"Agents:\n" + "\n".join(lines) + f"\n\nQuery: {query}"
             )]
 
-        prompt, _ = await _load_and_enrich(agent_name, query, [])
+        prompt, _, _, _, _ = await _load_and_enrich(agent_name, query, [])
         return [UserMessage(
             f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
             f"{prompt}\n\n"
@@ -474,7 +548,7 @@ def _register_agent_prompts():
         def make_prompt(a_name, d_name, r):
             async def agent_prompt(query: str) -> list:
                 try:
-                    prompt, _ = await _load_and_enrich(a_name, query, [])
+                    prompt, _, _, _, _ = await _load_and_enrich(a_name, query, [])
                     return [UserMessage(
                         f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
                         f"{prompt}\n\n"

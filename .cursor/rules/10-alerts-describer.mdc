@@ -1,8 +1,0 @@
----
-description: "Alerts Describer: infrastructure alert documentation"
-globs: [".cursor/agents/alerts_describer/**"]
-alwaysApply: false
----
-# Alerts Describer
-
-Load: `.cursor/agents/alerts_describer/system_prompt.mdc`

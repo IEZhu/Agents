@@ -1,8 +1,0 @@
----
-description: "Black Hole Finder: detecting hidden knowledge and information gaps"
-globs: [".cursor/agents/black_hole_finder/**"]
-alwaysApply: false
----
-# Black Hole Finder
-
-Load: `.cursor/agents/black_hole_finder/system_prompt.mdc`

@@ -1,8 +1,0 @@
----
-description: "Software Engineer: pragmatic code architect and debugger"
-globs: [".cursor/agents/software_engineer/**"]
-alwaysApply: false
----
-# Software Engineer
-
-Load: `.cursor/agents/software_engineer/system_prompt.mdc`

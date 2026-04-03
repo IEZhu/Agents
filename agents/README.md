@@ -8,7 +8,7 @@
 
 ## Исследование и аналитика
 
-| Агент | Команда | Роль |
+| Агент | Trigger | Роль |
 |---|---|---|
 | `deep_researcher` | `/research` | High-density Information Analyst |
 | `investigative_analyst` | `/investigate` | OSINT & Fact-Checking Expert |
@@ -20,7 +20,7 @@
 
 ## Разработка и инженерия
 
-| Агент | Команда | Роль |
+| Агент | Trigger | Роль |
 |---|---|---|
 | `software_engineer` | `/dev` | Senior Full Stack Engineer |
 | `ai_debugger` | `/debug_ai` | System Debugging & Architecture Analysis |
@@ -32,7 +32,7 @@
 
 ## Документация и контент
 
-| Агент | Команда | Роль |
+| Агент | Trigger | Роль |
 |---|---|---|
 | `tech_writer` | `/docs` | Technical Writer & Documentation Expert |
 | `literary_writer` | `/literary` | Master of artistic prose |
@@ -42,7 +42,7 @@
 
 ## Здоровье и психология
 
-| Агент | Команда | Роль |
+| Агент | Trigger | Роль |
 |---|---|---|
 | `medical_expert` | `/medical` | Lead Medical Analyst and Consultant |
 | `psychologist` | `/psy_session` | Cognitive Systems Architect (Neuro-Structure) |
@@ -51,7 +51,7 @@
 
 ## AI и стратегия
 
-| Агент | Команда | Роль |
+| Агент | Trigger | Роль |
 |---|---|---|
 | `ai_senior_engineer` | `/ai_architect` | AI Interaction Architect & Human-AI Symbiosis |
 | `universal_agent` | `/universal` | Chief of Staff / Strategic Partner |
@@ -59,7 +59,7 @@
 
 ## Утилиты и операции
 
-| Агент | Команда | Роль |
+| Агент | Trigger | Роль |
 |---|---|---|
 | `document_ocr_expert` | `/ocr` | PDF/image text extraction (incl. handwriting) |
 | `alerts_describer` | `/alerts_describer` | Infrastructure Alert Documentation |
@@ -69,5 +69,5 @@
 
 ---
 
-**Всего агентов**: 32
-**Обновлено**: 2026-03-23
+**Всего агентов**: 31
+**Обновлено**: 2026-04-03

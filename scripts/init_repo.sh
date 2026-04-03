@@ -85,7 +85,8 @@ check_command() {
 }
 
 get_python_version() {
-    $1 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+    # Suppress stderr to avoid pyenv shim noise when a version isn't activated
+    $1 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null
 }
 
 version_gte() {
@@ -122,7 +123,8 @@ if [ -z "$SELECTED_PYTHON" ]; then
     # Order of preference: 3.11 -> 3.10 -> 3.12 (3.11 is most stable for ML now)
     for CANDIDATE in python3.11 python3.10 python3.12; do
         if check_command "$CANDIDATE"; then
-             VER=$(get_python_version "$CANDIDATE")
+             VER=$(get_python_version "$CANDIDATE") || continue
+             [ -z "$VER" ] && continue
              if version_gte "$VER" "$PYTHON_MIN_VERSION"; then
                  SELECTED_PYTHON="$CANDIDATE"
                  print_success "Found suitable Python: $SELECTED_PYTHON ($VER)"
@@ -206,21 +208,34 @@ fi
 
 print_header "🖥️  Cursor IDE & MCP Integration"
 
-CURSOR_DIR="$REPO_ROOT/.cursor"
+# Detect asset directories (new root-level layout, fallback to legacy .cursor/)
+if [ -d "$REPO_ROOT/agents" ]; then
+    AGENTS_BASE="$REPO_ROOT/agents"
+    SKILLS_BASE="$REPO_ROOT/skills"
+    IMPLANTS_BASE="$REPO_ROOT/implants"
+    COMMANDS_BASE="$REPO_ROOT/commands"
+elif [ -d "$REPO_ROOT/.cursor/agents" ]; then
+    AGENTS_BASE="$REPO_ROOT/.cursor/agents"
+    SKILLS_BASE="$REPO_ROOT/.cursor/skills"
+    IMPLANTS_BASE="$REPO_ROOT/.cursor/implants"
+    COMMANDS_BASE="$REPO_ROOT/.cursor/commands"
+else
+    AGENTS_BASE=""
+fi
 
-if [ -d "$CURSOR_DIR" ]; then
-    AGENT_COUNT=$(find "$CURSOR_DIR/agents" -maxdepth 1 -type d | wc -l)
-    SKILL_COUNT=$(find "$CURSOR_DIR/skills" -name "*.mdc" | wc -l)
-    IMPLANT_COUNT=$(find "$CURSOR_DIR/implants" -name "*.mdc" | wc -l)
-    COMMAND_COUNT=$(find "$CURSOR_DIR/commands" -name "*.md" | wc -l)
+if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" | wc -l)
+    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    COMMAND_COUNT=$(find "$COMMANDS_BASE" -name "*.md" 2>/dev/null | wc -l)
 
-    print_success "Agents directory found"
-    echo -e "    • ${CYAN}$((AGENT_COUNT - 1))${NC} agents"
+    print_success "Agents directory found: $AGENTS_BASE"
+    echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"
     echo -e "    • ${CYAN}$SKILL_COUNT${NC} skills"
     echo -e "    • ${CYAN}$IMPLANT_COUNT${NC} implants"
     echo -e "    • ${CYAN}$COMMAND_COUNT${NC} commands"
 else
-    print_error ".cursor directory not found!"
+    print_error "Agents directory not found (checked agents/ and .cursor/agents/)"
 fi
 
 # Detect OS and set Cursor config path
@@ -409,6 +424,25 @@ if [ "$SKIP_INSTALL" = false ]; then
     echo ""
 
     print_success "All dependencies installed"
+
+    # Pre-download embedding model so MCP server starts instantly
+    print_header "🧠 Pre-downloading Embedding Model"
+
+    print_step "Downloading BAAI/bge-m3 (this may take a few minutes on first run)..."
+    set +e
+    python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('BAAI/bge-m3')
+print('Model ready')
+" 2>&1
+    MODEL_EXIT=$?
+    set -e
+
+    if [ $MODEL_EXIT -eq 0 ]; then
+        print_success "Embedding model cached and ready"
+    else
+        print_warn "Model download failed — it will be downloaded on first MCP server start"
+    fi
 else
     print_step "Skipping package installation"
 fi

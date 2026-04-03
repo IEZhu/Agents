@@ -46,6 +46,13 @@ async def chat_endpoint(request: ChatRequest):
         )
         decision = await router.route(agent_request)
 
+        if decision is None:
+            return ChatResponse(
+                agent="",
+                response="ROUTE_REQUIRED",
+                reasoning="Cache miss — client should call route_and_load for full routing",
+            )
+
         target_agent = decision.target_agent
         reasoning = decision.reasoning
 
@@ -54,7 +61,7 @@ async def chat_endpoint(request: ChatRequest):
         metadata = get_agent_metadata(target_agent)
         preferred_skills = metadata.get("preferred_skills", [])
 
-        final_system_prompt = await enrich_agent_prompt(
+        enrichment = await enrich_agent_prompt(
             target_agent,
             base_prompt,
             query,
@@ -67,7 +74,7 @@ async def chat_endpoint(request: ChatRequest):
 
         return ChatResponse(
             agent=target_agent,
-            response=final_system_prompt,
+            response=enrichment.prompt,
             reasoning=reasoning
         )
 

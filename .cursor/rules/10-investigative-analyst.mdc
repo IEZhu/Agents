@@ -1,8 +1,0 @@
----
-description: "Investigative Analyst: fact-checking, OSINT, propaganda analysis"
-globs: [".cursor/agents/investigative_analyst/**"]
-alwaysApply: false
----
-# Investigative Analyst
-
-Load: `.cursor/agents/investigative_analyst/system_prompt.mdc`

@@ -1,8 +1,0 @@
----
-description: "Instagram Analyst: viral mechanics and content analysis"
-globs: [".cursor/agents/instagram_analyst/**"]
-alwaysApply: false
----
-# Instagram Analyst
-
-Load: `.cursor/agents/instagram_analyst/system_prompt.mdc`

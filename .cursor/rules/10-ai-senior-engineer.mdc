@@ -1,8 +1,0 @@
----
-description: "AI Senior Engineer: HAI system design and cognitive ergonomics"
-globs: [".cursor/agents/ai_senior_engineer/**"]
-alwaysApply: false
----
-# AI Senior Engineer
-
-Load: `.cursor/agents/ai_senior_engineer/system_prompt.mdc`

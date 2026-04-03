@@ -1,8 +1,0 @@
----
-description: "Purchase Researcher: product research with Decision Matrix analysis"
-globs: [".cursor/agents/purchase_researcher/**"]
-alwaysApply: false
----
-# Purchase Researcher
-
-Load: `.cursor/agents/purchase_researcher/system_prompt.mdc`

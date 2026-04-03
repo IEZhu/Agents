@@ -1,15 +1,10 @@
 import logging
-import os
 import yaml
 from typing import Dict, List, Any
 
-from src.engine.config import REPO_ROOT
+from src.engine.config import CAPABILITIES_FILE
 
 logger = logging.getLogger(__name__)
-
-CAPABILITIES_REGISTRY_PATH = os.path.join(
-    REPO_ROOT, ".cursor", "capabilities", "registry.yaml"
-)
 
 _registry: Dict[str, Any] | None = None
 
@@ -18,7 +13,7 @@ def _load_registry() -> Dict[str, Any]:
     if _registry is not None:
         return _registry
     try:
-        with open(CAPABILITIES_REGISTRY_PATH, "r", encoding="utf-8") as f:
+        with open(CAPABILITIES_FILE, "r", encoding="utf-8") as f:
             _registry = yaml.safe_load(f) or {}
     except Exception as e:
         logger.error(f"Failed to load capabilities registry: {e}")

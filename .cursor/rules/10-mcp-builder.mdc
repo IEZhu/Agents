@@ -1,8 +1,0 @@
----
-description: "MCP Builder: creating new MCP servers for API integration"
-globs: [".cursor/agents/mcp_builder/**"]
-alwaysApply: false
----
-# MCP Builder
-
-Load: `.cursor/agents/mcp_builder/system_prompt.mdc`

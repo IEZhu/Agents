@@ -103,13 +103,6 @@ Persona for this skill.
 | `skill-3d-print-search` | 3D model search strategies |
 | `skill-fitness-programming` | Exercise programming, periodization, spine-safe biomechanics |
 
-### Platform Integration
-
-| Skill | Description |
-|-------|-------------|
-| `skill-plata-atalssian` | Jira, Confluence, Rovo via Plata MCP |
-| `skill-plata-gitlab` | GitLab Issues, MRs, Pipelines via Plata MCP |
-
 ### System
 
 | Skill | Description |
@@ -163,7 +156,7 @@ alwaysApply: true
 
 ## Creating a New Skill
 
-1. **Create file**: `.cursor/skills/skill-domain-name.mdc`
+1. **Create file**: `skills/skill-domain-name.mdc`
 
 2. **Add content**:
    ```yaml

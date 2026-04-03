@@ -1,8 +1,0 @@
----
-description: "Medical Expert: clinical analysis and medical interpretation"
-globs: [".cursor/agents/medical_expert/**"]
-alwaysApply: false
----
-# Medical Expert
-
-Load: `.cursor/agents/medical_expert/system_prompt.mdc`

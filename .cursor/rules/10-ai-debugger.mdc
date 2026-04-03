@@ -1,8 +1,0 @@
----
-description: "AI Debugger: architectural debugging and root cause analysis"
-globs: [".cursor/agents/ai_debugger/**"]
-alwaysApply: false
----
-# AI Debugger
-
-Load: `.cursor/agents/ai_debugger/system_prompt.mdc`

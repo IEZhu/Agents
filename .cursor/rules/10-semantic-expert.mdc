@@ -1,8 +1,0 @@
----
-description: "Semantic Expert: forensic summarization and meaning reconstruction"
-globs: [".cursor/agents/semantic_expert/**"]
-alwaysApply: false
----
-# Semantic Expert
-
-Load: `.cursor/agents/semantic_expert/system_prompt.mdc`

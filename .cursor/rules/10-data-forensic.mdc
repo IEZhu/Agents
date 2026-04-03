@@ -1,8 +1,0 @@
----
-description: "Data Forensic: leak processing, deduplication, timeline creation"
-globs: [".cursor/agents/data_forensic/**"]
-alwaysApply: false
----
-# Data Forensic
-
-Load: `.cursor/agents/data_forensic/system_prompt.mdc`

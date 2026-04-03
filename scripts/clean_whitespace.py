@@ -11,8 +11,8 @@ TARGET_EXTENSIONS = {
 }
 IGNORE_DIRS = {
     '.git', '.venv', '__pycache__', 'node_modules',
-    'chroma_db', '.cursor/crepe', 'dist', 'build',
-    '.pytest_cache', '.mypy_cache'
+    'chroma_db', 'dist', 'build',
+    '.pytest_cache', '.mypy_cache', 'logs'
 }
 
 def is_text_file(filepath):

@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import re
+from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
 from src.engine.skills import SkillRetriever
@@ -8,6 +9,13 @@ from src.engine.implants import ImplantRetriever
 from src.engine.capabilities import resolve_capabilities
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EnrichmentResult:
+    prompt: str
+    skills_loaded: list[str] = field(default_factory=list)
+    implants_loaded: list[str] = field(default_factory=list)
 
 skill_retriever = SkillRetriever()
 implant_retriever = ImplantRetriever()
@@ -35,12 +43,14 @@ async def get_dynamic_context_string(
     preferred_skills: Optional[List[str]] = None,
     tier: Tier = "standard",
     capabilities: Optional[List[str]] = None,
-) -> str:
+) -> EnrichmentResult:
     """Retrieve and format dynamic context (Skills + Implants) based on tier."""
     if chat_history is None:
         chat_history = []
     loop = asyncio.get_running_loop()
     context_parts: list[str] = []
+    loaded_skill_names: list[str] = []
+    loaded_implant_names: list[str] = []
 
     effective_skills = list(preferred_skills or [])
     cap_directive = ""
@@ -68,6 +78,10 @@ async def get_dynamic_context_string(
                 context_parts.append(
                     skill_retriever.format_skills_for_prompt(skills, compiled=use_compiled)
                 )
+                loaded_skill_names = [
+                    s.get("filename", "unknown").removesuffix(".mdc")
+                    for s in skills
+                ]
         except Exception as e:
             logger.error(f"Failed to retrieve skills: {e}")
 
@@ -83,13 +97,21 @@ async def get_dynamic_context_string(
             )
             if implants:
                 context_parts.append(implant_retriever.format_implants_for_prompt(implants))
+                loaded_implant_names = [
+                    imp.get("metadata", {}).get("short_name") or imp.get("filename", "unknown").removesuffix(".mdc")
+                    for imp in implants
+                ]
             context_parts.append(
                 "**More reasoning implants available** — call `load_implants(query=...)` to load by topic."
             )
         except Exception as e:
             logger.error(f"Failed to retrieve implants: {e}")
 
-    return "\n\n".join(context_parts)
+    return EnrichmentResult(
+        prompt="\n\n".join(context_parts),
+        skills_loaded=loaded_skill_names,
+        implants_loaded=loaded_implant_names,
+    )
 
 async def enrich_agent_prompt(
     agent_name: str,
@@ -99,16 +121,20 @@ async def enrich_agent_prompt(
     preferred_skills: Optional[List[str]] = None,
     tier: Optional[Tier] = None,
     capabilities: Optional[List[str]] = None,
-) -> str:
+) -> EnrichmentResult:
     """Enrich the base system prompt with dynamic skills and implants."""
     if chat_history is None:
         chat_history = []
     if tier is None:
         tier = infer_tier(query)
 
-    dynamic_context = await get_dynamic_context_string(
+    enrichment = await get_dynamic_context_string(
         agent_name, query, chat_history, preferred_skills, tier, capabilities
     )
-    if dynamic_context:
-        base_prompt += f"\n\n{dynamic_context}"
-    return base_prompt
+    if enrichment.prompt:
+        base_prompt += f"\n\n{enrichment.prompt}"
+    return EnrichmentResult(
+        prompt=base_prompt,
+        skills_loaded=enrichment.skills_loaded,
+        implants_loaded=enrichment.implants_loaded,
+    )

@@ -53,6 +53,7 @@ Techniques that structure sequential reasoning:
 | `contrastive-cot` | Compare correct vs incorrect reasoning paths |
 | `self-harmonized-cot` | Multiple perspectives harmonized into one |
 | `reverse-cot` | Work backwards from conclusion to premises |
+| `take-a-deep-breath` | Zero-shot CoT trigger |
 
 ### Meta-Cognition
 
@@ -67,6 +68,10 @@ Techniques for self-reflection and improvement:
 | `reflexion` | Self-critique Actor-Critic-Reflector cycle for high-stakes tasks |
 | `step-back-prompting` | Abstract principle first, then apply to specifics |
 | `active-prompting` | Actively select most informative examples |
+| `automatic-reasoning` | Alternates reasoning with tool calls (calc, search) |
+| `maieutic-prompting` | Socratic method — explanation tree to find logical contradictions |
+| `rephrase-and-respond` | Clarifying ambiguous requests before answering |
+| `system-2-attention` | Input cleaning — removes bias/flattery before answering |
 
 ### Structured Thinking
 
@@ -82,6 +87,7 @@ Techniques for organizing complex reasoning:
 | `thread-of-thought` | Maintain coherent reasoning thread |
 | `buffer-of-thoughts` | Working memory management |
 | `narrative-of-thought` | Story-based reasoning |
+| `output-automata` | Structuring output as a Finite State Machine (FSM) or script |
 
 ### Verification & Safety
 
@@ -94,6 +100,7 @@ Techniques for ensuring correctness and safety:
 | `sandwich-defense` | Injection attack protection |
 | `instructional-hierarchy` | Priority of system vs user instructions |
 | `negative-constraints` | Explicit "what NOT to do" rules |
+| `delimiters` | Using tags/symbols to separate data from instructions (injection defense) |
 
 ### Generation Strategies
 
@@ -108,6 +115,8 @@ Techniques for producing better outputs:
 | `mega-prompting` | All-in-one comprehensive instruction |
 | `directional-stimulus` | Hint-based guidance |
 | `emotion-prompting` | Emotional context for engagement |
+| `simulated-interaction` | Dialogue simulation (User-Assistant) to set tone/style |
+| `tone-transfer` | Rewrite text B in style of text A |
 
 ### Decomposition
 
@@ -119,6 +128,7 @@ Techniques for breaking down complex problems:
 | `plan-and-solve-plus` | Atomic planning before execution for multi-step tasks |
 | `complexity-based-prompting` | Order by complexity |
 | `contextual-compression` | Compress context to essentials |
+| `prompt-chaining` | Breaking task into sequence of LLM calls |
 
 ### Efficiency
 
@@ -163,7 +173,7 @@ load_implants(query="How do I debug this race condition?")
 
 ## Creating a New Implant
 
-1. **Create file**: `.cursor/implants/implant-my-technique.mdc`
+1. **Create file**: `implants/implant-my-technique.mdc`
 
 2. **Add content**:
    ```yaml

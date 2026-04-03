@@ -1,8 +1,0 @@
----
-description: "Deep Researcher: information density maximization and deep research"
-globs: [".cursor/agents/deep_researcher/**"]
-alwaysApply: false
----
-# Deep Researcher
-
-Load: `.cursor/agents/deep_researcher/system_prompt.mdc`

@@ -1,8 +1,0 @@
----
-description: "Diagram Architect: creating visual diagrams with Mermaid"
-globs: [".cursor/agents/diagram_architect/**"]
-alwaysApply: false
----
-# Diagram Architect
-
-Load: `.cursor/agents/diagram_architect/system_prompt.mdc`

@@ -1,9 +1,0 @@
----
-description: "Literary Writer - Master of artistic prose"
-globs: [".cursor/agents/literary_writer/**"]
----
-# Literary Writer
-
-Master of artistic prose — creator of elegant prose with lyrical nuances and deep meanings.
-
-**Load**: `@agents/literary_writer/system_prompt.mdc`
