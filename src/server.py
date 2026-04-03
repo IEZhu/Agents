@@ -115,6 +115,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     """Shared helper: load prompt, enrich with skills/implants/capabilities.
     Returns (final_prompt, context_hash, skills_loaded, implants_loaded).
     """
+    tier_explicit = tier is not None
     if tier is None:
         tier = infer_tier(query)
 
@@ -123,8 +124,9 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     preferred_skills = metadata.get("preferred_skills", [])
     capabilities = metadata.get("capabilities", [])
 
-    # Promote tier to at least "standard" when agent declares skills/capabilities
-    if tier == "lite" and (preferred_skills or capabilities):
+    # Promote tier to at least "standard" when agent declares skills/capabilities,
+    # but only if tier was inferred (not explicitly set by the caller)
+    if not tier_explicit and tier == "lite" and (preferred_skills or capabilities):
         tier = "standard"
         logger.info(f"Tier promoted to 'standard' for {agent_name} (has preferred_skills or capabilities)")
 

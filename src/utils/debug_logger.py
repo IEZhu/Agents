@@ -26,23 +26,26 @@ def debug_log(tool: str, direction: str, data: dict) -> None:
     if not AGENTS_DEBUG:
         return
 
-    now = datetime.now(timezone.utc)
-    date_dir = now.strftime("%Y-%m-%d")
-    ts_prefix = now.strftime("%H-%M-%S") + f".{now.microsecond // 1000:03d}"
-    safe_tool = re.sub(r'[^\w\-.]', '_', tool)
-    safe_dir = re.sub(r'[^\w\-.]', '_', direction)
-    filename = f"{ts_prefix}_{safe_tool}_{safe_dir}.json"
+    try:
+        now = datetime.now(timezone.utc)
+        date_dir = now.strftime("%Y-%m-%d")
+        ts_prefix = now.strftime("%H-%M-%S") + f".{now.microsecond // 1000:03d}"
+        safe_tool = re.sub(r'[^\w\-.]', '_', tool)
+        safe_dir = re.sub(r'[^\w\-.]', '_', direction)
+        filename = f"{ts_prefix}_{safe_tool}_{safe_dir}.json"
 
-    target_dir = os.path.join(DEBUG_LOG_DIR, date_dir)
-    os.makedirs(target_dir, exist_ok=True)
+        target_dir = os.path.join(DEBUG_LOG_DIR, date_dir)
+        os.makedirs(target_dir, exist_ok=True)
 
-    payload = {
-        "ts": now.isoformat(),
-        "tool": tool,
-        "dir": direction,
-        "data": data,
-    }
+        payload = {
+            "ts": now.isoformat(),
+            "tool": tool,
+            "dir": direction,
+            "data": data,
+        }
 
-    filepath = os.path.join(target_dir, filename)
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+        filepath = os.path.join(target_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        pass
