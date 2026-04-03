@@ -424,6 +424,24 @@ if [ "$SKIP_INSTALL" = false ]; then
     echo ""
 
     print_success "All dependencies installed"
+
+    # Pre-download embedding model so MCP server starts instantly
+    print_header "🧠 Pre-downloading Embedding Model"
+
+    print_step "Downloading BAAI/bge-m3 (this may take a few minutes on first run)..."
+    python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('BAAI/bge-m3')
+print('Model ready')
+" 2>&1 | while IFS= read -r line; do
+        echo "    $line"
+    done
+
+    if [ $? -eq 0 ]; then
+        print_success "Embedding model cached and ready"
+    else
+        print_warn "Model download failed — it will be downloaded on first MCP server start"
+    fi
 else
     print_step "Skipping package installation"
 fi
