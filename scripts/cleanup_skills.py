@@ -12,7 +12,11 @@ REPO_ROOT = Path(__file__).parent.parent
 
 def _resolve_path(primary: Path, fallback: Path) -> Path:
     """Use the new path if it exists, fall back to legacy .cursor/ path."""
-    return primary if primary.exists() else fallback
+    if primary.exists():
+        return primary
+    if fallback.exists():
+        return fallback
+    return primary
 
 SKILLS_DIR = _resolve_path(
     REPO_ROOT / "skills",
