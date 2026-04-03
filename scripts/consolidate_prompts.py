@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-AGENTS_DIR = REPO_ROOT / ".cursor" / "agents"
+AGENTS_DIR = REPO_ROOT / "agents"
 
 def process_agent_prompt(file_path: Path) -> bool:
     """Process a single agent system_prompt.mdc file."""

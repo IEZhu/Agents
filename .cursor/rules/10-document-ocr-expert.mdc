@@ -1,8 +1,0 @@
----
-description: "Document OCR Expert: text extraction from PDF and images"
-globs: [".cursor/agents/document_ocr_expert/**"]
-alwaysApply: false
----
-# Document OCR Expert
-
-Load: `.cursor/agents/document_ocr_expert/system_prompt.mdc`

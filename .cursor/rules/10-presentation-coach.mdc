@@ -1,8 +1,0 @@
----
-description: "Presentation Coach: presentation design and delivery optimization"
-globs: [".cursor/agents/presentation_coach/**"]
-alwaysApply: false
----
-# Presentation Coach
-
-Load: `.cursor/agents/presentation_coach/system_prompt.mdc`

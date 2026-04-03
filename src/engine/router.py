@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 from typing import List, Optional, Dict, Any
 
 from src.schemas.protocol import RouterDecision, AgentRequest
-from src.engine.config import REPO_ROOT, ROUTER_SIMILARITY_THRESHOLD
+from src.engine.config import REPO_ROOT, ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR
 from src.engine.chroma import get_chroma_client, get_embedding_fn
 
 class SemanticRouter:
@@ -28,9 +28,9 @@ class SemanticRouter:
 
     def _scan_agents(self) -> List[str]:
         """
-        Dynamically scans the .cursor/agents directory for available agents.
+        Dynamically scans the agents directory for available agents.
         """
-        agents_dir = os.path.join(REPO_ROOT, ".cursor", "agents")
+        agents_dir = AGENTS_DIR
         if not os.path.exists(agents_dir):
             logger.warning(f"Agents directory not found at {agents_dir}. Fallback to empty list.")
             return []
@@ -58,7 +58,7 @@ class SemanticRouter:
         import yaml
         descriptions = {}
         for name in self.available_agents:
-            path = os.path.join(REPO_ROOT, ".cursor", "agents", name, "system_prompt.mdc")
+            path = os.path.join(AGENTS_DIR, name, "system_prompt.mdc")
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     content = f.read()

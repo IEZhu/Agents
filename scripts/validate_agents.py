@@ -21,8 +21,8 @@ SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-AGENTS_DIR = REPO_ROOT / ".cursor" / "agents"
-SCHEMA_PATH = REPO_ROOT / ".cursor" / "agents" / "common" / "agent-schema.json"
+AGENTS_DIR = REPO_ROOT / "agents"
+SCHEMA_PATH = REPO_ROOT / "agents" / "common" / "agent-schema.json"
 
 def load_schema() -> dict:
     """Load the agent schema."""

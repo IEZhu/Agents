@@ -1,8 +1,0 @@
----
-description: "3D Print Finder: search 3D printable models across all platforms"
-globs: [".cursor/agents/3d_print_finder/**"]
-alwaysApply: false
----
-# 3D Print Finder
-
-Load: `.cursor/agents/3d_print_finder/system_prompt.mdc`

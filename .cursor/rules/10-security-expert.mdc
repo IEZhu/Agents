@@ -1,8 +1,0 @@
----
-description: "Security Expert: code security and vulnerability analysis"
-globs: [".cursor/agents/security_expert/**"]
-alwaysApply: false
----
-# Security Expert
-
-Load: `.cursor/agents/security_expert/system_prompt.mdc`

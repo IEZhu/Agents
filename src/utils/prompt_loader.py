@@ -3,7 +3,7 @@ import re
 import yaml
 from typing import Set
 
-from src.engine.config import REPO_ROOT, SKILLS_DIR, IMPLANTS_DIR
+from src.engine.config import REPO_ROOT, SKILLS_DIR, IMPLANTS_DIR, AGENTS_DIR
 
 def resolve_path(path_ref: str) -> str:
     """
@@ -13,33 +13,21 @@ def resolve_path(path_ref: str) -> str:
     candidate_path = ""
 
     if path_ref.startswith("@"):
-        # Assuming @ maps to repo root
-        # e.g. @.cursor/rules/... -> REPO_ROOT/.cursor/rules/...
-        # or @agents/common/... -> REPO_ROOT/.cursor/agents/common/... (maybe?)
+        clean_ref = path_ref[1:]  # remove @
 
-        # Let's check common patterns.
-        # In the example: @agents/common/core-protocol.mdc
-        # Actual path: .cursor/agents/common/core-protocol.mdc
-        # In example: @.cursor/implants/...
-        # Actual path: .cursor/implants/...
-
-        clean_ref = path_ref[1:] # remove @
-        if clean_ref.startswith(".cursor"):
-             candidate_path = os.path.join(REPO_ROOT, clean_ref)
-        elif clean_ref.startswith("agents"):
-             candidate_path = os.path.join(REPO_ROOT, ".cursor", clean_ref)
+        # Map known prefixes to their resolved directories
+        if clean_ref.startswith("agents/"):
+            candidate_path = os.path.join(AGENTS_DIR, clean_ref[len("agents/"):])
+        elif clean_ref.startswith("skills/"):
+            candidate_path = os.path.join(SKILLS_DIR, clean_ref[len("skills/"):])
+        elif clean_ref.startswith("implants/"):
+            candidate_path = os.path.join(IMPLANTS_DIR, clean_ref[len("implants/"):])
+        elif clean_ref.startswith(".cursor"):
+            # Legacy references — try resolving from repo root
+            candidate_path = os.path.join(REPO_ROOT, clean_ref)
         else:
-             # Fallback: try relative to .cursor or just root
-             candidate_1 = os.path.join(REPO_ROOT, ".cursor", clean_ref)
-             candidate_2 = os.path.join(REPO_ROOT, clean_ref)
-
-             # We can't easily check existence here if we want to be strict about traversal
-             # before checking existence, but let's prioritize the one that exists if possible,
-             # OR just pick one logic. The original code prioritized existence of candidate_1.
-             if os.path.exists(candidate_1):
-                 candidate_path = candidate_1
-             else:
-                 candidate_path = candidate_2
+            # Fallback: try repo root directly
+            candidate_path = os.path.join(REPO_ROOT, clean_ref)
     else:
         candidate_path = os.path.join(REPO_ROOT, path_ref)
 
@@ -140,12 +128,7 @@ def get_agent_metadata(agent_name: str) -> dict:
     """
     Reads the frontmatter metadata from the agent's system prompt.
     """
-    base_path = os.path.join(REPO_ROOT, ".cursor", "agents", agent_name, "system_prompt.mdc")
-
-    try:
-        base_path = resolve_path(os.path.relpath(base_path, REPO_ROOT))
-    except ValueError:
-        return {}
+    base_path = os.path.join(AGENTS_DIR, agent_name, "system_prompt.mdc")
 
     if not os.path.exists(base_path):
         return {}
@@ -166,15 +149,11 @@ def load_agent_prompt(agent_name: str) -> str:
     """
     Loads the system prompt for a specific agent, resolving imports.
     """
-    # Try multiple locations or conventions
-    # 1. .cursor/agents/{agent_name}/system_prompt.mdc
+    base_path = os.path.join(AGENTS_DIR, agent_name, "system_prompt.mdc")
 
-    base_path = os.path.join(REPO_ROOT, ".cursor", "agents", agent_name, "system_prompt.mdc")
-
-    # Ensure base_path is safe (though constructed from REPO_ROOT, agent_name could technically be malicious like "../..")
-    try:
-        base_path = resolve_path(os.path.relpath(base_path, REPO_ROOT))
-    except ValueError:
+    # Security: ensure the resolved path stays within AGENTS_DIR
+    abs_path = os.path.abspath(base_path)
+    if os.path.commonpath([AGENTS_DIR, abs_path]) != os.path.abspath(AGENTS_DIR):
         raise ValueError(f"Invalid agent name: {agent_name}")
 
     if not os.path.exists(base_path):

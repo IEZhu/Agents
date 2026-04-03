@@ -1,8 +1,0 @@
----
-description: "Website Analyst: website analysis, traffic, business models"
-globs: [".cursor/agents/website_analyst/**"]
-alwaysApply: false
----
-# Website Analyst
-
-Load: `.cursor/agents/website_analyst/system_prompt.mdc`

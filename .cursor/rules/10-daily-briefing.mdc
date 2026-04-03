@@ -1,8 +1,0 @@
----
-description: "Daily Briefing: verified daily news digest with strategic analysis"
-globs: [".cursor/agents/daily_briefing/**"]
-alwaysApply: false
----
-# Daily Briefing
-
-Load: `.cursor/agents/daily_briefing/system_prompt.mdc`

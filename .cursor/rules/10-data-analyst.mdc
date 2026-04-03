@@ -1,8 +1,0 @@
----
-description: "Data Analyst: data analysis and pattern recognition"
-globs: [".cursor/agents/data_analyst/**"]
-alwaysApply: false
----
-# Data Analyst
-
-Load: `.cursor/agents/data_analyst/system_prompt.mdc`

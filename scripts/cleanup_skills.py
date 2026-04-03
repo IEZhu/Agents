@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-SKILLS_DIR = REPO_ROOT / ".cursor" / "skills"
+SKILLS_DIR = REPO_ROOT / "skills"
 
 def process_skill_file(file_path: Path) -> bool:
     """Remove globs from a skill file."""

@@ -3,6 +3,7 @@ src/utils/__pycache__/
 src/schemas/__pycache__/
 src/engine/__pycache__/
 chroma_db/
+logs/
 node_modules/
 **/node_modules/
 *.pyc
@@ -33,3 +34,5 @@ whisper_models/
 !.cursor/
 !.gitignore
 !.git/
+
+.cursor/mcp/temp_servers

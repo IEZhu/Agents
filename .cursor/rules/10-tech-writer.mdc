@@ -1,8 +1,0 @@
----
-description: "Tech Writer: technical documentation and git operations"
-globs: [".cursor/agents/tech_writer/**"]
-alwaysApply: false
----
-# Tech Writer
-
-Load: `.cursor/agents/tech_writer/system_prompt.mdc`

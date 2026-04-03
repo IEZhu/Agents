@@ -1,8 +1,0 @@
----
-description: "Repo Installer: replicates .cursor architecture to other repos"
-globs: [".cursor/agents/install_to_repo/**"]
-alwaysApply: false
----
-# Repo Installer
-
-Load: `.cursor/agents/install_to_repo/system_prompt.mdc`

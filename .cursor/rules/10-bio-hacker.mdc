@@ -1,8 +1,0 @@
----
-description: "Bio-Hacker: systems biology and human optimization protocols"
-globs: [".cursor/agents/bio_hacker/**"]
-alwaysApply: false
----
-# Bio-Hacker
-
-Load: `.cursor/agents/bio_hacker/system_prompt.mdc`
