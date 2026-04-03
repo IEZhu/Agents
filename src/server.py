@@ -112,9 +112,9 @@ CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=64, ttl=SESSION_CACHE_TTL_SECOND
 def _compute_context_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
 
-async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str]]:
+async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], str]:
     """Shared helper: load prompt, enrich with skills/implants/capabilities.
-    Returns (final_prompt, context_hash, skills_loaded, implants_loaded).
+    Returns (final_prompt, context_hash, skills_loaded, implants_loaded, effective_tier).
     """
     tier_explicit = tier is not None
     if tier is None:
@@ -141,7 +141,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
             prompt, skills_loaded, implants_loaded = cached, [], []
         logger.info(f"Session cache hit for {agent_name} (tier={tier})")
         debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
-        return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded
+        return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, tier
 
     base_prompt = await loop.run_in_executor(None, load_agent_prompt, agent_name)
 
@@ -160,7 +160,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         "skills_loaded": enrichment.skills_loaded,
         "implants_loaded": enrichment.implants_loaded,
     })
-    return final_prompt, ctx_hash, enrichment.skills_loaded, enrichment.implants_loaded
+    return final_prompt, ctx_hash, enrichment.skills_loaded, enrichment.implants_loaded, tier
 
 
 async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> str:
@@ -258,7 +258,7 @@ async def route_and_load(
 
         # 3. Cache hit or meta-query — load enriched prompt
         # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote
-        final_prompt, new_hash, skills_loaded, implants_loaded = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
+        final_prompt, new_hash, skills_loaded, implants_loaded, tier = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
 
         if context_hash and context_hash == new_hash:
             result = {
@@ -334,7 +334,7 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
         request_id = str(uuid.uuid4())
         debug_log("get_agent_context", "req", {"agent_name": agent_name, "query": query, "reasoning": reasoning})
 
-        final_prompt, ctx_hash, skills_loaded, implants_loaded = await _load_and_enrich(agent_name, query, chat_history_list)
+        final_prompt, ctx_hash, skills_loaded, implants_loaded, _ = await _load_and_enrich(agent_name, query, chat_history_list)
         await router.update_cache(query, agent_name, reasoning, request_id)
 
         # Try sampling: generate response with agent's system prompt via client LLM
@@ -522,7 +522,7 @@ async def ask(query: str) -> list:
                 f"Agents:\n" + "\n".join(lines) + f"\n\nQuery: {query}"
             )]
 
-        prompt, _, _, _ = await _load_and_enrich(agent_name, query, [])
+        prompt, _, _, _, _ = await _load_and_enrich(agent_name, query, [])
         return [UserMessage(
             f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
             f"{prompt}\n\n"
@@ -548,7 +548,7 @@ def _register_agent_prompts():
         def make_prompt(a_name, d_name, r):
             async def agent_prompt(query: str) -> list:
                 try:
-                    prompt, _, _, _ = await _load_and_enrich(a_name, query, [])
+                    prompt, _, _, _, _ = await _load_and_enrich(a_name, query, [])
                     return [UserMessage(
                         f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
                         f"{prompt}\n\n"
