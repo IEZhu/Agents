@@ -51,7 +51,8 @@ mcp = FastMCP(
         "- ROUTE_REQUIRED → pick best agent from `candidates`, call `get_agent_context(agent_name, query)`.\n"
         "- NO_CHANGE → context unchanged, continue.\n"
         "- ERROR → answer directly (only fallback).\n\n"
-        "Respond in the same language as the user's query (auto-detect).\n"
+        "Respond in the same language as the user's query (auto-detect). "
+        "Exceptions: code blocks, technical terms, and tool/CLI output stay in English.\n"
         "Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]"
     ),
 )
@@ -211,6 +212,7 @@ async def route_and_load(
     - ERROR → Answer directly (only fallback).
 
     Respond in the same language as the user's query (auto-detect).
+    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
     Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     Pass `context_hash` from a previous response to enable delta mode.
     """
@@ -322,6 +324,7 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
     If the client supports sampling, returns a ready-made response (SUCCESS_SAMPLED).
     Otherwise returns the system_prompt for you to use as context.
     Respond in the same language as the user's query (auto-detect).
+    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
     Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     """
     try:
