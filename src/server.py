@@ -227,6 +227,7 @@ async def route_and_load(
         })
 
         # 1. Try semantic cache
+        explicit_tier = None  # only set for intentional overrides (e.g. meta-query)
         cached_decision = await router.lookup_cache(query, {"history_text": history_text})
         if cached_decision:
             agent_name = cached_decision.target_agent
@@ -234,7 +235,7 @@ async def route_and_load(
         elif _is_meta_query(query):
             agent_name = "universal_agent"
             reasoning = "Auto-fallback: meta-query detected"
-            tier = "lite"
+            explicit_tier = "lite"
         else:
             # 2. Cache miss — return candidates for the calling LLM to decide
             candidates = router.get_agent_catalog()
@@ -256,7 +257,8 @@ async def route_and_load(
             return json.dumps(result, ensure_ascii=False)
 
         # 3. Cache hit or meta-query — load enriched prompt
-        final_prompt, new_hash, skills_loaded, implants_loaded = await _load_and_enrich(agent_name, query, chat_history_list, tier)
+        # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote
+        final_prompt, new_hash, skills_loaded, implants_loaded = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
 
         if context_hash and context_hash == new_hash:
             result = {

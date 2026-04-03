@@ -224,13 +224,13 @@ else
 fi
 
 if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
-    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 1 -type d | wc -l)
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 1 -type d ! -name "common" ! -name ".*" ! -path "$AGENTS_BASE" | wc -l)
     SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
     IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
     COMMAND_COUNT=$(find "$COMMANDS_BASE" -name "*.md" 2>/dev/null | wc -l)
 
     print_success "Agents directory found: $AGENTS_BASE"
-    echo -e "    • ${CYAN}$((AGENT_COUNT - 1))${NC} agents"
+    echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"
     echo -e "    • ${CYAN}$SKILL_COUNT${NC} skills"
     echo -e "    • ${CYAN}$IMPLANT_COUNT${NC} implants"
     echo -e "    • ${CYAN}$COMMAND_COUNT${NC} commands"
