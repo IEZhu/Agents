@@ -46,6 +46,13 @@ async def chat_endpoint(request: ChatRequest):
         )
         decision = await router.route(agent_request)
 
+        if decision is None:
+            return ChatResponse(
+                agent="",
+                response="ROUTE_REQUIRED",
+                reasoning="Cache miss — client should call route_and_load for full routing",
+            )
+
         target_agent = decision.target_agent
         reasoning = decision.reasoning
 
