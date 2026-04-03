@@ -9,6 +9,7 @@ When disabled — pure no-op, zero overhead.
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 from src.engine.config import AGENTS_DEBUG, DEBUG_LOG_DIR
@@ -28,7 +29,9 @@ def debug_log(tool: str, direction: str, data: dict) -> None:
     now = datetime.now(timezone.utc)
     date_dir = now.strftime("%Y-%m-%d")
     ts_prefix = now.strftime("%H-%M-%S") + f".{now.microsecond // 1000:03d}"
-    filename = f"{ts_prefix}_{tool}_{direction}.json"
+    safe_tool = re.sub(r'[^\w\-.]', '_', tool)
+    safe_dir = re.sub(r'[^\w\-.]', '_', direction)
+    filename = f"{ts_prefix}_{safe_tool}_{safe_dir}.json"
 
     target_dir = os.path.join(DEBUG_LOG_DIR, date_dir)
     os.makedirs(target_dir, exist_ok=True)

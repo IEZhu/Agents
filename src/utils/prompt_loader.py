@@ -31,13 +31,12 @@ def resolve_path(path_ref: str) -> str:
     else:
         candidate_path = os.path.join(REPO_ROOT, path_ref)
 
-    # Security Check: Prevent Path Traversal
-    abs_path = os.path.abspath(candidate_path)
+    # Security Check: Prevent Path Traversal (realpath resolves symlinks)
+    abs_path = os.path.realpath(candidate_path)
+    repo_root_real = os.path.realpath(REPO_ROOT)
 
-    # os.path.commonpath returns the longest common sub-path
-    # We ensure that REPO_ROOT is the prefix of abs_path
     try:
-        if os.path.commonpath([REPO_ROOT, abs_path]) != REPO_ROOT:
+        if os.path.commonpath([repo_root_real, abs_path]) != repo_root_real:
             raise ValueError(f"Security Error: Access denied for path '{path_ref}'. Cannot access outside repository.")
     except ValueError:
         # handle edge cases like different drives on Windows, though unlikely in this Linux environment
@@ -151,9 +150,9 @@ def load_agent_prompt(agent_name: str) -> str:
     """
     base_path = os.path.join(AGENTS_DIR, agent_name, "system_prompt.mdc")
 
-    # Security: ensure the resolved path stays within AGENTS_DIR
-    abs_path = os.path.abspath(base_path)
-    if os.path.commonpath([AGENTS_DIR, abs_path]) != os.path.abspath(AGENTS_DIR):
+    # Security: ensure the resolved path stays within AGENTS_DIR (realpath resolves symlinks)
+    abs_path = os.path.realpath(base_path)
+    if os.path.commonpath([os.path.realpath(AGENTS_DIR), abs_path]) != os.path.realpath(AGENTS_DIR):
         raise ValueError(f"Invalid agent name: {agent_name}")
 
     if not os.path.exists(base_path):

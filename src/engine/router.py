@@ -32,8 +32,8 @@ class SemanticRouter:
         """
         agents_dir = AGENTS_DIR
         if not os.path.exists(agents_dir):
-            logger.warning(f"Agents directory not found at {agents_dir}. Fallback to empty list.")
-            return []
+            logger.warning(f"Agents directory not found at {agents_dir}. Fallback to universal_agent.")
+            return ["universal_agent"]
 
         agents = []
         try:
