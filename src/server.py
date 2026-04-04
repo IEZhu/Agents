@@ -31,13 +31,10 @@ from src.engine.enrichment import (
     enrich_agent_prompt,
     infer_tier,
     implant_retriever,
-    EnrichmentResult,
 )
 from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
-from src.schemas.protocol import AgentRequest
-from src.engine.config import REPO_ROOT
 
 mcp = FastMCP(
     "Agents-Core",

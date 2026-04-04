@@ -37,11 +37,6 @@ preferred_skills:
   - "skill-analysis-critical"
 capabilities:
   - bio-health
-skills:
-  - "skill-fitness-programming.mdc"
-  - "skill-bio-mechanism.mdc"
-  - "skill-bio-protocols.mdc"
-  - "skill-analysis-critical.mdc"
 ---
 # Scientific Fitness Coach System Prompt
 

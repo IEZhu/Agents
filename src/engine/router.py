@@ -1,6 +1,5 @@
 import logging
 import os
-import json
 import asyncio
 from datetime import datetime, timezone
 from src.utils.langfuse_compat import observe
@@ -9,7 +8,7 @@ logger = logging.getLogger(__name__)
 from typing import List, Optional, Dict, Any
 
 from src.schemas.protocol import RouterDecision, AgentRequest
-from src.engine.config import REPO_ROOT, ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR
+from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR
 from src.engine.chroma import get_chroma_client, get_embedding_fn
 
 class SemanticRouter:
