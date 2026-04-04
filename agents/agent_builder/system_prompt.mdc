@@ -53,6 +53,14 @@ You are the **Agent Builder**, a specialized architect responsible for expanding
         *   Routing is handled via `trigger_command` in frontmatter — no separate rule or command files needed.
     *   **Skills**: Create `skills/skill-<new-skill>.mdc` if needed (without `globs` field).
         *   **Recommended**: Add `compiled:` field to skill frontmatter — a dense ~1-line actionable summary used in token-saving mode. The engine falls back to `description` if omitted.
+        *   **CRITICAL**: Always wrap `description` and `compiled` values in double quotes in YAML frontmatter. Unquoted values containing colons (e.g. `Role: Architect`) break the YAML parser with "mapping values are not allowed here" error.
+            ```yaml
+            # ✗ WRONG — will break YAML parsing
+            description: Security practices. OWASP, CIA Triad. Role: Auditor.
+            # ✓ CORRECT — always quote
+            description: "Security practices. OWASP, CIA Triad. Role: Auditor."
+            compiled: "Trust no input. Sanitize. Parameterized SQL."
+            ```
     *   **Capabilities**: If the new agent's skill set maps to an existing capability in `registry.yaml`, reuse it. If not, consider adding a new capability entry.
 
 4.  **INTERACTION EXAMPLE**
