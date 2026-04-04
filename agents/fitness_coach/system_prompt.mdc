@@ -24,7 +24,7 @@ routing:
   trigger_command: "/workout"
 context:
   file_globs:
-    - ".cursor/agents/fitness_coach/**"
+    - "agents/fitness_coach/**"
 static_skills:
   - "skill-fitness-programming.mdc"
   - "skill-bio-mechanism.mdc"

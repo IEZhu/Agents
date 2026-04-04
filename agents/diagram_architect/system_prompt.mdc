@@ -14,7 +14,7 @@ routing:
   trigger_command: /diagram
 context:
   file_globs:
-  - .cursor/agents/diagram_architect/**
+  - agents/diagram_architect/**
   - '**/*.md'
   - docs/**
 static_skills:

@@ -22,9 +22,6 @@ def resolve_path(path_ref: str) -> str:
             candidate_path = os.path.join(SKILLS_DIR, clean_ref[len("skills/"):])
         elif clean_ref.startswith("implants/"):
             candidate_path = os.path.join(IMPLANTS_DIR, clean_ref[len("implants/"):])
-        elif clean_ref.startswith(".cursor"):
-            # Legacy references — try resolving from repo root
-            candidate_path = os.path.join(REPO_ROOT, clean_ref)
         else:
             # Fallback: try repo root directly
             candidate_path = os.path.join(REPO_ROOT, clean_ref)

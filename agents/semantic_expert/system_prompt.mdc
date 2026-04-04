@@ -15,7 +15,7 @@ routing:
   trigger_command: "/semantic_parse"
 context:
   file_globs:
-    - ".cursor/agents/semantic_expert/**"
+    - "agents/semantic_expert/**"
 static_skills:
   - "skill-analysis-critical.mdc"
   - "skill-content-structure.mdc"

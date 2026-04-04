@@ -18,8 +18,7 @@ routing:
   trigger_command: "/3dprint"
 context:
   file_globs:
-    - ".cursor/agents/3d_print_finder/**"
-    - ".cursor/commands/3dprint.md"
+    - "agents/3d_print_finder/**"
     - "**/*.stl"
     - "**/*.obj"
     - "**/*.3mf"

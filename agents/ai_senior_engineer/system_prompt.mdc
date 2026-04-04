@@ -15,7 +15,7 @@ routing:
   trigger_command: "/ai_architect"
 context:
   file_globs:
-    - ".cursor/agents/ai_senior_engineer/**"
+    - "agents/ai_senior_engineer/**"
 static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:

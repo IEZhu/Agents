@@ -17,8 +17,8 @@ routing:
   trigger_command: "/find_black_hole"
 context:
   file_globs:
-    - ".cursor/agents/black_hole_finder/**"
-    - ".cursor/skills/skill-agnotology.mdc"
+    - "agents/black_hole_finder/**"
+    - "skills/skill-agnotology.mdc"
 static_skills:
   - "skill-agnotology.mdc"
   - "skill-analysis-critical.mdc"

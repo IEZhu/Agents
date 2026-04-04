@@ -15,7 +15,7 @@ routing:
   trigger_command: "/bio_protocol"
 context:
   file_globs:
-    - ".cursor/agents/bio_hacker/**"
+    - "agents/bio_hacker/**"
 static_skills:
   - "skill-bio-mechanism.mdc"
   - "skill-bio-protocols.mdc"

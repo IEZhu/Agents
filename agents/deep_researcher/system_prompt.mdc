@@ -16,8 +16,7 @@ routing:
   trigger_command: "/research"
 context:
   file_globs:
-    - ".cursor/agents/deep_researcher/**"
-    - ".cursor/commands/research.md"
+    - "agents/deep_researcher/**"
 static_skills:
   - "skill-dense-summarization.mdc"
   - "skill-analysis-critical.mdc"

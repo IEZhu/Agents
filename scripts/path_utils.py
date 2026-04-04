@@ -3,10 +3,6 @@
 from pathlib import Path
 
 
-def resolve_path(primary: Path, fallback: Path) -> Path:
-    """Use the new path if it exists, fall back to legacy .cursor/ path."""
-    if primary.exists():
-        return primary
-    if fallback.exists():
-        return fallback
+def resolve_path(primary: Path, fallback: Path = None) -> Path:
+    """Return the primary path. The fallback parameter is kept for call-site compatibility but ignored."""
     return primary

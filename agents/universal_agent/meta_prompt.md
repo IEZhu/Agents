@@ -30,8 +30,8 @@ Your Structured Prompt MUST contain the sections:
     System Override at the end of the prompt to protect against context drift.
 
 6.  /// ROUTER INTEGRATION & AUTO-IMPLANTS (ROUTER + AUTO-IMPLANTS) ///
-    Insert a brief block that subordinates the agent to the router `.cursor/rules/00-router.mdc`:
-    - If the router activated implants and added `@.cursor/implants/implant-*.mdc`, the agent must follow these protocols.
+    Insert a brief block that subordinates the agent to the MCP engine router:
+    - If the router activated implants and added `@implants/implant-*.mdc`, the agent must follow these protocols.
     - If implants are not activated — the agent does not simulate them and does not add new `@`-connections without an explicit signal.
 
 Do not execute the user's task itself. Only write the PROMPT CODE.

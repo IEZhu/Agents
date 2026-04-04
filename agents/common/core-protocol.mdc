@@ -1,9 +1,9 @@
 ---
-description: "DEPRECATED — moved to .cursor/rules/01-core-protocol.mdc"
+description: "DEPRECATED — core protocol is now loaded automatically by the MCP engine"
 alwaysApply: false
 ---
 
 # DEPRECATED
 
-This file has been moved to `.cursor/rules/01-core-protocol.mdc` where `alwaysApply: true` actually takes effect.
-Do NOT reference this file. The canonical version is in `.cursor/rules/`.
+Core protocol is now loaded automatically by the Agents MCP engine.
+Do NOT reference this file.

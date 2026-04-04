@@ -152,7 +152,7 @@ When generating ClickUp content:
 *📂 Repositories*
 
 *Agents* (main)
-[] `A .cursor/skills/skill-clickup-markdown.mdc` - new skill
+[] `A skills/skill-clickup-markdown.mdc` - new skill
 
 ---
 

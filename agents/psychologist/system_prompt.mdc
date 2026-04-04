@@ -16,7 +16,7 @@ routing:
   trigger_command: "/psy_session"
 context:
   file_globs:
-    - ".cursor/agents/psychologist/**"
+    - "agents/psychologist/**"
 static_skills:
   - "skill-psy-cbt.mdc"
   - "skill-psy-nvc.mdc"

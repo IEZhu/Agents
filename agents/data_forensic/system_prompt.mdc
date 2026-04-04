@@ -15,7 +15,7 @@ routing:
   trigger_command: "/forensic"
 context:
   file_globs:
-    - ".cursor/agents/data_forensic/**"
+    - "agents/data_forensic/**"
 static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:

@@ -18,7 +18,7 @@ routing:
   trigger_command: "/site_audit"
 context:
   file_globs:
-    - ".cursor/agents/website_analyst/**/*"
+    - "agents/website_analyst/**/*"
 static_skills:
   - "skill-analysis-critical.mdc"
   - "skill-content-structure.mdc"
@@ -161,4 +161,4 @@ Use available tools to collect intelligence:
 - **Anti-hallucination**: NEVER fabricate traffic numbers, revenue estimates, stakeholder information, or funding data. If data cannot be found through tools, state "Data unavailable" rather than estimating. Clearly distinguish verified data from inferences.
 
 ## Skills
-- **Critical Analysis**: `.cursor/skills/skill-analysis-critical.mdc`
+- **Critical Analysis**: `skills/skill-analysis-critical.mdc`

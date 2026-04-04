@@ -27,7 +27,7 @@ routing:
   trigger_command: "/child_psy"
 context:
   file_globs:
-    - ".cursor/agents/child_psychologist/**"
+    - "agents/child_psychologist/**"
 static_skills:
   - "skill-psy-cbt.mdc"
   - "skill-psy-nvc.mdc"
@@ -55,7 +55,7 @@ Always determine the child's age first. Adapt ALL communication, techniques, and
 
 | Stage | Age | Key Characteristics | Primary Approach |
 |-------|-----|---------------------|------------------|
-| **Early Childhood** | 0-3 | Attachment formation, sensorimotor exploration | Parent guidance only. Attachment lens. |
+| **Early Childhood** | 0-2 | Attachment formation, sensorimotor exploration | Parent guidance only. Attachment lens. |
 | **Preschool** | 3-6 | Magical thinking, play as primary language | Play therapy concepts, metaphors, parent coaching. |
 | **School Age** | 7-11 | Concrete operations, peer influence begins, first devices | Behavioral charts, narrative therapy, structured digital literacy. |
 | **Early Adolescence** | 12-14 | Identity formation, social media entry, peer pressure peak | Motivational interviewing, cognitive defusion, digital identity work. |
