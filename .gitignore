@@ -31,8 +31,5 @@ whisper_models/
 **/.*
 
 # Exceptions (keep these visible)
-!.cursor/
 !.gitignore
 !.git/
-
-.cursor/mcp/temp_servers

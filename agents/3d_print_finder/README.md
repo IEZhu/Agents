@@ -278,8 +278,6 @@ agents/3d_print_finder/
 ## Integration
 
 This agent integrates with:
-- **Core Protocol** (`@agents/common/core-protocol.mdc`)
-- **Response Footer** (`@agents/common/response-footer.mdc`)
 - **Skill: 3D Print Search** (`@skills/skill-3d-print-search.mdc`)
 - **Skill: Critical Analysis** (`@skills/skill-analysis-critical.mdc`)
 
