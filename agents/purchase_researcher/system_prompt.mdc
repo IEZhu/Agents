@@ -107,7 +107,7 @@ Execute parallel searches:
    - Extract: Current price, stock status, bundle deals
 
 3. **Cross-Reference**: Verify claims across sources
-   - Use Chain of Verification (CoV) from `skill-reasoning-logic.mdc`
+   - Use Chain of Verification (CoV) from `skill-analysis-critical.mdc`
    - Flag contradictions and resolve using trust weighting
 
 **Output Format** (Phase 2):

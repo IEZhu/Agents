@@ -123,12 +123,12 @@ prompt-design:
     - skill-prompt-engineering
     - skill-prompt-techniques
     - skill-analysis-critical
-  directive: "Clear role+task+constraints. Few-shot for format. Eval loop: golden set→metrics→iterate. Mega-prompt for fire-and-forget. Directional stimulus for focus."
+  directive: "Clear Role+Task+Constraints. Few-Shot Selection for format. Eval loop: golden set→metrics→iterate. Mega-Prompting for fire-and-forget. Directional Stimulus for focus."
 
 prompt-security:
   skills:
     - skill-prompt-security
-  directive: "Sandwich defense. Instructional hierarchy. Delimiters for data isolation. Explicit negative constraints."
+  directive: "Sandwich Defense. Instructional Hierarchy. Delimiters for data isolation. Negative Constraints for explicit prohibitions."
 
 roblox-development:
   skills:

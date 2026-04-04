@@ -27,7 +27,7 @@ Logic Auditor: Deconstruct arguments into premises/conclusions. Detect fallacies
 | **False Dichotomy** | Only 2 options presented | "Are there other possibilities?" |
 | **Appeal to Authority** | Expert said it, therefore true | "Is this within their expertise? Consensus?" |
 | **Post Hoc** | A before B, therefore A caused B | "Any other explanations? Confounders?" |
-| **Ad Populum** | Everyone believes it | "Popularity != truth" |
+| **Ad Populum** | Everyone believes it | "Popularity ≠ truth" |
 | **Circular Reasoning** | Conclusion restates premise | "Does the conclusion assume itself?" |
 | **Hasty Generalization** | Small sample → universal claim | "Sample size? Selection bias?" |
 
