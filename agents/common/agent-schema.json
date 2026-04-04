@@ -45,7 +45,7 @@
       "properties": {
         "system_prompt": {
           "type": "string",
-          "description": "The core instructions for the agent (MDC content)"
+          "description": "Not used in frontmatter. The MDC markdown body below the closing --- IS the system prompt. This field exists for programmatic use only."
         },
         "file_globs": {
           "type": "array",
@@ -53,7 +53,7 @@
           "description": "Glob patterns for files this agent should have context of"
         }
       },
-      "required": ["system_prompt", "file_globs"]
+      "required": ["file_globs"]
     },
     "static_skills": {
       "type": "array",
