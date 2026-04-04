@@ -326,9 +326,9 @@ if [ "$SKIP_CHROMA" = false ]; then
     print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
     set +e
-    python -c "
+    REPO_ROOT="$REPO_ROOT" python -c "
 import sys, os
-sys.path.insert(0, '$REPO_ROOT')
+sys.path.insert(0, os.environ['REPO_ROOT'])
 
 # 1. Download/cache the embedding model
 from sentence_transformers import SentenceTransformer
