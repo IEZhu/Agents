@@ -152,9 +152,8 @@ group_a = df[df['group'] == 'A']['value']
 group_b = df[df['group'] == 'B']['value']
 stat, p_value = stats.mannwhitneyu(group_a, group_b, alternative='two-sided')
 n1, n2 = len(group_a), len(group_b)
-pooled_std = np.sqrt(((n1-1)*group_a.std()**2 + (n2-1)*group_b.std()**2) / (n1+n2-2))
-cohens_d = (group_a.mean() - group_b.mean()) / pooled_std
-print(f"U={stat}, p={p_value:.4f}, Cohen's d={cohens_d:.3f}")
+rank_biserial_r = 1 - (2 * stat) / (n1 * n2)  # effect size for Mann-Whitney U
+print(f"U={stat}, p={p_value:.4f}, rank-biserial r={rank_biserial_r:.3f}")
 
 # Save visualization
 fig, ax = plt.subplots(figsize=(10, 6))
