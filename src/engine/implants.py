@@ -5,6 +5,7 @@ import hashlib
 import yaml
 from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any, Optional
+from src.utils.prompt_loader import split_frontmatter
 
 from src.engine.config import IMPLANTS_DIR, IMPLANTS_RELEVANCE_THRESHOLD, CHROMA_PATH
 from src.engine.chroma import get_chroma_client, get_embedding_fn
@@ -75,14 +76,13 @@ class ImplantRetriever:
                 frontmatter = {}
                 body = content
 
-                if content.startswith("---"):
-                    parts = content.split("---", 2)
-                    if len(parts) >= 3:
-                        try:
-                            frontmatter = yaml.safe_load(parts[1])
-                            body = parts[2].strip()
-                        except Exception as e:
-                            logger.error(f"Failed to parse frontmatter for {file_path}: {e}")
+                fm_str, parsed_body = split_frontmatter(content)
+                if fm_str is not None:
+                    try:
+                        frontmatter = yaml.safe_load(fm_str)
+                        body = parsed_body
+                    except Exception as e:
+                        logger.error(f"Failed to parse frontmatter for {file_path}: {e}")
 
                 # Prepare for indexing
                 description = frontmatter.get("description", "")
