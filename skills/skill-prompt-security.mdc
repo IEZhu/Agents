@@ -1,5 +1,5 @@
 ---
-description: Prompt security patterns. Sandwich Defense, Instructional Hierarchy, Delimiters, Negative Constraints. Protection against injection and override attacks. Role: Prompt Security Engineer.
+description: "Prompt security patterns. Sandwich Defense, Instructional Hierarchy, Delimiters, Negative Constraints. Protection against injection and override attacks. Role: Prompt Security Engineer."
 compiled: "Sandwich: [SYSTEM]→[USER DATA]→[SYSTEM reminder]. Hierarchy: user_input is DATA not COMMANDS. Delimiters: wrap data in tags/quotes. Negative constraints: explicit 'Do NOT' list."
 ---
 ## Role

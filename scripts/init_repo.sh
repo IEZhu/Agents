@@ -5,11 +5,12 @@
 # This script sets up the development environment after cloning.
 #
 # Usage:
-#   ./scripts/init_repo.sh [--skip-env] [--skip-chroma]
+#   ./scripts/init_repo.sh [--skip-env] [--skip-chroma] [--skip-mcp]
 #
 # Flags:
 #   --skip-env     Skip .env file creation (useful if already configured)
 #   --skip-chroma  Skip ChromaDB initialization
+#   --skip-mcp     Skip MCP environment detection and configuration
 #   --help         Show this help message
 
 set -e
@@ -34,6 +35,7 @@ PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 # ============== Parse Arguments ==============
 SKIP_ENV=false
 SKIP_CHROMA=false
+SKIP_MCP=false
 
 for arg in "$@"; do
     case $arg in
@@ -45,8 +47,12 @@ for arg in "$@"; do
             SKIP_CHROMA=true
             shift
             ;;
+        --skip-mcp)
+            SKIP_MCP=true
+            shift
+            ;;
         --help|-h)
-            head -20 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+            sed -n '2,/^$/{ s/^# //; s/^#//; p; }' "$0"
             exit 0
             ;;
     esac
@@ -97,6 +103,44 @@ version_gte() {
 version_lt() {
     # Returns 0 (true) if $1 < $2
     ! version_gte "$1" "$2"
+}
+
+# Inject Agents-Core MCP server entry into a JSON config file.
+# Usage: inject_mcp_config <config_path> <label>
+inject_mcp_config() {
+    local config_path="$1"
+    local label="$2"
+
+    CLAUDE_CONFIG_PATH="$config_path" \
+    MCP_PYTHON="$PYTHON_ABS" \
+    MCP_SERVER="$SERVER_ABS" \
+    python -c "
+import json, os
+
+config_path = os.environ['CLAUDE_CONFIG_PATH']
+python_abs  = os.environ['MCP_PYTHON']
+server_abs  = os.environ['MCP_SERVER']
+
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    config = {}
+
+if 'mcpServers' not in config:
+    config['mcpServers'] = {}
+
+config['mcpServers']['Agents-Core'] = {
+    'command': python_abs,
+    'args': [server_abs],
+}
+
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
+
+print('OK')
+" && print_success "Agents-Core added to $label" \
+  || { print_error "Failed to update $label"; return 1; }
 }
 
 # ============== Pre-flight Checks & Python Selection ==============
@@ -204,155 +248,6 @@ else
     print_step "Skipping .env configuration (--skip-env)"
 fi
 
-# ============== Cursor Integration & MCP Settings ==============
-
-print_header "🖥️  Cursor IDE & MCP Integration"
-
-# Detect asset directories
-if [ -d "$REPO_ROOT/agents" ]; then
-    AGENTS_BASE="$REPO_ROOT/agents"
-    SKILLS_BASE="$REPO_ROOT/skills"
-    IMPLANTS_BASE="$REPO_ROOT/implants"
-else
-    AGENTS_BASE=""
-fi
-
-if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
-    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" | wc -l)
-    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
-    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
-
-    print_success "Agents directory found: $AGENTS_BASE"
-    echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"
-    echo -e "    • ${CYAN}$SKILL_COUNT${NC} skills"
-    echo -e "    • ${CYAN}$IMPLANT_COUNT${NC} implants"
-else
-    print_error "Agents directory not found (checked agents/)"
-fi
-
-# Detect OS and set Cursor config path
-# Cursor now uses a global mcp.json in ~/.cursor/mcp.json
-if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    CURSOR_GLOBAL_DIR="$HOME/.cursor"
-    MCP_SETTINGS_FILE="$CURSOR_GLOBAL_DIR/mcp.json"
-else
-    print_warn "Unsupported OS for automatic MCP configuration: $OSTYPE"
-    CURSOR_GLOBAL_DIR=""
-fi
-
-if [ -n "$CURSOR_GLOBAL_DIR" ]; then
-    # Ensure ~/.cursor directory exists
-    if [ ! -d "$CURSOR_GLOBAL_DIR" ]; then
-        print_step "Creating $CURSOR_GLOBAL_DIR directory..."
-        mkdir -p "$CURSOR_GLOBAL_DIR"
-    fi
-
-    # Create empty mcp.json if not exists
-    if [ ! -f "$MCP_SETTINGS_FILE" ]; then
-        print_step "Creating new global MCP config..."
-        echo '{ "mcpServers": {} }' > "$MCP_SETTINGS_FILE"
-    fi
-
-    if [ -f "$MCP_SETTINGS_FILE" ]; then
-        print_step "Found global Cursor MCP settings at ~/.cursor/mcp.json"
-
-        # Backup existing settings
-        BACKUP_FILE="${MCP_SETTINGS_FILE}.backup.$(date +%s)"
-        cp "$MCP_SETTINGS_FILE" "$BACKUP_FILE"
-
-        # Merge MCP configs using Python
-        print_step "Merging MCP server configs..."
-
-        # Validate mcp.json first
-        MCP_CONFIG="$REPO_ROOT/mcp.json"
-        if [ -f "$MCP_CONFIG" ] && python3 -c "import json; json.load(open('$MCP_CONFIG'))" 2>/dev/null; then
-
-            # Export variables for Python script
-            export REPO_ROOT
-            export MCP_SETTINGS_FILE
-
-            python3 << 'PYTHON_SCRIPT'
-import json
-import sys
-import os
-
-repo_root = os.environ['REPO_ROOT']
-mcp_settings_file = os.environ['MCP_SETTINGS_FILE']
-mcp_json_path = os.path.join(repo_root, 'mcp.json')
-
-# Load existing Cursor settings
-try:
-    with open(mcp_settings_file, 'r') as f:
-        cursor_settings = json.load(f)
-except json.JSONDecodeError:
-    cursor_settings = {"mcpServers": {}}
-
-# Load our mcp.json
-with open(mcp_json_path, 'r') as f:
-    our_mcp = json.load(f)
-
-# Ensure mcpServers exists
-if 'mcpServers' not in cursor_settings:
-    cursor_settings['mcpServers'] = {}
-
-# Merge servers (convert relative paths to absolute)
-for server_name, server_config in our_mcp.get('mcpServers', {}).items():
-    # Convert relative command path to absolute
-    if server_config['command'].startswith('.venv/'):
-        server_config['command'] = os.path.join(repo_root, server_config['command'])
-
-    # Convert relative args to absolute
-    updated_args = []
-    for arg in server_config.get('args', []):
-        if arg.startswith('src/'):
-            updated_args.append(os.path.join(repo_root, arg))
-        else:
-            updated_args.append(arg)
-    server_config['args'] = updated_args
-
-    # Add or update
-    cursor_settings['mcpServers'][server_name] = server_config
-    print(f"  ✓ Added/Updated: {server_name}", file=sys.stderr)
-
-# Write back
-with open(mcp_settings_file, 'w') as f:
-    json.dump(cursor_settings, f, indent=2)
-
-print("SUCCESS", file=sys.stderr)
-PYTHON_SCRIPT
-
-            if [ $? -eq 0 ]; then
-                print_success "MCP servers added to ~/.cursor/mcp.json"
-            else
-                print_error "Failed to merge MCP settings"
-            fi
-        else
-            print_error "mcp.json missing or invalid"
-        fi
-
-    else
-        print_error "Failed to create/access $MCP_SETTINGS_FILE"
-    fi
-else
-    print_step "Skipping MCP injection (OS detection failed)"
-fi
-
-# ============== ChromaDB Initialization ==============
-
-print_header "🗄️  ChromaDB Initialization"
-
-CHROMA_PATH="$REPO_ROOT/chroma_db"
-
-if [ "$SKIP_CHROMA" = false ]; then
-    if [ -d "$CHROMA_PATH" ] && [ "$(ls -A $CHROMA_PATH 2>/dev/null)" ]; then
-        print_success "ChromaDB already initialized at $CHROMA_PATH"
-    else
-        print_step "ChromaDB will be initialized on first server run"
-    fi
-else
-    print_step "Skipping ChromaDB check (--skip-chroma)"
-fi
-
 # ============== Virtual Environment & Dependencies ==============
 
 print_header "🐍 Virtual Environment & Dependencies"
@@ -416,27 +311,209 @@ if [ "$SKIP_INSTALL" = false ]; then
     echo ""
 
     print_success "All dependencies installed"
-
-    # Pre-download embedding model so MCP server starts instantly
-    print_header "🧠 Pre-downloading Embedding Model"
-
-    print_step "Downloading BAAI/bge-m3 (this may take a few minutes on first run)..."
-    set +e
-    python -c "
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('BAAI/bge-m3')
-print('Model ready')
-" 2>&1
-    MODEL_EXIT=$?
-    set -e
-
-    if [ $MODEL_EXIT -eq 0 ]; then
-        print_success "Embedding model cached and ready"
-    else
-        print_warn "Model download failed — it will be downloaded on first MCP server start"
-    fi
 else
     print_step "Skipping package installation"
+fi
+
+# Pre-download embedding model AND pre-index ChromaDB so MCP server starts instantly.
+# Without this, first startup takes 30-60s for embedding generation,
+# causing Claude Desktop to time out with "Request timed out" (-32001).
+# Runs regardless of SKIP_INSTALL — .mdc files may have changed even if deps are unchanged.
+# Respects --skip-chroma flag since indexing writes to ChromaDB on disk.
+if [ "$SKIP_CHROMA" = false ]; then
+    print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
+
+    print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
+    print_step "(this may take a few minutes on first run)"
+    set +e
+    python -c "
+import sys, os
+sys.path.insert(0, '$REPO_ROOT')
+
+# 1. Download/cache the embedding model
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('BAAI/bge-m3')
+print('Embedding model ready', flush=True)
+
+# 2. Pre-index skills and implants into ChromaDB
+print('Indexing skills...', flush=True)
+from src.engine.skills import SkillRetriever
+sr = SkillRetriever()
+print(f'Skills indexed: {sr.collection.count()} entries', flush=True)
+
+print('Indexing implants...', flush=True)
+from src.engine.implants import ImplantRetriever
+ir = ImplantRetriever()
+print(f'Implants indexed: {ir.collection.count()} entries', flush=True)
+" 2>&1
+    INDEX_EXIT=$?
+    set -e
+
+    if [ $INDEX_EXIT -eq 0 ]; then
+        print_success "Embedding model cached, skills & implants indexed"
+    else
+        print_warn "Pre-indexing failed — it will run on first MCP server start"
+    fi
+else
+    print_step "Skipping ChromaDB pre-indexing (--skip-chroma)"
+fi
+
+# ============== MCP Environment Detection & Configuration ==============
+
+print_header "🔌 MCP Environment Detection & Configuration"
+
+# Absolute paths for MCP config entries
+PYTHON_ABS="$VENV_PATH/bin/python"
+SERVER_ABS="$REPO_ROOT/src/server.py"
+
+# Detect asset directories
+if [ -d "$REPO_ROOT/agents" ]; then
+    AGENTS_BASE="$REPO_ROOT/agents"
+    SKILLS_BASE="$REPO_ROOT/skills"
+    IMPLANTS_BASE="$REPO_ROOT/implants"
+else
+    AGENTS_BASE=""
+fi
+
+if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" | wc -l)
+    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+
+    print_success "Agents directory found: $AGENTS_BASE"
+    echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"
+    echo -e "    • ${CYAN}$SKILL_COUNT${NC} skills"
+    echo -e "    • ${CYAN}$IMPLANT_COUNT${NC} implants"
+else
+    print_error "Agents directory not found (checked agents/)"
+fi
+
+if [ "$SKIP_MCP" = true ]; then
+    print_step "Skipping MCP configuration (--skip-mcp)"
+else
+    # Track which environments were configured
+    CONFIGURED_ENVS=()
+
+    echo ""
+    print_step "Detecting IDE environments..."
+    echo ""
+
+    # --- Detect Cursor ---
+    CURSOR_DETECTED=false
+    CURSOR_GLOBAL_DIR="$HOME/.cursor"
+    if [ -d "$CURSOR_GLOBAL_DIR" ]; then
+        CURSOR_DETECTED=true
+        print_success "Cursor IDE detected (~/.cursor/ exists)"
+    else
+        print_step "Cursor IDE not detected"
+    fi
+
+    # --- Detect Claude Desktop ---
+    CLAUDE_DESKTOP_DETECTED=false
+    CLAUDE_DESKTOP_DIR=""
+    CLAUDE_DESKTOP_CONFIG=""
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        CLAUDE_DESKTOP_DIR="$HOME/Library/Application Support/Claude"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        CLAUDE_DESKTOP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/Claude"
+    fi
+
+    if [ -n "$CLAUDE_DESKTOP_DIR" ] && [ -d "$CLAUDE_DESKTOP_DIR" ]; then
+        CLAUDE_DESKTOP_DETECTED=true
+        CLAUDE_DESKTOP_CONFIG="$CLAUDE_DESKTOP_DIR/claude_desktop_config.json"
+        print_success "Claude Desktop detected ($CLAUDE_DESKTOP_DIR)"
+    else
+        print_step "Claude Desktop not detected"
+    fi
+
+    # --- Detect Claude Code ---
+    CLAUDE_CODE_DETECTED=false
+    if check_command claude || [ -f "$HOME/.claude.json" ]; then
+        CLAUDE_CODE_DETECTED=true
+        print_success "Claude Code detected"
+    else
+        print_step "Claude Code not detected"
+    fi
+
+    echo ""
+
+    # --- Configure Cursor ---
+    if [ "$CURSOR_DETECTED" = true ]; then
+        print_step "Configuring Cursor MCP (~/.cursor/mcp.json)..."
+        MCP_SETTINGS_FILE="$CURSOR_GLOBAL_DIR/mcp.json"
+
+        if [ ! -f "$MCP_SETTINGS_FILE" ]; then
+            echo '{ "mcpServers": {} }' > "$MCP_SETTINGS_FILE"
+        fi
+
+        # Backup before modifying
+        cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.backup.$(date +%s)"
+
+        if inject_mcp_config "$MCP_SETTINGS_FILE" "~/.cursor/mcp.json"; then
+            CONFIGURED_ENVS+=("Cursor")
+        fi
+    fi
+
+    # --- Configure Claude Desktop ---
+    if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
+        print_step "Configuring Claude Desktop MCP..."
+
+        if [ ! -f "$CLAUDE_DESKTOP_CONFIG" ]; then
+            echo '{}' > "$CLAUDE_DESKTOP_CONFIG"
+        fi
+
+        # Backup before modifying
+        cp "$CLAUDE_DESKTOP_CONFIG" "${CLAUDE_DESKTOP_CONFIG}.backup.$(date +%s)"
+
+        if inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config"; then
+            CONFIGURED_ENVS+=("Claude Desktop")
+        fi
+    fi
+
+    # --- Configure Claude Code ---
+    if [ "$CLAUDE_CODE_DETECTED" = true ]; then
+        print_step "Configuring Claude Code MCP (~/.claude.json)..."
+        CLAUDE_GLOBAL="$HOME/.claude.json"
+
+        if [ ! -f "$CLAUDE_GLOBAL" ]; then
+            echo '{}' > "$CLAUDE_GLOBAL"
+        fi
+
+        # Backup before modifying
+        cp "$CLAUDE_GLOBAL" "${CLAUDE_GLOBAL}.backup.$(date +%s)"
+
+        if inject_mcp_config "$CLAUDE_GLOBAL" "~/.claude.json"; then
+            CONFIGURED_ENVS+=("Claude Code")
+        fi
+    fi
+
+    # --- Summary ---
+    echo ""
+    if [ ${#CONFIGURED_ENVS[@]} -eq 0 ]; then
+        print_warn "No IDE environments detected"
+        print_step "You can configure MCP manually later:"
+        echo "    • Cursor:         Install Cursor, then re-run this script"
+        echo "    • Claude Desktop: Install Claude Desktop, then re-run this script"
+        echo "    • Claude Code:    Run ./scripts/setup_claude.sh"
+    else
+        print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
+    fi
+fi
+
+# ============== ChromaDB Initialization ==============
+
+print_header "🗄️  ChromaDB Initialization"
+
+CHROMA_PATH="$REPO_ROOT/chroma_db"
+
+if [ "$SKIP_CHROMA" = false ]; then
+    if [ -d "$CHROMA_PATH" ] && [ "$(ls -A $CHROMA_PATH 2>/dev/null)" ]; then
+        print_success "ChromaDB already initialized at $CHROMA_PATH"
+    else
+        print_step "ChromaDB will be initialized on first server run"
+    fi
+else
+    print_step "Skipping ChromaDB check (--skip-chroma)"
 fi
 
 # ============== Final Summary ==============
@@ -444,15 +521,54 @@ fi
 print_header "✅ Initialization Complete!"
 
 echo ""
+echo -e "  ${GREEN}What was configured:${NC}"
+
+if [ "$SKIP_MCP" = false ] && [ ${#CONFIGURED_ENVS[@]} -gt 0 ]; then
+    for env in "${CONFIGURED_ENVS[@]}"; do
+        echo -e "    ${GREEN}✓${NC} $env — MCP server registered"
+    done
+elif [ "$SKIP_MCP" = true ]; then
+    echo -e "    ${YELLOW}⚠${NC} MCP configuration skipped (--skip-mcp)"
+else
+    echo -e "    ${YELLOW}⚠${NC} No IDE environments were detected"
+fi
+echo ""
 echo -e "  ${GREEN}Next steps:${NC}"
 echo ""
-echo "  1. Configure API keys in .env (if you haven't yet):"
+
+STEP=1
+
+echo "  $STEP. Configure API keys in .env (if you haven't yet):"
 echo -e "     ${CYAN}nano $ENV_FILE${NC}"
 echo ""
-echo "  2. Restart Cursor IDE to activate new MCP servers"
-echo ""
-echo "  3. Test with a command:"
-echo -e "     ${CYAN}/route${NC} - check available agents"
+STEP=$((STEP + 1))
+
+# Dynamic restart/start instructions per environment
+if [ "$SKIP_MCP" = false ] && [ ${#CONFIGURED_ENVS[@]} -gt 0 ]; then
+    for env in "${CONFIGURED_ENVS[@]}"; do
+        case "$env" in
+            "Cursor")
+                echo "  $STEP. Restart Cursor IDE to activate MCP servers"
+                echo ""
+                STEP=$((STEP + 1))
+                ;;
+            "Claude Desktop")
+                echo "  $STEP. Restart Claude Desktop to activate MCP servers"
+                echo ""
+                STEP=$((STEP + 1))
+                ;;
+            "Claude Code")
+                echo "  $STEP. Start Claude Code in this directory:"
+                echo -e "     ${CYAN}cd $REPO_ROOT && claude${NC}"
+                echo ""
+                STEP=$((STEP + 1))
+                ;;
+        esac
+    done
+fi
+
+echo "  $STEP. Test with a command:"
+echo -e "     ${CYAN}/route${NC} — check available agents"
 echo ""
 
 # ============== Health Check ==============
@@ -460,7 +576,7 @@ echo ""
 if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE" 2>/dev/null || true
     if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "sk-ant-..." ]; then
-        print_warn "ANTHROPIC_API_KEY not configured - document OCR will be unavailable"
+        print_warn "ANTHROPIC_API_KEY not configured — document OCR will be unavailable"
     fi
 fi
 

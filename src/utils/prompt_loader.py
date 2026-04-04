@@ -1,9 +1,40 @@
 import os
 import re
 import yaml
-from typing import Set
+from typing import Set, Tuple, Optional
 
 from src.engine.config import REPO_ROOT, SKILLS_DIR, IMPLANTS_DIR, AGENTS_DIR
+
+# Regex to find the closing --- of YAML frontmatter.
+# Matches --- only at the start of a line, avoiding --- inside quoted values.
+_FRONTMATTER_RE = re.compile(r'^---\s*$', re.MULTILINE)
+
+
+def split_frontmatter(content: str) -> Tuple[Optional[str], str]:
+    """Split MDC content into (frontmatter_yaml, body).
+
+    Returns (None, content) if no valid frontmatter block is found.
+    Uses regex to match ``---`` only at the start of a line, so ``---``
+    embedded inside quoted YAML values (e.g. ``compiled: "use --- for
+    separators"``) won't break the split.
+    """
+    if not content.startswith("---"):
+        return None, content
+
+    # Find all --- at start-of-line; first is the opening, second is the closing.
+    matches = list(_FRONTMATTER_RE.finditer(content))
+    if len(matches) < 2:
+        return None, content
+
+    # Everything between first and second --- markers
+    fm_start = matches[0].end()    # right after opening --- (end of match, before newline)
+    fm_end = matches[1].start()    # right before closing ---
+    body_start = matches[1].end()  # right after closing --- (end of match, before newline)
+
+    frontmatter_str = content[fm_start:fm_end]
+    body = content[body_start:].strip()
+
+    return frontmatter_str, body
 
 def resolve_path(path_ref: str) -> str:
     """
@@ -50,11 +81,8 @@ def load_file_content(path: str) -> str:
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
             # specific to MDC files with frontmatter: remove it if present
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    return parts[2].strip()
-            return content
+            _, body = split_frontmatter(content)
+            return body
     except FileNotFoundError:
         return f"[MISSING FILE: {path}]"
     except Exception as e:
@@ -87,12 +115,11 @@ def _compute_skip_inline(norm: str) -> bool:
         try:
             with open(norm, "r", encoding="utf-8") as f:
                 raw = f.read()
-            if raw.startswith("---"):
-                parts = raw.split("---", 2)
-                if len(parts) >= 2:
-                    fm = yaml.safe_load(parts[1]) or {}
-                    if fm.get("alwaysApply") is True:
-                        return True
+            fm_str, _ = split_frontmatter(raw)
+            if fm_str is not None:
+                fm = yaml.safe_load(fm_str) or {}
+                if fm.get("alwaysApply") is True:
+                    return True
         except Exception:
             pass
     return False
@@ -141,10 +168,9 @@ def get_agent_metadata(agent_name: str) -> dict:
     try:
         with open(base_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 2:
-                    return yaml.safe_load(parts[1]) or {}
+        fm_str, _ = split_frontmatter(content)
+        if fm_str is not None:
+            return yaml.safe_load(fm_str) or {}
     except Exception:
         pass
 

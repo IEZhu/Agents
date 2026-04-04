@@ -6,6 +6,7 @@ from src.utils.langfuse_compat import observe
 
 logger = logging.getLogger(__name__)
 from typing import List, Optional, Dict, Any
+from src.utils.prompt_loader import split_frontmatter
 
 from src.schemas.protocol import RouterDecision, AgentRequest
 from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR
@@ -61,18 +62,17 @@ class SemanticRouter:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
-                if content.startswith("---"):
-                    parts = content.split("---", 2)
-                    if len(parts) >= 2:
-                        meta = yaml.safe_load(parts[1]) or {}
-                        identity = meta.get("identity", {})
-                        routing = meta.get("routing", {})
-                        descriptions[name] = {
-                            "display_name": identity.get("display_name", name),
-                            "role": identity.get("role", ""),
-                            "trigger_command": routing.get("trigger_command", ""),
-                        }
-                        continue
+                fm_str, _ = split_frontmatter(content)
+                if fm_str is not None:
+                    meta = yaml.safe_load(fm_str) or {}
+                    identity = meta.get("identity", {})
+                    routing = meta.get("routing", {})
+                    descriptions[name] = {
+                        "display_name": identity.get("display_name", name),
+                        "role": identity.get("role", ""),
+                        "trigger_command": routing.get("trigger_command", ""),
+                    }
+                    continue
             except Exception as e:
                 logger.warning(f"Failed to load metadata for {name}: {e}")
             descriptions[name] = {"display_name": name, "role": "", "trigger_command": ""}

@@ -1,5 +1,5 @@
 ---
-description: Logical reasoning and argumentation. Fallacy detection, argument strength rating, First Principles, Occam's Razor, Hanlon's Razor. Role: Logic Auditor.
+description: "Logical reasoning and argumentation. Fallacy detection, argument strength rating, First Principles, Occam's Razor, Hanlon's Razor. Role: Logic Auditor."
 compiled: "Attack argument not person. Find enthymemes. Fact vs opinion. First principles. Occam's Razor. Hanlon's Razor. 8 fallacies table. Strength 1-5. deconstruct(); falsify(); rate_strength()."
 alwaysApply: false
 ---

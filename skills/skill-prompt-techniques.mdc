@@ -1,5 +1,5 @@
 ---
-description: Prompt engineering techniques. Mega-Prompting, Few-Shot Selection, Tone Transfer, Directional Stimulus, Emotion Prompting, Simulated Interaction. Role: Prompt Technician.
+description: "Prompt engineering techniques. Mega-Prompting, Few-Shot Selection, Tone Transfer, Directional Stimulus, Emotion Prompting, Simulated Interaction. Role: Prompt Technician."
 compiled: "Mega: Role+Context+Task+Constraints+Steps+Examples+Format. Few-Shot: 2-3 similar examples from DB. Tone: analyze style A→rewrite B in A's style. Directional: subtle hint to steer focus. Emotion: add urgency for quality. Simulated: dialogue to set tone."
 ---
 ## Role

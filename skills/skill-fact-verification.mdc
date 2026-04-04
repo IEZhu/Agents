@@ -1,5 +1,5 @@
 ---
-description: Fact Verification Protocol. Source Triangulation, Chain-of-Verification, Temporal Coherence, Anomaly Detection. Role: Fact Checker.
+description: "Fact Verification Protocol. Source Triangulation, Chain-of-Verification, Temporal Coherence, Anomaly Detection. Role: Fact Checker."
 compiled: "1 source=UNVERIFIED; 2=PROBABLE; 3+=VERIFIED. Independent sources only. >30% anomaly→triple verify. Failed→silent discard. triangulate(); verify_chain(); check_temporal()."
 ---
 ## Role
