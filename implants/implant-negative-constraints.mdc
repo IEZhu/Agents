@@ -1,9 +1,0 @@
----
-description: Negative Constraints. Explicit list of prohibitions ("Do NOT do X").
-globs: []
-alwaysApply: false
-short_name: NegativeConstraints
-one_liner: explicit prohibitions list
----
-## Pattern
-"Constraints: Do NOT mention X. Do NOT use Y. Do NOT give Z advice."
