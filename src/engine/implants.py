@@ -35,7 +35,8 @@ class ImplantRetriever:
         h = hashlib.md5()
         for path in sorted(glob.glob(os.path.join(IMPLANTS_DIR, "*.mdc"))):
             h.update(path.encode())
-            h.update(str(os.path.getmtime(path)).encode())
+            with open(path, "rb") as f:
+                h.update(f.read())
         return h.hexdigest()
 
     def _needs_reindex(self) -> tuple[bool, str]:

@@ -322,7 +322,7 @@ if [ "$SKIP_INSTALL" = false ]; then
     set +e
     python -c "
 import sys, os
-sys.path.insert(0, os.getcwd())
+sys.path.insert(0, '$REPO_ROOT')
 
 # 1. Download/cache the embedding model
 from sentence_transformers import SentenceTransformer
