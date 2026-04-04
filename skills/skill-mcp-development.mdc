@@ -1,6 +1,7 @@
 ---
 description: "Best practices for developing MCP servers (Model Context Protocol)"
 compiled: "FastMCP. async/await. httpx.AsyncClient(). os.getenv() for secrets. Docstring=prompt. pydantic for complex types. mcp.json registration."
+globs: ["**/mcp_servers/**", "**/mcp.json", "**/.mcp.json"]
 ---
 # MCP Development Skills
 

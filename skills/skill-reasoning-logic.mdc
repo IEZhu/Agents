@@ -1,26 +1,45 @@
 ---
 description: Critical thinking and logical formalization. Chain of Verification, Logic of Thought, Reflexion, Step-Back.
+compiled: "CoV: draft→verify claims→correct. LoT: propositions→inference→conclusion. Step-back: abstract principle→specific. Reflexion: actor→critic→reflector. Trust but verify."
 alwaysApply: false
 ---
 ## Purpose
-Consolidates fact-checking, logical formalization, and self-correction.
+Consolidates fact-checking, logical formalization, and self-correction. Choose method based on what needs validation.
+
+## Method Selection
+
+| Need | Method | Why |
+|------|--------|-----|
+| Verify factual claims | **CoV** | Catches hallucinations and outdated info |
+| Formalize an argument | **LoT** | Exposes hidden assumptions and invalid inferences |
+| Stuck on a complex problem | **Step-Back** | Abstracts away surface noise to find the principle |
+| High-stakes output | **Reflexion** | Multi-pass self-critique catches systematic errors |
 
 ## Methods
-1. **Chain of Verification (CoV)**
-   - *Use*: Facts, news, protocols.
-   - *Protocol*: Draft -> Verify Claims -> Correct.
 
-2. **Logic of Thought (LoT)**
-   - *Use*: Arguments, rules.
-   - *Protocol*: Propositions -> Inference -> Conclusion.
+### 1. Chain of Verification (CoV)
+- **When**: Any output containing factual claims, statistics, dates, names, or technical specifications.
+- **Protocol**: Draft → Generate verification questions ("Is this date correct?", "Does this API exist?") → Answer each with independent search → Rewrite draft with corrections.
+- **Example**: Draft says "Python 3.12 added pattern matching" → Verify → Correct: "Pattern matching was added in Python 3.10 (PEP 634)."
+- **Anti-pattern**: Skipping verification for "obvious" facts (they're often wrong).
 
-3. **Step-Back Prompting**
-   - *Use*: Complex problems.
-   - *Protocol*: Abstract Principle -> Specific Application.
+### 2. Logic of Thought (LoT)
+- **When**: Arguments, rule interpretation, policy analysis, debugging logical conditions.
+- **Protocol**: Extract propositions → Define inference rules → Apply rules → State conclusion → Check for contradictions.
+- **Example**: "Users with role=admin OR (role=editor AND department=engineering) can edit" → Formalize → Apply to test case → Verify.
+- **Anti-pattern**: Using for emotional or subjective evaluations.
 
-4. **Reflexion**
-   - *Use*: High-stakes tasks.
-   - *Protocol*: Actor -> Critic -> Reflector.
+### 3. Step-Back Prompting
+- **When**: Complex problems where details obscure the core issue. Debugging, architectural decisions, unfamiliar domains.
+- **Protocol**: "What is the underlying principle here?" → Identify the abstract concept → Apply principle to the specific case.
+- **Example**: "Why does this React component re-render?" → Step back: "What triggers re-renders?" → "State or props change" → Check which one changed.
+- **Anti-pattern**: Over-abstracting simple, concrete problems.
+
+### 4. Reflexion
+- **When**: High-stakes deliverables — security reviews, medical analysis, production deployments, legal content.
+- **Protocol**: Actor (generate output) → Critic (find flaws, gaps, risks) → Reflector (synthesize critique into improved version).
+- **Example**: Code review → Actor: initial review → Critic: "Missed SQL injection in line 42" → Reflector: add finding to review.
+- **Anti-pattern**: Using for low-stakes tasks (overkill, wastes tokens).
 
 ## Trigger
 "Trust but Verify. Step back. Critique your own output."

@@ -158,6 +158,7 @@ Use available tools to collect intelligence:
 - **Cui Bono**: Always ask "Who benefits?"
 - **Historical Context**: Check Wayback Machine for pivots
 - **Follow the Money**: Revenue claims need verification
+- **Anti-hallucination**: NEVER fabricate traffic numbers, revenue estimates, stakeholder information, or funding data. If data cannot be found through tools, state "Data unavailable" rather than estimating. Clearly distinguish verified data from inferences.
 
 ## Skills
 - **Critical Analysis**: `.cursor/skills/skill-analysis-critical.mdc`

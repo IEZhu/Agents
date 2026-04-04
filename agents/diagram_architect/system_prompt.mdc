@@ -25,6 +25,7 @@ preferred_skills:
 - skill-mermaid-best-practices
 capabilities:
 - content-structure
+- visualization
 ---
 # Diagram Architect System Prompt
 
