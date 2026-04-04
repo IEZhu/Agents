@@ -311,44 +311,46 @@ if [ "$SKIP_INSTALL" = false ]; then
     echo ""
 
     print_success "All dependencies installed"
+else
+    print_step "Skipping package installation"
+fi
 
-    # Pre-download embedding model AND pre-index ChromaDB so MCP server starts instantly.
-    # Without this, first startup takes 30-60s for embedding generation,
-    # causing Claude Desktop to time out with "Request timed out" (-32001).
-    print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
+# Pre-download embedding model AND pre-index ChromaDB so MCP server starts instantly.
+# Without this, first startup takes 30-60s for embedding generation,
+# causing Claude Desktop to time out with "Request timed out" (-32001).
+# Runs regardless of SKIP_INSTALL — .mdc files may have changed even if deps are unchanged.
+print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
 
-    print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
-    print_step "(this may take a few minutes on first run)"
-    set +e
-    python -c "
+print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
+print_step "(this may take a few minutes on first run)"
+set +e
+python -c "
 import sys, os
 sys.path.insert(0, '$REPO_ROOT')
 
 # 1. Download/cache the embedding model
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('BAAI/bge-m3')
-print('Embedding model ready')
+print('Embedding model ready', flush=True)
 
 # 2. Pre-index skills and implants into ChromaDB
+print('Indexing skills...', flush=True)
 from src.engine.skills import SkillRetriever
-from src.engine.implants import ImplantRetriever
-
 sr = SkillRetriever()
-print(f'Skills indexed: {sr.collection.count()} entries')
+print(f'Skills indexed: {sr.collection.count()} entries', flush=True)
 
+print('Indexing implants...', flush=True)
+from src.engine.implants import ImplantRetriever
 ir = ImplantRetriever()
-print(f'Implants indexed: {ir.collection.count()} entries')
+print(f'Implants indexed: {ir.collection.count()} entries', flush=True)
 " 2>&1
-    INDEX_EXIT=$?
-    set -e
+INDEX_EXIT=$?
+set -e
 
-    if [ $INDEX_EXIT -eq 0 ]; then
-        print_success "Embedding model cached, skills & implants indexed"
-    else
-        print_warn "Pre-indexing failed — it will run on first MCP server start"
-    fi
+if [ $INDEX_EXIT -eq 0 ]; then
+    print_success "Embedding model cached, skills & implants indexed"
 else
-    print_step "Skipping package installation"
+    print_warn "Pre-indexing failed — it will run on first MCP server start"
 fi
 
 # ============== MCP Environment Detection & Configuration ==============
