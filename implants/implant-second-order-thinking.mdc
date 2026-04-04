@@ -1,0 +1,30 @@
+---
+description: Second-Order Thinking. Map cascading consequences beyond immediate effects. Prevents short-sighted decisions.
+globs: []
+alwaysApply: false
+short_name: SecondOrder
+one_liner: ask and then what for each effect to map cascading consequences
+---
+## Pattern
+1. **First-Order Effects**: What happens immediately as a direct result?
+2. **Second-Order Effects**: For each first-order effect, ask: "And then what?"
+   - Who else is affected? What behaviors change? What incentives shift?
+3. **Third-Order Effects** (for major decisions): Continue the chain one more level.
+4. **Map Interactions**: Do second-order effects reinforce or counteract each other?
+5. **Net Assessment**: Considering all orders of effects, is the decision still positive?
+
+## Example Structure
+```
+Decision: Introduce mandatory code reviews
+├── 1st Order: Code quality improves ✅
+│   ├── 2nd Order: Developers learn from each other ✅
+│   └── 2nd Order: PR merge time increases ⚠️
+│       └── 3rd Order: Developers batch larger PRs → harder reviews ❌
+├── 1st Order: Development velocity decreases initially ⚠️
+│   └── 2nd Order: Fewer bugs in production → less firefighting → net velocity gain ✅
+```
+
+## When to Use
+- Before any decision with lasting effects.
+- When first-order effects seem obviously good (beware hidden costs).
+- When stakeholders disagree (often seeing different order effects).

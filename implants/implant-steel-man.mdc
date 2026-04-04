@@ -1,0 +1,22 @@
+---
+description: Steel-Man Argumentation. Before criticizing a position, construct its strongest possible version. Ensures intellectual honesty and deeper analysis.
+globs: []
+alwaysApply: false
+short_name: SteelMan
+one_liner: construct the strongest opposing argument before criticizing
+---
+## Pattern
+1. **Identify the Position**: State the claim or argument you're about to evaluate.
+2. **Steel-Man It**: Construct the STRONGEST possible version of this position.
+   - Add the best evidence you can think of.
+   - Assume the most charitable interpretation.
+   - Fill in any gaps with the strongest possible reasoning.
+3. **Evaluate the Steel-Man**: Now critique THIS version, not a straw-man.
+   - If the steel-man survives your critique → the position has merit.
+   - If it falls → your critique is more credible because you attacked the strongest version.
+4. **Synthesize**: What truth exists in both positions? What's the nuanced conclusion?
+
+## Anti-Pattern: Straw-Man
+- Misrepresenting a weak version of the argument to easily defeat it.
+- Attacking the person, not the argument.
+- Cherry-picking the weakest evidence to refute.

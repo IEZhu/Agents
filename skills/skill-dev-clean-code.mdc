@@ -1,20 +1,48 @@
 ---
-description: Universal standards for maintainable code. Covers SOLID, DRY, KISS, YAGNI, Boy Scout Rule. Role: Principal Engineer. Competency: L5 Master Architect.
-compiled: "SOLID, DRY, KISS, YAGNI. One function=one thing. Constants not magic. Descriptive names. No dead code. refactor(); document why."
+description: Universal standards for maintainable code. Covers SOLID, DRY, KISS, YAGNI, Boy Scout Rule. Code smells and refactoring patterns. Role: Principal Engineer.
+compiled: "SOLID, DRY, KISS, YAGNI. One function=one thing. Constants not magic. Descriptive names. No dead code. Smell→refactoring map. refactor(); document why."
 ---
 ## Role
-Principal Engineer: Prioritize long-term maintainability.
+Principal Engineer: Prioritize long-term maintainability over short-term velocity.
+
+## Principles
+- **SOLID**: SRP, OCP, LSP, ISP, DIP.
+- **DRY**: Don't Repeat Yourself. Extract when duplicated 3+ times.
+- **KISS**: Prefer simple solutions. Three similar lines > premature abstraction.
+- **YAGNI**: Don't build for hypothetical future needs.
+- **Boy Scout Rule**: Leave code better than you found it.
 
 ## Rules
-- Avoid magic numbers/strings (use constants).
-- Functions do ONE thing.
+- Avoid magic numbers/strings (use named constants).
+- Functions do ONE thing. If it needs "and" in the name, split it.
 - Descriptive variable names (`userDaysActive`, not `d`).
-- No dead code.
+- No dead code. Delete it; git remembers.
+- Comments explain WHY, not WHAT. Code should be self-documenting for WHAT.
+- Error handling: fail fast, fail loud, fail with context.
 
-## Concepts
-- **SOLID**: SRP, OCP, LSP, ISP, DIP.
-- **Principles**: DRY, KISS, YAGNI, Boy Scout Rule.
+## Code Smell → Refactoring Map
+| Smell | Signal | Refactoring |
+|-------|--------|------------|
+| **Long Method** | > 20 lines, multiple levels of abstraction | Extract Method |
+| **Large Class** | > 300 lines, multiple responsibilities | Extract Class, SRP |
+| **Long Parameter List** | > 3 params | Introduce Parameter Object |
+| **Feature Envy** | Method uses more data from another class | Move Method |
+| **Data Clump** | Same group of fields appears together | Extract Class |
+| **Primitive Obsession** | Using strings/ints for domain concepts | Value Object, enum |
+| **Switch Statements** | Repeated switch on same type | Polymorphism, Strategy pattern |
+| **Duplicated Code** | Same logic in 3+ places | Extract Method/Class |
+| **Dead Code** | Unreachable, unused, commented-out code | Delete |
+| **Speculative Generality** | Abstract class with one implementation | Inline, remove abstraction |
+| **God Object** | One class knows/does everything | Decompose, delegate |
+| **Boolean Blindness** | `doThing(true, false, true)` | Named params, enums, config objects |
+
+## Error Handling Patterns
+- **Fail Fast**: Validate inputs at entry points. Reject bad data early.
+- **Error Context**: Include what operation failed, what input caused it, what was expected.
+- **Don't Swallow Exceptions**: Catch only what you can handle. Re-throw or log the rest.
+- **Resource Cleanup**: Use try-with-resources, defer, context managers, RAII.
 
 ## Actions
-- `refactor()`: Fix smells (Long Method, Large Class).
-- `document()`: Explain "Why", not "What".
+- `refactor(smell)`: Identify smell → choose refactoring → execute → verify behavior preserved.
+- `document(why)`: Explain WHY a decision was made, not WHAT the code does.
+- `review(code)`: Check against smell table. Flag, suggest fix.

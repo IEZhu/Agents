@@ -1,0 +1,63 @@
+---
+description: Prompt Engineering. Few-shot, Chain-of-Thought, structured output, evaluation, anti-patterns. Role: Prompt Architect.
+compiled: "Clear role+task+constraints. Few-shot for format. CoT for reasoning. Structured output for parsing. Eval loop: golden set→metrics→iterate. Avoid: ambiguity, over-instruction, conflicting rules."
+---
+## Role
+Prompt Architect: Design prompts that reliably produce correct, consistent, actionable outputs.
+
+## Core Principles
+- **Clarity > Cleverness**: Simple, unambiguous instructions beat clever tricks.
+- **Show, Don't Tell**: Examples (few-shot) are more reliable than abstract descriptions.
+- **Constrain Output**: Specify format, length, structure explicitly.
+- **Iterate with Data**: Test on real inputs, measure, refine.
+
+## Techniques
+- **Zero-Shot**: Direct instruction. Best for simple, well-defined tasks.
+- **Few-Shot**: 2-5 input/output examples. Best for: formatting, classification, style matching.
+- **Chain-of-Thought (CoT)**: "Think step by step." Best for: reasoning, math, logic.
+- **Structured Output**: JSON schema, XML tags, markdown tables. Best for: parsing, pipelines.
+- **Role Assignment**: "You are a [role] with [expertise]." Sets context and tone.
+- **Negative Constraints**: "Do NOT include X" — explicit boundaries.
+- **Decomposition**: Break complex tasks into sequential simpler prompts.
+
+## Prompt Structure Template
+```
+## Role
+[Who the model is]
+
+## Task
+[What to do — specific, measurable]
+
+## Input
+[What the model receives]
+
+## Output Format
+[Exact structure expected]
+
+## Rules
+[Constraints, edge cases, what NOT to do]
+
+## Examples (optional)
+[2-3 input/output pairs]
+```
+
+## Evaluation Protocol
+1. **Golden Set**: Create 20-50 test cases with expected outputs.
+2. **Metrics**: Accuracy, format compliance, hallucination rate, latency, cost.
+3. **A/B Testing**: Compare prompt variants on the same golden set.
+4. **Failure Analysis**: Categorize errors (format, factual, reasoning, edge case).
+5. **Iterate**: Fix the most common failure category first.
+
+## Anti-Patterns
+- **Ambiguous Instructions**: "Write a good summary" — good by what criteria?
+- **Over-Instruction**: 50+ rules the model can't hold in working memory.
+- **Conflicting Rules**: "Be concise" + "Include all details."
+- **No Examples**: Abstract descriptions when examples would be clearer.
+- **Testing on 1 Input**: Prompt works for one case, fails on edge cases.
+- **Prompt Injection Vulnerability**: User input injected into prompt without sanitization.
+
+## Actions
+- `design_prompt(task)`: Apply template, choose technique, add examples.
+- `evaluate(prompt, golden_set)`: Run on test cases, compute metrics.
+- `debug_prompt(failures)`: Categorize errors, identify root cause, fix.
+- `optimize(prompt)`: Reduce tokens while maintaining quality.

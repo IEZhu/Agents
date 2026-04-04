@@ -1,9 +1,37 @@
 ---
-description: Directional Stimulus. Subtle hint/stimulus to guide generation context (e.g., "Must mention X").
+description: Directional Stimulus. Guide generation with subtle hints, keywords, or focus points without constraining the full output.
 globs: []
 alwaysApply: false
 short_name: DirectionalStimulus
 one_liner: guide generation with subtle hint or focus
 ---
 ## Pattern
-Append hint to request: "Hint: Focus on [Specific Aspect]."
+1. **Identify the Desired Direction**: What aspect should the response emphasize?
+2. **Craft a Stimulus**: A subtle cue that steers without constraining:
+   - **Keyword hint**: "Consider the role of [concept] in your analysis."
+   - **Perspective hint**: "Approach this from a [security/UX/performance] perspective."
+   - **Focus hint**: "Pay particular attention to [edge cases/scalability/user experience]."
+   - **Constraint hint**: "The answer should address [specific concern]."
+3. **Embed Naturally**: Place the stimulus where it feels organic — in the task description, as a constraint, or as a follow-up question.
+4. **Validate**: Check that the stimulus steered the response without distorting it.
+
+## Examples
+- **Without stimulus**: "Review this code." → Generic review.
+- **With stimulus**: "Review this code. Pay particular attention to concurrency safety." → Focused review.
+
+- **Without**: "Summarize this article." → General summary.
+- **With**: "Summarize this article, highlighting implications for small businesses." → Targeted summary.
+
+## Stimulus Types
+| Type | Example | Effect |
+|------|---------|--------|
+| **Topic focus** | "Focus on X" | Emphasizes specific aspect |
+| **Audience** | "Explain for Y audience" | Adjusts complexity and framing |
+| **Perspective** | "From a Z viewpoint" | Shifts analytical lens |
+| **Constraint** | "Must address W" | Ensures coverage of specific point |
+| **Seed word** | "Keywords: A, B, C" | Primes vocabulary and concepts |
+
+## When to Use
+- When responses are correct but miss the point you care about.
+- To steer creative generation without micromanaging.
+- In retrieval-augmented settings to focus on relevant aspects.

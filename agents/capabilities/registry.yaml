@@ -83,3 +83,40 @@ epistemic-analysis:
     - skill-agnotology
     - skill-analysis-critical
   directive: "Semantic voids. Time-slicing. Cui bono. Triangulate anomalies."
+
+code-review:
+  skills:
+    - skill-dev-clean-code
+    - skill-dev-testing
+    - skill-dev-security
+  directive: "Review for: correctness, security, performance, readability, test coverage. Flag, don't fix."
+
+decision-making:
+  skills:
+    - skill-decision-frameworks
+    - skill-analysis-critical
+  directive: "Pre-mortem. Steel-man opposing view. 2nd order effects. Reversibility check."
+
+product-thinking:
+  skills:
+    - skill-product-frameworks
+    - skill-content-structure
+  directive: "User problem first. RICE prioritization. Measurable outcomes."
+
+temporal-research:
+  skills:
+    - skill-temporal-validation
+    - skill-fact-verification
+  directive: "Check freshness. Cross-reference dates. Flag stale claims."
+
+performance-engineering:
+  skills:
+    - skill-dev-performance
+    - skill-dev-clean-code
+  directive: "Measure first. Profile before optimizing. Benchmark before/after."
+
+prompt-design:
+  skills:
+    - skill-prompt-engineering
+    - skill-analysis-critical
+  directive: "Clear role+task+constraints. Few-shot for format. Eval loop: golden set→metrics→iterate."

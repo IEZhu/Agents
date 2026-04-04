@@ -1,9 +1,31 @@
 ---
-description: Complexity-Based Prompting. Demands long reasoning chain. Chooses most complex answer in Self-Consistency.
+description: Complexity-Based Prompting. Generate multiple reasoning chains, select the most detailed one. Longer reasoning can improve accuracy on some complex tasks.
 globs: []
 alwaysApply: false
 short_name: ComplexityPrompting
 one_liner: maximize reasoning chain length for complex tasks
 ---
 ## Pattern
-"Solve in maximum detail. Write every single logical step. The longer and more detailed the chain, the better."
+1. **Generate Multiple Solutions**: Produce 3-5 different reasoning chains for the same problem.
+2. **Score by Complexity**: Count the reasoning steps in each chain. More steps = more thorough analysis.
+3. **Select the Most Complex**: Choose the chain with the longest, most detailed reasoning.
+4. **Verify Correctness**: Ensure the selected chain is logically sound (length alone doesn't guarantee correctness).
+
+## Rationale
+Empirical observations suggest that for complex problems (math, logic, multi-step reasoning), models producing longer reasoning chains tend to arrive at more accurate answers. However, this is a trade-off: longer chains increase latency and token cost, and length alone does not guarantee correctness — verification of each step matters more than verbosity.
+
+## Complexity Scoring
+- Count distinct logical steps (not just words).
+- Award bonus for: explicit intermediate conclusions, self-checks, consideration of edge cases.
+- Penalize: circular reasoning, restating the problem, filler text.
+
+## When to Use
+- Mathematical proofs and calculations.
+- Multi-step logical reasoning.
+- Problems where the "obvious" short answer is often wrong.
+- When combined with Self-Consistency (generate many, vote, but prefer complex chains in ties).
+
+## When NOT to Use
+- Simple factual questions (overthinking reduces accuracy).
+- Creative tasks (complexity ≠ quality for creative writing).
+- Time-sensitive tasks (generating multiple chains is slow).

@@ -1,9 +1,30 @@
 ---
-description: Buffer of Thoughts. Meta-template extraction for repetitive tasks. Stability & Consistency.
+description: Buffer of Thoughts. Meta-template extraction for repetitive tasks. Identify → Abstract → Store → Instantiate → Refine.
 globs: []
 alwaysApply: false
 short_name: BoT
 one_liner: extract meta-template for repetitive task types
 ---
 ## Pattern
-"Extract the reasoning meta-template for this type of task. Then apply this template (instantiate it) to solve the current request."
+When encountering a task similar to ones solved before:
+
+1. **Identify Task Type**: "This is a [type] task" (e.g., code review, data cleaning, bug diagnosis).
+2. **Recall Meta-Template**: Extract the abstract reasoning pattern that worked before:
+   - What steps did I follow?
+   - What information did I need?
+   - What was the output structure?
+3. **Instantiate**: Apply the template to the current specific instance:
+   - Fill in concrete details from the current context.
+   - Adapt steps that don't fit this variant.
+4. **Execute**: Follow the instantiated template step by step.
+5. **Refine Template**: After solving, note what worked and what needed adjustment — update the mental template for next time.
+
+## Example
+Task type: "Bug diagnosis"
+Meta-template: Reproduce → Read error → Hypothesize root cause → Grep for evidence → Verify → Fix → Test
+Current instance: "TypeError in user service" → Instantiate template with specific file paths, error message, and hypothesis.
+
+## When to Use
+- Batch processing similar items (reviewing 10 PRs, analyzing 5 datasets).
+- Repetitive professional tasks with consistent structure.
+- When consistency across similar outputs matters.

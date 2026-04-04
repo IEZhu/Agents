@@ -1,0 +1,30 @@
+---
+description: Causal Reasoning. Distinguish correlation from causation. Check temporal precedence, mechanism, dose-response, alternative explanations.
+globs: []
+alwaysApply: false
+short_name: CausalReasoning
+one_liner: distinguish correlation from causation with systematic checks
+---
+## Pattern
+1. **Temporal Precedence**: Does the cause precede the effect? (Necessary but not sufficient.)
+2. **Mechanism**: Is there a plausible causal pathway? Can you explain HOW A causes B?
+3. **Dose-Response**: Does more of the cause lead to more of the effect? (Strengthens causal claim.)
+4. **Alternative Explanations**: What confounders could explain the association?
+   - Common cause (C causes both A and B)
+   - Reverse causation (B causes A)
+   - Selection bias (sample is not representative)
+   - Coincidence (especially with small samples or many comparisons)
+5. **Consistency**: Is the relationship observed across different contexts, populations, studies?
+6. **Intervention Test** (gold standard): If we change A, does B change? (RCT or natural experiment.)
+
+## Confidence Levels
+- **Strong Causation**: Mechanism + temporal + dose-response + intervention evidence + consistency.
+- **Probable Causation**: Mechanism + temporal + consistency, but no intervention data.
+- **Correlation Only**: Association exists, but alternative explanations not ruled out.
+- **Spurious**: Coincidence, cherry-picked data, or confounding explains it.
+
+## Red Flags
+- "Studies show..." without specifying study design (observational vs. experimental).
+- Single study, especially with small N.
+- Ecological fallacy (group-level data applied to individuals).
+- Post hoc ergo propter hoc (after, therefore because of).
