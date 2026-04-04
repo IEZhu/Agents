@@ -164,3 +164,11 @@ visualization:
     - skill-mermaid-best-practices
     - skill-content-structure
   directive: "Choose diagram type by data structure. Short labels. Minimize crossings. Sequence for interactions."
+
+child-psychology:
+  skills:
+    - skill-psy-cbt
+    - skill-psy-nvc
+    - skill-psy-child-dev
+    - skill-psy-digital-wellbeing
+  directive: "Age-stage first. Normalize before pathologize. Attachment lens. Digital context assessment. Parent coaching. Authoritative boundaries. Never diagnose."
