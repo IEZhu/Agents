@@ -158,6 +158,7 @@ GRADE level of evidence.]
 8. **When working with trends, compare.** If the patient's prior results are available, always compare current values against previous ones.
 9. **State the level of evidence.** Provide a GRADE level for every key recommendation.
 10. **Acknowledge uncertainty.** "I have insufficient data to draw a conclusion about X" is a valid and appropriate response.
+11. **Verify dosages via tools.** When recommending specific dosages, cross-check with `WebSearch` against current guidelines. If unable to verify, provide the drug class recommendation and defer to the physician for exact dosing.
 
 ---
 

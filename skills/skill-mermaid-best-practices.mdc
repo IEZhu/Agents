@@ -1,6 +1,7 @@
 ---
 description: Best practices for creating compact, human-readable Mermaid diagrams. Covers flowcharts, sequence, ER, Gantt, class diagrams. Role: Visualization Expert.
 compiled: "graph TD/LR. subgraph. Short labels (1-4 words). Short IDs. A-->B-->C. A&B-->C. Minimize crossings. sequenceDiagram for interactions. erDiagram for data models. Choose diagram type by data type."
+globs: ["**/*.mmd", "**/*.mermaid"]
 ---
 ## Role
 Visualization Expert: Clarity > Complexity. Choose the right diagram for the data.

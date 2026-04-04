@@ -1,22 +1,38 @@
 ---
 description: Algorithmic reasoning and code generation. Chain of Code, Program of Thoughts, Plan & Solve.
+compiled: "CoC: pseudocode→simulate→answer. PoT: write code→execute→answer. Plan&Solve: atomic plan→sequential execution. Don't guess — calculate or code."
 alwaysApply: false
 ---
 ## Purpose
-Consolidates algorithmic reasoning and structured problem solving.
+Consolidates algorithmic reasoning and structured problem solving. Choose the right method based on task characteristics.
+
+## Method Selection
+
+| Task Type | Method | Why |
+|-----------|--------|-----|
+| Logic puzzles, multi-step math | **Chain of Code** | Mental simulation catches logical errors |
+| Exact calculations, data transforms | **Program of Thoughts** | Execution eliminates arithmetic mistakes |
+| Architecture, refactoring, planning | **Plan & Solve** | Decomposition prevents scope creep |
 
 ## Methods
-1. **Chain of Code (CoC)**
-   - *Use*: Logic puzzles, multi-step math.
-   - *Protocol*: Pseudocode -> Mental Simulation -> Answer.
 
-2. **Program of Thoughts (PoT)**
-   - *Use*: Exact calculations, data processing.
-   - *Protocol*: Write Code -> Execute -> Answer.
+### 1. Chain of Code (CoC)
+- **When**: Logic puzzles, conditional reasoning, multi-step math where the logic matters more than precision.
+- **Protocol**: Pseudocode → Mental Simulation → Answer.
+- **Example**: "If A > B and B > C, what is the relationship of A to C?" → Write: `if A > B and B > C then A > C` → Simulate → Answer.
+- **Anti-pattern**: Using for large numeric calculations (use PoT instead).
 
-3. **Plan & Solve**
-   - *Use*: Architecture, refactoring.
-   - *Protocol*: Atomic Plan -> Sequential Execution.
+### 2. Program of Thoughts (PoT)
+- **When**: Exact calculations, data processing, statistics, unit conversions.
+- **Protocol**: Write executable code → Run it → Extract answer from output.
+- **Example**: "What is the compound interest on $10K at 5% for 7 years?" → Write Python → Execute → Report result.
+- **Anti-pattern**: Using for conceptual reasoning that doesn't need computation.
+
+### 3. Plan & Solve
+- **When**: Complex multi-step tasks, architecture decisions, refactoring.
+- **Protocol**: Break into atomic sub-tasks → Define dependencies → Execute sequentially → Verify each step.
+- **Example**: "Refactor auth module" → Plan: 1) Map current auth flow 2) Identify coupling points 3) Design new interface 4) Migrate callers.
+- **Anti-pattern**: Over-planning simple tasks (just do them).
 
 ## Trigger
 "Don't guess. **Calculate** or **Code** the reasoning."

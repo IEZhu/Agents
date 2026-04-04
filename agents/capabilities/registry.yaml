@@ -5,12 +5,14 @@
 critical-analysis:
   skills:
     - skill-analysis-critical
-  directive: "Attack arguments, not people. Find enthymemes. First principles. Falsify."
+    - skill-reasoning-logic
+  directive: "Attack arguments, not people. Find enthymemes. First principles. Falsify. CoV for claims. Step-back for complex problems."
 
 content-structure:
   skills:
     - skill-content-structure
-  directive: "BLUF. Minto pyramid. MECE. Atomic paragraphs."
+    - skill-dense-summarization
+  directive: "BLUF. Minto pyramid. MECE. Atomic paragraphs. 80/20 density."
 
 development:
   skills:
@@ -50,7 +52,8 @@ dev-security:
 consultative-intake:
   skills:
     - skill-content-structure
-  directive: "Phase 1: clarifying questions. Phase 2: confirm understanding. Phase 3: execute. Never assume."
+    - skill-decision-frameworks
+  directive: "Phase 1: clarifying questions. Phase 2: confirm understanding. Phase 3: execute. Never assume. Use decision matrix for trade-offs."
 
 creative-writing:
   skills:
@@ -120,3 +123,38 @@ prompt-design:
     - skill-prompt-engineering
     - skill-analysis-critical
   directive: "Clear role+task+constraints. Few-shot for format. Eval loop: golden set→metrics→iterate."
+
+roblox-development:
+  skills:
+    - skill-roblox-development
+    - skill-dev-clean-code
+  directive: "Server authority. Client never trusted. Performance budgets. Object pooling. Anti-exploit patterns."
+
+dev-tools:
+  skills:
+    - skill-mcp-development
+    - skill-dev-api-design
+  directive: "FastMCP. Async patterns. Docstring=prompt. Schema validation. pydantic for complex types."
+
+blender-scripting:
+  skills:
+    - skill-blender-scripting
+  directive: "bmesh over bpy.ops in loops. Manifold mesh mandatory. Parametric design. Print-ready validation."
+
+health-optimization:
+  skills:
+    - skill-fitness-programming
+    - skill-bio-protocols
+  directive: "Progressive overload. RPE 6-8. MEV/MAV/MRV. Spine-safe: neutral spine, hip hinge. Evidence-based."
+
+consumer-research:
+  skills:
+    - skill-purchase-research
+    - skill-analysis-critical
+  directive: "Weighted decision matrix. Trust-tiered sources. Sensitivity analysis ±10%. Total cost of ownership."
+
+visualization:
+  skills:
+    - skill-mermaid-best-practices
+    - skill-content-structure
+  directive: "Choose diagram type by data structure. Short labels. Minimize crossings. Sequence for interactions."

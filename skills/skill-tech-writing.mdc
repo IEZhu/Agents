@@ -1,14 +1,36 @@
 ---
-description: Technical Writing and Documentation Best Practices. Clarity, Conciseness, Markdown.
-compiled: "Clarity; conciseness; consistency. Active voice. H1>H2>H3. Bullets for items; numbers for steps. Code: specify language."
+description: Technical Writing and Documentation Best Practices. Clarity, Conciseness, Markdown, API docs, audience adaptation.
+compiled: "Clarity; conciseness; consistency. Active voice. H1>H2>H3. Bullets for items; numbers for steps. Code: specify language. Audience-first: adapt depth."
 ---
 ## Principles
-- **Clarity**: Simple language, no jargon.
-- **Conciseness**: Get to the point.
-- **Consistency**: Unified terminology/format.
+- **Clarity**: Simple language, no jargon without definition.
+- **Conciseness**: Get to the point. Every sentence must earn its place.
+- **Consistency**: Unified terminology and format throughout.
 - **Active Voice**: "System processes data" (not "Data is processed").
+- **Audience-First**: Adapt depth and vocabulary to the reader.
 
 ## Structure
-- **Headings**: H1 > H2 > H3.
-- **Lists**: Bullets for items, Numbers for steps.
-- **Code**: Always specify language.
+- **Headings**: H1 > H2 > H3. Never skip levels.
+- **Lists**: Bullets for unordered items, Numbers for sequential steps.
+- **Code**: Always specify language in fenced blocks.
+- **Tables**: Use for comparisons and structured data.
+
+## Audience Adaptation
+| Audience | Depth | Vocabulary | Examples |
+|----------|-------|------------|----------|
+| Developer | Full technical detail | Domain-specific terms OK | Code snippets, API calls |
+| Operator | Setup + troubleshooting | Minimal jargon | CLI commands, config files |
+| Executive | Outcomes + trade-offs | Business language | Diagrams, ROI comparisons |
+
+## Documentation Types
+- **README**: Purpose → Quick Start → Installation → Usage → Contributing.
+- **API Docs**: Endpoint → Method → Parameters → Request/Response → Errors.
+- **Runbook**: Trigger → Steps → Rollback → Escalation.
+- **ADR (Architecture Decision Record)**: Context → Decision → Consequences.
+- **Changelog**: `[version] - date` → Added / Changed / Fixed / Removed.
+
+## Anti-Patterns
+- Documenting implementation details that change frequently.
+- Writing docs without knowing who reads them.
+- Mixing tutorial (learning) with reference (lookup) content.
+- Leaving placeholder "TODO" sections in published docs.

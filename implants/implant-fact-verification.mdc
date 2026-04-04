@@ -1,5 +1,7 @@
 ---
 description: Fact Verification Protocol: Chain-of-Verification, Source Triangulation, and Anomaly Checks
+short_name: FactVerification
+one_liner: chain-of-verification with source triangulation and anomaly checks
 globs: ["**/*.md", "**/*.mdc"]
 ---
 # Implant: Fact Verification Protocol

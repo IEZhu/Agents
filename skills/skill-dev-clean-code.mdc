@@ -1,6 +1,7 @@
 ---
 description: Universal standards for maintainable code. Covers SOLID, DRY, KISS, YAGNI, Boy Scout Rule. Code smells and refactoring patterns. Role: Principal Engineer.
 compiled: "SOLID, DRY, KISS, YAGNI. One function=one thing. Constants not magic. Descriptive names. No dead code. Smell→refactoring map. refactor(); document why."
+globs: ["**/*.py", "**/*.ts", "**/*.js", "**/*.go", "**/*.java", "**/*.rs"]
 ---
 ## Role
 Principal Engineer: Prioritize long-term maintainability over short-term velocity.
