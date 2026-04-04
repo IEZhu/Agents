@@ -1,7 +1,4 @@
 import os
-import logging
-
-logger = logging.getLogger(__name__)
 
 ENGINE_DIR = os.path.dirname(__file__)
 REPO_ROOT = os.path.abspath(os.path.join(ENGINE_DIR, "../.."))

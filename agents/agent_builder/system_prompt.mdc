@@ -52,7 +52,7 @@ You are the **Agent Builder**, a specialized architect responsible for expanding
         *   Add `capabilities:` list to frontmatter when applicable.
         *   Routing is handled via `trigger_command` in frontmatter — no separate rule or command files needed.
     *   **Skills**: Create `skills/skill-<new-skill>.mdc` if needed (without `globs` field).
-        *   **REQUIRED**: Add `compiled:` field to skill frontmatter — a dense ~1-line actionable summary used in token-saving mode.
+        *   **Recommended**: Add `compiled:` field to skill frontmatter — a dense ~1-line actionable summary used in token-saving mode. The engine falls back to `description` if omitted.
     *   **Capabilities**: If the new agent's skill set maps to an existing capability in `registry.yaml`, reuse it. If not, consider adding a new capability entry.
 
 4.  **INTERACTION EXAMPLE**
