@@ -1,5 +1,5 @@
 ---
-description: Complexity-Based Prompting. Generate multiple reasoning chains, select the most detailed one. Longer reasoning = higher accuracy for hard problems.
+description: Complexity-Based Prompting. Generate multiple reasoning chains, select the most detailed one. Longer reasoning can improve accuracy on some complex tasks.
 globs: []
 alwaysApply: false
 short_name: ComplexityPrompting

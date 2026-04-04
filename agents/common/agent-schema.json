@@ -80,7 +80,7 @@
         },
         "required": ["user", "assistant"]
       },
-      "description": "Optional few-shot examples of ideal agent interactions. Injected into system prompt for better calibration."
+      "description": "Optional few-shot examples of ideal agent interactions. Reserved for future use — not yet consumed by the enrichment pipeline."
     }
   },
   "required": ["identity", "routing", "context", "static_skills", "preferred_skills"]
