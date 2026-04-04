@@ -1,4 +1,3 @@
-import os
 import uuid
 import dotenv
 import asyncio
@@ -23,7 +22,9 @@ class AgentSystem:
         self.context_retriever = ContextRetriever()
 
     @observe(name="process_request")
-    async def process_request(self, user_query: str, user_id: str = "default_user", history: List[str] = []) -> AgentResponse:
+    async def process_request(self, user_query: str, user_id: str = "default_user", history: Optional[List[str]] = None) -> AgentResponse:
+        if history is None:
+            history = []
         request_id = str(uuid.uuid4())
 
         # 1. Retrieve Context (Langfuse Step 1)

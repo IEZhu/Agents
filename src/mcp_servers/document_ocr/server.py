@@ -19,7 +19,6 @@ import os
 import io
 import base64
 import logging
-import tempfile
 from pathlib import Path
 from typing import Optional, Literal
 
@@ -47,8 +46,6 @@ mcp = FastMCP(SERVER_NAME)
 
 def image_to_base64(image) -> str:
     """Convert PIL Image to base64 string."""
-    from PIL import Image
-
     buffer = io.BytesIO()
     # Convert to RGB if necessary (for PNG with alpha channel)
     if image.mode in ('RGBA', 'LA', 'P'):
@@ -64,7 +61,7 @@ def preprocess_image(image, enhance: bool = True):
     - Enhance contrast
     - Resize if too large
     """
-    from PIL import Image, ImageEnhance, ImageFilter
+    from PIL import Image, ImageEnhance
 
     # Resize if too large (Vision APIs have limits)
     max_dimension = 4096

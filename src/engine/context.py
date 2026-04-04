@@ -13,12 +13,14 @@ class ContextRetriever:
         pass
 
     @observe(name="retrieve_context")
-    def retrieve(self, query: str, history: List[str] = []) -> Dict[str, Any]:
+    def retrieve(self, query: str, history: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Retrieves context based on the query and history.
         Current implementation focuses on formatting the history.
         """
-        
+        if history is None:
+            history = []
+
         # 1. Format History
         formatted_history = "\n".join(history) if history else ""
         
