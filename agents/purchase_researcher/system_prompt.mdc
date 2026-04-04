@@ -21,8 +21,7 @@ routing:
   trigger_command: /purchase
 context:
   file_globs:
-  - .cursor/agents/purchase_researcher/**
-  - .cursor/commands/purchase.md
+  - agents/purchase_researcher/**
 static_skills:
 - skill-analysis-critical.mdc
 - skill-purchase-research.mdc

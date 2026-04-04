@@ -1,9 +1,10 @@
 ---
-description: "DEPRECATED — moved to .cursor/rules/01-core-protocol.mdc"
+description: "DEPRECATED — core protocol behavior is embedded in each agent's compiled system prompt"
 alwaysApply: false
 ---
 
 # DEPRECATED
 
-This file has been moved to `.cursor/rules/01-core-protocol.mdc` where `alwaysApply: true` actually takes effect.
-Do NOT reference this file. The canonical version is in `.cursor/rules/`.
+The core protocol concept no longer exists as a standalone file.
+Agent behavior (skills, implants, capability directives) is compiled directly into each agent's system prompt by the MCP engine.
+Do NOT reference this file — it has no effect.

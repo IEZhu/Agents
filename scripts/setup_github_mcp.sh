@@ -14,7 +14,7 @@ echo -e "${BLUE}🔌 GitHub MCP Setup${NC}"
 
 # 2. Check/Build Binary
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MCP_DIR="$REPO_ROOT/.cursor/mcp/github-mcp-server"
+MCP_DIR="$REPO_ROOT/.local/mcp/github-mcp-server"
 LOCAL_BINARY="$MCP_DIR/github-mcp-server"
 
 echo ""
@@ -82,7 +82,7 @@ echo "Updating configuration..."
 
 # Determine path to local github-mcp-server binary if it exists
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOCAL_BINARY="$REPO_ROOT/.cursor/mcp/github-mcp-server/github-mcp-server"
+LOCAL_BINARY="$REPO_ROOT/.local/mcp/github-mcp-server/github-mcp-server"
 
 # Python script to update JSON
 python3 -c "

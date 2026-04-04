@@ -18,7 +18,7 @@ routing:
   trigger_command: "/ocr"
 context:
   file_globs:
-    - ".cursor/agents/document_ocr_expert/**"
+    - "agents/document_ocr_expert/**"
 static_skills:
   - "skill-analysis-critical.mdc"
   - "skill-content-structure.mdc"

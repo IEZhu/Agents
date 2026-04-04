@@ -14,7 +14,7 @@ routing:
   trigger_command: "/universal"
 context:
   file_globs:
-    - ".cursor/agents/universal_agent/**"
+    - "agents/universal_agent/**"
 static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:

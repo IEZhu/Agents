@@ -14,7 +14,7 @@ routing:
   trigger_command: /instagram
 context:
   file_globs:
-  - .cursor/agents/instagram_analyst/**
+  - agents/instagram_analyst/**
 static_skills:
 - skill-analysis-critical.mdc
 - skill-content-structure.mdc

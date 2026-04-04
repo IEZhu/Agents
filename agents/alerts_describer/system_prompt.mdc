@@ -17,8 +17,7 @@ routing:
   trigger_command: "/alerts_describer"
 context:
   file_globs:
-    - ".cursor/agents/alerts_describer/**"
-    - ".cursor/commands/alerts_describer.md"
+    - "agents/alerts_describer/**"
 static_skills:
   - "skill-content-structure.mdc"
   - "skill-dense-summarization.mdc"

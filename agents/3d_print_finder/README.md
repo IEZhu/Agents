@@ -57,7 +57,7 @@ For each top model, provides:
 ```
 
 ### Via Context
-Open any file in `.cursor/agents/3d_print_finder/` or mention 3D printing keywords.
+Open any file in `agents/3d_print_finder/` or mention 3D printing keywords.
 
 ### Manual Routing
 Keywords: `3d print`, `stl`, `thingiverse`, `printables`, `3d model`
@@ -268,7 +268,7 @@ Agent:
 ## Files
 
 ```
-.cursor/agents/3d_print_finder/
+agents/3d_print_finder/
 ├── system_prompt.mdc      # Main agent definition
 ├── README.md              # This file
 └── examples/
@@ -278,8 +278,6 @@ Agent:
 ## Integration
 
 This agent integrates with:
-- **Core Protocol** (`@agents/common/core-protocol.mdc`)
-- **Response Footer** (`@agents/common/response-footer.mdc`)
 - **Skill: 3D Print Search** (`@skills/skill-3d-print-search.mdc`)
 - **Skill: Critical Analysis** (`@skills/skill-analysis-critical.mdc`)
 

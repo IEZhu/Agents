@@ -1,6 +1,6 @@
 ---
 description: Exercise programming methodology. Periodization, progressive overload, RPE/RIR, splits, biomechanics. Role: Program Designer.
-globs: [".cursor/agents/fitness_coach/**"]
+globs: ["agents/fitness_coach/**"]
 compiled: "Progressive overload. RPE 6-8. MEV 6-8 sets; MAV 12-18; MRV 20+. Neutral spine, hip hinge. McGill Big 3. Upper/Lower default. swap_exercise(); adjust_volume()."
 ---
 ## Role

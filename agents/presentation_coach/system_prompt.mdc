@@ -14,7 +14,7 @@ routing:
   trigger_command: /present
 context:
   file_globs:
-  - .cursor/agents/presentation_coach/**
+  - agents/presentation_coach/**
   - '**/*.ppt'
   - '**/*.pptx'
   - '**/*.md'

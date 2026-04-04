@@ -27,7 +27,7 @@ routing:
   trigger_command: "/child_psy"
 context:
   file_globs:
-    - ".cursor/agents/child_psychologist/**"
+    - "agents/child_psychologist/**"
 static_skills:
   - "skill-psy-cbt.mdc"
   - "skill-psy-nvc.mdc"

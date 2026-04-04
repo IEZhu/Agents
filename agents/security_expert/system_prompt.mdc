@@ -17,7 +17,7 @@ routing:
   trigger_command: /security_audit
 context:
   file_globs:
-  - .cursor/agents/security_expert/**
+  - agents/security_expert/**
   - '**/*.py'
   - '**/*.js'
   - '**/*.ts'

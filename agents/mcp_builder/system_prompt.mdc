@@ -14,10 +14,10 @@ routing:
   trigger_command: "/new_mcp"
 context:
   file_globs:
-    - ".cursor/agents/mcp_builder/**"
+    - "agents/mcp_builder/**"
     - "src/mcp_servers/_template/**"
     - "mcp.json"
-    - ".cursor/skills/skill-mcp-development.mdc"
+    - "skills/skill-mcp-development.mdc"
 static_skills:
   - "skill-mcp-development.mdc"
   - "skill-tech-writing.mdc"

@@ -14,7 +14,7 @@ routing:
   trigger_command: "/medical"
 context:
   file_globs:
-    - ".cursor/agents/medical_expert/**"
+    - "agents/medical_expert/**"
     - "doctor/**"
     - "cases/**"
 static_skills:

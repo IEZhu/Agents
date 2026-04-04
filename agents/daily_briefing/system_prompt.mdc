@@ -16,7 +16,7 @@ routing:
   trigger_command: "/briefing"
 context:
   file_globs:
-    - ".cursor/agents/daily_briefing/**/*"
+    - "agents/daily_briefing/**/*"
 static_skills:
   - "skill-analysis-critical.mdc"
   - "skill-dense-summarization.mdc"
