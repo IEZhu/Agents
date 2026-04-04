@@ -319,12 +319,14 @@ fi
 # Without this, first startup takes 30-60s for embedding generation,
 # causing Claude Desktop to time out with "Request timed out" (-32001).
 # Runs regardless of SKIP_INSTALL — .mdc files may have changed even if deps are unchanged.
-print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
+# Respects --skip-chroma flag since indexing writes to ChromaDB on disk.
+if [ "$SKIP_CHROMA" = false ]; then
+    print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
 
-print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
-print_step "(this may take a few minutes on first run)"
-set +e
-python -c "
+    print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
+    print_step "(this may take a few minutes on first run)"
+    set +e
+    python -c "
 import sys, os
 sys.path.insert(0, '$REPO_ROOT')
 
@@ -344,13 +346,16 @@ from src.engine.implants import ImplantRetriever
 ir = ImplantRetriever()
 print(f'Implants indexed: {ir.collection.count()} entries', flush=True)
 " 2>&1
-INDEX_EXIT=$?
-set -e
+    INDEX_EXIT=$?
+    set -e
 
-if [ $INDEX_EXIT -eq 0 ]; then
-    print_success "Embedding model cached, skills & implants indexed"
+    if [ $INDEX_EXIT -eq 0 ]; then
+        print_success "Embedding model cached, skills & implants indexed"
+    else
+        print_warn "Pre-indexing failed — it will run on first MCP server start"
+    fi
 else
-    print_warn "Pre-indexing failed — it will run on first MCP server start"
+    print_step "Skipping ChromaDB pre-indexing (--skip-chroma)"
 fi
 
 # ============== MCP Environment Detection & Configuration ==============

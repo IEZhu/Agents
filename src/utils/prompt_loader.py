@@ -82,7 +82,7 @@ def load_file_content(path: str) -> str:
             content = f.read()
             # specific to MDC files with frontmatter: remove it if present
             _, body = split_frontmatter(content)
-            return body if body != content else content
+            return body
     except FileNotFoundError:
         return f"[MISSING FILE: {path}]"
     except Exception as e:
