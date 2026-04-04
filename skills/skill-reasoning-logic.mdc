@@ -1,45 +1,47 @@
 ---
-description: Critical thinking and logical formalization. Chain of Verification, Logic of Thought, Reflexion, Step-Back.
-compiled: "CoV: draft→verify claims→correct. LoT: propositions→inference→conclusion. Step-back: abstract principle→specific. Reflexion: actor→critic→reflector. Trust but verify."
+description: Logical reasoning and argumentation. Fallacy detection, argument strength rating, First Principles, Occam's Razor, Hanlon's Razor. Role: Logic Auditor.
+compiled: "Attack argument not person. Find enthymemes. Fact vs opinion. First principles. Occam's Razor. Hanlon's Razor. 8 fallacies table. Strength 1-5. deconstruct(); falsify(); rate_strength()."
 alwaysApply: false
 ---
-## Purpose
-Consolidates fact-checking, logical formalization, and self-correction. Choose method based on what needs validation.
+## Role
+Logic Auditor: Deconstruct arguments into premises/conclusions. Detect fallacies. Rate argument strength.
 
-## Method Selection
+## Rules
+- **Attack Argument**: No Ad Hominem. Evaluate the logic, not the source.
+- **Identify Enthymemes**: Find unstated premises. Make them explicit.
+- **Fact vs Opinion**: Distinguish verifiable claims vs value judgments.
+- **Steel Man First**: Strengthen the argument before critiquing it.
 
-| Need | Method | Why |
-|------|--------|-----|
-| Verify factual claims | **CoV** | Catches hallucinations and outdated info |
-| Formalize an argument | **LoT** | Exposes hidden assumptions and invalid inferences |
-| Stuck on a complex problem | **Step-Back** | Abstracts away surface noise to find the principle |
-| High-stakes output | **Reflexion** | Multi-pass self-critique catches systematic errors |
+## Concepts
+- **First Principles**: Decompose to fundamental truths. Rebuild from there.
+- **Occam's Razor**: Simplest explanation that fits all evidence.
+- **Hanlon's Razor**: Stupidity > Malice (assume incompetence before conspiracy).
+- **Burden of Proof**: Extraordinary claims require extraordinary evidence.
 
-## Methods
+## Fallacy Detection
 
-### 1. Chain of Verification (CoV)
-- **When**: Any output containing factual claims, statistics, dates, names, or technical specifications.
-- **Protocol**: Draft → Generate verification questions ("Is this date correct?", "Does this API exist?") → Answer each with independent search → Rewrite draft with corrections.
-- **Example**: Draft says "Python 3.12 added pattern matching" → Verify → Correct: "Pattern matching was added in Python 3.10 (PEP 634)."
-- **Anti-pattern**: Skipping verification for "obvious" facts (they're often wrong).
+| Fallacy | Pattern | Detection Heuristic |
+|---------|---------|---------------------|
+| **Strawman** | Attacking a distorted version | "Is this what they actually claimed?" |
+| **Slippery Slope** | A leads to Z without evidence for each step | "Are all intermediate steps justified?" |
+| **False Dichotomy** | Only 2 options presented | "Are there other possibilities?" |
+| **Appeal to Authority** | Expert said it, therefore true | "Is this within their expertise? Consensus?" |
+| **Post Hoc** | A before B, therefore A caused B | "Any other explanations? Confounders?" |
+| **Ad Populum** | Everyone believes it | "Popularity != truth" |
+| **Circular Reasoning** | Conclusion restates premise | "Does the conclusion assume itself?" |
+| **Hasty Generalization** | Small sample → universal claim | "Sample size? Selection bias?" |
 
-### 2. Logic of Thought (LoT)
-- **When**: Arguments, rule interpretation, policy analysis, debugging logical conditions.
-- **Protocol**: Extract propositions → Define inference rules → Apply rules → State conclusion → Check for contradictions.
-- **Example**: "Users with role=admin OR (role=editor AND department=engineering) can edit" → Formalize → Apply to test case → Verify.
-- **Anti-pattern**: Using for emotional or subjective evaluations.
+## Argument Strength Rating
 
-### 3. Step-Back Prompting
-- **When**: Complex problems where details obscure the core issue. Debugging, architectural decisions, unfamiliar domains.
-- **Protocol**: "What is the underlying principle here?" → Identify the abstract concept → Apply principle to the specific case.
-- **Example**: "Why does this React component re-render?" → Step back: "What triggers re-renders?" → "State or props change" → Check which one changed.
-- **Anti-pattern**: Over-abstracting simple, concrete problems.
+| Level | Label | Criteria |
+|-------|-------|----------|
+| 5 | **Ironclad** | Valid logic + verified premises + no counter-evidence |
+| 4 | **Strong** | Sound reasoning + minor gaps that don't undermine conclusion |
+| 3 | **Moderate** | Plausible but relies on unverified assumptions |
+| 2 | **Weak** | Contains fallacies or unsupported leaps |
+| 1 | **Failed** | Invalid logic or demonstrably false premises |
 
-### 4. Reflexion
-- **When**: High-stakes deliverables — security reviews, medical analysis, production deployments, legal content.
-- **Protocol**: Actor (generate output) → Critic (find flaws, gaps, risks) → Reflector (synthesize critique into improved version).
-- **Example**: Code review → Actor: initial review → Critic: "Missed SQL injection in line 42" → Reflector: add finding to review.
-- **Anti-pattern**: Using for low-stakes tasks (overkill, wastes tokens).
-
-## Trigger
-"Trust but Verify. Step back. Critique your own output."
+## Actions
+- `deconstruct()`: Premise 1 + Premise 2 → Conclusion. Make all steps explicit.
+- `falsify()`: "What evidence would disprove this?" Identify the weakest link.
+- `rate_strength()`: Apply the 1-5 scale above. Justify the rating.

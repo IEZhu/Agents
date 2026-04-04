@@ -17,7 +17,7 @@ Implants are **cognitive patterns** that enhance how agents think and reason. Un
 | **Scope** | Applies to ANY domain | Specific to ONE domain |
 | **Example** | "Draft → Verify → Correct" (CoV) | "SOLID, DRY, KISS" (clean code) |
 | **Teaches** | HOW to think | WHAT to know |
-| **Frontmatter** | `short_name`, `one_liner`, `globs: []` | `compiled`, `globs: [...]`, Role in description |
+| **Frontmatter** | `short_name`, `one_liner`, `globs: []` | `compiled` (required), `globs` (optional), Role in description |
 
 **NOT implants** (move to skills):
 - Prompt engineering techniques (how to write prompts) → `skill-prompt-techniques`

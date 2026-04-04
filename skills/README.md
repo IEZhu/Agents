@@ -17,7 +17,7 @@ Skills are **knowledge modules** — compact chunks of domain expertise that age
 | **Scope** | Specific to ONE domain | Applies to ANY domain |
 | **Example** | "SOLID, DRY, KISS" (clean code) | "Draft → Verify → Correct" (CoV) |
 | **Teaches** | WHAT to know | HOW to think |
-| **Frontmatter** | `compiled`, `globs: [...]`, Role in description | `short_name`, `one_liner`, `globs: []` |
+| **Frontmatter** | `compiled` (required), `globs` (optional), Role in description | `short_name`, `one_liner`, `globs: []` |
 
 **Skills CAN reference implants** as "use this reasoning technique here" (e.g., `skill-analysis-critical` points to `implant-chain-of-verification`), but must NOT duplicate implant content.
 
