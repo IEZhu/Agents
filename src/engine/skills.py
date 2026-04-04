@@ -80,7 +80,7 @@ class SkillRetriever:
                 fm_str, parsed_body = split_frontmatter(content)
                 if fm_str is not None:
                     try:
-                        frontmatter = yaml.safe_load(fm_str)
+                        frontmatter = yaml.safe_load(fm_str) or {}
                         body = parsed_body
                     except Exception as e:
                         logger.error(f"Failed to parse frontmatter for {file_path}: {e}")
