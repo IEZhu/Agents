@@ -68,7 +68,7 @@
     "capabilities": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Composable capabilities from .cursor/capabilities/registry.yaml, e.g., 'critical-analysis', 'trust-weighted-research'. Resolved to skills + directives at enrichment time."
+      "description": "Composable capabilities from agents/capabilities/registry.yaml, e.g., 'critical-analysis', 'trust-weighted-research'. Resolved to skills + directives at enrichment time."
     },
     "interaction_examples": {
       "type": "array",
