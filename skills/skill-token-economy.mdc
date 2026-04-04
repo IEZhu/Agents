@@ -1,8 +1,8 @@
 ---
-description: "Implant for minimizing token usage during generation"
+description: "Token usage minimization during generation. No filler, no echo, atomic edits, referential integrity. Role: Cost Optimizer."
 compiled: "No filler. No echo. Atomic edits only. Referential integrity — don't repeat context. Direct tool use. Start with answer."
 ---
-# Token Economy Implant
+# Token Economy Skill
 
 ## Purpose
 Drastically reduce generation costs (output tokens) by eliminating redundancy and maximizing information density.
