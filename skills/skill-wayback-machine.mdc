@@ -1,6 +1,6 @@
 ---
 description: "Temporal Forensic Layer: Access historical web snapshots via Archive.org Wayback Machine."
-compiled: "Snapshot: archive.org/wayback/available?url={URL}. CDX timeline: collapse=digest for dedup. Raw mode: id_ after timestamp. Rate: 1req/sec. Always cite Wayback."
+compiled: "Snapshot: https://archive.org/wayback/available?url={URL}. CDX: collapse=digest for dedup. Raw: id_ after timestamp. Rate: 1req/sec. Cite Wayback."
 tags: [research, archive, history, web, forensics, osint]
 globs: ["**/*.md"]
 ---
