@@ -27,9 +27,9 @@ def split_frontmatter(content: str) -> Tuple[Optional[str], str]:
         return None, content
 
     # Everything between first and second --- markers
-    fm_start = matches[0].end()    # right after opening ---\n
+    fm_start = matches[0].end()    # right after opening --- (end of match, before newline)
     fm_end = matches[1].start()    # right before closing ---
-    body_start = matches[1].end()  # right after closing ---\n
+    body_start = matches[1].end()  # right after closing --- (end of match, before newline)
 
     frontmatter_str = content[fm_start:fm_end]
     body = content[body_start:].strip()

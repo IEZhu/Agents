@@ -114,7 +114,7 @@ inject_mcp_config() {
     CLAUDE_CONFIG_PATH="$config_path" \
     MCP_PYTHON="$PYTHON_ABS" \
     MCP_SERVER="$SERVER_ABS" \
-    python3 -c "
+    python -c "
 import json, os
 
 config_path = os.environ['CLAUDE_CONFIG_PATH']
@@ -442,8 +442,9 @@ else
         # Backup before modifying
         cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.backup.$(date +%s)"
 
-        inject_mcp_config "$MCP_SETTINGS_FILE" "~/.cursor/mcp.json"
-        CONFIGURED_ENVS+=("Cursor")
+        if inject_mcp_config "$MCP_SETTINGS_FILE" "~/.cursor/mcp.json"; then
+            CONFIGURED_ENVS+=("Cursor")
+        fi
     fi
 
     # --- Configure Claude Desktop ---
@@ -457,8 +458,9 @@ else
         # Backup before modifying
         cp "$CLAUDE_DESKTOP_CONFIG" "${CLAUDE_DESKTOP_CONFIG}.backup.$(date +%s)"
 
-        inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config"
-        CONFIGURED_ENVS+=("Claude Desktop")
+        if inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config"; then
+            CONFIGURED_ENVS+=("Claude Desktop")
+        fi
     fi
 
     # --- Configure Claude Code ---
@@ -470,8 +472,12 @@ else
             echo '{}' > "$CLAUDE_GLOBAL"
         fi
 
-        inject_mcp_config "$CLAUDE_GLOBAL" "~/.claude.json"
-        CONFIGURED_ENVS+=("Claude Code")
+        # Backup before modifying
+        cp "$CLAUDE_GLOBAL" "${CLAUDE_GLOBAL}.backup.$(date +%s)"
+
+        if inject_mcp_config "$CLAUDE_GLOBAL" "~/.claude.json"; then
+            CONFIGURED_ENVS+=("Claude Code")
+        fi
     fi
 
     # --- Summary ---
