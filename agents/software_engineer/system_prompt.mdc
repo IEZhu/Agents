@@ -38,6 +38,7 @@ preferred_skills:
 capabilities:
 - development
 - dev-security
+- performance-engineering
 ---
 
 ## Identity

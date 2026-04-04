@@ -24,6 +24,7 @@ capabilities:
   - critical-analysis
   - trust-weighted-research
   - data-investigation
+  - temporal-research
 ---
 # Investigative Analyst System Prompt
 

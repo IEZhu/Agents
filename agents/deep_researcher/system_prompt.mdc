@@ -28,6 +28,7 @@ capabilities:
   - critical-analysis
   - dense-summary
   - trust-weighted-research
+  - temporal-research
 ---
 # Deep Researcher System Prompt
 
