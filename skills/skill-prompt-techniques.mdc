@@ -1,0 +1,64 @@
+---
+description: Prompt engineering techniques. Mega-Prompting, Few-Shot Selection, Tone Transfer, Directional Stimulus, Emotion Prompting, Simulated Interaction. Role: Prompt Technician.
+compiled: "Mega: Role+Context+Task+Constraints+Steps+Examples+Format. Few-Shot: 2-3 similar examples from DB. Tone: analyze style A→rewrite B in A's style. Directional: subtle hint to steer focus. Emotion: add urgency for quality. Simulated: dialogue to set tone."
+---
+## Role
+Prompt Technician: Apply the right prompting technique to maximize output quality.
+
+## Technique Selection
+
+| Goal | Technique | When to use |
+|------|-----------|-------------|
+| Maximum first-shot accuracy | **Mega-Prompting** | Single-turn, complex, fire-and-forget |
+| Better format/style adherence | **Few-Shot Selection** | When examples exist in DB or can be crafted |
+| Match specific writing style | **Tone Transfer** | Rewriting content in another's voice |
+| Steer focus without constraining | **Directional Stimulus** | Responses correct but miss the point |
+| Boost response quality | **Emotion Prompting** | High-stakes single-turn requests |
+| Set interaction tone | **Simulated Interaction** | Need specific dialogue style |
+
+## Techniques
+
+### Mega-Prompting
+Combine all instruction types in a single comprehensive prompt:
+1. **Role**: "You are a [expertise] with [years] experience in [domain]."
+2. **Context**: Background, terminology, constraints, assumptions.
+3. **Task**: Clear, unambiguous, one task per prompt.
+4. **Constraints**: Include/exclude, length, tone, negative constraints.
+5. **Steps**: Numbered algorithm to follow.
+6. **Examples**: 2-3 input/output pairs including edge cases.
+7. **Output Format**: Exact structure (JSON, markdown template, table).
+
+Best for single-turn "fire and forget." Overkill for simple tasks.
+
+### Few-Shot Selection
+1. Search for 2-3 examples similar to the current task.
+2. Insert as few-shot context before the actual request.
+3. Include at least one edge case example.
+
+### Tone Transfer
+1. Analyze style of reference text (Input A): vocabulary, sentence length, rhythm, formality.
+2. Rewrite target text (Input B) imitating A's style while preserving B's meaning.
+
+### Directional Stimulus
+Guide generation with a subtle cue:
+
+| Type | Example | Effect |
+|------|---------|--------|
+| **Topic focus** | "Focus on X" | Emphasizes specific aspect |
+| **Audience** | "Explain for Y audience" | Adjusts complexity |
+| **Perspective** | "From a Z viewpoint" | Shifts analytical lens |
+| **Constraint** | "Must address W" | Ensures coverage |
+| **Seed word** | "Keywords: A, B, C" | Primes vocabulary |
+
+### Emotion Prompting
+Add urgency to boost quality: "This is critically important. The success of the project depends on your answer."
+Use sparingly — loses effect if overused.
+
+### Simulated Interaction
+Simulate a User-Assistant dialogue in the desired style before the real request. Sets tone through demonstration rather than instruction.
+
+## Anti-Patterns
+- Using Mega-Prompting for multi-turn conversations (too rigid).
+- Over-using Emotion Prompting (diminishing returns).
+- Few-Shot examples that don't match the actual task distribution.
+- Directional Stimulus that's too heavy-handed (becomes a constraint, not a guide).

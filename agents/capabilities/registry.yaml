@@ -121,8 +121,14 @@ performance-engineering:
 prompt-design:
   skills:
     - skill-prompt-engineering
+    - skill-prompt-techniques
     - skill-analysis-critical
-  directive: "Clear role+task+constraints. Few-shot for format. Eval loop: golden set→metrics→iterate."
+  directive: "Clear role+task+constraints. Few-shot for format. Eval loop: golden set→metrics→iterate. Mega-prompt for fire-and-forget. Directional stimulus for focus."
+
+prompt-security:
+  skills:
+    - skill-prompt-security
+  directive: "Sandwich defense. Instructional hierarchy. Delimiters for data isolation. Explicit negative constraints."
 
 roblox-development:
   skills:

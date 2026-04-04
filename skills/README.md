@@ -6,6 +6,21 @@ Contains domain-specific knowledge modules that provide specialized capabilities
 
 Skills are **knowledge modules** — compact chunks of domain expertise that agents can use. Unlike implants (reasoning patterns), skills provide **specific knowledge** about tools, techniques, and best practices.
 
+## Skill vs Implant — Decision Test
+
+> **Is this domain-specific KNOWLEDGE?** → Skill
+> **Is this a domain-agnostic REASONING ALGORITHM?** → Implant
+
+| Criterion | Skill | Implant |
+|-----------|-------|---------|
+| **Form** | Reference: Role → Rules → Concepts → Actions | Pattern: step 1 → step 2 → step 3 |
+| **Scope** | Specific to ONE domain | Applies to ANY domain |
+| **Example** | "SOLID, DRY, KISS" (clean code) | "Draft → Verify → Correct" (CoV) |
+| **Teaches** | WHAT to know | HOW to think |
+| **Frontmatter** | `compiled`, `globs: [...]`, Role in description | `short_name`, `one_liner`, `globs: []` |
+
+**Skills CAN reference implants** as "use this reasoning technique here" (e.g., `skill-analysis-critical` points to `implant-chain-of-verification`), but must NOT duplicate implant content.
+
 ## Structure
 
 ```
@@ -61,7 +76,6 @@ Persona for this skill.
 | `skill-dev-clean-code` | SOLID, DRY, KISS, YAGNI principles |
 | `skill-dev-debugging` | Scientific debugging, root cause analysis, binary search |
 | `skill-dev-security` | Secure coding, OWASP, input validation |
-| `skill-reasoning-code` | Code-specific reasoning patterns |
 | `skill-mcp-development` | MCP server development best practices |
 | `skill-blender-scripting` | Blender Python (bpy) scripting, manifold geometry, 3D printing |
 | `skill-roblox-development` | Roblox Luau patterns, DataStore, anti-exploit, performance |
@@ -103,11 +117,15 @@ Persona for this skill.
 | `skill-3d-print-search` | 3D model search strategies |
 | `skill-fitness-programming` | Exercise programming, periodization, spine-safe biomechanics |
 
-### System
+### Prompt Engineering & System
 
 | Skill | Description |
 |-------|-------------|
+| `skill-prompt-engineering` | Prompt design methodology, evaluation, anti-patterns |
+| `skill-prompt-techniques` | Mega-Prompting, Few-Shot, Tone Transfer, Directional Stimulus |
+| `skill-prompt-security` | Sandwich Defense, Instructional Hierarchy, Delimiters, Negative Constraints |
 | `skill-token-economy` | Minimize token usage, eliminate redundancy |
+| `skill-error-recovery` | Universal error handling protocol |
 
 ## Loading Methods
 

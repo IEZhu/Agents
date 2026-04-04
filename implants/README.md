@@ -6,6 +6,25 @@ Contains cognitive reasoning strategies ("implants") that augment agent reasonin
 
 Implants are **cognitive patterns** that enhance how agents think and reason. Unlike skills (domain knowledge), implants provide **meta-cognitive strategies** — ways of approaching problems rather than specific knowledge.
 
+## Implant vs Skill — Decision Test
+
+> **Is this a domain-agnostic REASONING ALGORITHM?** → Implant
+> **Is this domain-specific KNOWLEDGE?** → Skill
+
+| Criterion | Implant | Skill |
+|-----------|---------|-------|
+| **Form** | Pattern: step 1 → step 2 → step 3 | Reference: Role → Rules → Concepts → Actions |
+| **Scope** | Applies to ANY domain | Specific to ONE domain |
+| **Example** | "Draft → Verify → Correct" (CoV) | "SOLID, DRY, KISS" (clean code) |
+| **Teaches** | HOW to think | WHAT to know |
+| **Frontmatter** | `short_name`, `one_liner`, `globs: []` | `compiled`, `globs: [...]`, Role in description |
+
+**NOT implants** (move to skills):
+- Prompt engineering techniques (how to write prompts) → `skill-prompt-techniques`
+- Security practices (sandwich defense, delimiters) → `skill-prompt-security`
+- Domain-specific protocols (fact verification) → `skill-fact-verification`
+- Token usage rules → `skill-token-economy`
+
 ## Structure
 
 ```
@@ -95,12 +114,9 @@ Techniques for ensuring correctness and safety:
 
 | Implant | Description |
 |---------|-------------|
-| `fact-verification` | Multi-source fact checking protocol |
 | `constitutional-critique` | Ethical review against principles |
-| `sandwich-defense` | Injection attack protection |
-| `instructional-hierarchy` | Priority of system vs user instructions |
-| `negative-constraints` | Explicit "what NOT to do" rules |
-| `delimiters` | Using tags/symbols to separate data from instructions (injection defense) |
+
+> **Moved to skills**: `fact-verification` → `skill-fact-verification`, security patterns (sandwich-defense, instructional-hierarchy, delimiters, negative-constraints) → `skill-prompt-security`
 
 ### Generation Strategies
 
@@ -110,13 +126,9 @@ Techniques for producing better outputs:
 |---------|-------------|
 | `analogical-prompting` | Reasoning by analogy to known cases |
 | `generated-knowledge` | Generate context before answering |
-| `few-shot-selection` | Dynamic example selection |
 | `role-play-expert` | Deep expertise via persona assignment |
-| `mega-prompting` | All-in-one comprehensive instruction |
-| `directional-stimulus` | Hint-based guidance |
-| `emotion-prompting` | Emotional context for engagement |
-| `simulated-interaction` | Dialogue simulation (User-Assistant) to set tone/style |
-| `tone-transfer` | Rewrite text B in style of text A |
+
+> **Moved to skills**: prompt engineering techniques (mega-prompting, few-shot-selection, directional-stimulus, emotion-prompting, simulated-interaction, tone-transfer) → `skill-prompt-techniques`
 
 ### Decomposition
 
@@ -132,11 +144,7 @@ Techniques for breaking down complex problems:
 
 ### Efficiency
 
-Techniques for optimizing token usage:
-
-| Implant | Description |
-|---------|-------------|
-| `token-economy` | Minimize output tokens by eliminating redundancy |
+> **Moved to skills**: `token-economy` → `skill-token-economy`
 
 ## Activation Methods
 

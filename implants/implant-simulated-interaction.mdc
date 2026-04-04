@@ -1,9 +1,0 @@
----
-description: Simulated Interaction. Dialogue simulation (User-Assistant) to set tone/style.
-globs: []
-alwaysApply: false
-short_name: SimulatedInteraction
-one_liner: set tone via simulated dialogue before answering
----
-## Pattern
-"Simulate a dialogue where User asks [X] and Assistant answers in [Style]. Then answer the real request."
