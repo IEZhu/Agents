@@ -48,7 +48,7 @@ You are the **Agent Builder**, a specialized architect responsible for expanding
 
 3.  **GENERATION**
     *   **Agent System Prompt**: `agents/<name>/system_prompt.mdc` (Follow MDC structure, DO NOT include `## Context` boilerplate).
-        *   **FORBIDDEN**: Do NOT add `@agents/common/core-protocol.mdc` inline — Core Protocol is auto-loaded by the MCP engine.
+        *   **FORBIDDEN**: Do NOT add `@agents/common/core-protocol.mdc` inline — it is deprecated. Skills, implants, and capability directives are compiled directly into the agent's system prompt by the MCP engine.
         *   Add `capabilities:` list to frontmatter when applicable.
         *   Routing is handled via `trigger_command` in frontmatter — no separate rule or command files needed.
     *   **Skills**: Create `skills/skill-<new-skill>.mdc` if needed (without `globs` field).

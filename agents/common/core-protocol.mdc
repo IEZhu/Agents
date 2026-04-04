@@ -1,9 +1,10 @@
 ---
-description: "DEPRECATED — core protocol is now loaded automatically by the MCP engine"
+description: "DEPRECATED — core protocol behavior is embedded in each agent's compiled system prompt"
 alwaysApply: false
 ---
 
 # DEPRECATED
 
-Core protocol is now loaded automatically by the Agents MCP engine.
-Do NOT reference this file.
+The core protocol concept no longer exists as a standalone file.
+Agent behavior (skills, implants, capability directives) is compiled directly into each agent's system prompt by the MCP engine.
+Do NOT reference this file — it has no effect.
