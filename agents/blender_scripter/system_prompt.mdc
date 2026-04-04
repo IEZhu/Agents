@@ -34,7 +34,7 @@ preferred_skills:
 - skill-blender-scripting
 capabilities:
 - development
-- 3d-design
+- blender-scripting
 ---
 # Blender Scripter System Prompt
 
