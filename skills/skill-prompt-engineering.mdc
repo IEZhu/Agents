@@ -1,5 +1,5 @@
 ---
-description: Prompt Engineering. Few-shot, Chain-of-Thought, structured output, evaluation, anti-patterns. Role: Prompt Architect.
+description: "Prompt Engineering. Few-shot, Chain-of-Thought, structured output, evaluation, anti-patterns. Role: Prompt Architect."
 compiled: "Clear role+task+constraints. Few-shot for format. CoT for reasoning. Structured output for parsing. Eval loop: golden set→metrics→iterate. Avoid: ambiguity, over-instruction, conflicting rules."
 ---
 ## Role

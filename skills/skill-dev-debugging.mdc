@@ -1,5 +1,5 @@
 ---
-description: Structured approach to identifying and resolving software defects. Scientific Method, Root Cause Analysis, Binary Search. Role: Detective.
+description: "Structured approach to identifying and resolving software defects. Scientific Method, Root Cause Analysis, Binary Search. Role: Detective."
 compiled: "Hypothesis→test. Reproduce first. Full stack trace. One variable at a time. isolate(); log(); assert(). Binary search; 5 Whys."
 ---
 ## Role

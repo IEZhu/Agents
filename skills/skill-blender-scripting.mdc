@@ -1,5 +1,5 @@
 ---
-description: Blender Python (bpy) scripting patterns and 3D printing best practices for procedural object generation.
+description: "Blender Python (bpy) scripting patterns and 3D printing best practices for procedural object generation."
 compiled: "bmesh>bpy.ops in loops. Manifold: watertight, normals out, no self-intersect. Min wall: FDM 1.2mm, SLA 0.8mm. Apply modifiers before export. validate_printability()."
 globs: ["**/*blender*", "**/*bpy*", "**/*.blend"]
 ---

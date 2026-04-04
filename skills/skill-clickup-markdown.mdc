@@ -1,5 +1,5 @@
 ---
-description: ClickUp-specific Markdown formatting rules and quirks. Use when generating content for ClickUp tasks/comments.
+description: "ClickUp-specific Markdown formatting rules and quirks. Use when generating content for ClickUp tasks/comments."
 compiled: "[] not -[ ]. *bold* not **bold**. *Header* not ##. Single newlines. --- with blank lines. Russian default. Inline backticks."
 ---
 # Skill: ClickUp Markdown
