@@ -12,7 +12,7 @@ one_liner: maximize reasoning chain length for complex tasks
 4. **Verify Correctness**: Ensure the selected chain is logically sound (length alone doesn't guarantee correctness).
 
 ## Rationale
-Research shows that for complex problems (math, logic, multi-step reasoning), models that produce longer reasoning chains tend to arrive at more accurate answers. The complexity of the reasoning is a signal of thoroughness.
+Empirical observations suggest that for complex problems (math, logic, multi-step reasoning), models producing longer reasoning chains tend to arrive at more accurate answers. However, this is a trade-off: longer chains increase latency and token cost, and length alone does not guarantee correctness — verification of each step matters more than verbosity.
 
 ## Complexity Scoring
 - Count distinct logical steps (not just words).

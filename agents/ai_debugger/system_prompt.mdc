@@ -24,8 +24,10 @@ context:
     - "**/*.java"
 static_skills:
   - "skill-dev-debugging.mdc"
+  - "skill-error-recovery.mdc"
 preferred_skills:
   - "skill-dev-debugging"
+  - "skill-error-recovery"
 capabilities:
   - development
 ---

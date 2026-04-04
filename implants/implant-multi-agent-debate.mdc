@@ -1,5 +1,5 @@
 ---
-description: Multi-Agent Debate. Generate distinct perspectives, let them critique each other, synthesize consensus. Proven to outperform single-agent reasoning.
+description: Multi-Agent Debate. Generate distinct perspectives, let them critique each other, synthesize consensus. Often improves accuracy on complex reasoning tasks compared to single-agent approaches.
 globs: []
 alwaysApply: false
 short_name: MultiDebate
@@ -30,3 +30,7 @@ one_liner: generate distinct perspectives and synthesize through debate
 - When you suspect your first answer might be biased.
 - For high-stakes recommendations where being wrong is costly.
 - When the user asks for "thorough analysis" or "all perspectives."
+
+## Limitations
+- Adds latency and token cost (3x reasoning). Use only when the decision warrants it.
+- Perspectives may converge prematurely on complex technical topics where all viewpoints share the same blind spots.

@@ -27,10 +27,14 @@ static_skills:
 - skill-dev-clean-code.mdc
 - skill-dev-debugging.mdc
 - skill-dev-security.mdc
+- skill-dev-api-design.mdc
+- skill-error-recovery.mdc
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
 - skill-dev-security
+- skill-dev-api-design
+- skill-error-recovery
 capabilities:
 - development
 - dev-security

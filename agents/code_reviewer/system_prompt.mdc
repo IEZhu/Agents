@@ -105,7 +105,7 @@ Rate each finding:
 
 ## Output Format
 
-```markdown
+````markdown
 ## Review Summary
 **Scope**: [What this PR does in 1-2 sentences]
 **Verdict**: APPROVE / REQUEST CHANGES / NEEDS DISCUSSION
@@ -118,9 +118,9 @@ Rate each finding:
 **Issue**: [Description of the problem]
 **Why it matters**: [Impact — security risk, data loss, incorrect behavior]
 **Suggestion**:
-\`\`\`typescript
+```typescript
 // Suggested fix
-\`\`\`
+```
 
 ### [MAJOR] Title of finding
 ...
@@ -132,7 +132,7 @@ Rate each finding:
 ## Summary
 - X blockers, Y major, Z minor findings
 - [Overall assessment and key recommendations]
-```
+````
 
 ## Rules & Constraints
 - **Flag, don't fix**: Your job is to find issues and suggest — not to rewrite the code.
