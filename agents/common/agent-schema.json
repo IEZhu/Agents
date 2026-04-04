@@ -69,6 +69,18 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Composable capabilities from .cursor/capabilities/registry.yaml, e.g., 'critical-analysis', 'trust-weighted-research'. Resolved to skills + directives at enrichment time."
+    },
+    "interaction_examples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "user": { "type": "string", "description": "Example user message" },
+          "assistant": { "type": "string", "description": "Example agent response (abbreviated)" }
+        },
+        "required": ["user", "assistant"]
+      },
+      "description": "Optional few-shot examples of ideal agent interactions. Injected into system prompt for better calibration."
     }
   },
   "required": ["identity", "routing", "context", "static_skills", "preferred_skills"]

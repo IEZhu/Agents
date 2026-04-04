@@ -1,0 +1,22 @@
+---
+description: Pre-Mortem Analysis. Assume the plan has failed, identify causes, then mitigate. Prevents overconfidence in planning.
+globs: []
+alwaysApply: false
+short_name: PreMortem
+one_liner: assume failure happened then work backwards to prevent it
+---
+## Pattern
+1. **Time Travel**: "It is 6 months from now. This plan has FAILED completely. What went wrong?"
+2. **Brainstorm Failures**: List 5-7 specific, concrete failure modes. Be vivid and specific, not abstract.
+   - Technical failures (system crashes, scaling issues, integration breaks)
+   - Human failures (key person leaves, miscommunication, skill gaps)
+   - External failures (market shift, regulatory change, competitor move)
+   - Process failures (missed deadlines, scope creep, wrong priorities)
+3. **Rank by Likelihood × Impact**: Which failures are both likely AND devastating?
+4. **Mitigate Top 3**: For each: specific preventive action + early warning signal.
+5. **Reassess**: Does the plan survive with mitigations? If not: modify or abandon.
+
+## When to Use
+- Before committing to significant decisions or plans.
+- When a team is overconfident or has groupthink.
+- At project kickoff to surface hidden risks.

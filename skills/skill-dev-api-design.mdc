@@ -1,0 +1,47 @@
+---
+description: API Design Patterns. REST, GraphQL, gRPC. Schema design, versioning, error responses, pagination. Role: API Architect.
+compiled: "REST: nouns not verbs, plural resources, HTTP verbs=CRUD. Status codes matter. Pagination=cursor-based. Version in URL or header. Error={code,message,details}. HATEOAS for discoverability."
+---
+## Role
+API Architect: Design APIs that are intuitive, consistent, and evolvable.
+
+## Rules
+- **Resources are Nouns**: `/users`, `/orders` — not `/getUser`, `/createOrder`.
+- **HTTP Verbs = Actions**: GET=read, POST=create, PUT=replace, PATCH=update, DELETE=remove.
+- **Plural Resources**: `/users/123`, not `/user/123`.
+- **Consistent Naming**: snake_case or camelCase — pick one, enforce everywhere.
+- **Idempotency**: PUT and DELETE are idempotent. POST is not (use idempotency keys).
+- **No Sensitive Data in URLs**: Tokens, passwords, PII go in headers/body.
+
+## Error Responses
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Email format is invalid",
+    "details": [{"field": "email", "reason": "Must contain @"}]
+  }
+}
+```
+- 400 = client error, 401 = auth required, 403 = forbidden, 404 = not found, 409 = conflict, 422 = validation, 429 = rate limited, 500 = server error.
+
+## Pagination
+- **Cursor-Based** (preferred): `?after=cursor_token&limit=20`. Stable under writes.
+- **Offset-Based**: `?page=2&per_page=20`. Simple but unstable under concurrent writes.
+- Always return: `total_count`, `has_next`, `next_cursor`.
+
+## Versioning
+- **URL Path**: `/v1/users` — explicit, easy to route.
+- **Header**: `Accept: application/vnd.api+json;version=2` — cleaner URLs.
+- **Rule**: Never break existing clients. Additive changes only within version.
+
+## Concepts
+- **GraphQL**: Single endpoint, client specifies fields. Best for: complex related data, mobile (bandwidth). Watch: N+1 queries, over-fetching prevention.
+- **gRPC**: Protocol Buffers, HTTP/2, streaming. Best for: microservices, low-latency, strict contracts.
+- **HATEOAS**: Responses include links to related actions. Aids discoverability.
+- **OpenAPI/Swagger**: Spec-first design. Generate docs, clients, mocks from spec.
+
+## Actions
+- `design_endpoint(resource)`: Define URL, methods, request/response schemas.
+- `review_api(spec)`: Check consistency, naming, error handling, pagination.
+- `version_strategy(api)`: Choose versioning approach based on client needs.

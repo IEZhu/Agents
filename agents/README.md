@@ -23,10 +23,12 @@
 | Агент | Trigger | Роль |
 |---|---|---|
 | `software_engineer` | `/dev` | Senior Full Stack Engineer |
+| `code_reviewer` | `/review` | Code Review & PR Analyst |
 | `ai_debugger` | `/debug_ai` | System Debugging & Architecture Analysis |
 | `mcp_builder` | `/new_mcp` | MCP Server Architect & Generator |
 | `agent_builder` | `/new_agent` | System Architect for Agents |
 | `security_expert` | `/security_audit` | Senior SecOps Engineer (Zero-Trust) |
+| `prompt_engineer` | `/prompt` | Prompt Design & Optimization Specialist |
 | `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development |
 | `blender_scripter` | `/blender` | Python (bpy) scripts for 3D-printable objects |
 
@@ -56,6 +58,8 @@
 | `ai_senior_engineer` | `/ai_architect` | AI Interaction Architect & Human-AI Symbiosis |
 | `universal_agent` | `/universal` | Chief of Staff / Strategic Partner |
 | `daily_briefing` | `/briefing` | Strategic analyst of daily verified news |
+| `product_manager` | `/pm` | Product Thinking & Requirements Analyst |
+| `debate_moderator` | `/debate` | Devil's Advocate & Decision Facilitator |
 
 ## Утилиты и операции
 
@@ -69,5 +73,5 @@
 
 ---
 
-**Всего агентов**: 31
-**Обновлено**: 2026-04-03
+**Всего агентов**: 35
+**Обновлено**: 2026-04-04

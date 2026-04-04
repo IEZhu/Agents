@@ -1,0 +1,56 @@
+---
+description: Decision Frameworks. Pre-mortem, Inversion, Second-Order Thinking, Eisenhower Matrix, Reversibility. Role: Decision Architect.
+compiled: "Pre-mortem: assume failure, list causes. Inversion: what would guarantee failure? Avoid that. 2nd-order: 'and then what?' for each effect. Reversible=act fast. Irreversible=deliberate. Eisenhower: urgent≠important."
+---
+## Role
+Decision Architect: Structure decisions to reduce bias and improve outcomes.
+
+## Frameworks
+
+### Pre-Mortem
+1. "Assume the decision has been implemented and has FAILED spectacularly."
+2. List top 5 reasons for failure.
+3. For each: mitigation strategy or early warning signal.
+4. Reassess: proceed, modify, or abandon.
+
+### Inversion (Charlie Munger)
+1. "What would GUARANTEE failure in this situation?"
+2. List all failure-causing actions.
+3. Invert: systematically avoid each one.
+4. What remains is the path to success.
+
+### Second-Order Thinking
+1. Identify first-order effects of the decision.
+2. For each: "And then what?" — map second-order effects.
+3. For significant ones: map third-order effects.
+4. Evaluate: do cascading effects change the decision?
+
+### Eisenhower Matrix
+| | Urgent | Not Urgent |
+|---|---|---|
+| **Important** | DO NOW | SCHEDULE |
+| **Not Important** | DELEGATE | ELIMINATE |
+
+### Reversibility Test
+- **Reversible** (Type 2): Act quickly, iterate. Low cost of being wrong.
+- **Irreversible** (Type 1): Deliberate carefully. Seek diverse input. Sleep on it.
+- Most decisions are Type 2. Treat them accordingly.
+
+### Devil's Advocate Protocol
+1. Steel-man the opposing position (strongest version).
+2. Attack your own position from that perspective.
+3. If your position survives: proceed with higher confidence.
+4. If it doesn't: integrate the criticism.
+
+## Anti-Patterns
+- **Analysis Paralysis**: Treating reversible decisions as irreversible.
+- **Confirmation Bias**: Seeking only supporting evidence.
+- **Sunk Cost Fallacy**: Continuing because of past investment, not future value.
+- **Anchoring**: Over-weighting first piece of information.
+- **Groupthink**: Consensus without genuine disagreement.
+
+## Actions
+- `premortem(decision)`: Assume failure, list top 5 causes, mitigate.
+- `invert(goal)`: List failure paths, avoid them systematically.
+- `second_order(effects)`: Map cascading consequences 2-3 levels deep.
+- `classify(decision)`: Type 1 or Type 2? Act accordingly.

@@ -1,0 +1,32 @@
+---
+description: Multi-Agent Debate. Generate distinct perspectives, let them critique each other, synthesize consensus. Proven to outperform single-agent reasoning.
+globs: []
+alwaysApply: false
+short_name: MultiDebate
+one_liner: generate distinct perspectives and synthesize through debate
+---
+## Pattern
+1. **Spawn Perspectives** (3 distinct viewpoints):
+   - **Advocate**: Argues FOR the position/approach. Finds strongest supporting evidence.
+   - **Critic**: Argues AGAINST. Finds weaknesses, risks, counter-evidence.
+   - **Pragmatist**: Evaluates feasibility, trade-offs, implementation reality.
+
+2. **Round 1 — Opening Statements**: Each perspective presents their strongest case independently.
+
+3. **Round 2 — Cross-Examination**: Each perspective directly addresses the others' claims.
+   - Advocate responds to Critic's concerns.
+   - Critic challenges Pragmatist's feasibility assumptions.
+   - Pragmatist identifies where Advocate is unrealistic and where Critic is overly cautious.
+
+4. **Round 3 — Synthesis**: Identify:
+   - Points of agreement across all three perspectives.
+   - Remaining disagreements and their root causes.
+   - The "integration" that addresses most concerns.
+
+5. **Verdict**: State the synthesized conclusion with confidence level and remaining uncertainties.
+
+## When to Use
+- Complex decisions with no obvious right answer.
+- When you suspect your first answer might be biased.
+- For high-stakes recommendations where being wrong is costly.
+- When the user asks for "thorough analysis" or "all perspectives."

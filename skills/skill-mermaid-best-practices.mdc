@@ -1,21 +1,56 @@
 ---
-description: Best practices for creating compact, human-readable Mermaid diagrams. Graph TD/LR, Subgraphs. Role: Visualization Expert.
-compiled: "graph TD/LR. subgraph. Short labels (1-4 words). Short IDs. A-->B-->C. A&B-->C. Minimize crossings."
+description: Best practices for creating compact, human-readable Mermaid diagrams. Covers flowcharts, sequence, ER, Gantt, class diagrams. Role: Visualization Expert.
+compiled: "graph TD/LR. subgraph. Short labels (1-4 words). Short IDs. A-->B-->C. A&B-->C. Minimize crossings. sequenceDiagram for interactions. erDiagram for data models. Choose diagram type by data type."
 ---
 ## Role
-Visualization Expert: Clarity > Complexity.
+Visualization Expert: Clarity > Complexity. Choose the right diagram for the data.
 
-## Rules
-- **Direction**: `graph TD` (Hierarchy) or `graph LR` (Flow).
-- **Grouping**: Use `subgraph`.
-- **Labels**: Short (1-4 words).
-- **Layout**: Avoid crossing lines.
+## Diagram Type Selection
+| Data Type | Diagram | When to Use |
+|-----------|---------|-------------|
+| Process/workflow | `graph TD/LR` (Flowchart) | Steps, decisions, branching logic |
+| Interactions | `sequenceDiagram` | API calls, message passing, user flows |
+| Data models | `erDiagram` | Database schemas, entity relationships |
+| Timelines | `gantt` | Project plans, schedules, phases |
+| Class structure | `classDiagram` | OOP design, interfaces, inheritance |
+| State transitions | `stateDiagram-v2` | Lifecycle, FSM, status workflows |
+
+## Flowchart Rules
+- **Direction**: `graph TD` (top-down hierarchy) or `graph LR` (left-right flow).
+- **Grouping**: Use `subgraph` for logical sections.
+- **Labels**: Short (1-4 words). Verb-noun pairs: "Validate Input", "Send Email".
+- **IDs**: Short (`A`, `B`, `C`) — labels carry the meaning.
+- **Layout**: Minimize crossings. Put the happy path as the main vertical/horizontal line.
 
 ## Compactness Hacks
-- Short IDs (`A`, `B`).
-- Chaining: `A --> B --> C`.
-- Multidirectional: `A & B --> C`.
+- Chaining: `A --> B --> C` (one line instead of three).
+- Multidirectional: `A & B --> C` (fan-in).
+- Conditional: `A -->|Yes| B` and `A -->|No| C`.
+- Styling: `style A fill:#f9f,stroke:#333` for emphasis.
+
+## Common Pitfalls
+- **Too many nodes**: If > 15 nodes, split into sub-diagrams or use subgraphs.
+- **Long labels**: If label > 4 words, it wraps awkwardly. Abbreviate or use a legend.
+- **Missing direction**: Always specify `TD` or `LR` — default varies by renderer.
+- **Crossing lines**: Reorder nodes to reduce crossings. Put frequently-connected nodes adjacent.
+- **No legend**: For color-coded diagrams, add a note explaining colors.
+
+## Sequence Diagram Tips
+```
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    participant DB as Database
+    C->>S: POST /api/users
+    S->>DB: INSERT user
+    DB-->>S: user_id
+    S-->>C: 201 Created
+```
+- Use `participant X as Label` for short IDs with readable names.
+- Use `->>` for sync calls, `-->>` for responses.
+- Use `Note over X,Y: text` for annotations.
 
 ## Actions
-- `optimize()`: Reduce crossings/height.
-- `simplify()`: Merge steps.
+- `choose_diagram(data)`: Select diagram type based on what you're visualizing.
+- `optimize()`: Reduce crossings/height, reorder nodes.
+- `simplify()`: Merge steps, remove intermediate nodes that add no clarity.

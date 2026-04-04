@@ -1,9 +1,71 @@
 ---
-description: Output Automata. Structuring output as a Finite State Machine (FSM) or script.
+description: Output Automata. Structure complex dialogue or processes as Finite State Machines with explicit states, transitions, and guards.
 globs: []
 alwaysApply: false
 short_name: OutputAutomata
 one_liner: structure dialogue or process as state machine
 ---
 ## Pattern
-"Design a dialogue/process as a State Machine. States: [List]. Transitions: [Rules]."
+1. **Define States**: List all possible states of the process/dialogue.
+2. **Define Transitions**: For each state, what inputs/conditions trigger a move to another state?
+3. **Define Guards**: What conditions must be met before a transition fires?
+4. **Define Actions**: What happens upon entering a state or during a transition?
+5. **Define Terminal States**: When is the process complete?
+
+## Template
+```
+States: [S1, S2, S3, ..., S_terminal]
+Initial: S1
+
+S1 (State Name):
+  - Action: [What happens in this state]
+  - → S2: when [condition/input]
+  - → S3: when [alternative condition]
+
+S2 (State Name):
+  - Action: [What happens]
+  - Guard: [Pre-condition to enter]
+  - → S_terminal: when [completion condition]
+  - → S1: when [retry/error condition]
+
+S_terminal:
+  - Action: [Final output/cleanup]
+```
+
+## Example: Customer Support Bot
+```
+States: [Greeting, Identify_Issue, Gather_Info, Resolve, Escalate, Close]
+Initial: Greeting
+
+Greeting:
+  → Identify_Issue: always (after greeting)
+
+Identify_Issue:
+  Action: Ask "What can I help you with?"
+  → Gather_Info: when issue category identified
+  → Escalate: when issue is unclear after 2 attempts
+
+Gather_Info:
+  Action: Ask targeted questions based on issue category
+  Guard: issue_category is set
+  → Resolve: when sufficient info collected
+  → Escalate: when info cannot be obtained
+
+Resolve:
+  Action: Provide solution
+  → Close: when user confirms resolved
+  → Escalate: when solution doesn't work
+
+Escalate:
+  Action: Transfer to human agent with context summary
+  → Close: after transfer
+
+Close:
+  Action: Summarize interaction, ask for feedback
+```
+
+## When to Use
+- Multi-turn dialogues with branching logic.
+- Complex workflows with error recovery.
+- Processes that need deterministic, auditable behavior.
+- When you need to prevent state corruption (going back to invalid states).
