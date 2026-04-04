@@ -312,23 +312,40 @@ if [ "$SKIP_INSTALL" = false ]; then
 
     print_success "All dependencies installed"
 
-    # Pre-download embedding model so MCP server starts instantly
-    print_header "🧠 Pre-downloading Embedding Model"
+    # Pre-download embedding model AND pre-index ChromaDB so MCP server starts instantly.
+    # Without this, first startup takes 30-60s for embedding generation,
+    # causing Claude Desktop to time out with "Request timed out" (-32001).
+    print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
 
-    print_step "Downloading BAAI/bge-m3 (this may take a few minutes on first run)..."
+    print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
+    print_step "(this may take a few minutes on first run)"
     set +e
     python -c "
+import sys, os
+sys.path.insert(0, os.getcwd())
+
+# 1. Download/cache the embedding model
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('BAAI/bge-m3')
-print('Model ready')
+print('Embedding model ready')
+
+# 2. Pre-index skills and implants into ChromaDB
+from src.engine.skills import SkillRetriever
+from src.engine.implants import ImplantRetriever
+
+sr = SkillRetriever()
+print(f'Skills indexed: {sr.collection.count()} entries')
+
+ir = ImplantRetriever()
+print(f'Implants indexed: {ir.collection.count()} entries')
 " 2>&1
-    MODEL_EXIT=$?
+    INDEX_EXIT=$?
     set -e
 
-    if [ $MODEL_EXIT -eq 0 ]; then
-        print_success "Embedding model cached and ready"
+    if [ $INDEX_EXIT -eq 0 ]; then
+        print_success "Embedding model cached, skills & implants indexed"
     else
-        print_warn "Model download failed — it will be downloaded on first MCP server start"
+        print_warn "Pre-indexing failed — it will run on first MCP server start"
     fi
 else
     print_step "Skipping package installation"
