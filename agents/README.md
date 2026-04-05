@@ -24,7 +24,6 @@ Also available programmatically via the MCP tool `list_agents`.
 |---|---|---|
 | `software_engineer` | `/dev` | Senior Full Stack Engineer — Code Implementation, Refactoring & Architecture Design |
 | `code_reviewer` | `/review` | Code Review & PR Analyst |
-| `ai_debugger` | `/debug_code` | Software Code Debugging & Root-Cause Analysis (Python, JS, Go, Rust, Java) |
 | `mcp_builder` | `/new_mcp` | MCP Server Architect & Generator |
 | `agent_builder` | `/new_agent` | Agent Prompt & Persona Designer for the Agents Framework |
 | `security_expert` | `/security_audit` | Senior SecOps Engineer (Zero-Trust) |
@@ -82,5 +81,5 @@ Also available programmatically via the MCP tool `list_agents`.
 
 ---
 
-**Total agents**: 39
+**Total agents**: 38
 **Updated**: 2026-04-05

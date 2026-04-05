@@ -87,9 +87,7 @@ The server exposes MCP tools that any compatible client can call:
 
 ```
 Agents/
-├── agents/               # Agent personas (system prompts, 36 agents)
-│   ├── ai_debugger/
-│   │   └── system_prompt.mdc
+├── agents/               # Agent personas (system prompts, 38 agents)
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
 │   ├── common/           # Shared agent resources
