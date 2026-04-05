@@ -1,8 +1,87 @@
 # Request Routing Flow
 
-This diagram illustrates the decision-making process for routing user requests to the appropriate agent via `route_and_load()`.
+This document describes the routing and enrichment pipeline for the Agents-Core MCP server.
 
-## Routing Flow Sequence
+## Architecture Overview
+
+```mermaid
+graph TD
+    Start([User Query]) --> Normalize[Normalize chat_history<br/>Generate request_id]
+    Normalize --> InferTier[Infer tier from query]
+    InferTier --> CacheLookup{ChromaDB<br/>Semantic Cache<br/>Similarity > 0.95?}
+
+    CacheLookup -->|Hit| AgentFound[Agent identified<br/>from cache]
+    CacheLookup -->|Miss| MetaCheck{Meta-query?<br/>greeting / len < 10}
+
+    MetaCheck -->|Yes| Universal[Route to universal_agent<br/>Force tier = lite]
+    MetaCheck -->|No| RouteRequired[/"ROUTE_REQUIRED<br/>Return candidates list"/]
+
+    RouteRequired --> ClientPicks([Client LLM picks agent])
+    ClientPicks --> GetAgent[get_agent_context<br/>agent_name, query]
+
+    AgentFound --> LoadEnrich
+    Universal --> LoadEnrich
+    GetAgent --> LoadEnrich
+
+    LoadEnrich[_load_and_enrich] --> SessionCache{Session TTLCache<br/>128 items / 600s TTL}
+
+    SessionCache -->|Hit| CachedPrompt[Return cached<br/>enriched prompt]
+    SessionCache -->|Miss| LoadMeta[Load agent metadata<br/>preferred_skills, capabilities]
+
+    LoadMeta --> TierPromo{Tier = lite AND<br/>agent has skills<br/>or capabilities?}
+    TierPromo -->|Yes| Promote[Promote to standard]
+    TierPromo -->|No| KeepTier[Keep inferred tier]
+
+    Promote --> Enrich
+    KeepTier --> Enrich
+
+    Enrich{Enrichment<br/>by Tier}
+
+    Enrich -->|lite| Lite[Base prompt only<br/>No skills / No implants]
+    Enrich -->|standard| Standard[Base prompt<br/>+ 2 skills via RAG<br/>+ 2 implants via RAG]
+    Enrich -->|deep| Deep[Base prompt<br/>+ 4+ skills — all preferred + RAG<br/>+ 3 implants via RAG]
+
+    Lite --> ResolveCaps
+    Standard --> ResolveCaps
+    Deep --> ResolveCaps
+
+    ResolveCaps[Resolve capabilities<br/>registry.yaml → skill bundles + directives]
+
+    ResolveCaps --> ComputeHash[Compute context_hash<br/>SHA-256 of enriched prompt]
+    CachedPrompt --> ComputeHash
+
+    ComputeHash --> HashCompare{context_hash<br/>matches previous?}
+
+    HashCompare -->|Yes| NoChange[/"NO_CHANGE<br/>Reuse prior context"/]
+    HashCompare -->|No| UpdateCache[Update ChromaDB<br/>router cache]
+
+    UpdateCache --> Sampling{MCP Sampling<br/>supported?}
+
+    Sampling -->|Yes| Sampled[/"SUCCESS_SAMPLED<br/>Ready-made response"/]
+    Sampling -->|No / Error| Success[/"SUCCESS<br/>Return system_prompt"/]
+
+    style Start fill:#4A90D9,color:#fff
+    style RouteRequired fill:#E6A23C,color:#fff
+    style NoChange fill:#909399,color:#fff
+    style Sampled fill:#67C23A,color:#fff
+    style Success fill:#67C23A,color:#fff
+    style Enrich fill:#F56C6C,color:#fff
+    style CacheLookup fill:#B37FEB,color:#fff
+    style SessionCache fill:#B37FEB,color:#fff
+    style HashCompare fill:#B37FEB,color:#fff
+```
+
+## Tier Inference Rules
+
+| Signal | Tier | Enrichment |
+|--------|------|------------|
+| Query < 50 chars, no complex keywords | **lite** | Base prompt only |
+| Default / moderate complexity | **standard** | 2 skills + 2 implants (RAG) |
+| Query > 300 chars OR complex keywords (`debug`, `architecture`, `review`, `analyze`, etc.) | **deep** | 4+ skills + 3 implants (RAG + preferred) |
+
+> **Tier Promotion**: If the inferred tier is `lite` but the target agent declares `preferred_skills` or `capabilities`, the tier is automatically promoted to `standard` to ensure skills are loaded.
+
+## Routing Sequence (Detailed)
 
 ```mermaid
 sequenceDiagram
@@ -61,15 +140,13 @@ sequenceDiagram
 
 ## Key Components
 
-1. **Semantic Cache**: Uses ChromaDB to store and retrieve previous routing decisions. A match occurs if the cosine distance is less than 0.05 (Similarity > 0.95).
+1. **Semantic Cache**: Uses ChromaDB with `BAAI/bge-m3` embeddings to store and retrieve previous routing decisions. A match occurs if the cosine similarity exceeds 0.95 (distance < 0.05).
 2. **Meta-Query Detection**: Regex-based detection of greetings and short queries (English + Russian) for auto-routing to `universal_agent`.
-3. **ROUTE_REQUIRED**: On cache miss, the system returns a list of agent candidates with descriptions, allowing the client LLM to select the best match via `get_agent_context()`.
-4. **Tier Inference**: Determines enrichment depth based on query complexity:
-    * **lite**: Short/simple queries — no skills or implants loaded.
-    * **standard**: Default — 2 skills + 2 implants selected via RAG.
-    * **deep**: Complex/architecture queries — 4+ skills + 3 implants with full capability resolution.
+3. **ROUTE_REQUIRED**: On cache miss, the system returns a list of agent candidates with metadata (`display_name`, `role`, `trigger_command`), allowing the client LLM to select the best match via `get_agent_context()`.
+4. **Tier Inference**: Determines enrichment depth based on query complexity signals (length, keywords). Automatic promotion from `lite` to `standard` when agents declare skills or capabilities.
 5. **Enrichment Pipeline**:
-    * **Skills**: Domain-specific knowledge modules retrieved via ChromaDB.
-    * **Implants**: Cognitive reasoning strategies (e.g., chain-of-code, reflexion).
-    * **Capabilities**: High-level compositions from `registry.yaml` mapping to skill stacks + directives.
-6. **Session Cache**: TTLCache (max 128 entries, 600s TTL) storing enriched prompts keyed by agent name. Supports `context_hash` for multi-turn delta optimization.
+    * **Skills**: Domain-specific knowledge modules retrieved via ChromaDB semantic search (threshold: 0.55 distance).
+    * **Implants**: Cognitive reasoning strategies retrieved via semantic search (threshold: 0.73 distance). Agents can request more at runtime via `load_implants()`.
+    * **Capabilities**: High-level compositions from `registry.yaml` mapping to skill bundles + behavioral directives.
+6. **Session Cache**: TTLCache (max 128 entries, 600s TTL) storing enriched prompts keyed by `{agent_name}:{query_hash}:{tier}`. Supports `context_hash` for multi-turn delta optimization.
+7. **MCP Sampling**: When the client supports MCP sampling, the server generates a response directly (`SUCCESS_SAMPLED`). Otherwise, it returns the enriched system prompt for the client to use (`SUCCESS`).

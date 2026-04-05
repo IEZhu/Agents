@@ -55,7 +55,7 @@ ANTHROPIC_API_KEY=sk-ant-...  # Optional: for document OCR
 AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 ```
 
-> **Note**: Embeddings are handled locally by `sentence-transformers` (all-MiniLM-L6-v2). No external API key is required for core routing.
+> **Note**: Embeddings are handled locally by `sentence-transformers` (`BAAI/bge-m3`). No external API key is required for core routing.
 
 ---
 
@@ -87,7 +87,7 @@ The server exposes MCP tools that any compatible client can call:
 
 ```
 Agents/
-├── agents/               # Agent personas (system prompts, 31 agents)
+├── agents/               # Agent personas (system prompts, 36 agents)
 │   ├── ai_debugger/
 │   │   └── system_prompt.mdc
 │   ├── software_engineer/
@@ -202,7 +202,7 @@ Instead of listing skills per agent, you can declare high-level capabilities:
 capabilities: [development, dev-security]
 ```
 
-The enrichment pipeline resolves capabilities to skill bundles via `agents/capabilities/registry.yaml`. Available capabilities: `critical-analysis`, `content-structure`, `development`, `dense-summary`, `trust-weighted-research`, `bio-health`, `tech-documentation`, `dev-security`, `consultative-intake`, `creative-writing`, `psychology`, `3d-printing`, `data-investigation`, `epistemic-analysis`.
+The enrichment pipeline resolves capabilities to skill bundles via `agents/capabilities/registry.yaml`. Available capabilities: `critical-analysis`, `content-structure`, `development`, `dense-summary`, `trust-weighted-research`, `bio-health`, `tech-documentation`, `dev-security`, `consultative-intake`, `creative-writing`, `psychology`, `3d-printing`, `data-investigation`, `epistemic-analysis`, `code-review`, `decision-making`, `product-thinking`, `temporal-research`, `performance-engineering`, `prompt-design`, `prompt-security`, `roblox-development`, `dev-tools`, `blender-scripting`, `health-optimization`, `consumer-research`, `visualization`, `child-psychology`.
 
 ---
 
