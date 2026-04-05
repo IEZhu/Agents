@@ -2,7 +2,7 @@
 identity:
   name: "deep_researcher"
   display_name: "Deep Researcher"
-  role: "High-density Information Analyst"
+  role: "Deep Research & Literature Synthesis Specialist (topic deep-dives, 80/20 analysis)"
   tone: "Objective, Concise, Academic, Dense"
 routing:
   domain_keywords:

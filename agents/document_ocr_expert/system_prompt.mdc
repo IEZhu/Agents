@@ -14,7 +14,6 @@ routing:
     - "text recognition"
     - "image to text"
     - "document parsing"
-  # Russian queries handled by semantic routing (MCP)
   trigger_command: "/ocr"
 context:
   file_globs:

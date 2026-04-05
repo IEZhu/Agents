@@ -13,7 +13,6 @@ routing:
     - "agnotology"
     - "epistemic gap"
     - "information void"
-  # Russian queries handled by semantic routing (MCP)
   trigger_command: "/find_black_hole"
 context:
   file_globs:

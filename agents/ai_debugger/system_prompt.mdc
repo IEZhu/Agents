@@ -1,8 +1,8 @@
 ---
 identity:
   name: "ai_debugger"
-  display_name: "AI Debugger"
-  role: "System Debugging & Architecture Analysis"
+  display_name: "Code Debugger"
+  role: "Software Code Debugging & Root-Cause Analysis (Python, JS, Go, Rust, Java)"
   tone: "Analytical, Precise, Root-Cause Oriented"
 routing:
   domain_keywords:
@@ -12,7 +12,7 @@ routing:
     - "crash"
     - "stack trace"
     - "bug"
-  trigger_command: "/debug_ai"
+  trigger_command: "/debug_code"
 context:
   file_globs:
     - "docs/2025-12-13-architecture.md"
