@@ -40,8 +40,8 @@ graph TD
     Enrich{Enrichment<br/>by Tier}
 
     Enrich -->|lite| Lite[Base prompt only<br/>No skills / No implants]
-    Enrich -->|standard| Standard[Base prompt<br/>+ up to 2 skills + 2 implants<br/>preferred/capability skills loaded by ID]
-    Enrich -->|deep| Deep[Base prompt<br/>+ 4+ skills + 3 implants<br/>all preferred/capability skills loaded by ID]
+    Enrich -->|standard| Standard[Base prompt<br/>+ up to 2 skills via RAG OR all declared by ID<br/>+ up to 2 implants via RAG]
+    Enrich -->|deep| Deep[Base prompt<br/>+ up to 4 skills via RAG OR all declared by ID<br/>+ up to 3 implants via RAG]
 
     Lite --> ResolveCaps
     Standard --> ResolveCaps
@@ -78,8 +78,8 @@ graph TD
 | Signal | Tier | Enrichment |
 |--------|------|------------|
 | Query < 50 chars, no complex keywords | **lite** | Base prompt only |
-| Default / moderate complexity | **standard** | 2 skills via RAG + 2 implants; if preferred/capability skills declared, all loaded by ID (no cap) |
-| Query > 300 chars OR complex keywords (`debug`, `investigate`, `compare`, `design`, `review`, `audit`, `deep dive`, plus Russian equivalents) | **deep** | 4+ skills + 3 implants (preferred by ID + RAG fallback) |
+| Default / moderate complexity | **standard** | Up to 2 skills + 2 implants (RAG, filtered by relevance threshold). If agent declares preferred skills or capabilities — all loaded by exact ID instead, no count limit. |
+| Query > 300 chars OR complex keywords (`debug`, `investigate`, `compare`, `design`, `review`, `audit`, `deep dive`, plus Russian equivalents) | **deep** | Up to max(4, len(declared)) skills + 3 implants (RAG, filtered by threshold). If agent declares preferred skills or capabilities — all loaded by exact ID instead. |
 
 > **Tier Promotion**: If the inferred tier is `lite` but the target agent declares `preferred_skills` or `capabilities`, the tier is automatically promoted to `standard` to ensure skills are loaded.
 
