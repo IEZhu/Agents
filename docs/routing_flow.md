@@ -28,9 +28,11 @@ graph TD
     SessionCache -->|Hit| CachedPrompt[Return cached<br/>enriched prompt]
     SessionCache -->|Miss| LoadMeta[Load agent metadata<br/>preferred_skills, capabilities]
 
-    LoadMeta --> TierPromo{Tier = lite AND<br/>agent has skills<br/>or capabilities?}
+    LoadMeta --> TierExplicit{Tier set<br/>explicitly?}
+    TierExplicit -->|Yes| KeepTier[Keep explicit tier<br/>e.g. meta-query lite]
+    TierExplicit -->|No| TierPromo{Inferred lite AND<br/>agent has skills<br/>or capabilities?}
     TierPromo -->|Yes| Promote[Promote to standard]
-    TierPromo -->|No| KeepTier[Keep inferred tier]
+    TierPromo -->|No| KeepTier
 
     Promote --> Enrich
     KeepTier --> Enrich
@@ -76,7 +78,7 @@ graph TD
 | Signal | Tier | Enrichment |
 |--------|------|------------|
 | Query < 50 chars, no complex keywords | **lite** | Base prompt only |
-| Default / moderate complexity | **standard** | Up to 2 skills + 2 implants (preferred by ID when declared, RAG otherwise) |
+| Default / moderate complexity | **standard** | 2 skills via RAG + 2 implants; if preferred/capability skills declared, all loaded by ID (no cap) |
 | Query > 300 chars OR complex keywords (`debug`, `investigate`, `compare`, `design`, `review`, `audit`, `deep dive`, plus Russian equivalents) | **deep** | 4+ skills + 3 implants (preferred by ID + RAG fallback) |
 
 > **Tier Promotion**: If the inferred tier is `lite` but the target agent declares `preferred_skills` or `capabilities`, the tier is automatically promoted to `standard` to ensure skills are loaded.
