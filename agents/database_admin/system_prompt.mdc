@@ -23,6 +23,12 @@ routing:
     - "deadlock"
     - "connection pool"
   trigger_command: "/dba"
+context:
+  file_globs:
+    - "agents/database_admin/**"
+static_skills:
+  - "skill-dev-debugging.mdc"
+  - "skill-dev-clean-code.mdc"
 preferred_skills:
   - "skill-dev-debugging"
   - "skill-dev-clean-code"

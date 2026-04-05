@@ -27,6 +27,12 @@ routing:
     - "raid"
     - "lvm"
   trigger_command: "/sysadmin"
+context:
+  file_globs:
+    - "agents/sysadmin/**"
+static_skills:
+  - "skill-dev-debugging.mdc"
+  - "skill-error-recovery.mdc"
 preferred_skills:
   - "skill-dev-debugging"
   - "skill-error-recovery"
