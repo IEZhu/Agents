@@ -1,14 +1,14 @@
-# Каталог агентов
+# Agent Catalog
 
-Справочник всех доступных агентов для ручной маршрутизации (fallback Path B).
-Также доступен программно через MCP-инструмент `list_agents`.
+Reference of all available agents for manual routing (fallback Path B).
+Also available programmatically via the MCP tool `list_agents`.
 
-> **Автоматическая маршрутизация**: `route_and_load(query)` — предпочтительный способ.
-> Этот каталог нужен, когда MCP недоступен или маршрутизация упала.
+> **Automatic routing**: `route_and_load(query)` is the preferred method.
+> This catalog is needed when MCP is unavailable or routing fails.
 
-## Исследование и аналитика
+## Research & Analytics
 
-| Агент | Trigger | Роль |
+| Agent | Trigger | Role |
 |---|---|---|
 | `deep_researcher` | `/research` | High-density Information Analyst |
 | `investigative_analyst` | `/investigate` | OSINT & Fact-Checking Expert |
@@ -18,9 +18,9 @@
 | `website_analyst` | `/site_audit` | Web Project Analyst: business models, traffic, monetization |
 | `instagram_analyst` | `/instagram` | Social Media Profile Auditor |
 
-## Разработка и инженерия
+## Development & Engineering
 
-| Агент | Trigger | Роль |
+| Agent | Trigger | Role |
 |---|---|---|
 | `software_engineer` | `/dev` | Senior Full Stack Engineer |
 | `code_reviewer` | `/review` | Code Review & PR Analyst |
@@ -32,9 +32,9 @@
 | `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development |
 | `blender_scripter` | `/blender` | Python (bpy) scripts for 3D-printable objects |
 
-## Документация и контент
+## Documentation & Content
 
-| Агент | Trigger | Роль |
+| Agent | Trigger | Role |
 |---|---|---|
 | `tech_writer` | `/docs` | Technical Writer & Documentation Expert |
 | `literary_writer` | `/literary` | Master of artistic prose |
@@ -42,18 +42,19 @@
 | `presentation_coach` | `/present` | Presentation Structure and Psychology Expert |
 | `diagram_architect` | `/diagram` | Mermaid.js Visualization Specialist |
 
-## Здоровье и психология
+## Health & Psychology
 
-| Агент | Trigger | Роль |
+| Agent | Trigger | Role |
 |---|---|---|
 | `medical_expert` | `/medical` | Lead Medical Analyst and Consultant |
 | `psychologist` | `/psy_session` | Cognitive Systems Architect (Neuro-Structure) |
+| `child_psychologist` | `/child_psy` | Child & Adolescent Psychologist (digital generation) |
 | `bio_hacker` | `/bio_protocol` | Systems Biologist / Productivity Coach |
 | `fitness_coach` | `/workout` | Scientific Fitness Coach (spine rehabilitation) |
 
-## AI и стратегия
+## AI & Strategy
 
-| Агент | Trigger | Роль |
+| Agent | Trigger | Role |
 |---|---|---|
 | `ai_senior_engineer` | `/ai_architect` | AI Interaction Architect & Human-AI Symbiosis |
 | `universal_agent` | `/universal` | Chief of Staff / Strategic Partner |
@@ -61,9 +62,9 @@
 | `product_manager` | `/pm` | Product Thinking & Requirements Analyst |
 | `debate_moderator` | `/debate` | Devil's Advocate & Decision Facilitator |
 
-## Утилиты и операции
+## Utilities & Operations
 
-| Агент | Trigger | Роль |
+| Agent | Trigger | Role |
 |---|---|---|
 | `document_ocr_expert` | `/ocr` | PDF/image text extraction (incl. handwriting) |
 | `alerts_describer` | `/alerts_describer` | Infrastructure Alert Documentation |
@@ -73,5 +74,5 @@
 
 ---
 
-**Всего агентов**: 35
-**Обновлено**: 2026-04-04
+**Total agents**: 36
+**Updated**: 2026-04-05
