@@ -10,7 +10,7 @@ Also available programmatically via the MCP tool `list_agents`.
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `deep_researcher` | `/research` | High-density Information Analyst |
+| `deep_researcher` | `/research` | Deep Research & Literature Synthesis Specialist (topic deep-dives, 80/20 analysis) |
 | `investigative_analyst` | `/investigate` | OSINT & Fact-Checking Expert |
 | `data_analyst` | `/analyse_data` | Data Analysis & Pattern Recognition Expert |
 | `data_forensic` | `/forensic` | Forensic Data Processor & Timeline Architect |
@@ -22,15 +22,23 @@ Also available programmatically via the MCP tool `list_agents`.
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `software_engineer` | `/dev` | Senior Full Stack Engineer |
+| `software_engineer` | `/dev` | Senior Full Stack Engineer — Code Implementation, Refactoring & Architecture Design |
 | `code_reviewer` | `/review` | Code Review & PR Analyst |
-| `ai_debugger` | `/debug_ai` | System Debugging & Architecture Analysis |
 | `mcp_builder` | `/new_mcp` | MCP Server Architect & Generator |
-| `agent_builder` | `/new_agent` | System Architect for Agents |
+| `agent_builder` | `/new_agent` | Agent Prompt & Persona Designer for the Agents Framework |
 | `security_expert` | `/security_audit` | Senior SecOps Engineer (Zero-Trust) |
 | `prompt_engineer` | `/prompt` | Prompt Design & Optimization Specialist |
 | `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development |
 | `blender_scripter` | `/blender` | Python (bpy) scripts for 3D-printable objects |
+
+## Infrastructure & Operations
+
+| Agent | Trigger | Role |
+|---|---|---|
+| `sysadmin` | `/sysadmin` | Linux Systems Administrator & Infrastructure Engineer (filesystems, networking, Docker, shell scripting) |
+| `devops_engineer` | `/devops` | DevOps & Cloud Infrastructure Engineer (CI/CD, Kubernetes, Terraform, AWS/GCP) |
+| `database_admin` | `/dba` | Database Administration & SQL Optimization Specialist (PostgreSQL, MySQL, Redis, MongoDB) |
+| `alerts_describer` | `/alerts_describer` | Alert Runbook & Incident Card Documentation Specialist (Prometheus, Grafana) |
 
 ## Documentation & Content
 
@@ -47,7 +55,7 @@ Also available programmatically via the MCP tool `list_agents`.
 | Agent | Trigger | Role |
 |---|---|---|
 | `medical_expert` | `/medical` | Lead Medical Analyst and Consultant |
-| `psychologist` | `/psy_session` | Cognitive Systems Architect (Neuro-Structure) |
+| `psychologist` | `/psy_session` | Cognitive-Behavioral Psychologist & Mental Health Consultant |
 | `child_psychologist` | `/child_psy` | Child & Adolescent Psychologist (digital generation) |
 | `bio_hacker` | `/bio_protocol` | Systems Biologist / Productivity Coach |
 | `fitness_coach` | `/workout` | Scientific Fitness Coach (spine rehabilitation) |
@@ -56,23 +64,22 @@ Also available programmatically via the MCP tool `list_agents`.
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `ai_senior_engineer` | `/ai_architect` | AI Interaction Architect & Human-AI Symbiosis |
+| `ai_senior_engineer` | `/ai_architect` | Human-AI Interaction Designer & Agentic Systems Architect |
 | `universal_agent` | `/universal` | Chief of Staff / Strategic Partner |
 | `daily_briefing` | `/briefing` | Strategic analyst of daily verified news |
 | `product_manager` | `/pm` | Product Thinking & Requirements Analyst |
 | `debate_moderator` | `/debate` | Devil's Advocate & Decision Facilitator |
 
-## Utilities & Operations
+## Utilities
 
 | Agent | Trigger | Role |
 |---|---|---|
 | `document_ocr_expert` | `/ocr` | PDF/image text extraction (incl. handwriting) |
-| `alerts_describer` | `/alerts_describer` | Infrastructure Alert Documentation |
 | `purchase_researcher` | `/purchase` | Premium Product Advisor & Comparison Specialist |
 | `3d_print_finder` | `/3dprint` | 3D Model Search & Print Optimization |
-| `install_to_repo` | `/install_agents` | DevOps Agent for Architecture Replication |
+| `install_to_repo` | `/install_agents` | Agent Framework Installer & Repository Scaffolder |
 
 ---
 
-**Total agents**: 36
+**Total agents**: 38
 **Updated**: 2026-04-05

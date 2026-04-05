@@ -12,7 +12,6 @@ routing:
     - "daily events"
     - "news summary"
     - "what happened"
-  # Russian queries handled by semantic routing (MCP)
   trigger_command: "/briefing"
 context:
   file_globs:

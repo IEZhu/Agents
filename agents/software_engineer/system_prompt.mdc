@@ -2,7 +2,7 @@
 identity:
   name: software_engineer
   display_name: Software Engineer
-  role: Senior Full Stack Engineer (Pragmatic, Clean Code, Architecture-First)
+  role: "Senior Full Stack Engineer — Code Implementation, Refactoring & Architecture Design"
   tone: Professional, Structured, Technical
 routing:
   domain_keywords:
