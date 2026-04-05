@@ -38,8 +38,8 @@ graph TD
     Enrich{Enrichment<br/>by Tier}
 
     Enrich -->|lite| Lite[Base prompt only<br/>No skills / No implants]
-    Enrich -->|standard| Standard[Base prompt<br/>+ 2 skills via RAG<br/>+ 2 implants via RAG]
-    Enrich -->|deep| Deep[Base prompt<br/>+ 4+ skills — all preferred + RAG<br/>+ 3 implants via RAG]
+    Enrich -->|standard| Standard[Base prompt<br/>+ up to 2 skills + 2 implants<br/>preferred/capability skills loaded by ID]
+    Enrich -->|deep| Deep[Base prompt<br/>+ 4+ skills + 3 implants<br/>all preferred/capability skills loaded by ID]
 
     Lite --> ResolveCaps
     Standard --> ResolveCaps
@@ -47,7 +47,7 @@ graph TD
 
     ResolveCaps[Resolve capabilities<br/>registry.yaml → skill bundles + directives]
 
-    ResolveCaps --> ComputeHash[Compute context_hash<br/>SHA-256 of enriched prompt]
+    ResolveCaps --> ComputeHash[Compute context_hash<br/>SHA-256 truncated to 16 hex chars]
     CachedPrompt --> ComputeHash
 
     ComputeHash --> HashCompare{context_hash<br/>matches previous?}
@@ -76,8 +76,8 @@ graph TD
 | Signal | Tier | Enrichment |
 |--------|------|------------|
 | Query < 50 chars, no complex keywords | **lite** | Base prompt only |
-| Default / moderate complexity | **standard** | 2 skills + 2 implants (RAG) |
-| Query > 300 chars OR complex keywords (`debug`, `architecture`, `review`, `analyze`, etc.) | **deep** | 4+ skills + 3 implants (RAG + preferred) |
+| Default / moderate complexity | **standard** | Up to 2 skills + 2 implants (preferred by ID when declared, RAG otherwise) |
+| Query > 300 chars OR complex keywords (`debug`, `investigate`, `compare`, `design`, `review`, `audit`, `deep dive`, plus Russian equivalents) | **deep** | 4+ skills + 3 implants (preferred by ID + RAG fallback) |
 
 > **Tier Promotion**: If the inferred tier is `lite` but the target agent declares `preferred_skills` or `capabilities`, the tier is automatically promoted to `standard` to ensure skills are loaded.
 
@@ -145,7 +145,7 @@ sequenceDiagram
 3. **ROUTE_REQUIRED**: On cache miss, the system returns a list of agent candidates with metadata (`display_name`, `role`, `trigger_command`), allowing the client LLM to select the best match via `get_agent_context()`.
 4. **Tier Inference**: Determines enrichment depth based on query complexity signals (length, keywords). Automatic promotion from `lite` to `standard` when agents declare skills or capabilities.
 5. **Enrichment Pipeline**:
-    * **Skills**: Domain-specific knowledge modules retrieved via ChromaDB semantic search (threshold: 0.55 distance).
+    * **Skills**: Domain-specific knowledge modules. When an agent declares `preferred_skills` or `capabilities`, those skills are loaded by exact ID (no vector search, no count limit). Otherwise, skills are retrieved via ChromaDB semantic search (threshold: 0.55 distance).
     * **Implants**: Cognitive reasoning strategies retrieved via semantic search (threshold: 0.73 distance). Agents can request more at runtime via `load_implants()`.
     * **Capabilities**: High-level compositions from `registry.yaml` mapping to skill bundles + behavioral directives.
 6. **Session Cache**: TTLCache (max 128 entries, 600s TTL) storing enriched prompts keyed by `{agent_name}:{query_hash}:{tier}`. Supports `context_hash` for multi-turn delta optimization.
