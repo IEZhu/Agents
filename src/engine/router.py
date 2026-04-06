@@ -85,11 +85,13 @@ class SemanticRouter:
             for name in self.available_agents
         ]
 
-    async def lookup_cache_with_distance(
+    async def _query_nearest(
         self, query: str, context: Dict[str, Any] = None
     ) -> Optional[tuple[RouterDecision, float]]:
         """
-        Checks the semantic cache. Returns (decision, distance) on hit, None on miss.
+        Returns the nearest cached entry as (decision, distance), or None if
+        the cache is completely empty. No threshold is applied — the caller
+        decides what to do with the distance.
         """
         history_text = context.get("history_text", "") if context else ""
         semantic_query = f"{history_text[-200:]}\n{query}" if history_text else query
@@ -109,19 +111,27 @@ class SemanticRouter:
 
         if results["ids"] and results["distances"] and len(results["distances"][0]) > 0:
             distance = results["distances"][0][0]
-            if distance < (1 - ROUTER_SIMILARITY_THRESHOLD):
-                metadata = results["metadatas"][0][0]
-                decision = RouterDecision(
-                    target_agent=metadata["target_agent"],
-                    confidence=1.0,
-                    reasoning=f"Cached result (distance: {distance:.4f})",
-                    is_cached=True,
-                )
-                return decision, distance
+            metadata = results["metadatas"][0][0]
+            decision = RouterDecision(
+                target_agent=metadata["target_agent"],
+                confidence=1.0,
+                reasoning=f"Cached result (distance: {distance:.4f})",
+                is_cached=True,
+            )
+            return decision, distance
+        return None
+
+    async def lookup_cache_with_distance(
+        self, query: str, context: Dict[str, Any] = None
+    ) -> Optional[tuple[RouterDecision, float]]:
+        """Returns (decision, distance) only if distance passes the similarity threshold."""
+        result = await self._query_nearest(query, context)
+        if result and result[1] < (1 - ROUTER_SIMILARITY_THRESHOLD):
+            return result
         return None
 
     async def lookup_cache(self, query: str, context: Dict[str, Any] = None) -> Optional[RouterDecision]:
-        """Only checks the cache. Returns None if miss."""
+        """Only checks the cache with threshold. Returns None if miss."""
         result = await self.lookup_cache_with_distance(query, context)
         return result[0] if result else None
 
