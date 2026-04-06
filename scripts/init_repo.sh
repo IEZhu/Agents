@@ -472,18 +472,104 @@ else
 
     # --- Configure Claude Code ---
     if [ "$CLAUDE_CODE_DETECTED" = true ]; then
-        print_step "Configuring Claude Code MCP (~/.claude.json)..."
-        CLAUDE_GLOBAL="$HOME/.claude.json"
+        CLAUDE_CODE_DIR="$HOME/.claude"
+        CLAUDE_CODE_SETTINGS="$CLAUDE_CODE_DIR/settings.json"
 
-        if [ ! -f "$CLAUDE_GLOBAL" ]; then
-            echo '{}' > "$CLAUDE_GLOBAL"
+        # Ensure ~/.claude/ directory exists
+        mkdir -p "$CLAUDE_CODE_DIR"
+
+        # 1. MCP server in global settings.json
+        print_step "Configuring Claude Code MCP ($CLAUDE_CODE_SETTINGS)..."
+
+        if [ ! -f "$CLAUDE_CODE_SETTINGS" ]; then
+            echo '{}' > "$CLAUDE_CODE_SETTINGS"
         fi
 
         # Backup before modifying
-        cp "$CLAUDE_GLOBAL" "${CLAUDE_GLOBAL}.backup.$(date +%s)"
+        cp "$CLAUDE_CODE_SETTINGS" "${CLAUDE_CODE_SETTINGS}.backup.$(date +%s)"
 
-        if inject_mcp_config "$CLAUDE_GLOBAL" "~/.claude.json"; then
+        if inject_mcp_config "$CLAUDE_CODE_SETTINGS" "$CLAUDE_CODE_SETTINGS"; then
             CONFIGURED_ENVS+=("Claude Code")
+        fi
+
+        # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
+        CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
+        CLAUDE_MD_SRC="$REPO_ROOT/CLAUDE.md"
+        # Markers to delimit managed section
+        MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
+        MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
+
+        print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
+
+        if [ -f "$CLAUDE_MD_SRC" ]; then
+            SECTION_CONTENT=$(cat "$CLAUDE_MD_SRC")
+
+            if [ -f "$CLAUDE_CODE_MD" ]; then
+                if grep -qF "$MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null; then
+                    # Replace existing managed section
+                    print_step "Found existing Agents-Core section — replacing..."
+                    cp "$CLAUDE_CODE_MD" "${CLAUDE_CODE_MD}.backup.$(date +%s)"
+                    print_step "Backup created: ${CLAUDE_CODE_MD}.backup.*"
+
+                    # Remove old section and inject new one
+                    python3 -c "
+import os, sys
+
+md_path = os.environ['CLAUDE_CODE_MD']
+marker_begin = os.environ['MARKER_BEGIN']
+marker_end = os.environ['MARKER_END']
+section = os.environ['SECTION_CONTENT']
+
+with open(md_path, 'r') as f:
+    content = f.read()
+
+begin_idx = content.find(marker_begin)
+end_idx = content.find(marker_end)
+
+if begin_idx != -1 and end_idx != -1:
+    end_idx += len(marker_end)
+    # Consume trailing newlines after marker
+    while end_idx < len(content) and content[end_idx] == '\n':
+        end_idx += 1
+    new_block = f'{marker_begin}\n\n{section}\n\n{marker_end}\n'
+    content = content[:begin_idx] + new_block + content[end_idx:]
+else:
+    print('WARNING: markers not matched, appending instead', file=sys.stderr)
+    content += f'\n\n{marker_begin}\n\n{section}\n\n{marker_end}\n'
+
+with open(md_path, 'w') as f:
+    f.write(content)
+" && print_success "Agents-Core section updated in global CLAUDE.md" \
+  || print_error "Failed to update global CLAUDE.md"
+                else
+                    # No managed section yet — append
+                    print_step "No existing Agents-Core section — appending..."
+                    cp "$CLAUDE_CODE_MD" "${CLAUDE_CODE_MD}.backup.$(date +%s)"
+                    print_step "Backup created: ${CLAUDE_CODE_MD}.backup.*"
+                    {
+                        echo ""
+                        echo "$MARKER_BEGIN"
+                        echo ""
+                        cat "$CLAUDE_MD_SRC"
+                        echo ""
+                        echo "$MARKER_END"
+                    } >> "$CLAUDE_CODE_MD"
+                    print_success "Agents-Core section appended to global CLAUDE.md"
+                fi
+            else
+                # No global CLAUDE.md yet — create with managed section
+                print_step "Creating new global CLAUDE.md..."
+                {
+                    echo "$MARKER_BEGIN"
+                    echo ""
+                    cat "$CLAUDE_MD_SRC"
+                    echo ""
+                    echo "$MARKER_END"
+                } > "$CLAUDE_CODE_MD"
+                print_success "Global CLAUDE.md created with Agents-Core section"
+            fi
+        else
+            print_warn "CLAUDE.md not found in repo root, skipping"
         fi
     fi
 
@@ -558,8 +644,8 @@ if [ "$SKIP_MCP" = false ] && [ ${#CONFIGURED_ENVS[@]} -gt 0 ]; then
                 STEP=$((STEP + 1))
                 ;;
             "Claude Code")
-                echo "  $STEP. Start Claude Code in this directory:"
-                echo -e "     ${CYAN}cd $REPO_ROOT && claude${NC}"
+                echo "  $STEP. Claude Code is configured globally — start it in any directory:"
+                echo -e "     ${CYAN}claude${NC}"
                 echo ""
                 STEP=$((STEP + 1))
                 ;;
