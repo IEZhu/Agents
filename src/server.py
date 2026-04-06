@@ -110,6 +110,27 @@ CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESS
 def _compute_context_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
 
+_ROUTE_REQUIRED_INSTRUCTION = (
+    "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
+    "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
+    "Do NOT explore the codebase. Do NOT answer the user. "
+    "FIRST pick the single best agent from candidates, THEN call ONLY: "
+    "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
+    "Wait for its response. Only THEN proceed with the user's request."
+)
+
+def _build_route_required(request_id: str, tier: str, candidates: list) -> str:
+    """Build a ROUTE_REQUIRED JSON response. Single source of truth for this payload."""
+    result = {
+        "status": "ROUTE_REQUIRED",
+        "request_id": request_id,
+        "tier": tier,
+        "candidates": candidates,
+        "instruction": _ROUTE_REQUIRED_INSTRUCTION,
+    }
+    debug_log("route_and_load", "res", result)
+    return json.dumps(result, ensure_ascii=False)
+
 async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], str]:
     """Shared helper: load prompt, enrich with skills/implants/capabilities.
     Returns (final_prompt, context_hash, skills_loaded, implants_loaded, effective_tier).
@@ -255,23 +276,7 @@ async def route_and_load(
 
                 if lookup_failed:
                     # DB error — release to ROUTE_REQUIRED so LLM can decide
-                    candidates = router.get_agent_catalog()
-                    result = {
-                        "status": "ROUTE_REQUIRED",
-                        "request_id": request_id,
-                        "tier": tier,
-                        "candidates": candidates,
-                        "instruction": (
-                            "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
-                            "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
-                            "Do NOT explore the codebase. Do NOT answer the user. "
-                            "FIRST pick the single best agent from candidates, THEN call ONLY: "
-                            "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
-                            "Wait for its response. Only THEN proceed with the user's request."
-                        ),
-                    }
-                    debug_log("route_and_load", "res", result)
-                    return json.dumps(result, ensure_ascii=False)
+                    return _build_route_required(request_id, tier, router.get_agent_catalog())
                 elif nearest is None:
                     # Cache is genuinely empty — keep current agent, don't cache
                     agent_name = sticky_agent
@@ -292,26 +297,8 @@ async def route_and_load(
                 elif nearest[1] >= similarity_threshold:
                     # Query is far from anything cached — likely a topic change.
                     # Go straight to ROUTE_REQUIRED so the LLM can pick the right agent.
-                    # No need to call lookup_cache (same query would yield the same far result)
-                    # or _is_meta_query (already checked before entering sticky branch).
                     debug_log("route_and_load", "sticky", {"action": "release", "reason": "topic_change", "from": sticky_agent, "distance": nearest[1]})
-                    candidates = router.get_agent_catalog()
-                    result = {
-                        "status": "ROUTE_REQUIRED",
-                        "request_id": request_id,
-                        "tier": tier,
-                        "candidates": candidates,
-                        "instruction": (
-                            "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
-                            "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
-                            "Do NOT explore the codebase. Do NOT answer the user. "
-                            "FIRST pick the single best agent from candidates, THEN call ONLY: "
-                            "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
-                            "Wait for its response. Only THEN proceed with the user's request."
-                        ),
-                    }
-                    debug_log("route_and_load", "res", result)
-                    return json.dumps(result, ensure_ascii=False)
+                    return _build_route_required(request_id, tier, router.get_agent_catalog())
                 else:
                     # Close match for a different agent, but not strong enough to auto-switch.
                     # Keep sticky agent for stability, don't cache.
@@ -331,23 +318,7 @@ async def route_and_load(
                 explicit_tier = "lite"
             else:
                 # 3. Cache miss — return candidates for the calling LLM to decide
-                candidates = router.get_agent_catalog()
-                result = {
-                    "status": "ROUTE_REQUIRED",
-                    "request_id": request_id,
-                    "tier": tier,
-                    "candidates": candidates,
-                    "instruction": (
-                        "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
-                        "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
-                        "Do NOT explore the codebase. Do NOT answer the user. "
-                        "FIRST pick the single best agent from candidates, THEN call ONLY: "
-                        "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
-                        "Wait for its response. Only THEN proceed with the user's request."
-                    ),
-                }
-                debug_log("route_and_load", "res", result)
-                return json.dumps(result, ensure_ascii=False)
+                return _build_route_required(request_id, tier, router.get_agent_catalog())
 
         # 3. Cache hit or meta-query — load enriched prompt
         # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote

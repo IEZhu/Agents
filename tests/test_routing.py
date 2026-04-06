@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 from cachetools import TTLCache
 
 from src.server import _is_meta_query, _normalize_chat_history
+from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +181,8 @@ class TestStickyRouting:
         self.original_ctx_cache = srv.CONTEXT_HASH_CACHE
         self.original_session_cache = srv.SESSION_CACHE
 
-        srv.CONTEXT_HASH_CACHE = TTLCache(maxsize=128, ttl=600)
-        srv.SESSION_CACHE = TTLCache(maxsize=128, ttl=600)
+        srv.CONTEXT_HASH_CACHE = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
+        srv.SESSION_CACHE = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
 
         yield
 
