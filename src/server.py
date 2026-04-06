@@ -274,7 +274,7 @@ async def route_and_load(
                     nearest = None
                     lookup_failed = True
 
-                similarity_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD
+                distance_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD
 
                 if lookup_failed:
                     # DB error — release to ROUTE_REQUIRED so LLM can decide
@@ -291,12 +291,12 @@ async def route_and_load(
                     reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={nearest[1]:.4f})"
                     logger.info(f"Sticky override: {sticky_agent} → {agent_name} (d={nearest[1]:.4f})")
                     debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": nearest[1]})
-                elif nearest[1] < similarity_threshold and nearest[0].target_agent == sticky_agent:
+                elif nearest[1] < distance_threshold and nearest[0].target_agent == sticky_agent:
                     # Cache confirms the same agent
                     agent_name = sticky_agent
                     reasoning = f"Sticky: confirmed by cache (d={nearest[1]:.4f})"
                     debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": nearest[1]})
-                elif nearest[1] >= similarity_threshold:
+                elif nearest[1] >= distance_threshold:
                     # Query is far from anything cached — likely a topic change.
                     # Go straight to ROUTE_REQUIRED so the LLM can pick the right agent.
                     debug_log("route_and_load", "sticky", {"action": "release", "reason": "topic_change", "from": sticky_agent, "distance": nearest[1]})
