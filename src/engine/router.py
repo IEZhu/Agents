@@ -85,43 +85,60 @@ class SemanticRouter:
             for name in self.available_agents
         ]
 
-    async def lookup_cache(self, query: str, context: Dict[str, Any] = None) -> Optional[RouterDecision]:
+    async def query_nearest(
+        self, query: str, context: Dict[str, Any] = None
+    ) -> Optional[tuple[RouterDecision, float]]:
         """
-        Only checks the cache. Returns None if miss.
+        Returns the nearest cached entry as (decision, distance), or None if
+        the cache has no entries. No threshold is applied — the caller decides
+        what to do with the distance.
+
+        Raises on ChromaDB errors so callers can distinguish empty cache from
+        lookup failure and handle each appropriately.
         """
         history_text = context.get("history_text", "") if context else ""
+        semantic_query = f"{history_text[-200:]}\n{query}" if history_text else query
 
-        if history_text:
-             # Create a context-aware query for semantic search
-             semantic_query = f"{history_text[-200:]}\n{query}" # Last 200 chars of context
-        else:
-             semantic_query = query
-
-        # ChromaDB query is blocking, run in executor
         loop = asyncio.get_running_loop()
-        try:
-            results = await loop.run_in_executor(
-                None,
-                lambda: self.collection.query(
-                    query_texts=[semantic_query],
-                    n_results=1
-                )
+        results = await loop.run_in_executor(
+            None,
+            lambda: self.collection.query(
+                query_texts=[semantic_query],
+                n_results=1,
+            ),
+        )
+
+        if results["ids"] and results["distances"] and len(results["distances"][0]) > 0:
+            distance = results["distances"][0][0]
+            metadata = results["metadatas"][0][0]
+            decision = RouterDecision(
+                target_agent=metadata["target_agent"],
+                confidence=1.0,
+                reasoning=f"Cached result (distance: {distance:.4f})",
+                is_cached=True,
             )
+            return decision, distance
+        return None
+
+    async def lookup_cache_with_distance(
+        self, query: str, context: Dict[str, Any] = None
+    ) -> Optional[tuple[RouterDecision, float]]:
+        """Returns (decision, distance) only if distance passes the similarity threshold."""
+        try:
+            result = await self.query_nearest(query, context)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"ChromaDB lookup failed: {e}")
             return None
-
-        if results['ids'] and results['distances'] and len(results['distances'][0]) > 0:
-            distance = results['distances'][0][0]
-            if distance < (1 - ROUTER_SIMILARITY_THRESHOLD):
-                metadata = results['metadatas'][0][0]
-                return RouterDecision(
-                    target_agent=metadata['target_agent'],
-                    confidence=1.0,
-                    reasoning=f"Cached result (distance: {distance:.4f})",
-                    is_cached=True
-                )
+        if result and result[1] < (1 - ROUTER_SIMILARITY_THRESHOLD):
+            return result
         return None
+
+    async def lookup_cache(self, query: str, context: Dict[str, Any] = None) -> Optional[RouterDecision]:
+        """Only checks the cache with threshold. Returns None if miss."""
+        result = await self.lookup_cache_with_distance(query, context)
+        return result[0] if result else None
 
     async def update_cache(self, query: str, agent_name: str, reasoning: str, request_id: str):
         """

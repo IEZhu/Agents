@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}🧪 Running Language Detection Tests${NC}"
+echo -e "${GREEN}🧪 Running Tests${NC}"
 echo "================================================"
 
 # Detect and activate virtual environment
@@ -67,13 +67,13 @@ fi
 
 # Run tests with any additional arguments passed to script
 echo ""
-echo -e "${GREEN}Running: $PYTHON_BIN -m pytest tests/test_language.py -v $@${NC}"
+echo -e "${GREEN}Running: $PYTHON_BIN -m pytest tests/ -v $@${NC}"
 echo ""
 
-$PYTHON_BIN -m pytest tests/test_language.py -v "$@"
-
-# Capture exit code
+set +e  # Allow pytest to fail without aborting — we handle exit code below
+$PYTHON_BIN -m pytest tests/ -v "$@"
 TEST_EXIT_CODE=$?
+set -e
 
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then

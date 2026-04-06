@@ -32,7 +32,7 @@ from src.engine.enrichment import (
     infer_tier,
     implant_retriever,
 )
-from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS
+from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 
@@ -69,9 +69,10 @@ atexit.register(langfuse.flush)
 
 @mcp.tool()
 async def clear_session_cache() -> str:
-    """Clears the session cache. Use when switching contexts."""
+    """Clears the session cache and sticky agent mappings. Use when switching contexts."""
     SESSION_CACHE.clear()
-    return "Session cache cleared"
+    CONTEXT_HASH_CACHE.clear()
+    return "Session cache and sticky agent mappings cleared"
 
 _META_QUERY_RE = re.compile(
     r"^("
@@ -104,10 +105,31 @@ def _normalize_chat_history(chat_history: Optional[List[str] | str]) -> List[str
 
     return [entry for entry in chat_history if isinstance(entry, str)]
 
-CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=64, ttl=SESSION_CACHE_TTL_SECONDS)
+CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
 
 def _compute_context_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+
+_ROUTE_REQUIRED_INSTRUCTION = (
+    "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
+    "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
+    "Do NOT explore the codebase. Do NOT answer the user. "
+    "FIRST pick the single best agent from candidates, THEN call ONLY: "
+    "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
+    "Wait for its response. Only THEN proceed with the user's request."
+)
+
+def _build_route_required(request_id: str, tier: str, candidates: list) -> str:
+    """Build a ROUTE_REQUIRED JSON response. Single source of truth for this payload."""
+    result = {
+        "status": "ROUTE_REQUIRED",
+        "request_id": request_id,
+        "tier": tier,
+        "candidates": candidates,
+        "instruction": _ROUTE_REQUIRED_INSTRUCTION,
+    }
+    debug_log("route_and_load", "res", result)
+    return json.dumps(result, ensure_ascii=False)
 
 async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], str]:
     """Shared helper: load prompt, enrich with skills/implants/capabilities.
@@ -212,6 +234,9 @@ async def route_and_load(
     Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
     Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     Pass `context_hash` from a previous response to enable delta mode.
+    When context_hash maps to a previously loaded agent, sticky routing is activated:
+    the router prefers keeping the current agent unless a very strong semantic signal
+    (distance < STICKY_SWITCH_THRESHOLD) suggests a different one.
     """
     try:
         chat_history_list = _normalize_chat_history(chat_history)
@@ -223,35 +248,79 @@ async def route_and_load(
             "history_len": len(chat_history_list), "request_id": request_id,
         })
 
-        # 1. Try semantic cache
+        # 1. Sticky agent: if we already have an active agent, prefer keeping it
         explicit_tier = None  # only set for intentional overrides (e.g. meta-query)
-        cached_decision = await router.lookup_cache(query, {"history_text": history_text})
-        if cached_decision:
-            agent_name = cached_decision.target_agent
-            reasoning = cached_decision.reasoning
-        elif _is_meta_query(query):
-            agent_name = "universal_agent"
-            reasoning = "Auto-fallback: meta-query detected"
-            explicit_tier = "lite"
+        should_cache = True  # skip caching for unvalidated sticky decisions
+        sticky_agent = CONTEXT_HASH_CACHE.get(context_hash) if context_hash else None
+
+        if sticky_agent:
+            logger.info(f"Sticky agent active: {sticky_agent} (hash={context_hash})")
+            # Meta-queries always override sticky state
+            if _is_meta_query(query):
+                agent_name = "universal_agent"
+                reasoning = "Auto-fallback: meta-query overrides sticky agent"
+                explicit_tier = "lite"
+            else:
+                # Use unfiltered nearest match to distinguish "empty cache" from "topic change".
+                # query_nearest raises on ChromaDB errors — release to ROUTE_REQUIRED on failure.
+                lookup_failed = False
+                try:
+                    nearest = await router.query_nearest(query, {"history_text": history_text})
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Sticky lookup failed, releasing to ROUTE_REQUIRED: {e}")
+                    debug_log("route_and_load", "sticky", {"action": "release", "reason": "lookup_error", "from": sticky_agent, "error": str(e)})
+                    nearest = None
+                    lookup_failed = True
+
+                distance_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD
+
+                if lookup_failed:
+                    # DB error — release to ROUTE_REQUIRED so LLM can decide
+                    return _build_route_required(request_id, tier, router.get_agent_catalog())
+                elif nearest is None:
+                    # Cache is genuinely empty — keep current agent, don't cache
+                    agent_name = sticky_agent
+                    reasoning = "Sticky: cache empty, keeping current agent"
+                    should_cache = False
+                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "empty_cache", "agent": agent_name})
+                elif nearest[1] < STICKY_SWITCH_THRESHOLD and nearest[0].target_agent != sticky_agent:
+                    # Very strong signal for a different agent — auto-switch
+                    agent_name = nearest[0].target_agent
+                    reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={nearest[1]:.4f})"
+                    logger.info(f"Sticky override: {sticky_agent} → {agent_name} (d={nearest[1]:.4f})")
+                    debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": nearest[1]})
+                elif nearest[1] < distance_threshold and nearest[0].target_agent == sticky_agent:
+                    # Cache confirms the same agent
+                    agent_name = sticky_agent
+                    reasoning = f"Sticky: confirmed by cache (d={nearest[1]:.4f})"
+                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": nearest[1]})
+                elif nearest[1] >= distance_threshold:
+                    # Query is far from anything cached — likely a topic change.
+                    # Go straight to ROUTE_REQUIRED so the LLM can pick the right agent.
+                    debug_log("route_and_load", "sticky", {"action": "release", "reason": "topic_change", "from": sticky_agent, "distance": nearest[1]})
+                    return _build_route_required(request_id, tier, router.get_agent_catalog())
+                else:
+                    # Close match for a different agent, but not strong enough to auto-switch.
+                    # Keep sticky agent for stability, don't cache.
+                    agent_name = sticky_agent
+                    reasoning = f"Sticky: kept despite competing signal for {nearest[0].target_agent} (d={nearest[1]:.4f})"
+                    should_cache = False
+                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "weak_signal", "agent": agent_name, "competing": nearest[0].target_agent, "distance": nearest[1]})
         else:
-            # 2. Cache miss — return candidates for the calling LLM to decide
-            candidates = router.get_agent_catalog()
-            result = {
-                "status": "ROUTE_REQUIRED",
-                "request_id": request_id,
-                "tier": tier,
-                "candidates": candidates,
-                "instruction": (
-                    "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
-                    "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
-                    "Do NOT explore the codebase. Do NOT answer the user. "
-                    "FIRST pick the single best agent from candidates, THEN call ONLY: "
-                    "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
-                    "Wait for its response. Only THEN proceed with the user's request."
-                ),
-            }
-            debug_log("route_and_load", "res", result)
-            return json.dumps(result, ensure_ascii=False)
+            # 2. No sticky agent — standard routing (cache → meta-query → ROUTE_REQUIRED)
+            cached_decision = await router.lookup_cache(query, {"history_text": history_text})
+            if cached_decision:
+                agent_name = cached_decision.target_agent
+                reasoning = cached_decision.reasoning
+            elif _is_meta_query(query):
+                agent_name = "universal_agent"
+                reasoning = "Auto-fallback: meta-query detected"
+                explicit_tier = "lite"
+            else:
+                # 3. Cache miss — return candidates for the calling LLM to decide
+                return _build_route_required(request_id, tier, router.get_agent_catalog())
 
         # 3. Cache hit or meta-query — load enriched prompt
         # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote
@@ -270,7 +339,8 @@ async def route_and_load(
             debug_log("route_and_load", "res", result)
             return json.dumps(result, ensure_ascii=False)
 
-        await router.update_cache(query, agent_name, reasoning, request_id)
+        if should_cache:
+            await router.update_cache(query, agent_name, reasoning, request_id)
 
         # Try sampling: generate response with agent's system prompt via client LLM
         if ctx:

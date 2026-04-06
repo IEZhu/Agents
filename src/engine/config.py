@@ -13,6 +13,12 @@ IMPLANTS_DIR = os.path.join(REPO_ROOT, "implants")
 CAPABILITIES_FILE = os.path.join(REPO_ROOT, "agents", "capabilities", "registry.yaml")
 
 ROUTER_SIMILARITY_THRESHOLD = 0.95
+# Sticky agent: auto-switch to a different agent without LLM if cosine distance
+# is below this value. Intentionally tighter than the router's distance cutoff
+# (1 - ROUTER_SIMILARITY_THRESHOLD) — only near-duplicate queries trigger an
+# auto-switch; ambiguous cases keep the current agent for stability.
+# Tune empirically if switches are too rare.
+STICKY_SWITCH_THRESHOLD = 0.02
 SKILLS_RELEVANCE_THRESHOLD = 0.55
 IMPLANTS_RELEVANCE_THRESHOLD = 0.73
 
