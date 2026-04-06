@@ -87,7 +87,7 @@ class SemanticRouter:
 
     async def lookup_cache_with_distance(
         self, query: str, context: Dict[str, Any] = None
-    ) -> Optional[tuple["RouterDecision", float]]:
+    ) -> Optional[tuple[RouterDecision, float]]:
         """
         Checks the semantic cache. Returns (decision, distance) on hit, None on miss.
         """

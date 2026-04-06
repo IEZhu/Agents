@@ -213,6 +213,9 @@ async def route_and_load(
     Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
     Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
     Pass `context_hash` from a previous response to enable delta mode.
+    When context_hash maps to a previously loaded agent, sticky routing is activated:
+    the router prefers keeping the current agent unless a very strong semantic signal
+    (distance < STICKY_SWITCH_THRESHOLD) suggests a different one.
     """
     try:
         chat_history_list = _normalize_chat_history(chat_history)
@@ -228,10 +231,9 @@ async def route_and_load(
         explicit_tier = None  # only set for intentional overrides (e.g. meta-query)
         should_cache = True  # skip caching for unvalidated sticky decisions
         sticky_agent = CONTEXT_HASH_CACHE.get(context_hash) if context_hash else None
-        if sticky_agent:
-            logger.info(f"Sticky agent active: {sticky_agent} (hash={context_hash})")
 
         if sticky_agent:
+            logger.info(f"Sticky agent active: {sticky_agent} (hash={context_hash})")
             # Meta-queries always override sticky state
             if _is_meta_query(query):
                 agent_name = "universal_agent"
