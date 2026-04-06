@@ -85,43 +85,45 @@ class SemanticRouter:
             for name in self.available_agents
         ]
 
-    async def lookup_cache(self, query: str, context: Dict[str, Any] = None) -> Optional[RouterDecision]:
+    async def lookup_cache_with_distance(
+        self, query: str, context: Dict[str, Any] = None
+    ) -> Optional[tuple["RouterDecision", float]]:
         """
-        Only checks the cache. Returns None if miss.
+        Checks the semantic cache. Returns (decision, distance) on hit, None on miss.
         """
         history_text = context.get("history_text", "") if context else ""
+        semantic_query = f"{history_text[-200:]}\n{query}" if history_text else query
 
-        if history_text:
-             # Create a context-aware query for semantic search
-             semantic_query = f"{history_text[-200:]}\n{query}" # Last 200 chars of context
-        else:
-             semantic_query = query
-
-        # ChromaDB query is blocking, run in executor
         loop = asyncio.get_running_loop()
         try:
             results = await loop.run_in_executor(
                 None,
                 lambda: self.collection.query(
                     query_texts=[semantic_query],
-                    n_results=1
-                )
+                    n_results=1,
+                ),
             )
         except Exception as e:
             logger.error(f"ChromaDB lookup failed: {e}")
             return None
 
-        if results['ids'] and results['distances'] and len(results['distances'][0]) > 0:
-            distance = results['distances'][0][0]
+        if results["ids"] and results["distances"] and len(results["distances"][0]) > 0:
+            distance = results["distances"][0][0]
             if distance < (1 - ROUTER_SIMILARITY_THRESHOLD):
-                metadata = results['metadatas'][0][0]
-                return RouterDecision(
-                    target_agent=metadata['target_agent'],
+                metadata = results["metadatas"][0][0]
+                decision = RouterDecision(
+                    target_agent=metadata["target_agent"],
                     confidence=1.0,
                     reasoning=f"Cached result (distance: {distance:.4f})",
-                    is_cached=True
+                    is_cached=True,
                 )
+                return decision, distance
         return None
+
+    async def lookup_cache(self, query: str, context: Dict[str, Any] = None) -> Optional[RouterDecision]:
+        """Only checks the cache. Returns None if miss."""
+        result = await self.lookup_cache_with_distance(query, context)
+        return result[0] if result else None
 
     async def update_cache(self, query: str, agent_name: str, reasoning: str, request_id: str):
         """
