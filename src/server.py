@@ -266,13 +266,15 @@ async def route_and_load(
                 lookup_failed = False
                 try:
                     nearest = await router.query_nearest(query, {"history_text": history_text})
+                except asyncio.CancelledError:
+                    raise
                 except Exception as e:
-                    logger.error(f"Sticky lookup failed, releasing to standard routing: {e}")
+                    logger.error(f"Sticky lookup failed, releasing to ROUTE_REQUIRED: {e}")
                     debug_log("route_and_load", "sticky", {"action": "release", "reason": "lookup_error", "from": sticky_agent, "error": str(e)})
                     nearest = None
                     lookup_failed = True
 
-                similarity_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD  # 0.05
+                similarity_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD
 
                 if lookup_failed:
                     # DB error — release to ROUTE_REQUIRED so LLM can decide

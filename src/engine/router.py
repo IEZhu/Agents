@@ -126,6 +126,8 @@ class SemanticRouter:
         """Returns (decision, distance) only if distance passes the similarity threshold."""
         try:
             result = await self.query_nearest(query, context)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"ChromaDB lookup failed: {e}")
             return None
