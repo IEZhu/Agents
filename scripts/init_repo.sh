@@ -488,7 +488,7 @@ else
         # Backup before modifying
         cp "$CLAUDE_CODE_SETTINGS" "${CLAUDE_CODE_SETTINGS}.backup.$(date +%s)"
 
-        if inject_mcp_config "$CLAUDE_CODE_SETTINGS" "$CLAUDE_CODE_SETTINGS"; then
+        if inject_mcp_config "$CLAUDE_CODE_SETTINGS" "~/.claude/settings.json"; then
             CONFIGURED_ENVS+=("Claude Code")
         fi
 
@@ -512,7 +512,11 @@ else
                     print_step "Backup created: ${CLAUDE_CODE_MD}.backup.*"
 
                     # Remove old section and inject new one
-                    python3 -c "
+                    CLAUDE_CODE_MD="$CLAUDE_CODE_MD" \
+                    MARKER_BEGIN="$MARKER_BEGIN" \
+                    MARKER_END="$MARKER_END" \
+                    SECTION_CONTENT="$SECTION_CONTENT" \
+                    "$PYTHON_ABS" -c "
 import os, sys
 
 md_path = os.environ['CLAUDE_CODE_MD']
@@ -524,9 +528,9 @@ with open(md_path, 'r') as f:
     content = f.read()
 
 begin_idx = content.find(marker_begin)
-end_idx = content.find(marker_end)
+end_idx = content.find(marker_end, begin_idx) if begin_idx != -1 else -1
 
-if begin_idx != -1 and end_idx != -1:
+if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
     end_idx += len(marker_end)
     # Consume trailing newlines after marker
     while end_idx < len(content) and content[end_idx] == '\n':
