@@ -529,10 +529,18 @@ section = os.environ['SECTION_CONTENT']
 with open(md_path, 'r') as f:
     content = f.read()
 
-begin_idx = content.find(marker_begin)
-end_idx = content.find(marker_end, begin_idx) if begin_idx != -1 else -1
+# Validate exactly one begin/end pair exists
+begin_count = content.count(marker_begin)
+end_count = content.count(marker_end)
+if begin_count != 1 or end_count != 1:
+    print(f'ERROR: expected exactly 1 begin and 1 end marker, found {begin_count} begin and {end_count} end', file=sys.stderr)
+    print(f'Please fix markers in {md_path} manually', file=sys.stderr)
+    sys.exit(1)
 
-if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
+begin_idx = content.find(marker_begin)
+end_idx = content.find(marker_end, begin_idx)
+
+if end_idx > begin_idx:
     end_idx += len(marker_end)
     # Consume trailing newlines after marker
     while end_idx < len(content) and content[end_idx] == '\n':
@@ -540,7 +548,7 @@ if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
     new_block = f'{marker_begin}\n\n{section}\n\n{marker_end}\n'
     content = content[:begin_idx] + new_block + content[end_idx:]
 else:
-    print('ERROR: markers found by grep but not properly matched in content', file=sys.stderr)
+    print('ERROR: end marker appears before begin marker', file=sys.stderr)
     sys.exit(1)
 
 with open(md_path, 'w') as f:
