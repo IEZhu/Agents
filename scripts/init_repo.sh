@@ -477,6 +477,9 @@ else
         CLAUDE_CODE_MCP="$HOME/.claude.json"
 
         # Ensure ~/.claude/ directory exists
+        if [ -e "$CLAUDE_CODE_DIR" ] && [ ! -d "$CLAUDE_CODE_DIR" ]; then
+            print_error "$CLAUDE_CODE_DIR exists but is not a directory — skipping Claude Code configuration"
+        else
         mkdir -p "$CLAUDE_CODE_DIR"
 
         # 1. MCP server in ~/.claude.json (the only user-scope MCP config Claude Code reads)
@@ -585,6 +588,7 @@ with open(md_path, 'w') as f:
         else
             print_warn "CLAUDE.md not found in repo root, skipping"
         fi
+        fi # end: ~/.claude is a directory check
     fi
 
     # --- Summary ---
