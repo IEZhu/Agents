@@ -263,34 +263,27 @@ async def route_and_load(
                     debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": nearest[1]})
                 elif nearest[1] >= similarity_threshold:
                     # Query is far from anything cached — likely a topic change.
-                    # Fall back to standard routing so the LLM can pick the right agent.
+                    # Go straight to ROUTE_REQUIRED so the LLM can pick the right agent.
+                    # No need to call lookup_cache (same query would yield the same far result)
+                    # or _is_meta_query (already checked before entering sticky branch).
                     debug_log("route_and_load", "sticky", {"action": "release", "reason": "topic_change", "from": sticky_agent, "distance": nearest[1]})
-                    cached_decision = await router.lookup_cache(query, {"history_text": history_text})
-                    if cached_decision:
-                        agent_name = cached_decision.target_agent
-                        reasoning = cached_decision.reasoning
-                    elif _is_meta_query(query):
-                        agent_name = "universal_agent"
-                        reasoning = "Auto-fallback: meta-query detected"
-                        explicit_tier = "lite"
-                    else:
-                        candidates = router.get_agent_catalog()
-                        result = {
-                            "status": "ROUTE_REQUIRED",
-                            "request_id": request_id,
-                            "tier": tier,
-                            "candidates": candidates,
-                            "instruction": (
-                                "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
-                                "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
-                                "Do NOT explore the codebase. Do NOT answer the user. "
-                                "FIRST pick the single best agent from candidates, THEN call ONLY: "
-                                "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
-                                "Wait for its response. Only THEN proceed with the user's request."
-                            ),
-                        }
-                        debug_log("route_and_load", "res", result)
-                        return json.dumps(result, ensure_ascii=False)
+                    candidates = router.get_agent_catalog()
+                    result = {
+                        "status": "ROUTE_REQUIRED",
+                        "request_id": request_id,
+                        "tier": tier,
+                        "candidates": candidates,
+                        "instruction": (
+                            "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
+                            "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
+                            "Do NOT explore the codebase. Do NOT answer the user. "
+                            "FIRST pick the single best agent from candidates, THEN call ONLY: "
+                            "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
+                            "Wait for its response. Only THEN proceed with the user's request."
+                        ),
+                    }
+                    debug_log("route_and_load", "res", result)
+                    return json.dumps(result, ensure_ascii=False)
                 else:
                     # Close match for a different agent, but not strong enough to auto-switch.
                     # Keep sticky agent for stability, don't cache.
