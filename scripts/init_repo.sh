@@ -428,7 +428,7 @@ else
 
     # --- Detect Claude Code ---
     CLAUDE_CODE_DETECTED=false
-    if check_command claude || [ -f "$HOME/.claude.json" ]; then
+    if check_command claude || [ -f "$HOME/.claude.json" ] || [ -d "$HOME/.claude" ]; then
         CLAUDE_CODE_DETECTED=true
         print_success "Claude Code detected"
     else
@@ -473,22 +473,23 @@ else
     # --- Configure Claude Code ---
     if [ "$CLAUDE_CODE_DETECTED" = true ]; then
         CLAUDE_CODE_DIR="$HOME/.claude"
-        CLAUDE_CODE_SETTINGS="$CLAUDE_CODE_DIR/settings.json"
+        # MCP servers must go in ~/.claude.json (not settings.json)
+        CLAUDE_CODE_MCP="$HOME/.claude.json"
 
         # Ensure ~/.claude/ directory exists
         mkdir -p "$CLAUDE_CODE_DIR"
 
-        # 1. MCP server in global settings.json
-        print_step "Configuring Claude Code MCP ($CLAUDE_CODE_SETTINGS)..."
+        # 1. MCP server in ~/.claude.json (the only user-scope MCP config Claude Code reads)
+        print_step "Configuring Claude Code MCP ($CLAUDE_CODE_MCP)..."
 
-        if [ ! -f "$CLAUDE_CODE_SETTINGS" ]; then
-            echo '{}' > "$CLAUDE_CODE_SETTINGS"
+        if [ ! -f "$CLAUDE_CODE_MCP" ]; then
+            echo '{}' > "$CLAUDE_CODE_MCP"
         fi
 
         # Backup before modifying
-        cp "$CLAUDE_CODE_SETTINGS" "${CLAUDE_CODE_SETTINGS}.backup.$(date +%s)"
+        cp "$CLAUDE_CODE_MCP" "${CLAUDE_CODE_MCP}.backup.$(date +%s)"
 
-        if inject_mcp_config "$CLAUDE_CODE_SETTINGS" "~/.claude/settings.json"; then
+        if inject_mcp_config "$CLAUDE_CODE_MCP" "~/.claude.json"; then
             CONFIGURED_ENVS+=("Claude Code")
         fi
 
@@ -505,8 +506,9 @@ else
             SECTION_CONTENT=$(cat "$CLAUDE_MD_SRC")
 
             if [ -f "$CLAUDE_CODE_MD" ]; then
-                if grep -qF "$MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null; then
-                    # Replace existing managed section
+                if grep -qF "$MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                   && grep -qF "$MARKER_END" "$CLAUDE_CODE_MD" 2>/dev/null; then
+                    # Both markers found — replace existing managed section
                     print_step "Found existing Agents-Core section — replacing..."
                     cp "$CLAUDE_CODE_MD" "${CLAUDE_CODE_MD}.backup.$(date +%s)"
                     print_step "Backup created: ${CLAUDE_CODE_MD}.backup.*"
@@ -538,13 +540,13 @@ if begin_idx != -1 and end_idx != -1 and end_idx > begin_idx:
     new_block = f'{marker_begin}\n\n{section}\n\n{marker_end}\n'
     content = content[:begin_idx] + new_block + content[end_idx:]
 else:
-    print('WARNING: markers not matched, appending instead', file=sys.stderr)
-    content += f'\n\n{marker_begin}\n\n{section}\n\n{marker_end}\n'
+    print('ERROR: markers found by grep but not properly matched in content', file=sys.stderr)
+    sys.exit(1)
 
 with open(md_path, 'w') as f:
     f.write(content)
-" && print_success "Agents-Core section updated in global CLAUDE.md" \
-  || print_error "Failed to update global CLAUDE.md"
+" && print_success "Agents-Core section replaced in global CLAUDE.md" \
+  || print_error "Failed to replace section — run script again to append instead"
                 else
                     # No managed section yet — append
                     print_step "No existing Agents-Core section — appending..."
