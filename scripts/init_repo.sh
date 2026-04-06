@@ -546,7 +546,7 @@ else:
 with open(md_path, 'w') as f:
     f.write(content)
 " && print_success "Agents-Core section replaced in global CLAUDE.md" \
-  || print_error "Failed to replace section — run script again to append instead"
+  || print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
                 else
                     # No managed section yet — append
                     print_step "No existing Agents-Core section — appending..."
