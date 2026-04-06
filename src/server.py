@@ -71,6 +71,7 @@ atexit.register(langfuse.flush)
 async def clear_session_cache() -> str:
     """Clears the session cache. Use when switching contexts."""
     SESSION_CACHE.clear()
+    CONTEXT_HASH_CACHE.clear()
     return "Session cache cleared"
 
 _META_QUERY_RE = re.compile(
@@ -104,7 +105,7 @@ def _normalize_chat_history(chat_history: Optional[List[str] | str]) -> List[str
 
     return [entry for entry in chat_history if isinstance(entry, str)]
 
-CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=64, ttl=SESSION_CACHE_TTL_SECONDS)
+CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
 
 def _compute_context_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
@@ -225,50 +226,54 @@ async def route_and_load(
 
         # 1. Sticky agent: if we already have an active agent, prefer keeping it
         explicit_tier = None  # only set for intentional overrides (e.g. meta-query)
-        sticky_agent = None
         should_cache = True  # skip caching for unvalidated sticky decisions
-        if context_hash and context_hash in CONTEXT_HASH_CACHE:
-            sticky_agent = CONTEXT_HASH_CACHE[context_hash]
+        sticky_agent = CONTEXT_HASH_CACHE.get(context_hash) if context_hash else None
+        if sticky_agent:
             logger.info(f"Sticky agent active: {sticky_agent} (hash={context_hash})")
 
-        # Meta-queries always go to universal_agent regardless of sticky state
-        if _is_meta_query(query):
-            agent_name = "universal_agent"
-            reasoning = "Auto-fallback: meta-query detected"
-            explicit_tier = "lite"
-        elif sticky_agent:
-            # Check if semantic cache suggests a different agent
-            cache_result = await router.lookup_cache_with_distance(query, {"history_text": history_text})
-            if cache_result is None:
-                # No similar query seen before — keep current agent, but don't cache
-                # (LLM never validated this routing, avoid polluting cache)
-                agent_name = sticky_agent
-                reasoning = "Sticky: no competing route found"
-                should_cache = False
-                debug_log("route_and_load", "sticky", {"action": "keep", "reason": "no_cache_hit", "agent": agent_name})
-            elif cache_result[0].target_agent == sticky_agent:
-                # Cache confirms the same agent
-                agent_name = sticky_agent
-                reasoning = f"Sticky: confirmed by cache (d={cache_result[1]:.4f})"
-                debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": cache_result[1]})
-            elif cache_result[1] < STICKY_SWITCH_THRESHOLD:
-                # Very strong signal for a different agent — auto-switch
-                agent_name = cache_result[0].target_agent
-                reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={cache_result[1]:.4f})"
-                logger.info(f"Sticky override: {sticky_agent} → {agent_name} (d={cache_result[1]:.4f})")
-                debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": cache_result[1]})
+        if sticky_agent:
+            # Meta-queries always override sticky state
+            if _is_meta_query(query):
+                agent_name = "universal_agent"
+                reasoning = "Auto-fallback: meta-query overrides sticky agent"
+                explicit_tier = "lite"
             else:
-                # Ambiguous — keep current agent (prefer stability), don't cache
-                agent_name = sticky_agent
-                reasoning = f"Sticky: kept despite weak competing signal for {cache_result[0].target_agent} (d={cache_result[1]:.4f})"
-                should_cache = False
-                debug_log("route_and_load", "sticky", {"action": "keep", "reason": "weak_signal", "agent": agent_name, "competing": cache_result[0].target_agent, "distance": cache_result[1]})
+                # Check if semantic cache suggests a different agent
+                cache_result = await router.lookup_cache_with_distance(query, {"history_text": history_text})
+                if cache_result is None:
+                    # No similar query seen before — keep current agent, but don't cache
+                    # (LLM never validated this routing, avoid polluting cache)
+                    agent_name = sticky_agent
+                    reasoning = "Sticky: no competing route found"
+                    should_cache = False
+                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "no_cache_hit", "agent": agent_name})
+                elif cache_result[0].target_agent == sticky_agent:
+                    # Cache confirms the same agent
+                    agent_name = sticky_agent
+                    reasoning = f"Sticky: confirmed by cache (d={cache_result[1]:.4f})"
+                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": cache_result[1]})
+                elif cache_result[1] < STICKY_SWITCH_THRESHOLD:
+                    # Very strong signal for a different agent — auto-switch
+                    agent_name = cache_result[0].target_agent
+                    reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={cache_result[1]:.4f})"
+                    logger.info(f"Sticky override: {sticky_agent} → {agent_name} (d={cache_result[1]:.4f})")
+                    debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": cache_result[1]})
+                else:
+                    # Ambiguous — keep current agent (prefer stability), don't cache
+                    agent_name = sticky_agent
+                    reasoning = f"Sticky: kept despite weak competing signal for {cache_result[0].target_agent} (d={cache_result[1]:.4f})"
+                    should_cache = False
+                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "weak_signal", "agent": agent_name, "competing": cache_result[0].target_agent, "distance": cache_result[1]})
         else:
-            # 2. No sticky agent — standard routing
+            # 2. No sticky agent — standard routing (cache → meta-query → ROUTE_REQUIRED)
             cached_decision = await router.lookup_cache(query, {"history_text": history_text})
             if cached_decision:
                 agent_name = cached_decision.target_agent
                 reasoning = cached_decision.reasoning
+            elif _is_meta_query(query):
+                agent_name = "universal_agent"
+                reasoning = "Auto-fallback: meta-query detected"
+                explicit_tier = "lite"
             else:
                 # 3. Cache miss — return candidates for the calling LLM to decide
                 candidates = router.get_agent_catalog()
