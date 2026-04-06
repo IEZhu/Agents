@@ -69,10 +69,10 @@ atexit.register(langfuse.flush)
 
 @mcp.tool()
 async def clear_session_cache() -> str:
-    """Clears the session cache. Use when switching contexts."""
+    """Clears the session cache and sticky agent mappings. Use when switching contexts."""
     SESSION_CACHE.clear()
     CONTEXT_HASH_CACHE.clear()
-    return "Session cache cleared"
+    return "Session cache and sticky agent mappings cleared"
 
 _META_QUERY_RE = re.compile(
     r"^("
@@ -240,12 +240,40 @@ async def route_and_load(
                 reasoning = "Auto-fallback: meta-query overrides sticky agent"
                 explicit_tier = "lite"
             else:
-                # Use unfiltered nearest match to distinguish "empty cache" from "topic change"
-                nearest = await router._query_nearest(query, {"history_text": history_text})
+                # Use unfiltered nearest match to distinguish "empty cache" from "topic change".
+                # query_nearest raises on ChromaDB errors — release to ROUTE_REQUIRED on failure.
+                lookup_failed = False
+                try:
+                    nearest = await router.query_nearest(query, {"history_text": history_text})
+                except Exception as e:
+                    logger.error(f"Sticky lookup failed, releasing to standard routing: {e}")
+                    debug_log("route_and_load", "sticky", {"action": "release", "reason": "lookup_error", "from": sticky_agent, "error": str(e)})
+                    nearest = None
+                    lookup_failed = True
+
                 similarity_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD  # 0.05
 
-                if nearest is None:
-                    # Cache is empty — keep current agent, don't cache
+                if lookup_failed:
+                    # DB error — release to ROUTE_REQUIRED so LLM can decide
+                    candidates = router.get_agent_catalog()
+                    result = {
+                        "status": "ROUTE_REQUIRED",
+                        "request_id": request_id,
+                        "tier": tier,
+                        "candidates": candidates,
+                        "instruction": (
+                            "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
+                            "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
+                            "Do NOT explore the codebase. Do NOT answer the user. "
+                            "FIRST pick the single best agent from candidates, THEN call ONLY: "
+                            "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
+                            "Wait for its response. Only THEN proceed with the user's request."
+                        ),
+                    }
+                    debug_log("route_and_load", "res", result)
+                    return json.dumps(result, ensure_ascii=False)
+                elif nearest is None:
+                    # Cache is genuinely empty — keep current agent, don't cache
                     agent_name = sticky_agent
                     reasoning = "Sticky: cache empty, keeping current agent"
                     should_cache = False

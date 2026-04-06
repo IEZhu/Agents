@@ -85,29 +85,28 @@ class SemanticRouter:
             for name in self.available_agents
         ]
 
-    async def _query_nearest(
+    async def query_nearest(
         self, query: str, context: Dict[str, Any] = None
     ) -> Optional[tuple[RouterDecision, float]]:
         """
         Returns the nearest cached entry as (decision, distance), or None if
-        the cache is completely empty. No threshold is applied — the caller
-        decides what to do with the distance.
+        the cache has no entries. No threshold is applied — the caller decides
+        what to do with the distance.
+
+        Raises on ChromaDB errors so callers can distinguish empty cache from
+        lookup failure and handle each appropriately.
         """
         history_text = context.get("history_text", "") if context else ""
         semantic_query = f"{history_text[-200:]}\n{query}" if history_text else query
 
         loop = asyncio.get_running_loop()
-        try:
-            results = await loop.run_in_executor(
-                None,
-                lambda: self.collection.query(
-                    query_texts=[semantic_query],
-                    n_results=1,
-                ),
-            )
-        except Exception as e:
-            logger.error(f"ChromaDB lookup failed: {e}")
-            return None
+        results = await loop.run_in_executor(
+            None,
+            lambda: self.collection.query(
+                query_texts=[semantic_query],
+                n_results=1,
+            ),
+        )
 
         if results["ids"] and results["distances"] and len(results["distances"][0]) > 0:
             distance = results["distances"][0][0]
@@ -125,7 +124,11 @@ class SemanticRouter:
         self, query: str, context: Dict[str, Any] = None
     ) -> Optional[tuple[RouterDecision, float]]:
         """Returns (decision, distance) only if distance passes the similarity threshold."""
-        result = await self._query_nearest(query, context)
+        try:
+            result = await self.query_nearest(query, context)
+        except Exception as e:
+            logger.error(f"ChromaDB lookup failed: {e}")
+            return None
         if result and result[1] < (1 - ROUTER_SIMILARITY_THRESHOLD):
             return result
         return None

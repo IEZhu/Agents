@@ -7,7 +7,7 @@ Queries are multilingual (EN, RU, DE, ES, FR) and depersonalized.
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from cachetools import TTLCache
 
 from src.server import _is_meta_query, _normalize_chat_history
@@ -236,7 +236,7 @@ class TestStickyRouting:
         """With sticky agent and completely empty cache, keep current agent."""
         self.srv.CONTEXT_HASH_CACHE["prev_hash"] = "medical_expert"
 
-        with patch.object(self.srv.router, "_query_nearest",
+        with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=None), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
                    return_value=self._make_enrich_result("medical_expert")), \
@@ -258,7 +258,7 @@ class TestStickyRouting:
         cached = RouterDecision(target_agent="sysadmin", confidence=1.0,
                                 reasoning="Cached", is_cached=True)
 
-        with patch.object(self.srv.router, "_query_nearest",
+        with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=(cached, 0.01)), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
                    return_value=self._make_enrich_result("sysadmin")), \
@@ -278,7 +278,7 @@ class TestStickyRouting:
         cached = RouterDecision(target_agent="daily_briefing", confidence=1.0,
                                 reasoning="Cached", is_cached=True)
 
-        with patch.object(self.srv.router, "_query_nearest",
+        with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=(cached, 0.005)), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
                    return_value=self._make_enrich_result("daily_briefing")), \
@@ -297,7 +297,7 @@ class TestStickyRouting:
         cached = RouterDecision(target_agent="daily_briefing", confidence=1.0,
                                 reasoning="Cached", is_cached=True)
 
-        with patch.object(self.srv.router, "_query_nearest",
+        with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=(cached, 0.04)), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
                    return_value=self._make_enrich_result("software_engineer")), \
@@ -317,7 +317,7 @@ class TestStickyRouting:
         far_match = RouterDecision(target_agent="daily_briefing", confidence=1.0,
                                    reasoning="Cached", is_cached=True)
 
-        with patch.object(self.srv.router, "_query_nearest",
+        with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=(far_match, 0.15)), \
              patch.object(self.srv.router, "lookup_cache", new_callable=AsyncMock, return_value=None), \
              patch.object(self.srv.router, "get_agent_catalog", return_value=[{"name": "universal_agent"}]):
@@ -342,6 +342,20 @@ class TestStickyRouting:
             assert result["agent"] == "universal_agent"
 
     @pytest.mark.asyncio
+    async def test_sticky_releases_on_lookup_error(self):
+        """When ChromaDB query fails, release to ROUTE_REQUIRED instead of keeping sticky."""
+        self.srv.CONTEXT_HASH_CACHE["prev_hash"] = "software_engineer"
+
+        with patch.object(self.srv.router, "query_nearest",
+                          new_callable=AsyncMock, side_effect=RuntimeError("ChromaDB connection lost")), \
+             patch.object(self.srv.router, "get_agent_catalog", return_value=[{"name": "universal_agent"}]):
+            result = json.loads(await self.srv.route_and_load(
+                "Wie kann ich die Leistung meiner Datenbank optimieren?",
+                context_hash="prev_hash",
+            ))
+            assert result["status"] == "ROUTE_REQUIRED"
+
+    @pytest.mark.asyncio
     async def test_expired_context_hash_falls_through(self):
         """If context_hash is not in cache (expired), treat as non-sticky."""
         with patch.object(self.srv.router, "lookup_cache", new_callable=AsyncMock, return_value=None), \
@@ -357,7 +371,7 @@ class TestStickyRouting:
         """If enriched prompt produces the same hash, return NO_CHANGE."""
         self.srv.CONTEXT_HASH_CACHE["prev_hash"] = "software_engineer"
 
-        with patch.object(self.srv.router, "_query_nearest",
+        with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=None), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
                    return_value=("prompt", "prev_hash", ["s"], ["i"], "standard")), \

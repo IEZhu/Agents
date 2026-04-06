@@ -70,10 +70,10 @@ echo ""
 echo -e "${GREEN}Running: $PYTHON_BIN -m pytest tests/ -v $@${NC}"
 echo ""
 
+set +e  # Allow pytest to fail without aborting — we handle exit code below
 $PYTHON_BIN -m pytest tests/ -v "$@"
-
-# Capture exit code
 TEST_EXIT_CODE=$?
+set -e
 
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then
