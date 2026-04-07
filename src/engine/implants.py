@@ -120,7 +120,7 @@ class ImplantRetriever:
             logger.info(f"Successfully indexed {len(documents)} implants.")
 
     @observe(name="retrieve_implants")
-    def retrieve(self, query: str, n_results: int = 3, context: Dict[str, Any] = None, role: Optional[str] = None, agent_context: Optional[str] = None, preferred_implants: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, n_results: int = 3, context: Optional[Dict[str, Any]] = None, role: Optional[str] = None, agent_context: Optional[str] = None, preferred_implants: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves relevant implants for a given query.
         If preferred_implants are provided, loads them directly (like preferred_skills).

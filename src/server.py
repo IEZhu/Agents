@@ -167,7 +167,9 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
 
     enrichment = await enrich_agent_prompt(
         agent_name, base_prompt, query, chat_history_list,
-        preferred_skills, tier, capabilities, preferred_implants
+        preferred_skills, tier,
+        capabilities=capabilities,
+        preferred_implants=preferred_implants,
     )
     final_prompt = enrichment.prompt
     SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded)

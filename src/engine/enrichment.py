@@ -92,7 +92,11 @@ async def get_dynamic_context_string(
     if tier in ("standard", "deep"):
         try:
             from src.engine.config import MAX_PREFERRED_IMPLANTS
-            n_implants = 2 if tier == "standard" else min(max(3, len(preferred_implants or [])), MAX_PREFERRED_IMPLANTS)
+            _n_preferred = len(preferred_implants or [])
+            if tier == "standard":
+                n_implants = max(2, _n_preferred) if _n_preferred else 2
+            else:
+                n_implants = min(max(3, _n_preferred), MAX_PREFERRED_IMPLANTS)
             _preferred = preferred_implants  # capture for closure
             implants = await loop.run_in_executor(
                 None,

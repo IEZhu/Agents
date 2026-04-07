@@ -459,9 +459,10 @@ class TestPreferredImplants:
             await self.srv._load_and_enrich("math_scientist", "solve x^2 = 4", [])
             mock_enrich.assert_called_once()
             call_kwargs = mock_enrich.call_args
-            # preferred_implants is the 8th positional arg (index 7)
-            args = call_kwargs[0]
-            assert args[7] == ["implant-chain-of-code", "implant-program-of-thoughts"]
+            # preferred_implants is passed as a keyword argument
+            assert call_kwargs.kwargs["preferred_implants"] == [
+                "implant-chain-of-code", "implant-program-of-thoughts"
+            ]
 
     @pytest.mark.asyncio
     async def test_empty_preferred_implants_no_promotion(self):
