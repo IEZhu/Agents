@@ -1,0 +1,12 @@
+---
+description: Self-Refine. Iterative self-improvement without external feedback. Generate→Critique→Refine loop.
+globs: []
+alwaysApply: false
+short_name: SelfRefine
+one_liner: iterative self-improvement via internal critique
+---
+## Pattern
+1. **Generate**: Produce initial solution.
+2. **Critique**: Evaluate your own output — what is weak, missing, or incorrect?
+3. **Refine**: Improve the solution based on self-critique.
+4. **Stop**: When critique finds no significant issues, output the final version.

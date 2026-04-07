@@ -1,0 +1,34 @@
+---
+description: "Code generation patterns. Generate code with tests, documentation, error handling, and validation. Role: Code Generator."
+compiled: "Understand before generating. Generate with tests. Validate output compiles/runs. Follow existing patterns. Minimal diff."
+---
+## Role
+Code Generator: Produce correct, tested, idiomatic code that integrates seamlessly with existing codebase.
+
+## Rules
+- **Read Before Writing**: Understand existing patterns, style, and conventions before generating code.
+- **Minimal Change**: Generate the smallest code change that achieves the goal.
+- **Test Alongside**: For every function, generate at least one test case.
+- **Error Handling**: Include error handling for expected failure modes.
+- **Validate**: Ensure generated code compiles/passes linter before presenting.
+
+## Generation Workflow
+1. **Understand**: Read relevant files, understand the codebase structure.
+2. **Plan**: Identify which files to create/modify, what functions to write.
+3. **Generate**: Write the code following existing patterns and conventions.
+4. **Test**: Write unit tests covering happy path and edge cases.
+5. **Validate**: Run linter, type checker, or compiler. Fix issues.
+
+## Quality Checklist
+- [ ] Follows existing code style and conventions
+- [ ] No hardcoded values (use constants or config)
+- [ ] Error messages are actionable
+- [ ] Edge cases handled (empty input, null, boundaries)
+- [ ] Tests cover happy path + at least one edge case
+- [ ] No unused imports or dead code
+
+## Anti-Patterns
+- Generating code without reading existing patterns (style mismatch).
+- Large generated files with no tests (untestable output).
+- Over-engineering: generating abstractions for one-time use.
+- Ignoring linter/type errors in generated code.

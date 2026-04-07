@@ -142,13 +142,14 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     loop = asyncio.get_running_loop()
     metadata = await loop.run_in_executor(None, get_agent_metadata, agent_name)
     preferred_skills = metadata.get("preferred_skills", [])
+    preferred_implants = metadata.get("preferred_implants", [])
     capabilities = metadata.get("capabilities", [])
 
-    # Promote tier to at least "standard" when agent declares skills/capabilities,
+    # Promote tier to at least "standard" when agent declares skills/capabilities/implants,
     # but only if tier was inferred (not explicitly set by the caller)
-    if not tier_explicit and tier == "lite" and (preferred_skills or capabilities):
+    if not tier_explicit and tier == "lite" and (preferred_skills or capabilities or preferred_implants):
         tier = "standard"
-        logger.info(f"Tier promoted to 'standard' for {agent_name} (has preferred_skills or capabilities)")
+        logger.info(f"Tier promoted to 'standard' for {agent_name} (has preferred_skills, capabilities, or preferred_implants)")
 
     query_hash = hash(query)
     cache_key = f"{agent_name}:{query_hash}:{tier}"
@@ -166,7 +167,9 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
 
     enrichment = await enrich_agent_prompt(
         agent_name, base_prompt, query, chat_history_list,
-        preferred_skills, tier, capabilities
+        preferred_skills, tier,
+        capabilities=capabilities,
+        preferred_implants=preferred_implants,
     )
     final_prompt = enrichment.prompt
     SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded)
@@ -175,7 +178,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     debug_log("_load_and_enrich", "res", {
         "agent": agent_name, "tier": tier, "cache": "miss",
         "prompt_len": len(final_prompt), "preferred_skills": preferred_skills,
-        "capabilities": capabilities,
+        "preferred_implants": preferred_implants, "capabilities": capabilities,
         "skills_loaded": enrichment.skills_loaded,
         "implants_loaded": enrichment.implants_loaded,
     })
@@ -454,13 +457,13 @@ async def load_implants(
       - query: free-form semantic search across all implants
 
     task_type bundles:
-      debugging  → chain-of-code, reflexion
+      debugging  → chain-of-code, reflexion, react
       analysis   → step-back-prompting, chain-of-verification
       creative   → analogical-prompting, generated-knowledge
       planning   → plan-and-solve, skeleton-of-thought
     """
     TASK_IMPLANT_MAP = {
-        "debugging": ["implant-chain-of-code", "implant-reflexion"],
+        "debugging": ["implant-chain-of-code", "implant-reflexion", "implant-react"],
         "analysis": ["implant-step-back-prompting", "implant-chain-of-verification"],
         "creative": ["implant-analogical-prompting", "implant-generated-knowledge"],
         "planning": ["implant-plan-and-solve-plus", "implant-skeleton-of-thought"],

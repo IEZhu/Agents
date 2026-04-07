@@ -386,6 +386,103 @@ class TestStickyRouting:
 
 
 # ---------------------------------------------------------------------------
+# _load_and_enrich: preferred_implants support
+# ---------------------------------------------------------------------------
+
+class TestPreferredImplants:
+    """Test preferred_implants tier promotion and forwarding in _load_and_enrich."""
+
+    @pytest.fixture(autouse=True)
+    def setup_caches(self):
+        import src.server as srv
+        self.srv = srv
+        self.original_session_cache = srv.SESSION_CACHE
+        self.original_ctx_cache = srv.CONTEXT_HASH_CACHE
+        srv.SESSION_CACHE = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
+        srv.CONTEXT_HASH_CACHE = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
+        yield
+        srv.SESSION_CACHE = self.original_session_cache
+        srv.CONTEXT_HASH_CACHE = self.original_ctx_cache
+
+    def _fake_enrichment(self, **kwargs):
+        from src.engine.enrichment import EnrichmentResult
+        return EnrichmentResult(prompt="enriched", skills_loaded=["s"], implants_loaded=["i"])
+
+    @pytest.mark.asyncio
+    async def test_tier_promoted_when_preferred_implants_present(self):
+        """Lite tier should be promoted to standard when agent has preferred_implants."""
+        metadata = {
+            "preferred_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+            "capabilities": [],
+        }
+
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()) as mock_enrich:
+            # Short query → would infer "lite", but preferred_implants promotes to "standard"
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "math_scientist", "hi", [])
+            assert effective_tier == "standard"
+
+    @pytest.mark.asyncio
+    async def test_tier_not_promoted_when_explicit(self):
+        """Explicitly set tier should NOT be promoted even with preferred_implants."""
+        metadata = {
+            "preferred_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+            "capabilities": [],
+        }
+
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()):
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "math_scientist", "hi", [], tier="lite")
+            assert effective_tier == "lite"
+
+    @pytest.mark.asyncio
+    async def test_preferred_implants_forwarded_to_enrichment(self):
+        """preferred_implants from metadata should be passed to enrich_agent_prompt."""
+        metadata = {
+            "preferred_skills": ["skill-math"],
+            "preferred_implants": ["implant-chain-of-code", "implant-program-of-thoughts"],
+            "capabilities": [],
+        }
+
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()) as mock_enrich:
+            await self.srv._load_and_enrich("math_scientist", "solve x^2 = 4", [])
+            mock_enrich.assert_called_once()
+            call_kwargs = mock_enrich.call_args
+            # preferred_implants is passed as a keyword argument
+            assert call_kwargs.kwargs["preferred_implants"] == [
+                "implant-chain-of-code", "implant-program-of-thoughts"
+            ]
+
+    @pytest.mark.asyncio
+    async def test_empty_preferred_implants_no_promotion(self):
+        """Empty preferred_implants should NOT trigger tier promotion on its own."""
+        metadata = {
+            "preferred_skills": [],
+            "preferred_implants": [],
+            "capabilities": [],
+        }
+
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()):
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "universal_agent", "hi", [])
+            assert effective_tier == "lite"
+
+
+# ---------------------------------------------------------------------------
 # clear_session_cache clears both caches
 # ---------------------------------------------------------------------------
 

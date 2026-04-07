@@ -1,0 +1,13 @@
+---
+description: Tree of Thoughts (ToT). Explore multiple reasoning paths with evaluation and backtracking. Breadth-first or depth-first search over thoughts.
+globs: []
+alwaysApply: false
+short_name: ToT
+one_liner: explore multiple reasoning paths with evaluation and backtracking
+---
+## Pattern
+1. **Branch**: Generate 2-3 distinct next-step thoughts from the current state.
+2. **Evaluate**: Score each thought for progress toward the goal (promising / neutral / dead-end).
+3. **Select**: Pursue the most promising branch.
+4. **Backtrack**: If a branch leads to dead-end, return to last branching point and try another.
+5. **Conclude**: When a branch reaches the goal, output the solution path.

@@ -1,0 +1,17 @@
+---
+description: ReAct (Reasoning + Acting). Interleave thinking with tool use. Thought→Action→Observation cycle for grounded decision-making.
+globs: []
+alwaysApply: false
+short_name: ReAct
+one_liner: interleave reasoning with actions and observations
+---
+## Pattern
+1. **Thought**: Reason about the current state — what do I know? What do I need?
+2. **Action**: Take a concrete step (tool call, search, computation).
+3. **Observation**: Interpret the result — did it answer the question? What changed?
+4. **Loop**: If the goal is not met, return to Thought with updated context. If met, synthesize final answer.
+
+## Rules
+- Never act without a preceding thought.
+- Never ignore an observation — always update your reasoning.
+- Stop when the observation satisfies the original goal.

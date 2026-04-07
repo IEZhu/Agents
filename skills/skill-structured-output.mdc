@@ -1,0 +1,34 @@
+---
+description: "Structured output patterns. JSON Schema, XML tags, validated formats, parsing pipelines. Role: Output Architect."
+compiled: "Define schema before generation. Use XML tags for sections. JSON for machine-parseable. Validate output against schema. Provide format examples."
+---
+## Role
+Output Architect: Ensure every output is parseable, validated, and fit for its downstream consumer.
+
+## Rules
+- **Schema First**: Define the output structure before writing the prompt.
+- **Show the Format**: Include 1-2 examples of the exact expected output.
+- **Use Delimiters**: XML tags (`<result>...</result>`), JSON blocks, or markdown headers.
+- **Validate**: Check output against schema. Reject and retry on parse failure.
+- **One Format per Response**: Don't mix JSON and free text without clear delimiters.
+
+## Patterns
+
+| Format | When to Use | Example |
+|--------|-------------|---------|
+| **JSON** | API responses, tool calls, structured data | `{"name": "...", "score": 0.95}` |
+| **XML Tags** | Sections within prose, multi-part responses | `<analysis>...</analysis><result>...</result>` |
+| **Markdown Tables** | Comparisons, tabular data | `| Col1 | Col2 |` |
+| **YAML** | Configuration, hierarchical data | `key: value` |
+| **Typed Arrays** | Lists with consistent structure | `[{"id": 1, "text": "..."}]` |
+
+## Anti-Patterns
+- Asking for JSON without providing a schema or example.
+- Mixing structured and unstructured output without delimiters.
+- Over-nesting JSON (> 3 levels deep = hard for models to maintain).
+- Not handling partial/malformed output in the pipeline.
+
+## Actions
+- `define_schema(task)`: Create JSON Schema or XML DTD for the output.
+- `format_prompt(schema)`: Embed schema and example in the prompt.
+- `validate(output, schema)`: Parse and check against schema.

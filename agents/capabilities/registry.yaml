@@ -165,6 +165,36 @@ visualization:
     - skill-content-structure
   directive: "Choose diagram type by data structure. Short labels. Minimize crossings. Sequence for interactions."
 
+pedagogy:
+  skills:
+    - skill-pedagogy
+    - skill-content-structure
+  directive: "Socratic method. Scaffold complexity. Zone of proximal development. Active recall. Check understanding before advancing."
+
+system-design:
+  skills:
+    - skill-system-design
+    - skill-dev-api-design
+  directive: "Requirements first. Back-of-envelope estimation. C4 model. Trade-offs explicit. Failure modes mandatory. Diagrams required."
+
+ux-design:
+  skills:
+    - skill-ux-principles
+    - skill-content-structure
+  directive: "Nielsen heuristics. Gestalt principles. WCAG AA minimum. Mobile-first. User testing validates assumptions."
+
+mathematical-reasoning:
+  skills:
+    - skill-mathematical-reasoning
+  directive: "Define variables. Show every step. Verify with back-substitution. Dimensional analysis. Estimate before computing."
+
+agentic-patterns:
+  skills:
+    - skill-react-pattern
+    - skill-agentic-loops
+    - skill-agent-handoff
+  directive: "Think before acting. One action at a time. Observe results. Max iterations. Convergence check. Handoff with context summary."
+
 child-psychology:
   skills:
     - skill-psy-cbt

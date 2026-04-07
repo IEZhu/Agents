@@ -120,12 +120,58 @@ class ImplantRetriever:
             logger.info(f"Successfully indexed {len(documents)} implants.")
 
     @observe(name="retrieve_implants")
-    def retrieve(self, query: str, n_results: int = 3, context: Dict[str, Any] = None, role: Optional[str] = None, agent_context: Optional[str] = None) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, n_results: int = 3, context: Optional[Dict[str, Any]] = None, role: Optional[str] = None, agent_context: Optional[str] = None, preferred_implants: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves relevant implants for a given query.
+        If preferred_implants are provided, loads them directly (like preferred_skills).
         """
         if self.collection.count() == 0:
             return []
+
+        # --- Preferred implants fast-path with semantic top-up ---
+        preferred_loaded: list[dict] = []
+        preferred_ids_loaded: set[str] = set()
+        if preferred_implants:
+            # Apply n_results cap before fetching to avoid unnecessary Chroma work
+            all_target_ids = [
+                f"{pi}.mdc" if not pi.endswith(".mdc") else pi
+                for pi in preferred_implants
+            ]
+            target_ids = all_target_ids[:n_results]
+            try:
+                results = self.collection.get(ids=target_ids)
+                if results['ids']:
+                    # Build lookup map: id → (meta, content) for deterministic ordering
+                    lookup = {}
+                    for i, implant_id in enumerate(results['ids']):
+                        meta = results['metadatas'][i] or {}
+                        content = meta.get('body', results['documents'][i])
+                        lookup[implant_id] = (meta, content)
+                    missing = [tid for tid in target_ids if tid not in lookup]
+                    if missing:
+                        logger.warning(f"Preferred implants not found in index: {missing}")
+                    for tid in target_ids:
+                        if tid in lookup:
+                            meta, content = lookup[tid]
+                            preferred_loaded.append({
+                                "filename": tid,
+                                "content": content,
+                                "metadata": meta,
+                                "distance": 0.0,
+                            })
+                            preferred_ids_loaded.add(tid)
+                logger.info(f"Loaded {len(preferred_loaded)}/{len(target_ids)} preferred implants (cap={n_results})")
+            except Exception as e:
+                logger.warning(f"Failed to retrieve preferred implants {target_ids}: {e}")
+
+            # If all slots filled, return early without semantic search
+            if len(preferred_loaded) >= n_results:
+                return preferred_loaded
+
+            # Otherwise fall through to semantic search for remaining slots.
+            # n_results is already bounded by MAX_PREFERRED_IMPLANTS from the caller,
+            # so remaining alone is the correct cap for semantic top-up.
+            n_results = n_results - len(preferred_loaded)
 
         # Handle legacy agent_context param (treat as role)
         if agent_context and not role:
@@ -150,28 +196,33 @@ class ImplantRetriever:
             n_results=min(n_results * 3, self.collection.count()),
         )
 
-        implants = []
+        semantic_implants = []
 
         if candidates['ids'] and candidates['distances']:
             for i, distance in enumerate(candidates['distances'][0]):
                 if distance < IMPLANTS_RELEVANCE_THRESHOLD:
+                    cid = candidates['ids'][0][i]
+                    # Skip implants already loaded via preferred path
+                    if cid in preferred_ids_loaded:
+                        continue
                     meta = candidates['metadatas'][0][i] or {}
                     content = meta.get('body', candidates['documents'][0][i])
-                    implants.append({
-                        "filename": candidates['ids'][0][i],
+                    semantic_implants.append({
+                        "filename": cid,
                         "content": content,
                         "metadata": meta,
                         "distance": distance,
                     })
 
-        implants.sort(key=lambda x: x["distance"])
-        implants = implants[:n_results]
+        semantic_implants.sort(key=lambda x: x["distance"])
+        semantic_implants = semantic_implants[:n_results]
 
-        if implants:
-            names = [(imp["metadata"].get("short_name", imp["filename"]), f"{imp['distance']:.3f}") for imp in implants]
+        if semantic_implants:
+            names = [(imp["metadata"].get("short_name", imp["filename"]), f"{imp['distance']:.3f}") for imp in semantic_implants]
             logger.info(f"Selected implants: {names}")
 
-        return implants
+        # Prepend preferred implants (if any) before semantic results
+        return preferred_loaded + semantic_implants
 
     def get_catalog(self) -> str:
         """Return a compact catalog of all implants (short_name + one_liner).

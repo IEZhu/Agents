@@ -43,6 +43,7 @@ async def get_dynamic_context_string(
     preferred_skills: Optional[List[str]] = None,
     tier: Tier = "standard",
     capabilities: Optional[List[str]] = None,
+    preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
     """Retrieve and format dynamic context (Skills + Implants) based on tier."""
     if chat_history is None:
@@ -90,10 +91,19 @@ async def get_dynamic_context_string(
 
     if tier in ("standard", "deep"):
         try:
-            n_implants = 2 if tier == "standard" else 3
+            from src.engine.config import MAX_PREFERRED_IMPLANTS, IMPLANTS_DEEP_TIER_DEFAULT
+            _n_preferred = len(preferred_implants or [])
+            if tier == "standard":
+                n_implants = min(max(2, _n_preferred), MAX_PREFERRED_IMPLANTS) if _n_preferred else 2
+            else:
+                n_implants = min(max(IMPLANTS_DEEP_TIER_DEFAULT, _n_preferred), MAX_PREFERRED_IMPLANTS)
+            _preferred = preferred_implants  # capture for closure
             implants = await loop.run_in_executor(
                 None,
-                lambda: implant_retriever.retrieve(query, n_results=n_implants, role=agent_name),
+                lambda: implant_retriever.retrieve(
+                    query, n_results=n_implants, role=agent_name,
+                    preferred_implants=_preferred if _preferred else None,
+                ),
             )
             if implants:
                 context_parts.append(implant_retriever.format_implants_for_prompt(implants))
@@ -121,6 +131,7 @@ async def enrich_agent_prompt(
     preferred_skills: Optional[List[str]] = None,
     tier: Optional[Tier] = None,
     capabilities: Optional[List[str]] = None,
+    preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
     """Enrich the base system prompt with dynamic skills and implants."""
     if chat_history is None:
@@ -129,7 +140,7 @@ async def enrich_agent_prompt(
         tier = infer_tier(query)
 
     enrichment = await get_dynamic_context_string(
-        agent_name, query, chat_history, preferred_skills, tier, capabilities
+        agent_name, query, chat_history, preferred_skills, tier, capabilities, preferred_implants
     )
     if enrichment.prompt:
         base_prompt += f"\n\n{enrichment.prompt}"

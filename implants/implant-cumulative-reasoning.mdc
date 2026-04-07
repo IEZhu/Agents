@@ -1,0 +1,12 @@
+---
+description: Cumulative Reasoning. Build conclusions through incremental evidence accumulation. Each step adds one verified fact.
+globs: []
+alwaysApply: false
+short_name: CumulReason
+one_liner: build conclusions by incrementally accumulating verified evidence
+---
+## Pattern
+1. **Seed**: State the initial known fact or observation.
+2. **Accumulate**: Add one new verified fact at a time, checking consistency with prior facts.
+3. **Synthesize**: After sufficient evidence, derive the conclusion.
+4. **Audit**: Review the chain — is every step warranted? Remove any unsupported leaps.
