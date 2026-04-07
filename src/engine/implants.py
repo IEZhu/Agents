@@ -129,10 +129,12 @@ class ImplantRetriever:
             return []
 
         if preferred_implants:
-            target_ids = [
+            # Apply n_results cap before fetching to avoid unnecessary Chroma work
+            all_target_ids = [
                 f"{pi}.mdc" if not pi.endswith(".mdc") else pi
                 for pi in preferred_implants
             ]
+            target_ids = all_target_ids[:n_results]
             implants = []
             try:
                 results = self.collection.get(ids=target_ids)
@@ -156,8 +158,6 @@ class ImplantRetriever:
                                 "metadata": meta,
                                 "distance": 0.0,
                             })
-                # Respect caller's n_results cap to avoid blowing up prompt size
-                implants = implants[:n_results]
                 logger.info(f"Loaded {len(implants)}/{len(target_ids)} preferred implants (cap={n_results})")
                 return implants
             except Exception as e:
