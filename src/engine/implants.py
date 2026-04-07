@@ -7,7 +7,7 @@ from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any, Optional
 from src.utils.prompt_loader import split_frontmatter
 
-from src.engine.config import IMPLANTS_DIR, IMPLANTS_RELEVANCE_THRESHOLD, CHROMA_PATH
+from src.engine.config import IMPLANTS_DIR, IMPLANTS_RELEVANCE_THRESHOLD, IMPLANTS_DEEP_TIER_DEFAULT, CHROMA_PATH
 from src.engine.chroma import get_chroma_client, get_embedding_fn
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ class ImplantRetriever:
                 logger.warning(f"Failed to retrieve preferred implants {target_ids}: {e}")
                 # Reset n_results to tier default so the semantic search fallback
                 # doesn't inherit the inflated cap from preferred_implants
-                n_results = min(n_results, 3)
+                n_results = min(n_results, IMPLANTS_DEEP_TIER_DEFAULT)
 
         # Handle legacy agent_context param (treat as role)
         if agent_context and not role:
