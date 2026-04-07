@@ -17,6 +17,10 @@ routing:
   - capacity planning
   - infrastructure
   trigger_command: /architect
+context:
+  file_globs:
+  - '**/architecture/**'
+  - '**/docs/design/**'
 static_skills:
 - skill-system-design.mdc
 - skill-dev-api-design.mdc

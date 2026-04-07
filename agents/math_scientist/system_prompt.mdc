@@ -21,6 +21,12 @@ routing:
   - linear algebra
   - geometry
   trigger_command: /math
+context:
+  file_globs:
+  - '**/*.ipynb'
+  - '**/*.m'
+  - '**/*.r'
+  - '**/*.R'
 static_skills:
 - skill-mathematical-reasoning.mdc
 preferred_skills:

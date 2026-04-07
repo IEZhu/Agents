@@ -137,6 +137,11 @@ class ImplantRetriever:
             try:
                 results = self.collection.get(ids=target_ids)
                 if results['ids']:
+                    # Preserve requested order; log any IDs not found in the collection
+                    found_ids = set(results['ids'])
+                    missing = [tid for tid in target_ids if tid not in found_ids]
+                    if missing:
+                        logger.warning(f"Preferred implants not found in index: {missing}")
                     for i, implant_id in enumerate(results['ids']):
                         meta = results['metadatas'][i] or {}
                         content = meta.get('body', results['documents'][i])
@@ -146,7 +151,9 @@ class ImplantRetriever:
                             "metadata": meta,
                             "distance": 0.0,
                         })
-                logger.info(f"Loaded {len(implants)} preferred implants: {target_ids}")
+                # Respect caller's n_results cap to avoid blowing up prompt size
+                implants = implants[:n_results]
+                logger.info(f"Loaded {len(implants)}/{len(target_ids)} preferred implants (cap={n_results})")
                 return implants
             except Exception as e:
                 logger.warning(f"Failed to retrieve preferred implants {target_ids}: {e}")

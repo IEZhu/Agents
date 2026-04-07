@@ -18,6 +18,8 @@ routing:
   - education
   - student
   trigger_command: /tutor
+context:
+  file_globs: []
 static_skills:
 - skill-pedagogy.mdc
 - skill-content-structure.mdc

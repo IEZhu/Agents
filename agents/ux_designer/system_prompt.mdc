@@ -19,6 +19,11 @@ routing:
   - responsive
   - design system
   trigger_command: /ux
+context:
+  file_globs:
+  - '**/*.css'
+  - '**/*.scss'
+  - '**/*.figma'
 static_skills:
 - skill-ux-principles.mdc
 - skill-content-structure.mdc
