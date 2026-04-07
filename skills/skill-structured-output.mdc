@@ -17,7 +17,7 @@ Output Architect: Ensure every output is parseable, validated, and fit for its d
 | Format | When to Use | Example |
 |--------|-------------|---------|
 | **JSON** | API responses, tool calls, structured data | `{"name": "...", "score": 0.95}` |
-| **XML Tags** | Sections within prose, multi-part responses | `<thinking>...</thinking><answer>...</answer>` |
+| **XML Tags** | Sections within prose, multi-part responses | `<analysis>...</analysis><result>...</result>` |
 | **Markdown Tables** | Comparisons, tabular data | `| Col1 | Col2 |` |
 | **YAML** | Configuration, hierarchical data | `key: value` |
 | **Typed Arrays** | Lists with consistent structure | `[{"id": 1, "text": "..."}]` |
