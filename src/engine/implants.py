@@ -120,12 +120,36 @@ class ImplantRetriever:
             logger.info(f"Successfully indexed {len(documents)} implants.")
 
     @observe(name="retrieve_implants")
-    def retrieve(self, query: str, n_results: int = 3, context: Dict[str, Any] = None, role: Optional[str] = None, agent_context: Optional[str] = None) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, n_results: int = 3, context: Dict[str, Any] = None, role: Optional[str] = None, agent_context: Optional[str] = None, preferred_implants: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves relevant implants for a given query.
+        If preferred_implants are provided, loads them directly (like preferred_skills).
         """
         if self.collection.count() == 0:
             return []
+
+        if preferred_implants:
+            target_ids = [
+                f"{pi}.mdc" if not pi.endswith(".mdc") else pi
+                for pi in preferred_implants
+            ]
+            implants = []
+            try:
+                results = self.collection.get(ids=target_ids)
+                if results['ids']:
+                    for i, implant_id in enumerate(results['ids']):
+                        meta = results['metadatas'][i] or {}
+                        content = meta.get('body', results['documents'][i])
+                        implants.append({
+                            "filename": implant_id,
+                            "content": content,
+                            "metadata": meta,
+                            "distance": 0.0,
+                        })
+                logger.info(f"Loaded {len(implants)} preferred implants: {target_ids}")
+                return implants
+            except Exception as e:
+                logger.warning(f"Failed to retrieve preferred implants {target_ids}: {e}")
 
         # Handle legacy agent_context param (treat as role)
         if agent_context and not role:

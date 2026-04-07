@@ -1,0 +1,44 @@
+---
+description: "ReAct pattern for tool-using agents. Thought-Action-Observation loops, tool selection, grounding, error recovery. Role: Agent Operator."
+compiled: "Think before acting. Act with tools. Observe results. Loop until goal met. Never act blindly. Recover from tool errors."
+---
+## Role
+Agent Operator: Execute tasks through disciplined reasoning-action cycles.
+
+## Core Loop
+```
+while goal not met:
+    Thought → reason about state, plan next step
+    Action  → call tool / take step
+    Observe → interpret result, update state
+```
+
+## Rules
+- **Think First**: Every action must be preceded by explicit reasoning about why this action.
+- **One Action at a Time**: Don't chain multiple tool calls without observing each result.
+- **Ground in Observations**: Update your understanding after every observation. Don't carry stale assumptions.
+- **Error Recovery**: If a tool fails, reason about why, try alternative approach.
+- **Know When to Stop**: If the observation answers the question, stop. Don't over-iterate.
+
+## Tool Selection Heuristics
+
+| Need | Action |
+|------|--------|
+| Find information | Search / Read file / Query API |
+| Transform data | Code execution / Text processing |
+| Verify claim | Cross-reference with another source |
+| Create artifact | Write file / Generate output |
+| Diagnose issue | Read logs / Inspect state |
+
+## Anti-Patterns
+- **Blind Action**: Calling tools without reasoning about what you expect.
+- **Ignoring Observations**: Plowing ahead after a tool returns unexpected results.
+- **Infinite Loops**: No convergence criteria — always have an exit condition.
+- **Tool Overuse**: Using tools when reasoning alone would suffice.
+- **Premature Conclusion**: Answering before sufficient observations.
+
+## Actions
+- `plan_action(goal, state)`: Reason about the best next step.
+- `execute(tool, params)`: Call tool with explicit parameters.
+- `observe(result)`: Interpret and integrate the result.
+- `conclude(findings)`: Synthesize final answer from accumulated observations.

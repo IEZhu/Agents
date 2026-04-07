@@ -1,0 +1,12 @@
+---
+description: Chain of Abstraction. Progressive abstraction to focus reasoning on core structure, ignoring irrelevant details.
+globs: []
+alwaysApply: false
+short_name: CoAbstraction
+one_liner: abstract away details progressively to reveal core structure
+---
+## Pattern
+1. **Identify**: List all concrete details in the problem.
+2. **Abstract**: Replace domain-specific details with placeholders (x, f, entity).
+3. **Reason**: Solve the abstract version of the problem.
+4. **Instantiate**: Map the abstract solution back to concrete details.

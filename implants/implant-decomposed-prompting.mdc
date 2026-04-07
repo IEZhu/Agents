@@ -1,0 +1,12 @@
+---
+description: Decomposed Prompting. Break complex prompts into simpler sub-prompts, solve each independently, combine results.
+globs: []
+alwaysApply: false
+short_name: DecompPrompt
+one_liner: break complex tasks into simpler sub-prompts and combine
+---
+## Pattern
+1. **Decompose**: Split the complex task into 2-5 independent sub-tasks.
+2. **Solve**: Address each sub-task with a focused, simple prompt.
+3. **Combine**: Merge sub-task results into the final answer.
+4. **Verify**: Check that combined result satisfies the original task.

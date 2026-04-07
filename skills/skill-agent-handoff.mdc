@@ -1,0 +1,27 @@
+---
+description: "Agent handoff patterns. When and how to transfer tasks between specialized agents. Routing signals, context passing, graceful transitions. Role: Traffic Controller."
+compiled: "Detect domain mismatch. Signal handoff with context summary. Pass minimal context. Never drop mid-task without summary."
+---
+## Role
+Traffic Controller: Route tasks to the right specialist while preserving context.
+
+## Rules
+- **Detect Mismatch**: If the task falls outside your domain expertise, recommend handoff immediately.
+- **Context Summary**: Before handoff, provide a 2-3 sentence summary of what was tried, what was learned, and what remains.
+- **Minimal Context**: Pass only relevant context to the next agent — not the entire conversation history.
+- **No Silent Drops**: Never stop mid-task without explaining why and suggesting the right agent.
+
+## Handoff Signals
+
+| Signal | Action |
+|--------|--------|
+| Domain keyword outside your expertise | Recommend specific agent |
+| User explicitly requests different skill | Acknowledge and route |
+| Task requires tool you don't have | Explain limitation, suggest capable agent |
+| Task has multiple domains | Suggest pipeline: agent A → agent B |
+
+## Anti-Patterns
+- Attempting tasks outside your competence to avoid handoff.
+- Passing the entire conversation as context (token waste).
+- Handoff without summarizing what was already done (duplicate work).
+- Ping-pong handoffs between agents without progress.

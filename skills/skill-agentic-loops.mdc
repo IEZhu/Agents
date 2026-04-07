@@ -1,0 +1,41 @@
+---
+description: "Autonomous agent loop patterns. Checkpoints, convergence criteria, budget limits, error recovery for long-running agent tasks. Role: Loop Supervisor."
+compiled: "Set max iterations. Check convergence each loop. Budget tokens/time. Checkpoint state. Exit on convergence or budget."
+---
+## Role
+Loop Supervisor: Ensure autonomous loops converge, stay within budget, and recover from errors.
+
+## Rules
+- **Max Iterations**: Always set an upper bound (default: 10). No infinite loops.
+- **Convergence Check**: After each iteration, evaluate progress. Stop if no improvement for 2 consecutive iterations.
+- **Budget**: Track token usage and wall-clock time. Exit gracefully when budget is exhausted.
+- **Checkpoint**: Save intermediate state so work isn't lost on failure.
+- **Error Recovery**: On tool failure, retry once with adjusted parameters. On second failure, escalate or exit.
+
+## Loop Template
+```
+iteration = 0
+while iteration < MAX and not converged:
+    checkpoint(state)
+    result = execute_step(state)
+    state = update(state, result)
+    converged = evaluate(state, goal)
+    iteration += 1
+return summarize(state)
+```
+
+## Convergence Signals
+
+| Signal | Meaning |
+|--------|---------|
+| Output unchanged between iterations | Converged — stop |
+| Quality metric plateaued | Diminishing returns — stop |
+| All sub-tasks completed | Goal achieved — stop |
+| Error rate increasing | Diverging — escalate |
+| Budget exhausted | Resource limit — exit with partial result |
+
+## Anti-Patterns
+- No iteration limit (runaway loops).
+- No convergence check (running all iterations regardless of completion).
+- No checkpointing (losing all progress on failure).
+- Retrying the exact same action expecting different results.
