@@ -168,10 +168,10 @@ class ImplantRetriever:
             if len(preferred_loaded) >= n_results:
                 return preferred_loaded
 
-            # Otherwise fall through to semantic search for remaining slots;
-            # reset n_results to remaining capacity
-            remaining = n_results - len(preferred_loaded)
-            n_results = min(remaining, IMPLANTS_DEEP_TIER_DEFAULT)
+            # Otherwise fall through to semantic search for remaining slots.
+            # n_results is already bounded by MAX_PREFERRED_IMPLANTS from the caller,
+            # so remaining alone is the correct cap for semantic top-up.
+            n_results = n_results - len(preferred_loaded)
 
         # Handle legacy agent_context param (treat as role)
         if agent_context and not role:
