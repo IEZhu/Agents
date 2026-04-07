@@ -162,6 +162,9 @@ class ImplantRetriever:
                 return implants
             except Exception as e:
                 logger.warning(f"Failed to retrieve preferred implants {target_ids}: {e}")
+                # Reset n_results to tier default so the semantic search fallback
+                # doesn't inherit the inflated cap from preferred_implants
+                n_results = min(n_results, 3)
 
         # Handle legacy agent_context param (treat as role)
         if agent_context and not role:
