@@ -137,20 +137,25 @@ class ImplantRetriever:
             try:
                 results = self.collection.get(ids=target_ids)
                 if results['ids']:
-                    # Preserve requested order; log any IDs not found in the collection
-                    found_ids = set(results['ids'])
-                    missing = [tid for tid in target_ids if tid not in found_ids]
-                    if missing:
-                        logger.warning(f"Preferred implants not found in index: {missing}")
+                    # Build lookup map: id → (meta, content) for deterministic ordering
+                    lookup = {}
                     for i, implant_id in enumerate(results['ids']):
                         meta = results['metadatas'][i] or {}
                         content = meta.get('body', results['documents'][i])
-                        implants.append({
-                            "filename": implant_id,
-                            "content": content,
-                            "metadata": meta,
-                            "distance": 0.0,
-                        })
+                        lookup[implant_id] = (meta, content)
+                    # Iterate in target_ids order so the agent's declared priority is preserved
+                    missing = [tid for tid in target_ids if tid not in lookup]
+                    if missing:
+                        logger.warning(f"Preferred implants not found in index: {missing}")
+                    for tid in target_ids:
+                        if tid in lookup:
+                            meta, content = lookup[tid]
+                            implants.append({
+                                "filename": tid,
+                                "content": content,
+                                "metadata": meta,
+                                "distance": 0.0,
+                            })
                 # Respect caller's n_results cap to avoid blowing up prompt size
                 implants = implants[:n_results]
                 logger.info(f"Loaded {len(implants)}/{len(target_ids)} preferred implants (cap={n_results})")
