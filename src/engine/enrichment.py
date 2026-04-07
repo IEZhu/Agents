@@ -94,7 +94,7 @@ async def get_dynamic_context_string(
             from src.engine.config import MAX_PREFERRED_IMPLANTS
             _n_preferred = len(preferred_implants or [])
             if tier == "standard":
-                n_implants = max(2, _n_preferred) if _n_preferred else 2
+                n_implants = min(max(2, _n_preferred), MAX_PREFERRED_IMPLANTS) if _n_preferred else 2
             else:
                 n_implants = min(max(3, _n_preferred), MAX_PREFERRED_IMPLANTS)
             _preferred = preferred_implants  # capture for closure
