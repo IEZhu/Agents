@@ -334,7 +334,7 @@ if [ "$SKIP_INDEX" = false ]; then
         echo ""
         echo -e "  ${CYAN}Select embedding model:${NC}"
         echo ""
-        echo -e "    ${GREEN}1)${NC} Full     — BAAI/bge-m3                                     ~1.1 GB  1024d  multilingual"
+        echo -e "    ${GREEN}1)${NC} Full     — intfloat/multilingual-e5-large                    ~1.1 GB  1024d  multilingual"
         echo -e "               Best quality. For powerful machines (32+ GB RAM)."
         echo ""
         echo -e "    ${GREEN}2)${NC} Balanced — paraphrase-multilingual-MiniLM-L12-v2            ~120 MB  384d   multilingual"
@@ -348,7 +348,7 @@ if [ "$SKIP_INDEX" = false ]; then
 
         case "$MODEL_CHOICE" in
             1)
-                CURRENT_MODEL="BAAI/bge-m3"
+                CURRENT_MODEL="intfloat/multilingual-e5-large"
                 ;;
             3)
                 CURRENT_MODEL="sentence-transformers/all-MiniLM-L6-v2"
@@ -376,7 +376,6 @@ with open(env_path, 'w') as f:
 
     print_step "Pre-downloading model and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
-    set +e
     EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
 import sys, os
 sys.path.insert(0, os.environ['REPO_ROOT'])
@@ -401,14 +400,7 @@ from src.engine.implants import ImplantRetriever
 ir = ImplantRetriever()
 print(f'Implants indexed: {ir.store.count()} entries', flush=True)
 " 2>&1
-    INDEX_EXIT=$?
-    set -e
-
-    if [ $INDEX_EXIT -eq 0 ]; then
-        print_success "Embedding model cached, skills & implants indexed"
-    else
-        print_warn "Pre-indexing failed — it will run on first MCP server start"
-    fi
+    print_success "Embedding model cached, skills & implants indexed"
 else
     print_step "Skipping pre-indexing (--skip-index)"
 fi
