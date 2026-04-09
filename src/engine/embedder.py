@@ -9,6 +9,7 @@ to apply model-specific instruction prefixes (e.g. "query: " / "passage: ").
 
 import logging
 import threading
+import warnings
 from typing import List
 
 import numpy as np
@@ -29,7 +30,12 @@ def _get_model():
                 from src.engine.config import EMBEDDING_MODEL
 
                 logger.info(f"Loading embedding model: {EMBEDDING_MODEL}")
-                _model = TextEmbedding(model_name=EMBEDDING_MODEL)
+                # Suppress fastembed pooling-change warnings — both indexing
+                # and querying use the same fastembed version, so embeddings
+                # are consistent regardless of the pooling strategy.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*now uses mean pooling.*")
+                    _model = TextEmbedding(model_name=EMBEDDING_MODEL)
                 logger.info("Embedding model loaded")
     return _model
 

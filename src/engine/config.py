@@ -21,8 +21,13 @@ ROUTER_SIMILARITY_THRESHOLD = float(os.getenv("ROUTER_SIMILARITY_THRESHOLD", "0.
 # auto-switch; ambiguous cases keep the current agent for stability.
 # Tune empirically if switches are too rare.
 STICKY_SWITCH_THRESHOLD = 0.02
+# Cosine distance thresholds (1 - similarity). Calibrated for
+# paraphrase-multilingual-MiniLM-L12-v2; typical distances:
+#   skills  0.39–0.63  → threshold 0.75 (comfortable margin)
+#   implants 0.52–0.72 → threshold 0.85 (implant descriptions are more
+#                         abstract, so distances run ~0.1 higher)
 SKILLS_RELEVANCE_THRESHOLD = float(os.getenv("SKILLS_RELEVANCE_THRESHOLD", "0.75"))
-IMPLANTS_RELEVANCE_THRESHOLD = float(os.getenv("IMPLANTS_RELEVANCE_THRESHOLD", "0.80"))
+IMPLANTS_RELEVANCE_THRESHOLD = float(os.getenv("IMPLANTS_RELEVANCE_THRESHOLD", "0.85"))
 MAX_PREFERRED_IMPLANTS = 5
 IMPLANTS_DEEP_TIER_DEFAULT = 3
 
