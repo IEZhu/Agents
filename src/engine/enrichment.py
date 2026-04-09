@@ -97,6 +97,7 @@ async def get_dynamic_context_string(
                 n_implants = min(max(2, _n_preferred), MAX_PREFERRED_IMPLANTS) if _n_preferred else 2
             else:
                 n_implants = min(max(IMPLANTS_DEEP_TIER_DEFAULT, _n_preferred), MAX_PREFERRED_IMPLANTS)
+            logger.info(f"Retrieving implants: tier={tier}, n_implants={n_implants}, preferred={preferred_implants}")
             _preferred = preferred_implants  # capture for closure
             implants = await loop.run_in_executor(
                 None,
@@ -105,6 +106,7 @@ async def get_dynamic_context_string(
                     preferred_implants=_preferred if _preferred else None,
                 ),
             )
+            logger.info(f"Implants retrieved: {len(implants)} results")
             if implants:
                 context_parts.append(implant_retriever.format_implants_for_prompt(implants))
                 loaded_implant_names = [
@@ -115,7 +117,7 @@ async def get_dynamic_context_string(
                 "**More reasoning implants available** — call `load_implants(query=...)` to load by topic."
             )
         except Exception as e:
-            logger.error(f"Failed to retrieve implants: {e}")
+            logger.error(f"Failed to retrieve implants: {e}", exc_info=True)
 
     return EnrichmentResult(
         prompt="\n\n".join(context_parts),
