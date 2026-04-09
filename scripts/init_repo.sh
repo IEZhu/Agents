@@ -376,6 +376,7 @@ with open(env_path, 'w') as f:
 
     print_step "Pre-downloading model and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
+    set +e
     EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
 import sys, os, shutil, glob
 sys.path.insert(0, os.environ['REPO_ROOT'])
@@ -422,7 +423,13 @@ from src.engine.implants import ImplantRetriever
 ir = ImplantRetriever()
 print(f'Implants indexed: {ir.store.count()} entries', flush=True)
 " 2>&1
-    print_success "Embedding model cached, skills & implants indexed"
+    INDEX_EXIT_CODE=$?
+    set -e
+    if [ $INDEX_EXIT_CODE -eq 0 ]; then
+        print_success "Embedding model cached, skills & implants indexed"
+    else
+        print_warn "Pre-indexing failed — it will run on first MCP server start"
+    fi
 else
     print_step "Skipping pre-indexing (--skip-index)"
 fi
