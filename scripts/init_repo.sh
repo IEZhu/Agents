@@ -337,7 +337,7 @@ if [ "$SKIP_INDEX" = false ]; then
         echo -e "    ${GREEN}1)${NC} Full     — intfloat/multilingual-e5-large                    ~1.1 GB  1024d  multilingual"
         echo -e "               Best quality. For powerful machines (32+ GB RAM)."
         echo ""
-        echo -e "    ${GREEN}2)${NC} Balanced — paraphrase-multilingual-MiniLM-L12-v2            ~120 MB  384d   multilingual"
+        echo -e "    ${GREEN}2)${NC} Balanced — sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  ~120 MB  384d   multilingual"
         echo -e "               Good quality, 9x lighter. For 16 GB machines. ${GREEN}(Recommended)${NC}"
         echo ""
         echo -e "    ${GREEN}3)${NC} Light    — sentence-transformers/all-MiniLM-L6-v2            ~22 MB   384d   English"
