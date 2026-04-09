@@ -65,6 +65,18 @@ class NumpyVectorStore:
                 self._ids = meta["ids"]
                 self._documents = meta["documents"]
                 self._metadatas = meta["metadatas"]
+
+                # Validate consistency between embeddings and metadata
+                n_emb = self._embeddings.shape[0]
+                n_ids = len(self._ids)
+                n_docs = len(self._documents)
+                n_meta = len(self._metadatas)
+                if not (n_emb == n_ids == n_docs == n_meta):
+                    raise ValueError(
+                        f"Length mismatch: embeddings={n_emb}, "
+                        f"ids={n_ids}, documents={n_docs}, metadatas={n_meta}"
+                    )
+
                 self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
 
                 logger.info(f"[{self.name}] Loaded {len(self._ids)} entries from disk")
@@ -99,6 +111,10 @@ class NumpyVectorStore:
                     if os.path.exists(tmp_npz_path):
                         os.unlink(tmp_npz_path)
                     raise
+            else:
+                # Remove stale .npz so _load() won't find mismatched files
+                if os.path.exists(self._npz_path):
+                    os.unlink(self._npz_path)
 
             # Save metadata
             meta = {
