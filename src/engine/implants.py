@@ -26,7 +26,9 @@ class ImplantRetriever:
 
     @staticmethod
     def _compute_dir_hash() -> str:
+        from src.engine.config import EMBEDDING_MODEL
         h = hashlib.md5()
+        h.update(EMBEDDING_MODEL.encode())
         for path in sorted(glob.glob(os.path.join(IMPLANTS_DIR, "*.mdc"))):
             h.update(path.encode())
             with open(path, "rb") as f:
