@@ -3,6 +3,7 @@ src/utils/__pycache__/
 src/schemas/__pycache__/
 src/engine/__pycache__/
 chroma_db/
+data/
 logs/
 node_modules/
 **/node_modules/

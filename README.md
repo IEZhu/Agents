@@ -55,7 +55,7 @@ ANTHROPIC_API_KEY=sk-ant-...  # Optional: for document OCR
 AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 ```
 
-> **Note**: Embeddings are handled locally by `sentence-transformers` (`BAAI/bge-m3`). No external API key is required for core routing.
+> **Note**: Embeddings are handled locally by `fastembed` (ONNX Runtime). Model is selected during setup — no external API key is required for core routing.
 
 ---
 
@@ -101,10 +101,11 @@ Agents/
 │   ├── server.py         # MCP Server entrypoint (FastMCP)
 │   ├── engine/
 │   │   ├── router.py     # Semantic routing (cache-first)
-│   │   ├── skills.py     # Skill retrieval (ChromaDB)
-│   │   ├── implants.py   # Implant retrieval (ChromaDB)
+│   │   ├── skills.py     # Skill retrieval (vector search)
+│   │   ├── implants.py   # Implant retrieval (vector search)
 │   │   ├── config.py     # Centralized configuration
-│   │   ├── chroma.py     # ChromaDB client singleton
+│   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
+│   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
 │   │   ├── capabilities.py # Capability registry resolution
 │   │   ├── context.py    # Context retrieval (history formatting)
@@ -113,7 +114,7 @@ Agents/
 │       ├── prompt_loader.py
 │       ├── debug_logger.py     # Optional JSON debug logging
 │       └── langfuse_compat.py  # Optional Langfuse layer
-├── chroma_db/            # Vector database (auto-initialized)
+├── data/                 # Vector store cache (auto-initialized)
 ├── mcp.json              # MCP server configuration
 ├── pyproject.toml        # Python project metadata
 └── requirements.txt

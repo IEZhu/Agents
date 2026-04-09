@@ -152,7 +152,7 @@ Techniques for breaking down complex problems:
 
 Implants are automatically selected based on query relevance:
 - Query is embedded
-- ChromaDB returns relevant implants
+- Vector search returns relevant implants
 - Top matches are injected into context
 
 ### 2. Explicit via MCP Tool
@@ -201,7 +201,7 @@ load_implants(query="How do I debug this race condition?")
    Output: "..."
    ```
 
-3. **Restart MCP server**: To re-index implants in ChromaDB
+3. **Restart MCP server**: To re-index implants
 
 ## Best Practices
 

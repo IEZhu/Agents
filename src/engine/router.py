@@ -9,19 +9,15 @@ from typing import List, Optional, Dict, Any
 from src.utils.prompt_loader import split_frontmatter
 
 from src.schemas.protocol import RouterDecision, AgentRequest
-from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR
-from src.engine.chroma import get_chroma_client, get_embedding_fn
+from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR
+
+ROUTER_CACHE_MAX_SIZE = 500
+from src.engine.vector_store import NumpyVectorStore
+from src.engine.embedder import embed_texts, embed_query
 
 class SemanticRouter:
     def __init__(self):
-        self.chroma_client = get_chroma_client()
-        self.embedding_fn = get_embedding_fn()
-
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="router_cache",
-            embedding_function=self.embedding_fn,
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.store = NumpyVectorStore(name="router_cache", data_dir=DATA_DIR)
 
         self.available_agents = self._scan_agents()
         self._agent_descriptions = self._load_agent_descriptions()
@@ -93,24 +89,22 @@ class SemanticRouter:
         the cache has no entries. No threshold is applied — the caller decides
         what to do with the distance.
 
-        Raises on ChromaDB errors so callers can distinguish empty cache from
+        Raises on errors so callers can distinguish empty cache from
         lookup failure and handle each appropriately.
         """
+        if self.store.count() == 0:
+            return None
+
         history_text = context.get("history_text", "") if context else ""
         semantic_query = f"{history_text[-200:]}\n{query}" if history_text else query
 
         loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(
-            None,
-            lambda: self.collection.query(
-                query_texts=[semantic_query],
-                n_results=1,
-            ),
-        )
+        query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
+        results = self.store.query(query_embedding=query_emb, n_results=1)
 
-        if results["ids"] and results["distances"] and len(results["distances"][0]) > 0:
-            distance = results["distances"][0][0]
-            metadata = results["metadatas"][0][0]
+        if results.ids and results.distances and len(results.distances) > 0:
+            distance = results.distances[0]
+            metadata = results.metadatas[0]
             decision = RouterDecision(
                 target_agent=metadata["target_agent"],
                 confidence=1.0,
@@ -129,7 +123,7 @@ class SemanticRouter:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"ChromaDB lookup failed: {e}")
+            logger.error(f"Vector store lookup failed: {e}")
             return None
         if result and result[1] < (1 - ROUTER_SIMILARITY_THRESHOLD):
             return result
@@ -146,18 +140,21 @@ class SemanticRouter:
         """
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(
-                None,
-                lambda: self.collection.add(
-                    documents=[query],
-                    metadatas=[{
-                        "target_agent": agent_name,
-                        "reasoning": reasoning,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }],
-                    ids=[request_id]
-                )
+            query_emb = await loop.run_in_executor(None, embed_query, query)
+            self.store.add(
+                ids=[request_id],
+                embeddings=query_emb.reshape(1, -1),
+                documents=[query],
+                metadatas=[{
+                    "target_agent": agent_name,
+                    "reasoning": reasoning,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }],
             )
+            # Trim and persist periodically (every 10 entries)
+            if self.store.count() % 10 == 0:
+                self.store.trim(ROUTER_CACHE_MAX_SIZE)
+                await loop.run_in_executor(None, self.store.save)
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
 
