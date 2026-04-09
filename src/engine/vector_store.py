@@ -56,8 +56,8 @@ class NumpyVectorStore:
         """Load from disk if files exist."""
         if os.path.exists(self._npz_path) and os.path.exists(self._meta_path):
             try:
-                data = np.load(self._npz_path)
-                self._embeddings = data["embeddings"]
+                with np.load(self._npz_path) as data:
+                    self._embeddings = data["embeddings"]
 
                 with open(self._meta_path, "r", encoding="utf-8") as f:
                     meta = json.load(f)
@@ -65,6 +65,12 @@ class NumpyVectorStore:
                 self._ids = meta["ids"]
                 self._documents = meta["documents"]
                 self._metadatas = meta["metadatas"]
+
+                # Validate embeddings shape (must be 2-D)
+                if self._embeddings.ndim != 2:
+                    raise ValueError(
+                        f"Expected 2-D embeddings, got ndim={self._embeddings.ndim}"
+                    )
 
                 # Validate consistency between embeddings and metadata
                 n_emb = self._embeddings.shape[0]
@@ -152,12 +158,14 @@ class NumpyVectorStore:
         if len(ids) == 0:
             return
 
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+
         with self._lock:
             # Fast path: full reindex (all new IDs or replacing everything)
             existing = [id_ for id_ in ids if id_ in self._id_to_idx]
             if not existing or len(existing) == len(self._ids):
                 # Full replace
-                self._embeddings = np.asarray(embeddings, dtype=np.float32)
+                self._embeddings = embeddings.copy()
                 self._ids = list(ids)
                 self._documents = list(documents)
                 self._metadatas = list(metadatas)
@@ -177,9 +185,7 @@ class NumpyVectorStore:
                         self._metadatas.append(metadatas[i])
                         self._id_to_idx[id_] = idx
                         if self._embeddings is None:
-                            self._embeddings = np.asarray(
-                                embeddings[i : i + 1], dtype=np.float32
-                            )
+                            self._embeddings = embeddings[i : i + 1].copy()
                         else:
                             self._embeddings = np.vstack(
                                 [self._embeddings, embeddings[i : i + 1]]

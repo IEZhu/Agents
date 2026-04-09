@@ -1,6 +1,5 @@
 """Tests for NumpyVectorStore: correctness, persistence, edge cases."""
 
-import os
 import tempfile
 
 import numpy as np
