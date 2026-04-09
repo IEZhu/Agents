@@ -2,6 +2,9 @@
 
 Replaces sentence-transformers + PyTorch with a ~10 MB dependency.
 Model is selected via EMBEDDING_MODEL env var (set during setup).
+
+Uses query_embed() for queries and passage_embed() for documents
+to apply model-specific instruction prefixes (e.g. "query: " / "passage: ").
 """
 
 import logging
@@ -32,11 +35,16 @@ def _get_model():
 
 
 def embed_texts(texts: List[str]) -> np.ndarray:
-    """Embed a list of texts. Returns (N, D) numpy array."""
+    """Embed documents/passages. Returns (N, D) numpy array."""
     model = _get_model()
-    return np.array(list(model.embed(texts)))
+    return np.array(list(model.passage_embed(texts)))
 
 
 def embed_query(text: str) -> np.ndarray:
-    """Embed a single query. Returns (D,) numpy array."""
-    return embed_texts([text])[0]
+    """Embed a single query. Returns (D,) numpy array.
+
+    Uses query_embed() which adds model-specific query prefixes
+    for better retrieval quality.
+    """
+    model = _get_model()
+    return np.array(list(model.query_embed([text])))[0]

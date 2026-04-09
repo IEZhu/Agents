@@ -1,19 +1,19 @@
+import asyncio
 import logging
 import os
-import asyncio
 from datetime import datetime, timezone
-from src.utils.langfuse_compat import observe
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional, Dict, Any
+
+from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR
+from src.engine.embedder import embed_query
+from src.engine.vector_store import NumpyVectorStore
+from src.schemas.protocol import RouterDecision, AgentRequest
+from src.utils.langfuse_compat import observe
 from src.utils.prompt_loader import split_frontmatter
 
-from src.schemas.protocol import RouterDecision, AgentRequest
-from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR
+logger = logging.getLogger(__name__)
 
 ROUTER_CACHE_MAX_SIZE = 500
-from src.engine.vector_store import NumpyVectorStore
-from src.engine.embedder import embed_texts, embed_query
 
 class SemanticRouter:
     def __init__(self):
@@ -151,10 +151,8 @@ class SemanticRouter:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }],
             )
-            # Trim and persist periodically (every 10 entries)
-            if self.store.count() % 10 == 0:
-                self.store.trim(ROUTER_CACHE_MAX_SIZE)
-                await loop.run_in_executor(None, self.store.save)
+            self.store.trim(ROUTER_CACHE_MAX_SIZE)
+            await loop.run_in_executor(None, self.store.save)
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
 
