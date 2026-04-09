@@ -377,17 +377,39 @@ with open(env_path, 'w') as f:
     print_step "Pre-downloading model and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
     EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
-import sys, os
+import sys, os, shutil, glob
 sys.path.insert(0, os.environ['REPO_ROOT'])
 os.environ.setdefault('EMBEDDING_MODEL', '$CURRENT_MODEL')
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.environ['REPO_ROOT'], '.env'))
 
-# 1. Download/cache the embedding model
+# 1. Download/cache the embedding model (with corrupt cache recovery)
 from src.engine.embedder import embed_texts
-embed_texts(['warmup'])
-print('Embedding model ready', flush=True)
+MAX_RETRIES = 2
+for attempt in range(MAX_RETRIES):
+    try:
+        embed_texts(['warmup'])
+        print('Embedding model ready', flush=True)
+        break
+    except Exception as e:
+        if attempt < MAX_RETRIES - 1:
+            print(f'Model load failed: {e}', flush=True)
+            print('Clearing corrupted model cache and retrying...', flush=True)
+            # Clear fastembed cache for this model
+            import tempfile
+            cache_dir = os.path.join(tempfile.gettempdir(), 'fastembed_cache')
+            if os.path.exists(cache_dir):
+                # Model name suffix (e.g. 'multilingual-e5-large' from 'intfloat/multilingual-e5-large')
+                model_suffix = '$CURRENT_MODEL'.split('/')[-1]
+                for d in glob.glob(os.path.join(cache_dir, f'models--*{model_suffix}*')):
+                    print(f'  Removing {d}', flush=True)
+                    shutil.rmtree(d, ignore_errors=True)
+            # Reset singleton so next call re-downloads
+            import src.engine.embedder as _emb
+            _emb._model = None
+        else:
+            raise
 
 # 2. Pre-index skills and implants
 print('Indexing skills...', flush=True)
