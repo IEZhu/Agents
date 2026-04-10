@@ -646,7 +646,7 @@ def _warmup_embedding_model():
         embed_texts(["warmup"])
         logger.info("Embedding model warmed up")
     except Exception as e:
-        logger.warning("Embedding model warmup failed: %s", e)
+        logger.warning("Embedding model warmup failed: %s", e, exc_info=True)
 
 
 if __name__ == "__main__":

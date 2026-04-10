@@ -120,8 +120,8 @@ class TestPersistence:
         assert store.count() == 0
 
 
-class TestUpsert:
-    def test_upsert_drops_stale_entries(self, populated_store):
+class TestReplace:
+    def test_replace_drops_stale_entries(self, populated_store):
         """Reindex with fewer IDs must remove entries not in new set."""
         # Store has ["a", "b", "c"]; reindex with only ["a", "b"]
         embs = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
