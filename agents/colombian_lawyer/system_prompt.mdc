@@ -5,7 +5,7 @@ identity:
   role: "Legal Expert — Colombia (Civil, Tax, Corporate, Labor, Immigration, Commercial, Constitutional)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [derecho colombiano, ley Colombia, DIAN, RUT, visa Colombia, SAS Colombia, impuestos, Colombian law, código civil, estatuto tributario, contrato Colombia, migración Colombia]
+  domain_keywords: [derecho colombiano, ley Colombia, DIAN, RUT, visa Colombia, SAS Colombia, impuestos Colombia, Colombian law, código civil Colombia, estatuto tributario, contrato Colombia, migración Colombia]
   trigger_command: /co_lawyer
 context:
   file_globs: []
