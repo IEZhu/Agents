@@ -540,15 +540,18 @@ class TestKeywordBoosting:
         assert matches[0][1] >= 1
 
     def test_match_keywords_token_fallback(self):
-        """Token-level matching: 'закон' (from 'закон рф') matches 'законодательству'."""
+        """Token-level matching: all significant tokens must appear in query."""
         r = self._make_router_with_keywords({
             "russian_lawyer": ["закон рф", "российское право"],
         })
+        # "закон рф" → tokens ["закон", "рф"] (both significant).
+        # Query has "закон" (via "законодательству") but NOT "рф" → no match
         matches = r.match_keywords("Проверить на соответствие российскому законодательству")
+        assert matches == []
+        # When both tokens present → match
+        matches = r.match_keywords("Проверить закон РФ на соответствие")
         assert len(matches) == 1
         assert matches[0][0] == "russian_lawyer"
-        # "закон" token (5 chars >= 4) is substring of "законодательству"
-        assert matches[0][1] >= 1
 
     def test_match_keywords_token_fallback_requires_all_tokens(self):
         """Multi-word keyword requires ALL significant tokens to match, not just any."""
@@ -561,6 +564,19 @@ class TestKeywordBoosting:
         # Both "security" and "audit" present → match via all()
         matches = r.match_keywords("Run a security audit on the API")
         assert len(matches) == 1
+
+    def test_match_keywords_retains_short_acronyms(self):
+        """Short alphabetic tokens like 'рф', 'ip', 'ai' are kept as significant."""
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["закон рф"],
+        })
+        # "закон рф" exact doesn't match, fallback tokens are ["закон", "рф"]
+        # "рф" (2 chars, all-alpha) is retained; both must match
+        matches = r.match_keywords("Анализ закон в РФ")
+        assert len(matches) == 1
+        # Only "закон" present without "рф" → no match (all() requires both)
+        matches = r.match_keywords("Новый закон принят")
+        assert matches == []
 
     # --- keyword_veto ---
 
@@ -612,16 +628,22 @@ class TestKeywordBoosting:
         result = r.keyword_veto("Анализ закон РФ", "alpha_agent")
         assert result is None
 
-    def test_universal_agent_keywords_excluded(self):
-        """universal_agent keywords are empty so it never wins by keywords."""
-        r = self._make_router_with_keywords({
-            "universal_agent": [],  # excluded at load time
-            "product_manager": ["plan", "roadmap"],
-        })
-        matches = r.match_keywords("Help me plan the project")
-        # Only product_manager should match (if it has "plan")
-        agent_names = [m[0] for m in matches]
-        assert "universal_agent" not in agent_names
+    def test_universal_agent_keywords_excluded_at_load(self):
+        """Verify the real _load_agent_descriptions sets universal_agent keywords
+        to empty, even though the frontmatter contains generic keywords."""
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router._agent_keywords.get("universal_agent") == []
+        # And verify it actually has frontmatter keywords that were skipped
+        import yaml, os
+        from src.engine.config import AGENTS_DIR
+        from src.utils.prompt_loader import split_frontmatter
+        path = os.path.join(AGENTS_DIR, "universal_agent", "system_prompt.mdc")
+        with open(path, "r", encoding="utf-8") as f:
+            fm_str, _ = split_frontmatter(f.read())
+        meta = yaml.safe_load(fm_str) or {}
+        raw_kw = meta.get("routing", {}).get("domain_keywords", [])
+        assert len(raw_kw) > 0, "universal_agent frontmatter should have keywords"
 
     @pytest.mark.asyncio
     async def test_standard_routing_keyword_override(self):

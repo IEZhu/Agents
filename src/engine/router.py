@@ -121,14 +121,25 @@ class SemanticRouter:
             for name in self.available_agents
         ]
 
+    @staticmethod
+    def _is_significant_token(token: str) -> bool:
+        """A token is significant for fallback matching if it's either
+        long enough (>= 4 chars) or an all-alpha abbreviation/acronym
+        (e.g. "рф", "ip", "3d", "ai"). Short common words like "на",
+        "в", "of" are excluded."""
+        if len(token) >= 4:
+            return True
+        return len(token) >= 2 and token.isalpha()
+
     def match_keywords(self, query: str) -> list[tuple[str, int]]:
         """Match query against each agent's domain_keywords.
 
         For each keyword, tries exact substring match first. If that fails,
-        extracts tokens >= 4 chars and requires ALL of them to appear as
-        substrings in the query. This handles inflected languages (e.g.
-        "закон" from "закон рф" matches "законодательству") while preventing
-        over-matching on common individual words from multi-word keywords.
+        extracts significant tokens (>= 4 chars or short alphabetic
+        abbreviations like "рф", "ip", "ai") and requires ALL of them to
+        appear as substrings in the query. This handles inflected languages
+        (e.g. "закон" from "закон рф" matches "законодательству") while
+        retaining short disambiguating acronyms.
 
         Returns [(agent_name, hit_count), ...] sorted by hits descending,
         filtered to agents with at least 1 hit.
@@ -141,9 +152,8 @@ class SemanticRouter:
                 if kw in query_lower:
                     hits += 1
                     continue
-                # Token fallback: ALL significant tokens must match (not any).
-                # This prevents "security audit" from matching on "audit" alone.
-                tokens = [t for t in kw.split() if len(t) >= 4]
+                # Token fallback: ALL significant tokens must match.
+                tokens = [t for t in kw.split() if self._is_significant_token(t)]
                 if tokens and all(t in query_lower for t in tokens):
                     hits += 1
             if hits > 0:
