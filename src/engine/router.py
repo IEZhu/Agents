@@ -150,7 +150,7 @@ class SemanticRouter:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"Vector store lookup failed: {e}")
+            logger.error("Vector store lookup failed: %s", e, exc_info=True)
             return None
         if result and result[1] < (1 - ROUTER_SIMILARITY_THRESHOLD):
             return result

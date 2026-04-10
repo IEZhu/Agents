@@ -10,6 +10,7 @@ import logging
 import os
 import tempfile
 import threading
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -45,6 +46,7 @@ class NumpyVectorStore:
 
         # In-memory state (guarded by _lock)
         self._embeddings: Optional[np.ndarray] = None  # (N, D) float32
+        self._normed: Optional[np.ndarray] = None  # (N, D) L2-normalized cache
         self._ids: List[str] = []
         self._documents: List[str] = []
         self._metadatas: List[Dict[str, Any]] = []
@@ -58,6 +60,7 @@ class NumpyVectorStore:
             try:
                 with np.load(self._npz_path) as data:
                     self._embeddings = data["embeddings"]
+                    npz_version = str(data["save_version"]) if "save_version" in data.files else ""
 
                 with open(self._meta_path, "r", encoding="utf-8") as f:
                     meta = json.load(f)
@@ -65,6 +68,13 @@ class NumpyVectorStore:
                 self._ids = meta["ids"]
                 self._documents = meta["documents"]
                 self._metadatas = meta["metadatas"]
+
+                # Verify both files were written in the same save() call
+                meta_version = meta.get("save_version", "")
+                if npz_version and meta_version and npz_version != meta_version:
+                    raise ValueError(
+                        f"Save version mismatch: npz={npz_version}, json={meta_version}"
+                    )
 
                 # Validate embeddings shape (must be 2-D)
                 if self._embeddings.ndim != 2:
@@ -84,6 +94,7 @@ class NumpyVectorStore:
                     )
 
                 self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
+                self._recompute_norms()
 
                 logger.info(f"[{self.name}] Loaded {len(self._ids)} entries from disk")
             except Exception as e:
@@ -104,10 +115,19 @@ class NumpyVectorStore:
 
     def _reset(self):
         self._embeddings = None
+        self._normed = None
         self._ids = []
         self._documents = []
         self._metadatas = []
         self._id_to_idx = {}
+
+    def _recompute_norms(self):
+        """Precompute L2-normalized embeddings for fast cosine queries."""
+        if self._embeddings is not None and len(self._ids) > 0:
+            norms = np.linalg.norm(self._embeddings, axis=1, keepdims=True) + 1e-10
+            self._normed = self._embeddings / norms
+        else:
+            self._normed = None
 
     def clear(self):
         """Public API: reset in-memory state under lock."""
@@ -115,9 +135,14 @@ class NumpyVectorStore:
             self._reset()
 
     def save(self):
-        """Persist to disk using atomic write (temp file + rename)."""
+        """Persist to disk using atomic write (temp file + rename).
+
+        Both files share a save_version UUID so _load() can detect a
+        crash between the two os.replace() calls.
+        """
         with self._lock:
             os.makedirs(self._data_dir, exist_ok=True)
+            version = uuid.uuid4().hex
 
             # Save embeddings
             if self._embeddings is not None and len(self._ids) > 0:
@@ -126,7 +151,8 @@ class NumpyVectorStore:
                 )
                 os.close(fd)
                 try:
-                    np.savez(tmp_npz_path, embeddings=self._embeddings)
+                    np.savez(tmp_npz_path, embeddings=self._embeddings,
+                             save_version=np.array(version))
                     os.replace(tmp_npz_path, self._npz_path)
                 except Exception:
                     if os.path.exists(tmp_npz_path):
@@ -142,6 +168,7 @@ class NumpyVectorStore:
                 "ids": self._ids,
                 "documents": self._documents,
                 "metadatas": self._metadatas,
+                "save_version": version,
             }
             fd, tmp_meta_path = tempfile.mkstemp(
                 dir=self._data_dir, suffix=".json"
@@ -213,6 +240,7 @@ class NumpyVectorStore:
             self._documents = list(documents)
             self._metadatas = list(metadatas)
             self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
+            self._recompute_norms()
 
     def add(
         self,
@@ -260,6 +288,7 @@ class NumpyVectorStore:
             self._metadatas.extend(new_metas)
             for i, id_ in enumerate(new_ids):
                 self._id_to_idx[id_] = base_idx + i
+            self._recompute_norms()
 
     def query(
         self,
@@ -284,10 +313,11 @@ class NumpyVectorStore:
                 )
 
             # Cosine distance = 1 - cosine_similarity
+            # _normed is precomputed on upsert/add/load to avoid per-query allocation
             query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-10)
-            norms = np.linalg.norm(self._embeddings, axis=1, keepdims=True) + 1e-10
-            normed = self._embeddings / norms
-            similarities = normed @ query_norm
+            if self._normed is None:
+                self._recompute_norms()
+            similarities = self._normed @ query_norm
             distances = 1.0 - similarities
 
             # Get top-n indices (use argsort for correctness at small N)
@@ -330,6 +360,7 @@ class NumpyVectorStore:
             self._documents = self._documents[keep_from:]
             self._metadatas = self._metadatas[keep_from:]
             self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
+            self._recompute_norms()
             logger.debug(f"[{self.name}] Trimmed to {max_size} entries")
 
     def get_all_metadatas(self) -> List[Dict[str, Any]]:
