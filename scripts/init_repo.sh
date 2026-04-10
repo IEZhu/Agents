@@ -325,7 +325,7 @@ if [ "$SKIP_INDEX" = false ]; then
     # Check if model is already configured
     CURRENT_MODEL=""
     if [ -f "$ENV_FILE" ]; then
-        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- || true)
+        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | sed "s/^['\"]//; s/['\"]$//; s/[[:space:]]*#.*//" | xargs || true)
     fi
 
     if [ -n "$CURRENT_MODEL" ]; then

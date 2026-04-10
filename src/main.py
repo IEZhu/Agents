@@ -48,11 +48,15 @@ class AgentSystem:
             system_prompt = "You are a helpful assistant."
 
         # 4. Load Relevant Implants (Langfuse Step 3 - Uses Context + Role)
-        implants = self.implant_retriever.retrieve(
-            user_query,
-            n_results=3,
-            context=ctx,
-            role=decision.target_agent
+        loop = asyncio.get_running_loop()
+        implants = await loop.run_in_executor(
+            None,
+            lambda: self.implant_retriever.retrieve(
+                user_query,
+                n_results=3,
+                context=ctx,
+                role=decision.target_agent,
+            ),
         )
         formatted_implants = self.implant_retriever.format_implants_for_prompt(implants)
 
