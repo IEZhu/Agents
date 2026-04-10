@@ -202,8 +202,8 @@ class ImplantRetriever:
 
         search_query = "\n".join(search_parts)
         logger.debug(
-            "Retrieving implants: query_len=%d, has_role=%s, has_context=%s",
-            len(query), bool(role), bool(context),
+            "Retrieving implants: search_len=%d, has_role=%s, has_context=%s",
+            len(search_query), bool(role), bool(context),
         )
 
         query_emb = embed_query(search_query)
