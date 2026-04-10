@@ -1,11 +1,24 @@
 ---
-description: Logic of Thought (LoT). Formal logical reasoning. Propositions to inference to conclusion.
+description: Logic of Thought (LoT). Formal logical reasoning. Extract propositions, apply inference rules, derive conclusion.
 globs: []
 alwaysApply: false
 short_name: LoT
 one_liner: formal logical reasoning with propositions
 ---
 ## Pattern
-1. **Propositions**: Extract explicit premises from context.
-2. **Inference**: Apply logical rules (modus ponens, contrapositive, etc.).
-3. **Conclusion**: Derive result. Flag if premises are insufficient.
+1. **Propositions**: Extract explicit premises from context as formal statements (P, Q, R...).
+2. **Inference**: Apply logical rules — modus ponens, contrapositive, transitive law, disjunctive syllogism, etc.
+3. **Conclusion**: Derive the result. Flag if premises are insufficient or contradictory.
+
+## When to Use
+- Puzzles and logic problems requiring formal reasoning
+- Legal reasoning and rule interpretation with logical conditions
+- Standardized test questions (LSAT, GRE logic)
+- Tasks requiring logical consistency checking
+- Outperforms CoT on tasks requiring strict logical deduction
+
+## Limitations
+- Not all reasoning is reducible to formal logic — semantic nuance is lost
+- Extracting correct propositions from natural language is error-prone
+- Overkill for commonsense reasoning or creative tasks
+- Assumes premises are complete — missing information leads to wrong conclusions

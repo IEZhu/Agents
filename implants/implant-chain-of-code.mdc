@@ -7,5 +7,17 @@ one_liner: pseudocode-driven reasoning for logic and math
 ---
 ## Pattern
 1. **Pseudocode**: Express the problem as pseudocode or algorithm.
-2. **Mental Simulation**: Trace execution step by step.
+2. **Mental Simulation**: Trace execution step by step, tracking variable states.
 3. **Answer**: Extract result from the trace.
+
+## When to Use
+- Multi-step math and arithmetic where tracking state helps
+- Logic puzzles with clear rules and conditions
+- Sorting, searching, or algorithmic reasoning
+- Problems where natural language reasoning leads to errors but code logic is precise
+
+## Limitations
+- Overkill for simple calculations or single-step reasoning
+- Mental simulation can accumulate errors on long traces
+- Not suitable for open-ended or creative reasoning
+- Some semantic reasoning tasks can't be expressed as code

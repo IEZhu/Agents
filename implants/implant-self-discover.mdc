@@ -1,9 +1,24 @@
 ---
-description: Self-Discover. Adaptive Reasoning. Selects thinking modules for new tasks.
+description: Self-Discover. Adaptive Reasoning. Selects and composes thinking modules for new tasks.
 globs: []
 alwaysApply: false
 short_name: SelfDiscover
 one_liner: select thinking modules for new tasks
 ---
 ## Pattern
-"Select and combine necessary thinking modules (e.g. decomposition, critical thinking) for this task. Build structure and execute."
+1. **Select Modules**: From available reasoning strategies (decomposition, critical thinking, analogical reasoning, causal analysis, etc.), identify which 2-3 are most relevant to this task.
+2. **Adapt**: Customize the selected modules to the specific problem — what does "decomposition" mean for THIS task?
+3. **Build Structure**: Compose the adapted modules into a step-by-step reasoning plan.
+4. **Execute**: Follow the composed structure to solve the problem.
+
+## When to Use
+- Novel tasks that don't fit a single known reasoning pattern
+- Complex problems requiring multiple reasoning strategies combined
+- When you're unsure which prompting technique to apply
+- Meta-reasoning — choosing HOW to think before thinking
+
+## Limitations
+- Module selection is itself a reasoning task that can go wrong
+- Overhead of meta-reasoning is wasteful for simple, well-understood tasks
+- Composed structures may be incoherent if modules conflict
+- Works best with frontier models that have strong meta-cognitive capabilities

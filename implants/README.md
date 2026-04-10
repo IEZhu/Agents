@@ -49,10 +49,21 @@ implant-{technique-name}.mdc
 description: "Brief description of the reasoning technique"
 globs: []              # File patterns for auto-activation (usually empty)
 alwaysApply: false     # Whether to always include this implant
+short_name: MyTechnique     # CamelCase short name for display
+one_liner: brief action phrase  # Lowercase, no period, describes what it does
 ---
 ## Pattern
-1. Step one of the technique
-2. Step two...
+1. **Step One**: Description of first step
+2. **Step Two**: Description of second step
+3. ...
+
+## When to Use
+- Scenario where this technique is most effective
+- Another appropriate use case
+
+## Limitations
+- Known failure mode or constraint
+- When NOT to use this technique
 ```
 
 ## Implant Categories
@@ -73,6 +84,7 @@ Techniques that structure sequential reasoning:
 | `self-harmonized-cot` | Multiple perspectives harmonized into one |
 | `reverse-cot` | Work backwards from conclusion to premises |
 | `take-a-deep-breath` | Zero-shot CoT trigger |
+| `dr-cot` | Dynamic Recursive CoT — recurse deeper only when needed |
 
 ### Meta-Cognition
 
@@ -126,7 +138,9 @@ Techniques for producing better outputs:
 |---------|-------------|
 | `analogical-prompting` | Reasoning by analogy to known cases |
 | `generated-knowledge` | Generate context before answering |
-| `role-play-expert` | Deep expertise via persona assignment |
+| `role-play-expert` | Expert persona for reasoning style (not facts — see Warning) |
+| `output-priming` | Provide answer opening to steer completion format |
+| `dynamic-few-shot` | Select task-relevant examples from a pool |
 
 > **Moved to skills**: prompt engineering techniques (mega-prompting, few-shot-selection, directional-stimulus, emotion-prompting, simulated-interaction, tone-transfer) → `skill-prompt-techniques`
 
@@ -183,17 +197,27 @@ load_implants(query="How do I debug this race condition?")
 
 1. **Create file**: `implants/implant-my-technique.mdc`
 
-2. **Add content**:
+2. **Add content** (all sections except Example are **required**):
    ```yaml
    ---
    description: "My Technique: brief explanation of when and why to use it"
    globs: []
    alwaysApply: false
+   short_name: MyTechnique
+   one_liner: brief action phrase describing what it does
    ---
    ## Pattern
-   1. First step of the technique
-   2. Second step
+   1. **Step One**: First step of the technique
+   2. **Step Two**: Second step
    3. ...
+
+   ## When to Use
+   - Scenario 1 where this technique excels
+   - Scenario 2...
+
+   ## Limitations
+   - Known failure mode or constraint
+   - When NOT to use this technique
 
    ## Example (optional)
    Input: "..."

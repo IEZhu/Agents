@@ -1,0 +1,29 @@
+---
+description: Dynamic Recursive CoT (DR-CoT). Dynamically decide when to recurse deeper vs. stop reasoning. Adaptive depth reasoning.
+globs: []
+alwaysApply: false
+short_name: DRCoT
+one_liner: recurse deeper only when needed during reasoning
+---
+## Pattern
+1. **Initial Reasoning**: Begin solving the problem with standard Chain-of-Thought.
+2. **Complexity Check**: At each reasoning step, assess: "Is this sub-problem simple enough to solve directly, or does it need further decomposition?"
+3. **Solve Directly**: If simple — produce the answer for this step and continue.
+4. **Recurse**: If complex — decompose into sub-problems and apply DR-CoT to each recursively.
+5. **Synthesize**: When all sub-problems are resolved, combine results into the final answer.
+
+## Key Insight
+Unlike fixed-depth approaches (Plan-and-Solve, Least-to-Most), DR-CoT allocates reasoning depth dynamically — simple parts get shallow treatment, complex parts get deep decomposition. This mirrors how humans allocate cognitive effort.
+
+## When to Use
+- Variable-depth complexity problems (some parts trivial, others hard)
+- Mathematical proofs with nested sub-proofs
+- Code generation with nested logic and conditionals
+- Multi-step analysis where some steps are routine and others require deep thought
+- Problems where fixed decomposition wastes tokens on simple sub-tasks
+
+## Limitations
+- Requires accurate self-assessment of sub-problem complexity (models can misjudge)
+- Recursive depth is bounded by context window
+- Over-recursion on simple problems wastes tokens
+- Harder to control and predict token usage than fixed-depth approaches

@@ -20,3 +20,15 @@ one_liner: calibrate confidence to prevent overconfident claims
 4. **Source Your Confidence**: "I rate this HIGH because [specific evidence]" — not just "I'm confident."
 
 5. **Anti-Hallucination Gate**: Before stating any specific fact (date, number, name, quote), ask: "Do I actually know this, or am I pattern-matching?" If unsure → hedge or say "I don't have this information."
+
+## When to Use
+- Knowledge-intensive outputs where hallucination risk is high
+- Advisory responses (medical, legal, financial context)
+- Research synthesis where sources have varying reliability
+- Any output where the user will act on the information provided
+
+## Limitations
+- Models are notoriously poorly calibrated — self-assessed confidence often doesn't match accuracy
+- Classification overhead adds tokens and latency
+- Users may over-trust the confidence labels themselves
+- "Don't know" responses can be frustrating when partial answers would help

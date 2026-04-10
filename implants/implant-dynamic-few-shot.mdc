@@ -1,0 +1,28 @@
+---
+description: Dynamic Few-Shot. Select task-relevant examples from a pool rather than using static examples. Adaptive example selection.
+globs: []
+alwaysApply: false
+short_name: DynamicFewShot
+one_liner: select relevant examples per task from a pool
+---
+## Pattern
+1. **Maintain Example Pool**: Curate a diverse set of labeled input/output examples covering different task variations.
+2. **Match**: For each new task, embed and match to find the 2-5 most similar examples from the pool (semantic similarity, keyword overlap, or category match).
+3. **Order**: Place examples in the prompt with the most similar example closest to the actual task (recency bias helps).
+4. **Generate**: Prompt the model with selected context + the actual task.
+
+## Key Insight
+Static few-shot (same examples for every query) underperforms on diverse inputs. Dynamic selection provides relevant context while avoiding noise from irrelevant examples. Research shows 80% efficiency improvement over zero-shot without requiring full few-shot overhead.
+
+## When to Use
+- Production systems handling diverse query types
+- Classification tasks with many categories
+- Any few-shot setup where fixed examples underperform on some inputs
+- RAG systems where examples can be retrieved alongside documents
+- Multi-language or multi-domain applications
+
+## Limitations
+- Requires a retrieval mechanism (not pure prompting — needs embedding search or similar)
+- Adds retrieval latency before generation
+- Example pool quality bounds overall performance — bad examples = bad outputs
+- Pool maintenance overhead — examples need updating as the task evolves

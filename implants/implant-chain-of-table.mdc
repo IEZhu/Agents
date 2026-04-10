@@ -6,6 +6,19 @@ short_name: ChainOfTable
 one_liner: structure data in table for comparisons
 ---
 ## Pattern
-1. Create a table: Rows=[Objects], Cols=[Characteristics].
-2. Fill with data.
-3. Answer the question using the table.
+1. **Design Table**: Create structure: Rows = [Objects/Options], Columns = [Characteristics/Criteria].
+2. **Fill**: Populate the table with data from the problem.
+3. **Analyze**: Answer the question using the table — compare rows, find patterns, identify gaps.
+
+## When to Use
+- Comparison tasks (products, options, candidates)
+- Multi-criteria decision making
+- Data scattered across text that needs organization
+- Pros/cons analysis and feature matrices
+- Any task where structured visual layout aids reasoning
+
+## Limitations
+- Overkill for simple single-variable questions
+- Table structure may not suit non-tabular relationships (hierarchies, graphs, timelines)
+- Filling the table adds token overhead
+- Can force flat structure on inherently nested data

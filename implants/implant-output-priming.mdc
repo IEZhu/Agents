@@ -1,0 +1,29 @@
+---
+description: Output Priming. Provide the beginning of the desired output to steer completion format, style, and content. Structural anchoring.
+globs: []
+alwaysApply: false
+short_name: OutputPriming
+one_liner: start the answer to steer model completion
+---
+## Pattern
+1. **Define Target Format**: Decide the exact structure of the desired output (JSON, table, bullet list, specific template).
+2. **Write the Opening**: Provide the first 1-3 lines of the desired output as a prefix for the model to complete.
+3. **Prompt Completion**: "Continue from where I left off, maintaining the same format and style."
+4. **Optional Closing**: Provide the closing structure to bookend the output (e.g., closing JSON brace, summary section).
+
+## Example
+Instead of: "Generate a JSON object with user data"
+Use: "Complete this JSON:\n```json\n{\n  \"user\": {\n    \"name\": "
+
+## When to Use
+- Enforcing strict output formats (JSON, XML, CSV, specific templates)
+- Reducing hallucination through structural anchoring
+- API response formatting where schema compliance is critical
+- Consistent output across repeated calls
+- When format instructions alone produce inconsistent results
+
+## Limitations
+- Can over-constrain creative tasks — the model follows the pattern too rigidly
+- Errors in the priming propagate through the entire output
+- Less useful with frontier models that already follow format instructions well
+- Requires knowing the exact output structure in advance

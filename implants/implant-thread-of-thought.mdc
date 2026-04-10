@@ -1,9 +1,24 @@
 ---
-description: Thread of Thought. Long context understanding. Summarize steps holding the thread.
+description: Thread of Thought (ThoT). Long context understanding. Walk through chaotic context sequentially, holding the thread.
 globs: []
 alwaysApply: false
 short_name: ThreadOfThought
 one_liner: hold thread through long chaotic context
 ---
 ## Pattern
-"Walk sequentially through chaotic context. Summarize each step, holding the 'thread' of meaning."
+1. **Walk Sequentially**: Process the long/chaotic context section by section, in order.
+2. **Summarize Each Step**: At each section, extract the key takeaway and how it connects to the "thread."
+3. **Maintain Thread**: Keep a running summary of the overall narrative/argument/state.
+4. **Conclude**: Use the accumulated thread to answer the question.
+
+## When to Use
+- Long documents with non-linear or chaotic structure
+- Meeting transcripts with many speakers and topic shifts
+- Debugging long log files where context accumulates over time
+- Any task where the context exceeds comfortable single-pass comprehension
+
+## Limitations
+- Slow — requires sequential processing of the entire context
+- Running summary can drift from the original meaning
+- Token-expensive for very long contexts
+- Not needed for well-structured, short inputs

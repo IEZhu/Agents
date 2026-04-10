@@ -1,11 +1,23 @@
 ---
-description: Plan & Solve+. Atomic planning before execution. For architecture, refactoring, multi-step tasks.
+description: Plan & Solve+ (PS+). Atomic planning before execution. For architecture, refactoring, multi-step tasks.
 globs: []
 alwaysApply: false
 short_name: PlanSolvePlus
 one_liner: atomic planning before execution
 ---
 ## Pattern
-1. **Plan**: Decompose into atomic, sequential steps.
-2. **Solve**: Execute each step, using the output of the previous one.
+1. **Plan**: Decompose into atomic, sequential steps. Each step should have a clear input/output.
+2. **Solve**: Execute each step, using the output of the previous one. Show intermediate results.
 3. **Verify**: Check that the final result satisfies the original goal.
+
+## When to Use
+- Mathematical reasoning (comparable to 8-shot CoT in accuracy)
+- Architecture and refactoring tasks requiring careful sequencing
+- Multi-step problems where skipping steps leads to errors
+- Tasks where explicit planning prevents common errors (calculation, missing-step, semantic)
+
+## Limitations
+- Planning overhead is wasteful for simple, single-step tasks
+- Plan can be wrong — a bad plan executed perfectly still gives wrong results
+- Sequential execution can't be parallelized
+- Rigid plan may not adapt when intermediate results reveal new information

@@ -15,3 +15,20 @@ one_liner: interleave reasoning with actions and observations
 - Never act without a preceding thought.
 - Never ignore an observation — always update your reasoning.
 - Stop when the observation satisfies the original goal.
+- Set a maximum iteration count to prevent infinite loops.
+
+## Modern Implementation
+In agentic systems with structured tool-calling (function calling, MCP tools), the Thought→Action→Observation loop is implemented at the **API/framework level** rather than as literal prompt text. The conceptual pattern remains identical — the model reasons, calls a tool, observes the result, and decides the next step. Modern frameworks (LangChain, LlamaIndex, Claude Code) abstract this into structured tool-call APIs.
+
+## When to Use
+- Multi-step tasks requiring external information retrieval
+- Debugging with tool access (read logs, run tests, inspect state)
+- Research tasks combining reasoning with search
+- Any task where acting without thinking leads to wasted tool calls
+- Tasks requiring grounded answers (not just generation)
+
+## Limitations
+- Overhead for simple tasks that don't need tool interaction
+- Can loop indefinitely without a stop condition — always set max iterations
+- Observation interpretation errors compound across steps
+- Token cost grows linearly with loop iterations

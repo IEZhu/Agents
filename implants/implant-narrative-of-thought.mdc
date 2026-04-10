@@ -1,9 +1,24 @@
 ---
-description: Narrative of Thought (NoT). Ordering chaotic events into a chronological story/timeline.
+description: Narrative of Thought (NoT). Ordering chaotic events into a chronological story/timeline for cause-effect analysis.
 globs: []
 alwaysApply: false
 short_name: NoT
 one_liner: order events chronologically for cause-effect
 ---
 ## Pattern
-"Imagine task conditions as a story. Arrange events chronologically. Describe cause-and-effect."
+1. **Collect**: Gather all events, facts, and actions from the input.
+2. **Order**: Arrange events chronologically into a narrative timeline.
+3. **Connect**: Describe cause-and-effect relationships between sequential events.
+4. **Answer**: Use the narrative to answer the question.
+
+## When to Use
+- Incident timelines and post-mortems
+- Understanding chaotic logs, chat histories, or event streams
+- Historical analysis requiring causal understanding
+- Debugging by reconstructing what happened in order
+
+## Limitations
+- Assumes chronological ordering is relevant — not all problems are temporal
+- Can impose false causality on coincidental sequential events (post hoc fallacy)
+- Token-expensive for events with many participants or parallel threads
+- Not suitable for non-temporal reasoning tasks

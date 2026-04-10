@@ -1,10 +1,28 @@
 ---
-description: Analogical Prompting. Self-generated Few-Shot examples. Model invents similar tasks to solve the current one.
+description: Analogical Prompting. Self-generated Few-Shot examples. Model invents similar tasks from different domains to solve the current one.
 globs: []
 alwaysApply: false
 short_name: AnalogicalPrompting
 one_liner: invent similar tasks as few-shot examples
 ---
 ## Pattern
-1. "Recall or invent 3 similar tasks with solutions."
-2. "Use these examples as a template to solve the original task."
+1. **Identify Problem Type**: Classify the structural type of the problem (optimization, classification, debugging, design, etc.).
+2. **Generate Analogies**: "Recall or invent 3 similar problems from **different domains** with their solutions." Cross-domain analogies are more powerful than same-domain.
+3. **Extract Strategy**: Identify the shared reasoning pattern across the analogies — what strategy did all solutions use?
+4. **Apply**: Use the extracted strategy as a template to solve the original problem.
+
+## Key Insight
+Research (2026, Nature Communications) shows analogies from different domains amplify performance up to 10x compared to same-domain examples. The structural transfer forces deeper understanding.
+
+## When to Use
+- Novel problems where standard approaches failed
+- Creative problem solving requiring lateral thinking
+- Cross-domain knowledge transfer (e.g., applying biological patterns to software design)
+- When no labeled examples are available for few-shot
+- Learning new concepts by connecting to known ones
+
+## Limitations
+- Analogies can mislead if structural similarity is superficial
+- Cross-domain analogies require broad knowledge to generate well
+- Not efficient for routine, well-understood problems
+- Model may generate poor analogies that distort rather than clarify

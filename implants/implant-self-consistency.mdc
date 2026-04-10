@@ -1,10 +1,31 @@
 ---
-description: Self-Consistency. Majority Vote. Generate multiple answers, select most frequent.
+description: Self-Consistency. Majority Vote. Generate multiple reasoning paths, select most frequent answer.
 globs: []
 alwaysApply: false
 short_name: SelfConsistency
 one_liner: select answer by majority vote across multiple runs
 ---
 ## Pattern
-1. Generate 5 independent answers (CoT).
-2. Select the answer that appears most frequently (Consensus).
+1. **Set Diversity**: Use temperature 0.7-1.0 to ensure diverse reasoning paths.
+2. **Generate Multiple Chains**: Produce 5-10 independent Chain-of-Thought solutions for the same problem.
+3. **Extract Answers**: From each chain, extract the final answer.
+4. **Majority Vote**: Select the answer that appears most frequently. Break ties by selecting the chain with the most detailed reasoning.
+
+## Configuration
+- **Minimum paths**: 5 (below this, majority vote is unreliable)
+- **Recommended paths**: 7-10 (best accuracy-to-cost ratio)
+- **Above 15**: Diminishing returns — marginal accuracy gains don't justify cost
+
+## When to Use
+- Mathematical reasoning with a single correct answer
+- Logic puzzles and commonsense reasoning
+- Fact-based questions where consensus signals correctness
+- Any multi-step problem where you can afford multiple generations
+- Combined with CoT for maximum reasoning accuracy
+
+## Limitations
+- 5-10x token cost compared to single generation
+- Useless if all paths share the same systematic error (garbage in, garbage out)
+- Fails on open-ended tasks with no single correct answer
+- Effectiveness varies significantly by model and task type
+- Majority can be wrong — consensus ≠ correctness

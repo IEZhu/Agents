@@ -1,10 +1,23 @@
 ---
-description: Skeleton-of-Thought. Speed & Coherence. Outline first, then expand parallel.
+description: Skeleton-of-Thought (SoT). Speed & Coherence. Outline first, then expand sections in parallel.
 globs: []
 alwaysApply: false
 short_name: SoT
 one_liner: outline first then expand in parallel
 ---
 ## Pattern
-1. **Skeleton**: Generate concise outline (headers only).
-2. **Expansion**: Expand each point in parallel/sequence.
+1. **Skeleton**: Generate a concise outline (headers/bullet points only — no content).
+2. **Expansion**: Expand each point independently (can be parallelized for speed).
+3. **Assemble**: Combine expanded sections into the final coherent response.
+
+## When to Use
+- Long-form QA and structured responses (2x speed improvement on most models)
+- Document generation with clear section structure
+- Real-time applications where latency matters
+- Any structured output where sections are independent
+
+## Limitations
+- Not suitable for step-by-step reasoning where later points depend on earlier ones
+- Can produce incoherent results when skeleton points are interdependent
+- Higher total token usage despite lower latency
+- Overkill for short answers or simple questions

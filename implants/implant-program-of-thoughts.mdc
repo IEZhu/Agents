@@ -6,6 +6,18 @@ short_name: PoT
 one_liner: write code to compute answer instead of guessing
 ---
 ## Pattern
-1. **Code**: Write code that computes the answer.
-2. **Execute**: Run (or mentally simulate) the code.
+1. **Code**: Write executable code (Python, etc.) that computes the answer from given data.
+2. **Execute**: Run the code (or mentally simulate execution with variable tracking).
 3. **Answer**: Report the computed result.
+
+## When to Use
+- Numerical calculations where mental math is error-prone
+- Data manipulation and transformation tasks
+- Statistical computations and aggregations
+- Any task where precise computation is more reliable than reasoning in natural language
+
+## Limitations
+- Requires a code execution environment for real execution (not just mental simulation)
+- Not suitable for qualitative reasoning, opinions, or creative tasks
+- Code bugs produce confidently wrong answers
+- Overkill for simple arithmetic that CoT handles well

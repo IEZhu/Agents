@@ -1,11 +1,23 @@
 ---
-description: System 2 Attention. Input cleaning. Removes bias/flattery before answering.
+description: System 2 Attention (S2A). Input cleaning. Removes bias, flattery, and leading framing before answering.
 globs: []
 alwaysApply: false
 short_name: S2A
 one_liner: remove bias and flattery before answering
 ---
 ## Pattern
-1. **Analyze**: Check for bias/flattery/leading questions.
-2. **Clean**: Rewrite request to contain ONLY objective facts.
-3. **Execute**: Answer the cleaned request.
+1. **Analyze**: Check the input for bias, flattery, leading questions, emotional framing, or anchoring.
+2. **Clean**: Rewrite the request to contain ONLY objective facts and the actual question.
+3. **Execute**: Answer the cleaned request, ignoring the original framing.
+
+## When to Use
+- User requests that contain flattery or emotional pressure ("You're so smart, surely you can...")
+- Leading questions that embed assumptions ("Given that X is clearly the best approach...")
+- Anchored inputs that prime a specific answer
+- Any input where the framing might bias the output away from objectivity
+
+## Limitations
+- May strip useful context along with bias (overly aggressive cleaning)
+- Some framing is legitimate and intentional (e.g., a user specifying their preference)
+- Adds a pre-processing step that increases latency
+- The model's bias detection is imperfect — subtle framing may pass through

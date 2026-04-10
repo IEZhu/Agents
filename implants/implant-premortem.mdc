@@ -20,3 +20,9 @@ one_liner: assume failure happened then work backwards to prevent it
 - Before committing to significant decisions or plans.
 - When a team is overconfident or has groupthink.
 - At project kickoff to surface hidden risks.
+
+## Limitations
+- Can become a negativity exercise that paralyzes action rather than improving the plan
+- Brainstormed failures may be speculative or unlikely — prioritization is critical
+- Mitigations add complexity — over-mitigating can make a plan worse
+- Best done in groups; a single perspective may miss systemic risks

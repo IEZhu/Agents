@@ -1,10 +1,25 @@
 ---
-description: Generated Knowledge. Generate facts before answering. Memory augmentation.
+description: Generated Knowledge. Generate facts before answering. Self-augmented memory for knowledge-intensive tasks.
 globs: []
 alwaysApply: false
 short_name: GeneratedKnowledge
 one_liner: augment knowledge by generating facts before answering
 ---
 ## Pattern
-1. "Write 5 key facts about [Topic] that will help answer [Question]."
-2. "Using these facts, answer the question."
+1. **Identify Knowledge Gaps**: "What background knowledge is needed to answer [Question] correctly?"
+2. **Generate Facts**: "Write 5 key facts about [Topic] that are most relevant to answering [Question]."
+3. **Verify Plausibility**: Review generated facts — flag any that feel uncertain or potentially fabricated.
+4. **Answer**: "Using these facts as context, answer [Question]."
+
+## When to Use
+- Questions requiring background knowledge the model might not foreground automatically
+- Commonsense reasoning where making implicit knowledge explicit helps
+- Educational scenarios where building context before answering improves depth
+- Domain-specific tasks where self-generated context is more relevant than retrieved context
+- When external retrieval (RAG) is not available
+
+## Limitations
+- Generated "knowledge" can itself be hallucinated — pair with Chain-of-Verification for critical applications
+- Adds token overhead (knowledge generation + answer generation)
+- Less reliable than actual retrieval from verified sources
+- Model may generate plausible-sounding but factually wrong "facts"

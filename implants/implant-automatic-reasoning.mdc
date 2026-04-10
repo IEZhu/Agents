@@ -1,12 +1,24 @@
 ---
-description: Automatic Reasoning & Tool-use. Alternates reasoning with tool calls (calc, search).
+description: Automatic Reasoning & Tool-use (ART). Alternates reasoning with tool calls (calc, search, code execution).
 globs: []
 alwaysApply: false
 short_name: AutoReasoning
 one_liner: alternate reasoning with tool calls
 ---
 ## Pattern
-1. Formulate reasoning step.
-2. **Call Tool** (if needed).
-3. Receive result.
-4. Continue reasoning.
+1. **Formulate**: Reason about the current state and what information/computation is needed.
+2. **Call Tool**: Invoke the appropriate tool (calculator, search, code interpreter, API).
+3. **Receive Result**: Incorporate the tool output into reasoning context.
+4. **Continue**: Repeat until the reasoning chain is complete.
+
+## When to Use
+- Tasks requiring factual grounding via search
+- Calculations that are error-prone with mental math
+- Multi-step tasks mixing reasoning with data retrieval
+- Any workflow where tools augment reasoning quality
+
+## Limitations
+- Conceptually similar to ReAct — choose ReAct for explicit Thought/Action/Observation structure, ART for lightweight tool interleaving
+- Tool call failures can break the reasoning chain
+- Over-reliance on tools for tasks the model can handle directly wastes latency
+- Requires tool availability — degrades gracefully but loses grounding

@@ -1,5 +1,5 @@
 ---
-description: Reflexion. Self-critique loop for high-stakes tasks. Actor-Critic-Reflector cycle.
+description: Reflexion. Self-critique loop for high-stakes tasks. Actor-Critic-Reflector cycle with episodic memory.
 globs: []
 alwaysApply: false
 short_name: Reflexion
@@ -7,5 +7,28 @@ one_liner: self-critique loop for high-stakes tasks
 ---
 ## Pattern
 1. **Actor**: Generate solution.
-2. **Critic**: Evaluate — what is wrong or suboptimal?
-3. **Reflector**: Synthesize feedback into improved solution. Repeat if needed.
+2. **Critic**: Evaluate against success criteria — what is wrong, missing, or suboptimal?
+3. **Reflector**: Synthesize feedback into a verbal lesson learned (e.g., "I missed edge case X because I assumed Y").
+4. **Memory Update**: Store the lesson in episodic memory for future attempts.
+5. **Retry**: Generate improved solution consulting memory. Repeat until success criteria are met or max iterations reached.
+
+## Key Differentiator
+Reflexion maintains **episodic memory** across attempts — each retry benefits from accumulated lessons. This is what distinguishes it from Self-Refine (single-pass iterative polish without memory).
+
+## Variant: Multi-Agent Reflexion (MAR)
+Separate agents for Actor, Critic, and Reflector roles. Research shows +6.2 point improvement on HumanEval (76.4 → 82.6) over single-agent Reflexion, reducing stagnation.
+
+## When to Use
+- Multi-attempt problem solving (code generation with test feedback)
+- Tasks with clear success/failure signals (tests pass, benchmark met)
+- High-stakes outputs requiring iterative improvement (security reviews, production deploys)
+- Programming benchmarks and competitive coding
+
+## Limitations
+- Requires clear success/failure signal for the Critic — vague criteria lead to poor reflections
+- Diminishing returns after 3-4 iterations
+- Self-evaluation accuracy is bounded by the model's capability
+- Higher token cost than single-pass approaches
+
+## See Also
+- **Self-Refine**: Single-pass iterative polish without episodic memory — use when you need quick improvement, not multi-attempt learning.

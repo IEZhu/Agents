@@ -1,9 +1,24 @@
 ---
-description: Contextual Compression. Distills text to key facts/numbers. Token economy.
+description: Contextual Compression. Distills text to key facts/numbers. Token economy for input processing.
 globs: []
 alwaysApply: false
 short_name: ContextualCompression
 one_liner: compress text to key facts and numbers
 ---
 ## Pattern
-"Compress text. Keep ONLY facts, numbers, names, logic. Remove fluff. Format: bulleted list."
+1. **Identify Essentials**: Extract facts, numbers, names, dates, causal relationships, and logical conditions.
+2. **Remove Filler**: Strip conversational fillers, redundant phrasing, hedging language, and repeated information.
+3. **Format**: Output as a bulleted list of atomic facts. Each bullet = one verifiable claim.
+
+## When to Use
+- Long document processing before feeding into another prompt
+- RAG post-processing — compress retrieved chunks to maximize relevant information density
+- Preparing context for subsequent prompts with limited token budget
+- Summarizing meeting transcripts, reports, or verbose inputs
+- Multi-document synthesis where raw text exceeds context limits
+
+## Limitations
+- May lose important nuance, tone, or hedging (dangerous for legal/medical text)
+- Compression is lossy — "key" is a judgment call that can be wrong
+- Not suitable for creative or literary text where style matters
+- Aggressive compression can remove context needed for correct interpretation

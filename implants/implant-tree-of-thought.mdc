@@ -11,3 +11,20 @@ one_liner: explore multiple reasoning paths with evaluation and backtracking
 3. **Select**: Pursue the most promising branch.
 4. **Backtrack**: If a branch leads to dead-end, return to last branching point and try another.
 5. **Conclude**: When a branch reaches the goal, output the solution path.
+
+## Variant: Tree-of-Quote (ToQ)
+For research and evidence-based tasks: each thought node is grounded by a direct quote from source material. Improves factuality and attribution.
+
+## When to Use
+- Puzzle solving and constraint satisfaction problems
+- Planning tasks where wrong paths need to be abandoned
+- Creative problem solving requiring exploration of alternatives
+- Tasks where backtracking is more efficient than restarting
+- Complex problems with potential dead-ends
+
+## Limitations
+- Significant token overhead — each branch multiplies generation cost
+- Not useful for simple sequential tasks
+- Requires clear evaluation criteria to score branches
+- Real-time response not feasible — exploration takes time
+- Can over-explore when a direct approach would suffice

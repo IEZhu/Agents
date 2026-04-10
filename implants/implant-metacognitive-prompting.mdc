@@ -1,9 +1,24 @@
 ---
-description: Metacognitive Prompting. Self-evaluation of thinking process.
+description: Metacognitive Prompting. Self-evaluation of thinking process. Confidence calibration during reasoning.
 globs: []
 alwaysApply: false
 short_name: MetacognitivePrompting
 one_liner: self-evaluate confidence in each reasoning step
 ---
 ## Pattern
-"Provide reasoning, and then comment: do you have confidence in each step? Self-diagnose."
+1. **Reason**: Provide step-by-step reasoning for the problem.
+2. **Self-Evaluate**: For each step, rate confidence (high/medium/low) and explain why.
+3. **Diagnose**: Identify the weakest step — what assumption is most likely wrong?
+4. **Strengthen or Flag**: Either reinforce the weak step with additional reasoning, or flag it as uncertain.
+
+## When to Use
+- Complex reasoning where hidden assumptions can derail the answer
+- High-stakes outputs where knowing uncertainty matters
+- Calibrating model confidence before presenting results
+- Debugging reasoning chains that produce wrong answers
+
+## Limitations
+- Models tend to be overconfident in self-evaluation
+- Adds significant token overhead for the meta-commentary
+- Self-diagnosis quality is bounded by the model's own capability
+- Can produce false confidence when the model assigns high confidence to wrong steps

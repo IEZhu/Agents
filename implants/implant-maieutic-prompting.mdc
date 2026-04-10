@@ -1,11 +1,23 @@
 ---
-description: Maieutic Prompting. Socratic method. Explanation tree to find logical contradictions.
+description: Maieutic Prompting. Socratic method. Explanation tree to find logical contradictions and select the consistent branch.
 globs: []
 alwaysApply: false
 short_name: MaieuticPrompting
 one_liner: find contradictions via Socratic explanation tree
 ---
 ## Pattern
-1. Generate explanations for True AND False answers.
-2. Check which explanation is logically consistent with facts.
-3. Select consistent branch.
+1. **Generate Both Sides**: Produce explanations for why the answer is True AND why it is False.
+2. **Check Consistency**: For each explanation, verify logical consistency with known facts and constraints.
+3. **Select**: Choose the branch whose explanation is internally consistent and supported by evidence.
+
+## When to Use
+- True/False or binary decision problems
+- Fact verification where the model's initial answer might be wrong
+- Controversial or ambiguous claims requiring rigorous evaluation
+- Reducing confident errors by forcing the model to argue both sides
+
+## Limitations
+- Only works for binary or few-option decisions — doesn't scale to open-ended questions
+- Both explanations may appear equally plausible, leaving the decision unresolved
+- Generating the "wrong" explanation can occasionally bias the model toward it
+- Token-expensive — doubles the reasoning cost for binary questions

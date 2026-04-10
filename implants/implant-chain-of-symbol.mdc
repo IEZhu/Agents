@@ -6,6 +6,17 @@ short_name: ChainOfSymbol
 one_liner: solve logic via symbolic abstraction
 ---
 ## Pattern
-1. **Encode**: Replace objects with symbols (A, B, C).
-2. **Manipulate**: Solve using symbols only.
+1. **Encode**: Replace objects with symbols (A, B, C) and relationships with operators (→, <, ∈).
+2. **Manipulate**: Solve using symbols only — apply logical rules, spatial reasoning, or set operations.
 3. **Decode**: Translate result back to real objects.
+
+## When to Use
+- Spatial reasoning tasks (directions, positions, layouts)
+- Relationship reasoning (A is taller than B, B is taller than C, who is tallest?)
+- Set operations and Venn diagram logic
+- Any task where natural language descriptions of relationships cause confusion
+
+## Limitations
+- Encoding step can introduce errors if relationships are complex
+- Not suitable for problems requiring semantic understanding (the meaning matters, not just structure)
+- Adds overhead for problems already stated in symbolic form

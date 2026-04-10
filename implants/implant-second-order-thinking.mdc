@@ -28,3 +28,9 @@ Decision: Introduce mandatory code reviews
 - Before any decision with lasting effects.
 - When first-order effects seem obviously good (beware hidden costs).
 - When stakeholders disagree (often seeing different order effects).
+
+## Limitations
+- Can lead to analysis paralysis — at some point you must decide despite uncertainty
+- Third-order effects are increasingly speculative and unreliable
+- Interaction mapping between effects can become combinatorially complex
+- Not every decision warrants multi-order analysis — overkill for low-stakes choices
