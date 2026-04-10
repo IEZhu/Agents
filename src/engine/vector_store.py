@@ -61,7 +61,7 @@ class NumpyVectorStore:
         if os.path.exists(self._npz_path) and os.path.exists(self._meta_path):
             try:
                 with np.load(self._npz_path) as data:
-                    self._embeddings = data["embeddings"]
+                    self._embeddings = data["embeddings"].astype(np.float32, copy=False)
                     npz_version = str(data["save_version"]) if "save_version" in data.files else ""
 
                 with open(self._meta_path, "r", encoding="utf-8") as f:
@@ -343,7 +343,7 @@ class NumpyVectorStore:
             if self._normed is None:
                 self._recompute_norms()
             similarities = self._normed @ query_norm
-            distances = 1.0 - similarities
+            distances = np.float32(1.0) - similarities
 
             # Get top-n indices (use argsort for correctness at small N)
             n = min(n_results, len(self._ids))

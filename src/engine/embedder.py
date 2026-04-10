@@ -25,7 +25,7 @@ _lock = threading.Lock()
 _model = None
 
 
-def _clear_model_cache(model_name: str) -> None:
+def clear_model_cache(model_name: str) -> None:
     """Remove fastembed's cached files for *model_name* so the next load re-downloads."""
     cache_dir = os.path.join(tempfile.gettempdir(), "fastembed_cache")
     if not os.path.isdir(cache_dir):
@@ -67,7 +67,7 @@ def _get_model():
                                 "Model load failed, clearing cache and retrying",
                                 exc_info=True,
                             )
-                            _clear_model_cache(EMBEDDING_MODEL)
+                            clear_model_cache(EMBEDDING_MODEL)
                         else:
                             raise
     return _model

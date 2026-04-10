@@ -397,17 +397,8 @@ for attempt in range(MAX_RETRIES):
         if attempt < MAX_RETRIES - 1:
             print(f'Model load failed: {e}', flush=True)
             print('Clearing corrupted model cache and retrying...', flush=True)
-            # Clear fastembed cache for this model
-            import tempfile
-            cache_dir = os.path.join(tempfile.gettempdir(), 'fastembed_cache')
-            if os.path.exists(cache_dir):
-                # Model name suffix (e.g. 'multilingual-e5-large' from 'intfloat/multilingual-e5-large')
-                model_suffix = '$CURRENT_MODEL'.split('/')[-1]
-                for d in glob.glob(os.path.join(cache_dir, f'models--*{model_suffix}*')):
-                    print(f'  Removing {d}', flush=True)
-                    shutil.rmtree(d, ignore_errors=True)
-            # Reset singleton so next call re-downloads
-            from src.engine.embedder import reset_model
+            from src.engine.embedder import clear_model_cache, reset_model
+            clear_model_cache('$CURRENT_MODEL')
             reset_model()
         else:
             raise
