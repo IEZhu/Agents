@@ -22,11 +22,11 @@ Also available programmatically via the MCP tool `list_agents`.
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `software_engineer` | `/dev` | Senior Full Stack Engineer — Code Implementation, Refactoring & Architecture Design |
+| `software_engineer` | `/dev` | Senior Full Stack Engineer — Code Implementation, Debugging & Refactoring |
 | `code_reviewer` | `/review` | Code Review & PR Analyst |
 | `mcp_builder` | `/new_mcp` | MCP Server Architect & Generator |
 | `agent_builder` | `/new_agent` | Agent Prompt & Persona Designer for the Agents Framework |
-| `security_expert` | `/security_audit` | Senior SecOps Engineer (Zero-Trust) |
+| `security_expert` | `/security_audit` | Application & Infrastructure Security Analyst — Vulnerability Assessment, Threat Modeling, Zero-Trust |
 | `prompt_engineer` | `/prompt` | Prompt Design & Optimization Specialist |
 | `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development |
 | `blender_scripter` | `/blender` | Python (bpy) scripts for 3D-printable objects |
@@ -54,10 +54,10 @@ Also available programmatically via the MCP tool `list_agents`.
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `medical_expert` | `/medical` | Lead Medical Analyst and Consultant |
+| `medical_expert` | `/medical` | Clinical Reasoning & Medical Analysis Specialist — Differential Diagnosis, Drug Interactions, Lab Interpretation |
 | `psychologist` | `/psy_session` | Cognitive-Behavioral Psychologist & Mental Health Consultant |
 | `child_psychologist` | `/child_psy` | Child & Adolescent Psychologist (digital generation) |
-| `bio_hacker` | `/bio_protocol` | Systems Biologist / Productivity Coach |
+| `bio_hacker` | `/bio_protocol` | Biohacking & Supplement Protocol Designer — Sleep, Focus, Energy Optimization |
 | `fitness_coach` | `/workout` | Scientific Fitness Coach (spine rehabilitation) |
 
 ## AI & Strategy

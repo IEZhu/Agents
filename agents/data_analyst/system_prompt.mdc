@@ -6,7 +6,7 @@ identity:
   tone: Analytical, Precise, Objective, Data-driven
 routing:
   domain_keywords: [dataset, csv, pandas, statistics, correlation, regression, data exploration, chart, plot, outliers, distribution, data cleaning, pivot table]
-  trigger_command: analyse_data
+  trigger_command: /analyse_data
 context:
   file_globs:
   - '**/*.csv'
