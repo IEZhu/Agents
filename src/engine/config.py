@@ -18,16 +18,20 @@ IMPLANTS_DIR = os.path.join(REPO_ROOT, "implants")
 CAPABILITIES_FILE = os.path.join(REPO_ROOT, "agents", "capabilities", "registry.yaml")
 
 
-def _float_env(name: str, default: float) -> float:
-    """Parse a float from an env var, falling back to *default* on bad values."""
+def _float_env(name: str, default: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    """Parse a float from an env var, falling back to *default* on bad values or out-of-range."""
     raw = os.getenv(name)
     if raw is None:
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         logger.warning("Invalid value for %s=%r, using default %.2f", name, raw, default)
         return default
+    if not (lo <= value <= hi):
+        logger.warning("Out-of-range value for %s=%.4f (expected %.1f–%.1f), using default %.2f", name, value, lo, hi, default)
+        return default
+    return value
 
 
 ROUTER_SIMILARITY_THRESHOLD = _float_env("ROUTER_SIMILARITY_THRESHOLD", 0.95)
