@@ -125,7 +125,9 @@ class SemanticRouter:
 
         loop = asyncio.get_running_loop()
         query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
-        results = self.store.query(query_embedding=query_emb, n_results=1)
+        results = await loop.run_in_executor(
+            None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
+        )
 
         if results.ids and results.distances and len(results.distances) > 0:
             distance = results.distances[0]
