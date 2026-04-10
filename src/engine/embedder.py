@@ -1,6 +1,7 @@
 """Lightweight embedding engine based on FastEmbed (ONNX Runtime).
 
-Replaces sentence-transformers + PyTorch with a ~10 MB dependency.
+Replaces sentence-transformers + PyTorch with a much lighter dependency
+footprint (~100 MB installed vs ~2 GB for torch + transformers).
 Model is selected via EMBEDDING_MODEL env var (set during setup).
 
 Uses query_embed() for queries and passage_embed() for documents
