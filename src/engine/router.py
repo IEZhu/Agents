@@ -124,22 +124,33 @@ class SemanticRouter:
     @staticmethod
     def _is_significant_token(token: str) -> bool:
         """A token is significant for fallback matching if it's either
-        long enough (>= 4 chars) or an all-alpha abbreviation/acronym
-        (e.g. "рф", "ip", "3d", "ai"). Short common words like "на",
-        "в", "of" are excluded."""
+        long enough (>= 4 chars) or a short abbreviation/acronym containing
+        at least one letter (e.g. "рф", "ip", "3d", "ai"). Single-char
+        tokens and pure-digit tokens are excluded."""
         if len(token) >= 4:
             return True
-        return len(token) >= 2 and token.isalpha()
+        return len(token) >= 2 and token.isalnum() and any(c.isalpha() for c in token)
+
+    @staticmethod
+    def _token_in_query(token: str, query_lower: str) -> bool:
+        """Check if token appears in query. Short tokens (< 4 chars) require
+        word-boundary matching to avoid false positives like 'ux' inside
+        'auxiliary'. Longer tokens use plain substring matching to support
+        inflected forms."""
+        if len(token) >= 4:
+            return token in query_lower
+        # Short token: require word boundary (space, start/end of string, or punctuation)
+        import re
+        return bool(re.search(r'(?<!\w)' + re.escape(token) + r'(?!\w)', query_lower))
 
     def match_keywords(self, query: str) -> list[tuple[str, int]]:
         """Match query against each agent's domain_keywords.
 
         For each keyword, tries exact substring match first. If that fails,
-        extracts significant tokens (>= 4 chars or short alphabetic
-        abbreviations like "рф", "ip", "ai") and requires ALL of them to
-        appear as substrings in the query. This handles inflected languages
-        (e.g. "закон" from "закон рф" matches "законодательству") while
-        retaining short disambiguating acronyms.
+        extracts significant tokens (>= 4 chars or short alphanumeric
+        abbreviations like "рф", "ip", "3d") and requires ALL of them to
+        appear in the query. Short tokens (< 4 chars) use word-boundary
+        matching to prevent false positives (e.g. "ux" inside "auxiliary").
 
         Returns [(agent_name, hit_count), ...] sorted by hits descending,
         filtered to agents with at least 1 hit.
@@ -149,12 +160,14 @@ class SemanticRouter:
         for agent_name, keywords in self._agent_keywords.items():
             hits = 0
             for kw in keywords:
-                if kw in query_lower:
+                # Short keywords (< 4 chars) use word-boundary matching to prevent
+                # false positives like "ux" inside "auxiliary".
+                if self._token_in_query(kw, query_lower):
                     hits += 1
                     continue
                 # Token fallback: ALL significant tokens must match.
                 tokens = [t for t in kw.split() if self._is_significant_token(t)]
-                if tokens and all(t in query_lower for t in tokens):
+                if tokens and all(self._token_in_query(t, query_lower) for t in tokens):
                     hits += 1
             if hits > 0:
                 matches.append((agent_name, hits))

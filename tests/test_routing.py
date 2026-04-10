@@ -566,16 +566,40 @@ class TestKeywordBoosting:
         assert len(matches) == 1
 
     def test_match_keywords_retains_short_acronyms(self):
-        """Short alphabetic tokens like 'рф', 'ip', 'ai' are kept as significant."""
+        """Short alphanumeric tokens like 'рф', 'ip', '3d' are kept as significant."""
         r = self._make_router_with_keywords({
             "russian_lawyer": ["закон рф"],
         })
         # "закон рф" exact doesn't match, fallback tokens are ["закон", "рф"]
-        # "рф" (2 chars, all-alpha) is retained; both must match
+        # "рф" (2 chars, alphanumeric+alpha) is retained; both must match
         matches = r.match_keywords("Анализ закон в РФ")
         assert len(matches) == 1
         # Only "закон" present without "рф" → no match (all() requires both)
         matches = r.match_keywords("Новый закон принят")
+        assert matches == []
+
+    def test_match_keywords_retains_alphanumeric_tokens(self):
+        """Tokens like '3d' (alphanumeric with at least one letter) are significant."""
+        r = self._make_router_with_keywords({
+            "3d_print_finder": ["find 3d model"],
+        })
+        # All tokens present → match
+        matches = r.match_keywords("find a 3d model for printing")
+        assert len(matches) == 1
+        # Missing "3d" → no match (prevents "find the right model" false positive)
+        matches = r.match_keywords("find the right model for the project")
+        assert matches == []
+
+    def test_match_keywords_short_token_word_boundary(self):
+        """Short tokens use word-boundary matching: 'ux' must not match inside 'auxiliary'."""
+        r = self._make_router_with_keywords({
+            "ux_designer": ["ux"],
+        })
+        # "ux" as standalone word → match
+        matches = r.match_keywords("Improve the UX of the dashboard")
+        assert len(matches) == 1
+        # "ux" embedded inside "auxiliary" → no match
+        matches = r.match_keywords("Use auxiliary tools for the project")
         assert matches == []
 
     # --- keyword_veto ---
@@ -629,14 +653,21 @@ class TestKeywordBoosting:
         assert result is None
 
     def test_universal_agent_keywords_excluded_at_load(self):
-        """Verify the real _load_agent_descriptions sets universal_agent keywords
-        to empty, even though the frontmatter contains generic keywords."""
-        from src.engine.router import SemanticRouter
-        router = SemanticRouter()
-        assert router._agent_keywords.get("universal_agent") == []
-        # And verify it actually has frontmatter keywords that were skipped
+        """Verify _load_agent_descriptions sets universal_agent keywords to empty,
+        even though the frontmatter contains generic keywords.
+        Uses object.__new__ to avoid touching the disk-based vector store."""
         import yaml, os
+        from src.engine.router import SemanticRouter
         from src.engine.config import AGENTS_DIR
+
+        # Construct without __init__ to avoid NumpyVectorStore disk I/O
+        router = object.__new__(SemanticRouter)
+        router._agent_keywords = {}
+        router.available_agents = router._scan_agents()
+        router._agent_descriptions = router._load_agent_descriptions()
+
+        assert router._agent_keywords.get("universal_agent") == []
+        # Verify frontmatter actually has keywords that were intentionally skipped
         from src.utils.prompt_loader import split_frontmatter
         path = os.path.join(AGENTS_DIR, "universal_agent", "system_prompt.mdc")
         with open(path, "r", encoding="utf-8") as f:
