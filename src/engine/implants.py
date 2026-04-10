@@ -215,11 +215,12 @@ class ImplantRetriever:
         semantic_implants = []
 
         if candidates.ids and candidates.distances:
-            logger.debug(
-                "Implant candidates (threshold=%.2f): %s",
-                IMPLANTS_RELEVANCE_THRESHOLD,
-                [(cid, f"{d:.4f}") for cid, d in zip(candidates.ids, candidates.distances)],
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Implant candidates (threshold=%.2f): %s",
+                    IMPLANTS_RELEVANCE_THRESHOLD,
+                    [(cid, f"{d:.4f}") for cid, d in zip(candidates.ids, candidates.distances)],
+                )
             for i, distance in enumerate(candidates.distances):
                 if distance < IMPLANTS_RELEVANCE_THRESHOLD:
                     cid = candidates.ids[i]

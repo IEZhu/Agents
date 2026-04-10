@@ -325,7 +325,7 @@ if [ "$SKIP_INDEX" = false ]; then
     # Check if model is already configured
     CURRENT_MODEL=""
     if [ -f "$ENV_FILE" ]; then
-        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | sed "s/^['\"]//; s/['\"]$//; s/[[:space:]]*#.*//" | xargs || true)
+        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | sed "s/[[:space:]]*#.*//; s/^['\"]//; s/['\"]$//" | xargs || true)
     fi
 
     if [ -n "$CURRENT_MODEL" ]; then
@@ -359,7 +359,7 @@ if [ "$SKIP_INDEX" = false ]; then
         esac
 
         # Write to .env (use Python for macOS/Linux portability)
-        ENV_FILE_PATH="$ENV_FILE" NEW_MODEL="$CURRENT_MODEL" python3 -c "
+        ENV_FILE_PATH="$ENV_FILE" NEW_MODEL="$CURRENT_MODEL" python -c "
 import os
 env_path = os.environ['ENV_FILE_PATH']
 new_model = os.environ['NEW_MODEL']
