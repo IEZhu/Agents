@@ -188,7 +188,7 @@ class NumpyVectorStore:
                             os.unlink(path)
                     except OSError:
                         pass
-                logger.debug(f"[{self.name}] Saved empty store (files removed)")
+                logger.debug("[%s] Saved empty store (files removed)", self.name)
                 return
 
             # Save metadata
@@ -211,7 +211,7 @@ class NumpyVectorStore:
                     os.unlink(tmp_meta_path)
                 raise
 
-            logger.debug(f"[{self.name}] Saved {len(self._ids)} entries to disk")
+            logger.debug("[%s] Saved %d entries to disk", self.name, len(self._ids))
 
     def count(self) -> int:
         with self._lock:
@@ -391,7 +391,7 @@ class NumpyVectorStore:
             self._metadatas = self._metadatas[keep_from:]
             self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
             self._recompute_norms()
-            logger.debug(f"[{self.name}] Trimmed to {max_size} entries")
+            logger.debug("[%s] Trimmed to %d entries", self.name, max_size)
 
     def get_all_metadatas(self) -> List[Dict[str, Any]]:
         """Return all metadatas (for catalog generation)."""
