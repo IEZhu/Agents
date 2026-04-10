@@ -154,17 +154,22 @@ class NumpyVectorStore:
         documents: List[str],
         metadatas: List[Dict[str, Any]],
     ):
-        """Insert or update entries. Full replace if all IDs are new (common case)."""
+        """Insert or update entries.
+
+        Full replace when: store is empty, all IDs are new, or all existing
+        IDs are covered (reindex case — drops stale entries not in ``ids``).
+        """
         if len(ids) == 0:
             return
 
         embeddings = np.asarray(embeddings, dtype=np.float32)
 
         with self._lock:
-            # Fast path: full reindex (all new IDs or replacing everything)
-            existing = [id_ for id_ in ids if id_ in self._id_to_idx]
-            if not existing or len(existing) == len(self._ids):
-                # Full replace
+            new_id_set = set(ids)
+            existing = [id_ for id_ in self._ids if id_ in new_id_set]
+            # Full replace when every old entry is present in the new set
+            # (covers: empty store, all-new IDs, and reindex with deletions)
+            if len(existing) == len(self._ids):
                 self._embeddings = embeddings.copy()
                 self._ids = list(ids)
                 self._documents = list(documents)

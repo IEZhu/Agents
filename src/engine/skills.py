@@ -20,6 +20,11 @@ class SkillRetriever:
         self.store = NumpyVectorStore(name="skills_store", data_dir=DATA_DIR)
 
         changed, self._current_hash = self._needs_reindex()
+        # Also reindex if store is empty but .mdc files exist (corrupted/missing store)
+        if not changed and self.store.count() == 0:
+            if glob.glob(os.path.join(SKILLS_DIR, "*.mdc")):
+                changed = True
+                logger.info("Skills store empty despite hash match — forcing reindex")
         if changed:
             logger.info("Skills changed on disk. Re-indexing...")
             self.index_skills()

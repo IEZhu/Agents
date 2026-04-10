@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR
+from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL
 from src.engine.embedder import embed_query
 from src.engine.vector_store import NumpyVectorStore
 from src.schemas.protocol import RouterDecision, AgentRequest
@@ -14,13 +14,38 @@ from src.utils.prompt_loader import split_frontmatter
 logger = logging.getLogger(__name__)
 
 ROUTER_CACHE_MAX_SIZE = 500
+_ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
+
 
 class SemanticRouter:
     def __init__(self):
         self.store = NumpyVectorStore(name="router_cache", data_dir=DATA_DIR)
+        self._invalidate_on_model_change()
 
         self.available_agents = self._scan_agents()
         self._agent_descriptions = self._load_agent_descriptions()
+
+    def _invalidate_on_model_change(self):
+        """Clear router cache when the embedding model changes."""
+        stored_model = ""
+        try:
+            if os.path.exists(_ROUTER_MODEL_HASH_FILE):
+                with open(_ROUTER_MODEL_HASH_FILE, "r") as f:
+                    stored_model = f.read().strip()
+        except Exception:
+            pass
+
+        if stored_model != EMBEDDING_MODEL:
+            if self.store.count() > 0:
+                logger.info(
+                    "Embedding model changed (%s → %s), clearing router cache",
+                    stored_model or "<none>", EMBEDDING_MODEL,
+                )
+                self.store._reset()
+                self.store.save()
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(_ROUTER_MODEL_HASH_FILE, "w") as f:
+                f.write(EMBEDDING_MODEL)
 
     def _scan_agents(self) -> List[str]:
         """
