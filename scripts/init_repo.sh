@@ -5,11 +5,11 @@
 # This script sets up the development environment after cloning.
 #
 # Usage:
-#   ./scripts/init_repo.sh [--skip-env] [--skip-chroma] [--skip-mcp]
+#   ./scripts/init_repo.sh [--skip-env] [--skip-index] [--skip-mcp]
 #
 # Flags:
 #   --skip-env     Skip .env file creation (useful if already configured)
-#   --skip-chroma  Skip ChromaDB initialization
+#   --skip-index   Skip embedding model download and index pre-build
 #   --skip-mcp     Skip MCP environment detection and configuration
 #   --help         Show this help message
 
@@ -34,7 +34,7 @@ PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 
 # ============== Parse Arguments ==============
 SKIP_ENV=false
-SKIP_CHROMA=false
+SKIP_INDEX=false
 SKIP_MCP=false
 
 for arg in "$@"; do
@@ -43,8 +43,8 @@ for arg in "$@"; do
             SKIP_ENV=true
             shift
             ;;
-        --skip-chroma)
-            SKIP_CHROMA=true
+        --skip-index)
+            SKIP_INDEX=true
             shift
             ;;
         --skip-mcp)
@@ -315,47 +315,114 @@ else
     print_step "Skipping package installation"
 fi
 
-# Pre-download embedding model AND pre-index ChromaDB so MCP server starts instantly.
-# Without this, first startup takes 30-60s for embedding generation,
+# Pre-download embedding model AND pre-index vector stores so MCP server starts instantly.
+# Without this, first startup takes 30-60s for model download,
 # causing Claude Desktop to time out with "Request timed out" (-32001).
 # Runs regardless of SKIP_INSTALL — .mdc files may have changed even if deps are unchanged.
-# Respects --skip-chroma flag since indexing writes to ChromaDB on disk.
-if [ "$SKIP_CHROMA" = false ]; then
-    print_header "🧠 Pre-downloading Embedding Model & Indexing ChromaDB"
+if [ "$SKIP_INDEX" = false ]; then
+    print_header "🧠 Embedding Model Selection & Pre-indexing"
 
-    print_step "Downloading BAAI/bge-m3 and indexing skills/implants..."
+    # Check if model is already configured
+    CURRENT_MODEL=""
+    if [ -f "$ENV_FILE" ]; then
+        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | sed "s/[[:space:]]*#.*//; s/^['\"]//; s/['\"]$//" | xargs || true)
+    fi
+
+    if [ -n "$CURRENT_MODEL" ]; then
+        print_success "Embedding model already configured: $CURRENT_MODEL"
+    else
+        echo ""
+        echo -e "  ${CYAN}Select embedding model:${NC}"
+        echo ""
+        echo -e "    ${GREEN}1)${NC} Full     — intfloat/multilingual-e5-large                    ~1.1 GB  1024d  multilingual"
+        echo -e "               Best quality. For powerful machines (32+ GB RAM)."
+        echo ""
+        echo -e "    ${GREEN}2)${NC} Balanced — sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  ~120 MB  384d   multilingual"
+        echo -e "               Good quality, 9x lighter. For 16 GB machines. ${GREEN}(Recommended)${NC}"
+        echo ""
+        echo -e "    ${GREEN}3)${NC} Light    — sentence-transformers/all-MiniLM-L6-v2            ~22 MB   384d   English"
+        echo -e "               Minimal footprint. English queries only."
+        echo ""
+        read -r -p "  Choice [1/2/3] (default: 2): " MODEL_CHOICE
+        MODEL_CHOICE="${MODEL_CHOICE:-2}"
+
+        case "$MODEL_CHOICE" in
+            1)
+                CURRENT_MODEL="intfloat/multilingual-e5-large"
+                ;;
+            3)
+                CURRENT_MODEL="sentence-transformers/all-MiniLM-L6-v2"
+                ;;
+            *)
+                CURRENT_MODEL="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+                ;;
+        esac
+
+        # Write to .env (use Python for macOS/Linux portability)
+        ENV_FILE_PATH="$ENV_FILE" NEW_MODEL="$CURRENT_MODEL" python -c "
+import os
+env_path = os.environ['ENV_FILE_PATH']
+new_model = os.environ['NEW_MODEL']
+lines = []
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        lines = [l for l in f.readlines() if not l.startswith('EMBEDDING_MODEL=')]
+lines.append(f'EMBEDDING_MODEL={new_model}\n')
+with open(env_path, 'w') as f:
+    f.writelines(lines)
+"
+        print_success "Embedding model: $CURRENT_MODEL"
+    fi
+
+    print_step "Pre-downloading model and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
     set +e
-    REPO_ROOT="$REPO_ROOT" python -c "
-import sys, os
+    EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
+import sys, os, shutil, glob
 sys.path.insert(0, os.environ['REPO_ROOT'])
+os.environ.setdefault('EMBEDDING_MODEL', '$CURRENT_MODEL')
 
-# 1. Download/cache the embedding model
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('BAAI/bge-m3')
-print('Embedding model ready', flush=True)
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.environ['REPO_ROOT'], '.env'))
 
-# 2. Pre-index skills and implants into ChromaDB
+# 1. Download/cache the embedding model (with corrupt cache recovery)
+from src.engine.embedder import embed_texts
+MAX_RETRIES = 2
+for attempt in range(MAX_RETRIES):
+    try:
+        embed_texts(['warmup'])
+        print('Embedding model ready', flush=True)
+        break
+    except Exception as e:
+        if attempt < MAX_RETRIES - 1:
+            print(f'Model load failed: {e}', flush=True)
+            print('Clearing corrupted model cache and retrying...', flush=True)
+            from src.engine.embedder import clear_model_cache, reset_model
+            clear_model_cache('$CURRENT_MODEL')
+            reset_model()
+        else:
+            raise
+
+# 2. Pre-index skills and implants
 print('Indexing skills...', flush=True)
 from src.engine.skills import SkillRetriever
 sr = SkillRetriever()
-print(f'Skills indexed: {sr.collection.count()} entries', flush=True)
+print(f'Skills indexed: {sr.store.count()} entries', flush=True)
 
 print('Indexing implants...', flush=True)
 from src.engine.implants import ImplantRetriever
 ir = ImplantRetriever()
-print(f'Implants indexed: {ir.collection.count()} entries', flush=True)
+print(f'Implants indexed: {ir.store.count()} entries', flush=True)
 " 2>&1
-    INDEX_EXIT=$?
+    INDEX_EXIT_CODE=$?
     set -e
-
-    if [ $INDEX_EXIT -eq 0 ]; then
+    if [ $INDEX_EXIT_CODE -eq 0 ]; then
         print_success "Embedding model cached, skills & implants indexed"
     else
         print_warn "Pre-indexing failed — it will run on first MCP server start"
     fi
 else
-    print_step "Skipping ChromaDB pre-indexing (--skip-chroma)"
+    print_step "Skipping pre-indexing (--skip-index)"
 fi
 
 # ============== MCP Environment Detection & Configuration ==============
@@ -598,26 +665,10 @@ with open(md_path, 'w') as f:
         print_step "You can configure MCP manually later:"
         echo "    • Cursor:         Install Cursor, then re-run this script"
         echo "    • Claude Desktop: Install Claude Desktop, then re-run this script"
-        echo "    • Claude Code:    Run ./scripts/setup_claude.sh"
+        echo "    • Claude Code:    Install Claude Code, then re-run this script"
     else
         print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
     fi
-fi
-
-# ============== ChromaDB Initialization ==============
-
-print_header "🗄️  ChromaDB Initialization"
-
-CHROMA_PATH="$REPO_ROOT/chroma_db"
-
-if [ "$SKIP_CHROMA" = false ]; then
-    if [ -d "$CHROMA_PATH" ] && [ "$(ls -A $CHROMA_PATH 2>/dev/null)" ]; then
-        print_success "ChromaDB already initialized at $CHROMA_PATH"
-    else
-        print_step "ChromaDB will be initialized on first server run"
-    fi
-else
-    print_step "Skipping ChromaDB check (--skip-chroma)"
 fi
 
 # ============== Final Summary ==============

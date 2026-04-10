@@ -344,11 +344,11 @@ class TestStickyRouting:
 
     @pytest.mark.asyncio
     async def test_sticky_releases_on_lookup_error(self):
-        """When ChromaDB query fails, release to ROUTE_REQUIRED instead of keeping sticky."""
+        """When vector store query fails, release to ROUTE_REQUIRED instead of keeping sticky."""
         self.srv.CONTEXT_HASH_CACHE["prev_hash"] = "software_engineer"
 
         with patch.object(self.srv.router, "query_nearest",
-                          new_callable=AsyncMock, side_effect=RuntimeError("ChromaDB connection lost")), \
+                          new_callable=AsyncMock, side_effect=RuntimeError("Vector store connection lost")), \
              patch.object(self.srv.router, "get_agent_catalog", return_value=[{"name": "universal_agent"}]):
             result = json.loads(await self.srv.route_and_load(
                 "Wie kann ich die Leistung meiner Datenbank optimieren?",

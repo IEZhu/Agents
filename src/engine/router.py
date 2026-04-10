@@ -1,30 +1,51 @@
+import asyncio
 import logging
 import os
-import asyncio
 from datetime import datetime, timezone
-from src.utils.langfuse_compat import observe
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional, Dict, Any
+
+from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL
+from src.engine.embedder import embed_query
+from src.engine.vector_store import NumpyVectorStore
+from src.schemas.protocol import RouterDecision, AgentRequest
+from src.utils.langfuse_compat import observe
 from src.utils.prompt_loader import split_frontmatter
 
-from src.schemas.protocol import RouterDecision, AgentRequest
-from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR
-from src.engine.chroma import get_chroma_client, get_embedding_fn
+logger = logging.getLogger(__name__)
+
+ROUTER_CACHE_MAX_SIZE = 500
+_ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
+
 
 class SemanticRouter:
     def __init__(self):
-        self.chroma_client = get_chroma_client()
-        self.embedding_fn = get_embedding_fn()
-
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="router_cache",
-            embedding_function=self.embedding_fn,
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.store = NumpyVectorStore(name="router_cache", data_dir=DATA_DIR)
+        self._invalidate_on_model_change()
 
         self.available_agents = self._scan_agents()
         self._agent_descriptions = self._load_agent_descriptions()
+
+    def _invalidate_on_model_change(self):
+        """Clear router cache when the embedding model changes."""
+        stored_model = ""
+        try:
+            if os.path.exists(_ROUTER_MODEL_HASH_FILE):
+                with open(_ROUTER_MODEL_HASH_FILE, "r") as f:
+                    stored_model = f.read().strip()
+        except Exception:
+            pass
+
+        if stored_model != EMBEDDING_MODEL:
+            if self.store.count() > 0:
+                logger.info(
+                    "Embedding model changed (%s → %s), clearing router cache",
+                    stored_model or "<none>", EMBEDDING_MODEL,
+                )
+                self.store.clear()
+                self.store.save()
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(_ROUTER_MODEL_HASH_FILE, "w") as f:
+                f.write(EMBEDDING_MODEL)
 
     def _scan_agents(self) -> List[str]:
         """
@@ -93,24 +114,24 @@ class SemanticRouter:
         the cache has no entries. No threshold is applied — the caller decides
         what to do with the distance.
 
-        Raises on ChromaDB errors so callers can distinguish empty cache from
+        Raises on errors so callers can distinguish empty cache from
         lookup failure and handle each appropriately.
         """
+        if self.store.count() == 0:
+            return None
+
         history_text = context.get("history_text", "") if context else ""
         semantic_query = f"{history_text[-200:]}\n{query}" if history_text else query
 
         loop = asyncio.get_running_loop()
+        query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
         results = await loop.run_in_executor(
-            None,
-            lambda: self.collection.query(
-                query_texts=[semantic_query],
-                n_results=1,
-            ),
+            None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
         )
 
-        if results["ids"] and results["distances"] and len(results["distances"][0]) > 0:
-            distance = results["distances"][0][0]
-            metadata = results["metadatas"][0][0]
+        if results.ids and results.distances and len(results.distances) > 0:
+            distance = results.distances[0]
+            metadata = results.metadatas[0]
             decision = RouterDecision(
                 target_agent=metadata["target_agent"],
                 confidence=1.0,
@@ -129,7 +150,7 @@ class SemanticRouter:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"ChromaDB lookup failed: {e}")
+            logger.error("Vector store lookup failed: %s", e, exc_info=True)
             return None
         if result and result[1] < (1 - ROUTER_SIMILARITY_THRESHOLD):
             return result
@@ -146,20 +167,25 @@ class SemanticRouter:
         """
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(
-                None,
-                lambda: self.collection.add(
+            query_emb = await loop.run_in_executor(None, embed_query, query)
+
+            def _mutate_and_save():
+                self.store.add(
+                    ids=[request_id],
+                    embeddings=query_emb.reshape(1, -1),
                     documents=[query],
                     metadatas=[{
                         "target_agent": agent_name,
                         "reasoning": reasoning,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }],
-                    ids=[request_id]
                 )
-            )
+                self.store.trim(ROUTER_CACHE_MAX_SIZE)
+                self.store.save()
+
+            await loop.run_in_executor(None, _mutate_and_save)
         except Exception as e:
-            logger.error(f"Failed to update cache: {e}")
+            logger.error("Failed to update cache: %s", e, exc_info=True)
 
     @observe(name="route_request")
     async def route(self, request: AgentRequest) -> Optional[RouterDecision]:

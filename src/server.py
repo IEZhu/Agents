@@ -265,7 +265,7 @@ async def route_and_load(
                 explicit_tier = "lite"
             else:
                 # Use unfiltered nearest match to distinguish "empty cache" from "topic change".
-                # query_nearest raises on ChromaDB errors — release to ROUTE_REQUIRED on failure.
+                # query_nearest raises on vector store errors — release to ROUTE_REQUIRED on failure.
                 lookup_failed = False
                 try:
                     nearest = await router.query_nearest(query, {"history_text": history_text})
@@ -484,16 +484,16 @@ async def load_implants(
             ]
             results = await loop.run_in_executor(
                 None,
-                lambda: implant_retriever.collection.get(ids=target_ids),
+                lambda: implant_retriever.store.get(ids=target_ids),
             )
             implants = [
                 {
-                    "filename": results["ids"][i],
-                    "content": results["documents"][i],
-                    "metadata": results["metadatas"][i],
+                    "filename": results.ids[i],
+                    "content": results.documents[i],
+                    "metadata": results.metadatas[i],
                     "distance": 0.0,
                 }
-                for i in range(len(results["ids"]))
+                for i in range(len(results.ids))
             ]
         else:
             if not query:
@@ -636,5 +636,20 @@ def _register_agent_prompts():
 
 _register_agent_prompts()
 
+
+def _warmup_embedding_model():
+    """Warm up the embedding model so the first MCP request doesn't pay the
+    cold-start cost (model load can take several seconds for large models
+    like multilingual-e5-large and may exceed client timeouts)."""
+    try:
+        from src.engine.embedder import embed_texts, embed_query
+        embed_texts(["warmup"])
+        embed_query("warmup")
+        logger.info("Embedding model warmed up")
+    except Exception as e:
+        logger.warning("Embedding model warmup failed: %s", e, exc_info=True)
+
+
 if __name__ == "__main__":
+    _warmup_embedding_model()
     mcp.run()

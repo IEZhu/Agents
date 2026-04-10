@@ -7,32 +7,33 @@ from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any, Optional
 from src.utils.prompt_loader import split_frontmatter
 
-from src.engine.config import IMPLANTS_DIR, IMPLANTS_RELEVANCE_THRESHOLD, CHROMA_PATH
-from src.engine.chroma import get_chroma_client, get_embedding_fn
+from src.engine.config import IMPLANTS_DIR, IMPLANTS_RELEVANCE_THRESHOLD, DATA_DIR
+from src.engine.vector_store import NumpyVectorStore
+from src.engine.embedder import embed_texts, embed_query
 
 logger = logging.getLogger(__name__)
 
 class ImplantRetriever:
-    HASH_FILE = os.path.join(CHROMA_PATH, ".implants_hash")
+    HASH_FILE = os.path.join(DATA_DIR, ".implants_hash")
 
     def __init__(self):
-        self.chroma_client = get_chroma_client()
-        self.embedding_fn = get_embedding_fn()
-
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="implants_store",
-            embedding_function=self.embedding_fn,
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.store = NumpyVectorStore(name="implants_store", data_dir=DATA_DIR)
 
         changed, self._current_hash = self._needs_reindex()
+        # Also reindex if store is empty but .mdc files exist (corrupted/missing store)
+        if not changed and self.store.count() == 0:
+            if glob.glob(os.path.join(IMPLANTS_DIR, "*.mdc")):
+                changed = True
+                logger.info("Implants store empty despite hash match — forcing reindex")
         if changed:
             logger.info("Implants changed on disk. Re-indexing...")
             self.index_implants()
 
     @staticmethod
     def _compute_dir_hash() -> str:
+        from src.engine.config import EMBEDDING_MODEL
         h = hashlib.md5()
+        h.update(EMBEDDING_MODEL.encode())
         for path in sorted(glob.glob(os.path.join(IMPLANTS_DIR, "*.mdc"))):
             h.update(path.encode())
             with open(path, "rb") as f:
@@ -62,6 +63,9 @@ class ImplantRetriever:
 
         if not implant_files:
             logger.warning(f"No implant files found in {IMPLANTS_DIR}")
+            self.store.clear()
+            self.store.save()
+            self._save_hash(getattr(self, "_current_hash", None))
             return
 
         documents = []
@@ -110,14 +114,24 @@ class ImplantRetriever:
             except Exception as e:
                 logger.error(f"Error processing implant file {file_path}: {e}")
 
-        if documents:
-            self.collection.upsert(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
+        if not documents:
+            # All files failed to parse — clear stale store
+            self.store.clear()
+            self.store.save()
             self._save_hash(getattr(self, "_current_hash", None))
-            logger.info(f"Successfully indexed {len(documents)} implants.")
+            logger.warning("No implants could be parsed — store cleared")
+            return
+
+        embeddings = embed_texts(documents)
+        self.store.replace(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+        self.store.save()
+        self._save_hash(getattr(self, "_current_hash", None))
+        logger.info(f"Successfully indexed {len(documents)} implants.")
 
     @observe(name="retrieve_implants")
     def retrieve(self, query: str, n_results: int = 3, context: Optional[Dict[str, Any]] = None, role: Optional[str] = None, agent_context: Optional[str] = None, preferred_implants: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -125,27 +139,27 @@ class ImplantRetriever:
         Retrieves relevant implants for a given query.
         If preferred_implants are provided, loads them directly (like preferred_skills).
         """
-        if self.collection.count() == 0:
+        if self.store.count() == 0:
             return []
 
         # --- Preferred implants fast-path with semantic top-up ---
         preferred_loaded: list[dict] = []
         preferred_ids_loaded: set[str] = set()
         if preferred_implants:
-            # Apply n_results cap before fetching to avoid unnecessary Chroma work
+            # Apply n_results cap before fetching to avoid unnecessary work
             all_target_ids = [
                 f"{pi}.mdc" if not pi.endswith(".mdc") else pi
                 for pi in preferred_implants
             ]
             target_ids = all_target_ids[:n_results]
             try:
-                results = self.collection.get(ids=target_ids)
-                if results['ids']:
-                    # Build lookup map: id → (meta, content) for deterministic ordering
+                results = self.store.get(ids=target_ids)
+                if results.ids:
+                    # Build lookup map: id -> (meta, content) for deterministic ordering
                     lookup = {}
-                    for i, implant_id in enumerate(results['ids']):
-                        meta = results['metadatas'][i] or {}
-                        content = meta.get('body', results['documents'][i])
+                    for i, implant_id in enumerate(results.ids):
+                        meta = results.metadatas[i] or {}
+                        content = meta.get('body', results.documents[i])
                         lookup[implant_id] = (meta, content)
                     missing = [tid for tid in target_ids if tid not in lookup]
                     if missing:
@@ -169,8 +183,6 @@ class ImplantRetriever:
                 return preferred_loaded
 
             # Otherwise fall through to semantic search for remaining slots.
-            # n_results is already bounded by MAX_PREFERRED_IMPLANTS from the caller,
-            # so remaining alone is the correct cap for semantic top-up.
             n_results = n_results - len(preferred_loaded)
 
         # Handle legacy agent_context param (treat as role)
@@ -189,24 +201,34 @@ class ImplantRetriever:
                 search_parts.append(f"Context: {history_text[-300:]}")
 
         search_query = "\n".join(search_parts)
-        logger.info(f"Retrieving implants with query: {search_query}")
+        logger.debug(
+            "Retrieving implants: search_len=%d, has_role=%s, has_context=%s",
+            len(search_query), bool(role), bool(context),
+        )
 
-        candidates = self.collection.query(
-            query_texts=[search_query],
-            n_results=min(n_results * 3, self.collection.count()),
+        query_emb = embed_query(search_query)
+        candidates = self.store.query(
+            query_embedding=query_emb,
+            n_results=min(n_results * 3, self.store.count()),
         )
 
         semantic_implants = []
 
-        if candidates['ids'] and candidates['distances']:
-            for i, distance in enumerate(candidates['distances'][0]):
+        if candidates.ids and candidates.distances:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Implant candidates (threshold=%.2f): %s",
+                    IMPLANTS_RELEVANCE_THRESHOLD,
+                    [(cid, f"{d:.4f}") for cid, d in zip(candidates.ids, candidates.distances)],
+                )
+            for i, distance in enumerate(candidates.distances):
                 if distance < IMPLANTS_RELEVANCE_THRESHOLD:
-                    cid = candidates['ids'][0][i]
+                    cid = candidates.ids[i]
                     # Skip implants already loaded via preferred path
                     if cid in preferred_ids_loaded:
                         continue
-                    meta = candidates['metadatas'][0][i] or {}
-                    content = meta.get('body', candidates['documents'][0][i])
+                    meta = candidates.metadatas[i] or {}
+                    content = meta.get('body', candidates.documents[i])
                     semantic_implants.append({
                         "filename": cid,
                         "content": content,
@@ -229,12 +251,12 @@ class ImplantRetriever:
         Designed for JIT injection: the model sees what's available and can
         request specific implants via load_implants(query=...) or load_implants(task_type=...).
         """
-        if self.collection.count() == 0:
+        if self.store.count() == 0:
             return ""
 
-        all_data = self.collection.get(include=["metadatas"])
+        all_metas = self.store.get_all_metadatas()
         entries: list[str] = []
-        for meta in (all_data.get("metadatas") or []):
+        for meta in all_metas:
             short = meta.get("short_name") or meta.get("filename", "?")
             liner = meta.get("one_liner") or meta.get("description", "")
             entries.append(f"{short}({liner})")

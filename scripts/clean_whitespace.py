@@ -11,7 +11,7 @@ TARGET_EXTENSIONS = {
 }
 IGNORE_DIRS = {
     '.git', '.venv', '__pycache__', 'node_modules',
-    'chroma_db', 'dist', 'build',
+    'chroma_db', 'data', 'dist', 'build',
     '.pytest_cache', '.mypy_cache', 'logs'
 }
 

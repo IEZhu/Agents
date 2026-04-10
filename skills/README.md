@@ -151,7 +151,7 @@ preferred_skills:
   - "skill-dev-debugging"
 ```
 
-MCP server uses ChromaDB to select relevant skills based on:
+MCP server uses vector search to select relevant skills based on:
 - Query content
 - Agent's preferred skills
 - Skill descriptions
@@ -208,7 +208,7 @@ alwaysApply: true
      - "skill-domain-name"
    ```
 
-4. **Restart MCP server**: To re-index skills in ChromaDB
+4. **Restart MCP server**: To re-index skills
 
 ## Best Practices
 

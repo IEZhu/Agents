@@ -1,9 +1,12 @@
 import logging
 import asyncio
+import os
 import re
+import traceback
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
+from src.engine.config import AGENTS_DEBUG, DEBUG_LOG_DIR
 from src.engine.skills import SkillRetriever
 from src.engine.implants import ImplantRetriever
 from src.engine.capabilities import resolve_capabilities
@@ -97,6 +100,7 @@ async def get_dynamic_context_string(
                 n_implants = min(max(2, _n_preferred), MAX_PREFERRED_IMPLANTS) if _n_preferred else 2
             else:
                 n_implants = min(max(IMPLANTS_DEEP_TIER_DEFAULT, _n_preferred), MAX_PREFERRED_IMPLANTS)
+            logger.debug("Retrieving implants: tier=%s, n_implants=%d, preferred=%s", tier, n_implants, preferred_implants)
             _preferred = preferred_implants  # capture for closure
             implants = await loop.run_in_executor(
                 None,
@@ -105,6 +109,7 @@ async def get_dynamic_context_string(
                     preferred_implants=_preferred if _preferred else None,
                 ),
             )
+            logger.debug("Implants retrieved: %d results", len(implants))
             if implants:
                 context_parts.append(implant_retriever.format_implants_for_prompt(implants))
                 loaded_implant_names = [
@@ -115,7 +120,16 @@ async def get_dynamic_context_string(
                 "**More reasoning implants available** — call `load_implants(query=...)` to load by topic."
             )
         except Exception as e:
-            logger.error(f"Failed to retrieve implants: {e}")
+            logger.error("Failed to retrieve implants: %s", e, exc_info=True)
+            if AGENTS_DEBUG:
+                try:
+                    import datetime
+                    os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
+                    with open(os.path.join(DEBUG_LOG_DIR, "implant_enrichment_error.log"), "a") as f:
+                        f.write(f"\n--- {datetime.datetime.now().isoformat()} ---\n")
+                        f.write(traceback.format_exc())
+                except Exception:
+                    pass
 
     return EnrichmentResult(
         prompt="\n\n".join(context_parts),

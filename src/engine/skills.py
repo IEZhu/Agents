@@ -7,32 +7,33 @@ from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any
 from src.utils.prompt_loader import split_frontmatter
 
-from src.engine.config import SKILLS_DIR, SKILLS_RELEVANCE_THRESHOLD, CHROMA_PATH
-from src.engine.chroma import get_chroma_client, get_embedding_fn
+from src.engine.config import SKILLS_DIR, SKILLS_RELEVANCE_THRESHOLD, DATA_DIR
+from src.engine.vector_store import NumpyVectorStore
+from src.engine.embedder import embed_texts, embed_query
 
 logger = logging.getLogger(__name__)
 
 class SkillRetriever:
-    HASH_FILE = os.path.join(CHROMA_PATH, ".skills_hash")
+    HASH_FILE = os.path.join(DATA_DIR, ".skills_hash")
 
     def __init__(self):
-        self.chroma_client = get_chroma_client()
-        self.embedding_fn = get_embedding_fn()
-
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="skills_store",
-            embedding_function=self.embedding_fn,
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.store = NumpyVectorStore(name="skills_store", data_dir=DATA_DIR)
 
         changed, self._current_hash = self._needs_reindex()
+        # Also reindex if store is empty but .mdc files exist (corrupted/missing store)
+        if not changed and self.store.count() == 0:
+            if glob.glob(os.path.join(SKILLS_DIR, "*.mdc")):
+                changed = True
+                logger.info("Skills store empty despite hash match — forcing reindex")
         if changed:
             logger.info("Skills changed on disk. Re-indexing...")
             self.index_skills()
 
     @staticmethod
     def _compute_dir_hash() -> str:
+        from src.engine.config import EMBEDDING_MODEL
         h = hashlib.md5()
+        h.update(EMBEDDING_MODEL.encode())
         for path in sorted(glob.glob(os.path.join(SKILLS_DIR, "*.mdc"))):
             h.update(path.encode())
             with open(path, "rb") as f:
@@ -62,6 +63,9 @@ class SkillRetriever:
 
         if not skill_files:
             logger.warning(f"No skill files found in {SKILLS_DIR}")
+            self.store.clear()
+            self.store.save()
+            self._save_hash(getattr(self, "_current_hash", None))
             return
 
         documents = []
@@ -109,14 +113,24 @@ class SkillRetriever:
             except Exception as e:
                 logger.error(f"Error processing skill file {file_path}: {e}")
 
-        if documents:
-            self.collection.upsert(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids
-            )
+        if not documents:
+            # All files failed to parse — clear stale store
+            self.store.clear()
+            self.store.save()
             self._save_hash(getattr(self, "_current_hash", None))
-            logger.info(f"Successfully indexed {len(documents)} skills.")
+            logger.warning("No skills could be parsed — store cleared")
+            return
+
+        embeddings = embed_texts(documents)
+        self.store.replace(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+        self.store.save()
+        self._save_hash(getattr(self, "_current_hash", None))
+        logger.info(f"Successfully indexed {len(documents)} skills.")
 
     @observe(name="retrieve_skills")
     def retrieve(self, query: str, n_results: int = 2, preferred_skills: List[str] = None) -> List[Dict[str, Any]]:
@@ -124,7 +138,7 @@ class SkillRetriever:
         Retrieves relevant skills for a given query.
         If preferred_skills are provided, loads them instead of vector search.
         """
-        if self.collection.count() == 0:
+        if self.store.count() == 0:
             return []
 
         skills = []
@@ -135,11 +149,11 @@ class SkillRetriever:
                 for ps in preferred_skills
             ]
             try:
-                results = self.collection.get(ids=target_ids)
-                if results['ids']:
-                    for i, skill_id in enumerate(results['ids']):
-                        meta = results['metadatas'][i] or {}
-                        content = meta.get('body', results['documents'][i])
+                results = self.store.get(ids=target_ids)
+                if results.ids:
+                    for i, skill_id in enumerate(results.ids):
+                        meta = results.metadatas[i] or {}
+                        content = meta.get('body', results.documents[i])
                         skills.append({
                             "filename": skill_id,
                             "content": content,
@@ -151,15 +165,16 @@ class SkillRetriever:
             except Exception as e:
                 logger.warning(f"Failed to retrieve preferred skills {target_ids}: {e}")
 
-        results = self.collection.query(query_texts=[query], n_results=n_results)
+        query_emb = embed_query(query)
+        results = self.store.query(query_embedding=query_emb, n_results=n_results)
 
-        if results['ids'] and results['distances']:
-            for i, distance in enumerate(results['distances'][0]):
+        if results.ids and results.distances:
+            for i, distance in enumerate(results.distances):
                 if distance < SKILLS_RELEVANCE_THRESHOLD:
-                    meta = results['metadatas'][0][i] or {}
-                    content = meta.get('body', results['documents'][0][i])
+                    meta = results.metadatas[i] or {}
+                    content = meta.get('body', results.documents[i])
                     skills.append({
-                        "filename": results['ids'][0][i],
+                        "filename": results.ids[i],
                         "content": content,
                         "metadata": meta,
                         "distance": distance,
