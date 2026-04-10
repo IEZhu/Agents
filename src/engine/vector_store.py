@@ -18,6 +18,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_EPS = np.float32(1e-10)
+
 
 @dataclass
 class QueryResult:
@@ -144,7 +146,7 @@ class NumpyVectorStore:
     def _recompute_norms(self):
         """Precompute L2-normalized embeddings for fast cosine queries."""
         if self._embeddings is not None and len(self._ids) > 0:
-            norms = np.linalg.norm(self._embeddings, axis=1, keepdims=True) + 1e-10
+            norms = np.linalg.norm(self._embeddings, axis=1, keepdims=True) + _EPS
             self._normed = self._embeddings / norms
         else:
             self._normed = None
@@ -337,7 +339,7 @@ class NumpyVectorStore:
 
             # Cosine distance = 1 - cosine_similarity
             # _normed is precomputed on replace/add/load to avoid per-query allocation
-            query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-10)
+            query_norm = query_vec / (np.linalg.norm(query_vec) + _EPS)
             if self._normed is None:
                 self._recompute_norms()
             similarities = self._normed @ query_norm
