@@ -159,10 +159,11 @@ class NumpyVectorStore:
         documents: List[str],
         metadatas: List[Dict[str, Any]],
     ):
-        """Insert or update entries.
+        """Replace the store contents with exactly the provided entries.
 
-        Full replace when: store is empty, all IDs are new, or all existing
-        IDs are covered (reindex case — drops stale entries not in ``ids``).
+        Callers (SkillRetriever, ImplantRetriever) always supply the full
+        authoritative set, so a full replace is the correct semantic —
+        any old entry not in ``ids`` is stale and must be dropped.
         """
         if len(ids) == 0:
             return
@@ -170,36 +171,11 @@ class NumpyVectorStore:
         embeddings = np.asarray(embeddings, dtype=np.float32)
 
         with self._lock:
-            new_id_set = set(ids)
-            existing = [id_ for id_ in self._ids if id_ in new_id_set]
-            # Full replace when every old entry is present in the new set
-            # (covers: empty store, all-new IDs, and reindex with deletions)
-            if len(existing) == len(self._ids):
-                self._embeddings = embeddings.copy()
-                self._ids = list(ids)
-                self._documents = list(documents)
-                self._metadatas = list(metadatas)
-                self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
-            else:
-                # Incremental upsert
-                for i, id_ in enumerate(ids):
-                    if id_ in self._id_to_idx:
-                        idx = self._id_to_idx[id_]
-                        self._embeddings[idx] = embeddings[i]
-                        self._documents[idx] = documents[i]
-                        self._metadatas[idx] = metadatas[i]
-                    else:
-                        idx = len(self._ids)
-                        self._ids.append(id_)
-                        self._documents.append(documents[i])
-                        self._metadatas.append(metadatas[i])
-                        self._id_to_idx[id_] = idx
-                        if self._embeddings is None:
-                            self._embeddings = embeddings[i : i + 1].copy()
-                        else:
-                            self._embeddings = np.vstack(
-                                [self._embeddings, embeddings[i : i + 1]]
-                            )
+            self._embeddings = embeddings.copy()
+            self._ids = list(ids)
+            self._documents = list(documents)
+            self._metadatas = list(metadatas)
+            self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
 
     def add(
         self,

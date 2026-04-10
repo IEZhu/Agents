@@ -110,6 +110,26 @@ class TestPersistence:
         assert store.count() == 0
 
 
+class TestUpsert:
+    def test_upsert_drops_stale_entries(self, populated_store):
+        """Reindex with fewer IDs must remove entries not in new set."""
+        # Store has ["a", "b", "c"]; reindex with only ["a", "b"]
+        embs = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        populated_store.upsert(
+            ids=["a", "b"],
+            embeddings=embs,
+            documents=["doc_a_v2", "doc_b_v2"],
+            metadatas=[{"k": "a2"}, {"k": "b2"}],
+        )
+        assert populated_store.count() == 2
+        # "c" must be gone
+        result = populated_store.get(ids=["c"])
+        assert result.ids == []
+        # "a" and "b" must have updated documents
+        result = populated_store.get(ids=["a"])
+        assert result.documents == ["doc_a_v2"]
+
+
 class TestAdd:
     def test_add_new_entries(self, populated_store):
         new_emb = np.array([[0.5, 0.5, 0.0]], dtype=np.float32)
