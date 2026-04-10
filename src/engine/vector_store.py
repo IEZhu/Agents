@@ -69,11 +69,13 @@ class NumpyVectorStore:
                 self._documents = meta["documents"]
                 self._metadatas = meta["metadatas"]
 
-                # Verify both files were written in the same save() call
+                # Verify both files were written in the same save() call.
+                # Both empty ("" == "") is fine (pre-migration stores); any other
+                # inequality — including one side missing — indicates a mid-save crash.
                 meta_version = meta.get("save_version", "")
-                if npz_version and meta_version and npz_version != meta_version:
+                if npz_version != meta_version:
                     raise ValueError(
-                        f"Save version mismatch: npz={npz_version}, json={meta_version}"
+                        f"Save version mismatch: npz={npz_version!r}, json={meta_version!r}"
                     )
 
                 # Validate embeddings shape (must be 2-D)
