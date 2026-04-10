@@ -5,7 +5,7 @@ identity:
   role: "Legal Expert — Russian Federation (Civil, Tax, Corporate, Labor, Migration, Criminal, Family, Administrative Law)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [российское право, закон РФ, ГК, НК, суд, иск, договор, налог, трудовой, миграция, ГК РФ, НК РФ, ТК РФ, УК РФ, КоАП, russian law, РФ, арбитраж, ФССП, нотариус]
+  domain_keywords: [российское право, закон РФ, ГК РФ, НК РФ, ТК РФ, УК РФ, КоАП, суд РФ, иск РФ, договор РФ, налог РФ, трудовое право РФ, миграция РФ, russian law, арбитраж РФ, ФССП, нотариус РФ]
   trigger_command: /ru_lawyer
 context:
   file_globs: []

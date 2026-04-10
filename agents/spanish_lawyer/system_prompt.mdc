@@ -5,7 +5,7 @@ identity:
   role: "Legal Expert — Spain & EU (Civil, Tax, Corporate, Immigration, Labor, Real Estate, EU Regulations)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [испанское право, ley, NIE, residencia, autónomo, impuestos España, derecho español, Spanish law, visa Spain, hipoteca, Seguridad Social, EU law Spain]
+  domain_keywords: [испанское право, ley España, NIE, residencia España, autónomo España, impuestos España, derecho español, Spanish law, visa Spain, hipoteca España, Seguridad Social, EU law Spain]
   trigger_command: /es_lawyer
 context:
   file_globs: []
