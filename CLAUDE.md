@@ -64,7 +64,7 @@ src/
   engine/
     router.py          — SemanticRouter: cache lookup, keyword matching, agent catalog
     vector_store.py    — NumpyVectorStore: numpy-based cosine similarity store
-    embedder.py        — FastEmbed wrapper (paraphrase-multilingual-MiniLM-L12-v2)
+    embedder.py        — FastEmbed wrapper (model configurable via EMBEDDING_MODEL env var)
     config.py          — Thresholds, paths, env-based configuration
     enrichment.py      — Prompt enrichment with skills/implants by tier (lite/standard/deep)
     skills.py          — Skill retrieval from vector store

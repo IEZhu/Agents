@@ -298,11 +298,13 @@ async def route_and_load(
                     elif kw_veto and kw_veto != switch_target:
                         agent_name = kw_veto
                         reasoning = f"Keyword override (auto-switch): {switch_target} -> {kw_veto} (d={nearest[1]:.4f})"
+                        logger.info(f"Keyword override in auto-switch: {sticky_agent} → {agent_name} (cache suggested {switch_target}, d={nearest[1]:.4f})")
+                        debug_log("route_and_load", "sticky", {"action": "keyword_override", "from": sticky_agent, "to": agent_name, "cache_target": switch_target, "distance": nearest[1]})
                     else:
                         agent_name = switch_target
                         reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={nearest[1]:.4f})"
-                    logger.info(f"Sticky override: {sticky_agent} → {agent_name} (d={nearest[1]:.4f})")
-                    debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": nearest[1]})
+                        logger.info(f"Sticky auto-switch: {sticky_agent} → {agent_name} (d={nearest[1]:.4f})")
+                        debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": nearest[1]})
                 elif nearest[1] < distance_threshold and nearest[0].target_agent == sticky_agent:
                     # Cache confirms the same agent — but check keywords
                     kw_veto = router.keyword_veto(query, sticky_agent)

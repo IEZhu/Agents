@@ -550,6 +550,18 @@ class TestKeywordBoosting:
         # "закон" token (5 chars >= 4) is substring of "законодательству"
         assert matches[0][1] >= 1
 
+    def test_match_keywords_token_fallback_requires_all_tokens(self):
+        """Multi-word keyword requires ALL significant tokens to match, not just any."""
+        r = self._make_router_with_keywords({
+            "security_expert": ["security audit"],
+        })
+        # Only "audit" present, "security" is not → no match
+        matches = r.match_keywords("Please audit the financial report")
+        assert matches == []
+        # Both "security" and "audit" present → match via all()
+        matches = r.match_keywords("Run a security audit on the API")
+        assert len(matches) == 1
+
     # --- keyword_veto ---
 
     def test_keyword_veto_confirms_cache(self):
@@ -584,6 +596,20 @@ class TestKeywordBoosting:
             "russian_lawyer": ["российское право"],
         })
         result = r.keyword_veto("How to bake a cake?", "universal_agent")
+        assert result is None
+
+    def test_keyword_veto_confirms_when_cached_agent_tied(self):
+        """When cached_agent has the same hit count as top, confirm it (no override).
+        This prevents alphabetical sort order from determining the outcome."""
+        r = self._make_router_with_keywords({
+            "alpha_agent": ["закон рф"],
+            "zeta_agent": ["закон рф"],  # same keyword, tied hits
+        })
+        # zeta_agent sorts after alpha_agent, but if it's cached, confirm it
+        result = r.keyword_veto("Анализ закон РФ", "zeta_agent")
+        assert result is None
+        # And vice versa
+        result = r.keyword_veto("Анализ закон РФ", "alpha_agent")
         assert result is None
 
     def test_universal_agent_keywords_excluded(self):

@@ -125,23 +125,26 @@ class SemanticRouter:
         """Match query against each agent's domain_keywords.
 
         For each keyword, tries exact substring match first. If that fails,
-        checks whether any keyword token (>= 4 chars) appears as a substring
-        in the query — this handles inflected languages where word endings
-        differ (e.g. "закон" matches "законодательству").
+        extracts tokens >= 4 chars and requires ALL of them to appear as
+        substrings in the query. This handles inflected languages (e.g.
+        "закон" from "закон рф" matches "законодательству") while preventing
+        over-matching on common individual words from multi-word keywords.
 
         Returns [(agent_name, hit_count), ...] sorted by hits descending,
         filtered to agents with at least 1 hit.
         """
         query_lower = query.lower()
-        matches = []
+        matches: list[tuple[str, int]] = []
         for agent_name, keywords in self._agent_keywords.items():
             hits = 0
             for kw in keywords:
                 if kw in query_lower:
                     hits += 1
                     continue
+                # Token fallback: ALL significant tokens must match (not any).
+                # This prevents "security audit" from matching on "audit" alone.
                 tokens = [t for t in kw.split() if len(t) >= 4]
-                if tokens and any(t in query_lower for t in tokens):
+                if tokens and all(t in query_lower for t in tokens):
                     hits += 1
             if hits > 0:
                 matches.append((agent_name, hits))
@@ -162,7 +165,12 @@ class SemanticRouter:
 
         top_agent, top_hits = matches[0]
 
+        # If cached_agent is tied with the top (same hit count), confirm it —
+        # don't let alphabetical sort order determine the outcome.
         if top_agent == cached_agent:
+            return None
+        cached_hits = next((h for a, h in matches if a == cached_agent), 0)
+        if cached_hits == top_hits:
             return None
 
         if top_hits < KEYWORD_OVERRIDE_MIN_HITS:
