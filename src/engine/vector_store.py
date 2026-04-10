@@ -246,6 +246,12 @@ class NumpyVectorStore:
             if self._embeddings is None or len(self._ids) == 0:
                 self._embeddings = new_emb_array
             else:
+                if new_emb_array.shape[1] != self._embeddings.shape[1]:
+                    raise ValueError(
+                        f"Dimension mismatch: new embeddings have "
+                        f"{new_emb_array.shape[1]} dims, store has "
+                        f"{self._embeddings.shape[1]} dims"
+                    )
                 self._embeddings = np.vstack([self._embeddings, new_emb_array])
 
             base_idx = len(self._ids)
@@ -270,6 +276,11 @@ class NumpyVectorStore:
                 raise ValueError(
                     f"query_embedding must be 1-D (or squeezable to 1-D), "
                     f"got shape {np.asarray(query_embedding).shape}"
+                )
+            if query_vec.shape[0] != self._embeddings.shape[1]:
+                raise ValueError(
+                    f"Dimension mismatch: query has {query_vec.shape[0]} dims, "
+                    f"store has {self._embeddings.shape[1]} dims"
                 )
 
             # Cosine distance = 1 - cosine_similarity

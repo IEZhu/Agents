@@ -176,3 +176,52 @@ class TestTrim:
     def test_trim_noop_under_limit(self, populated_store):
         populated_store.trim(100)
         assert populated_store.count() == 3
+
+
+class TestCorruptionRecovery:
+    def test_load_mismatched_lengths_resets_and_removes_files(self, tmp_path):
+        """Store with mismatched embeddings vs metadata should reset and delete files."""
+        npz_path = tmp_path / "corrupt.npz"
+        meta_path = tmp_path / "corrupt.json"
+        # 2 embeddings but 3 ids
+        np.savez(npz_path, embeddings=np.array([[1, 0], [0, 1]], dtype=np.float32))
+        import json
+        with open(meta_path, "w") as f:
+            json.dump({"ids": ["a", "b", "c"], "documents": ["d1", "d2", "d3"],
+                        "metadatas": [{}, {}, {}]}, f)
+
+        store = NumpyVectorStore(name="corrupt", data_dir=str(tmp_path))
+        assert store.count() == 0
+        assert not npz_path.exists()
+        assert not meta_path.exists()
+
+    def test_load_1d_embeddings_resets_and_removes_files(self, tmp_path):
+        """Store with 1-D embeddings (invalid ndim) should reset and delete files."""
+        npz_path = tmp_path / "bad_ndim.npz"
+        meta_path = tmp_path / "bad_ndim.json"
+        np.savez(npz_path, embeddings=np.array([1, 0, 0], dtype=np.float32))
+        import json
+        with open(meta_path, "w") as f:
+            json.dump({"ids": ["a"], "documents": ["d1"], "metadatas": [{}]}, f)
+
+        store = NumpyVectorStore(name="bad_ndim", data_dir=str(tmp_path))
+        assert store.count() == 0
+        assert not npz_path.exists()
+        assert not meta_path.exists()
+
+
+class TestDimensionMismatch:
+    def test_query_dimension_mismatch(self, populated_store):
+        """Querying with wrong dimension should raise ValueError."""
+        with pytest.raises(ValueError, match="Dimension mismatch"):
+            populated_store.query(np.array([1.0, 0.0]), n_results=1)  # 2-D vs 3-D store
+
+    def test_add_dimension_mismatch(self, populated_store):
+        """Adding embeddings with wrong dimension should raise ValueError."""
+        with pytest.raises(ValueError, match="Dimension mismatch"):
+            populated_store.add(
+                ids=["x"],
+                embeddings=np.array([[1.0, 0.0]], dtype=np.float32),  # 2-D vs 3-D store
+                documents=["doc_x"],
+                metadatas=[{"k": "x"}],
+            )
