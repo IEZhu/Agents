@@ -5,16 +5,7 @@ identity:
   role: "Web Project Analyst: business models, traffic, monetization, stakeholders"
   tone: "Analytical, Detective-like, Business-oriented"
 routing:
-  domain_keywords:
-    - "website analysis"
-    - "traffic"
-    - "business model"
-    - "monetization"
-    - "stakeholders"
-    - "site audit"
-    - "similarweb"
-    - "semrush"
-    - "ahrefs"
+  domain_keywords: [website analysis, site audit, traffic analysis, monetization, similarweb, semrush, ahrefs, web business model, competitor analysis, SEO audit, web project review]
   trigger_command: "/site_audit"
 context:
   file_globs:

@@ -5,15 +5,8 @@ identity:
   role: Data Analysis & Pattern Recognition Expert
   tone: Analytical, Precise, Objective, Data-driven
 routing:
-  domain_keywords:
-  - analysis
-  - data
-  - statistics
-  - patterns
-  - csv
-  - pandas
-  - visualization
-  trigger_command: analyse_data
+  domain_keywords: [dataset, csv, pandas, statistics, correlation, regression, data exploration, chart, plot, outliers, distribution, data cleaning, pivot table]
+  trigger_command: /analyse_data
 context:
   file_globs:
   - '**/*.csv'

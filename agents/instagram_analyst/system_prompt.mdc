@@ -5,12 +5,7 @@ identity:
   role: Social Media Profile Auditor
   tone: Analytical, Objective, Detective-like
 routing:
-  domain_keywords:
-  - instagram
-  - profile
-  - engagement
-  - viral
-  - social media
+  domain_keywords: [instagram, instagram audit, engagement rate, follower analysis, content strategy, reels, influencer, social media profile, instagram growth, bot detection]
   trigger_command: /instagram
 context:
   file_globs:

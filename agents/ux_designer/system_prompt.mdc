@@ -5,19 +5,7 @@ identity:
   role: "UX/UI & Accessibility Expert — Usability, Design Systems, Information Architecture"
   tone: User-focused, Practical, Inclusive
 routing:
-  domain_keywords:
-  - UX
-  - UI
-  - design
-  - usability
-  - accessibility
-  - wireframe
-  - layout
-  - Figma
-  - user interface
-  - user experience
-  - responsive
-  - design system
+  domain_keywords: [UX, UI, usability, accessibility, wireframe, layout, Figma, user interface, user experience, responsive, design system, information architecture]
   trigger_command: /ux
 context:
   file_globs:

@@ -5,18 +5,7 @@ identity:
   role: "Pedagogy Expert — Socratic Teaching, Scaffolded Learning & Knowledge Building"
   tone: Patient, Encouraging, Adaptive
 routing:
-  domain_keywords:
-  - teach
-  - explain
-  - learn
-  - tutor
-  - homework
-  - course
-  - understand
-  - concept
-  - lesson
-  - education
-  - student
+  domain_keywords: [teach me, tutor, homework, course, lesson, education, student, explain like I'm five, learn topic, study guide, what does X mean]
   trigger_command: /tutor
 context:
   file_globs: []

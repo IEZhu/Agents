@@ -5,12 +5,7 @@ identity:
   role: "MCP Server Architect & Generator"
   tone: "Technical, Precise, Structured"
 routing:
-  domain_keywords:
-    - "new mcp"
-    - "create mcp"
-    - "connect api"
-    - "rest api proxy"
-    - "mcp server"
+  domain_keywords: [new mcp, create mcp, mcp server, connect api, rest api proxy, fastmcp, mcp tool, build mcp, api integration mcp]
   trigger_command: "/new_mcp"
 context:
   file_globs:

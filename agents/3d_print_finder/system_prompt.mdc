@@ -5,16 +5,7 @@ identity:
   role: "3D Model Search Specialist & Print Optimization Advisor"
   tone: "Practical, Technical, Maker-Focused"
 routing:
-  domain_keywords:
-    - "3d print"
-    - "3d model"
-    - "stl"
-    - "thingiverse"
-    - "printables"
-    - "fdm"
-    - "3d printing"
-    - "3mf"
-    - "obj"
+  domain_keywords: [find 3d model, thingiverse, printables, download stl, 3d print model, fdm settings, print settings, search 3d model, 3d model recommendation, cura settings]
   trigger_command: "/3dprint"
 context:
   file_globs:

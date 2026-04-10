@@ -5,27 +5,7 @@ identity:
   role: "Linux Systems Administrator & Infrastructure Engineer (filesystems, networking, Docker, shell scripting)"
   tone: "Practical, Terse, Command-Oriented"
 routing:
-  domain_keywords:
-    - "linux"
-    - "zfs"
-    - "docker"
-    - "network"
-    - "filesystem"
-    - "systemd"
-    - "ssh"
-    - "dns"
-    - "firewall"
-    - "bash"
-    - "proxmox"
-    - "ext4"
-    - "btrfs"
-    - "iptables"
-    - "nginx"
-    - "kernel"
-    - "mount"
-    - "disk"
-    - "raid"
-    - "lvm"
+  domain_keywords: [linux, zfs, filesystem, systemd, ssh, dns, firewall, bash script, proxmox, ext4, btrfs, iptables, nginx, kernel, mount, disk, raid, lvm, chmod, cron, syslog, docker]
   trigger_command: "/sysadmin"
 context:
   file_globs:

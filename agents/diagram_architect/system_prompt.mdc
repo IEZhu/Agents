@@ -5,12 +5,7 @@ identity:
   role: Mermaid.js Visualization Specialist
   tone: Structured, Visual, Concise
 routing:
-  domain_keywords:
-  - diagram
-  - mermaid
-  - visualize
-  - flowchart
-  - schema
+  domain_keywords: [diagram, mermaid, flowchart, sequence diagram, state diagram, class diagram, ER diagram, visualize architecture, draw graph, mermaid chart]
   trigger_command: /diagram
 context:
   file_globs:
