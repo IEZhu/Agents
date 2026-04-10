@@ -63,6 +63,9 @@ class SkillRetriever:
 
         if not skill_files:
             logger.warning(f"No skill files found in {SKILLS_DIR}")
+            self.store.clear()
+            self.store.save()
+            self._save_hash(getattr(self, "_current_hash", None))
             return
 
         documents = []
@@ -110,17 +113,24 @@ class SkillRetriever:
             except Exception as e:
                 logger.error(f"Error processing skill file {file_path}: {e}")
 
-        if documents:
-            embeddings = embed_texts(documents)
-            self.store.upsert(
-                ids=ids,
-                embeddings=embeddings,
-                documents=documents,
-                metadatas=metadatas,
-            )
+        if not documents:
+            # All files failed to parse — clear stale store
+            self.store.clear()
             self.store.save()
             self._save_hash(getattr(self, "_current_hash", None))
-            logger.info(f"Successfully indexed {len(documents)} skills.")
+            logger.warning("No skills could be parsed — store cleared")
+            return
+
+        embeddings = embed_texts(documents)
+        self.store.upsert(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+        self.store.save()
+        self._save_hash(getattr(self, "_current_hash", None))
+        logger.info(f"Successfully indexed {len(documents)} skills.")
 
     @observe(name="retrieve_skills")
     def retrieve(self, query: str, n_results: int = 2, preferred_skills: List[str] = None) -> List[Dict[str, Any]]:

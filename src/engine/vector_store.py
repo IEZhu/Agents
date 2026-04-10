@@ -152,6 +152,30 @@ class NumpyVectorStore:
         with self._lock:
             return len(self._ids)
 
+    @staticmethod
+    def _validate_inputs(
+        ids: List[str],
+        embeddings: np.ndarray,
+        documents: List[str],
+        metadatas: List[Dict[str, Any]],
+    ):
+        """Validate shape/length consistency before mutating state."""
+        if embeddings.ndim != 2:
+            raise ValueError(f"embeddings must be 2-D, got ndim={embeddings.ndim}")
+        n = len(ids)
+        if embeddings.shape[0] != n:
+            raise ValueError(
+                f"Length mismatch: ids={n}, embeddings={embeddings.shape[0]}"
+            )
+        if len(documents) != n:
+            raise ValueError(
+                f"Length mismatch: ids={n}, documents={len(documents)}"
+            )
+        if len(metadatas) != n:
+            raise ValueError(
+                f"Length mismatch: ids={n}, metadatas={len(metadatas)}"
+            )
+
     def upsert(
         self,
         ids: List[str],
@@ -169,6 +193,7 @@ class NumpyVectorStore:
             return
 
         embeddings = np.asarray(embeddings, dtype=np.float32)
+        self._validate_inputs(ids, embeddings, documents, metadatas)
 
         with self._lock:
             self._embeddings = embeddings.copy()
@@ -185,6 +210,9 @@ class NumpyVectorStore:
         metadatas: List[Dict[str, Any]],
     ):
         """Append-only insert (for router cache). Skips existing IDs."""
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+        self._validate_inputs(ids, embeddings, documents, metadatas)
+
         new_ids = []
         new_embs = []
         new_docs = []
