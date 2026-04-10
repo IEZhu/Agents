@@ -190,6 +190,8 @@ class NumpyVectorStore:
         any old entry not in ``ids`` is stale and must be dropped.
         """
         if len(ids) == 0:
+            with self._lock:
+                self._reset()
             return
 
         embeddings = np.asarray(embeddings, dtype=np.float32)
@@ -302,7 +304,7 @@ class NumpyVectorStore:
             self._documents = self._documents[keep_from:]
             self._metadatas = self._metadatas[keep_from:]
             self._id_to_idx = {id_: i for i, id_ in enumerate(self._ids)}
-            logger.info(f"[{self.name}] Trimmed to {max_size} entries")
+            logger.debug(f"[{self.name}] Trimmed to {max_size} entries")
 
     def get_all_metadatas(self) -> List[Dict[str, Any]]:
         """Return all metadatas (for catalog generation)."""

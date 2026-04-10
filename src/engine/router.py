@@ -166,18 +166,22 @@ class SemanticRouter:
         loop = asyncio.get_running_loop()
         try:
             query_emb = await loop.run_in_executor(None, embed_query, query)
-            self.store.add(
-                ids=[request_id],
-                embeddings=query_emb.reshape(1, -1),
-                documents=[query],
-                metadatas=[{
-                    "target_agent": agent_name,
-                    "reasoning": reasoning,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }],
-            )
-            self.store.trim(ROUTER_CACHE_MAX_SIZE)
-            await loop.run_in_executor(None, self.store.save)
+
+            def _mutate_and_save():
+                self.store.add(
+                    ids=[request_id],
+                    embeddings=query_emb.reshape(1, -1),
+                    documents=[query],
+                    metadatas=[{
+                        "target_agent": agent_name,
+                        "reasoning": reasoning,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }],
+                )
+                self.store.trim(ROUTER_CACHE_MAX_SIZE)
+                self.store.save()
+
+            await loop.run_in_executor(None, _mutate_and_save)
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
 
