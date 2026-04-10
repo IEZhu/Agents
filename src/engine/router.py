@@ -185,7 +185,7 @@ class SemanticRouter:
 
             await loop.run_in_executor(None, _mutate_and_save)
         except Exception as e:
-            logger.error(f"Failed to update cache: {e}")
+            logger.error("Failed to update cache: %s", e, exc_info=True)
 
     @observe(name="route_request")
     async def route(self, request: AgentRequest) -> Optional[RouterDecision]:

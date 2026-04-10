@@ -123,7 +123,7 @@ class ImplantRetriever:
             return
 
         embeddings = embed_texts(documents)
-        self.store.upsert(
+        self.store.replace(
             ids=ids,
             embeddings=embeddings,
             documents=documents,
@@ -201,7 +201,10 @@ class ImplantRetriever:
                 search_parts.append(f"Context: {history_text[-300:]}")
 
         search_query = "\n".join(search_parts)
-        logger.info(f"Retrieving implants with query: {search_query}")
+        logger.debug(
+            "Retrieving implants: query_len=%d, has_role=%s, has_context=%s",
+            len(query), bool(role), bool(context),
+        )
 
         query_emb = embed_query(search_query)
         candidates = self.store.query(

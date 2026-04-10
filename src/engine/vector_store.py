@@ -159,9 +159,12 @@ class NumpyVectorStore:
                         os.unlink(tmp_npz_path)
                     raise
             else:
-                # Remove stale .npz so _load() won't find mismatched files
-                if os.path.exists(self._npz_path):
-                    os.unlink(self._npz_path)
+                # Remove both files for empty store so _load() starts clean
+                for path in (self._npz_path, self._meta_path):
+                    if os.path.exists(path):
+                        os.unlink(path)
+                logger.debug(f"[{self.name}] Saved empty store (files removed)")
+                return
 
             # Save metadata
             meta = {
@@ -213,7 +216,7 @@ class NumpyVectorStore:
                 f"Length mismatch: ids={n}, metadatas={len(metadatas)}"
             )
 
-    def upsert(
+    def replace(
         self,
         ids: List[str],
         embeddings: np.ndarray,
@@ -313,7 +316,7 @@ class NumpyVectorStore:
                 )
 
             # Cosine distance = 1 - cosine_similarity
-            # _normed is precomputed on upsert/add/load to avoid per-query allocation
+            # _normed is precomputed on replace/add/load to avoid per-query allocation
             query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-10)
             if self._normed is None:
                 self._recompute_norms()

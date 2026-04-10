@@ -22,7 +22,7 @@ def populated_store(store):
         [0.0, 1.0, 0.0],
         [0.0, 0.0, 1.0],
     ], dtype=np.float32)
-    store.upsert(
+    store.replace(
         ids=["a", "b", "c"],
         embeddings=embs,
         documents=["doc_a", "doc_b", "doc_c"],
@@ -65,7 +65,7 @@ class TestQuery:
         """Store with exactly 1 entry, n_results=1 — must not crash."""
         with tempfile.TemporaryDirectory() as tmp:
             s = NumpyVectorStore(name="single", data_dir=tmp)
-            s.upsert(
+            s.replace(
                 ids=["only"],
                 embeddings=np.array([[1.0, 0.0]]),
                 documents=["doc"],
@@ -125,7 +125,7 @@ class TestUpsert:
         """Reindex with fewer IDs must remove entries not in new set."""
         # Store has ["a", "b", "c"]; reindex with only ["a", "b"]
         embs = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
-        populated_store.upsert(
+        populated_store.replace(
             ids=["a", "b"],
             embeddings=embs,
             documents=["doc_a_v2", "doc_b_v2"],

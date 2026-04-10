@@ -122,7 +122,7 @@ class SkillRetriever:
             return
 
         embeddings = embed_texts(documents)
-        self.store.upsert(
+        self.store.replace(
             ids=ids,
             embeddings=embeddings,
             documents=documents,
