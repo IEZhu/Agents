@@ -34,3 +34,7 @@ whisper_models/
 # Exceptions (keep these visible)
 !.gitignore
 !.git/
+
+agents_private.egg-info/
+
+uv.lock
