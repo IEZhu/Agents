@@ -183,8 +183,11 @@ class NumpyVectorStore:
             else:
                 # Remove both files for empty store so _load() starts clean
                 for path in (self._npz_path, self._meta_path):
-                    if os.path.exists(path):
-                        os.unlink(path)
+                    try:
+                        if os.path.exists(path):
+                            os.unlink(path)
+                    except OSError:
+                        pass
                 logger.debug(f"[{self.name}] Saved empty store (files removed)")
                 return
 
@@ -237,6 +240,8 @@ class NumpyVectorStore:
             raise ValueError(
                 f"Length mismatch: ids={n}, metadatas={len(metadatas)}"
             )
+        if len(set(ids)) != n:
+            raise ValueError(f"Duplicate IDs: {n} ids but only {len(set(ids))} unique")
 
     def replace(
         self,
