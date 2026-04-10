@@ -13,7 +13,13 @@ one_liner: start the answer to steer model completion
 
 ## Example
 Instead of: "Generate a JSON object with user data"
-Use: "Complete this JSON:\n```json\n{\n  \"user\": {\n    \"name\": "
+Use: "Complete this JSON:" followed by the opening fragment:
+```json
+{
+  "user": {
+    "name":
+```
+The model continues from the primed structure, maintaining the JSON format.
 
 ## When to Use
 - Enforcing strict output formats (JSON, XML, CSV, specific templates)
