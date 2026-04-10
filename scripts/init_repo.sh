@@ -407,8 +407,8 @@ for attempt in range(MAX_RETRIES):
                     print(f'  Removing {d}', flush=True)
                     shutil.rmtree(d, ignore_errors=True)
             # Reset singleton so next call re-downloads
-            import src.engine.embedder as _emb
-            _emb._model = None
+            from src.engine.embedder import reset_model
+            reset_model()
         else:
             raise
 

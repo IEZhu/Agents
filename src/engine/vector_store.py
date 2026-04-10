@@ -87,8 +87,18 @@ class NumpyVectorStore:
 
                 logger.info(f"[{self.name}] Loaded {len(self._ids)} entries from disk")
             except Exception as e:
-                logger.warning(f"[{self.name}] Failed to load from disk: {e}. Starting empty.")
+                logger.warning(
+                    "[%s] Failed to load from disk, removing corrupted files: %s",
+                    self.name, e, exc_info=True,
+                )
                 self._reset()
+                # Remove corrupted files so next startup doesn't retry the same failure
+                for path in (self._npz_path, self._meta_path):
+                    try:
+                        if os.path.exists(path):
+                            os.unlink(path)
+                    except OSError:
+                        pass
         else:
             self._reset()
 

@@ -40,6 +40,13 @@ def _get_model():
     return _model
 
 
+def reset_model():
+    """Discard the cached model so the next call re-initializes it."""
+    global _model
+    with _lock:
+        _model = None
+
+
 def embed_texts(texts: List[str]) -> np.ndarray:
     """Embed documents/passages. Returns (N, D) numpy array."""
     model = _get_model()
