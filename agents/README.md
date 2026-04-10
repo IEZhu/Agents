@@ -10,7 +10,7 @@ Also available programmatically via the MCP tool `list_agents`.
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `deep_researcher` | `/research` | Deep Research & Literature Synthesis Specialist (topic deep-dives, 80/20 analysis) |
+| `deep_researcher` | `/research` | Deep Research & Literature Synthesis Specialist (topic deep-dives, source-weighted analysis) |
 | `investigative_analyst` | `/investigate` | OSINT & Fact-Checking Expert |
 | `data_analyst` | `/analyse_data` | Data Analysis & Pattern Recognition Expert |
 | `data_forensic` | `/forensic` | Forensic Data Processor & Timeline Architect |
@@ -24,12 +24,13 @@ Also available programmatically via the MCP tool `list_agents`.
 |---|---|---|
 | `software_engineer` | `/dev` | Senior Full Stack Engineer — Code Implementation, Debugging & Refactoring |
 | `code_reviewer` | `/review` | Code Review & PR Analyst |
+| `system_architect` | `/architect` | Distributed Systems & Architecture Designer — Scalability, Trade-offs, C4 Modeling |
 | `mcp_builder` | `/new_mcp` | MCP Server Architect & Generator |
 | `agent_builder` | `/new_agent` | Agent Prompt & Persona Designer for the Agents Framework |
 | `security_expert` | `/security_audit` | Application & Infrastructure Security Analyst — Vulnerability Assessment, Threat Modeling, Zero-Trust |
 | `prompt_engineer` | `/prompt` | Prompt Design & Optimization Specialist |
 | `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development |
-| `blender_scripter` | `/blender` | Python (bpy) scripts for 3D-printable objects |
+| `blender_scripter` | `/blender` | Blender Python (bpy) Scripting Specialist — Procedural 3D-Printable Model Generation |
 
 ## Infrastructure & Operations
 
@@ -46,7 +47,7 @@ Also available programmatically via the MCP tool `list_agents`.
 |---|---|---|
 | `tech_writer` | `/docs` | Technical Writer & Documentation Expert |
 | `literary_writer` | `/literary` | Master of artistic prose |
-| `semantic_expert` | `/semantic_parse` | Senior Semantic Reconstruction Analyst |
+| `semantic_expert` | `/semantic_parse` | Meeting Transcript Analyst — Semantic Reconstruction, Decision Extraction, Action Items |
 | `presentation_coach` | `/present` | Presentation Structure and Psychology Expert |
 | `diagram_architect` | `/diagram` | Mermaid.js Visualization Specialist |
 
@@ -60,6 +61,13 @@ Also available programmatically via the MCP tool `list_agents`.
 | `bio_hacker` | `/bio_protocol` | Biohacking & Supplement Protocol Designer — Sleep, Focus, Energy Optimization |
 | `fitness_coach` | `/workout` | Scientific Fitness Coach (spine rehabilitation) |
 
+## Education & Science
+
+| Agent | Trigger | Role |
+|---|---|---|
+| `education_tutor` | `/tutor` | Pedagogy Expert — Socratic Teaching, Scaffolded Learning & Knowledge Building |
+| `math_scientist` | `/math` | Mathematical & Scientific Reasoning Specialist — Proofs, Computation, Modeling |
+
 ## AI & Strategy
 
 | Agent | Trigger | Role |
@@ -69,6 +77,26 @@ Also available programmatically via the MCP tool `list_agents`.
 | `daily_briefing` | `/briefing` | Strategic analyst of daily verified news |
 | `product_manager` | `/pm` | Product Thinking & Requirements Analyst |
 | `debate_moderator` | `/debate` | Devil's Advocate & Decision Facilitator |
+
+## Design
+
+| Agent | Trigger | Role |
+|---|---|---|
+| `ux_designer` | `/ux` | UX/UI & Accessibility Expert — Usability, Design Systems, Information Architecture |
+
+## Legal (Jurisdiction-Specific)
+
+| Agent | Trigger | Role |
+|---|---|---|
+| `colombian_lawyer` | `/co_lawyer` | Legal Expert — Colombia (Civil, Tax, Corporate, Labor, Immigration, Commercial, Constitutional) |
+| `cypriot_lawyer` | `/cy_lawyer` | Legal Expert — Cyprus & EU (Company Law, Tax, Immigration, Property, Banking, EU Regulations) |
+| `georgian_lawyer` | `/ge_lawyer` | Legal Expert — Georgia (Civil, Tax, Corporate, Labor, Immigration, Property, Business Registration) |
+| `kazakh_lawyer` | `/kz_lawyer` | Legal Expert — Kazakhstan (Civil, Tax, Corporate, Labor, Migration, Land, AIFC/Common Law Zone) |
+| `mexican_lawyer` | `/mx_lawyer` | Legal Expert — Mexico (Civil, Tax, Corporate, Labor, Immigration, Constitutional, Commercial, Amparo) |
+| `russian_lawyer` | `/ru_lawyer` | Legal Expert — Russian Federation (Civil, Tax, Corporate, Labor, Migration, Criminal, Family, Administrative Law) |
+| `serbian_lawyer` | `/rs_lawyer` | Legal Expert — Serbia (Civil, Tax, Corporate, Labor, Property, Immigration, EU Accession Law) |
+| `spanish_lawyer` | `/es_lawyer` | Legal Expert — Spain & EU (Civil, Tax, Corporate, Immigration, Labor, Real Estate, EU Regulations) |
+| `us_lawyer` | `/us_lawyer` | Legal Expert — United States (Federal & State Law, Immigration, Tax, Corporate, IP, Employment, Constitutional) |
 
 ## Utilities
 
@@ -81,5 +109,5 @@ Also available programmatically via the MCP tool `list_agents`.
 
 ---
 
-**Total agents**: 38
-**Updated**: 2026-04-05
+**Total agents**: 51
+**Updated**: 2026-04-10
