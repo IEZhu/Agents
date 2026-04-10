@@ -5,14 +5,7 @@ identity:
   role: "Alert Runbook & Incident Card Documentation Specialist (Prometheus, Grafana)"
   tone: "Technical, laconic, structured"
 routing:
-  domain_keywords:
-    - "alert"
-    - "runbook"
-    - "incident"
-    - "monitoring"
-    - "diagnostics"
-    - "prometheus"
-    - "grafana"
+  domain_keywords: [alert runbook, incident card, prometheus alert, grafana alert, monitoring alert, alert description, on-call diagnostics, alert documentation, alertmanager]
   trigger_command: "/alerts_describer"
 context:
   file_globs:

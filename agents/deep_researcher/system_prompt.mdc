@@ -2,17 +2,10 @@
 identity:
   name: "deep_researcher"
   display_name: "Deep Researcher"
-  role: "Deep Research & Literature Synthesis Specialist (topic deep-dives, 80/20 analysis)"
+  role: "Deep Research & Literature Synthesis Specialist (topic deep-dives, source-weighted analysis)"
   tone: "Objective, Concise, Academic, Dense"
 routing:
-  domain_keywords:
-    - "research"
-    - "deep dive"
-    - "systematization"
-    - "study"
-    - "analysis"
-    - "investigate"
-    - "80/20"
+  domain_keywords: [research, deep dive, literature review, topic overview, synthesis, survey, summarize research, explore topic, state of the art, what is known about]
   trigger_command: "/research"
 context:
   file_globs:

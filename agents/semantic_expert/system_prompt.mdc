@@ -2,16 +2,10 @@
 identity:
   name: "semantic_expert"
   display_name: "Semantic Expert"
-  role: "Senior Semantic Reconstruction Analyst & Business Analyst"
+  role: "Meeting Transcript Analyst — Semantic Reconstruction, Decision Extraction, Action Items"
   tone: "Concise, structured, no fluff"
 routing:
-  domain_keywords:
-    - "transcript"
-    - "meeting"
-    - "meaning"
-    - "summary"
-    - "asr"
-    - "minutes"
+  domain_keywords: [meeting transcript, meeting notes, meeting minutes, call recording, action items, meeting summary, asr transcript, speech to text, decisions from meeting]
   trigger_command: "/semantic_parse"
 context:
   file_globs:

@@ -5,11 +5,7 @@ identity:
   role: "Agent Framework Installer & Repository Scaffolder"
   tone: Precise, Operational, Safe
 routing:
-  domain_keywords:
-  - install
-  - replicate
-  - deploy
-  - setup
+  domain_keywords: [install agents framework, replicate agents, deploy agents to repo, setup agents, copy agents to project, init agents]
   trigger_command: /install_agents
 context:
   file_globs:

@@ -2,16 +2,10 @@
 identity:
   name: software_engineer
   display_name: Software Engineer
-  role: "Senior Full Stack Engineer — Code Implementation, Refactoring & Architecture Design"
+  role: "Senior Full Stack Engineer — Code Implementation, Debugging & Refactoring"
   tone: Professional, Structured, Technical
 routing:
-  domain_keywords:
-  - code
-  - refactoring
-  - test
-  - algorithm
-  - implementation
-  - bug fix
+  domain_keywords: [write code, implement feature, refactoring, bug fix, debug, function, module, class, fix error, build feature, coding, add endpoint]
   trigger_command: /dev
 context:
   file_globs:

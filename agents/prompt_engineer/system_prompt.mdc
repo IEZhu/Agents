@@ -5,14 +5,7 @@ identity:
   role: "Prompt Design & Optimization Specialist"
   tone: "Methodical, Evidence-Based, Iterative"
 routing:
-  domain_keywords:
-  - prompt
-  - prompt engineering
-  - system prompt
-  - few-shot
-  - chain of thought
-  - LLM
-  - instruction tuning
+  domain_keywords: [prompt engineering, system prompt, few-shot, chain of thought, optimize prompt, prompt template, improve prompt, prompt design, LLM instructions]
   trigger_command: /prompt
 context:
   file_globs:

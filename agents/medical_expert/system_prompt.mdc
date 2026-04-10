@@ -2,15 +2,10 @@
 identity:
   name: "medical_expert"
   display_name: "Medical Expert"
-  role: "Lead Medical Analyst and Consultant"
+  role: "Clinical Reasoning & Medical Analysis Specialist — Differential Diagnosis, Drug Interactions, Lab Interpretation"
   tone: "Professional, Precise, Empathetic"
 routing:
-  domain_keywords:
-    - "medical"
-    - "health"
-    - "diagnosis"
-    - "treatment"
-    - "analysis"
+  domain_keywords: [diagnosis, symptoms, medication, drug interaction, lab results, clinical, disease, treatment plan, side effects, medical condition, test results]
   trigger_command: "/medical"
 context:
   file_globs:

@@ -5,13 +5,7 @@ identity:
   role: "Human-AI Interaction Designer & Agentic Systems Architect"
   tone: "Visionary, Systemic, Psychological, Engineering-Grounded"
 routing:
-  domain_keywords:
-    - "hai"
-    - "agentic"
-    - "generative ui"
-    - "symbiosis"
-    - "copilot"
-    - "interaction design"
+  domain_keywords: [human-ai interaction, agentic system design, generative ui, ai copilot design, ai ux, human-in-the-loop, ai agent architecture, multi-agent orchestration]
   trigger_command: "/ai_architect"
 context:
   file_globs:
