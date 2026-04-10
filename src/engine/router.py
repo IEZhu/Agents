@@ -17,6 +17,7 @@ from src.utils.prompt_loader import split_frontmatter
 logger = logging.getLogger(__name__)
 
 ROUTER_CACHE_MAX_SIZE = 500
+KEYWORD_VETO_ROUTE_REQUIRED = "__ROUTE_REQUIRED__"
 _ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
 
 
@@ -120,7 +121,7 @@ class SemanticRouter:
             for name in self.available_agents
         ]
 
-    def match_keywords(self, query: str) -> List[tuple]:
+    def match_keywords(self, query: str) -> list[tuple[str, int]]:
         """Match query against each agent's domain_keywords.
 
         For each keyword, tries exact substring match first. If that fails,
@@ -151,9 +152,9 @@ class SemanticRouter:
         """Check if domain_keywords contradict the cached agent decision.
 
         Returns:
-            None           — keywords confirm or don't contradict the cache
-            agent_name     — keywords strongly indicate a different agent (override)
-            "__ROUTE_REQUIRED__" — keywords point elsewhere but ambiguously
+            None                        — keywords confirm or don't contradict the cache
+            agent_name                  — keywords strongly indicate a different agent (override)
+            KEYWORD_VETO_ROUTE_REQUIRED — keywords point elsewhere but ambiguously
         """
         matches = self.match_keywords(query)
         if not matches:
@@ -171,7 +172,7 @@ class SemanticRouter:
 
         if second_hits == 0 or (top_hits / max(second_hits, 1)) >= KEYWORD_UNIQUENESS_RATIO:
             return top_agent
-        return "__ROUTE_REQUIRED__"
+        return KEYWORD_VETO_ROUTE_REQUIRED
 
     async def query_nearest(
         self, query: str, context: Dict[str, Any] = None

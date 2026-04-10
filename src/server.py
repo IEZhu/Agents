@@ -26,7 +26,7 @@ dotenv.load_dotenv(env_path)
 
 # Langfuse is optional — server works without keys
 
-from src.engine.router import SemanticRouter
+from src.engine.router import SemanticRouter, KEYWORD_VETO_ROUTE_REQUIRED
 from src.engine.enrichment import (
     enrich_agent_prompt,
     infer_tier,
@@ -292,7 +292,7 @@ async def route_and_load(
                     # Very strong signal for a different agent — validate with keywords
                     switch_target = nearest[0].target_agent
                     kw_veto = router.keyword_veto(query, switch_target)
-                    if kw_veto == "__ROUTE_REQUIRED__":
+                    if kw_veto == KEYWORD_VETO_ROUTE_REQUIRED:
                         debug_log("route_and_load", "sticky", {"action": "release", "reason": "keyword_ambiguous_autoswitch", "from": sticky_agent, "switch_target": switch_target, "distance": nearest[1]})
                         return _build_route_required(request_id, tier, router.get_agent_catalog())
                     elif kw_veto and kw_veto != switch_target:
@@ -306,12 +306,12 @@ async def route_and_load(
                 elif nearest[1] < distance_threshold and nearest[0].target_agent == sticky_agent:
                     # Cache confirms the same agent — but check keywords
                     kw_veto = router.keyword_veto(query, sticky_agent)
-                    if kw_veto and kw_veto != "__ROUTE_REQUIRED__":
+                    if kw_veto and kw_veto != KEYWORD_VETO_ROUTE_REQUIRED:
                         agent_name = kw_veto
                         reasoning = f"Keyword override (sticky): {sticky_agent} -> {kw_veto} (d={nearest[1]:.4f})"
                         logger.info("Keyword override in sticky: %s -> %s", sticky_agent, kw_veto)
                         debug_log("route_and_load", "sticky", {"action": "keyword_override", "from": sticky_agent, "to": kw_veto, "distance": nearest[1]})
-                    elif kw_veto == "__ROUTE_REQUIRED__":
+                    elif kw_veto == KEYWORD_VETO_ROUTE_REQUIRED:
                         debug_log("route_and_load", "sticky", {"action": "release", "reason": "keyword_ambiguous", "from": sticky_agent, "distance": nearest[1]})
                         return _build_route_required(request_id, tier, router.get_agent_catalog())
                     else:
@@ -338,7 +338,7 @@ async def route_and_load(
                 if veto is None:
                     agent_name = cached_decision.target_agent
                     reasoning = cached_decision.reasoning
-                elif veto == "__ROUTE_REQUIRED__":
+                elif veto == KEYWORD_VETO_ROUTE_REQUIRED:
                     logger.info("Keyword veto: ambiguous override for cached %s", cached_decision.target_agent)
                     debug_log("route_and_load", "keyword_veto", {
                         "action": "route_required", "cached_agent": cached_decision.target_agent, "query": query,

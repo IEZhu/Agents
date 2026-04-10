@@ -573,9 +573,10 @@ class TestKeywordBoosting:
             "russian_lawyer": ["закон рф"],
             "kazakh_lawyer": ["закон рф"],  # same keyword in both
         })
+        from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
         result = r.keyword_veto("Анализ закон РФ", "universal_agent")
         # Both have 1 hit, ratio = 1.0 < 2.0 -> ambiguous
-        assert result == "__ROUTE_REQUIRED__"
+        assert result == KEYWORD_VETO_ROUTE_REQUIRED
 
     def test_keyword_veto_ignores_weak_signal(self):
         """No match at all -> None (trust cache)."""
@@ -611,6 +612,7 @@ class TestKeywordBoosting:
 
         with patch.object(srv.router, "lookup_cache", new_callable=AsyncMock, return_value=cached), \
              patch.object(srv.router, "keyword_veto", return_value="russian_lawyer"), \
+             patch.object(srv.router, "update_cache", new_callable=AsyncMock) as mock_cache, \
              patch("src.server._load_and_enrich", new_callable=AsyncMock, return_value=(
                  "prompt", "hash123", ["skill1"], ["implant1"], "standard"
              )), \
@@ -619,13 +621,17 @@ class TestKeywordBoosting:
             data = json.loads(result)
             assert data["agent"] == "russian_lawyer"
             assert data["status"] in ("SUCCESS", "SUCCESS_SAMPLED")
+            # Verify cache is updated with the overridden agent, not the original
+            mock_cache.assert_called_once()
+            assert mock_cache.call_args[1].get("agent_name", mock_cache.call_args[0][1]) == "russian_lawyer"
 
     @pytest.mark.asyncio
     async def test_sticky_autoswitch_respects_ambiguous_keyword_veto(self):
-        """Regression: __ROUTE_REQUIRED__ from keyword_veto in auto-switch must
+        """Regression: KEYWORD_VETO_ROUTE_REQUIRED from keyword_veto in auto-switch must
         release to ROUTE_REQUIRED, not silently proceed with the switch target."""
         import src.server as srv
         from src.schemas.protocol import RouterDecision
+        from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
 
         srv.CONTEXT_HASH_CACHE["prev_hash"] = "universal_agent"
         cached = RouterDecision(
@@ -637,7 +643,7 @@ class TestKeywordBoosting:
 
         with patch.object(srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=(cached, 0.01)), \
-             patch.object(srv.router, "keyword_veto", return_value="__ROUTE_REQUIRED__"), \
+             patch.object(srv.router, "keyword_veto", return_value=KEYWORD_VETO_ROUTE_REQUIRED), \
              patch.object(srv.router, "get_agent_catalog", return_value=[]):
             result = json.loads(await srv.route_and_load(
                 "Анализ закон РФ",
