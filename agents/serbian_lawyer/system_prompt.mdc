@@ -5,7 +5,7 @@ identity:
   role: "Legal Expert — Serbia (Civil, Tax, Corporate, Labor, Property, Immigration, EU Accession Law)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [српско право, закон Србије, порез, радно право, боравак, привредно друштво, Serbian law, zakon, porez, boravak, privredno društvo, dozvola, ВНЖ Сербия, бизнес Сербия,税 Serbia]
+  domain_keywords: [српско право, закон Србије, порез, радно право, боравак, привредно друштво, Serbian law, zakon, porez, boravak, privredno društvo, dozvola, ВНЖ Сербия, бизнес Сербия, tax Serbia]
   trigger_command: /rs_lawyer
 context:
   file_globs: []
