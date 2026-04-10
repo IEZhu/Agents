@@ -265,7 +265,12 @@ class NumpyVectorStore:
             if self._embeddings is None or len(self._ids) == 0:
                 return QueryResult(ids=[], distances=[], documents=[], metadatas=[])
 
-            query_vec = np.asarray(query_embedding, dtype=np.float32)
+            query_vec = np.asarray(query_embedding, dtype=np.float32).squeeze()
+            if query_vec.ndim != 1:
+                raise ValueError(
+                    f"query_embedding must be 1-D (or squeezable to 1-D), "
+                    f"got shape {np.asarray(query_embedding).shape}"
+                )
 
             # Cosine distance = 1 - cosine_similarity
             query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-10)

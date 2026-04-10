@@ -79,6 +79,16 @@ class TestQuery:
         result = populated_store.query(np.array([1.0, 0.1, 0.0]), n_results=3)
         assert result.distances == sorted(result.distances)
 
+    def test_query_2d_embedding_squeezed(self, populated_store):
+        """Query with (1, D) embedding should be squeezed to 1-D and work."""
+        result = populated_store.query(np.array([[1.0, 0.0, 0.0]]), n_results=1)
+        assert result.ids == ["a"]
+
+    def test_query_invalid_shape_raises(self, populated_store):
+        """Query with (2, D) embedding cannot be squeezed to 1-D."""
+        with pytest.raises(ValueError, match="must be 1-D"):
+            populated_store.query(np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]), n_results=1)
+
 
 class TestGetById:
     def test_get_existing(self, populated_store):
