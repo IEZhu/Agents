@@ -636,5 +636,15 @@ def _register_agent_prompts():
 
 _register_agent_prompts()
 
+# Warm up the embedding model eagerly so the first MCP request doesn't
+# pay the cold-start cost (model load can take several seconds for large
+# models like multilingual-e5-large and may exceed client timeouts).
+try:
+    from src.engine.embedder import embed_texts
+    embed_texts(["warmup"])
+    logger.info("Embedding model warmed up")
+except Exception as e:
+    logger.warning("Embedding model warmup failed: %s", e)
+
 if __name__ == "__main__":
     mcp.run()
