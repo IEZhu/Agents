@@ -261,6 +261,7 @@ class TestStickyRouting:
 
         with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=(cached, 0.01)), \
+             patch.object(self.srv.router, "keyword_veto", return_value=None), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
                    return_value=self._make_enrich_result("sysadmin")), \
              patch.object(self.srv.router, "update_cache", new_callable=AsyncMock) as mock_cache:
@@ -485,6 +486,250 @@ class TestPreferredImplants:
 # ---------------------------------------------------------------------------
 # clear_session_cache clears both caches
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Keyword boosting: match_keywords and keyword_veto
+# ---------------------------------------------------------------------------
+
+class TestKeywordBoosting:
+    """Tests for domain_keywords-based routing boost."""
+
+    def _make_router_with_keywords(self, agent_keywords):
+        """Create a SemanticRouter mock with pre-set _agent_keywords."""
+        from src.engine.router import SemanticRouter
+        r = object.__new__(SemanticRouter)
+        r._agent_keywords = {
+            name: [kw.lower() for kw in kws]
+            for name, kws in agent_keywords.items()
+        }
+        return r
+
+    # --- match_keywords ---
+
+    def test_match_keywords_basic(self):
+        r = self._make_router_with_keywords({
+            "security_expert": ["vulnerability", "security audit", "xss", "sql injection"],
+            "software_engineer": ["refactor", "debug", "implement"],
+        })
+        matches = r.match_keywords("Found a SQL injection vulnerability in the API")
+        assert matches[0][0] == "security_expert"
+        assert matches[0][1] >= 2
+
+    def test_match_keywords_case_insensitive(self):
+        r = self._make_router_with_keywords({
+            "security_expert": ["owasp", "xss"],
+        })
+        matches = r.match_keywords("Check OWASP top 10 and XSS vectors")
+        assert len(matches) == 1
+        assert matches[0] == ("security_expert", 2)
+
+    def test_match_keywords_no_match(self):
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["российское право", "закон рф"],
+        })
+        matches = r.match_keywords("How to bake a cake?")
+        assert matches == []
+
+    def test_match_keywords_multilingual_russian(self):
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["российское право", "закон рф", "гк рф", "нк рф"],
+            "universal_agent": [],
+        })
+        matches = r.match_keywords("Анализ статьи ГК РФ про обязательства")
+        assert matches[0][0] == "russian_lawyer"
+        assert matches[0][1] >= 1
+
+    def test_match_keywords_token_fallback(self):
+        """Token-level matching: all significant tokens must appear in query."""
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["закон рф", "российское право"],
+        })
+        # "закон рф" → tokens ["закон", "рф"] (both significant).
+        # Query has "закон" (via "законодательству") but NOT "рф" → no match
+        matches = r.match_keywords("Проверить на соответствие российскому законодательству")
+        assert matches == []
+        # When both tokens present → match
+        matches = r.match_keywords("Проверить закон РФ на соответствие")
+        assert len(matches) == 1
+        assert matches[0][0] == "russian_lawyer"
+
+    def test_match_keywords_token_fallback_requires_all_tokens(self):
+        """Multi-word keyword requires ALL significant tokens to match, not just any."""
+        r = self._make_router_with_keywords({
+            "security_expert": ["security audit"],
+        })
+        # Only "audit" present, "security" is not → no match
+        matches = r.match_keywords("Please audit the financial report")
+        assert matches == []
+        # Both "security" and "audit" present → match via all()
+        matches = r.match_keywords("Run a security audit on the API")
+        assert len(matches) == 1
+
+    def test_match_keywords_retains_short_acronyms(self):
+        """Short alphanumeric tokens like 'рф', 'ip', '3d' are kept as significant."""
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["закон рф"],
+        })
+        # "закон рф" exact doesn't match, fallback tokens are ["закон", "рф"]
+        # "рф" (2 chars, alphanumeric+alpha) is retained; both must match
+        matches = r.match_keywords("Анализ закон в РФ")
+        assert len(matches) == 1
+        # Only "закон" present without "рф" → no match (all() requires both)
+        matches = r.match_keywords("Новый закон принят")
+        assert matches == []
+
+    def test_match_keywords_retains_alphanumeric_tokens(self):
+        """Tokens like '3d' (alphanumeric with at least one letter) are significant."""
+        r = self._make_router_with_keywords({
+            "3d_print_finder": ["find 3d model"],
+        })
+        # All tokens present → match
+        matches = r.match_keywords("find a 3d model for printing")
+        assert len(matches) == 1
+        # Missing "3d" → no match (prevents "find the right model" false positive)
+        matches = r.match_keywords("find the right model for the project")
+        assert matches == []
+
+    def test_match_keywords_short_token_word_boundary(self):
+        """Short tokens use word-boundary matching: 'ux' must not match inside 'auxiliary'."""
+        r = self._make_router_with_keywords({
+            "ux_designer": ["ux"],
+        })
+        # "ux" as standalone word → match
+        matches = r.match_keywords("Improve the UX of the dashboard")
+        assert len(matches) == 1
+        # "ux" embedded inside "auxiliary" → no match
+        matches = r.match_keywords("Use auxiliary tools for the project")
+        assert matches == []
+
+    # --- keyword_veto ---
+
+    def test_keyword_veto_confirms_cache(self):
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["закон рф", "гк рф"],
+        })
+        result = r.keyword_veto("Статья ГК РФ", "russian_lawyer")
+        assert result is None
+
+    def test_keyword_veto_overrides_cache(self):
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["закон рф", "гк рф", "нк рф"],
+            "universal_agent": [],
+        })
+        result = r.keyword_veto("Анализ ГК РФ и НК РФ", "universal_agent")
+        assert result == "russian_lawyer"
+
+    def test_keyword_veto_returns_route_required(self):
+        """When two agents have similar keyword hits, return ROUTE_REQUIRED."""
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["закон рф"],
+            "kazakh_lawyer": ["закон рф"],  # same keyword in both
+        })
+        from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
+        result = r.keyword_veto("Анализ закон РФ", "universal_agent")
+        # Both have 1 hit, ratio = 1.0 < 2.0 -> ambiguous
+        assert result == KEYWORD_VETO_ROUTE_REQUIRED
+
+    def test_keyword_veto_ignores_weak_signal(self):
+        """No match at all -> None (trust cache)."""
+        r = self._make_router_with_keywords({
+            "russian_lawyer": ["российское право"],
+        })
+        result = r.keyword_veto("How to bake a cake?", "universal_agent")
+        assert result is None
+
+    def test_keyword_veto_confirms_when_cached_agent_tied(self):
+        """When cached_agent has the same hit count as top, confirm it (no override).
+        This prevents alphabetical sort order from determining the outcome."""
+        r = self._make_router_with_keywords({
+            "alpha_agent": ["закон рф"],
+            "zeta_agent": ["закон рф"],  # same keyword, tied hits
+        })
+        # zeta_agent sorts after alpha_agent, but if it's cached, confirm it
+        result = r.keyword_veto("Анализ закон РФ", "zeta_agent")
+        assert result is None
+        # And vice versa
+        result = r.keyword_veto("Анализ закон РФ", "alpha_agent")
+        assert result is None
+
+    def test_universal_agent_keywords_excluded_at_load(self):
+        """Verify _load_agent_descriptions sets universal_agent keywords to empty,
+        even though the frontmatter contains generic keywords.
+        Uses object.__new__ to avoid touching the disk-based vector store."""
+        import yaml, os
+        from src.engine.router import SemanticRouter
+        from src.engine.config import AGENTS_DIR
+
+        # Construct without __init__ to avoid NumpyVectorStore disk I/O
+        router = object.__new__(SemanticRouter)
+        router._agent_keywords = {}
+        router.available_agents = router._scan_agents()
+        router._agent_descriptions = router._load_agent_descriptions()
+
+        assert router._agent_keywords.get("universal_agent") == []
+        # Verify frontmatter actually has keywords that were intentionally skipped
+        from src.utils.prompt_loader import split_frontmatter
+        path = os.path.join(AGENTS_DIR, "universal_agent", "system_prompt.mdc")
+        with open(path, "r", encoding="utf-8") as f:
+            fm_str, _ = split_frontmatter(f.read())
+        meta = yaml.safe_load(fm_str) or {}
+        raw_kw = meta.get("routing", {}).get("domain_keywords", [])
+        assert len(raw_kw) > 0, "universal_agent frontmatter should have keywords"
+
+    @pytest.mark.asyncio
+    async def test_standard_routing_keyword_override(self):
+        """Integration: cache returns universal_agent, keywords override to russian_lawyer."""
+        import src.server as srv
+        from src.schemas.protocol import RouterDecision
+
+        cached = RouterDecision(
+            target_agent="universal_agent",
+            confidence=1.0,
+            reasoning="Cached result",
+            is_cached=True,
+        )
+
+        with patch.object(srv.router, "lookup_cache", new_callable=AsyncMock, return_value=cached), \
+             patch.object(srv.router, "keyword_veto", return_value="russian_lawyer"), \
+             patch.object(srv.router, "update_cache", new_callable=AsyncMock) as mock_cache, \
+             patch("src.server._load_and_enrich", new_callable=AsyncMock, return_value=(
+                 "prompt", "hash123", ["skill1"], ["implant1"], "standard"
+             )), \
+             patch("src.server._sample_with_agent", new_callable=AsyncMock, return_value=None):
+            result = await srv.route_and_load("Проверить доверенность на соответствие российскому законодательству")
+            data = json.loads(result)
+            assert data["agent"] == "russian_lawyer"
+            assert data["status"] in ("SUCCESS", "SUCCESS_SAMPLED")
+            # Verify cache is updated with the overridden agent, not the original
+            mock_cache.assert_called_once()
+            assert mock_cache.call_args[1].get("agent_name", mock_cache.call_args[0][1]) == "russian_lawyer"
+
+    @pytest.mark.asyncio
+    async def test_sticky_autoswitch_respects_ambiguous_keyword_veto(self):
+        """Regression: KEYWORD_VETO_ROUTE_REQUIRED from keyword_veto in auto-switch must
+        release to ROUTE_REQUIRED, not silently proceed with the switch target."""
+        import src.server as srv
+        from src.schemas.protocol import RouterDecision
+        from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
+
+        srv.CONTEXT_HASH_CACHE["prev_hash"] = "universal_agent"
+        cached = RouterDecision(
+            target_agent="software_engineer",
+            confidence=1.0,
+            reasoning="Cached",
+            is_cached=True,
+        )
+
+        with patch.object(srv.router, "query_nearest",
+                          new_callable=AsyncMock, return_value=(cached, 0.01)), \
+             patch.object(srv.router, "keyword_veto", return_value=KEYWORD_VETO_ROUTE_REQUIRED), \
+             patch.object(srv.router, "get_agent_catalog", return_value=[]):
+            result = json.loads(await srv.route_and_load(
+                "Анализ закон РФ",
+                context_hash="prev_hash",
+            ))
+            assert result["status"] == "ROUTE_REQUIRED"
+
 
 class TestClearSessionCache:
     @pytest.mark.asyncio

@@ -53,3 +53,81 @@ If `route_and_load` fails or Agents-Core MCP is not connected:
 1. Read `agents/` to find the right agent directory
 2. Read `agents/[name]/system_prompt.mdc`
 3. Follow the prompt manually
+
+---
+
+## Repository Structure
+
+```
+src/
+  server.py            — MCP server: route_and_load(), get_agent_context(), clear_session_cache()
+  engine/
+    router.py          — SemanticRouter: cache lookup, keyword matching, agent catalog
+    vector_store.py    — NumpyVectorStore: numpy-based cosine similarity store
+    embedder.py        — FastEmbed wrapper (model configurable via EMBEDDING_MODEL env var)
+    config.py          — Thresholds, paths, env-based configuration
+    enrichment.py      — Prompt enrichment with skills/implants by tier (lite/standard/deep)
+    skills.py          — Skill retrieval from vector store
+    implants.py        — Implant retrieval from vector store
+    capabilities.py    — Capability -> skill resolution via registry.yaml
+    language.py        — Language detection (langdetect, 24 languages)
+    context.py         — Context management
+  utils/
+    prompt_loader.py   — Frontmatter parsing, agent metadata, @import resolution
+    debug_logger.py    — JSON debug logging (AGENTS_DEBUG=1)
+    langfuse_compat.py — Optional Langfuse observability
+  schemas/
+    protocol.py        — RouterDecision, AgentRequest, EnrichmentResult
+agents/
+  [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, skills)
+  common/agent-schema.json — Frontmatter JSON schema
+  capabilities/registry.yaml — Capability -> skill mapping
+skills/skill-*.mdc         — Compiled skill prompts
+implants/implant-*.mdc     — Cognitive reasoning implants
+tests/
+  test_routing.py      — Routing logic, sticky routing, keyword boosting tests
+  test_vector_store.py — NumpyVectorStore correctness tests
+  test_language.py     — Language detection tests
+```
+
+## Routing Flow (Internal)
+
+```
+Query -> route_and_load()
+  |-- Sticky agent? -> query_nearest() -> distance-based decisions
+  |     |-- d < 0.02 + keyword check: auto-switch (validate with keywords)
+  |     |-- d < 0.05 & same agent + keyword check: confirm or override
+  |     |-- d >= 0.05: ROUTE_REQUIRED (topic change)
+  |     +-- else: keep sticky (stability)
+  +-- No sticky -> lookup_cache() (threshold: d < 0.05)
+        |-- Hit + keyword_veto() confirms -> SUCCESS
+        |-- Hit + keyword_veto() overrides -> use keyword winner
+        |-- Hit + keyword_veto() ambiguous -> ROUTE_REQUIRED
+        |-- Meta-query -> universal_agent (lite tier)
+        +-- Miss -> ROUTE_REQUIRED (LLM picks from candidates)
+```
+
+## Key Thresholds (config.py)
+
+| Constant | Default | Purpose |
+|----------|---------|---------|
+| `ROUTER_SIMILARITY_THRESHOLD` | 0.95 | Cache hit if cosine distance < 0.05 |
+| `STICKY_SWITCH_THRESHOLD` | 0.02 | Auto-switch only for near-duplicate queries |
+| `KEYWORD_OVERRIDE_MIN_HITS` | 1 | Min keyword hits to consider cache override |
+| `KEYWORD_UNIQUENESS_RATIO` | 2.0 | Top agent must have >= 2x hits vs second-best |
+| `SKILLS_RELEVANCE_THRESHOLD` | 0.75 | Cosine distance cutoff for skill retrieval |
+| `IMPLANTS_RELEVANCE_THRESHOLD` | 0.85 | Cosine distance cutoff for implant retrieval |
+| `SESSION_CACHE_MAX_SIZE` | 128 | Max enriched prompt cache entries |
+| `SESSION_CACHE_TTL_SECONDS` | 600 | Prompt cache TTL (10 min) |
+| `ROUTER_CACHE_MAX_SIZE` | 500 | Max routing decisions in vector store (router.py) |
+
+## Cache Storage (data/)
+
+- `router_cache.npz` + `.json` — Semantic routing cache (500 entries max, atomic writes)
+- `skills_store.npz` + `.json` — Skills vector store
+- `implants_store.npz` + `.json` — Implants vector store
+- `.router_cache_model` — Embedding model hash (auto-invalidates cache on model change)
+
+## Debug Logging
+
+Set `AGENTS_DEBUG=1` in `.env` -> JSON logs written to `logs/{date}/` per call.
