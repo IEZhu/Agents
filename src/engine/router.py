@@ -4,7 +4,10 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from src.engine.config import ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL
+from src.engine.config import (
+    ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL,
+    KEYWORD_OVERRIDE_MIN_HITS, KEYWORD_UNIQUENESS_RATIO,
+)
 from src.engine.embedder import embed_query
 from src.engine.vector_store import NumpyVectorStore
 from src.schemas.protocol import RouterDecision, AgentRequest
@@ -23,6 +26,7 @@ class SemanticRouter:
         self._invalidate_on_model_change()
 
         self.available_agents = self._scan_agents()
+        self._agent_keywords: Dict[str, List[str]] = {}
         self._agent_descriptions = self._load_agent_descriptions()
 
     def _invalidate_on_model_change(self):
@@ -93,10 +97,20 @@ class SemanticRouter:
                         "role": identity.get("role", ""),
                         "trigger_command": routing.get("trigger_command", ""),
                     }
+                    # Load domain_keywords (exclude universal_agent — its generic
+                    # keywords like "general", "plan" should never outcompete specialists)
+                    if name != "universal_agent":
+                        raw_kw = routing.get("domain_keywords", [])
+                        self._agent_keywords[name] = [
+                            kw.lower() for kw in raw_kw if isinstance(kw, str)
+                        ]
+                    else:
+                        self._agent_keywords[name] = []
                     continue
             except Exception as e:
                 logger.warning(f"Failed to load metadata for {name}: {e}")
             descriptions[name] = {"display_name": name, "role": "", "trigger_command": ""}
+            self._agent_keywords[name] = []
         return descriptions
 
     def get_agent_catalog(self) -> List[Dict[str, str]]:
@@ -105,6 +119,59 @@ class SemanticRouter:
             {"name": name, **self._agent_descriptions.get(name, {"display_name": name, "role": ""})}
             for name in self.available_agents
         ]
+
+    def match_keywords(self, query: str) -> List[tuple]:
+        """Match query against each agent's domain_keywords.
+
+        For each keyword, tries exact substring match first. If that fails,
+        checks whether any keyword token (>= 4 chars) appears as a substring
+        in the query — this handles inflected languages where word endings
+        differ (e.g. "закон" matches "законодательству").
+
+        Returns [(agent_name, hit_count), ...] sorted by hits descending,
+        filtered to agents with at least 1 hit.
+        """
+        query_lower = query.lower()
+        matches = []
+        for agent_name, keywords in self._agent_keywords.items():
+            hits = 0
+            for kw in keywords:
+                if kw in query_lower:
+                    hits += 1
+                    continue
+                tokens = [t for t in kw.split() if len(t) >= 4]
+                if tokens and any(t in query_lower for t in tokens):
+                    hits += 1
+            if hits > 0:
+                matches.append((agent_name, hits))
+        matches.sort(key=lambda x: x[1], reverse=True)
+        return matches
+
+    def keyword_veto(self, query: str, cached_agent: str) -> Optional[str]:
+        """Check if domain_keywords contradict the cached agent decision.
+
+        Returns:
+            None           — keywords confirm or don't contradict the cache
+            agent_name     — keywords strongly indicate a different agent (override)
+            "__ROUTE_REQUIRED__" — keywords point elsewhere but ambiguously
+        """
+        matches = self.match_keywords(query)
+        if not matches:
+            return None
+
+        top_agent, top_hits = matches[0]
+
+        if top_agent == cached_agent:
+            return None
+
+        if top_hits < KEYWORD_OVERRIDE_MIN_HITS:
+            return None
+
+        second_hits = matches[1][1] if len(matches) > 1 else 0
+
+        if second_hits == 0 or (top_hits / max(second_hits, 1)) >= KEYWORD_UNIQUENESS_RATIO:
+            return top_agent
+        return "__ROUTE_REQUIRED__"
 
     async def query_nearest(
         self, query: str, context: Dict[str, Any] = None

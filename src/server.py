@@ -289,16 +289,32 @@ async def route_and_load(
                     should_cache = False
                     debug_log("route_and_load", "sticky", {"action": "keep", "reason": "empty_cache", "agent": agent_name})
                 elif nearest[1] < STICKY_SWITCH_THRESHOLD and nearest[0].target_agent != sticky_agent:
-                    # Very strong signal for a different agent — auto-switch
-                    agent_name = nearest[0].target_agent
-                    reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={nearest[1]:.4f})"
+                    # Very strong signal for a different agent — validate with keywords
+                    switch_target = nearest[0].target_agent
+                    kw_veto = router.keyword_veto(query, switch_target)
+                    if kw_veto and kw_veto != "__ROUTE_REQUIRED__" and kw_veto != switch_target:
+                        agent_name = kw_veto
+                        reasoning = f"Keyword override (auto-switch): {switch_target} -> {kw_veto} (d={nearest[1]:.4f})"
+                    else:
+                        agent_name = switch_target
+                        reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={nearest[1]:.4f})"
                     logger.info(f"Sticky override: {sticky_agent} → {agent_name} (d={nearest[1]:.4f})")
                     debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": nearest[1]})
                 elif nearest[1] < distance_threshold and nearest[0].target_agent == sticky_agent:
-                    # Cache confirms the same agent
-                    agent_name = sticky_agent
-                    reasoning = f"Sticky: confirmed by cache (d={nearest[1]:.4f})"
-                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": nearest[1]})
+                    # Cache confirms the same agent — but check keywords
+                    kw_veto = router.keyword_veto(query, sticky_agent)
+                    if kw_veto and kw_veto != "__ROUTE_REQUIRED__":
+                        agent_name = kw_veto
+                        reasoning = f"Keyword override (sticky): {sticky_agent} -> {kw_veto} (d={nearest[1]:.4f})"
+                        logger.info("Keyword override in sticky: %s -> %s", sticky_agent, kw_veto)
+                        debug_log("route_and_load", "sticky", {"action": "keyword_override", "from": sticky_agent, "to": kw_veto, "distance": nearest[1]})
+                    elif kw_veto == "__ROUTE_REQUIRED__":
+                        debug_log("route_and_load", "sticky", {"action": "release", "reason": "keyword_ambiguous", "from": sticky_agent, "distance": nearest[1]})
+                        return _build_route_required(request_id, tier, router.get_agent_catalog())
+                    else:
+                        agent_name = sticky_agent
+                        reasoning = f"Sticky: confirmed by cache (d={nearest[1]:.4f})"
+                        debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": nearest[1]})
                 elif nearest[1] >= distance_threshold:
                     # Query is far from anything cached — likely a topic change.
                     # Go straight to ROUTE_REQUIRED so the LLM can pick the right agent.
@@ -312,11 +328,26 @@ async def route_and_load(
                     should_cache = False
                     debug_log("route_and_load", "sticky", {"action": "keep", "reason": "weak_signal", "agent": agent_name, "competing": nearest[0].target_agent, "distance": nearest[1]})
         else:
-            # 2. No sticky agent — standard routing (cache → meta-query → ROUTE_REQUIRED)
+            # 2. No sticky agent — standard routing (cache → keyword veto → meta-query → ROUTE_REQUIRED)
             cached_decision = await router.lookup_cache(query, {"history_text": history_text})
             if cached_decision:
-                agent_name = cached_decision.target_agent
-                reasoning = cached_decision.reasoning
+                veto = router.keyword_veto(query, cached_decision.target_agent)
+                if veto is None:
+                    agent_name = cached_decision.target_agent
+                    reasoning = cached_decision.reasoning
+                elif veto == "__ROUTE_REQUIRED__":
+                    logger.info("Keyword veto: ambiguous override for cached %s", cached_decision.target_agent)
+                    debug_log("route_and_load", "keyword_veto", {
+                        "action": "route_required", "cached_agent": cached_decision.target_agent, "query": query,
+                    })
+                    return _build_route_required(request_id, tier, router.get_agent_catalog())
+                else:
+                    agent_name = veto
+                    reasoning = f"Keyword override: {cached_decision.target_agent} -> {veto}"
+                    logger.info("Keyword override: %s -> %s for query: %.80s", cached_decision.target_agent, veto, query)
+                    debug_log("route_and_load", "keyword_veto", {
+                        "action": "override", "from": cached_decision.target_agent, "to": veto, "query": query,
+                    })
             elif _is_meta_query(query):
                 agent_name = "universal_agent"
                 reasoning = "Auto-fallback: meta-query detected"

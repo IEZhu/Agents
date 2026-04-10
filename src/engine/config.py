@@ -41,6 +41,12 @@ ROUTER_SIMILARITY_THRESHOLD = _float_env("ROUTER_SIMILARITY_THRESHOLD", 0.95)
 # auto-switch; ambiguous cases keep the current agent for stability.
 # Tune empirically if switches are too rare.
 STICKY_SWITCH_THRESHOLD = 0.02
+
+# Keyword boosting: minimum keyword hits to consider overriding a cache decision
+KEYWORD_OVERRIDE_MIN_HITS = 1
+# Top agent must have >= this ratio vs second-best to auto-override
+# (otherwise falls through to ROUTE_REQUIRED for LLM re-evaluation)
+KEYWORD_UNIQUENESS_RATIO = 2.0
 # Cosine distance thresholds (1 - similarity). Calibrated for
 # paraphrase-multilingual-MiniLM-L12-v2; typical distances:
 #   skills  0.39–0.63  → threshold 0.75 (comfortable margin)
