@@ -620,6 +620,31 @@ class TestKeywordBoosting:
             assert data["agent"] == "russian_lawyer"
             assert data["status"] in ("SUCCESS", "SUCCESS_SAMPLED")
 
+    @pytest.mark.asyncio
+    async def test_sticky_autoswitch_respects_ambiguous_keyword_veto(self):
+        """Regression: __ROUTE_REQUIRED__ from keyword_veto in auto-switch must
+        release to ROUTE_REQUIRED, not silently proceed with the switch target."""
+        import src.server as srv
+        from src.schemas.protocol import RouterDecision
+
+        srv.CONTEXT_HASH_CACHE["prev_hash"] = "universal_agent"
+        cached = RouterDecision(
+            target_agent="software_engineer",
+            confidence=1.0,
+            reasoning="Cached",
+            is_cached=True,
+        )
+
+        with patch.object(srv.router, "query_nearest",
+                          new_callable=AsyncMock, return_value=(cached, 0.01)), \
+             patch.object(srv.router, "keyword_veto", return_value="__ROUTE_REQUIRED__"), \
+             patch.object(srv.router, "get_agent_catalog", return_value=[]):
+            result = json.loads(await srv.route_and_load(
+                "Анализ закон РФ",
+                context_hash="prev_hash",
+            ))
+            assert result["status"] == "ROUTE_REQUIRED"
+
 
 class TestClearSessionCache:
     @pytest.mark.asyncio

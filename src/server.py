@@ -292,7 +292,10 @@ async def route_and_load(
                     # Very strong signal for a different agent — validate with keywords
                     switch_target = nearest[0].target_agent
                     kw_veto = router.keyword_veto(query, switch_target)
-                    if kw_veto and kw_veto != "__ROUTE_REQUIRED__" and kw_veto != switch_target:
+                    if kw_veto == "__ROUTE_REQUIRED__":
+                        debug_log("route_and_load", "sticky", {"action": "release", "reason": "keyword_ambiguous_autoswitch", "from": sticky_agent, "switch_target": switch_target, "distance": nearest[1]})
+                        return _build_route_required(request_id, tier, router.get_agent_catalog())
+                    elif kw_veto and kw_veto != switch_target:
                         agent_name = kw_veto
                         reasoning = f"Keyword override (auto-switch): {switch_target} -> {kw_veto} (d={nearest[1]:.4f})"
                     else:
