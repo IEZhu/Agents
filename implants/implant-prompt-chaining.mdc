@@ -1,11 +1,23 @@
 ---
-description: Prompt Chaining. Breaking task into sequence of LLM calls.
+description: Prompt Chaining. Breaking task into a sequence of dependent LLM calls where each output feeds the next input.
 globs: []
 alwaysApply: false
 short_name: PromptChaining
 one_liner: break task into sequence of LLM calls
 ---
 ## Pattern
-1. Prompt A -> Result A.
-2. Prompt B (with Result A) -> Result B.
-3. Synthesis.
+1. **Prompt A**: First LLM call → Result A (e.g., extract data, analyze, summarize).
+2. **Prompt B**: Second LLM call using Result A as context → Result B (e.g., transform, evaluate, generate).
+3. **Synthesis**: Final LLM call (if needed) to combine all intermediate results.
+
+## When to Use
+- Multi-stage workflows (extract → transform → generate)
+- Tasks requiring different model capabilities at each stage
+- When a single prompt is too complex for reliable output
+- Pipeline architectures in production systems
+
+## Limitations
+- Errors compound across the chain — each step amplifies upstream mistakes
+- Latency grows linearly with chain length
+- Token cost multiplied by number of calls
+- Debugging is harder — must trace through multiple steps to find the failure point

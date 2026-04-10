@@ -1,11 +1,28 @@
 ---
-description: Rephrase and Respond. Clarifying ambiguous requests before answering.
+description: Rephrase and Respond (RaR). Clarifying ambiguous requests before answering. Addresses human-LLM communication gaps.
 globs: []
 alwaysApply: false
 short_name: RephraseAndRespond
 one_liner: clarify ambiguous requests before answering
 ---
 ## Pattern
-1. "Rephrase and expand my request to be maximally precise."
-2. "I understood the task as: [Interpretation]."
-3. "Answering the expanded version."
+1. **Rephrase**: "Rephrase and expand the request to be maximally precise. State implicit assumptions explicitly."
+2. **State Interpretation**: "I understood the task as: [expanded interpretation]."
+3. **Answer**: Respond to the expanded version, not the original ambiguous one.
+
+## Variants
+- **One-step RaR**: Single prompt — "Rephrase and expand this question, then respond." Simpler, lower latency.
+- **Two-step RaR**: First LLM rephrases; second LLM receives original + rephrased, then responds. Higher accuracy on complex queries.
+
+## When to Use
+- Ambiguous or terse user queries
+- Questions with implicit assumptions or missing context
+- Complex multi-part requests where clarity prevents wasted effort
+- When understanding the question correctly is more important than speed
+- Can be combined with CoT for even better results
+
+## Limitations
+- Adds latency (especially two-step variant)
+- Rephrasing can introduce interpretation errors — may alter original intent
+- Unnecessary for clear, well-specified questions
+- May over-complicate simple queries

@@ -10,3 +10,14 @@ one_liner: abstract away details progressively to reveal core structure
 2. **Abstract**: Replace domain-specific details with placeholders (x, f, entity).
 3. **Reason**: Solve the abstract version of the problem.
 4. **Instantiate**: Map the abstract solution back to concrete details.
+
+## When to Use
+- Problems where domain details obscure the underlying logic
+- Transfer learning — applying a solution pattern from one domain to another
+- Mathematical word problems with distracting narrative
+- Architecture decisions where technology-specific details cloud structural reasoning
+
+## Limitations
+- Abstraction can lose relevant details that affect the solution
+- Some problems have domain-specific constraints that cannot be abstracted away
+- Adds overhead for problems that are already stated abstractly

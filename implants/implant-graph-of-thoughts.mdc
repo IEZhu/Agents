@@ -1,11 +1,32 @@
 ---
-description: Graph of Thoughts (GoT). Network reasoning. Generate nodes (ideas), score, branch, synthesize.
+description: Graph of Thoughts (GoT). Network reasoning where thoughts are nodes and dependencies are edges. Unlike ToT, allows merging partial solutions from different branches.
 globs: []
 alwaysApply: false
 short_name: GoT
-one_liner: network reasoning with branching and synthesis
+one_liner: network reasoning with branching, merging, and synthesis
 ---
 ## Pattern
-1. **Generate**: 3-5 alternative approaches.
-2. **Evaluation**: Score each.
-3. **Synthesis**: Combine best features.
+1. **Decompose**: Break the problem into sub-problems, each becoming a node in the graph.
+2. **Generate**: For each node, produce 2-3 candidate partial solutions.
+3. **Evaluate**: Score each candidate for correctness and progress.
+4. **Merge/Refine**: Combine strong candidates from different nodes into improved solutions — this is the key differentiator from ToT (tree = no merging; graph = merging allowed).
+5. **Synthesize**: Assemble the best merged partial solutions into the final answer.
+
+## Key Insight
+Unlike Tree-of-Thought (linear branching, no merging), GoT models reasoning as a **directed graph** where partial solutions from different branches can be combined. This captures the non-sequential nature of human thinking.
+
+## Variant: EGoT (Efficient GoT)
+Prunes low-scoring nodes early to reduce computational cost while maintaining quality.
+
+## When to Use
+- Multi-faceted problems where solutions have combinable components
+- Document writing (outline + sections can be developed and merged independently)
+- System design (different subsystems designed in parallel, then integrated)
+- Tasks where the best answer is a synthesis of multiple partial approaches
+- Sorting, optimization, and aggregation tasks
+
+## Limitations
+- Complex to orchestrate — requires explicit merge logic
+- Merging can introduce incoherence if partial solutions conflict
+- Higher token cost than linear reasoning
+- Overkill for problems with a single clean reasoning path

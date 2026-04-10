@@ -6,4 +6,19 @@ short_name: RoT
 one_liner: handle nested recursive structures via sub-calls
 ---
 ## Pattern
-"Identify recursive structure. Call abstract function 'solve_subtask' for each nested part."
+1. **Identify Recursion**: Detect the recursive/nested structure in the problem (nested lists, trees, recursive definitions).
+2. **Define Base Case**: What is the simplest, non-recursive instance? How is it solved directly?
+3. **Define Recursive Step**: "Call abstract function `solve_subtask` for each nested part."
+4. **Combine**: Merge results from sub-calls into the parent solution.
+
+## When to Use
+- Nested data structures (JSON parsing, tree traversal, nested lists)
+- Problems with recursive definitions (factorial, Fibonacci, fractal descriptions)
+- Hierarchical analysis (organizational structures, dependency trees)
+- Any problem that contains smaller versions of itself
+
+## Limitations
+- Context window limits recursion depth — deep nesting overflows available tokens
+- Models struggle with deep recursion (>3-4 levels)
+- Overkill for flat, non-recursive problems
+- Accumulating context from nested sub-calls is token-expensive

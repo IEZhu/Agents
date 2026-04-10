@@ -1,11 +1,23 @@
 ---
-description: Reverse CoT. Reconstructing conditions from the solution to check consistency.
+description: Reverse CoT. Reconstructing conditions from the solution to verify consistency and catch errors.
 globs: []
 alwaysApply: false
 short_name: ReverseCoT
 one_liner: verify solution by reconstructing conditions
 ---
 ## Pattern
-1. Solve task.
-2. "Now reconstruct original conditions from your solution."
-3. "Compare with original. Fix discrepancies."
+1. **Solve**: Solve the task using any appropriate method.
+2. **Reconstruct**: "Given this solution, reconstruct the original conditions/requirements."
+3. **Compare**: Compare reconstructed conditions with the actual original. Fix any discrepancies.
+
+## When to Use
+- Math and logic problems where you can verify by working backwards
+- Code generation — "does this code actually meet the requirements?"
+- Constraint satisfaction — verify that all constraints are met
+- Any task with a clear set of input conditions that the solution must satisfy
+
+## Limitations
+- Not all problems allow backward reconstruction (e.g., creative writing, open-ended tasks)
+- Reconstruction may pass even if the solution is wrong (if reconstruction is also flawed)
+- Doubles the reasoning cost (solve + reconstruct + compare)
+- Less useful when the original conditions are ambiguous

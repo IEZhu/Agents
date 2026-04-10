@@ -10,3 +10,19 @@ one_liner: iterative self-improvement via internal critique
 2. **Critique**: Evaluate your own output — what is weak, missing, or incorrect?
 3. **Refine**: Improve the solution based on self-critique.
 4. **Stop**: When critique finds no significant issues, output the final version.
+
+## When to Use
+- Writing improvement (tone, clarity, structure)
+- Code polish (readability, edge cases, naming)
+- Incremental refinement of any single output
+- Tasks where "good enough" can be iteratively improved to "great"
+- When external feedback is not available
+
+## Limitations
+- Single-pass only — no memory across separate attempts
+- Critique quality is bounded by the model's own capability (can't catch errors it doesn't recognize)
+- Can over-refine — diminishing returns after 2-3 cycles
+- Risk of "polishing" away useful rough edges in creative work
+
+## See Also
+- **Reflexion**: Multi-attempt improvement with episodic memory — use when you need to learn from failures across multiple tries, not just polish a single output.

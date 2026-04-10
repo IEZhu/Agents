@@ -1,11 +1,23 @@
 ---
-description: Self-Harmonized CoT. Generates multiple solutions and harmonizes/merges them.
+description: Self-Harmonized CoT (SH-CoT). Generates multiple solutions and harmonizes/merges them into the best combined answer.
 globs: []
 alwaysApply: false
 short_name: SHCoT
 one_liner: merge multiple solutions into best combined answer
 ---
 ## Pattern
-1. Generate 3 independent solutions.
-2. Compare and highlight strong points.
-3. Synthesize final answer by combining best parts.
+1. **Generate**: Produce 3 independent solutions using different reasoning approaches.
+2. **Compare**: Highlight strong points and weak points of each solution.
+3. **Synthesize**: Combine the best elements from all solutions into a final harmonized answer.
+
+## When to Use
+- Complex problems where no single approach captures all aspects
+- Design decisions benefiting from multiple perspectives
+- Writing tasks where different drafts have complementary strengths
+- Any task where "best of all approaches" outperforms "best single approach"
+
+## Limitations
+- 3x token cost compared to single generation
+- Merging can introduce incoherence if solutions fundamentally conflict
+- Requires clear criteria for what constitutes "strong" vs. "weak" elements
+- Less effective than Self-Consistency for problems with a single correct answer (use majority vote instead)

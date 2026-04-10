@@ -1,9 +1,27 @@
 ---
-description: Token efficiency implant. Uses thesis points and mini-steps (3-5 words) instead of full CoT.
+description: Chain of Draft (CoD). Token efficiency implant. Uses thesis points and mini-steps (3-5 words) instead of full CoT.
 globs: []
 alwaysApply: false
 short_name: ChainOfDraft
 one_liner: use thesis points instead of full CoT for tokens
 ---
 ## Pattern
-"Think in thesis points. Use mini-steps of 3–5 words instead of long explanations before the answer."
+1. **Compress Reasoning**: Think in thesis points — use mini-steps of 3-5 words instead of full sentences.
+2. **Skip Justification**: Only expand a step if the reasoning is non-obvious. Obvious steps get one phrase.
+3. **Answer Directly**: After the compressed chain, produce the final answer without restating the reasoning.
+
+## Example
+Instead of: "First, I need to calculate the total cost. The base price is $100. The tax rate is 8%. So the tax is $100 * 0.08 = $8. Therefore the total is $100 + $8 = $108."
+Use: "Base: $100 → Tax 8%: $8 → Total: $108."
+
+## When to Use
+- Token-constrained environments (limited context window)
+- Straightforward reasoning where full CoT is overkill
+- Batch processing where token cost matters at scale
+- Internal "scratchpad" reasoning before the final answer
+
+## Limitations
+- Loses nuance on complex, multi-step reasoning
+- Compressed steps may hide errors that full CoT would expose
+- Not suitable for tasks requiring detailed justification or audit trail
+- Harder for humans to verify compressed reasoning

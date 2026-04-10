@@ -28,3 +28,9 @@ Current instance: "TypeError in user service" → Instantiate template with spec
 - Batch processing similar items (reviewing 10 PRs, analyzing 5 datasets).
 - Repetitive professional tasks with consistent structure.
 - When consistency across similar outputs matters.
+
+## Limitations
+- Requires having solved similar tasks before — cold-start problem on novel task types
+- Abstracted templates can miss important specifics of the current instance
+- Template rigidity — may force a pattern that doesn't fit this particular variant
+- Meta-template refinement is only as good as the model's self-assessment

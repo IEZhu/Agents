@@ -7,5 +7,23 @@ one_liner: fact-check claims via draft-verify-correct cycle
 ---
 ## Pattern
 1. **Draft**: Generate initial answer.
-2. **Verify**: Generate specific verification questions for each claim.
-3. **Correct**: Answer questions independently, rewrite draft fixing errors.
+2. **Plan Verification**: Generate specific verification questions for each factual claim. Questions must be answerable independently of the original reasoning (avoid confirmation bias).
+3. **Execute Verification**: Answer each verification question independently — do not reference the draft while answering.
+4. **Correct**: Compare verification answers with the draft. Rewrite the draft fixing any errors or unsupported claims.
+5. **Iterate**: If corrections are major, re-verify the corrected version.
+
+## Variant: CoV-RAG
+When applied to RAG-retrieved documents: verify that each claim in the generated answer is actually supported by the retrieved sources. Generate questions like "Does source X actually state Y?"
+
+## When to Use
+- Factual summaries where hallucination risk is high
+- RAG-generated answers that need grounding verification
+- Knowledge-intensive outputs (dates, numbers, names, specifications)
+- Any output that will be used as a basis for decisions
+- High-stakes content (medical, legal, financial information)
+
+## Limitations
+- Doubles token cost (draft + verification + correction)
+- Verification questions can themselves contain hallucinations
+- Not useful for creative or opinion-based outputs
+- Diminishing returns after 2 verification iterations

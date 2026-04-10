@@ -1,10 +1,29 @@
 ---
-description: Active Prompting. Active uncertainty check. If confidence is low, triggers deep CoT analysis.
+description: Active Prompting. Active uncertainty check. If confidence is low, triggers deep CoT analysis. Related to adaptive prompting.
 globs: []
 alwaysApply: false
 short_name: ActivePrompting
 one_liner: trigger full CoT when confidence is low
 ---
 ## Pattern
-1. Make a quick request.
-2. If confidence low/answers vary -> Trigger full CoT with detailed justification.
+1. **Quick Assessment**: Generate a rapid initial response with a confidence estimate (high/medium/low).
+2. **Confidence Check**: Evaluate uncertainty — do multiple quick attempts agree? Is the answer well-supported?
+3. **Branch on Confidence**:
+   - **High confidence**: Return the quick answer directly.
+   - **Low confidence**: Trigger full Chain-of-Thought with detailed step-by-step justification.
+4. **Output**: Deliver the answer with appropriate confidence framing.
+
+## Related Concept
+In production systems, this evolves into **adaptive prompting** — dynamically selecting the prompting strategy (zero-shot, few-shot, CoT) based on estimated task difficulty. Active Prompting is the simplest version of this pattern.
+
+## When to Use
+- Mixed-difficulty task batches (easy questions get fast answers, hard ones get deep reasoning)
+- Cost-sensitive applications where full CoT on every query is wasteful
+- Triage workflows that need to allocate compute dynamically
+- API pipelines optimizing latency vs. accuracy tradeoff
+
+## Limitations
+- Models are often overconfident — confidence calibration is unreliable
+- Threshold tuning is domain-specific and requires experimentation
+- Two-pass approach still incurs latency on hard questions
+- The "quick assessment" may lock in a wrong initial direction

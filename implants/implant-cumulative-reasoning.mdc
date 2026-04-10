@@ -7,6 +7,18 @@ one_liner: build conclusions by incrementally accumulating verified evidence
 ---
 ## Pattern
 1. **Seed**: State the initial known fact or observation.
-2. **Accumulate**: Add one new verified fact at a time, checking consistency with prior facts.
+2. **Accumulate**: Add one new verified fact at a time, checking consistency with all prior facts.
 3. **Synthesize**: After sufficient evidence, derive the conclusion.
 4. **Audit**: Review the chain — is every step warranted? Remove any unsupported leaps.
+
+## When to Use
+- Investigative analysis building a case from evidence
+- Scientific reasoning where each claim must be grounded
+- Legal argumentation constructing from facts to conclusion
+- Any reasoning where premature conclusions lead to errors
+
+## Limitations
+- Very slow for tasks that don't require incremental evidence building
+- Can over-constrain reasoning by refusing to speculate even when useful
+- The "verification" at each step is bounded by model capability
+- May miss big-picture patterns visible only when considering all evidence at once

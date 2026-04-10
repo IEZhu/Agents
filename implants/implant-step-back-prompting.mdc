@@ -1,11 +1,24 @@
 ---
-description: Step-Back Prompting. Abstract principle first, then apply to specifics. For complex problems.
+description: Step-Back Prompting. Abstract principle first, then apply to specifics. For complex problems where details obscure the core issue.
 globs: []
 alwaysApply: false
 short_name: StepBack
 one_liner: abstract principle first for complex problems
 ---
 ## Pattern
-1. **Step Back**: "What is the underlying principle or concept?"
-2. **Abstract**: Formulate the general rule.
-3. **Apply**: Use the principle to solve the specific problem.
+1. **Step Back**: "What is the underlying principle, concept, or category this problem belongs to?"
+2. **Abstract**: Formulate the general rule or first principle that governs this type of problem.
+3. **Apply**: Use the principle to solve the specific problem with concrete details.
+
+## When to Use
+- Physics, chemistry, and science problems (+7-27% accuracy improvement)
+- Temporal reasoning and timeline questions
+- Debugging when details obscure the root cause
+- Architecture decisions where implementation details cloud strategic thinking
+- Any complex problem where "zooming out" helps
+
+## Limitations
+- Adds latency for the abstraction step
+- Abstraction may identify the wrong principle, leading to a wrong answer
+- Overkill for straightforward concrete problems
+- Some problems are inherently detail-dependent and resist abstraction

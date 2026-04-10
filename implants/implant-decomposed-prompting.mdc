@@ -10,3 +10,15 @@ one_liner: break complex tasks into simpler sub-prompts and combine
 2. **Solve**: Address each sub-task with a focused, simple prompt.
 3. **Combine**: Merge sub-task results into the final answer.
 4. **Verify**: Check that combined result satisfies the original task.
+
+## When to Use
+- Complex tasks that can be split into independent parts
+- Multi-aspect analysis (e.g., technical + business + legal review)
+- Tasks exceeding a single prompt's reliable capability
+- Parallelizable work where sub-tasks don't depend on each other
+
+## Limitations
+- Sub-tasks must be genuinely independent — hidden dependencies cause wrong results
+- Combining step can introduce incoherence if sub-results conflict
+- Overhead of multiple prompts is wasteful for tasks that are naturally sequential
+- Decomposition itself can be done incorrectly, splitting at the wrong boundaries

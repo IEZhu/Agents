@@ -1,9 +1,23 @@
 ---
-description: Least-to-Most Prompting. Decompose complex task, solve sequentially using previous answers.
+description: Least-to-Most Prompting. Decompose complex task, solve sequentially from simple to complex using previous answers.
 globs: []
 alwaysApply: false
 short_name: LeastToMost
 one_liner: solve simple to complex sequentially
 ---
 ## Pattern
-"Break this complex task into simple subtasks. Solve them sequentially from simple to complex, using results from previous steps."
+1. **Decompose**: Break the complex task into subtasks ordered from simplest to hardest.
+2. **Solve Sequentially**: Solve the simplest subtask first. Use its result as context for the next, harder subtask.
+3. **Build Up**: Each step uses all previous results, progressively building toward the full answer.
+
+## When to Use
+- Math word problems with nested dependencies
+- Multi-step reasoning where each step builds on the previous
+- Teaching/tutoring scenarios where scaffolding helps
+- Problems that overwhelm when presented all at once but are manageable in parts
+
+## Limitations
+- Errors in early steps propagate through all subsequent steps
+- Requires correct ordering from simple to complex (misordering derails the chain)
+- Slower than direct approaches for problems the model can solve in one pass
+- Not suitable for tasks with independent, non-sequential sub-problems (use Decomposed Prompting instead)

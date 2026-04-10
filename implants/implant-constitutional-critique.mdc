@@ -1,11 +1,23 @@
 ---
-description: Constitutional Critique. Ethical Self-Correction based on principles (Safety, Helpfulness). Constitutional AI.
+description: Constitutional Critique. Ethical Self-Correction based on principles (Safety, Helpfulness, Honesty). Constitutional AI.
 globs: []
 alwaysApply: false
 short_name: ConstitutionalCritique
 one_liner: ethical self-correction via principle check
 ---
 ## Pattern
-1. Generate draft.
-2. "Does this violate principles [Safety/Ethics]?"
-3. Rewrite correcting violations.
+1. **Generate**: Produce initial draft response.
+2. **Critique Against Principles**: "Does this violate any of the following principles: [Safety, Helpfulness, Honesty, Harmlessness]?"
+3. **Rewrite**: Correct any violations while preserving useful content.
+
+## When to Use
+- Safety-critical outputs that must be reviewed before delivery
+- Content generation that could inadvertently include harmful information
+- Any task where ethical guardrails must be applied post-generation
+- Automated content moderation pipelines
+
+## Limitations
+- Principles must be explicitly defined — vague principles lead to inconsistent critique
+- Can be overly cautious, refusing or weakening useful content
+- Self-critique for safety is less reliable than external moderation
+- Adds a review pass that increases latency and token cost

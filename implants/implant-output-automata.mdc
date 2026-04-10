@@ -69,3 +69,9 @@ Close:
 - Complex workflows with error recovery.
 - Processes that need deterministic, auditable behavior.
 - When you need to prevent state corruption (going back to invalid states).
+
+## Limitations
+- Overhead of defining full FSM is excessive for simple linear flows
+- State explosion — complex processes can have too many states to enumerate
+- Guards and transitions must be exhaustive — missing transitions cause undefined behavior
+- Rigid structure can't handle truly open-ended conversations

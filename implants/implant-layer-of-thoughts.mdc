@@ -1,11 +1,23 @@
 ---
-description: Layer of Thoughts. Hierarchical analysis for domains with rules (Law, Policy).
+description: Layer of Thoughts. Hierarchical analysis for domains with rules (Law, Policy, Compliance).
 globs: []
 alwaysApply: false
 short_name: LayerOfThoughts
 one_liner: hierarchical analysis for rules-based domains
 ---
 ## Pattern
-1. **Layer 1**: Process high-level rules/laws.
-2. **Layer 2**: Apply to specific facts.
-3. **Synthesis**: Conclude.
+1. **Layer 1 — Rules**: Identify and process high-level rules, laws, or policies that govern the domain.
+2. **Layer 2 — Facts**: Map specific facts of the case to the applicable rules.
+3. **Layer 3 — Synthesis**: Conclude by applying rules to facts, noting conflicts or ambiguities.
+
+## When to Use
+- Legal analysis (statute → case facts → ruling)
+- Policy compliance checks (policy → situation → compliance status)
+- Regulatory assessment (regulation → business activity → risk evaluation)
+- Any domain with hierarchical rules that must be applied to specific facts
+
+## Limitations
+- Assumes rules are clear and non-contradictory — fails with ambiguous regulations
+- Shallow when rules interact across multiple layers or jurisdictions
+- Not suitable for domains without formal rule structures
+- May oversimplify complex legal reasoning that requires precedent analysis

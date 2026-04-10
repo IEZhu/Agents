@@ -1,9 +1,31 @@
 ---
-description: Role-Play Expert. Deep expertise via persona assignment.
+description: Role-Play Expert. Deep expertise via persona assignment for reasoning style and analytical frameworks.
 globs: []
 alwaysApply: false
 short_name: RolePlayExpert
 one_liner: apply expert persona for domain analysis
 ---
+## Warning
+Research (2026) shows expert personas can **degrade factual accuracy** on knowledge-retrieval tasks. The model becomes more confident but not more correct. Use personas for **reasoning style and analytical frameworks**, not for knowledge claims.
+
 ## Pattern
-"You are a [Role] with [Years] experience. Analyze from the perspective of [Specific Framework]."
+1. **Define Role Scope**: "You are a [Role] with [Years] experience in [Domain]." Keep it concise and task-relevant.
+2. **Specify Methodology**: "Analyze using [Specific Framework/Methodology]." (e.g., STRIDE for threat modeling, SOLID for code review, Porter's Five Forces for market analysis).
+3. **Constrain to Domain**: "Focus your analysis on [specific aspect]. Do not speculate on areas outside your stated expertise."
+4. **Cross-Check**: "Would a real [Role] stake their professional reputation on this claim? If not, flag as uncertain."
+
+## Safer Alternative
+Instead of "You are an expert in X," try: "Apply the methodology of [X discipline] to analyze this problem." This gets the reasoning structure without the overconfidence.
+
+## When to Use
+- Code review from a specific architectural perspective (e.g., security engineer, performance specialist)
+- Design critique using established frameworks (e.g., Nielsen heuristics, WCAG)
+- Structured analysis within a specific methodology (e.g., STRIDE, SWOT, root cause analysis)
+- Role-based brainstorming (e.g., "as a skeptical customer, what would concern you?")
+- Setting analytical tone and vocabulary for a domain
+
+## Limitations
+- **Degrades factual accuracy**: persona activates instruction-following mode at the expense of factual recall
+- Overly elaborate personas add noise — keep role definitions concise
+- Avoid for factual questions, knowledge retrieval, or tasks where accuracy of specific facts matters more than reasoning structure
+- Do not use for medical, legal, or financial advice — persona does not grant domain knowledge

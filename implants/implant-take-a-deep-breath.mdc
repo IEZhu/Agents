@@ -1,5 +1,5 @@
 ---
-description: Take a Deep Breath. Zero-shot CoT trigger.
+description: Take a Deep Breath. Zero-shot CoT trigger. Simplest possible reasoning activation.
 globs: []
 alwaysApply: false
 short_name: DeepBreath
@@ -7,3 +7,15 @@ one_liner: trigger step-by-step reasoning with zero-shot
 ---
 ## Pattern
 "Take a deep breath and work on this step by step."
+
+## When to Use
+- Quick improvement over zero-shot when no time for structured prompting
+- Tight token budgets where full CoT instructions are too expensive
+- Baseline technique to add to any prompt for marginal reasoning improvement
+- When you don't know which specific CoT variant to apply
+
+## Limitations
+- Outperformed by all structured CoT techniques on hard problems
+- Effect is marginal on frontier models that already reason well by default
+- No control over reasoning depth or direction
+- "Step by step" may produce unnecessarily verbose output on simple tasks

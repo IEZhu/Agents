@@ -1,11 +1,23 @@
 ---
-description: RAG Source Annotation. Reads fragments, annotates relevance, synthesizes answer only from relevant notes. Reduces hallucinations.
+description: Chain of Note (CoN). RAG Source Annotation. Reads fragments, annotates relevance, synthesizes answer only from relevant notes. Reduces hallucinations.
 globs: []
 alwaysApply: false
 short_name: ChainOfNote
 one_liner: answer from annotated relevant notes only
 ---
 ## Pattern
-1. **Read**: Document X.
-2. **Annotate**: For each paragraph, is it relevant? (Yes/No). Extract key fact.
-3. **Synthesize**: Answer using ONLY facts from relevant notes.
+1. **Read**: Process each retrieved document/fragment.
+2. **Annotate**: For each paragraph, assess relevance (Relevant/Not Relevant). Extract key fact from relevant ones.
+3. **Synthesize**: Answer using ONLY facts from relevant notes. If no notes are relevant, say "insufficient information."
+
+## When to Use
+- RAG pipelines where retrieved documents may contain irrelevant content
+- Multi-document question answering requiring source grounding
+- Reducing hallucination by forcing answer to be grounded in sources
+- Research synthesis where not all sources are equally relevant
+
+## Limitations
+- Adds annotation overhead before answer generation
+- Relevance assessment can be wrong — may discard useful information
+- "Insufficient information" response may frustrate users when a partial answer would help
+- Not useful for tasks without source documents

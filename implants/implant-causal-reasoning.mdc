@@ -28,3 +28,16 @@ one_liner: distinguish correlation from causation with systematic checks
 - Single study, especially with small N.
 - Ecological fallacy (group-level data applied to individuals).
 - Post hoc ergo propter hoc (after, therefore because of).
+
+## When to Use
+- Evaluating claims about cause and effect in research, reports, or arguments
+- Debugging — determining whether a code change actually caused a bug
+- Business decisions based on A/B tests or observational data
+- Medical/health claims requiring causal scrutiny
+- Any analysis where "X caused Y" is asserted without rigorous evidence
+
+## Limitations
+- Full causal analysis requires data that may not be available
+- Intervention tests (RCTs) are often impractical or unethical
+- Can lead to analysis paralysis — sometimes "probable causation" is sufficient for decisions
+- The framework is strongest for single-cause/single-effect; multi-causal systems are harder

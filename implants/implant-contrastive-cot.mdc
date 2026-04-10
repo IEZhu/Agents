@@ -6,4 +6,23 @@ short_name: ContrastiveCoT
 one_liner: prevent mistakes via correct and incorrect examples
 ---
 ## Pattern
-"Example Correct: [Solution]. Example Incorrect: [Error] (Why: explanation). Now solve..."
+1. **Identify Error Type**: Determine the common mistake for this type of problem (e.g., off-by-one, sign error, logical fallacy).
+2. **Construct Incorrect Example**: Show a plausible but wrong solution with explicit explanation of **why** it fails.
+3. **Construct Correct Example**: Show the correct solution, highlighting where it diverges from the incorrect one.
+4. **Solve**: Present the actual problem with both examples as context: "Avoid the error shown above. Follow the correct reasoning pattern."
+
+## Variant: Auto-CCoT (2025)
+Automatically generates valid-invalid pairs from LLM outputs and dynamically selects the most informative pairs via retrieval. Produces incoherent examples that match real model errors, making them more effective than manually-crafted counterexamples.
+
+## When to Use
+- Math problems with common traps (sign errors, order of operations)
+- Logic puzzles where plausible-but-wrong paths exist
+- Classification tasks with known confusing categories
+- Any task with well-known error patterns
+- Teaching scenarios where understanding mistakes aids learning
+
+## Limitations
+- Requires knowing the common mistakes in advance
+- Showing incorrect examples can occasionally **prime** the model toward the error
+- Doubles the example token cost (correct + incorrect for each)
+- Less effective when errors are diverse and unpredictable
