@@ -41,7 +41,7 @@ class SemanticRouter:
                     "Embedding model changed (%s → %s), clearing router cache",
                     stored_model or "<none>", EMBEDDING_MODEL,
                 )
-                self.store._reset()
+                self.store.clear()
                 self.store.save()
             os.makedirs(DATA_DIR, exist_ok=True)
             with open(_ROUTER_MODEL_HASH_FILE, "w") as f:

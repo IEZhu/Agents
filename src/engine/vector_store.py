@@ -99,6 +99,11 @@ class NumpyVectorStore:
         self._metadatas = []
         self._id_to_idx = {}
 
+    def clear(self):
+        """Public API: reset in-memory state under lock."""
+        with self._lock:
+            self._reset()
+
     def save(self):
         """Persist to disk using atomic write (temp file + rename)."""
         with self._lock:
@@ -141,7 +146,7 @@ class NumpyVectorStore:
                     os.unlink(tmp_meta_path)
                 raise
 
-            logger.info(f"[{self.name}] Saved {len(self._ids)} entries to disk")
+            logger.debug(f"[{self.name}] Saved {len(self._ids)} entries to disk")
 
     def count(self) -> int:
         with self._lock:
