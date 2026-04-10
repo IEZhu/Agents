@@ -1,10 +1,12 @@
 import logging
 import asyncio
+import os
 import re
 import traceback
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
+from src.engine.config import AGENTS_DEBUG, DEBUG_LOG_DIR
 from src.engine.skills import SkillRetriever
 from src.engine.implants import ImplantRetriever
 from src.engine.capabilities import resolve_capabilities
@@ -118,17 +120,16 @@ async def get_dynamic_context_string(
                 "**More reasoning implants available** — call `load_implants(query=...)` to load by topic."
             )
         except Exception as e:
-            # Write to both stderr (MCP log) and a crash file for post-mortem
             logger.error("Failed to retrieve implants: %s", e, exc_info=True)
-            try:
-                import os, datetime
-                crash_dir = os.path.join(os.path.dirname(__file__), "../../logs")
-                os.makedirs(crash_dir, exist_ok=True)
-                with open(os.path.join(crash_dir, "implant_enrichment_error.log"), "a") as f:
-                    f.write(f"\n--- {datetime.datetime.now().isoformat()} ---\n")
-                    f.write(traceback.format_exc())
-            except Exception:
-                pass
+            if AGENTS_DEBUG:
+                try:
+                    import datetime
+                    os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
+                    with open(os.path.join(DEBUG_LOG_DIR, "implant_enrichment_error.log"), "a") as f:
+                        f.write(f"\n--- {datetime.datetime.now().isoformat()} ---\n")
+                        f.write(traceback.format_exc())
+                except Exception:
+                    pass
 
     return EnrichmentResult(
         prompt="\n\n".join(context_parts),

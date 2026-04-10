@@ -112,6 +112,24 @@ class NumpyVectorStore:
                             os.unlink(path)
                     except OSError:
                         pass
+        elif os.path.exists(self._npz_path) or os.path.exists(self._meta_path):
+            # Only one of the two files exists — treat as corruption from a
+            # mid-save crash and remove the stray file so we don't silently
+            # reset on every startup.
+            logger.warning(
+                "[%s] Partial store files detected (npz=%s, json=%s), "
+                "removing stray file",
+                self.name,
+                os.path.exists(self._npz_path),
+                os.path.exists(self._meta_path),
+            )
+            for path in (self._npz_path, self._meta_path):
+                try:
+                    if os.path.exists(path):
+                        os.unlink(path)
+                except OSError:
+                    pass
+            self._reset()
         else:
             self._reset()
 
