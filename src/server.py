@@ -642,8 +642,9 @@ def _warmup_embedding_model():
     cold-start cost (model load can take several seconds for large models
     like multilingual-e5-large and may exceed client timeouts)."""
     try:
-        from src.engine.embedder import embed_texts
+        from src.engine.embedder import embed_texts, embed_query
         embed_texts(["warmup"])
+        embed_query("warmup")
         logger.info("Embedding model warmed up")
     except Exception as e:
         logger.warning("Embedding model warmup failed: %s", e, exc_info=True)
