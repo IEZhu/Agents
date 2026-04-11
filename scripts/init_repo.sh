@@ -572,6 +572,7 @@ else
 
         print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
 
+        CLAUDE_MD_CONFIGURED=false
         if [ -f "$CLAUDE_MD_SRC" ]; then
             SECTION_CONTENT=$(cat "$CLAUDE_MD_SRC")
 
@@ -623,7 +624,7 @@ else:
 
 with open(md_path, 'w') as f:
     f.write(content)
-" && print_success "Agents-Core section replaced in global CLAUDE.md" \
+" && { print_success "Agents-Core section replaced in global CLAUDE.md"; CLAUDE_MD_CONFIGURED=true; } \
   || print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
                 else
                     # No managed section yet — append
@@ -639,6 +640,7 @@ with open(md_path, 'w') as f:
                         echo "$MARKER_END"
                     } >> "$CLAUDE_CODE_MD"
                     print_success "Agents-Core section appended to global CLAUDE.md"
+                    CLAUDE_MD_CONFIGURED=true
                 fi
             else
                 # No global CLAUDE.md yet — create with managed section
@@ -651,6 +653,7 @@ with open(md_path, 'w') as f:
                     echo "$MARKER_END"
                 } > "$CLAUDE_CODE_MD"
                 print_success "Global CLAUDE.md created with Agents-Core section"
+                CLAUDE_MD_CONFIGURED=true
             fi
         else
             print_warn "CLAUDE.md not found in repo root, skipping"
@@ -663,8 +666,8 @@ with open(md_path, 'w') as f:
         MEMORY_FILE="$CLAUDE_MEMORY_DIR/feedback_agents_core_routing.md"
         MEMORY_INDEX="$CLAUDE_MEMORY_DIR/MEMORY.md"
 
-        # Only configure memory if CLAUDE.md was successfully set up (memory references it)
-        if [ -f "$CLAUDE_MD_SRC" ]; then
+        # Only configure memory if the global CLAUDE.md routing section was successfully written
+        if [ "$CLAUDE_MD_CONFIGURED" = true ]; then
             print_step "Configuring Claude Code project memory ($CLAUDE_MEMORY_DIR)..."
 
             mkdir -p "$CLAUDE_MEMORY_DIR"
@@ -706,7 +709,7 @@ MEMORY_EOF
                 print_success "MEMORY.md index created"
             fi
         else
-            print_warn "Skipping memory setup — CLAUDE.md source not found"
+            print_warn "Skipping memory setup — global CLAUDE.md routing section was not configured"
         fi
 
         fi # end: ~/.claude is a directory check
