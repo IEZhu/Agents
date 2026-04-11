@@ -34,6 +34,13 @@ def main():
         lines = f.readlines()
 
     with open(env_file, "a", encoding="utf-8") as out:
+        # Ensure file ends with newline before appending
+        with open(env_file, "rb") as f:
+            f.seek(0, 2)
+            if f.tell() > 0:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    out.write("\n")
         for line in lines:
             s = line.strip()
             if not s or s.startswith("#"):
