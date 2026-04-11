@@ -78,21 +78,21 @@ set "PYCHECK=%HELPERS%\check_version.py"
 
 REM Try py launcher with specific versions (preferred on Windows)
 REM Using goto to avoid nested parentheses issues in cmd.exe
-for /f "delims=" %%A in ('py -3.11 "%PYCHECK%" 2^>nul') do set "SELECTED_PYTHON=py -3.11" & set "PY_VER=%%A"
+for /f "delims=" %%A in ('py -3.11 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3.11" & set "PY_VER=%%A")
 if defined SELECTED_PYTHON goto :python_found
 
-for /f "delims=" %%A in ('py -3.10 "%PYCHECK%" 2^>nul') do set "SELECTED_PYTHON=py -3.10" & set "PY_VER=%%A"
+for /f "delims=" %%A in ('py -3.10 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3.10" & set "PY_VER=%%A")
 if defined SELECTED_PYTHON goto :python_found
 
-for /f "delims=" %%A in ('py -3.12 "%PYCHECK%" 2^>nul') do set "SELECTED_PYTHON=py -3.12" & set "PY_VER=%%A"
+for /f "delims=" %%A in ('py -3.12 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3.12" & set "PY_VER=%%A")
 if defined SELECTED_PYTHON goto :python_found
 
 REM Try plain python
-for /f "delims=" %%A in ('python "%PYCHECK%" 2^>nul') do set "SELECTED_PYTHON=python" & set "PY_VER=%%A"
+for /f "delims=" %%A in ('python "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=python" & set "PY_VER=%%A")
 if defined SELECTED_PYTHON goto :python_found
 
 REM Try python3
-for /f "delims=" %%A in ('python3 "%PYCHECK%" 2^>nul') do set "SELECTED_PYTHON=python3" & set "PY_VER=%%A"
+for /f "delims=" %%A in ('python3 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=python3" & set "PY_VER=%%A")
 if defined SELECTED_PYTHON goto :python_found
 
 echo   %RED%x%NC% No suitable Python version found
@@ -297,6 +297,11 @@ set "_TMPPY=%TEMP%\agents_set_model_%RANDOM%.py"
 set "ENV_FILE=%ENV_FILE%"
 set "NEW_MODEL=!CURRENT_MODEL!"
 "%VENV_PATH%\Scripts\python.exe" "!_TMPPY!"
+if !errorlevel! neq 0 (
+    del /Q "!_TMPPY!" 2>nul
+    echo   %RED%x%NC% Failed to write embedding model to .env
+    exit /b 1
+)
 del /Q "!_TMPPY!" 2>nul
 echo   %GREEN%+%NC% Embedding model: !CURRENT_MODEL!
 
