@@ -8,6 +8,10 @@ import sys
 
 
 def main():
+    if len(sys.argv) < 4:
+        print(f"Usage: {sys.argv[0]} <config_path> <python_abs> <server_abs>", file=sys.stderr)
+        sys.exit(1)
+
     config_path = sys.argv[1]
     python_abs = sys.argv[2]
     server_abs = sys.argv[3]

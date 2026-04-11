@@ -287,7 +287,7 @@ set "_TMPPY=%TEMP%\agents_set_model_%RANDOM%.py"
 ) > "!_TMPPY!"
 set "ENV_FILE=%ENV_FILE%"
 set "NEW_MODEL=!CURRENT_MODEL!"
-python "!_TMPPY!"
+"%VENV_PATH%\Scripts\python.exe" "!_TMPPY!"
 del /Q "!_TMPPY!" 2>nul
 echo   %GREEN%+%NC% Embedding model: !CURRENT_MODEL!
 
@@ -336,7 +336,7 @@ set "_TMPIDX=%TEMP%\agents_preindex_%RANDOM%.py"
     echo print(f'Implants indexed: {ir.store.count(^)} entries', flush=True^)
 ) > "!_TMPIDX!"
 set "REPO_ROOT=%REPO_ROOT%"
-python "!_TMPIDX!"
+"%VENV_PATH%\Scripts\python.exe" "!_TMPIDX!"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Embedding model cached, skills and implants indexed
 ) else (
@@ -363,9 +363,9 @@ if not exist "%AGENTS_BASE%" (
     goto :agents_count_done
 )
 echo   %GREEN%+%NC% Agents directory found: %AGENTS_BASE%
-for /f %%N in ('python -c "import glob;print(len(glob.glob(r\"%AGENTS_BASE%/**/system_prompt.mdc\",recursive=True)))"') do echo     * %CYAN%%%N%NC% agents
-for /f %%N in ('python -c "import glob;print(len(glob.glob(r\"%REPO_ROOT%/skills/*.mdc\")))"') do echo     * %CYAN%%%N%NC% skills
-for /f %%N in ('python -c "import glob;print(len(glob.glob(r\"%REPO_ROOT%/implants/*.mdc\")))"') do echo     * %CYAN%%%N%NC% implants
+for /f %%N in ('"%PYTHON_ABS%" -c "import glob;print(len(glob.glob(r\"%AGENTS_BASE%/**/system_prompt.mdc\",recursive=True)))"') do echo     * %CYAN%%%N%NC% agents
+for /f %%N in ('"%PYTHON_ABS%" -c "import glob;print(len(glob.glob(r\"%REPO_ROOT%/skills/*.mdc\")))"') do echo     * %CYAN%%%N%NC% skills
+for /f %%N in ('"%PYTHON_ABS%" -c "import glob;print(len(glob.glob(r\"%REPO_ROOT%/implants/*.mdc\")))"') do echo     * %CYAN%%%N%NC% implants
 :agents_count_done
 
 if "%SKIP_MCP%"=="true" (
@@ -429,7 +429,7 @@ if not exist "%MCP_SETTINGS_FILE%" echo { "mcpServers": {} } > "%MCP_SETTINGS_FI
 REM Backup before modifying
 copy /Y "%MCP_SETTINGS_FILE%" "%MCP_SETTINGS_FILE%.backup.%BACKUP_TS%" >nul 2>&1
 
-python "%HELPERS%\inject_mcp.py" "%MCP_SETTINGS_FILE%" "%PYTHON_ABS%" "%SERVER_ABS%"
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "%MCP_SETTINGS_FILE%" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Agents-Core added to Cursor mcp.json
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Cursor"
@@ -446,7 +446,7 @@ if not exist "!CLAUDE_DESKTOP_CONFIG!" echo {} > "!CLAUDE_DESKTOP_CONFIG!"
 REM Backup before modifying
 copy /Y "!CLAUDE_DESKTOP_CONFIG!" "!CLAUDE_DESKTOP_CONFIG!.backup.%BACKUP_TS%" >nul 2>&1
 
-python "%HELPERS%\inject_mcp.py" "!CLAUDE_DESKTOP_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%"
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_DESKTOP_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Agents-Core added to Claude Desktop config
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Claude-Desktop"
@@ -469,7 +469,7 @@ if not exist "%CLAUDE_CODE_MCP%" echo {} > "%CLAUDE_CODE_MCP%"
 REM Backup before modifying
 copy /Y "%CLAUDE_CODE_MCP%" "%CLAUDE_CODE_MCP%.backup.%BACKUP_TS%" >nul 2>&1
 
-python "%HELPERS%\inject_mcp.py" "%CLAUDE_CODE_MCP%" "%PYTHON_ABS%" "%SERVER_ABS%"
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "%CLAUDE_CODE_MCP%" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Agents-Core added to Claude Code ~/.claude.json
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Claude-Code"
@@ -492,7 +492,7 @@ if exist "%CLAUDE_CODE_MD%" (
     echo   %GREEN%^>%NC% Backup created: %CLAUDE_CODE_MD%.backup.%BACKUP_TS%
 )
 
-python "%HELPERS%\inject_claude_md.py" "%CLAUDE_CODE_MD%" "%CLAUDE_MD_SRC%"
+"%PYTHON_ABS%" "%HELPERS%\inject_claude_md.py" "%CLAUDE_CODE_MD%" "%CLAUDE_MD_SRC%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Global CLAUDE.md configured
 ) else (

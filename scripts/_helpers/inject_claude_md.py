@@ -12,6 +12,10 @@ MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
 
 def main():
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <target_md_path> <source_md_path>", file=sys.stderr)
+        sys.exit(1)
+
     md_path = sys.argv[1]
     src_path = sys.argv[2]
 
