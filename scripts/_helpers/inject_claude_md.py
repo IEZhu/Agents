@@ -7,8 +7,8 @@ Creates or updates a managed section delimited by markers.
 import os
 import sys
 
-MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
-MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
+MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
 
 def main():

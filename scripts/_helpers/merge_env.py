@@ -7,8 +7,16 @@ import sys
 
 
 def main():
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <env_file> <env_example>", file=sys.stderr)
+        sys.exit(1)
+
     env_file = sys.argv[1]
     env_example = sys.argv[2]
+
+    if not os.path.exists(env_file):
+        print(f"  .env file not found: {env_file}", file=sys.stderr)
+        sys.exit(1)
 
     if not os.path.exists(env_example):
         print("  env.example not found, skipping")

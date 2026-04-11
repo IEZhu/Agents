@@ -158,8 +158,14 @@ goto :venv_activate
 
 :venv_exists
 set "VENV_PYTHON=%VENV_PATH%\Scripts\python.exe"
+set "VENV_PY_VER="
 for /f "delims=" %%A in ('%VENV_PYTHON% "%PYCHECK%" 2^>nul') do set "VENV_PY_VER=%%A"
-echo   %GREEN%+%NC% Virtual environment exists (%VENV_PY_VER%)
+if not defined VENV_PY_VER (
+    REM check_version.py failed — get version directly for display
+    for /f "delims=" %%A in ('%VENV_PYTHON% -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul') do set "VENV_PY_VER=%%A"
+    echo   %YELLOW%WARNING:%NC% Venv Python !VENV_PY_VER! may be unsupported
+)
+echo   %GREEN%+%NC% Virtual environment exists (!VENV_PY_VER!)
 
 REM Compare venv Python version with selected interpreter
 for /f "delims=" %%A in ('%SELECTED_PYTHON% -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul') do set "SELECTED_PY_SHORT=%%A"
@@ -180,8 +186,15 @@ echo   %GREEN%^>%NC% Creating fresh virtual environment using %SELECTED_PYTHON%.
 %SELECTED_PYTHON% -m venv "%VENV_PATH%"
 
 :venv_activate
+if not exist "%VENV_PATH%\Scripts\python.exe" (
+    echo   %RED%x%NC% Venv python not found: %VENV_PATH%\Scripts\python.exe
+    exit /b 1
+)
 echo   %GREEN%^>%NC% Activating virtual environment...
 call "%VENV_PATH%\Scripts\activate.bat" 2>nul
+if errorlevel 1 (
+    echo   %RED%x%NC% Failed to activate venv — using absolute paths
+)
 echo   %GREEN%+%NC% Activated: %VENV_PATH%\Scripts\python.exe
 
 if "!SKIP_INSTALL!"=="true" goto :skip_deps
@@ -192,11 +205,11 @@ echo %BLUE%  Installing Dependencies%NC%
 echo %CYAN%===============================%NC%
 
 echo   %GREEN%^>%NC% Upgrading pip...
-python -m pip install --upgrade pip
+"%VENV_PATH%\Scripts\python.exe" -m pip install --upgrade pip
 echo(
 
 echo   %GREEN%^>%NC% Installing requirements (this may take a few minutes)...
-pip install -r "%REPO_ROOT%\requirements.txt"
+"%VENV_PATH%\Scripts\python.exe" -m pip install -r "%REPO_ROOT%\requirements.txt"
 echo(
 
 echo   %GREEN%+%NC% All dependencies installed
@@ -216,10 +229,17 @@ echo %CYAN%===============================%NC%
 echo %BLUE%  Embedding Model Selection and Pre-indexing%NC%
 echo %CYAN%===============================%NC%
 
-REM Check if model is already configured in .env
+REM Check if model is already configured in .env (strip quotes, inline comments)
 set "CURRENT_MODEL="
 if exist "%ENV_FILE%" (
-    for /f "tokens=1,* delims==" %%A in ('findstr /B "EMBEDDING_MODEL=" "%ENV_FILE%" 2^>nul') do set "CURRENT_MODEL=%%B"
+    for /f "tokens=1,* delims==" %%A in ('findstr /B /L "EMBEDDING_MODEL=" "%ENV_FILE%" 2^>nul') do set "CURRENT_MODEL=%%B"
+)
+REM Strip surrounding quotes and inline comments from CURRENT_MODEL
+if defined CURRENT_MODEL (
+    set "CURRENT_MODEL=!CURRENT_MODEL:"=!"
+    for /f "tokens=1 delims=#" %%X in ("!CURRENT_MODEL!") do set "CURRENT_MODEL=%%X"
+    REM Trim trailing spaces
+    for /l %%i in (1,1,5) do if "!CURRENT_MODEL:~-1!"==" " set "CURRENT_MODEL=!CURRENT_MODEL:~0,-1!"
 )
 
 if defined CURRENT_MODEL (
@@ -516,7 +536,7 @@ echo(
 
 REM ============== Health Check ==============
 if exist "%ENV_FILE%" (
-    findstr /B "ANTHROPIC_API_KEY=sk-ant-..." "%ENV_FILE%" >nul 2>&1
+    findstr /B /L "ANTHROPIC_API_KEY=sk-ant-..." "%ENV_FILE%" >nul 2>&1
     if !errorlevel! equ 0 echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
 )
 
