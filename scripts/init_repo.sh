@@ -658,17 +658,15 @@ with open(md_path, 'w') as f:
         else
             print_warn "CLAUDE.md not found in repo root, skipping"
         fi
-        # 3. Project-scoped memory — persistent reminder to always call route_and_load
-        # Claude Code stores per-project memory at ~/.claude/projects/<encoded-path>/memory/
-        # where <encoded-path> replaces '/' with '-' in the absolute project path.
-        ENCODED_PATH=$(echo "$REPO_ROOT" | sed 's|^/||; s|/|-|g')
-        CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/projects/-${ENCODED_PATH}/memory"
+
+        # 3. Global memory — persistent reminder to always call route_and_load
+        CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/memory"
         MEMORY_FILE="$CLAUDE_MEMORY_DIR/feedback_agents_core_routing.md"
         MEMORY_INDEX="$CLAUDE_MEMORY_DIR/MEMORY.md"
 
         # Only configure memory if the global CLAUDE.md routing section was successfully written
         if [ "$CLAUDE_MD_CONFIGURED" = true ]; then
-            print_step "Configuring Claude Code project memory ($CLAUDE_MEMORY_DIR)..."
+            print_step "Configuring global Claude Code memory ($CLAUDE_MEMORY_DIR)..."
 
             mkdir -p "$CLAUDE_MEMORY_DIR"
 
