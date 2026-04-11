@@ -193,9 +193,10 @@ if not exist "%VENV_PATH%\Scripts\python.exe" (
 echo   %GREEN%^>%NC% Activating virtual environment...
 call "%VENV_PATH%\Scripts\activate.bat" 2>nul
 if errorlevel 1 (
-    echo   %RED%x%NC% Failed to activate venv — using absolute paths
+    echo   %YELLOW%WARNING:%NC% Venv activation failed — falling back to absolute paths
+) else (
+    echo   %GREEN%+%NC% Activated: %VENV_PATH%\Scripts\python.exe
 )
-echo   %GREEN%+%NC% Activated: %VENV_PATH%\Scripts\python.exe
 
 if "!SKIP_INSTALL!"=="true" goto :skip_deps
 
@@ -206,10 +207,18 @@ echo %CYAN%===============================%NC%
 
 echo   %GREEN%^>%NC% Upgrading pip...
 "%VENV_PATH%\Scripts\python.exe" -m pip install --upgrade pip
+if !errorlevel! neq 0 (
+    echo   %RED%x%NC% Failed to upgrade pip
+    exit /b 1
+)
 echo(
 
 echo   %GREEN%^>%NC% Installing requirements (this may take a few minutes)...
 "%VENV_PATH%\Scripts\python.exe" -m pip install -r "%REPO_ROOT%\requirements.txt"
+if !errorlevel! neq 0 (
+    echo   %RED%x%NC% Failed to install requirements
+    exit /b 1
+)
 echo(
 
 echo   %GREEN%+%NC% All dependencies installed
@@ -535,10 +544,15 @@ echo      %CYAN%/route%NC% - check available agents
 echo(
 
 REM ============== Health Check ==============
+REM Check for missing, empty, or placeholder ANTHROPIC_API_KEY
+set "_API_KEY_OK=false"
 if exist "%ENV_FILE%" (
-    findstr /B /L "ANTHROPIC_API_KEY=sk-ant-..." "%ENV_FILE%" >nul 2>&1
-    if !errorlevel! equ 0 echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
+    for /f "tokens=1,* delims==" %%A in ('findstr /B /L "ANTHROPIC_API_KEY=" "%ENV_FILE%" 2^>nul') do (
+        set "_API_VAL=%%B"
+        if defined _API_VAL if not "!_API_VAL!"=="sk-ant-..." set "_API_KEY_OK=true"
+    )
 )
+if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
 
 echo %GREEN%Happy coding%NC%
 echo(

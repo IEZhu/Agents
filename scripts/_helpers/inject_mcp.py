@@ -3,7 +3,6 @@
 Usage: python inject_mcp.py <config_path> <python_abs> <server_abs>
 """
 import json
-import os
 import sys
 
 
@@ -19,8 +18,12 @@ def main():
     try:
         with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
+    except FileNotFoundError:
         config = {}
+    except json.JSONDecodeError as e:
+        print(f"ERROR: {config_path} contains invalid JSON: {e}", file=sys.stderr)
+        print("Please fix the file manually or restore from backup", file=sys.stderr)
+        sys.exit(1)
 
     if "mcpServers" not in config:
         config["mcpServers"] = {}
