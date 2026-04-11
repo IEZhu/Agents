@@ -566,9 +566,12 @@ else
         # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
         CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
         CLAUDE_MD_SRC="$REPO_ROOT/CLAUDE.md"
-        # Markers to delimit managed section
-        MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
-        MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
+        # Markers to delimit managed section (platform-agnostic)
+        MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
+        MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+        # Legacy markers — recognized for backward compat
+        LEGACY_MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
+        LEGACY_MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
         print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
 
@@ -577,8 +580,17 @@ else
             SECTION_CONTENT=$(cat "$CLAUDE_MD_SRC")
 
             if [ -f "$CLAUDE_CODE_MD" ]; then
-                if grep -qF "$MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
-                   && grep -qF "$MARKER_END" "$CLAUDE_CODE_MD" 2>/dev/null; then
+                # Detect which markers to search for (current or legacy)
+                MATCH_BEGIN="$MARKER_BEGIN"
+                MATCH_END="$MARKER_END"
+                if ! grep -qF "$MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                   && grep -qF "$LEGACY_MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null; then
+                    MATCH_BEGIN="$LEGACY_MARKER_BEGIN"
+                    MATCH_END="$LEGACY_MARKER_END"
+                    print_step "Found legacy markers — will migrate to platform-agnostic"
+                fi
+                if grep -qF "$MATCH_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                   && grep -qF "$MATCH_END" "$CLAUDE_CODE_MD" 2>/dev/null; then
                     # Both markers found — replace existing managed section
                     print_step "Found existing Agents-Core section — replacing..."
                     cp "$CLAUDE_CODE_MD" "${CLAUDE_CODE_MD}.backup.$(date +%s)"
@@ -586,37 +598,41 @@ else
 
                     # Remove old section and inject new one
                     CLAUDE_CODE_MD="$CLAUDE_CODE_MD" \
-                    MARKER_BEGIN="$MARKER_BEGIN" \
-                    MARKER_END="$MARKER_END" \
+                    MATCH_BEGIN="$MATCH_BEGIN" \
+                    MATCH_END="$MATCH_END" \
+                    NEW_BEGIN="$MARKER_BEGIN" \
+                    NEW_END="$MARKER_END" \
                     SECTION_CONTENT="$SECTION_CONTENT" \
                     "$PYTHON_ABS" -c "
 import os, sys
 
 md_path = os.environ['CLAUDE_CODE_MD']
-marker_begin = os.environ['MARKER_BEGIN']
-marker_end = os.environ['MARKER_END']
+match_begin = os.environ['MATCH_BEGIN']
+match_end = os.environ['MATCH_END']
+new_begin = os.environ['NEW_BEGIN']
+new_end = os.environ['NEW_END']
 section = os.environ['SECTION_CONTENT']
 
 with open(md_path, 'r') as f:
     content = f.read()
 
 # Validate exactly one begin/end pair exists
-begin_count = content.count(marker_begin)
-end_count = content.count(marker_end)
+begin_count = content.count(match_begin)
+end_count = content.count(match_end)
 if begin_count != 1 or end_count != 1:
     print(f'ERROR: expected exactly 1 begin and 1 end marker, found {begin_count} begin and {end_count} end', file=sys.stderr)
     print(f'Please fix markers in {md_path} manually', file=sys.stderr)
     sys.exit(1)
 
-begin_idx = content.find(marker_begin)
-end_idx = content.find(marker_end, begin_idx)
+begin_idx = content.find(match_begin)
+end_idx = content.find(match_end, begin_idx)
 
 if end_idx > begin_idx:
-    end_idx += len(marker_end)
+    end_idx += len(match_end)
     # Consume trailing newlines after marker
     while end_idx < len(content) and content[end_idx] == '\n':
         end_idx += 1
-    new_block = f'{marker_begin}\n\n{section}\n\n{marker_end}\n'
+    new_block = f'{new_begin}\n\n{section}\n\n{new_end}\n'
     content = content[:begin_idx] + new_block + content[end_idx:]
 else:
     print('ERROR: end marker appears before begin marker', file=sys.stderr)
@@ -626,6 +642,13 @@ with open(md_path, 'w') as f:
     f.write(content)
 " && { print_success "Agents-Core section replaced in global CLAUDE.md"; CLAUDE_MD_CONFIGURED=true; } \
   || print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
+                elif grep -qF "$MATCH_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                     || grep -qF "$MATCH_END" "$CLAUDE_CODE_MD" 2>/dev/null \
+                     || grep -qF "$LEGACY_MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                     || grep -qF "$LEGACY_MARKER_END" "$CLAUDE_CODE_MD" 2>/dev/null; then
+                    # Partial markers — one without the other
+                    print_error "Found incomplete managed section markers in $CLAUDE_CODE_MD"
+                    print_error "Please remove the orphaned marker(s) manually and re-run"
                 else
                     # No managed section yet — append
                     print_step "No existing Agents-Core section — appending..."

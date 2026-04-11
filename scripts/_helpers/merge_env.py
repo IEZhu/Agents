@@ -1,0 +1,62 @@
+"""Merge missing keys from env.example into .env.
+
+Usage: python merge_env.py <env_file> <env_example>
+"""
+import os
+import sys
+
+
+def main():
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} <env_file> <env_example>", file=sys.stderr)
+        sys.exit(1)
+
+    env_file = sys.argv[1]
+    env_example = sys.argv[2]
+
+    if not os.path.exists(env_file):
+        print(f"  .env file not found: {env_file}", file=sys.stderr)
+        sys.exit(1)
+
+    if not os.path.exists(env_example):
+        print("  env.example not found, skipping")
+        return
+
+    existing = set()
+    with open(env_file, "r", encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if s and not s.startswith("#") and "=" in s:
+                existing.add(s.split("=", 1)[0].strip())
+
+    added = []
+    with open(env_example, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    with open(env_file, "a", encoding="utf-8") as out:
+        # Ensure file ends with newline before appending
+        with open(env_file, "rb") as f:
+            f.seek(0, 2)
+            if f.tell() > 0:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    out.write("\n")
+        for line in lines:
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            if "=" not in s:
+                continue
+            key = s.split("=", 1)[0].strip()
+            if key not in existing:
+                out.write(line)
+                added.append(key)
+
+    if added:
+        print(f'  Added {len(added)} missing keys: {" ".join(added)}')
+    else:
+        print("  All required keys present in .env")
+
+
+if __name__ == "__main__":
+    main()
