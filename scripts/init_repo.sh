@@ -39,6 +39,9 @@ NIX_LD_LIB_PATH=""
 if [ -f /etc/NIXOS ]; then
     IS_NIXOS=true
     NIX_LD_LIB_PATH="/run/current-system/sw/share/nix-ld/lib"
+    if [ ! -d "$NIX_LD_LIB_PATH" ]; then
+        NIX_LD_LIB_PATH=""
+    fi
 fi
 
 # ============== Parse Arguments ==============
@@ -143,16 +146,17 @@ except (json.JSONDecodeError, FileNotFoundError):
 if 'mcpServers' not in config:
     config['mcpServers'] = {}
 
-entry = {
-    'command': python_abs,
-    'args': [server_abs],
-}
+# Preserve existing entry to avoid clobbering user-added fields (e.g. env)
+entry = config['mcpServers'].get('Agents-Core', {})
+entry['command'] = python_abs
+entry['args'] = [server_abs]
 
 # On NixOS, Nix Python's linker is from /nix/store (not /lib64),
 # so nix-ld can't help it. Pass LD_LIBRARY_PATH per-process via env
 # to avoid setting it globally (which breaks Firefox and other apps).
 if is_nixos and nix_ld_path:
-    entry['env'] = {'LD_LIBRARY_PATH': nix_ld_path}
+    entry.setdefault('env', {})
+    entry['env']['LD_LIBRARY_PATH'] = nix_ld_path
 
 config['mcpServers']['Agents-Core'] = entry
 
@@ -168,8 +172,8 @@ print('OK')
 
 print_header "🔍 Pre-flight Checks"
 
-# NixOS notice
-if [ "$IS_NIXOS" = true ]; then
+# NixOS notice (only relevant when MCP config will actually be written)
+if [ "$IS_NIXOS" = true ] && [ "$SKIP_MCP" = false ]; then
     print_success "NixOS detected — MCP config will include LD_LIBRARY_PATH env"
 fi
 
