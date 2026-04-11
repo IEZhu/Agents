@@ -288,10 +288,10 @@ set "_TMPPY=%TEMP%\agents_set_model_%RANDOM%.py"
     echo new_model = os.environ['NEW_MODEL']
     echo lines = []
     echo if os.path.exists(env_path^):
-    echo     with open(env_path^) as f:
+    echo     with open(env_path, encoding='utf-8'^) as f:
     echo         lines = [l for l in f.readlines(^) if not l.startswith('EMBEDDING_MODEL='^)]
     echo lines.append(f'EMBEDDING_MODEL={new_model}\n'^)
-    echo with open(env_path, 'w'^) as f:
+    echo with open(env_path, 'w', encoding='utf-8'^) as f:
     echo     f.writelines(lines^)
 ) > "!_TMPPY!"
 set "ENV_FILE=%ENV_FILE%"

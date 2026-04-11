@@ -7,8 +7,12 @@ Creates or updates a managed section delimited by markers.
 import os
 import sys
 
-MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
-MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
+MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
+MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+
+# Legacy markers (init_repo.sh before unification) — recognized for backward compat
+LEGACY_MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
+LEGACY_MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
 
 def main():
@@ -28,16 +32,21 @@ def main():
         with open(md_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        begin_count = content.count(MARKER_BEGIN)
-        end_count = content.count(MARKER_END)
+        # Detect which markers are present (current or legacy)
+        mb, me = MARKER_BEGIN, MARKER_END
+        if MARKER_BEGIN not in content and LEGACY_MARKER_BEGIN in content:
+            mb, me = LEGACY_MARKER_BEGIN, LEGACY_MARKER_END
+
+        begin_count = content.count(mb)
+        end_count = content.count(me)
 
         if begin_count == 1 and end_count == 1:
-            bi = content.find(MARKER_BEGIN)
-            ei = content.find(MARKER_END, bi)
+            bi = content.find(mb)
+            ei = content.find(me, bi)
             if ei < bi:
                 print(f"ERROR: end marker appears before begin marker in {md_path}", file=sys.stderr)
                 sys.exit(1)
-            ei += len(MARKER_END)
+            ei += len(me)
             # Consume trailing newlines after marker
             while ei < len(content) and content[ei] == "\n":
                 ei += 1
