@@ -57,6 +57,15 @@ def main():
             print(f"Please fix markers in {md_path} manually", file=sys.stderr)
             sys.exit(1)
         else:
+            # Check for orphaned markers from any variant (current or legacy)
+            all_markers = [MARKER_BEGIN, MARKER_END, LEGACY_MARKER_BEGIN, LEGACY_MARKER_END]
+            orphaned = [m for m in all_markers if m in content]
+            if orphaned:
+                print(f"ERROR: found orphaned marker(s) in {md_path}:", file=sys.stderr)
+                for m in orphaned:
+                    print(f"  {m}", file=sys.stderr)
+                print("Please remove the incomplete managed section manually", file=sys.stderr)
+                sys.exit(1)
             content = content + "\n" + new_block
             print("Appended section")
     else:
