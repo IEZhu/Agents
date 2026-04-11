@@ -696,7 +696,7 @@ MEMORY_EOF
             if [ -f "$MEMORY_INDEX" ]; then
                 if ! grep -qF "feedback_agents_core_routing.md" "$MEMORY_INDEX" 2>/dev/null; then
                     # Ensure a trailing newline before appending
-                    [ -s "$MEMORY_INDEX" ] && [ "$(tail -c1 "$MEMORY_INDEX" | wc -l)" -eq 0 ] && printf '\n' >> "$MEMORY_INDEX"
+                    [ -s "$MEMORY_INDEX" ] && [ "$(tail -c1 "$MEMORY_INDEX")" != "" ] && printf '\n' >> "$MEMORY_INDEX"
                     echo "$MEMORY_ENTRY" >> "$MEMORY_INDEX"
                     print_success "Entry added to MEMORY.md index"
                 else
