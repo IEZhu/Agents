@@ -32,6 +32,18 @@ PYTHON_MIN_VERSION="3.10"
 PYTHON_MAX_VERSION_MAJOR="3"
 PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 
+# NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
+# We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)
+IS_NIXOS=false
+NIX_LD_LIB_PATH=""
+if [ -f /etc/NIXOS ]; then
+    IS_NIXOS=true
+    NIX_LD_LIB_PATH="/run/current-system/sw/share/nix-ld/lib"
+    if [ ! -d "$NIX_LD_LIB_PATH" ]; then
+        NIX_LD_LIB_PATH=""
+    fi
+fi
+
 # ============== Parse Arguments ==============
 SKIP_ENV=false
 SKIP_INDEX=false
@@ -114,12 +126,16 @@ inject_mcp_config() {
     CLAUDE_CONFIG_PATH="$config_path" \
     MCP_PYTHON="$PYTHON_ABS" \
     MCP_SERVER="$SERVER_ABS" \
+    MCP_IS_NIXOS="$IS_NIXOS" \
+    MCP_NIX_LD_LIB_PATH="$NIX_LD_LIB_PATH" \
     python -c "
 import json, os
 
 config_path = os.environ['CLAUDE_CONFIG_PATH']
 python_abs  = os.environ['MCP_PYTHON']
 server_abs  = os.environ['MCP_SERVER']
+is_nixos    = os.environ.get('MCP_IS_NIXOS', 'false') == 'true'
+nix_ld_path = os.environ.get('MCP_NIX_LD_LIB_PATH', '')
 
 try:
     with open(config_path) as f:
@@ -130,10 +146,19 @@ except (json.JSONDecodeError, FileNotFoundError):
 if 'mcpServers' not in config:
     config['mcpServers'] = {}
 
-config['mcpServers']['Agents-Core'] = {
-    'command': python_abs,
-    'args': [server_abs],
-}
+# Preserve existing entry to avoid clobbering user-added fields (e.g. env)
+entry = config['mcpServers'].get('Agents-Core', {})
+entry['command'] = python_abs
+entry['args'] = [server_abs]
+
+# On NixOS, Nix Python's linker is from /nix/store (not /lib64),
+# so nix-ld can't help it. Pass LD_LIBRARY_PATH per-process via env
+# to avoid setting it globally (which breaks Firefox and other apps).
+if is_nixos and nix_ld_path:
+    entry.setdefault('env', {})
+    entry['env']['LD_LIBRARY_PATH'] = nix_ld_path
+
+config['mcpServers']['Agents-Core'] = entry
 
 with open(config_path, 'w') as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
@@ -146,6 +171,11 @@ print('OK')
 # ============== Pre-flight Checks & Python Selection ==============
 
 print_header "🔍 Pre-flight Checks"
+
+# NixOS notice (only relevant when MCP config will actually be written)
+if [ "$IS_NIXOS" = true ] && [ "$SKIP_MCP" = false ]; then
+    print_success "NixOS detected — MCP config will include LD_LIBRARY_PATH env"
+fi
 
 # Find suitable Python interpreter
 SELECTED_PYTHON=""
