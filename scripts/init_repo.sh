@@ -642,6 +642,13 @@ with open(md_path, 'w') as f:
     f.write(content)
 " && { print_success "Agents-Core section replaced in global CLAUDE.md"; CLAUDE_MD_CONFIGURED=true; } \
   || print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
+                elif grep -qF "$MATCH_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                     || grep -qF "$MATCH_END" "$CLAUDE_CODE_MD" 2>/dev/null \
+                     || grep -qF "$LEGACY_MARKER_BEGIN" "$CLAUDE_CODE_MD" 2>/dev/null \
+                     || grep -qF "$LEGACY_MARKER_END" "$CLAUDE_CODE_MD" 2>/dev/null; then
+                    # Partial markers — one without the other
+                    print_error "Found incomplete managed section markers in $CLAUDE_CODE_MD"
+                    print_error "Please remove the orphaned marker(s) manually and re-run"
                 else
                     # No managed section yet — append
                     print_step "No existing Agents-Core section — appending..."

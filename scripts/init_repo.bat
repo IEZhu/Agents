@@ -126,6 +126,10 @@ goto :env_done
 :env_create
 echo   %GREEN%^>%NC% Creating .env from env.example...
 copy /Y "%ENV_EXAMPLE%" "%ENV_FILE%" >nul
+if !errorlevel! neq 0 (
+    echo   %RED%x%NC% Failed to create .env from env.example
+    exit /b 1
+)
 echo   %GREEN%+%NC% .env created successfully
 echo(
 echo   %YELLOW%Required configuration:%NC%
@@ -549,12 +553,18 @@ echo      %CYAN%/route%NC% - check available agents
 echo(
 
 REM ============== Health Check ==============
-REM Check for missing, empty, or placeholder ANTHROPIC_API_KEY
+REM Check for missing, empty, or placeholder ANTHROPIC_API_KEY (strip quotes/comments)
 set "_API_KEY_OK=false"
 if exist "%ENV_FILE%" (
     for /f "tokens=1,* delims==" %%A in ('findstr /B /L "ANTHROPIC_API_KEY=" "%ENV_FILE%" 2^>nul') do (
         set "_API_VAL=%%B"
-        if defined _API_VAL if not "!_API_VAL!"=="sk-ant-..." set "_API_KEY_OK=true"
+        if defined _API_VAL (
+            REM Strip quotes and inline comments
+            set "_API_VAL=!_API_VAL:"=!"
+            for /f "tokens=1 delims=#" %%X in ("!_API_VAL!") do set "_API_VAL=%%X"
+            for /l %%i in (1,1,5) do if "!_API_VAL:~-1!"==" " set "_API_VAL=!_API_VAL:~0,-1!"
+            if defined _API_VAL if not "!_API_VAL!"=="sk-ant-..." set "_API_KEY_OK=true"
+        )
     )
 )
 if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
