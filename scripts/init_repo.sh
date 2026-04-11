@@ -572,6 +572,7 @@ else
 
         print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
 
+        CLAUDE_MD_CONFIGURED=false
         if [ -f "$CLAUDE_MD_SRC" ]; then
             SECTION_CONTENT=$(cat "$CLAUDE_MD_SRC")
 
@@ -623,7 +624,7 @@ else:
 
 with open(md_path, 'w') as f:
     f.write(content)
-" && print_success "Agents-Core section replaced in global CLAUDE.md" \
+" && { print_success "Agents-Core section replaced in global CLAUDE.md"; CLAUDE_MD_CONFIGURED=true; } \
   || print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
                 else
                     # No managed section yet — append
@@ -639,6 +640,7 @@ with open(md_path, 'w') as f:
                         echo "$MARKER_END"
                     } >> "$CLAUDE_CODE_MD"
                     print_success "Agents-Core section appended to global CLAUDE.md"
+                    CLAUDE_MD_CONFIGURED=true
                 fi
             else
                 # No global CLAUDE.md yet — create with managed section
@@ -651,10 +653,63 @@ with open(md_path, 'w') as f:
                     echo "$MARKER_END"
                 } > "$CLAUDE_CODE_MD"
                 print_success "Global CLAUDE.md created with Agents-Core section"
+                CLAUDE_MD_CONFIGURED=true
             fi
         else
             print_warn "CLAUDE.md not found in repo root, skipping"
         fi
+
+        # 3. Global memory — persistent reminder to always call route_and_load
+        CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/memory"
+        MEMORY_FILE="$CLAUDE_MEMORY_DIR/feedback_agents_core_routing.md"
+        MEMORY_INDEX="$CLAUDE_MEMORY_DIR/MEMORY.md"
+
+        # Only configure memory if the global CLAUDE.md routing section was successfully written
+        if [ "$CLAUDE_MD_CONFIGURED" = true ]; then
+            print_step "Configuring global Claude Code memory ($CLAUDE_MEMORY_DIR)..."
+
+            mkdir -p "$CLAUDE_MEMORY_DIR"
+
+            # Only create memory file if it doesn't exist — preserve user edits on re-runs
+            if [ ! -f "$MEMORY_FILE" ]; then
+                cat > "$MEMORY_FILE" << 'MEMORY_EOF'
+---
+name: Agents-Core routing is mandatory
+description: ALWAYS call route_and_load() before answering any query — no exceptions, no judgment calls
+type: feedback
+---
+
+Always call `route_and_load(query)` from Agents-Core MCP before responding to any user query.
+
+**Why:** The user explicitly configured this as a BLOCKING REQUIREMENT in CLAUDE.md. The instruction is unconditional — not at the assistant's discretion. There was an incident where routing was skipped "for efficiency" and the user flagged it.
+
+**How to apply:** Before generating any response — call `route_and_load(query)` via the Agents-Core MCP server, then handle the response status per the routing protocol in CLAUDE.md. No exceptions, even if the task seems straightforward.
+MEMORY_EOF
+                print_success "Memory file written: $MEMORY_FILE"
+            else
+                print_success "Memory file already exists, preserving: $MEMORY_FILE"
+            fi
+
+            # Update MEMORY.md index — add entry if not already present
+            MEMORY_ENTRY="- [Agents-Core routing is mandatory](feedback_agents_core_routing.md) — always call route_and_load() before any response, no exceptions"
+
+            if [ -f "$MEMORY_INDEX" ]; then
+                if ! grep -qF "feedback_agents_core_routing.md" "$MEMORY_INDEX" 2>/dev/null; then
+                    # Ensure a trailing newline before appending
+                    [ -s "$MEMORY_INDEX" ] && [ "$(tail -c1 "$MEMORY_INDEX" | wc -l)" -eq 0 ] && printf '\n' >> "$MEMORY_INDEX"
+                    echo "$MEMORY_ENTRY" >> "$MEMORY_INDEX"
+                    print_success "Entry added to MEMORY.md index"
+                else
+                    print_success "MEMORY.md index already contains routing entry"
+                fi
+            else
+                echo "$MEMORY_ENTRY" > "$MEMORY_INDEX"
+                print_success "MEMORY.md index created"
+            fi
+        else
+            print_warn "Skipping memory setup — global CLAUDE.md routing section was not configured"
+        fi
+
         fi # end: ~/.claude is a directory check
     fi
 
