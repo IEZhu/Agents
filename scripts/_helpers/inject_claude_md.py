@@ -28,14 +28,25 @@ def main():
         with open(md_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        if MARKER_BEGIN in content and MARKER_END in content:
+        begin_count = content.count(MARKER_BEGIN)
+        end_count = content.count(MARKER_END)
+
+        if begin_count == 1 and end_count == 1:
             bi = content.find(MARKER_BEGIN)
-            ei = content.find(MARKER_END, bi) + len(MARKER_END)
+            ei = content.find(MARKER_END, bi)
+            if ei < bi:
+                print(f"ERROR: end marker appears before begin marker in {md_path}", file=sys.stderr)
+                sys.exit(1)
+            ei += len(MARKER_END)
             # Consume trailing newlines after marker
             while ei < len(content) and content[ei] == "\n":
                 ei += 1
             content = content[:bi] + new_block + content[ei:]
             print("Replaced existing section")
+        elif begin_count > 0 or end_count > 0:
+            print(f"ERROR: expected exactly 1 begin and 1 end marker, found {begin_count} begin and {end_count} end", file=sys.stderr)
+            print(f"Please fix markers in {md_path} manually", file=sys.stderr)
+            sys.exit(1)
         else:
             content = content + "\n" + new_block
             print("Appended section")
