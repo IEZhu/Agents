@@ -381,9 +381,9 @@ if not exist "%AGENTS_BASE%" (
     goto :agents_count_done
 )
 echo   %GREEN%+%NC% Agents directory found: %AGENTS_BASE%
-for /f %%N in ('"%PYTHON_ABS%" -c "import glob;print(len(glob.glob(r\"%AGENTS_BASE%/**/system_prompt.mdc\",recursive=True)))"') do echo     * %CYAN%%%N%NC% agents
-for /f %%N in ('"%PYTHON_ABS%" -c "import glob;print(len(glob.glob(r\"%REPO_ROOT%/skills/*.mdc\")))"') do echo     * %CYAN%%%N%NC% skills
-for /f %%N in ('"%PYTHON_ABS%" -c "import glob;print(len(glob.glob(r\"%REPO_ROOT%/implants/*.mdc\")))"') do echo     * %CYAN%%%N%NC% implants
+for /f %%N in ('"%PYTHON_ABS%" -c "import os,glob;p=os.environ.get('AGENTS_BASE','');print(len(glob.glob(os.path.join(p,'**','system_prompt.mdc'),recursive=True)))"') do echo     * %CYAN%%%N%NC% agents
+for /f %%N in ('"%PYTHON_ABS%" -c "import os,glob;p=os.environ.get('REPO_ROOT','');print(len(glob.glob(os.path.join(p,'skills','*.mdc'))))"') do echo     * %CYAN%%%N%NC% skills
+for /f %%N in ('"%PYTHON_ABS%" -c "import os,glob;p=os.environ.get('REPO_ROOT','');print(len(glob.glob(os.path.join(p,'implants','*.mdc'))))"') do echo     * %CYAN%%%N%NC% implants
 :agents_count_done
 
 if "%SKIP_MCP%"=="true" (
