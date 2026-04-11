@@ -655,17 +655,23 @@ with open(md_path, 'w') as f:
         else
             print_warn "CLAUDE.md not found in repo root, skipping"
         fi
-        # 3. Global memory — persistent reminder to always call route_and_load
-        CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/memory"
+        # 3. Project-scoped memory — persistent reminder to always call route_and_load
+        # Claude Code stores per-project memory at ~/.claude/projects/<encoded-path>/memory/
+        # where <encoded-path> replaces '/' with '-' in the absolute project path.
+        ENCODED_PATH=$(echo "$REPO_ROOT" | sed 's|^/||; s|/|-|g')
+        CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/projects/-${ENCODED_PATH}/memory"
         MEMORY_FILE="$CLAUDE_MEMORY_DIR/feedback_agents_core_routing.md"
         MEMORY_INDEX="$CLAUDE_MEMORY_DIR/MEMORY.md"
 
-        print_step "Configuring global Claude Code memory ($CLAUDE_MEMORY_DIR)..."
+        # Only configure memory if CLAUDE.md was successfully set up (memory references it)
+        if [ -f "$CLAUDE_MD_SRC" ]; then
+            print_step "Configuring Claude Code project memory ($CLAUDE_MEMORY_DIR)..."
 
-        mkdir -p "$CLAUDE_MEMORY_DIR"
+            mkdir -p "$CLAUDE_MEMORY_DIR"
 
-        # Write/overwrite the memory file
-        cat > "$MEMORY_FILE" << 'MEMORY_EOF'
+            # Only create memory file if it doesn't exist — preserve user edits on re-runs
+            if [ ! -f "$MEMORY_FILE" ]; then
+                cat > "$MEMORY_FILE" << 'MEMORY_EOF'
 ---
 name: Agents-Core routing is mandatory
 description: ALWAYS call route_and_load() before answering any query — no exceptions, no judgment calls
@@ -676,23 +682,31 @@ Always call `route_and_load(query)` from Agents-Core MCP before responding to an
 
 **Why:** The user explicitly configured this as a BLOCKING REQUIREMENT in CLAUDE.md. The instruction is unconditional — not at the assistant's discretion. There was an incident where routing was skipped "for efficiency" and the user flagged it.
 
-**How to apply:** Before generating any response — first use ToolSearch to load the `route_and_load` schema, then call it. No exceptions, even if the task seems straightforward.
+**How to apply:** Before generating any response — call `route_and_load(query)` via the Agents-Core MCP server, then handle the response status per the routing protocol in CLAUDE.md. No exceptions, even if the task seems straightforward.
 MEMORY_EOF
-        print_success "Memory file written: $MEMORY_FILE"
-
-        # Update MEMORY.md index — add entry if not already present
-        MEMORY_ENTRY="- [Agents-Core routing is mandatory](feedback_agents_core_routing.md) — always call route_and_load() before any response, no exceptions"
-
-        if [ -f "$MEMORY_INDEX" ]; then
-            if ! grep -qF "feedback_agents_core_routing.md" "$MEMORY_INDEX" 2>/dev/null; then
-                echo "$MEMORY_ENTRY" >> "$MEMORY_INDEX"
-                print_success "Entry added to MEMORY.md index"
+                print_success "Memory file written: $MEMORY_FILE"
             else
-                print_success "MEMORY.md index already contains routing entry"
+                print_success "Memory file already exists, preserving: $MEMORY_FILE"
+            fi
+
+            # Update MEMORY.md index — add entry if not already present
+            MEMORY_ENTRY="- [Agents-Core routing is mandatory](feedback_agents_core_routing.md) — always call route_and_load() before any response, no exceptions"
+
+            if [ -f "$MEMORY_INDEX" ]; then
+                if ! grep -qF "feedback_agents_core_routing.md" "$MEMORY_INDEX" 2>/dev/null; then
+                    # Ensure a trailing newline before appending
+                    [ -s "$MEMORY_INDEX" ] && [ "$(tail -c1 "$MEMORY_INDEX" | wc -l)" -eq 0 ] && printf '\n' >> "$MEMORY_INDEX"
+                    echo "$MEMORY_ENTRY" >> "$MEMORY_INDEX"
+                    print_success "Entry added to MEMORY.md index"
+                else
+                    print_success "MEMORY.md index already contains routing entry"
+                fi
+            else
+                echo "$MEMORY_ENTRY" > "$MEMORY_INDEX"
+                print_success "MEMORY.md index created"
             fi
         else
-            echo "$MEMORY_ENTRY" > "$MEMORY_INDEX"
-            print_success "MEMORY.md index created"
+            print_warn "Skipping memory setup — CLAUDE.md source not found"
         fi
 
         fi # end: ~/.claude is a directory check
