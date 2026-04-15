@@ -20,6 +20,13 @@ dist/
 .mcp.json
 CLAUDE.md
 
+# Repository memory.
+# history.md captures raw prompts/responses, so it's gitignored by default
+# to avoid leaking secrets pasted into Claude. Remove (or negate with
+# !history.md) if you want the action log visible in PRs.
+history.md
+history/
+
 # Large model files (prevent accidental commits)
 whisper_models/
 *.pt
