@@ -402,6 +402,7 @@ class HistoryStore:
         self.data_dir = data_dir or MEMORY_DATA_DIR
         self.store_name = store_name
         self._store = None  # lazy
+        self._index_lock = threading.Lock()
 
     # ------------------------------------------------------------------ public
     def search(
@@ -442,29 +443,33 @@ class HistoryStore:
     def ensure_index(self, embed_texts=None):
         """Build / refresh the vector index if the markdown file is newer.
 
+        Thread-safe: serialized via ``_index_lock`` so concurrent
+        ``read_history(query=...)`` calls don't race on rebuild.
+
         Returns the underlying ``NumpyVectorStore``.
         """
-        from src.engine.vector_store import NumpyVectorStore  # heavy import — defer
-        if self._store is None:
-            self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
+        with self._index_lock:
+            from src.engine.vector_store import NumpyVectorStore  # heavy import — defer
+            if self._store is None:
+                self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
 
-        # If the history file was deleted/moved, clear the store so semantic
-        # search doesn't return stale entries.
-        if not os.path.exists(self.history_path):
-            if self._store.count() > 0:
-                self._store.clear()
-                self._store.save()
+            # If the history file was deleted/moved, clear the store so semantic
+            # search doesn't return stale entries.
+            if not os.path.exists(self.history_path):
+                if self._store.count() > 0:
+                    self._store.clear()
+                    self._store.save()
+                return self._store
+
+            # Refresh if file is newer than the store's npz.
+            npz_path = os.path.join(self.data_dir, f"{self.store_name}.npz")
+            history_mtime = os.path.getmtime(self.history_path)
+            store_mtime = os.path.getmtime(npz_path) if os.path.exists(npz_path) else 0
+            if history_mtime <= store_mtime and self._store.count() > 0:
+                return self._store
+
+            self._rebuild(embed_texts=embed_texts)
             return self._store
-
-        # Refresh if file is newer than the store's npz.
-        npz_path = os.path.join(self.data_dir, f"{self.store_name}.npz")
-        history_mtime = os.path.getmtime(self.history_path)
-        store_mtime = os.path.getmtime(npz_path) if os.path.exists(npz_path) else 0
-        if history_mtime <= store_mtime and self._store.count() > 0:
-            return self._store
-
-        self._rebuild(embed_texts=embed_texts)
-        return self._store
 
     # ------------------------------------------------------------------ helpers
     def _rebuild(self, embed_texts=None) -> None:
