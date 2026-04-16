@@ -32,7 +32,7 @@ from src.engine.enrichment import (
     infer_tier,
     implant_retriever,
 )
-from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD
+from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD, REPO_ROOT
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
@@ -697,6 +697,17 @@ async def describe_repo(
     status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
     """
     try:
+        # Restrict repo_path to REPO_ROOT to prevent arbitrary filesystem access.
+        if repo_path is not None:
+            resolved = os.path.realpath(repo_path)
+            repo_root_resolved = os.path.realpath(REPO_ROOT)
+            if not resolved.startswith(repo_root_resolved):
+                payload = {
+                    "status": "error",
+                    "message": f"repo_path must be within {REPO_ROOT}",
+                }
+                return json.dumps(payload, ensure_ascii=False)
+
         debug_log("describe_repo", "req", {
             "repo_path": repo_path,
             "force_refresh": force_refresh,
@@ -758,6 +769,7 @@ async def read_history(
     - semantic: {id, distance, document, timestamp, intent, tags}.
     """
     try:
+        limit = max(1, min(limit, 500))
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
         loop = asyncio.get_running_loop()
 

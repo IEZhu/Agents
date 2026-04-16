@@ -25,7 +25,6 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -310,6 +309,7 @@ class HistoryReader:
         since: Optional[str] = None,
     ) -> List[HistoryEntry]:
         """Newest-first list, optionally filtered by ``since`` (ISO timestamp prefix)."""
+        limit = max(1, limit) if limit > 0 else 20
         entries = self.read_all()
         entries.sort(key=lambda e: e.timestamp, reverse=True)
         if since:
