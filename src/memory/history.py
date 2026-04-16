@@ -122,7 +122,7 @@ class HistoryWriter:
         if not (intent and action and outcome):
             return {
                 "status": "error",
-                "message": "intent, action, and outcome are all required",
+                "error": "intent, action, and outcome are all required",
             }
 
         entry_id = self._compute_entry_hash(intent, action, outcome)

@@ -423,7 +423,7 @@ class RepoDescriber:
 
     def _save_hash(self, digest: str) -> None:
         os.makedirs(os.path.dirname(self.hash_file) or ".", exist_ok=True)
-        managed_section._atomic_write(self.hash_file, digest)
+        managed_section.atomic_write(self.hash_file, digest)
 
     # ----------------------------------------------------------------- helpers exposed for the MCP tool
     @staticmethod

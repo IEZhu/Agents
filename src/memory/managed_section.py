@@ -47,7 +47,7 @@ class InvertedMarkersError(ManagedSectionError):
     """The end marker appears before the begin marker."""
 
 
-def _atomic_write(path: str, content: str) -> None:
+def atomic_write(path: str, content: str) -> None:
     """Write ``content`` to ``path`` atomically.
 
     The temporary file is created in the same directory so ``os.replace`` is
@@ -132,7 +132,7 @@ def upsert_section(
     block = _format_block(marker_begin, marker_end, section_content)
 
     if not os.path.exists(file_path):
-        _atomic_write(file_path, block)
+        atomic_write(file_path, block)
         return "created"
 
     with open(file_path, "r", encoding="utf-8") as f:
@@ -148,7 +148,7 @@ def upsert_section(
         if not prefix.endswith("\n\n"):
             prefix += "\n"
         new_content = prefix + block
-        _atomic_write(file_path, new_content)
+        atomic_write(file_path, new_content)
         return "appended"
 
     # Replace existing block. Consume trailing newlines so we don't accumulate
@@ -157,7 +157,7 @@ def upsert_section(
     while trailing < len(original) and original[trailing] == "\n":
         trailing += 1
     new_content = original[:begin_idx] + block + original[trailing:]
-    _atomic_write(file_path, new_content)
+    atomic_write(file_path, new_content)
     return "replaced"
 
 
@@ -220,5 +220,5 @@ def remove_section(
         leading += 1
 
     new_content = original[:leading] + original[trailing:]
-    _atomic_write(file_path, new_content)
+    atomic_write(file_path, new_content)
     return True
