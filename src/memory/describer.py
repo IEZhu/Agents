@@ -317,7 +317,7 @@ class RepoDescriber:
                 indent = "  " * (depth - 1)
                 marker = "/" if child.is_dir() else ""
                 lines.append(f"{indent}{child.name}{marker}")
-                if child.is_dir():
+                if child.is_dir() and not child.is_symlink():
                     walk(child, depth + 1)
 
         walk(root, 1)

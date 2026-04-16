@@ -700,8 +700,8 @@ async def describe_repo(
         # Restrict repo_path to REPO_ROOT to prevent arbitrary filesystem access.
         if repo_path is not None:
             resolved = os.path.realpath(repo_path)
-            repo_root_resolved = os.path.realpath(REPO_ROOT)
-            if not resolved.startswith(repo_root_resolved):
+            repo_root_resolved = os.path.realpath(REPO_ROOT) + os.sep
+            if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
                 payload = {
                     "status": "error",
                     "message": f"repo_path must be within {REPO_ROOT}",
