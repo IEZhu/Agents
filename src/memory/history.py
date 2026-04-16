@@ -130,7 +130,7 @@ class HistoryWriter:
         # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
         # attached to the same repo) cannot interleave and corrupt the file.
         rotated_to: Optional[str] = None
-        with open(self.history_path, "a+", encoding="utf-8") as fh:
+        with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
             try:
                 _lock_exclusive(fh)
 
@@ -267,7 +267,7 @@ class HistoryWriter:
             shutil.move(self.history_path, archive_path)
 
         # Recreate fresh history.md with header pointing at the archive.
-        with open(self.history_path, "w", encoding="utf-8") as fh:
+        with open(self.history_path, "w", encoding="utf-8", newline="") as fh:
             fh.write(self._render_header())
             fh.write(
                 f"\n> Previous entries archived to "
@@ -438,9 +438,17 @@ class HistoryStore:
         if self._store is None:
             self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
 
+        # If the history file was deleted/moved, clear the store so semantic
+        # search doesn't return stale entries.
+        if not os.path.exists(self.history_path):
+            if self._store.count() > 0:
+                self._store.clear()
+                self._store.save()
+            return self._store
+
         # Refresh if file is newer than the store's npz.
         npz_path = os.path.join(self.data_dir, f"{self.store_name}.npz")
-        history_mtime = os.path.getmtime(self.history_path) if os.path.exists(self.history_path) else 0
+        history_mtime = os.path.getmtime(self.history_path)
         store_mtime = os.path.getmtime(npz_path) if os.path.exists(npz_path) else 0
         if history_mtime <= store_mtime and self._store.count() > 0:
             return self._store
@@ -460,6 +468,14 @@ class HistoryStore:
         if embed_texts is None:
             from src.engine.embedder import embed_texts as _et
             embed_texts = _et
+
+        # Deduplicate by id — entries outside the dedup_tail window can share
+        # the same content hash. Keep the latest (last) entry for each id.
+        seen: dict[str, int] = {}
+        for i, e in enumerate(entries):
+            seen[e.id] = i
+        unique_indices = sorted(seen.values())
+        entries = [entries[i] for i in unique_indices]
 
         documents = [self._format_for_embedding(e) for e in entries]
         embeddings = embed_texts(documents)

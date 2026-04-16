@@ -681,7 +681,7 @@ async def log_interaction(
 @mcp.tool()
 @observe(name="describe_repo")
 async def describe_repo(
-    ctx: Context,
+    ctx: Context | None = None,
     repo_path: Optional[str] = None,
     force_refresh: bool = False,
 ) -> str:

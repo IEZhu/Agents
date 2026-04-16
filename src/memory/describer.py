@@ -224,7 +224,12 @@ class RepoDescriber:
         root_str = str(root)
         for current, dirs, _files in os.walk(root_str):
             # Prune in-place so os.walk skips excluded subtrees entirely.
-            dirs[:] = sorted(d for d in dirs if d not in DESCRIBE_EXCLUDED_DIRS)
+            # Also skip hidden dirs (matching _render_tree's dotfile filter)
+            # so the hash and context bundle agree on which dirs matter.
+            dirs[:] = sorted(
+                d for d in dirs
+                if d not in DESCRIBE_EXCLUDED_DIRS and not d.startswith(".")
+            )
             rel = os.path.relpath(current, root_str)
             if rel == ".":
                 # Root itself — emit its depth-1 children on the next iteration.
