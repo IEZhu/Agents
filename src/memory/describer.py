@@ -193,18 +193,18 @@ class RepoDescriber:
             for d in sorted(self._iter_dirs_at_depth(repo, depth)):
                 h.update(d.encode("utf-8"))
 
-        # Manifest contents.
+        # Manifest contents (skip symlinks to stay within the sandbox).
         for manifest in _KEY_MANIFEST_FILES:
             mpath = repo / manifest
-            if mpath.is_file():
+            if mpath.is_file() and not mpath.is_symlink():
                 try:
                     h.update(mpath.read_bytes())
                 except OSError:
                     continue
 
-        # Head of README.md (if present).
+        # Head of README.md (if present, skip if symlinked).
         readme = repo / "README.md"
-        if readme.is_file():
+        if readme.is_file() and not readme.is_symlink():
             try:
                 with readme.open("r", encoding="utf-8", errors="replace") as f:
                     head = "".join(f.readline() for _ in range(DESCRIBE_README_HEAD_LINES))
@@ -275,10 +275,10 @@ class RepoDescriber:
         sections.append("### Directory Tree (depth ≤ %d)" % DESCRIBE_TREE_MAX_DEPTH)
         sections.append("```\n" + self._render_tree(repo) + "```")
 
-        # Manifests
+        # Manifests (skip symlinks to stay within the sandbox)
         for manifest in _KEY_MANIFEST_FILES:
             mpath = repo / manifest
-            if mpath.is_file():
+            if mpath.is_file() and not mpath.is_symlink():
                 sections.append(f"### {manifest}")
                 try:
                     text = mpath.read_text(encoding="utf-8", errors="replace")
@@ -286,9 +286,9 @@ class RepoDescriber:
                     continue
                 sections.append("```\n" + text.strip() + "\n```")
 
-        # README head
+        # README head (skip if symlinked)
         readme = repo / "README.md"
-        if readme.is_file():
+        if readme.is_file() and not readme.is_symlink():
             try:
                 with readme.open("r", encoding="utf-8", errors="replace") as f:
                     head = "".join(f.readline() for _ in range(DESCRIBE_README_HEAD_LINES))
