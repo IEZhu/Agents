@@ -64,6 +64,11 @@ except ImportError:
     logger.info("Langfuse disabled (library not installed)")
 
 
+def is_langfuse_configured() -> bool:
+    """True when Langfuse keys are present and the library is importable."""
+    return _langfuse_available
+
+
 def get_langfuse():
     """Returns a real Langfuse client if configured, otherwise a no-op stub."""
     global _langfuse_instance

@@ -14,7 +14,7 @@ from src.engine.config import DATA_DIR, REPO_ROOT
 # git-ignored data root as the routing/skills/implants stores.
 MEMORY_DATA_DIR = os.path.join(DATA_DIR, "memory")
 
-# Repo-root markdown artifacts (committed to git by default — see .gitignore).
+# Repo-root markdown artifacts (git-ignored by default — see .gitignore).
 HISTORY_FILE = os.path.join(REPO_ROOT, "history.md")
 HISTORY_ARCHIVE_DIR = os.path.join(REPO_ROOT, "history")
 CLAUDE_MD_FILE = os.path.join(REPO_ROOT, "CLAUDE.md")

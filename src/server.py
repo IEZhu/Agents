@@ -63,7 +63,7 @@ SESSION_CACHE: TTLCache = TTLCache(
     ttl=SESSION_CACHE_TTL_SECONDS,
 )
 
-from src.utils.langfuse_compat import observe, get_langfuse
+from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configured
 langfuse = get_langfuse()
 atexit.register(langfuse.flush)
 
@@ -621,10 +621,12 @@ async def log_interaction(
 
     loop = asyncio.get_running_loop()
 
-    # --- Langfuse trace (best-effort, no-op when keys absent) ---
+    # --- Langfuse trace (best-effort, skipped when keys absent) ---
     # Run the sync Langfuse SDK off the event loop so a slow network
     # round-trip doesn't stall the MCP handler.
     def _send_langfuse() -> dict:
+        if not is_langfuse_configured():
+            return {"status": "skipped"}
         try:
             trace_id = langfuse.create_trace_id(seed=request_id)
             with langfuse.start_as_current_observation(
@@ -646,24 +648,25 @@ async def log_interaction(
             logger.error("Langfuse logging failed: %s", e, exc_info=True)
             return {"status": "error", "error": str(e)}
 
-    langfuse_payload = await loop.run_in_executor(None, _send_langfuse)
-
     # --- History append (always; defaults to raw query/response) ---
-    history_payload: dict
-    try:
-        writer = HistoryWriter()
-        eff_intent = (intent or query or "").strip()
-        eff_action = (action or f"Agent: {agent_name}").strip()
-        eff_outcome = (outcome or response_content or "").strip()
-        history_payload = await loop.run_in_executor(
-            None,
-            lambda: writer.append_entry(
+    def _send_history() -> dict:
+        try:
+            writer = HistoryWriter()
+            eff_intent = (intent or query or "").strip()
+            eff_action = (action or f"Agent: {agent_name}").strip()
+            eff_outcome = (outcome or response_content or "").strip()
+            return writer.append_entry(
                 eff_intent, eff_action, eff_outcome, files, tags, None
-            ),
-        )
-    except Exception as e:
-        logger.error("History append failed: %s", e, exc_info=True)
-        history_payload = {"status": "error", "error": str(e)}
+            )
+        except Exception as e:
+            logger.error("History append failed: %s", e, exc_info=True)
+            return {"status": "error", "error": str(e)}
+
+    # Both sinks are independent — run them concurrently.
+    langfuse_payload, history_payload = await asyncio.gather(
+        loop.run_in_executor(None, _send_langfuse),
+        loop.run_in_executor(None, _send_history),
+    )
 
     payload = {
         "request_id": request_id,
@@ -747,9 +750,12 @@ async def read_history(
       semantically nearest entries with cosine distance.
 
     Returns JSON:
-      {entries: [{id, timestamp, intent, action?, outcome?, files, tags,
-                  distance? }], total, mode}
+      {entries: [...], total, mode}
       mode ∈ {"recency", "semantic"}.
+
+    Entry shape depends on mode:
+    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
+    - semantic: {id, distance, document, timestamp, intent, tags}.
     """
     try:
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})

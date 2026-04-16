@@ -194,10 +194,13 @@ class FakeEmbedder:
     def __init__(self, vocabulary: list[str], dim: int = 8):
         import numpy as np
         self.np = np
-        self.dim = dim
-        # Deterministic axis assignment by hash so the same phrase always
-        # maps to the same axis between embed_texts and embed_query.
-        self._axis = {phrase: hash(phrase) % dim for phrase in vocabulary}
+        unique_vocabulary = list(dict.fromkeys(vocabulary))
+        # Ensure dimension is large enough to give each phrase its own axis.
+        self.dim = max(dim, len(unique_vocabulary))
+        # Deterministic, collision-free axis assignment by enumeration.
+        self._axis = {
+            phrase: axis for axis, phrase in enumerate(unique_vocabulary)
+        }
 
     def _vec(self, text: str):
         v = self.np.zeros(self.dim, dtype=self.np.float32)

@@ -29,9 +29,9 @@
 | Решение | Выбор | Обоснование |
 |---|---|---|
 | Способ генерации describe | **Prompt + MCP sampling** | Сервер строит prompt и контекст-bundle, через `ctx.session.create_message(...)` просит вызывающий LLM сгенерировать summary, затем сам пишет результат в `CLAUDE.md`. Уже используется в `route_and_load` (`src/server.py:196`). |
-| Расположение `history.md` | **Корень репо, коммитится в git** | Видим в PR, ревьюабельно, шарится между разработчиками. `.gitignore` opt-out — закомментированный. |
-| Триггер записи в history | **Явный `record_history()`** | Без хуков (в репо пока нет `.claude/settings.json`). Инструкция в `CLAUDE.md` обязывает Claude вызывать tool в конце каждого значимого turn'а. |
-| Семантический поиск | **Lazy** | `record_history` остаётся быстрым (только append). `NumpyVectorStore` строится при первом `read_history(query=...)` и инкрементально обновляется по mtime. |
+| Расположение `history.md` | **Корень репо, по умолчанию не коммитится в git** | Файл остаётся локальной per-repo памятью рядом с кодом, но `gitignore`-ится по умолчанию, чтобы не засорять PR и не утекать секретам. При необходимости команда может убрать из `.gitignore` и вернуться к versioned-подходу. |
+| Триггер записи в history | **`log_interaction(...)`** | Отдельный `record_history()` удалён: `log_interaction(...)` всегда дозаписывает запись в `history.md` и опционально отправляет Langfuse generation-трейс. |
+| Семантический поиск | **Lazy** | `log_interaction(...)` остаётся быстрым (только append в `history.md`). `NumpyVectorStore` строится при первом `read_history(query=...)` и инкрементально обновляется по mtime. |
 
 ### Сверка с аналогами
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
-import json
 import logging
 import os
 import tempfile
@@ -233,6 +232,10 @@ class RepoDescriber:
             parts = rel.split(os.sep)
             if len(parts) == depth:
                 yield "/".join(parts)
+                # No need to descend further — prune children.
+                dirs[:] = []
+            elif len(parts) > depth:
+                dirs[:] = []
 
     # ------------------------------------------------------------------ plan
     def plan(self, force_refresh: bool = False) -> DescribeDecision:
@@ -332,21 +335,22 @@ class RepoDescriber:
     MIN_PERSIST_WORD_COUNT = 200
     # Minimum structural marker — a valid summary has at least one ``##`` or
     # ``###`` heading from the template (Project Identity, Tech Stack, ...).
-    _HEADING_MARKER = "## "
+    _HEADING_MARKERS = ("## ", "### ")
 
     def write_summary(self, summary: str, repo_hash: str) -> dict:
         """Persist a finished summary to CLAUDE.md and update the hash file.
 
         Refuses to persist summaries shorter than ``MIN_PERSIST_WORD_COUNT``
-        words or lacking any ``##`` headings — such outputs usually indicate
-        a failed or refused sampling call and overwriting a good cached
-        summary with them would be worse than leaving the old one in place.
+        words or lacking any Markdown section headings (``##`` or ``###``) —
+        such outputs usually indicate a failed or refused sampling call and
+        overwriting a good cached summary with them would be worse than
+        leaving the old one in place.
 
         Returns a JSON-friendly dict with status, path, hash, word_count,
         and a short preview of the stored summary.
         """
         word_count = len(summary.split())
-        has_heading = self._HEADING_MARKER in summary
+        has_heading = any(m in summary for m in self._HEADING_MARKERS)
 
         if word_count < self.MIN_PERSIST_WORD_COUNT or not has_heading:
             return {
@@ -440,8 +444,3 @@ __all__ = [
     "DescribeDecision",
     "RepoDescriber",
 ]
-
-
-# Kept for callers that want a one-line dict serialization.
-def to_json(payload: dict) -> str:
-    return json.dumps(payload, ensure_ascii=False)
