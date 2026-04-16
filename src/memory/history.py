@@ -462,11 +462,14 @@ class HistoryStore:
                 return self._store
 
             # Refresh if file is newer than the store's npz.
+            # Use npz existence + mtime as the staleness signal (not count),
+            # so a legitimately empty store doesn't trigger redundant rebuilds.
             npz_path = os.path.join(self.data_dir, f"{self.store_name}.npz")
             history_mtime = os.path.getmtime(self.history_path)
-            store_mtime = os.path.getmtime(npz_path) if os.path.exists(npz_path) else 0
-            if history_mtime < store_mtime and self._store.count() > 0:
-                return self._store
+            if os.path.exists(npz_path):
+                store_mtime = os.path.getmtime(npz_path)
+                if history_mtime < store_mtime:
+                    return self._store
 
             self._rebuild(embed_texts=embed_texts)
             return self._store
