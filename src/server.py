@@ -717,13 +717,13 @@ async def describe_repo(
             if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
                 payload = {
                     "status": "error",
-                    "message": f"repo_path must be within {REPO_ROOT}",
+                    "error": f"repo_path must be within {REPO_ROOT}",
                 }
                 return json.dumps(payload, ensure_ascii=False)
             if not os.path.isdir(resolved):
                 payload = {
                     "status": "error",
-                    "message": f"repo_path is not an existing directory: {repo_path}",
+                    "error": f"repo_path is not an existing directory: {repo_path}",
                 }
                 return json.dumps(payload, ensure_ascii=False)
             # Use the canonicalized path for all downstream work so symlink
@@ -746,8 +746,8 @@ async def describe_repo(
         if ctx is None:
             payload = {
                 "status": "error",
-                "message": "MCP context is required for sampling — describe_repo "
-                           "must be called over a sampling-capable client.",
+                "error": "MCP context is required for sampling — describe_repo "
+                         "must be called over a sampling-capable client.",
             }
             debug_log("describe_repo", "error", payload)
             return json.dumps(payload, ensure_ascii=False)
@@ -761,7 +761,7 @@ async def describe_repo(
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("describe_repo failed: %s", e, exc_info=True)
-        payload = {"status": "error", "message": str(e)}
+        payload = {"status": "error", "error": str(e)}
         debug_log("describe_repo", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
 
@@ -817,7 +817,7 @@ async def read_history(
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("read_history failed: %s", e, exc_info=True)
-        payload = {"status": "error", "message": str(e)}
+        payload = {"status": "error", "error": str(e)}
         debug_log("read_history", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
 
