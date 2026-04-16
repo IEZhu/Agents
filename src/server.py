@@ -38,6 +38,10 @@ from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
 from src.memory.history import HistoryReader, HistoryStore, HistoryWriter
 
+# Cached instance — avoids reloading .npz from disk on every read_history call.
+# HistoryStore.ensure_index() handles mtime-based staleness internally.
+_history_store = HistoryStore()
+
 mcp = FastMCP(
     "Agents-Core",
     instructions=(
@@ -783,10 +787,9 @@ async def read_history(
         loop = asyncio.get_running_loop()
 
         if query:
-            store = HistoryStore()
             results = await loop.run_in_executor(
                 None,
-                lambda: store.search(query, limit=limit),
+                lambda: _history_store.search(query, limit=limit),
             )
             payload = {"mode": "semantic", "total": len(results), "entries": results}
         else:

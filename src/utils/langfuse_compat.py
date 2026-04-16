@@ -54,14 +54,23 @@ try:
 
     if has_keys:
         _langfuse_available = True
-        observe = _real_observe
+        _real_observe_ref = _real_observe
         logger.info("Langfuse enabled (keys found)")
     else:
+        _real_observe_ref = None
         observe = _noop_decorator
         logger.info("Langfuse disabled (keys not configured)")
 except ImportError:
+    _real_observe_ref = None
     observe = _noop_decorator
     logger.info("Langfuse disabled (library not installed)")
+
+
+def observe(*args, **kwargs):
+    """Dynamic observe — falls back to no-op if Langfuse init failed at runtime."""
+    if _langfuse_available and _real_observe_ref is not None:
+        return _real_observe_ref(*args, **kwargs)
+    return _noop_decorator(*args, **kwargs)
 
 
 def is_langfuse_configured() -> bool:
