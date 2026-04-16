@@ -670,10 +670,9 @@ async def log_interaction(
         langfuse_payload = await asyncio.wait_for(langfuse_future, timeout=10.0)
     except asyncio.TimeoutError:
         langfuse_payload = {"status": "error", "error": "timeout (10s)"}
-    try:
-        history_payload = await asyncio.wait_for(history_future, timeout=10.0)
-    except asyncio.TimeoutError:
-        history_payload = {"status": "error", "error": "timeout (10s)"}
+    # History is the critical sink — no timeout, so we never report a false
+    # failure while the thread silently succeeds in the background.
+    history_payload = await history_future
 
     payload = {
         "request_id": request_id,

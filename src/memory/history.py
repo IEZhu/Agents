@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -58,6 +59,10 @@ except ImportError:  # pragma: no cover - Windows
 
     def _unlock(fh) -> None:
         return None
+
+# Process-local mutex — fcntl.flock is advisory and per-process on Linux,
+# so concurrent threads (e.g. multiple run_in_executor calls) can bypass it.
+_WRITE_LOCK = threading.Lock()
 
 
 _HEADER_RE = re.compile(
@@ -129,7 +134,7 @@ class HistoryWriter:
         # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
         # attached to the same repo) cannot interleave and corrupt the file.
         rotated_to: Optional[str] = None
-        with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+        with _WRITE_LOCK, open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
             try:
                 _lock_exclusive(fh)
 
@@ -140,7 +145,7 @@ class HistoryWriter:
                     fh.write(self._render_header())
                     fh.flush()
 
-                if self._is_duplicate(entry_id):
+                if self._is_duplicate_from_handle(fh, entry_id):
                     return {
                         "status": "duplicate",
                         "entry_id": entry_id,
@@ -226,13 +231,13 @@ class HistoryWriter:
         lines.append("")  # trailing newline
         return "\n".join(lines) + "\n"
 
-    def _is_duplicate(self, entry_id: str) -> bool:
-        """Tail-scan the last ``self.dedup_tail`` entry IDs."""
-        try:
-            with open(self.history_path, "r", encoding="utf-8") as fh:
-                content = fh.read()
-        except FileNotFoundError:
-            return False
+    def _is_duplicate_from_handle(self, fh, entry_id: str) -> bool:
+        """Tail-scan the last ``self.dedup_tail`` entry IDs using the
+        already-open file handle (avoids opening a second fd under the lock)."""
+        pos = fh.tell()
+        fh.seek(0)
+        content = fh.read()
+        fh.seek(pos)
         ids = _HEADER_RE.findall(content)
         recent = [match[1] for match in ids[-self.dedup_tail:]]
         return entry_id in recent
