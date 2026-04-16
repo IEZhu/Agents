@@ -663,10 +663,14 @@ async def log_interaction(
             return {"status": "error", "error": str(e)}
 
     # Both sinks are independent — run them concurrently.
-    langfuse_payload, history_payload = await asyncio.gather(
-        loop.run_in_executor(None, _send_langfuse),
-        loop.run_in_executor(None, _send_history),
-    )
+    # Bound Langfuse to 10s so a hanging SDK doesn't block the tool response.
+    langfuse_future = loop.run_in_executor(None, _send_langfuse)
+    history_future = loop.run_in_executor(None, _send_history)
+    try:
+        langfuse_payload = await asyncio.wait_for(langfuse_future, timeout=10.0)
+    except asyncio.TimeoutError:
+        langfuse_payload = {"status": "error", "error": "timeout (10s)"}
+    history_payload = await history_future
 
     payload = {
         "request_id": request_id,

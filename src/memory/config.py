@@ -35,7 +35,8 @@ DESCRIBE_MARKER_END = "# <<< Agents-Core Repository Memory (managed by describe_
 # --- Tunables ----------------------------------------------------------------
 
 # Rotation threshold for history.md before it is moved to history/YYYY-MM.md.
-HISTORY_ROTATION_THRESHOLD_KB = 512
+# Override via env for testing: HISTORY_ROTATION_THRESHOLD_KB=1
+HISTORY_ROTATION_THRESHOLD_KB = int(os.environ.get("HISTORY_ROTATION_THRESHOLD_KB", "512"))
 
 # Tail-scan window for content-hash deduplication on append.
 HISTORY_DEDUP_TAIL_SIZE = 50

@@ -184,6 +184,9 @@ class RepoDescriber:
         for name in top_names:
             if name in DESCRIBE_EXCLUDED_DIRS or name in _HASH_EXCLUDED_FILES:
                 continue
+            # Skip hidden files/dirs to match _render_tree's dotfile filter.
+            if name.startswith(".") and name not in (".env.example",):
+                continue
             h.update(name.encode("utf-8"))
 
         # Depth-1 + depth-2 directory names.
@@ -433,13 +436,15 @@ class RepoDescriber:
 
     # ----------------------------------------------------------------- helpers exposed for the MCP tool
     def up_to_date_response(self, decision: DescribeDecision) -> dict:
-        preview = ""
-        if decision.cached_summary:
-            preview = "\n".join(decision.cached_summary.splitlines()[:6])
+        cached = decision.cached_summary or ""
+        preview = "\n".join(cached.splitlines()[:6])
+        word_count = len(cached.split())
         return {
             "status": "up-to-date",
             "path": self.claude_md_path,
             "hash": decision.current_hash,
+            "word_count": word_count,
+            "in_word_budget": DESCRIBE_WORD_MIN <= word_count <= DESCRIBE_WORD_MAX,
             "summary_preview": preview,
         }
 
