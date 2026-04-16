@@ -32,9 +32,15 @@ from src.engine.enrichment import (
     infer_tier,
     implant_retriever,
 )
-from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD
+from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD, REPO_ROOT
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
+from src.memory.describer import RepoDescriber
+from src.memory.history import HistoryReader, HistoryStore, HistoryWriter
+
+# Cached instance — avoids reloading .npz from disk on every read_history call.
+# HistoryStore.ensure_index() handles mtime-based staleness internally.
+_history_store = HistoryStore()
 
 mcp = FastMCP(
     "Agents-Core",
@@ -61,7 +67,7 @@ SESSION_CACHE: TTLCache = TTLCache(
     ttl=SESSION_CACHE_TTL_SECONDS,
 )
 
-from src.utils.langfuse_compat import observe, get_langfuse
+from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configured
 langfuse = get_langfuse()
 atexit.register(langfuse.flush)
 
@@ -575,36 +581,246 @@ async def list_agents(include_metadata: bool = True) -> str:
     return json.dumps({"agents": catalog}, ensure_ascii=False, indent=2)
 
 @mcp.tool()
-async def log_interaction(agent_name: str, query: str, response_content: str, request_id: Optional[str] = None, reasoning: Optional[str] = None) -> str:
-    """
-    Logs the full agent interaction turn to LangFuse as a generation trace.
-    ALWAYS call this at the end of a turn to ensure observability.
+async def log_interaction(
+    agent_name: str,
+    query: str,
+    response_content: str,
+    request_id: Optional[str] = None,
+    reasoning: Optional[str] = None,
+    intent: Optional[str] = None,
+    action: Optional[str] = None,
+    outcome: Optional[str] = None,
+    files: Optional[List[str]] = None,
+    tags: Optional[List[str]] = None,
+) -> str:
+    """End-of-turn logger. ALWAYS call at the end of every turn.
+
+    Two sinks, independent of each other:
+
+    * **history.md** — always written via ``HistoryWriter`` (append-only,
+      content-hash deduped). Defaults: ``intent=query``, ``action="Agent: {agent_name}"``,
+      ``outcome=response_content``. Pass ``intent``/``action``/``outcome``/``files``/``tags``
+      to curate the entry; otherwise raw query/response are used.
+
+    * **Langfuse** — generation trace recorded only when ``LANGFUSE_PUBLIC_KEY`` /
+      ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
+      ``langfuse_compat``.
+
+    Returns JSON: ``{request_id, langfuse: {status, trace_id?, error?},
+    history: {status, entry_id?, path?, error?}}``. A failure in one sink does
+    not prevent the other.
     """
     if not request_id:
         request_id = str(uuid.uuid4())
 
-    try:
-        trace_id = langfuse.create_trace_id(seed=request_id)
-        
-        with langfuse.start_as_current_observation(
-            as_type="span",
-            name="agent_interaction",
-            trace_context={"trace_id": trace_id},
-            metadata={"agent": agent_name, "source": "mcp-server"}
-        ) as trace:
+    debug_log("log_interaction", "req", {
+        "agent_name": agent_name,
+        "request_id": request_id,
+        "query_len": len(query or ""),
+        "response_len": len(response_content or ""),
+        "curated": bool(intent or action or outcome or files or tags),
+        "files": files or [],
+        "tags": tags or [],
+    })
+
+    loop = asyncio.get_running_loop()
+
+    # --- Langfuse trace (best-effort, skipped when keys absent) ---
+    # Run the sync Langfuse SDK off the event loop so a slow network
+    # round-trip doesn't stall the MCP handler.
+    def _send_langfuse() -> dict:
+        if not is_langfuse_configured():
+            return {"status": "skipped"}
+        try:
+            trace_id = langfuse.create_trace_id(seed=request_id)
             with langfuse.start_as_current_observation(
-                as_type="generation",
-                name="response",
-                input=query[:2000],
-                metadata={"agent": agent_name, "reasoning": reasoning or ""}
-            ) as gen:
-                gen.update(output=response_content[:5000])
-                
-        langfuse.flush()
-        return f"Interaction logged. Trace ID: {request_id}"
+                as_type="span",
+                name="agent_interaction",
+                trace_context={"trace_id": trace_id},
+                metadata={"agent": agent_name, "source": "mcp-server"},
+            ):
+                with langfuse.start_as_current_observation(
+                    as_type="generation",
+                    name="response",
+                    input=query[:2000],
+                    metadata={"agent": agent_name, "reasoning": reasoning or ""},
+                ) as gen:
+                    gen.update(output=response_content[:5000])
+            langfuse.flush()
+            return {"status": "logged", "trace_id": trace_id}
+        except Exception as e:
+            logger.error("Langfuse logging failed: %s", e, exc_info=True)
+            return {"status": "error", "error": str(e)}
+
+    # --- History append (always; defaults to raw query/response) ---
+    def _send_history() -> dict:
+        try:
+            writer = HistoryWriter()
+            eff_intent = (intent or query or "").strip()
+            eff_action = (action or f"Agent: {agent_name}").strip()
+            eff_outcome = (outcome or response_content or "").strip()
+            return writer.append_entry(
+                eff_intent, eff_action, eff_outcome, files, tags, None
+            )
+        except Exception as e:
+            logger.error("History append failed: %s", e, exc_info=True)
+            return {"status": "error", "error": str(e)}
+
+    # Both sinks are independent — run them concurrently.
+    # Bound Langfuse to 10s so a hanging SDK doesn't block the tool response.
+    langfuse_future = loop.run_in_executor(None, _send_langfuse)
+    history_future = loop.run_in_executor(None, _send_history)
+    try:
+        langfuse_payload = await asyncio.wait_for(langfuse_future, timeout=10.0)
+    except asyncio.TimeoutError:
+        langfuse_payload = {"status": "error", "error": "timeout (10s)"}
+    # History is the critical sink — no timeout, so we never report a false
+    # failure while the thread silently succeeds in the background.
+    history_payload = await history_future
+
+    payload = {
+        "request_id": request_id,
+        "langfuse": langfuse_payload,
+        "history": history_payload,
+    }
+    debug_log("log_interaction", "res", payload)
+    return json.dumps(payload, ensure_ascii=False)
+
+# --- Memory tools (describe + history) ---
+
+@mcp.tool()
+@observe(name="describe_repo")
+async def describe_repo(
+    ctx: Context | None = None,
+    repo_path: Optional[str] = None,
+    force_refresh: bool = False,
+) -> str:
+    """One-shot repo bootstrap.
+
+    Builds a deterministic context bundle from the repo, asks the calling
+    LLM (via MCP sampling) to distill it into a structured summary, and
+    writes the result into the managed Repository Memory section of
+    CLAUDE.md. Future Claude sessions read that section automatically and
+    skip re-exploring the codebase.
+
+    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
+    status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
+    """
+    try:
+        # Restrict repo_path to REPO_ROOT to prevent arbitrary filesystem access.
+        # Resolve relative paths against REPO_ROOT (not CWD) for stable behavior.
+        if repo_path is not None:
+            if not os.path.isabs(repo_path):
+                repo_path = os.path.join(REPO_ROOT, repo_path)
+            resolved = os.path.realpath(repo_path)
+            repo_root_resolved = os.path.realpath(REPO_ROOT) + os.sep
+            if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
+                payload = {
+                    "status": "error",
+                    "error": f"repo_path must be within {REPO_ROOT}",
+                }
+                return json.dumps(payload, ensure_ascii=False)
+            if not os.path.isdir(resolved):
+                payload = {
+                    "status": "error",
+                    "error": f"repo_path is not an existing directory: {repo_path}",
+                }
+                return json.dumps(payload, ensure_ascii=False)
+            # Use the canonicalized path for all downstream work so symlink
+            # TOCTOU can't bypass the sandbox after validation.
+            repo_path = resolved
+
+        debug_log("describe_repo", "req", {
+            "repo_path": repo_path,
+            "force_refresh": force_refresh,
+        })
+        loop = asyncio.get_running_loop()
+        describer = RepoDescriber(repo_path=repo_path)
+
+        decision = await loop.run_in_executor(None, describer.plan, force_refresh)
+        if not decision.needs_refresh:
+            payload = describer.up_to_date_response(decision)
+            debug_log("describe_repo", "res", payload)
+            return json.dumps(payload, ensure_ascii=False)
+
+        if ctx is None:
+            payload = {
+                "status": "error",
+                "error": "MCP context is required for sampling — describe_repo "
+                         "must be called over a sampling-capable client.",
+            }
+            debug_log("describe_repo", "error", payload)
+            return json.dumps(payload, ensure_ascii=False)
+
+        prompt = await loop.run_in_executor(None, describer.build_prompt)
+        summary = await _sample_with_agent(ctx, prompt, "Generate the repository overview.")
+        payload = await loop.run_in_executor(
+            None, describer.write_summary, summary, decision.current_hash
+        )
+        debug_log("describe_repo", "res", payload)
+        return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Failed to log interaction: {e}")
-        return f"Logging failed (non-critical): {e}"
+        logger.error("describe_repo failed: %s", e, exc_info=True)
+        payload = {"status": "error", "error": str(e)}
+        debug_log("describe_repo", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+@mcp.tool()
+@observe(name="read_history")
+async def read_history(
+    limit: int = 20,
+    since: Optional[str] = None,
+    query: Optional[str] = None,
+) -> str:
+    """Read recent history entries or run a lazy semantic search.
+
+    - Without ``query``: returns up to ``limit`` newest entries; ``since``
+      (ISO8601 prefix) optionally filters for entries at or after that
+      timestamp.
+    - With ``query``: builds the vector index on first use (or refreshes
+      it if history.md is newer than the stored embeddings), then returns
+      semantically nearest entries with cosine distance.
+
+    Returns JSON:
+      {entries: [...], total, mode}
+      mode ∈ {"recency", "semantic"}.
+
+    Entry shape depends on mode:
+    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
+    - semantic: {id, distance, document, timestamp, intent, tags}.
+    """
+    try:
+        limit = max(1, min(limit, 500))
+        query = (query or "").strip() or None
+        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
+        loop = asyncio.get_running_loop()
+
+        if query:
+            results = await loop.run_in_executor(
+                None,
+                lambda: _history_store.search(query, limit=limit),
+            )
+            payload = {"mode": "semantic", "total": len(results), "entries": results}
+        else:
+            reader = HistoryReader()
+            entries = await loop.run_in_executor(
+                None,
+                lambda: reader.read_recent(limit=limit, since=since),
+            )
+            payload = {
+                "mode": "recency",
+                "total": len(entries),
+                "entries": [e.to_dict() for e in entries],
+            }
+        debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        logger.error("read_history failed: %s", e, exc_info=True)
+        payload = {"status": "error", "error": str(e)}
+        debug_log("read_history", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+
 
 # --- MCP Prompts (slash commands for Claude Desktop) ---
 
@@ -671,6 +887,37 @@ def _register_agent_prompts():
 
 
 _register_agent_prompts()
+
+
+def _register_memory_prompts():
+    """Register the slash prompt that drives the repository memory tool.
+
+    The tool name ``describe_repo`` already occupies that Python identifier
+    in this module, so the prompt function is defined under a distinct local
+    name and renamed via ``__name__`` before being passed to ``mcp.prompt()``
+    — same trick used in ``_register_agent_prompts``.
+    """
+
+    def _truthy(arg: str) -> bool:
+        return arg.strip().lower() in ("1", "true", "force", "yes", "y", "on")
+
+    async def describe_cmd(force: str = "") -> list:
+        force_arg = "True" if _truthy(force) else "False"
+        return [UserMessage(
+            "Call the `describe_repo("
+            f"force_refresh={force_arg})` MCP tool now as your only next action. "
+            "Then report the resulting status, hash, word count, and the summary "
+            "preview. Do not call any other tools first."
+        )]
+    describe_cmd.__name__ = "describe_repo"
+    describe_cmd.__doc__ = (
+        "Bootstrap or refresh the Repository Memory section in CLAUDE.md. "
+        "Optional arg: `force=true` to regenerate even if the repo hash is unchanged."
+    )
+    mcp.prompt()(describe_cmd)
+
+
+_register_memory_prompts()
 
 
 def _warmup_embedding_model():

@@ -69,8 +69,10 @@ The server exposes MCP tools that any compatible client can call:
 | `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
-| `log_interaction(...)` | Observability logging (Langfuse) |
+| `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
 | `clear_session_cache()` | Reset session cache |
+| `describe_repo(force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md |
+| `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
 
 ### Routing Flow
 
@@ -202,6 +204,20 @@ capabilities: [development, dev-security]
 ```
 
 The enrichment pipeline resolves capabilities to skill bundles via `agents/capabilities/registry.yaml`. Available capabilities: `critical-analysis`, `content-structure`, `development`, `dense-summary`, `trust-weighted-research`, `bio-health`, `tech-documentation`, `dev-security`, `consultative-intake`, `creative-writing`, `psychology`, `3d-printing`, `data-investigation`, `epistemic-analysis`, `code-review`, `decision-making`, `product-thinking`, `temporal-research`, `performance-engineering`, `prompt-design`, `prompt-security`, `roblox-development`, `dev-tools`, `blender-scripting`, `health-optimization`, `consumer-research`, `visualization`, `child-psychology`.
+
+---
+
+## 🧠 Repository Memory
+
+The server ships with a per-repo memory subsystem so each new Claude session does not have to re-explore the codebase from scratch:
+
+- **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Idempotent: re-runs are no-ops unless the repo manifest changes or `force_refresh=True`.
+- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured.
+- **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
+
+The full design and step-by-step rationale lives in [`docs/memory-subsystem-spec.md`](docs/memory-subsystem-spec.md).
+
+> ⚠️ **Privacy warning** — `history.md` captures raw prompts and responses. If you paste secrets (API keys, tokens, credentials) into Claude, they will land in this file. It is **gitignored by default** to keep them out of git history; if you want the action log visible in PRs, remove `history.md` / `history/` from `.gitignore` and review entries before pushing.
 
 ---
 

@@ -54,19 +54,32 @@ try:
 
     if has_keys:
         _langfuse_available = True
-        observe = _real_observe
+        _real_observe_ref = _real_observe
         logger.info("Langfuse enabled (keys found)")
     else:
-        observe = _noop_decorator
+        _real_observe_ref = None
         logger.info("Langfuse disabled (keys not configured)")
 except ImportError:
-    observe = _noop_decorator
+    _real_observe_ref = None
     logger.info("Langfuse disabled (library not installed)")
+
+
+def observe(*args, **kwargs):
+    """Dynamic observe — falls back to no-op if Langfuse init failed at runtime."""
+    if _langfuse_available and _real_observe_ref is not None:
+        return _real_observe_ref(*args, **kwargs)
+    return _noop_decorator(*args, **kwargs)
+
+
+def is_langfuse_configured() -> bool:
+    """True when Langfuse keys are present, the library is importable,
+    and client initialization has not failed."""
+    return _langfuse_available
 
 
 def get_langfuse():
     """Returns a real Langfuse client if configured, otherwise a no-op stub."""
-    global _langfuse_instance
+    global _langfuse_instance, _langfuse_available
     if _langfuse_instance is not None:
         return _langfuse_instance
 
@@ -75,6 +88,7 @@ def get_langfuse():
             _langfuse_instance = _RealLangfuse()
             logger.info("Langfuse client initialized")
         except Exception as e:
+            _langfuse_available = False
             logger.warning(f"Langfuse init failed, using no-op: {e}")
             _langfuse_instance = _NoopLangfuse()
     else:

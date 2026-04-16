@@ -25,7 +25,10 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
 3. **Post-flight (after EVERY response):**
    - Respond in the same language as the user's query (auto-detect). Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
    - Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
-   - Call `log_interaction(agent_name, query, response_content)`.
+   - Call `log_interaction(agent_name, query, response_content)` — this **always** appends an entry to `history.md` and (if Langfuse is configured) sends a generation trace. For meaningful turns (decisions, fixes, refactors, new features), additionally pass `intent=`, `action=`, `outcome=`, `files=[...]`, `tags=[...]` to curate the entry; otherwise the raw query/response are used.
+
+4. **Repository memory (first session per repo):**
+   - On the first session in an unfamiliar repo, call `describe_repo()` once to bootstrap the managed Repository Memory section in CLAUDE.md. Subsequent calls are no-ops unless `force_refresh=True` or the repo manifest changes.
 
 ## Available MCP Tools
 
@@ -35,8 +38,10 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
 | `get_agent_context(agent_name, query)` | Load a specific agent (after ROUTE_REQUIRED) |
 | `load_implants(task_type)` | Load reasoning strategies (debugging/analysis/creative/planning) |
 | `list_agents()` | List all available agents |
-| `log_interaction(...)` | Log the turn to observability backend |
+| `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — **always** appends to `history.md` (deduped) and, if Langfuse is configured, records a generation trace. Curate the history entry with the optional `intent`/`action`/`outcome` params. |
 | `clear_session_cache()` | Clear routing cache (use when switching contexts) |
+| `describe_repo(force_refresh=False)` | One-shot repo bootstrap — writes summary into CLAUDE.md |
+| `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over history |
 
 ## Environment
 
