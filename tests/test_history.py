@@ -225,7 +225,7 @@ def _numpy_available() -> bool:
     try:
         import numpy  # noqa: F401
         return True
-    except ImportError:
+    except Exception:
         return False
 
 

@@ -618,7 +618,7 @@ async def log_interaction(
         "request_id": request_id,
         "query_len": len(query or ""),
         "response_len": len(response_content or ""),
-        "curated": bool(intent or action or outcome),
+        "curated": bool(intent or action or outcome or files or tags),
         "files": files or [],
         "tags": tags or [],
     })
