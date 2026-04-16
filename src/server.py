@@ -726,6 +726,9 @@ async def describe_repo(
                     "message": f"repo_path is not an existing directory: {repo_path}",
                 }
                 return json.dumps(payload, ensure_ascii=False)
+            # Use the canonicalized path for all downstream work so symlink
+            # TOCTOU can't bypass the sandbox after validation.
+            repo_path = resolved
 
         debug_log("describe_repo", "req", {
             "repo_path": repo_path,
