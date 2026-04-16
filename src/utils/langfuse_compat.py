@@ -58,11 +58,9 @@ try:
         logger.info("Langfuse enabled (keys found)")
     else:
         _real_observe_ref = None
-        observe = _noop_decorator
         logger.info("Langfuse disabled (keys not configured)")
 except ImportError:
     _real_observe_ref = None
-    observe = _noop_decorator
     logger.info("Langfuse disabled (library not installed)")
 
 
@@ -74,7 +72,8 @@ def observe(*args, **kwargs):
 
 
 def is_langfuse_configured() -> bool:
-    """True when Langfuse keys are present and the library is importable."""
+    """True when Langfuse keys are present, the library is importable,
+    and client initialization has not failed."""
     return _langfuse_available
 
 

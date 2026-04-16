@@ -783,6 +783,7 @@ async def read_history(
     """
     try:
         limit = max(1, min(limit, 500))
+        query = (query or "").strip() or None
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
         loop = asyncio.get_running_loop()
 

@@ -51,9 +51,11 @@ def _atomic_write(path: str, content: str) -> None:
     """Write ``content`` to ``path`` atomically.
 
     The temporary file is created in the same directory so ``os.replace`` is
-    a same-filesystem rename (atomic on POSIX). Newline translation is
-    disabled — we want the exact bytes to land on disk regardless of platform
-    locale.
+    a same-filesystem rename (atomic on POSIX). Writes use ``newline=""`` to
+    disable translation and produce ``\\n`` endings. Reads use default newline
+    mode, which normalizes ``\\r\\n`` → ``\\n``, so existing CRLF files are
+    converted to LF on first edit. This is intentional — CLAUDE.md and
+    history.md are always ``\\n``.
     """
     target_dir = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(target_dir, exist_ok=True)

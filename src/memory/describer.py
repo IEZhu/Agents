@@ -331,12 +331,14 @@ class RepoDescriber:
         repo_name = os.path.basename(self.repo_path) or self.repo_path
         # Use str.replace instead of str.format — the bundle contains raw file
         # contents (JSON, TOML) with curly braces that would crash .format().
+        # Replace simple placeholders first, then CONTEXT_BUNDLE last so any
+        # literal "{WORD_MIN}" / "{WORD_MAX}" in file contents isn't corrupted.
         return (
             DESCRIBE_PROMPT_TEMPLATE
             .replace("{REPO_NAME}", repo_name)
-            .replace("{CONTEXT_BUNDLE}", bundle)
             .replace("{WORD_MIN}", str(DESCRIBE_WORD_MIN))
             .replace("{WORD_MAX}", str(DESCRIBE_WORD_MAX))
+            .replace("{CONTEXT_BUNDLE}", bundle)
         )
 
     # ----------------------------------------------------------------- write
