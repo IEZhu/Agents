@@ -743,26 +743,94 @@ async def describe_repo(
             debug_log("describe_repo", "res", payload)
             return json.dumps(payload, ensure_ascii=False)
 
-        if ctx is None:
-            payload = {
-                "status": "error",
-                "error": "MCP context is required for sampling — describe_repo "
-                         "must be called over a sampling-capable client.",
-            }
-            debug_log("describe_repo", "error", payload)
-            return json.dumps(payload, ensure_ascii=False)
-
         prompt = await loop.run_in_executor(None, describer.build_prompt)
-        summary = await _sample_with_agent(ctx, prompt, "Generate the repository overview.")
-        payload = await loop.run_in_executor(
-            None, describer.write_summary, summary, decision.current_hash
-        )
+
+        # Try MCP sampling if context is available.
+        if ctx is not None:
+            try:
+                summary = await _sample_with_agent(ctx, prompt, "Generate the repository overview.")
+                payload = await loop.run_in_executor(
+                    None, describer.write_summary, summary, decision.current_hash
+                )
+                debug_log("describe_repo", "res", payload)
+                return json.dumps(payload, ensure_ascii=False)
+            except Exception as sampling_err:
+                logger.debug("describe_repo: sampling unavailable, returning prompt: %s", sampling_err)
+                debug_log("describe_repo", "sampling_fallback", {"error": str(sampling_err)})
+
+        # Fallback: return the prompt for the calling model to process.
+        payload = {
+            "status": "needs_summary",
+            "repo_hash": decision.current_hash,
+            "repo_path": describer.repo_path,
+            "prompt": prompt,
+            "instruction": (
+                "Sampling is not available. Generate the repository overview by "
+                "following the prompt above, then call write_repo_summary("
+                f'summary=<your output>, repo_hash="{decision.current_hash}"'
+                ") to persist it."
+            ),
+        }
         debug_log("describe_repo", "res", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("describe_repo failed: %s", e, exc_info=True)
         payload = {"status": "error", "error": str(e)}
         debug_log("describe_repo", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+@mcp.tool()
+@observe(name="write_repo_summary")
+async def write_repo_summary(
+    summary: str,
+    repo_hash: str,
+    repo_path: Optional[str] = None,
+) -> str:
+    """Persist a repository summary after describe_repo returned status='needs_summary'.
+
+    Call this with the summary you generated from the prompt and the
+    repo_hash value from the describe_repo response.
+
+    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
+    status ∈ {"refreshed", "rejected", "error"}.
+    """
+    try:
+        if repo_path is not None:
+            if not os.path.isabs(repo_path):
+                repo_path = os.path.join(REPO_ROOT, repo_path)
+            resolved = os.path.realpath(repo_path)
+            repo_root_resolved = os.path.realpath(REPO_ROOT) + os.sep
+            if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
+                payload = {
+                    "status": "error",
+                    "error": f"repo_path must be within {REPO_ROOT}",
+                }
+                return json.dumps(payload, ensure_ascii=False)
+            if not os.path.isdir(resolved):
+                payload = {
+                    "status": "error",
+                    "error": f"repo_path is not an existing directory: {repo_path}",
+                }
+                return json.dumps(payload, ensure_ascii=False)
+            repo_path = resolved
+
+        debug_log("write_repo_summary", "req", {
+            "repo_path": repo_path,
+            "repo_hash": repo_hash,
+            "summary_len": len(summary),
+        })
+        loop = asyncio.get_running_loop()
+        describer = RepoDescriber(repo_path=repo_path)
+        payload = await loop.run_in_executor(
+            None, describer.write_summary, summary, repo_hash
+        )
+        debug_log("write_repo_summary", "res", payload)
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception as e:
+        logger.error("write_repo_summary failed: %s", e, exc_info=True)
+        payload = {"status": "error", "error": str(e)}
+        debug_log("write_repo_summary", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
 
 
