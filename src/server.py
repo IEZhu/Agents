@@ -881,12 +881,12 @@ _register_agent_prompts()
 
 
 def _register_memory_prompts():
-    """Register slash commands that drive the memory tools.
+    """Register the slash prompt that drives the repository memory tool.
 
-    Tool names (``describe_repo``, ``read_history``) already occupy those
-    Python identifiers in this module, so each prompt function is defined
-    under a distinct local name and renamed via ``__name__`` before being
-    passed to ``mcp.prompt()`` — same trick used in ``_register_agent_prompts``.
+    The tool name ``describe_repo`` already occupies that Python identifier
+    in this module, so the prompt function is defined under a distinct local
+    name and renamed via ``__name__`` before being passed to ``mcp.prompt()``
+    — same trick used in ``_register_agent_prompts``.
     """
 
     def _truthy(arg: str) -> bool:

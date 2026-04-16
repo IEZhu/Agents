@@ -465,7 +465,7 @@ class HistoryStore:
             npz_path = os.path.join(self.data_dir, f"{self.store_name}.npz")
             history_mtime = os.path.getmtime(self.history_path)
             store_mtime = os.path.getmtime(npz_path) if os.path.exists(npz_path) else 0
-            if history_mtime <= store_mtime and self._store.count() > 0:
+            if history_mtime < store_mtime and self._store.count() > 0:
                 return self._store
 
             self._rebuild(embed_texts=embed_texts)
