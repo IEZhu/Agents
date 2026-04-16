@@ -720,6 +720,12 @@ async def describe_repo(
                     "message": f"repo_path must be within {REPO_ROOT}",
                 }
                 return json.dumps(payload, ensure_ascii=False)
+            if not os.path.isdir(resolved):
+                payload = {
+                    "status": "error",
+                    "message": f"repo_path is not an existing directory: {repo_path}",
+                }
+                return json.dumps(payload, ensure_ascii=False)
 
         debug_log("describe_repo", "req", {
             "repo_path": repo_path,
