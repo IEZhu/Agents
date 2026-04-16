@@ -187,8 +187,9 @@ class TestRotation:
 class FakeEmbedder:
     """Maps each known phrase to a unit vector pointing along a unique axis.
 
-    Provides deterministic, numpy-free-during-collection embedding for tests.
-    Only imports numpy when actually called.
+    Provides deterministic embedding for tests. Imports numpy in __init__
+    so the ``skipif`` guard can exclude the entire test class when numpy
+    is unavailable.
     """
 
     def __init__(self, vocabulary: list[str], dim: int = 8):

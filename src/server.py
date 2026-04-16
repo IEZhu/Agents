@@ -702,7 +702,10 @@ async def describe_repo(
     """
     try:
         # Restrict repo_path to REPO_ROOT to prevent arbitrary filesystem access.
+        # Resolve relative paths against REPO_ROOT (not CWD) for stable behavior.
         if repo_path is not None:
+            if not os.path.isabs(repo_path):
+                repo_path = os.path.join(REPO_ROOT, repo_path)
             resolved = os.path.realpath(repo_path)
             repo_root_resolved = os.path.realpath(REPO_ROOT) + os.sep
             if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
