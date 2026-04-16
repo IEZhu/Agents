@@ -14,7 +14,7 @@
 
 ## 1. Context & Motivation
 
-The Agents-Core MCP server (`/home/wondermr/repos/Agents`) currently lacks persistent per-repo memory: every new Claude Code session re-explores the codebase from scratch and forgets the meaning of past actions. This wastes tokens, loses architectural decisions, and makes work non-reproducible.
+The Agents-Core MCP server in this repo currently lacks persistent per-repo memory: every new Claude Code session re-explores the codebase from scratch and forgets the meaning of past actions. This wastes tokens, loses architectural decisions, and makes work non-reproducible.
 
 We introduce two complementary mechanisms — file-based (markdown), repo-bound, reusable across LLMs:
 

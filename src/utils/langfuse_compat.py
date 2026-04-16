@@ -71,7 +71,7 @@ def is_langfuse_configured() -> bool:
 
 def get_langfuse():
     """Returns a real Langfuse client if configured, otherwise a no-op stub."""
-    global _langfuse_instance
+    global _langfuse_instance, _langfuse_available
     if _langfuse_instance is not None:
         return _langfuse_instance
 
@@ -80,7 +80,6 @@ def get_langfuse():
             _langfuse_instance = _RealLangfuse()
             logger.info("Langfuse client initialized")
         except Exception as e:
-            global _langfuse_available
             _langfuse_available = False
             logger.warning(f"Langfuse init failed, using no-op: {e}")
             _langfuse_instance = _NoopLangfuse()
