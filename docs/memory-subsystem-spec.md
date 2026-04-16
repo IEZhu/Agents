@@ -1,144 +1,143 @@
-# Подсистема памяти Agents-Core: `describe` + `history.md`
+# Agents-Core Memory Subsystem: `describe` + `history.md`
 
-> ТЗ и пошаговая реализация механизма репо-памяти для MCP-сервера Agents-Core.
-> Статус: реализовано 2026-04-15. См. Приложение C — отличия фактической имплементации от плана.
+> Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
+> Status: implemented 2026-04-15. See Appendix C for deviations between the plan and the actual implementation.
 
-> **Update 2026-04-15 (post-implementation):** MCP-инструмент `record_history` слит с
-> `log_interaction`. Теперь `log_interaction(...)` всегда дозаписывает в `history.md` (с
-> опциональными `intent`/`action`/`outcome`/`files`/`tags` для курирования) и, если
-> подключен Langfuse, дополнительно отправляет generation-трейс. Класс `HistoryWriter`
-> и формат `history.md` не изменились — описанное ниже про дедупликацию, ротацию,
-> формат и `read_history` остаётся в силе. Отдельный MCP-tool `record_history` удалён,
-> чтобы не дублировать инструкции для модели.
+> **Update 2026-04-15 (post-implementation):** The standalone `record_history` MCP tool was merged
+> into `log_interaction`. Now `log_interaction(...)` always appends to `history.md` (with optional
+> `intent`/`action`/`outcome`/`files`/`tags` for curated entries) and, when Langfuse is configured,
+> additionally sends a generation trace. The `HistoryWriter` class and `history.md` format are
+> unchanged — everything below about deduplication, rotation, format, and `read_history` still
+> applies. The separate `record_history` tool was removed to avoid duplicate instructions for the model.
 
 ---
 
-## 1. Контекст и мотивация
+## 1. Context & Motivation
 
-У MCP-сервера Agents-Core (`/home/wondermr/repos/Agents`) сейчас нет постоянной per-repo памяти: каждая новая сессия Claude Code заново изучает кодовую базу и забывает смысл прошлых действий. Это сжигает токены, теряет архитектурные решения и делает работу невоспроизводимой.
+The Agents-Core MCP server (`/home/wondermr/repos/Agents`) currently lacks persistent per-repo memory: every new Claude Code session re-explores the codebase from scratch and forgets the meaning of past actions. This wastes tokens, loses architectural decisions, and makes work non-reproducible.
 
-Внедряем два дополняющих механизма — файловые (markdown), привязанные к репозиторию, переиспользуемые между LLM:
+We introduce two complementary mechanisms — file-based (markdown), repo-bound, reusable across LLMs:
 
-1. **Режим `describe`** — однократный bootstrap, который дистиллирует репозиторий в качественный краткий обзор, сохраняемый в управляемую секцию `CLAUDE.md`. Будущие сессии читают его вместо повторного исследования.
-2. **Режим `history.md`** — append-only журнал *intent + action + outcome* для каждого значимого turn'а; даёт воспроизводимую историю действий, которую можно подгружать в контекст по требованию.
+1. **`describe` mode** — a one-shot bootstrap that distills the repository into a high-quality compressed overview saved into a managed section of `CLAUDE.md`. Future sessions read it instead of re-exploring.
+2. **`history.md` mode** — an append-only *intent + action + outcome* log for each meaningful turn; provides a reproducible action history that can be loaded into context on demand.
 
-Подсистема **переиспользует существующие примитивы** Agents-Core (FastMCP-сервер, `NumpyVectorStore`, маркер-редактор `CLAUDE.md`, эмбеддер, hash-инвалидация). Никакой новой инфраструктуры не вводится.
+The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `NumpyVectorStore`, `CLAUDE.md` marker editor, embedder, hash-based invalidation). No new infrastructure is introduced.
 
-### Проектные решения (зафиксированы)
+### Design Decisions (locked)
 
-| Решение | Выбор | Обоснование |
+| Decision | Choice | Rationale |
 |---|---|---|
-| Способ генерации describe | **Prompt + MCP sampling** | Сервер строит prompt и контекст-bundle, через `ctx.session.create_message(...)` просит вызывающий LLM сгенерировать summary, затем сам пишет результат в `CLAUDE.md`. Уже используется в `route_and_load` (`src/server.py:196`). |
-| Расположение `history.md` | **Корень репо, по умолчанию не коммитится в git** | Файл остаётся локальной per-repo памятью рядом с кодом, но `gitignore`-ится по умолчанию, чтобы не засорять PR и не утекать секретам. При необходимости команда может убрать из `.gitignore` и вернуться к versioned-подходу. |
-| Триггер записи в history | **`log_interaction(...)`** | Отдельный `record_history()` удалён: `log_interaction(...)` всегда дозаписывает запись в `history.md` и опционально отправляет Langfuse generation-трейс. |
-| Семантический поиск | **Lazy** | `log_interaction(...)` остаётся быстрым (только append в `history.md`). `NumpyVectorStore` строится при первом `read_history(query=...)` и инкрементально обновляется по mtime. |
+| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. Already used in `route_and_load` (`src/server.py:196`). |
+| `history.md` location | **Repo root, gitignored by default** | The file stays as local per-repo memory next to the code, but is gitignored by default to avoid polluting PRs and leaking secrets. Teams can remove it from `.gitignore` to opt into a versioned approach. |
+| History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
+| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and incrementally refreshed by mtime. |
 
-### Сверка с аналогами
+### Prior Art Comparison
 
-| Источник | Чем вдохновляемся |
+| Source | Inspiration |
 |---|---|
-| **claude-recall** (TS, SQLite, hooks-driven) | Outcome-aware memory; content-hash dedup; JIT-инъекция активных правил. **Не берём:** SQLite (для нашего use-case markdown проще и git-friendly), хуки (Phase 2). |
-| **mcp-memory-keeper** (TS, SQLite, explicit tools) | Идея явных tool'ов вместо хуков; checkpoint-семантика; channel-based scoping. **Адаптируем:** explicit tool surface, без channels (пока). |
-| **mcp-memory-service** (Python, REST+MCP) | Идея autonomous consolidation (decay + compress) — кладём в Phase 5. **Не берём:** knowledge graph с типизированными рёбрами. |
-| **Mintlify guidance** | Принцип: native CLAUDE.md = постоянный контекст; MCP = real-time запросы. У нас describe пишет в CLAUDE.md (читается на старте), history запрашивается по требованию через MCP. |
+| **claude-recall** (TS, SQLite, hooks-driven) | Outcome-aware memory; content-hash dedup; JIT injection of active rules. **Not adopted:** SQLite (markdown is simpler and git-friendly for our use case), hooks (Phase 2). |
+| **mcp-memory-keeper** (TS, SQLite, explicit tools) | Idea of explicit tools instead of hooks; checkpoint semantics; channel-based scoping. **Adapted:** explicit tool surface, no channels (for now). |
+| **mcp-memory-service** (Python, REST+MCP) | Idea of autonomous consolidation (decay + compress) — deferred to Phase 5. **Not adopted:** knowledge graph with typed edges. |
+| **Mintlify guidance** | Principle: native CLAUDE.md = persistent context; MCP = real-time queries. Our describe writes to CLAUDE.md (read on startup), history is queried on demand via MCP. |
 
 ---
 
-## 2. Цели и не-цели
+## 2. Goals & Non-Goals
 
-**Цели**
-- Три новых MCP-инструмента: `describe_repo`, `record_history`, `read_history`.
-- Идемпотентное, неразрушающее редактирование `CLAUDE.md` через новую пару маркеров (отдельную от существующей секции routing-protocol).
-- Append-only `history.md` в корне репо с content-hash dedup, ежемесячной ротацией, опциональным семантическим recall.
-- Тесты в стиле существующих (`pytest`, `tmp_path`, mock-эмбеддер).
-- Промпт describe-режима — production-grade (BLUF, MECE, структура Mega-Prompting).
+**Goals**
+- Two new MCP tools: `describe_repo`, `read_history`; history writing integrated into existing `log_interaction`.
+- Idempotent, non-destructive editing of `CLAUDE.md` via a new marker pair (separate from the existing routing-protocol section).
+- Append-only `history.md` at the repo root with content-hash dedup, monthly rotation, optional semantic recall.
+- Tests in the style of existing ones (`pytest`, `tmp_path`, mock embedder).
+- Describe-mode prompt — production-grade (BLUF, MECE, Mega-Prompting structure).
 
-**Не-цели**
-- Hooks для авто-захвата (Phase 2; в репо ещё нет `.claude/settings.json` с хуками).
-- Knowledge graph с типизированными рёбрами.
-- Consolidation/decay памяти (Phase 5).
-- Cross-repo федерация памяти.
-- Изменение существующей секции routing-protocol в `CLAUDE.md`.
+**Non-Goals**
+- Hooks for auto-capture (Phase 2; the repo does not yet have `.claude/settings.json` with hooks).
+- Knowledge graph with typed edges.
+- Memory consolidation/decay (Phase 5).
+- Cross-repo memory federation.
+- Modification of the existing routing-protocol section in `CLAUDE.md`.
 
 ---
 
-## 3. Архитектура
+## 3. Architecture
 
-### 3.1 Поток данных
+### 3.1 Data Flow
 
 ```
 describe_repo(repo_path?, force_refresh=False)
-  ├─ RepoDescriber.compute_repo_hash()       # MD5 от pyproject/package.json/top-level dirs/начала README
-  ├─ если хэш не изменился и не force → return {status:"up-to-date"}
-  ├─ обход дерева (depth ≤ 3, исключаем vendor) + чтение ключевых файлов → CONTEXT_BUNDLE
-  ├─ render DESCRIBE_PROMPT (template) с CONTEXT_BUNDLE
-  ├─ ctx.session.create_message(prompt)      # MCP sampling — Claude генерирует summary
+  ├─ RepoDescriber.compute_repo_hash()       # MD5 of pyproject/package.json/top-level dirs/README head
+  ├─ if hash unchanged and not force → return {status:"up-to-date"}
+  ├─ tree walk (depth ≤ 3, excluding vendor) + reading key files → CONTEXT_BUNDLE
+  ├─ render DESCRIBE_PROMPT (template) with CONTEXT_BUNDLE
+  ├─ ctx.session.create_message(prompt)      # MCP sampling — Claude generates summary
   ├─ managed_section.upsert(CLAUDE.md, DESCRIBE_MARKER_BEGIN/END, summary)
-  ├─ сохраняем хэш → DESCRIBE_HASH_FILE
+  ├─ save hash → DESCRIBE_HASH_FILE
   └─ return {status, path, hash, word_count, summary_preview}
 
-record_history(intent, action, outcome, files?, tags?, metadata?)
+log_interaction(..., intent, action, outcome, files?, tags?)
   ├─ HistoryWriter.compute_entry_hash()      # SHA256(intent+action+outcome)[:12]
-  ├─ скан последних 50 записей на дубль → return {status:"duplicate"} при совпадении
-  ├─ форматируем markdown-запись
-  ├─ fcntl.flock + атомарный append к history.md
-  ├─ maybe_rotate() если файл > 512 KB → архив в history/YYYY-MM.md
+  ├─ scan last 50 entries for duplicate → return {status:"duplicate"} on match
+  ├─ format markdown entry
+  ├─ fcntl.flock + atomic append to history.md
+  ├─ maybe_rotate() if file > 512 KB → archive to history/YYYY-MM.md
   └─ return {status:"recorded", entry_id, path}
 
 read_history(limit=20, since?, query?)
-  ├─ если query:
-  │    ├─ HistoryStore.ensure_index()        # lazy: rebuild если mtime файла > mtime store
-  │    └─ семантический поиск через NumpyVectorStore + эмбеддер
-  └─ иначе:
-       └─ HistoryReader.read_recent()        # парсинг снизу вверх, фильтр по since
+  ├─ if query:
+  │    ├─ HistoryStore.ensure_index()        # lazy: rebuild if file mtime > store mtime
+  │    └─ semantic search via NumpyVectorStore + embedder
+  └─ else:
+       └─ HistoryReader.read_recent()        # parse bottom-up, filter by since
 ```
 
-### 3.2 Раскладка модулей
+### 3.2 Module Layout
 
-| Новый файл | Роль |
+| New file | Role |
 |---|---|
-| `src/memory/__init__.py` | Маркер пакета |
-| `src/memory/config.py` | Константы: пути, маркеры, пороги; импортирует `REPO_ROOT`/`DATA_DIR` из `src/engine/config.py:7-8` |
-| `src/memory/managed_section.py` | Чистый Python-порт маркер-редактора из `scripts/init_repo.sh:636-672`. Функции: `upsert_section`, `read_section`, `remove_section`. Атомарная запись через `tempfile` + `os.replace`. |
+| `src/memory/__init__.py` | Package marker |
+| `src/memory/config.py` | Constants: paths, markers, thresholds; imports `REPO_ROOT`/`DATA_DIR` from `src/engine/config.py:7-8` |
+| `src/memory/managed_section.py` | Pure Python port of the marker editor from `scripts/init_repo.sh:636-672`. Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
 | `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → sampling → upsert |
-| `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (обёртка над NumpyVectorStore) |
-| `tests/test_managed_section.py` | Тесты маркер-редактора (стиль `tests/test_vector_store.py`) |
-| `tests/test_describer.py` | Хэш, refresh-логика, мок sampling, проверка upsert |
-| `tests/test_history.py` | Append, dedup, ротация, recent read, семантический поиск (mock embedder) |
+| `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (wrapper around NumpyVectorStore) |
+| `tests/test_managed_section.py` | Marker editor tests (style of `tests/test_vector_store.py`) |
+| `tests/test_describer.py` | Hash, refresh logic, mock sampling, upsert verification |
+| `tests/test_history.py` | Append, dedup, rotation, recent read, semantic search (mock embedder) |
 
-| Изменяемый файл | Что меняем |
+| Modified file | What changes |
 |---|---|
-| `src/server.py` | Добавить `@mcp.tool()` для `describe_repo`, `record_history`, `read_history` |
-| `CLAUDE.md` (корень проекта) | Добавить короткую инструкцию в routing protocol: после шагов протокола агент должен вызывать `record_history()` в конце значимого turn'а; на первой сессии в незнакомом репо — сначала `describe_repo()` |
-| `.gitignore` | Закомментированные строки opt-out для `history.md` |
+| `src/server.py` | Add `@mcp.tool()` for `describe_repo`, `read_history`; extend `log_interaction` with history append |
+| `CLAUDE.md` (project root) | Add short instruction to routing protocol: after protocol steps the agent should call `log_interaction()` at the end of meaningful turns; on first session in an unfamiliar repo — call `describe_repo()` first |
+| `.gitignore` | Entries for `history.md` and `history/` |
 
-### 3.3 Карта переиспользования (НЕ переписывать заново)
+### 3.3 Reuse Map (do NOT rewrite from scratch)
 
-| Существующее | Расположение | Где переиспользуем |
+| Existing | Location | Where reused |
 |---|---|---|
-| FastMCP `@mcp.tool()` декоратор + JSON-string возвраты | `src/server.py:70-608` | Все три новых tool'а — тот же паттерн регистрации |
-| MCP sampling через `ctx.session.create_message(...)` | `src/server.py:196` | `describe_repo` использует тот же sampling-вызов |
-| Маркер-редактор CLAUDE.md (inline Python) | `scripts/init_repo.sh:636-672` | Портируем буквально в `src/memory/managed_section.py` — bash-инсталлер и MCP-tool используют одну реализацию (bash подцепит через subprocess) |
+| FastMCP `@mcp.tool()` decorator + JSON-string returns | `src/server.py:70-608` | All new tools — same registration pattern |
+| MCP sampling via `ctx.session.create_message(...)` | `src/server.py:196` | `describe_repo` uses the same sampling call |
+| Marker editor for CLAUDE.md (inline Python) | `scripts/init_repo.sh:636-672` | Ported literally to `src/memory/managed_section.py` — bash installer and MCP tool share one implementation |
 | `SkillRetriever._compute_dir_hash` + `_needs_reindex` | `src/engine/skills.py:32-51` | `RepoDescriber._compute_repo_hash` + `_needs_refresh` |
-| `NumpyVectorStore` (атомарные .npz+.json, thread-safe) | `src/engine/vector_store.py:39` | `HistoryStore` для семантического recall |
-| `embed_texts` / `embed_query` (FastEmbed) | `src/engine/embedder.py:83,89` | Векторизация записей и запросов |
-| `LanguageDetector` | `src/engine/language.py:39` | Тегирование записей по языку |
-| `debug_log` | `src/utils/debug_logger.py:18` | Инструментация всех трёх tool'ов |
-| `@observe` из `langfuse_compat` | `src/utils/langfuse_compat.py` | Опциональная observability |
-| `REPO_ROOT`, `DATA_DIR` | `src/engine/config.py:7-8` | Базовые пути |
-| pytest-фикстуры (`tmp_path`, `populated_store`) | `tests/test_vector_store.py:12-31` | Зеркалим для новых тестов |
+| `NumpyVectorStore` (atomic .npz+.json, thread-safe) | `src/engine/vector_store.py:39` | `HistoryStore` for semantic recall |
+| `embed_texts` / `embed_query` (FastEmbed) | `src/engine/embedder.py:83,89` | Vectorization of entries and queries |
+| `LanguageDetector` | `src/engine/language.py:39` | Language tagging of entries |
+| `debug_log` | `src/utils/debug_logger.py:18` | Instrumentation of all tools |
+| `@observe` from `langfuse_compat` | `src/utils/langfuse_compat.py` | Optional observability |
+| `REPO_ROOT`, `DATA_DIR` | `src/engine/config.py:7-8` | Base paths |
+| pytest fixtures (`tmp_path`, `populated_store`) | `tests/test_vector_store.py:12-31` | Mirrored for new tests |
 
 ---
 
-## 4. Контракты форматов
+## 4. Format Contracts
 
-### 4.1 `CLAUDE.md` (управляемая секция)
+### 4.1 `CLAUDE.md` (managed section)
 
-Сосуществуют две пары маркеров. Новая пара ставится **ниже** существующей секции routing-protocol, чтобы повторные запуски `init_repo.sh` и повторные `describe_repo` никогда не пересекались.
+Two marker pairs coexist. The new pair is placed **below** the existing routing-protocol section so that reruns of `init_repo.sh` and `describe_repo` never overlap.
 
 ```
 # >>> Agents-Core Routing Protocol (managed by init_repo) >>>
-… существующее …
+… existing content …
 # <<< Agents-Core Routing Protocol (managed by init_repo) <<<
 
 # >>> Agents-Core Repository Memory (managed by describe_repo) >>>
@@ -171,11 +170,11 @@ read_history(limit=20, since?, query?)
 # <<< Agents-Core Repository Memory (managed by describe_repo) <<<
 ```
 
-**Бюджет слов:** 800–1500 (проверяется тестами). Жёсткий cap, чтобы `CLAUDE.md` не раздул контекстное окно.
+**Word budget:** 800–1500 (enforced by tests). Hard cap to prevent `CLAUDE.md` from bloating the context window.
 
-### 4.2 `history.md` (append-only, корень репо)
+### 4.2 `history.md` (append-only, repo root)
 
-Шапка файла (пишется один раз при первом append):
+File header (written once on first append):
 ```yaml
 ---
 repo: agents-core
@@ -184,26 +183,26 @@ format_version: 1
 ---
 ```
 
-Шаблон записи:
+Entry template:
 ```markdown
 ## 2026-04-15T14:32:00Z | a1b2c3d4e5f6
-**Intent:** Включить семантический recall прошлых действий для подгрузки в контекст.
-**Action:** Добавил `HistoryStore` поверх `NumpyVectorStore` в `src/memory/history.py`; записи эмбеддятся лениво.
-**Outcome:** `pytest tests/test_history.py::test_semantic_search_returns_relevant` проходит; индекс пересобирается, когда mtime history.md растёт.
+**Intent:** Enable semantic recall of past actions for context loading.
+**Action:** Added `HistoryStore` on top of `NumpyVectorStore` in `src/memory/history.py`; entries are embedded lazily.
+**Outcome:** `pytest tests/test_history.py::test_semantic_search_returns_relevant` passes; index rebuilds when history.md mtime grows.
 **Files:** src/memory/history.py, tests/test_history.py
 **Tags:** #feature #memory
 ```
 
-**Правила:**
-- `entry_id` (12-hex суффикс в заголовке) = `sha256(intent+action+outcome)[:12]`. Стабильный, дедупится.
-- Dedup: скан последних 50 записей по id перед append. Дубли коротко-замыкаются.
-- Только append. Прошлые записи никогда не редактируются и не удаляются.
-- `fcntl.flock(LOCK_EX)` на запись (защита от параллельных сессий).
-- Ротация: при `os.path.getsize > 512 KB` — переносим файл в `history/YYYY-MM.md` (месяц по timestamp последней записи), открываем свежий `history.md` со ссылкой-шапкой на архив.
+**Rules:**
+- `entry_id` (12-hex suffix in the heading) = `sha256(intent+action+outcome)[:12]`. Stable, deduplicated.
+- Dedup: scan the last 50 entries by id before append. Duplicates short-circuit.
+- Append-only. Past entries are never edited or deleted.
+- `fcntl.flock(LOCK_EX)` for writes (protects against concurrent sessions).
+- Rotation: when `os.path.getsize > 512 KB` — move file to `history/YYYY-MM.md` (month from the last entry's timestamp), create a fresh `history.md` with a header pointing to the archive.
 - UTF-8, `\n` line endings.
-- `tags` — свободные `#хэштеги`; `metadata` — плоский JSON, если задан, сериализуется inline как `**Meta:** {...}`.
+- `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
 
-### 4.3 Сигнатуры MCP-инструментов (добавляются в `src/server.py`)
+### 4.3 MCP Tool Signatures (added to `src/server.py`)
 
 ```python
 @mcp.tool()
@@ -216,22 +215,24 @@ async def describe_repo(
     and writes it into the managed Repository Memory section of CLAUDE.md.
 
     Returns JSON: {status, path, hash, word_count, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "error"}.
+    status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
     """
 
 @mcp.tool()
-async def record_history(
-    intent: str,
-    action: str,
-    outcome: str,
+async def log_interaction(
+    agent_name: str,
+    query: str,
+    response_content: str,
+    intent: str | None = None,
+    action: str | None = None,
+    outcome: str | None = None,
     files: list[str] | None = None,
     tags: list[str] | None = None,
-    metadata: dict | None = None,
 ) -> str:
-    """Append a single intent-centric entry to history.md (append-only, deduped by content hash).
+    """End-of-turn logger. Always appends to history.md (append-only, deduped by
+    content hash) and optionally sends a Langfuse generation trace.
 
-    Returns JSON: {status, entry_id, path}.
-    status ∈ {"recorded", "duplicate", "error"}.
+    Returns JSON: {request_id, langfuse: {status}, history: {status, entry_id, path}}.
     """
 
 @mcp.tool()
@@ -240,22 +241,26 @@ async def read_history(
     since: str | None = None,
     query: str | None = None,
 ) -> str:
-    """Read recent entries (limit/since) or run a lazy semantic search (query). Returns JSON.
+    """Read recent entries (limit/since) or run a lazy semantic search (query).
 
-    Returns JSON: {entries: [{id, timestamp, intent, action, outcome, files, tags, distance?}], total, mode}.
+    Returns JSON: {entries: [...], total, mode}.
     mode ∈ {"recency", "semantic"}.
+
+    Entry shape depends on mode:
+    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
+    - semantic: {id, distance, document, timestamp, intent, tags}.
     """
 ```
 
-Все три возвращают JSON-строки (как существующий паттерн в `src/server.py`).
+All tools return JSON strings (following the existing pattern in `src/server.py`).
 
 ---
 
-## 5. Промпт describe-режима (центральный артефакт)
+## 5. Describe Prompt (central artifact)
 
-`RepoDescriber` строит этот промпт и отправляет через `ctx.session.create_message(...)`. Плейсхолдер `{{CONTEXT_BUNDLE}}` заполняется детерминированно: дерево файлов (depth ≤ 3), `pyproject.toml` / `package.json` / `Cargo.toml` / `go.mod`, README.md (первые 200 строк), заголовки entry-point файлов, sample frontmatter `.mdc`, список тестов, скрипты.
+`RepoDescriber` builds this prompt and sends it via `ctx.session.create_message(...)`. The `{{CONTEXT_BUNDLE}}` placeholder is filled deterministically: file tree (depth ≤ 3), `pyproject.toml` / `package.json` / `Cargo.toml` / `go.mod`, README.md (first 200 lines), entry-point file headers, sample `.mdc` frontmatter, test list, scripts.
 
-> Текст промпта оставлен на английском намеренно — будущие сессии Claude в любом языковом контексте смогут его выполнить, а структура output совпадает с английскими секциями `CLAUDE.md`.
+> The prompt text is kept in English intentionally — future Claude sessions in any language context will be able to execute it, and the output structure matches the English sections of `CLAUDE.md`.
 
 ```
 You are a **Repository Analyst** performing a one-time deep study of a codebase.
@@ -319,159 +324,159 @@ Table: term | definition. Domain-specific terms only. Max 15.
 
 ---
 
-## 6. Пошаговая реализация
+## 6. Step-by-Step Implementation
 
 ### Phase 1 — Foundation (1 PR)
 
-1. Создать `src/memory/__init__.py` (пустой).
-2. Создать `src/memory/config.py` с константами: `MEMORY_DATA_DIR`, `HISTORY_FILE`, `DESCRIBE_HASH_FILE`, `DESCRIBE_MARKER_BEGIN/END`, `HISTORY_VECTOR_STORE_NAME`, `HISTORY_ROTATION_THRESHOLD_KB = 512`. Все пути привязаны к `REPO_ROOT`/`DATA_DIR` из `src/engine/config.py`.
-3. Создать `src/memory/managed_section.py` с `upsert_section`, `read_section`, `remove_section`. Портировать inline Python из `scripts/init_repo.sh:636-672` строка-в-строку, добавить атомарную запись через `tempfile.NamedTemporaryFile` + `os.replace`. Валидировать уникальность маркеров; кидать ошибку при частичных маркерах.
-4. Написать `tests/test_managed_section.py`: create, replace, append, partial-marker rejection, сохранение контента вне маркеров, атомарная запись при сбое.
+1. Create `src/memory/__init__.py` (empty).
+2. Create `src/memory/config.py` with constants: `MEMORY_DATA_DIR`, `HISTORY_FILE`, `DESCRIBE_HASH_FILE`, `DESCRIBE_MARKER_BEGIN/END`, `HISTORY_VECTOR_STORE_NAME`, `HISTORY_ROTATION_THRESHOLD_KB = 512`. All paths bound to `REPO_ROOT`/`DATA_DIR` from `src/engine/config.py`.
+3. Create `src/memory/managed_section.py` with `upsert_section`, `read_section`, `remove_section`. Port inline Python from `scripts/init_repo.sh:636-672` line-by-line, add atomic writes via `tempfile.NamedTemporaryFile` + `os.replace`. Validate marker uniqueness; raise on partial markers.
+4. Write `tests/test_managed_section.py`: create, replace, append, partial-marker rejection, content outside markers preserved, atomic write on failure.
 
 ### Phase 2 — Describe (1 PR)
 
-5. Создать `src/memory/describer.py`:
+5. Create `src/memory/describer.py`:
    - `RepoDescriber.__init__(repo_path)`.
-   - `_compute_repo_hash()` — MD5 от: отсортированных top-level имён файлов, содержимого `pyproject.toml`, содержимого `package.json`, имён директорий depth-1 + depth-2, первых 200 строк README.md.
-   - `_needs_refresh(force) → (bool, hash)` — паттерн из `src/engine/skills.py:43-51`.
-   - `_build_context_bundle() → str` — рендерит блок `{{CONTEXT_BUNDLE}}`: дерево (`Path.rglob` с фильтрами, depth ≤ 3, исключая `node_modules`, `.venv`, `__pycache__`, `.git`, `data/`), содержимое ключевых файлов, sample frontmatter `.mdc`.
-   - `_render_prompt(bundle, repo_name) → str` — подставляет плейсхолдеры в шаблон describe-промпта (хранится как multiline-константа в модуле).
-   - `async describe(ctx, force=False) → dict` — оркестратор: если refresh не нужен — вернуть кэш summary, прочитанный через `managed_section.read_section`; иначе построить prompt, вызвать `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, сохранить хэш, вернуть status.
-6. Добавить tool `describe_repo` в `src/server.py`. Обернуть в `@observe`, если Langfuse подгружен. Вернуть JSON.
-7. Написать `tests/test_describer.py`: детерминированный хэш, refresh-on-change, refresh-skipped-when-unchanged, моканый `ctx.session.create_message` с заранее заготовленным summary, проверка upsert, ассерт word-count (800–1500).
+   - `_compute_repo_hash()` — MD5 of: sorted top-level file names, `pyproject.toml` contents, `package.json` contents, depth-1 + depth-2 directory names, first 200 lines of README.md.
+   - `_needs_refresh(force) → (bool, hash)` — pattern from `src/engine/skills.py:43-51`.
+   - `_build_context_bundle() → str` — renders the `{{CONTEXT_BUNDLE}}` block: tree (`Path.rglob` with filters, depth ≤ 3, excluding `node_modules`, `.venv`, `__pycache__`, `.git`, `data/`), key file contents, sample `.mdc` frontmatter.
+   - `_render_prompt(bundle, repo_name) → str` — substitutes placeholders in the describe prompt template (stored as a multiline constant in the module).
+   - `async describe(ctx, force=False) → dict` — orchestrator: if no refresh needed — return cached summary read via `managed_section.read_section`; otherwise build prompt, call `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, save hash, return status.
+6. Add `describe_repo` tool to `src/server.py`. Wrap with `@observe` if Langfuse is loaded. Return JSON.
+7. Write `tests/test_describer.py`: deterministic hash, refresh-on-change, refresh-skipped-when-unchanged, mocked `ctx.session.create_message` with a pre-built summary, upsert verification, word-count assertion (800–1500).
 
 ### Phase 3 — History (1 PR)
 
-8. Создать `src/memory/history.py`:
-   - `HistoryWriter`: `__init__(history_path)`, `_compute_entry_hash`, `_is_duplicate` (tail-scan последних 50), `append_entry` (format → `flock` → атомарный append → `maybe_rotate`), `maybe_rotate`.
-   - `HistoryReader`: `read_recent(limit, since)` — парсинг снизу вверх через regex `## {ts} | {id}`.
-   - `HistoryStore`: lazy-обёртка над `NumpyVectorStore`. `ensure_index()` сравнивает mtime store и файла; если устарел — переэмбеддит все записи (или инкрементально: только записи, чьего id нет в store). `search(query, limit)` эмбеддит запрос, возвращает топ-N с distance.
-9. Добавить `record_history` и `read_history` в `src/server.py`. Оба возвращают JSON.
-10. Написать `tests/test_history.py`: append создаёт файл с шапкой, format roundtrip, dedup, порядок recent read, фильтр `since`, ротация триггерит + создаёт архив, lazy-семантический индекс пересобирается при изменении файла (mock embedder).
+8. Create `src/memory/history.py`:
+   - `HistoryWriter`: `__init__(history_path)`, `_compute_entry_hash`, `_is_duplicate` (tail-scan last 50), `append_entry` (format → `flock` → atomic append → `maybe_rotate`), `maybe_rotate`.
+   - `HistoryReader`: `read_recent(limit, since)` — bottom-up parsing via regex `## {ts} | {id}`.
+   - `HistoryStore`: lazy wrapper around `NumpyVectorStore`. `ensure_index()` compares store and file mtime; if stale — re-embeds all entries (or incrementally: only entries whose id is not in the store). `search(query, limit)` embeds the query, returns top-N with distance.
+9. Extend `log_interaction` in `src/server.py` to append history entries. Add `read_history`. Both return JSON.
+10. Write `tests/test_history.py`: append creates file with header, format roundtrip, dedup, recent read order, `since` filter, rotation triggers + creates archive, lazy semantic index rebuilds on file change (mock embedder).
 
 ### Phase 4 — Wiring & Documentation (1 PR)
 
-11. Обновить `CLAUDE.md` (корень проекта) — короткая post-flight инструкция внутри секции routing protocol: *"After completing a meaningful turn, call `record_history(intent, action, outcome, files)`. On first session in an unfamiliar repo, call `describe_repo()` first."* Распространится в `~/.claude/CLAUDE.md` при следующем запуске `init_repo.sh`.
-12. Обновить `.gitignore` закомментированным opt-out:
+11. Update `CLAUDE.md` (project root) — short post-flight instruction inside the routing protocol section: *"After completing a meaningful turn, call `log_interaction(intent, action, outcome, files)`. On first session in an unfamiliar repo, call `describe_repo()` first."* Propagated to `~/.claude/CLAUDE.md` on next `init_repo.sh` run.
+12. Update `.gitignore`:
     ```
-    # Uncomment if you prefer to keep action history private:
-    # history.md
-    # history/
+    # history.md and history/ are gitignored by default for privacy.
+    history.md
+    history/
     ```
-13. Обновить корневой `README.md` — короткий раздел "Repository memory: `describe_repo` / `record_history`" со ссылкой на эту спецификацию.
+13. Update root `README.md` — short "Repository Memory" section with a link to this specification.
 
-### Phase 5 — Опциональные follow-ups (отдельные PR, не в текущем scope)
+### Phase 5 — Optional Follow-ups (separate PRs, out of current scope)
 
-14. **Hooks:** добавить шаблон `.claude/settings.json` с `PostToolUse`-хуком, который напоминает Claude вызвать `record_history`. Документировать в спеке, по умолчанию не включать.
-15. **Memory consolidation:** ночная задача, которая сжимает записи старше N дней в месячные summary.
-16. **Интеграция с `init_repo.sh`:** опциональный флаг `--describe`, который запускает `describe_repo` при первой установке.
+14. **Hooks:** add a `.claude/settings.json` template with a `PostToolUse` hook that reminds Claude to include curated fields in `log_interaction`. Document in the spec, disabled by default.
+15. **Memory consolidation:** nightly task that compresses entries older than N days into monthly summaries.
+16. **Integration with `init_repo.sh`:** optional `--describe` flag that runs `describe_repo` during first install.
 
 ---
 
-## 7. План тестирования
+## 7. Test Plan
 
-### 7.1 Юнит-тесты (pytest)
+### 7.1 Unit Tests (pytest)
 
-| Тест | Что проверяет |
+| Test | What it verifies |
 |---|---|
-| `test_managed_section_create` | Создание файла с маркерами и контентом |
-| `test_managed_section_replace` | Замена существующей секции, контент вне маркеров не тронут |
-| `test_managed_section_append` | Append при отсутствии маркеров |
-| `test_managed_section_partial_markers` | Ошибка при частичных маркерах (только begin или только end) |
-| `test_describer_hash_deterministic` | Один и тот же репо → один и тот же хэш |
-| `test_describer_hash_changes_on_file_add` | Новый top-level файл → хэш меняется |
-| `test_describer_skips_when_unchanged` | Второй вызов без force → `status:"up-to-date"` |
-| `test_describer_force_refresh_overwrites` | `force_refresh=True` → перегенерация даже при том же хэше |
-| `test_describer_word_count_in_range` | Сгенерированный summary укладывается в 800–1500 слов |
-| `test_history_append_creates_file` | Первый вызов создаёт `history.md` с frontmatter |
-| `test_history_format_roundtrip` | Append → read → все поля совпадают |
-| `test_history_dedup_by_hash` | Повторный вызов с тем же intent/action/outcome → `status:"duplicate"` |
-| `test_history_read_recent_order` | Возвращает записи в обратном хронологическом порядке |
-| `test_history_read_since_filter` | Фильтрация по timestamp работает |
-| `test_history_rotation_triggers` | Файл > 512 KB → перенос в `history/YYYY-MM.md` |
-| `test_history_semantic_lazy_index` | Векторный store не существует до первого `read_history(query=...)` |
-| `test_history_semantic_returns_relevant` | Mock-эмбеддер: запрос возвращает наиболее релевантную запись |
+| `test_managed_section_create` | File creation with markers and content |
+| `test_managed_section_replace` | Replacing existing section, content outside markers untouched |
+| `test_managed_section_append` | Append when no markers exist |
+| `test_managed_section_partial_markers` | Error on partial markers (only begin or only end) |
+| `test_describer_hash_deterministic` | Same repo → same hash |
+| `test_describer_hash_changes_on_file_add` | New top-level file → hash changes |
+| `test_describer_skips_when_unchanged` | Second call without force → `status:"up-to-date"` |
+| `test_describer_force_refresh_overwrites` | `force_refresh=True` → regeneration even with same hash |
+| `test_describer_word_count_in_range` | Generated summary fits within 800–1500 words |
+| `test_history_append_creates_file` | First call creates `history.md` with frontmatter |
+| `test_history_format_roundtrip` | Append → read → all fields match |
+| `test_history_dedup_by_hash` | Repeat call with same intent/action/outcome → `status:"duplicate"` |
+| `test_history_read_recent_order` | Returns entries in reverse chronological order |
+| `test_history_read_since_filter` | Timestamp filtering works |
+| `test_history_rotation_triggers` | File > 512 KB → moves to `history/YYYY-MM.md` |
+| `test_history_semantic_lazy_index` | Vector store does not exist until first `read_history(query=...)` |
+| `test_history_semantic_returns_relevant` | Mock embedder: query returns the most relevant entry |
 
-### 7.2 Live MCP-проверки (вручную)
+### 7.2 Live MCP Checks (manual)
 
-1. Поднять сервер: `bash scripts/run_tests.sh && python -m src.server`.
-2. В Claude Code сессии:
-   - `describe_repo()` → подтвердить, что `CLAUDE.md` обновился; routing-секция не тронута.
-   - Повторно `describe_repo()` → `status:"up-to-date"`.
-   - `describe_repo(force_refresh=True)` → перегенерация.
-   - `record_history(intent="Verify integration", action="Manual test", outcome="passed")` → запись в `history.md`.
-   - Повторно тот же `record_history` → `status:"duplicate"`.
-   - `read_history(limit=5)` → запись видна.
-   - `read_history(query="verify integration")` → семантический матч.
-3. Регрессии: `pytest tests/test_routing.py` — `route_and_load` корректно роутит существующие тестовые запросы.
+1. Start server: `bash scripts/run_tests.sh && python -m src.server`.
+2. In a Claude Code session:
+   - `describe_repo()` → confirm that `CLAUDE.md` was updated; routing section untouched.
+   - Repeat `describe_repo()` → `status:"up-to-date"`.
+   - `describe_repo(force_refresh=True)` → regeneration.
+   - `log_interaction(...)` with curated `intent="Verify integration", action="Manual test", outcome="passed"` → entry in `history.md`.
+   - Repeat same `log_interaction` → `status:"duplicate"`.
+   - `read_history(limit=5)` → entry visible.
+   - `read_history(query="verify integration")` → semantic match.
+3. Regressions: `pytest tests/test_routing.py` — `route_and_load` correctly routes existing test queries.
 
-### 7.3 Метрики качества
+### 7.3 Quality Metrics
 
-| Метрика | Цель |
+| Metric | Target |
 |---|---|
-| Word count describe-summary | 800–1500 |
-| Размер `CLAUDE.md` после describe | < 15 KB |
-| Латентность `record_history` | < 20 ms (без векторизации) |
-| Латентность `read_history(query=...)` (cold) | < 500 ms (включая первичную индексацию ≤ 100 записей) |
-| Точность семантического поиска | top-1 совпадает с ожидаемым в ≥ 90% тестов |
+| Word count of describe summary | 800–1500 |
+| Size of `CLAUDE.md` after describe | < 15 KB |
+| Latency of `log_interaction` (history append) | < 20 ms (no vectorization) |
+| Latency of `read_history(query=...)` (cold) | < 500 ms (including initial indexing of ≤ 100 entries) |
+| Semantic search accuracy | top-1 matches expected in ≥ 90% of tests |
 
 ---
 
-## 8. Открытые решения (не блокируют v1)
+## 8. Open Questions (non-blocking for v1)
 
-- **Категории в `record_history`?** Принимать ли enum `category` (decision/refactor/fix/feature) для фильтрованного чтения? **Рекомендация:** пропустить в v1; tags покрывают это с нулевой жёсткостью схемы.
-- **Git-метаданные в describe?** Включать ли текущую ветку и последний коммит? **Рекомендация:** да — append блока `## Git State` в конце управляемой секции, перегенеряется при каждом refresh.
-- **Phase 2 hooks:** opt-in PostToolUse для авто-подсказки `record_history`. **Не в scope v1;** контракт хука зафиксировать в этой спеке (раздел Phase 5).
+- **Categories in `log_interaction`?** Accept an enum `category` (decision/refactor/fix/feature) for filtered reading? **Recommendation:** skip in v1; tags cover this with zero schema rigidity.
+- **Git metadata in describe?** Include current branch and last commit? **Recommendation:** yes — append a `## Git State` block at the end of the managed section, regenerated on each refresh.
+- **Phase 2 hooks:** opt-in PostToolUse for auto-reminder to include curated fields in `log_interaction`. **Not in scope for v1;** hook contract to be specified in this doc (Phase 5 section).
 
 ---
 
-## Приложение A. Затрагиваемые файлы (быстрая навигация)
+## Appendix A. Affected Files (quick navigation)
 
-**Создаём:**
+**Created:**
 - `src/memory/__init__.py`
-- `src/memory/config.py` — константы
-- `src/memory/managed_section.py` — маркер-редактор (порт из `scripts/init_repo.sh:636-672`)
-- `src/memory/describer.py` — `RepoDescriber` + шаблон describe-промпта
+- `src/memory/config.py` — constants
+- `src/memory/managed_section.py` — marker editor (port from `scripts/init_repo.sh:636-672`)
+- `src/memory/describer.py` — `RepoDescriber` + describe prompt template
 - `src/memory/history.py` — `HistoryWriter`, `HistoryReader`, `HistoryStore`
 - `tests/test_managed_section.py`
 - `tests/test_describer.py`
 - `tests/test_history.py`
 
-**Изменяем:**
-- `src/server.py` — три новых `@mcp.tool()`
-- `CLAUDE.md` — добавить post-flight инструкцию (один абзац) внутрь routing protocol
-- `.gitignore` — закомментированный opt-out для `history.md`
-- `README.md` — один абзац про подсистему памяти со ссылкой на эту спеку
+**Modified:**
+- `src/server.py` — new `@mcp.tool()` registrations + extended `log_interaction`
+- `CLAUDE.md` — added post-flight instruction (one paragraph) inside routing protocol
+- `.gitignore` — `history.md` and `history/` gitignored by default
+- `README.md` — one paragraph about the memory subsystem with a link to this spec
 
-## Приложение C. Implementation Notes (что реально вошло в код)
+## Appendix C. Implementation Notes (what actually shipped)
 
-Реализация на 2026-04-15 совпадает со спекой. Уточнения, появившиеся при кодинге:
+The implementation as of 2026-04-15 matches the spec. Clarifications that emerged during coding:
 
-1. **Модуль `src/memory/config.py`** добавляет константы, не упомянутые в плане явно: `CLAUDE_MD_FILE`, `HISTORY_ARCHIVE_DIR`, `DESCRIBE_TREE_MAX_DEPTH`, `DESCRIBE_README_HEAD_LINES`, `DESCRIBE_EXCLUDED_DIRS`, `DESCRIBE_WORD_MIN/MAX`. Все — производные от значений, упомянутых в спеке (512 KB, 800–1500 слов, depth ≤ 3).
+1. **Module `src/memory/config.py`** adds constants not explicitly mentioned in the plan: `CLAUDE_MD_FILE`, `HISTORY_ARCHIVE_DIR`, `DESCRIBE_TREE_MAX_DEPTH`, `DESCRIBE_README_HEAD_LINES`, `DESCRIBE_EXCLUDED_DIRS`, `DESCRIBE_WORD_MIN/MAX`. All are derived from values mentioned in the spec (512 KB, 800–1500 words, depth ≤ 3).
 
-2. **Hash CLAUDE.md/history.md исключается из repo-hash** (`_HASH_EXCLUDED_FILES` в `describer.py`). Без этого `describe_repo` инвалидировал бы собственный кэш на каждом запуске — побочный эффект записи в CLAUDE.md меняет top-level filenames.
+2. **CLAUDE.md/history.md hashes are excluded from the repo hash** (`_HASH_EXCLUDED_FILES` in `describer.py`). Without this, `describe_repo` would invalidate its own cache on every run — the side effect of writing to CLAUDE.md changes the top-level filenames.
 
-3. **`RepoDescriber` разбит на `plan() / build_prompt() / write_summary()`**, а вызов `ctx.session.create_message(...)` остался в `src/server.py`. Это позволяет писать unit-тесты без MCP-контекста — тесты не используют sampling.
+3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**, and the `ctx.session.create_message(...)` call stays in `src/server.py`. This allows writing unit tests without an MCP context — tests do not use sampling.
 
-4. **`HistoryWriter`/`HistoryReader` — pure stdlib**, без numpy. `HistoryStore` (семантический recall) импортирует `NumpyVectorStore` и эмбеддер только при первом `search()`. Это критично для NixOS-окружения: writer/reader работают даже когда numpy не может загрузиться (тесты semantic-store при этом помечаются `skipif`).
+4. **`HistoryWriter`/`HistoryReader` are pure stdlib**, without numpy. `HistoryStore` (semantic recall) imports `NumpyVectorStore` and the embedder only on the first `search()`. This is critical for NixOS environments: writer/reader work even when numpy cannot load (semantic-store tests are marked `skipif` in that case).
 
-5. **`HistoryStore.search` принимает `embed_query` / `embed_texts` как аргументы** (DI). По умолчанию подгружаются `src.engine.embedder.*`; в тестах подсовывается `FakeEmbedder` с детерминированными векторами, не требующий загрузки реальной модели.
+5. **`HistoryStore.search` accepts `embed_query` / `embed_texts` as arguments** (DI). By default they load `src.engine.embedder.*`; in tests a `FakeEmbedder` with deterministic vectors is injected, requiring no real model download.
 
-6. **fcntl-обёртка** `_lock_exclusive` / `_unlock` в `history.py` — no-op на Windows, чтобы модуль импортировался кросс-платформенно.
+6. **fcntl wrapper** `_lock_exclusive` / `_unlock` in `history.py` — no-op on Windows so the module imports cross-platform.
 
-7. **Tag-нормализация:** хэштеги без префикса `#` дополняются им автоматически (`"feature"` → `"#feature"`).
+7. **Tag normalization:** hashtags without a `#` prefix are automatically prefixed (`"feature"` → `"#feature"`).
 
-8. **Rotation merge:** если `history/YYYY-MM.md` уже существует на момент ротации (несколько ротаций в один месяц), новый снапшот аппендится с разделителем `<!-- merged on rotation -->`, а не перезаписывает старый архив.
+8. **Rotation merge:** if `history/YYYY-MM.md` already exists at rotation time (multiple rotations in one month), the new snapshot is appended with a `<!-- merged on rotation -->` separator rather than overwriting the existing archive.
 
-9. **CLI-инструкция в `CLAUDE.md`** добавлена как пункт `4. Repository memory (first session per repo)` — отдельный раздел внутри Routing Flow, чтобы не путаться с post-flight шагом 3.
+9. **CLI instruction in `CLAUDE.md`** added as item `4. Repository memory (first session per repo)` — a separate section within the Routing Flow to avoid confusion with post-flight step 3.
 
-10. **README.md** содержит раздел `🧠 Repository Memory` со ссылкой на эту спеку и упоминанием `.gitignore` opt-out.
+10. **README.md** contains a `Repository Memory` section with a link to this spec and a mention of the `.gitignore` opt-out.
 
 ---
 
-## Приложение B. Источники (research)
+## Appendix B. References (research)
 
-- `https://github.com/raoulbia-ai/claude-recall` — outcome-aware memory, hooks, JIT-инъекция
+- `https://github.com/raoulbia-ai/claude-recall` — outcome-aware memory, hooks, JIT injection
 - `https://github.com/mkreyman/mcp-memory-keeper` — explicit tool surface, checkpoints, channels
 - `https://github.com/doobidoo/mcp-memory-service` — autonomous consolidation, knowledge graph
 - `https://www.mintlify.com/blog/how-claudes-memory-and-mcp-work` — split native CLAUDE.md vs MCP

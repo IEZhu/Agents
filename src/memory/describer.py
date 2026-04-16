@@ -410,9 +410,9 @@ class RepoDescriber:
             return None
 
     def _save_hash(self, digest: str) -> None:
-        os.makedirs(os.path.dirname(self.hash_file), exist_ok=True)
+        target_dir = os.path.dirname(self.hash_file) or "."
+        os.makedirs(target_dir, exist_ok=True)
         # Atomic write — same pattern as managed_section
-        target_dir = os.path.dirname(self.hash_file)
         fd, tmp = tempfile.mkstemp(dir=target_dir, prefix=".describe_hash.", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:

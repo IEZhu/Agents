@@ -694,7 +694,7 @@ async def describe_repo(
     skip re-exploring the codebase.
 
     Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "error"}.
+    status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
     """
     try:
         debug_log("describe_repo", "req", {

@@ -69,7 +69,7 @@ The server exposes MCP tools that any compatible client can call:
 | `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
-| `log_interaction(agent_name, query, response, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
+| `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
 | `clear_session_cache()` | Reset session cache |
 | `describe_repo(force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
