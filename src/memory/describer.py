@@ -14,7 +14,6 @@ import datetime as _dt
 import hashlib
 import logging
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -423,21 +422,8 @@ class RepoDescriber:
             return None
 
     def _save_hash(self, digest: str) -> None:
-        target_dir = os.path.dirname(self.hash_file) or "."
-        os.makedirs(target_dir, exist_ok=True)
-        # Atomic write — same pattern as managed_section
-        fd, tmp = tempfile.mkstemp(dir=target_dir, prefix=".describe_hash.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(digest)
-            os.replace(tmp, self.hash_file)
-        except Exception:
-            if os.path.exists(tmp):
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-            raise
+        os.makedirs(os.path.dirname(self.hash_file) or ".", exist_ok=True)
+        managed_section._atomic_write(self.hash_file, digest)
 
     # ----------------------------------------------------------------- helpers exposed for the MCP tool
     @staticmethod
