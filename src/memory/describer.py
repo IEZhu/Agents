@@ -329,11 +329,14 @@ class RepoDescriber:
     def build_prompt(self) -> str:
         bundle = self.build_context_bundle()
         repo_name = os.path.basename(self.repo_path) or self.repo_path
-        return DESCRIBE_PROMPT_TEMPLATE.format(
-            REPO_NAME=repo_name,
-            CONTEXT_BUNDLE=bundle,
-            WORD_MIN=DESCRIBE_WORD_MIN,
-            WORD_MAX=DESCRIBE_WORD_MAX,
+        # Use str.replace instead of str.format — the bundle contains raw file
+        # contents (JSON, TOML) with curly braces that would crash .format().
+        return (
+            DESCRIBE_PROMPT_TEMPLATE
+            .replace("{REPO_NAME}", repo_name)
+            .replace("{CONTEXT_BUNDLE}", bundle)
+            .replace("{WORD_MIN}", str(DESCRIBE_WORD_MIN))
+            .replace("{WORD_MAX}", str(DESCRIBE_WORD_MAX))
         )
 
     # ----------------------------------------------------------------- write
