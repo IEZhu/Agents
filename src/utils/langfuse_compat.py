@@ -80,6 +80,8 @@ def get_langfuse():
             _langfuse_instance = _RealLangfuse()
             logger.info("Langfuse client initialized")
         except Exception as e:
+            global _langfuse_available
+            _langfuse_available = False
             logger.warning(f"Langfuse init failed, using no-op: {e}")
             _langfuse_instance = _NoopLangfuse()
     else:

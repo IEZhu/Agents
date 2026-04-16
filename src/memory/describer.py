@@ -435,10 +435,18 @@ class RepoDescriber:
             raise
 
     # ----------------------------------------------------------------- helpers exposed for the MCP tool
+    @staticmethod
+    def _strip_wrapper_header(text: str) -> str:
+        """Remove the _wrap_summary header so word count matches write_summary."""
+        # Header and body are separated by a blank line.
+        parts = text.split("\n\n", 1)
+        return parts[1] if len(parts) > 1 else text
+
     def up_to_date_response(self, decision: DescribeDecision) -> dict:
         cached = decision.cached_summary or ""
-        preview = "\n".join(cached.splitlines()[:6])
-        word_count = len(cached.split())
+        raw = self._strip_wrapper_header(cached)
+        preview = "\n".join(raw.splitlines()[:6])
+        word_count = len(raw.split())
         return {
             "status": "up-to-date",
             "path": self.claude_md_path,

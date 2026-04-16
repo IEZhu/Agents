@@ -204,12 +204,17 @@ class HistoryWriter:
         tags: Optional[List[str]],
         metadata: Optional[Dict[str, Any]],
     ) -> str:
+        # Collapse newlines to spaces so multi-line raw query/response
+        # doesn't break the single-line **Field:** format that the parser expects.
+        def _oneline(s: str) -> str:
+            return " ".join(s.split())
+
         lines = [
             "",  # blank separator before the heading
             f"## {timestamp} | {entry_id}",
-            f"**Intent:** {intent}",
-            f"**Action:** {action}",
-            f"**Outcome:** {outcome}",
+            f"**Intent:** {_oneline(intent)}",
+            f"**Action:** {_oneline(action)}",
+            f"**Outcome:** {_oneline(outcome)}",
         ]
         if files:
             lines.append(f"**Files:** {', '.join(files)}")

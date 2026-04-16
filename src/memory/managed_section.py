@@ -212,8 +212,9 @@ def remove_section(
     leading = begin_idx
     while leading > 0 and original[leading - 1] == "\n":
         leading -= 1
-    # Preserve the line break that ends the previous content (if any).
-    if leading > 0:
+    # Preserve the line break that ends the previous content (if any),
+    # but only if we actually consumed at least one blank line.
+    if leading > 0 and leading < begin_idx:
         leading += 1
 
     new_content = original[:leading] + original[trailing:]
