@@ -556,10 +556,12 @@ else
 fi
 
 if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
-    # `|| echo 0` guards against pipefail tripping on missing skills/implants dirs.
-    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" 2>/dev/null | wc -l || echo 0)
-    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l || echo 0)
-    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l || echo 0)
+    # `|| true` swallows pipefail when skills/implants dirs are absent.
+    # wc -l already emits "0" on empty stdin, so no fallback stdout is needed
+    # (using `|| echo 0` would append a second "0" and corrupt the count).
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" 2>/dev/null | wc -l || true)
+    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l || true)
+    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l || true)
 
     print_success "Agents directory found: $AGENTS_BASE"
     echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"
