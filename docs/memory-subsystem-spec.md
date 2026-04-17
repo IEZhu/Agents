@@ -97,7 +97,7 @@ read_history(limit=20, since?, query?)
 | New file | Role |
 |---|---|
 | `src/memory/__init__.py` | Package marker |
-| `src/memory/config.py` | Constants: paths, markers, thresholds; imports `REPO_ROOT`/`DATA_DIR` from `src/engine/config.py:7-8` |
+| `src/memory/config.py` | Constants: markers, thresholds; path constants (`HISTORY_FILE`, `CLAUDE_MD_FILE`, `MEMORY_DATA_DIR`, `DESCRIBE_HASH_FILE`, `HISTORY_ARCHIVE_DIR`) are exposed via PEP 562 `__getattr__` so they resolve lazily against `get_client_repo_root()` / `get_client_data_dir()` — see issue #36. |
 | `src/memory/managed_section.py` | Pure Python port of the marker editor from `scripts/init_repo.sh:636-672`. Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
 | `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → sampling → upsert |
 | `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (wrapper around NumpyVectorStore) |
@@ -124,7 +124,7 @@ read_history(limit=20, since?, query?)
 | `LanguageDetector` | `src/engine/language.py:39` | Language tagging of entries |
 | `debug_log` | `src/utils/debug_logger.py:18` | Instrumentation of all tools |
 | `@observe` from `langfuse_compat` | `src/utils/langfuse_compat.py` | Optional observability |
-| `REPO_ROOT`, `DATA_DIR` | `src/engine/config.py:7-8` | Base paths |
+| `INSTALL_ROOT`, `INSTALL_DATA_DIR`, `get_client_repo_root()`, `get_client_data_dir()` | `src/engine/config.py` | Two-root model: install-scoped (shipped assets + shared indexes) vs client-scoped (per-repo memory). Deprecated aliases `REPO_ROOT`/`DATA_DIR` map to the install-scoped values via PEP 562 `__getattr__`. |
 | pytest fixtures (`tmp_path`, `populated_store`) | `tests/test_vector_store.py:12-31` | Mirrored for new tests |
 
 ---

@@ -32,7 +32,7 @@ from src.engine.enrichment import (
     infer_tier,
     implant_retriever,
 )
-from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD, REPO_ROOT
+from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD, get_client_repo_root
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
@@ -707,17 +707,19 @@ async def describe_repo(
     status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
     """
     try:
-        # Restrict repo_path to REPO_ROOT to prevent arbitrary filesystem access.
-        # Resolve relative paths against REPO_ROOT (not CWD) for stable behavior.
+        # Restrict repo_path to the client repo root so the sandbox tracks
+        # the per-session memory boundary (issue #36). Relative paths resolve
+        # against the client root for stable behavior across sessions.
+        client_root = get_client_repo_root()
         if repo_path is not None:
             if not os.path.isabs(repo_path):
-                repo_path = os.path.join(REPO_ROOT, repo_path)
+                repo_path = os.path.join(client_root, repo_path)
             resolved = os.path.realpath(repo_path)
-            repo_root_resolved = os.path.realpath(REPO_ROOT) + os.sep
-            if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
+            client_root_resolved = os.path.realpath(client_root) + os.sep
+            if resolved != client_root_resolved.rstrip(os.sep) and not resolved.startswith(client_root_resolved):
                 payload = {
                     "status": "error",
-                    "error": f"repo_path must be within {REPO_ROOT}",
+                    "error": f"repo_path must be within {client_root}",
                 }
                 return json.dumps(payload, ensure_ascii=False)
             if not os.path.isdir(resolved):
@@ -796,15 +798,16 @@ async def write_repo_summary(
     status ∈ {"refreshed", "rejected", "error"}.
     """
     try:
+        client_root = get_client_repo_root()
         if repo_path is not None:
             if not os.path.isabs(repo_path):
-                repo_path = os.path.join(REPO_ROOT, repo_path)
+                repo_path = os.path.join(client_root, repo_path)
             resolved = os.path.realpath(repo_path)
-            repo_root_resolved = os.path.realpath(REPO_ROOT) + os.sep
-            if resolved != repo_root_resolved.rstrip(os.sep) and not resolved.startswith(repo_root_resolved):
+            client_root_resolved = os.path.realpath(client_root) + os.sep
+            if resolved != client_root_resolved.rstrip(os.sep) and not resolved.startswith(client_root_resolved):
                 payload = {
                     "status": "error",
-                    "error": f"repo_path must be within {REPO_ROOT}",
+                    "error": f"repo_path must be within {client_root}",
                 }
                 return json.dumps(payload, ensure_ascii=False)
             if not os.path.isdir(resolved):

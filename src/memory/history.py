@@ -29,14 +29,12 @@ import threading
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.memory import config as _memory_config
 from src.memory.config import (
-    HISTORY_ARCHIVE_DIR,
     HISTORY_DEDUP_TAIL_SIZE,
-    HISTORY_FILE,
     HISTORY_FORMAT_VERSION,
     HISTORY_ROTATION_THRESHOLD_KB,
     HISTORY_VECTOR_STORE_NAME,
-    MEMORY_DATA_DIR,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,8 +98,10 @@ class HistoryWriter:
         rotation_kb: int = HISTORY_ROTATION_THRESHOLD_KB,
         dedup_tail: int = HISTORY_DEDUP_TAIL_SIZE,
     ):
-        self.history_path = history_path or HISTORY_FILE
-        self.archive_dir = archive_dir or HISTORY_ARCHIVE_DIR
+        # Resolve defaults lazily via module attribute access so PEP 562 picks
+        # up the current client repo root each time (see src/memory/config.py).
+        self.history_path = history_path or _memory_config.HISTORY_FILE
+        self.archive_dir = archive_dir or _memory_config.HISTORY_ARCHIVE_DIR
         self.rotation_kb = rotation_kb
         self.dedup_tail = dedup_tail
 
@@ -304,7 +304,7 @@ class HistoryReader:
     """Parses ``history.md`` and serves recency/since/tag queries."""
 
     def __init__(self, history_path: Optional[str] = None):
-        self.history_path = history_path or HISTORY_FILE
+        self.history_path = history_path or _memory_config.HISTORY_FILE
 
     def read_all(self) -> List[HistoryEntry]:
         if not os.path.exists(self.history_path):
@@ -398,8 +398,8 @@ class HistoryStore:
         data_dir: Optional[str] = None,
         store_name: str = HISTORY_VECTOR_STORE_NAME,
     ):
-        self.history_path = history_path or HISTORY_FILE
-        self.data_dir = data_dir or MEMORY_DATA_DIR
+        self.history_path = history_path or _memory_config.HISTORY_FILE
+        self.data_dir = data_dir or _memory_config.MEMORY_DATA_DIR
         self.store_name = store_name
         self._store = None  # lazy
         self._index_lock = threading.Lock()

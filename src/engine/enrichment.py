@@ -6,7 +6,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
-from src.engine.config import AGENTS_DEBUG, DEBUG_LOG_DIR
+from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
 from src.engine.skills import SkillRetriever
 from src.engine.implants import ImplantRetriever
 from src.engine.capabilities import resolve_capabilities
@@ -124,8 +124,9 @@ async def get_dynamic_context_string(
             if AGENTS_DEBUG:
                 try:
                     import datetime
-                    os.makedirs(DEBUG_LOG_DIR, exist_ok=True)
-                    with open(os.path.join(DEBUG_LOG_DIR, "implant_enrichment_error.log"), "a") as f:
+                    debug_dir = get_debug_log_dir()
+                    os.makedirs(debug_dir, exist_ok=True)
+                    with open(os.path.join(debug_dir, "implant_enrichment_error.log"), "a") as f:
                         f.write(f"\n--- {datetime.datetime.now().isoformat()} ---\n")
                         f.write(traceback.format_exc())
                 except Exception:

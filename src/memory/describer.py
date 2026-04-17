@@ -18,12 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-from src.engine.config import REPO_ROOT
+from src.engine.config import get_client_repo_root
+from src.memory import config as _memory_config
 from src.memory import managed_section
 from src.memory.config import (
-    CLAUDE_MD_FILE,
     DESCRIBE_EXCLUDED_DIRS,
-    DESCRIBE_HASH_FILE,
     DESCRIBE_MARKER_BEGIN,
     DESCRIBE_MARKER_END,
     DESCRIBE_README_HEAD_LINES,
@@ -143,7 +142,7 @@ class RepoDescriber:
         claude_md_path: Optional[str] = None,
         hash_file: Optional[str] = None,
     ):
-        self.repo_path = os.path.abspath(repo_path) if repo_path else REPO_ROOT
+        self.repo_path = os.path.abspath(repo_path) if repo_path else get_client_repo_root()
         # When the caller overrides repo_path, default the CLAUDE.md and hash
         # file to live inside that repo unless explicit paths are given —
         # otherwise tests would clobber the real CLAUDE.md.
@@ -152,7 +151,7 @@ class RepoDescriber:
         elif repo_path:
             self.claude_md_path = os.path.join(self.repo_path, "CLAUDE.md")
         else:
-            self.claude_md_path = CLAUDE_MD_FILE
+            self.claude_md_path = _memory_config.CLAUDE_MD_FILE
 
         if hash_file is not None:
             self.hash_file = hash_file
@@ -161,7 +160,7 @@ class RepoDescriber:
                 self.repo_path, "data", "memory", ".describe_hash"
             )
         else:
-            self.hash_file = DESCRIBE_HASH_FILE
+            self.hash_file = _memory_config.DESCRIBE_HASH_FILE
 
     # ------------------------------------------------------------------ hash
     def compute_repo_hash(self) -> str:

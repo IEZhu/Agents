@@ -12,7 +12,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from src.engine.config import AGENTS_DEBUG, DEBUG_LOG_DIR
+from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
 
 
 def debug_log(tool: str, direction: str, data: dict) -> None:
@@ -34,7 +34,7 @@ def debug_log(tool: str, direction: str, data: dict) -> None:
         safe_dir = re.sub(r'[^\w\-.]', '_', direction)
         filename = f"{ts_prefix}_{safe_tool}_{safe_dir}.json"
 
-        target_dir = os.path.join(DEBUG_LOG_DIR, date_dir)
+        target_dir = os.path.join(get_debug_log_dir(), date_dir)
         os.makedirs(target_dir, exist_ok=True)
 
         payload = {
