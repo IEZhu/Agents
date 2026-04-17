@@ -9,6 +9,9 @@ REPO_ROOT = os.path.abspath(os.path.join(ENGINE_DIR, "../.."))
 # Embedding model (set via .env or init_repo.sh)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
+# fastembed cache — persistent by default (macOS launchd wipes /tmp during long downloads).
+FASTEMBED_CACHE_DIR = os.path.expanduser(os.getenv("FASTEMBED_CACHE_DIR", "~/.cache/fastembed"))
+
 # Persistent storage for vector stores
 DATA_DIR = os.path.join(REPO_ROOT, "data")
 

@@ -12,12 +12,13 @@ import glob
 import logging
 import os
 import shutil
-import tempfile
 import threading
 import warnings
 from typing import List
 
 import numpy as np
+
+from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,10 @@ _model = None
 
 def clear_model_cache(model_name: str) -> None:
     """Remove fastembed's cached files for *model_name* so the next load re-downloads."""
-    cache_dir = os.path.join(tempfile.gettempdir(), "fastembed_cache")
-    if not os.path.isdir(cache_dir):
+    if not os.path.isdir(FASTEMBED_CACHE_DIR):
         return
     suffix = model_name.split("/")[-1]
-    for d in glob.glob(os.path.join(cache_dir, f"models--*{suffix}*")):
+    for d in glob.glob(os.path.join(FASTEMBED_CACHE_DIR, f"models--*{suffix}*")):
         logger.warning("Removing corrupted model cache: %s", d)
         shutil.rmtree(d, ignore_errors=True)
 
@@ -51,14 +51,15 @@ def _get_model():
         with _lock:
             if _model is None:
                 from fastembed import TextEmbedding
-                from src.engine.config import EMBEDDING_MODEL
+
+                os.makedirs(FASTEMBED_CACHE_DIR, exist_ok=True)
 
                 for attempt in range(_MAX_LOAD_RETRIES):
                     try:
                         logger.info("Loading embedding model: %s (attempt %d)", EMBEDDING_MODEL, attempt + 1)
                         with warnings.catch_warnings():
                             warnings.filterwarnings("ignore", message=".*now uses mean pooling.*")
-                            _model = TextEmbedding(model_name=EMBEDDING_MODEL)
+                            _model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR)
                         logger.info("Embedding model loaded")
                         break
                     except Exception:
