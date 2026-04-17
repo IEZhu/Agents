@@ -497,10 +497,20 @@ if !errorlevel! equ 0 (
 
 REM 2. Global CLAUDE.md with routing instructions
 set "CLAUDE_CODE_MD=%CLAUDE_CODE_DIR%\CLAUDE.md"
-set "CLAUDE_MD_SRC=%REPO_ROOT%\CLAUDE.md"
-echo   %GREEN%^>%NC% Configuring global CLAUDE.md...
+set "CLAUDE_MD_SRC=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+
+echo(
+echo   %CYAN%Agents-Core wants to add routing instructions to:%NC%
+echo     %CLAUDE_CODE_MD%
+echo(
+set /p "_ALLOW_MD=  Allow? [Y/n]: "
+if /i "!_ALLOW_MD!"=="n" (
+    echo   %YELLOW%WARNING:%NC% Skipped CLAUDE.md injection — instructions will be printed at the end
+    goto :skip_claude_code
+)
+
 if not exist "%CLAUDE_MD_SRC%" (
-    echo   %YELLOW%WARNING:%NC% CLAUDE.md not found in repo root, skipping
+    echo   %YELLOW%WARNING:%NC% Template not found at %CLAUDE_MD_SRC%, skipping
     goto :skip_claude_code
 )
 
@@ -568,6 +578,26 @@ if exist "%ENV_FILE%" (
     )
 )
 if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
+
+echo   To enable repository memory ^& history in a project:
+echo      Run %CYAN%describe_repo()%NC% in your first Claude session.
+echo      This generates a compressed repo overview in CLAUDE.md.
+echo      History logging (history.md) is configured automatically via log_interaction.
+echo(
+
+REM ============== LLM Instructions Block ==============
+set "TEMPLATE_FILE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+if exist "%TEMPLATE_FILE%" (
+    echo %CYAN%=========================================%NC%
+    echo(
+    echo   %GREEN%Add the following to your LLM's instruction file%NC%
+    echo   (CLAUDE.md for Claude, .cursorrules for Cursor, etc.^):
+    echo(
+    echo %CYAN%-----------------------------------------%NC%
+    type "%TEMPLATE_FILE%"
+    echo %CYAN%-----------------------------------------%NC%
+    echo(
+)
 
 echo %GREEN%Happy coding%NC%
 echo(

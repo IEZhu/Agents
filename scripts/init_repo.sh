@@ -595,7 +595,7 @@ else
 
         # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
         CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
-        CLAUDE_MD_SRC="$REPO_ROOT/CLAUDE.md"
+        CLAUDE_MD_SRC="$REPO_ROOT/scripts/templates/routing-protocol-core.md"
         # Markers to delimit managed section (platform-agnostic)
         MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
         MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
@@ -603,10 +603,19 @@ else
         LEGACY_MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
         LEGACY_MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
-        print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
+        # --- Ask permission before modifying instruction files ---
+        echo ""
+        echo -e "  ${CYAN}Agents-Core wants to add routing instructions to:${NC}"
+        echo "    $CLAUDE_CODE_MD"
+        echo ""
+        read -p "  Allow? [Y/n]: " -n 1 -r
+        echo ""
 
         CLAUDE_MD_CONFIGURED=false
-        if [ -f "$CLAUDE_MD_SRC" ]; then
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            print_warn "Skipped CLAUDE.md injection — instructions will be printed at the end"
+        elif [ -f "$CLAUDE_MD_SRC" ]; then
+            print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
             SECTION_CONTENT=$(cat "$CLAUDE_MD_SRC")
 
             if [ -f "$CLAUDE_CODE_MD" ]; then
@@ -709,7 +718,7 @@ with open(md_path, 'w') as f:
                 CLAUDE_MD_CONFIGURED=true
             fi
         else
-            print_warn "CLAUDE.md not found in repo root, skipping"
+            print_warn "Template not found at $CLAUDE_MD_SRC, skipping"
         fi
 
         # 3. Global memory — persistent reminder to always call route_and_load
@@ -719,6 +728,15 @@ with open(md_path, 'w') as f:
 
         # Only configure memory if the global CLAUDE.md routing section was successfully written
         if [ "$CLAUDE_MD_CONFIGURED" = true ]; then
+            echo ""
+            echo -e "  ${CYAN}Agents-Core wants to add a routing reminder to Claude Code memory:${NC}"
+            echo "    $MEMORY_FILE"
+            echo ""
+            read -p "  Allow? [Y/n]: " -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Nn]$ ]]; then
+                print_warn "Skipped memory file"
+            else
             print_step "Configuring global Claude Code memory ($CLAUDE_MEMORY_DIR)..."
 
             mkdir -p "$CLAUDE_MEMORY_DIR"
@@ -759,6 +777,7 @@ MEMORY_EOF
                 echo "$MEMORY_ENTRY" > "$MEMORY_INDEX"
                 print_success "MEMORY.md index created"
             fi
+            fi  # end: memory consent
         else
             print_warn "Skipping memory setup — global CLAUDE.md routing section was not configured"
         fi
@@ -841,6 +860,28 @@ if [ -f "$ENV_FILE" ]; then
     if [ -z "$ANTHROPIC_API_KEY" ] || [ "$ANTHROPIC_API_KEY" = "sk-ant-..." ]; then
         print_warn "ANTHROPIC_API_KEY not configured — document OCR will be unavailable"
     fi
+fi
+
+STEP=$((STEP + 1))
+echo "  $STEP. To enable repository memory & history in a project:"
+echo -e "     Run ${CYAN}describe_repo()${NC} in your first Claude session."
+echo "     This generates a compressed repo overview in CLAUDE.md."
+echo "     History logging (history.md) is configured automatically via log_interaction."
+echo ""
+
+# ============== LLM Instructions Block ==============
+
+TEMPLATE_FILE="$REPO_ROOT/scripts/templates/routing-protocol-core.md"
+if [ -f "$TEMPLATE_FILE" ]; then
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${GREEN}Add the following to your LLM's instruction file${NC}"
+    echo -e "  (CLAUDE.md for Claude, .cursorrules for Cursor, etc.):"
+    echo ""
+    echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
+    cat "$TEMPLATE_FILE"
+    echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
+    echo ""
 fi
 
 echo -e "${GREEN}Happy coding! 🚀${NC}"
