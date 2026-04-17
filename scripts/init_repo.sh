@@ -16,6 +16,9 @@
 set -e
 # ERR trap inherited into shell functions/subshells (see _fatal_on_err below).
 set -o errtrace
+# `pip install | while read` pipelines below would otherwise mask pip failures
+# behind the while-loop's zero exit — surface the failing command instead.
+set -o pipefail
 
 # ============== ANSI Colors ==============
 RED='\033[0;31m'
@@ -112,6 +115,10 @@ print_success() {
 # already print user-actionable guidance, not a bug to report.
 _fatal_on_err() {
     local exit_code=$?
+    # Respect `set +e` regions: the caller has opted out of auto-abort (e.g. the
+    # pre-indexing block, where a failed model download is non-fatal by design).
+    # ERR still fires there, so we must no-op instead of exiting.
+    case $- in *e*) ;; *) return 0 ;; esac
     local line_no="${BASH_LINENO[0]}"
     local cmd="${BASH_COMMAND}"
     trap - ERR
@@ -119,8 +126,14 @@ _fatal_on_err() {
 
     local distro=""
     [ -f /etc/os-release ] && distro=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-unknown}")
+    # Prefer the interpreter the script actually selected — plain `python` may
+    # be missing or a different version on distros that expose only python3.x.
     local py_ver
-    py_ver=$(python --version 2>&1 || echo 'not found')
+    if [ -n "${SELECTED_PYTHON:-}" ]; then
+        py_ver=$($SELECTED_PYTHON --version 2>&1 || echo "${SELECTED_PYTHON} (version query failed)")
+    else
+        py_ver=$(python --version 2>&1 || echo 'not found')
+    fi
 
     {
         echo ""
@@ -543,9 +556,10 @@ else
 fi
 
 if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
-    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" | wc -l)
-    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
-    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    # `|| echo 0` guards against pipefail tripping on missing skills/implants dirs.
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" 2>/dev/null | wc -l || echo 0)
+    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l || echo 0)
+    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l || echo 0)
 
     print_success "Agents directory found: $AGENTS_BASE"
     echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"
