@@ -608,7 +608,7 @@ else
         echo -e "  ${CYAN}Agents-Core wants to add routing instructions to:${NC}"
         echo "    $CLAUDE_CODE_MD"
         echo ""
-        read -p "  Allow? [Y/n]: " -n 1 -r
+        read -p "  Allow? [Y/n]: " -r
         echo ""
 
         CLAUDE_MD_CONFIGURED=false
@@ -732,7 +732,7 @@ with open(md_path, 'w') as f:
             echo -e "  ${CYAN}Agents-Core wants to add a routing reminder to Claude Code memory:${NC}"
             echo "    $MEMORY_FILE"
             echo ""
-            read -p "  Allow? [Y/n]: " -n 1 -r
+            read -p "  Allow? [Y/n]: " -r
             echo ""
             if [[ $REPLY =~ ^[Nn]$ ]]; then
                 print_warn "Skipped memory file"
@@ -866,13 +866,17 @@ STEP=$((STEP + 1))
 echo "  $STEP. To enable repository memory & history in a project:"
 echo -e "     Run ${CYAN}describe_repo()${NC} in your first Claude session."
 echo "     This generates a compressed repo overview in CLAUDE.md."
-echo "     History logging (history.md) is configured automatically via log_interaction."
+echo "     History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol)."
 echo ""
 
 # ============== LLM Instructions Block ==============
+# Printed only as a fallback — when the routing section could not be injected
+# into Claude Code's global CLAUDE.md (Claude Code not detected, consent denied,
+# template missing, or injection failed). When injection succeeded, the user
+# already has these instructions in place and does not need to paste them manually.
 
 TEMPLATE_FILE="$REPO_ROOT/scripts/templates/routing-protocol-core.md"
-if [ -f "$TEMPLATE_FILE" ]; then
+if [ "${CLAUDE_MD_CONFIGURED:-false}" != "true" ] && [ -f "$TEMPLATE_FILE" ]; then
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${GREEN}Add the following to your LLM's instruction file${NC}"

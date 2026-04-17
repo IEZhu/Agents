@@ -422,6 +422,9 @@ echo   %GREEN%+%NC% Claude Desktop detected
 :detect_claude_code
 REM --- Detect Claude Code ---
 set "CLAUDE_CODE_DETECTED=false"
+REM Tracks whether the routing section was successfully injected into Claude Code's
+REM global CLAUDE.md — gates the final fallback "LLM Instructions Block".
+set "CLAUDE_MD_CONFIGURED=false"
 where claude >nul 2>&1
 if !errorlevel! equ 0 set "CLAUDE_CODE_DETECTED=true"
 if exist "%USERPROFILE%\.claude.json" set "CLAUDE_CODE_DETECTED=true"
@@ -523,6 +526,7 @@ if exist "%CLAUDE_CODE_MD%" (
 "%PYTHON_ABS%" "%HELPERS%\inject_claude_md.py" "%CLAUDE_CODE_MD%" "%CLAUDE_MD_SRC%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Global CLAUDE.md configured
+    set "CLAUDE_MD_CONFIGURED=true"
 ) else (
     echo   %RED%x%NC% Failed to configure CLAUDE.md
 )
@@ -582,12 +586,16 @@ if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not co
 echo   To enable repository memory ^& history in a project:
 echo      Run %CYAN%describe_repo()%NC% in your first Claude session.
 echo      This generates a compressed repo overview in CLAUDE.md.
-echo      History logging (history.md) is configured automatically via log_interaction.
+echo      History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol).
 echo(
 
 REM ============== LLM Instructions Block ==============
+REM Printed only as a fallback — when the routing section could not be injected
+REM into Claude Code's global CLAUDE.md (Claude Code not detected, consent denied,
+REM template missing, or injection failed). When injection succeeded, the user
+REM already has these instructions in place and does not need to paste them manually.
 set "TEMPLATE_FILE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
-if exist "%TEMPLATE_FILE%" (
+if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
     echo %CYAN%=========================================%NC%
     echo(
     echo   %GREEN%Add the following to your LLM's instruction file%NC%
