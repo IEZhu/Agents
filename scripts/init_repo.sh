@@ -299,7 +299,7 @@ if [ -d "$VENV_PATH" ]; then
 
     echo ""
     print_warn "Do you want to recreate it and reinstall all packages?"
-    read -p "  Reinstall? [y/N]: " -n 1 -r
+    read -p "  Reinstall? [y/N]: " -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         print_step "Removing existing venv..."
@@ -612,7 +612,7 @@ else
         echo ""
 
         CLAUDE_MD_CONFIGURED=false
-        if [[ $REPLY =~ ^[Nn]$ ]]; then
+        if [[ $REPLY =~ ^[Nn] ]]; then
             print_warn "Skipped CLAUDE.md injection — instructions will be printed at the end"
         elif [ -f "$CLAUDE_MD_SRC" ]; then
             print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
@@ -734,7 +734,7 @@ with open(md_path, 'w') as f:
             echo ""
             read -p "  Allow? [Y/n]: " -r
             echo ""
-            if [[ $REPLY =~ ^[Nn]$ ]]; then
+            if [[ $REPLY =~ ^[Nn] ]]; then
                 print_warn "Skipped memory file"
             else
             print_step "Configuring global Claude Code memory ($CLAUDE_MEMORY_DIR)..."

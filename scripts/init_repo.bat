@@ -507,7 +507,8 @@ echo   %CYAN%Agents-Core wants to add routing instructions to:%NC%
 echo     %CLAUDE_CODE_MD%
 echo(
 set /p "_ALLOW_MD=  Allow? [Y/n]: "
-if /i "!_ALLOW_MD!"=="n" (
+REM Accept any input starting with n/N as denial ("n", "no", "NO", "No", etc.).
+if /i "!_ALLOW_MD:~0,1!"=="n" (
     echo   %YELLOW%WARNING:%NC% Skipped CLAUDE.md injection — instructions will be printed at the end
     goto :skip_claude_code
 )
