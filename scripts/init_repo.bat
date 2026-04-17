@@ -422,6 +422,9 @@ echo   %GREEN%+%NC% Claude Desktop detected
 :detect_claude_code
 REM --- Detect Claude Code ---
 set "CLAUDE_CODE_DETECTED=false"
+REM Tracks whether the routing section was successfully injected into Claude Code's
+REM global CLAUDE.md — gates the final fallback "LLM Instructions Block".
+set "CLAUDE_MD_CONFIGURED=false"
 where claude >nul 2>&1
 if !errorlevel! equ 0 set "CLAUDE_CODE_DETECTED=true"
 if exist "%USERPROFILE%\.claude.json" set "CLAUDE_CODE_DETECTED=true"
@@ -497,10 +500,24 @@ if !errorlevel! equ 0 (
 
 REM 2. Global CLAUDE.md with routing instructions
 set "CLAUDE_CODE_MD=%CLAUDE_CODE_DIR%\CLAUDE.md"
-set "CLAUDE_MD_SRC=%REPO_ROOT%\CLAUDE.md"
-echo   %GREEN%^>%NC% Configuring global CLAUDE.md...
+set "CLAUDE_MD_SRC=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+
+echo(
+echo   %CYAN%Agents-Core wants to add routing instructions to:%NC%
+echo     %CLAUDE_CODE_MD%
+echo(
+REM Default to Y so an empty Enter (or an inherited env var) doesn't flip the
+REM decision — set /p leaves the variable unchanged on empty input.
+set "_ALLOW_MD=Y"
+set /p "_ALLOW_MD=  Allow? [Y/n]: "
+REM Accept any input starting with n/N as denial ("n", "no", "NO", "No", etc.).
+if /i "!_ALLOW_MD:~0,1!"=="n" (
+    echo   %YELLOW%WARNING:%NC% Skipped CLAUDE.md injection — instructions will be printed at the end
+    goto :skip_claude_code
+)
+
 if not exist "%CLAUDE_MD_SRC%" (
-    echo   %YELLOW%WARNING:%NC% CLAUDE.md not found in repo root, skipping
+    echo   %YELLOW%WARNING:%NC% Template not found at %CLAUDE_MD_SRC%, skipping
     goto :skip_claude_code
 )
 
@@ -513,6 +530,7 @@ if exist "%CLAUDE_CODE_MD%" (
 "%PYTHON_ABS%" "%HELPERS%\inject_claude_md.py" "%CLAUDE_CODE_MD%" "%CLAUDE_MD_SRC%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Global CLAUDE.md configured
+    set "CLAUDE_MD_CONFIGURED=true"
 ) else (
     echo   %RED%x%NC% Failed to configure CLAUDE.md
 )
@@ -568,6 +586,40 @@ if exist "%ENV_FILE%" (
     )
 )
 if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
+
+echo   To enable repository memory ^& history in a project:
+echo      Run %CYAN%describe_repo()%NC% in your first Claude session inside that repo.
+echo      It writes a compressed overview into the repo's own CLAUDE.md
+echo      (managed section -- not the global %%USERPROFILE%%\.claude\CLAUDE.md^).
+echo      If MCP sampling is unavailable it returns %CYAN%status="needs_summary"%NC%
+echo      and you finalize the write with %CYAN%write_repo_summary(...)%NC%.
+echo      History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol).
+echo(
+
+REM ============== LLM Instructions Block ==============
+REM Printed only as a fallback — when the routing section could not be injected
+REM into Claude Code's global CLAUDE.md (Claude Code not detected, consent denied,
+REM template missing, or injection failed). When injection succeeded, the user
+REM already has these instructions in place and does not need to paste them manually.
+set "TEMPLATE_FILE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
+    echo %CYAN%=========================================%NC%
+    echo(
+    echo   %GREEN%Add the following block to your LLM's instruction file%NC%
+    echo   (CLAUDE.md for Claude, .cursorrules for Cursor, etc.^).
+    echo   %YELLOW%Keep the BEGIN/END marker lines intact%NC% so a later script
+    echo   run can replace the section instead of appending a duplicate.
+    echo(
+    echo %CYAN%-----------------------------------------%NC%
+    REM Markers must match scripts\_helpers\inject_claude_md.py (MARKER_BEGIN/MARKER_END).
+    echo # ^>^>^> Agents-Core Routing Protocol (managed by init_repo) ^>^>^>
+    echo(
+    type "%TEMPLATE_FILE%"
+    echo(
+    echo # ^<^<^< Agents-Core Routing Protocol (managed by init_repo) ^<^<^<
+    echo %CYAN%-----------------------------------------%NC%
+    echo(
+)
 
 echo %GREEN%Happy coding%NC%
 echo(
