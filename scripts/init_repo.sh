@@ -32,6 +32,12 @@ PYTHON_MIN_VERSION="3.10"
 PYTHON_MAX_VERSION_MAJOR="3"
 PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 
+# Canonical managed-section markers — must match scripts/_helpers/inject_claude_md.py.
+# Referenced both by the CLAUDE.md injector and by the fallback instructions block
+# so users can paste the fallback verbatim and have future runs replace (not duplicate) it.
+MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
+MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+
 # NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
 # We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)
 IS_NIXOS=false
@@ -301,7 +307,7 @@ if [ -d "$VENV_PATH" ]; then
     print_warn "Do you want to recreate it and reinstall all packages?"
     read -p "  Reinstall? [y/N]: " -r
     echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ $REPLY =~ ^[Yy] ]]; then
         print_step "Removing existing venv..."
         rm -rf "$VENV_PATH"
         print_step "Creating fresh virtual environment using $SELECTED_PYTHON..."
@@ -596,10 +602,7 @@ else
         # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
         CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
         CLAUDE_MD_SRC="$REPO_ROOT/scripts/templates/routing-protocol-core.md"
-        # Markers to delimit managed section (platform-agnostic)
-        MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
-        MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
-        # Legacy markers — recognized for backward compat
+        # Legacy markers — recognized for backward compat (current markers live at the top of this script)
         LEGACY_MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
         LEGACY_MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
 
@@ -879,11 +882,17 @@ TEMPLATE_FILE="$REPO_ROOT/scripts/templates/routing-protocol-core.md"
 if [ "${CLAUDE_MD_CONFIGURED:-false}" != "true" ] && [ -f "$TEMPLATE_FILE" ]; then
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "  ${GREEN}Add the following to your LLM's instruction file${NC}"
-    echo -e "  (CLAUDE.md for Claude, .cursorrules for Cursor, etc.):"
+    echo -e "  ${GREEN}Add the following block to your LLM's instruction file${NC}"
+    echo -e "  (CLAUDE.md for Claude, .cursorrules for Cursor, etc.)."
+    echo -e "  ${YELLOW}Keep the BEGIN/END marker lines intact${NC} so a later script"
+    echo -e "  run can replace the section instead of appending a duplicate."
     echo ""
     echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
+    echo "$MARKER_BEGIN"
+    echo ""
     cat "$TEMPLATE_FILE"
+    echo ""
+    echo "$MARKER_END"
     echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
     echo ""
 fi

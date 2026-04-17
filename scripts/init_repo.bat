@@ -599,11 +599,18 @@ set "TEMPLATE_FILE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
 if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
     echo %CYAN%=========================================%NC%
     echo(
-    echo   %GREEN%Add the following to your LLM's instruction file%NC%
-    echo   (CLAUDE.md for Claude, .cursorrules for Cursor, etc.^):
+    echo   %GREEN%Add the following block to your LLM's instruction file%NC%
+    echo   (CLAUDE.md for Claude, .cursorrules for Cursor, etc.^).
+    echo   %YELLOW%Keep the BEGIN/END marker lines intact%NC% so a later script
+    echo   run can replace the section instead of appending a duplicate.
     echo(
     echo %CYAN%-----------------------------------------%NC%
+    REM Markers must match scripts\_helpers\inject_claude_md.py (MARKER_BEGIN/MARKER_END).
+    echo # ^>^>^> Agents-Core Routing Protocol (managed by init_repo) ^>^>^>
+    echo(
     type "%TEMPLATE_FILE%"
+    echo(
+    echo # ^<^<^< Agents-Core Routing Protocol (managed by init_repo) ^<^<^<
     echo %CYAN%-----------------------------------------%NC%
     echo(
 )
