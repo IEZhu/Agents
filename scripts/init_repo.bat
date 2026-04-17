@@ -585,8 +585,11 @@ if exist "%ENV_FILE%" (
 if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
 
 echo   To enable repository memory ^& history in a project:
-echo      Run %CYAN%describe_repo()%NC% in your first Claude session.
-echo      This generates a compressed repo overview in CLAUDE.md.
+echo      Run %CYAN%describe_repo()%NC% in your first Claude session inside that repo.
+echo      It writes a compressed overview into the repo's own CLAUDE.md
+echo      (managed section -- not the global %%USERPROFILE%%\.claude\CLAUDE.md^).
+echo      If MCP sampling is unavailable it returns %CYAN%status="needs_summary"%NC%
+echo      and you finalize the write with %CYAN%write_repo_summary(...)%NC%.
 echo      History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol).
 echo(
 

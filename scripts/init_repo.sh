@@ -298,9 +298,6 @@ if [ -d "$VENV_PATH" ]; then
 
     if [ "$VENV_PYTHON_VER" != "unknown" ] && [ "$VENV_PYTHON_VER" != "$(get_python_version $SELECTED_PYTHON)" ]; then
          print_warn "Venv python version ($VENV_PYTHON_VER) differs from selected ($SELECTED_PYTHON)"
-         RECREATE_DEFAULT="y"
-    else
-         RECREATE_DEFAULT="N"
     fi
 
     echo ""
@@ -867,8 +864,11 @@ fi
 
 STEP=$((STEP + 1))
 echo "  $STEP. To enable repository memory & history in a project:"
-echo -e "     Run ${CYAN}describe_repo()${NC} in your first Claude session."
-echo "     This generates a compressed repo overview in CLAUDE.md."
+echo -e "     Run ${CYAN}describe_repo()${NC} in your first Claude session inside that repo."
+echo "     It writes a compressed overview into the repo's own CLAUDE.md"
+echo "     (managed section — not the global ~/.claude/CLAUDE.md)."
+echo -e "     If MCP sampling is unavailable it returns ${CYAN}status=\"needs_summary\"${NC}"
+echo -e "     and you finalize the write with ${CYAN}write_repo_summary(...)${NC}."
 echo "     History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol)."
 echo ""
 
