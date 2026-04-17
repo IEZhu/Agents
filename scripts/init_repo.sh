@@ -44,7 +44,10 @@ MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
 MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
 
 # Where users should report unexpected script failures (see _fatal_on_err below).
-REPO_URL_ISSUES="https://github.com/WonderMr/Agents/issues"
+# Override via `AGENTS_ISSUES_URL` for divergent forks / GHE mirrors. Not derived
+# from `git remote` on purpose: contributors who cloned a personal fork usually
+# still want their installer bug reports to land on upstream.
+REPO_URL_ISSUES="${AGENTS_ISSUES_URL:-https://github.com/WonderMr/Agents/issues}"
 
 # NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
 # We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)
@@ -119,8 +122,18 @@ _fatal_on_err() {
     # pre-indexing block, where a failed model download is non-fatal by design).
     # ERR still fires there, so we must no-op instead of exiting.
     case $- in *e*) ;; *) return 0 ;; esac
+    # Pipeline subshells inherit ERR via errtrace. Defer to the main shell so
+    # we emit exactly one FATAL block; pipefail propagates the subshell's
+    # non-zero exit and refires ERR at the top level.
+    [ "${BASH_SUBSHELL:-0}" -gt 0 ] && return 0
     local line_no="${BASH_LINENO[0]}"
+    # Collapse multi-line commands (e.g. heredoc'd `python -c "..."`) to the
+    # first line + ellipsis so the issue body's inline-code formatting doesn't
+    # break and the copy-paste stays readable.
     local cmd="${BASH_COMMAND}"
+    local cmd_first="${cmd%%$'\n'*}"
+    [ "$cmd" != "$cmd_first" ] && cmd="${cmd_first} …"
+    [ "${#cmd}" -gt 200 ] && cmd="${cmd:0:197}…"
     trap - ERR
     set +e
 

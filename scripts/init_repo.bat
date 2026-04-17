@@ -17,7 +17,9 @@ setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
 
 REM Where users should report unexpected script failures (see :fatal_exit at end).
+REM Override via AGENTS_ISSUES_URL for divergent forks / GHE mirrors.
 set "REPO_URL_ISSUES=https://github.com/WonderMr/Agents/issues"
+if defined AGENTS_ISSUES_URL set "REPO_URL_ISSUES=%AGENTS_ISSUES_URL%"
 
 REM ============== ANSI Colors ==============
 REM Generate ESC character (0x1B) for ANSI codes (Windows 10+)
