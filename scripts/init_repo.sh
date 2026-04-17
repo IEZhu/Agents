@@ -14,6 +14,8 @@
 #   --help         Show this help message
 
 set -e
+# ERR trap inherited into shell functions/subshells (see _fatal_on_err below).
+set -o errtrace
 
 # ============== ANSI Colors ==============
 RED='\033[0;31m'
@@ -37,6 +39,9 @@ PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 # so users can paste the fallback verbatim and have future runs replace (not duplicate) it.
 MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
 MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+
+# Where users should report unexpected script failures (see _fatal_on_err below).
+REPO_URL_ISSUES="https://github.com/WonderMr/Agents/issues"
 
 # NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
 # We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)
@@ -100,6 +105,63 @@ print_error() {
 print_success() {
     echo -e "  ${GREEN}✓${NC} $1"
 }
+
+# Fatal error handler — fires on any command failing under `set -e` that we did
+# not explicitly handle (e.g. pip crash, python subprocess traceback). Controlled
+# `exit 1` calls (missing Python, missing pip) bypass ERR intentionally: they
+# already print user-actionable guidance, not a bug to report.
+_fatal_on_err() {
+    local exit_code=$?
+    local line_no="${BASH_LINENO[0]}"
+    local cmd="${BASH_COMMAND}"
+    trap - ERR
+    set +e
+
+    local distro=""
+    [ -f /etc/os-release ] && distro=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-unknown}")
+    local py_ver
+    py_ver=$(python --version 2>&1 || echo 'not found')
+
+    {
+        echo ""
+        echo -e "${RED}╔══════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║${NC}  ${RED}FATAL: init_repo.sh aborted unexpectedly${NC}"
+        echo -e "${RED}╚══════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo "  Exit code : ${exit_code}"
+        echo "  Line      : ${line_no}"
+        echo "  Command   : ${cmd}"
+        echo ""
+        echo -e "  ${CYAN}Please open an issue:${NC} ${REPO_URL_ISSUES}/new"
+        echo ""
+        echo "  Copy/paste into the issue form:"
+        echo ""
+        echo "  ── Title ──"
+        echo "  [init_repo.sh] aborted at line ${line_no} (exit ${exit_code})"
+        echo ""
+        echo "  ── Body ──"
+        echo "  ### Environment"
+        echo "  - OS: $(uname -srmo 2>/dev/null || uname -a || echo unknown)"
+        [ -n "$distro" ] && echo "  - Distro: ${distro}"
+        echo "  - Python: ${py_ver}"
+        echo "  - Bash: ${BASH_VERSION}"
+        echo ""
+        echo "  ### Failure"
+        echo "  - Exit code: ${exit_code}"
+        echo "  - Line: ${line_no}"
+        echo "  - Command: \`${cmd}\`"
+        echo ""
+        echo "  ### How to reproduce"
+        echo "  <steps — flags passed, context>"
+        echo ""
+        echo "  ### Logs"
+        echo "  <paste the last ~50 lines of output above>"
+        echo ""
+    } >&2
+
+    exit "$exit_code"
+}
+trap _fatal_on_err ERR
 
 check_command() {
     if ! command -v "$1" &> /dev/null; then
@@ -410,7 +472,12 @@ with open(env_path, 'w') as f:
     print_step "Pre-downloading model and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
     set +e
-    EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
+    # NixOS: numpy (via embedder) needs libstdc++ at load time. Same rationale as MCP env above.
+    LD_LIB_ENV=()
+    if [ "$IS_NIXOS" = true ] && [ -n "$NIX_LD_LIB_PATH" ]; then
+        LD_LIB_ENV=(env "LD_LIBRARY_PATH=$NIX_LD_LIB_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}")
+    fi
+    EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" "${LD_LIB_ENV[@]}" python -c "
 import sys, os, shutil, glob
 sys.path.insert(0, os.environ['REPO_ROOT'])
 os.environ.setdefault('EMBEDDING_MODEL', '$CURRENT_MODEL')
