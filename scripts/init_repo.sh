@@ -14,6 +14,11 @@
 #   --help         Show this help message
 
 set -e
+# ERR trap inherited into shell functions/subshells (see _fatal_on_err below).
+set -o errtrace
+# `pip install | while read` pipelines below would otherwise mask pip failures
+# behind the while-loop's zero exit — surface the failing command instead.
+set -o pipefail
 
 # ============== ANSI Colors ==============
 RED='\033[0;31m'
@@ -37,6 +42,12 @@ PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 # so users can paste the fallback verbatim and have future runs replace (not duplicate) it.
 MARKER_BEGIN="# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
 MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+
+# Where users should report unexpected script failures (see _fatal_on_err below).
+# Override via `AGENTS_ISSUES_URL` for divergent forks / GHE mirrors. Not derived
+# from `git remote` on purpose: contributors who cloned a personal fork usually
+# still want their installer bug reports to land on upstream.
+REPO_URL_ISSUES="${AGENTS_ISSUES_URL:-https://github.com/WonderMr/Agents/issues}"
 
 # NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
 # We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)
@@ -100,6 +111,83 @@ print_error() {
 print_success() {
     echo -e "  ${GREEN}✓${NC} $1"
 }
+
+# Fatal error handler — fires on any command failing under `set -e` that we did
+# not explicitly handle (e.g. pip crash, python subprocess traceback). Controlled
+# `exit 1` calls (missing Python, missing pip) bypass ERR intentionally: they
+# already print user-actionable guidance, not a bug to report.
+_fatal_on_err() {
+    local exit_code=$?
+    # Respect `set +e` regions: the caller has opted out of auto-abort (e.g. the
+    # pre-indexing block, where a failed model download is non-fatal by design).
+    # ERR still fires there, so we must no-op instead of exiting.
+    case $- in *e*) ;; *) return 0 ;; esac
+    # Pipeline subshells inherit ERR via errtrace. Defer to the main shell so
+    # we emit exactly one FATAL block; pipefail propagates the subshell's
+    # non-zero exit and refires ERR at the top level.
+    [ "${BASH_SUBSHELL:-0}" -gt 0 ] && return 0
+    local line_no="${BASH_LINENO[0]}"
+    # Collapse multi-line commands (e.g. heredoc'd `python -c "..."`) to the
+    # first line + ellipsis so the issue body's inline-code formatting doesn't
+    # break and the copy-paste stays readable.
+    local cmd="${BASH_COMMAND}"
+    local cmd_first="${cmd%%$'\n'*}"
+    [ "$cmd" != "$cmd_first" ] && cmd="${cmd_first} …"
+    [ "${#cmd}" -gt 200 ] && cmd="${cmd:0:197}…"
+    trap - ERR
+    set +e
+
+    local distro=""
+    [ -f /etc/os-release ] && distro=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-unknown}")
+    # Prefer the interpreter the script actually selected — plain `python` may
+    # be missing or a different version on distros that expose only python3.x.
+    local py_ver
+    if [ -n "${SELECTED_PYTHON:-}" ]; then
+        py_ver=$($SELECTED_PYTHON --version 2>&1 || echo "${SELECTED_PYTHON} (version query failed)")
+    else
+        py_ver=$(python --version 2>&1 || echo 'not found')
+    fi
+
+    {
+        echo ""
+        echo -e "${RED}╔══════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║${NC}  ${RED}FATAL: init_repo.sh aborted unexpectedly${NC}"
+        echo -e "${RED}╚══════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo "  Exit code : ${exit_code}"
+        echo "  Line      : ${line_no}"
+        echo "  Command   : ${cmd}"
+        echo ""
+        echo -e "  ${CYAN}Please open an issue:${NC} ${REPO_URL_ISSUES}/new"
+        echo ""
+        echo "  Copy/paste into the issue form:"
+        echo ""
+        echo "  ── Title ──"
+        echo "  [init_repo.sh] aborted at line ${line_no} (exit ${exit_code})"
+        echo ""
+        echo "  ── Body ──"
+        echo "  ### Environment"
+        echo "  - OS: $(uname -srmo 2>/dev/null || uname -a || echo unknown)"
+        [ -n "$distro" ] && echo "  - Distro: ${distro}"
+        echo "  - Python: ${py_ver}"
+        echo "  - Bash: ${BASH_VERSION}"
+        echo ""
+        echo "  ### Failure"
+        echo "  - Exit code: ${exit_code}"
+        echo "  - Line: ${line_no}"
+        echo "  - Command: \`${cmd}\`"
+        echo ""
+        echo "  ### How to reproduce"
+        echo "  <steps — flags passed, context>"
+        echo ""
+        echo "  ### Logs"
+        echo "  <paste the last ~50 lines of output above>"
+        echo ""
+    } >&2
+
+    exit "$exit_code"
+}
+trap _fatal_on_err ERR
 
 check_command() {
     if ! command -v "$1" &> /dev/null; then
@@ -410,7 +498,12 @@ with open(env_path, 'w') as f:
     print_step "Pre-downloading model and indexing skills/implants..."
     print_step "(this may take a few minutes on first run)"
     set +e
-    EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
+    # NixOS: numpy (via embedder) needs libstdc++ at load time. Same rationale as MCP env above.
+    LD_LIB_ENV=()
+    if [ "$IS_NIXOS" = true ] && [ -n "$NIX_LD_LIB_PATH" ]; then
+        LD_LIB_ENV=(env "LD_LIBRARY_PATH=$NIX_LD_LIB_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}")
+    fi
+    EMBEDDING_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" "${LD_LIB_ENV[@]}" python -c "
 import sys, os, shutil, glob
 sys.path.insert(0, os.environ['REPO_ROOT'])
 os.environ.setdefault('EMBEDDING_MODEL', '$CURRENT_MODEL')
@@ -476,9 +569,12 @@ else
 fi
 
 if [ -n "$AGENTS_BASE" ] && [ -d "$AGENTS_BASE" ]; then
-    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" | wc -l)
-    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
-    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l)
+    # `|| true` swallows pipefail when skills/implants dirs are absent.
+    # wc -l already emits "0" on empty stdin, so no fallback stdout is needed
+    # (using `|| echo 0` would append a second "0" and corrupt the count).
+    AGENT_COUNT=$(find "$AGENTS_BASE" -maxdepth 2 -name "system_prompt.mdc" 2>/dev/null | wc -l || true)
+    SKILL_COUNT=$(find "$SKILLS_BASE" -name "*.mdc" 2>/dev/null | wc -l || true)
+    IMPLANT_COUNT=$(find "$IMPLANTS_BASE" -name "*.mdc" 2>/dev/null | wc -l || true)
 
     print_success "Agents directory found: $AGENTS_BASE"
     echo -e "    • ${CYAN}${AGENT_COUNT}${NC} agents"

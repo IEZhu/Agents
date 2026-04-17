@@ -16,6 +16,11 @@ REM   --help         Show this help message
 setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
 
+REM Where users should report unexpected script failures (see :fatal_exit at end).
+REM Override via AGENTS_ISSUES_URL for divergent forks / GHE mirrors.
+set "REPO_URL_ISSUES=https://github.com/WonderMr/Agents/issues"
+if defined AGENTS_ISSUES_URL set "REPO_URL_ISSUES=%AGENTS_ISSUES_URL%"
+
 REM ============== ANSI Colors ==============
 REM Generate ESC character (0x1B) for ANSI codes (Windows 10+)
 REM Using PowerShell to reliably emit the ESC char
@@ -127,8 +132,9 @@ goto :env_done
 echo   %GREEN%^>%NC% Creating .env from env.example...
 copy /Y "%ENV_EXAMPLE%" "%ENV_FILE%" >nul
 if !errorlevel! neq 0 (
-    echo   %RED%x%NC% Failed to create .env from env.example
-    exit /b 1
+    set "_FATAL_EC=!errorlevel!"
+    set "_FATAL_CTX=Failed to create .env from env.example (copy)"
+    goto :fatal_exit
 )
 echo   %GREEN%+%NC% .env created successfully
 echo(
@@ -191,8 +197,9 @@ echo   %GREEN%^>%NC% Creating fresh virtual environment using %SELECTED_PYTHON%.
 
 :venv_activate
 if not exist "%VENV_PATH%\Scripts\python.exe" (
-    echo   %RED%x%NC% Venv python not found: %VENV_PATH%\Scripts\python.exe
-    exit /b 1
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Venv python not found after creation: %VENV_PATH%\Scripts\python.exe"
+    goto :fatal_exit
 )
 echo   %GREEN%^>%NC% Activating virtual environment...
 call "%VENV_PATH%\Scripts\activate.bat" 2>nul
@@ -212,16 +219,18 @@ echo %CYAN%===============================%NC%
 echo   %GREEN%^>%NC% Upgrading pip...
 "%VENV_PATH%\Scripts\python.exe" -m pip install --upgrade pip
 if !errorlevel! neq 0 (
-    echo   %RED%x%NC% Failed to upgrade pip
-    exit /b 1
+    set "_FATAL_EC=!errorlevel!"
+    set "_FATAL_CTX=Failed to upgrade pip"
+    goto :fatal_exit
 )
 echo(
 
 echo   %GREEN%^>%NC% Installing requirements (this may take a few minutes)...
 "%VENV_PATH%\Scripts\python.exe" -m pip install -r "%REPO_ROOT%\requirements.txt"
 if !errorlevel! neq 0 (
-    echo   %RED%x%NC% Failed to install requirements
-    exit /b 1
+    set "_FATAL_EC=!errorlevel!"
+    set "_FATAL_CTX=Failed to install requirements (pip install -r requirements.txt)"
+    goto :fatal_exit
 )
 echo(
 
@@ -302,9 +311,10 @@ set "ENV_FILE=%ENV_FILE%"
 set "NEW_MODEL=!CURRENT_MODEL!"
 "%VENV_PATH%\Scripts\python.exe" "!_TMPPY!"
 if !errorlevel! neq 0 (
+    set "_FATAL_EC=!errorlevel!"
+    set "_FATAL_CTX=Failed to write EMBEDDING_MODEL to .env"
     del /Q "!_TMPPY!" 2>nul
-    echo   %RED%x%NC% Failed to write embedding model to .env
-    exit /b 1
+    goto :fatal_exit
 )
 del /Q "!_TMPPY!" 2>nul
 echo   %GREEN%+%NC% Embedding model: !CURRENT_MODEL!
@@ -624,3 +634,41 @@ if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
 echo %GREEN%Happy coding%NC%
 echo(
 exit /b 0
+
+REM ============== Fatal Error Handler ==============
+REM Reachable only via `goto :fatal_exit`. Normal completion falls through
+REM `exit /b 0` above and never reaches this label.
+:fatal_exit
+if not defined _FATAL_EC  set "_FATAL_EC=1"
+if not defined _FATAL_CTX set "_FATAL_CTX=unknown failure"
+echo(
+echo %RED%================================================================%NC%
+echo %RED%  FATAL: init_repo.bat aborted unexpectedly%NC%
+echo %RED%================================================================%NC%
+echo(
+echo   Exit code : !_FATAL_EC!
+echo   Context   : !_FATAL_CTX!
+echo(
+echo   %CYAN%Please open an issue:%NC% %REPO_URL_ISSUES%/new
+echo(
+echo   Copy/paste into the issue form:
+echo(
+echo   -- Title --
+echo   [init_repo.bat] !_FATAL_CTX! (exit !_FATAL_EC!)
+echo(
+echo   -- Body --
+echo   ### Environment
+for /f "tokens=*" %%V in ('ver') do echo   - Windows: %%V
+if defined SELECTED_PYTHON echo   - Python: !SELECTED_PYTHON! ^(!PY_VER!^)
+echo(
+echo   ### Failure
+echo   - Exit code: !_FATAL_EC!
+echo   - Context: !_FATAL_CTX!
+echo(
+echo   ### How to reproduce
+echo   ^<steps -- flags passed, context^>
+echo(
+echo   ### Logs
+echo   ^<paste the last ~50 lines of output above^>
+echo(
+exit /b !_FATAL_EC!
