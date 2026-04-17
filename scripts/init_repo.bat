@@ -506,6 +506,9 @@ echo(
 echo   %CYAN%Agents-Core wants to add routing instructions to:%NC%
 echo     %CLAUDE_CODE_MD%
 echo(
+REM Default to Y so an empty Enter (or an inherited env var) doesn't flip the
+REM decision — set /p leaves the variable unchanged on empty input.
+set "_ALLOW_MD=Y"
 set /p "_ALLOW_MD=  Allow? [Y/n]: "
 REM Accept any input starting with n/N as denial ("n", "no", "NO", "No", etc.).
 if /i "!_ALLOW_MD:~0,1!"=="n" (
