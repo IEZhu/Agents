@@ -19,12 +19,20 @@ from src.memory.history import HistoryStore, HistoryWriter
 
 @pytest.fixture
 def client_root(tmp_path, monkeypatch):
-    """Point the resolver at a fresh tmp client repo for this test."""
+    """Point the resolver at a fresh tmp client repo for this test.
+
+    Yields the *resolved* (realpath'd) Path — the production resolver
+    always returns ``os.path.realpath(...)``, so comparing against a
+    raw ``tmp_path`` would spuriously fail on macOS where ``/var`` is a
+    symlink to ``/private/var``.
+    """
     root = tmp_path / "client_repo"
     root.mkdir()
     monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(root))
     engine_config._reset_client_repo_root_cache()
-    yield root
+    # resolve() collapses symlinked ancestors (macOS /var -> /private/var)
+    # so tests compare apples to apples.
+    yield root.resolve()
     engine_config._reset_client_repo_root_cache()
 
 

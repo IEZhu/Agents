@@ -1,5 +1,5 @@
 """Regression tests for the `_is_within` sandbox helper used by
-`describe_repo` / `write_repo_summary` (PR #37 review feedback).
+`describe_repo` / `write_repo_summary` (issue #36).
 
 The earlier implementation used ``realpath(boundary) + os.sep`` +
 ``startswith``, which rejected every `repo_path` when the boundary
@@ -11,6 +11,8 @@ replacement.
 from __future__ import annotations
 
 import os
+
+import pytest
 
 from src.server import _is_within
 
@@ -37,11 +39,14 @@ class TestIsWithin:
     def test_filesystem_root_as_boundary_accepts_descendants(self):
         """Regression: the old ``"/" + os.sep`` math rejected every path
         when the boundary was the filesystem root. ``commonpath`` handles
-        this cleanly."""
+        this cleanly.
+
+        POSIX-only — ``"/"`` isn't a meaningful drive root on Windows.
+        Skipped (not silently passed) so CI reporting reflects that the
+        case wasn't exercised on this platform.
+        """
         if os.name != "posix":
-            # On Windows, "/" isn't the true drive root; skip — the
-            # Windows-specific ``ValueError`` path is covered below.
-            return
+            pytest.skip("filesystem-root semantics are POSIX-specific")
         # Any real absolute path should resolve as "within" /.
         assert _is_within("/etc", "/")
         assert _is_within("/", "/")
