@@ -63,13 +63,33 @@ def get_client_repo_root() -> str:
         logger.debug("client-repo-root: env override -> %s", resolved)
         return resolved
 
-    cwd = Path(os.getcwd())
+    # `os.getcwd()` raises FileNotFoundError when the process' cwd has been
+    # deleted (long-running daemons started from ephemeral dirs). Without
+    # this guard the first memory-tool call would crash the whole session.
+    # Fall back to INSTALL_ROOT and warn loudly so the anomaly is visible.
+    try:
+        cwd = Path(os.getcwd())
+    except (FileNotFoundError, OSError) as err:
+        logger.warning(
+            "client-repo-root: cwd unavailable (%s); falling back to INSTALL_ROOT. "
+            "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
+            err,
+        )
+        return INSTALL_ROOT
+
     marker = _find_marker_upwards(cwd)
     if marker is not None:
         logger.debug("client-repo-root: walk-up marker -> %s", marker)
         return str(marker)
 
-    fallback = str(cwd.resolve())
+    try:
+        fallback = str(cwd.resolve())
+    except OSError as err:
+        logger.warning(
+            "client-repo-root: cwd resolve failed (%s); falling back to INSTALL_ROOT.",
+            err,
+        )
+        return INSTALL_ROOT
     logger.debug("client-repo-root: fallback cwd -> %s", fallback)
     return fallback
 

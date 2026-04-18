@@ -66,6 +66,23 @@ class TestResolutionOrder:
         monkeypatch.chdir(nested)
         assert engine_config.get_client_repo_root() == str(tmp_path.resolve())
 
+    def test_cwd_unavailable_falls_back_to_install_root(self, monkeypatch, caplog):
+        """os.getcwd() raises FileNotFoundError when the cwd was deleted.
+
+        Long-running daemons started from ephemeral dirs hit this; without
+        the guard the first memory-tool call would crash the session.
+        """
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+
+        def _raise_cwd():
+            raise FileNotFoundError(2, "No such file or directory")
+
+        monkeypatch.setattr(engine_config.os, "getcwd", _raise_cwd)
+        with caplog.at_level("WARNING", logger=engine_config.__name__):
+            resolved = engine_config.get_client_repo_root()
+        assert resolved == engine_config.INSTALL_ROOT
+        assert any("cwd unavailable" in rec.message for rec in caplog.records)
+
     def test_cwd_fallback_when_no_marker(self, tmp_path, monkeypatch):
         monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
         isolated = tmp_path / "no_markers_here"
