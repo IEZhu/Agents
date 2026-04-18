@@ -39,10 +39,12 @@ class TestHistoryWriterDefault:
     def test_does_not_touch_install_root(self, client_root):
         writer = HistoryWriter()
         writer.append_entry("intent", "action", "outcome")
-        install_history = os.path.join(engine_config.INSTALL_ROOT, "history.md.test_sentinel")
-        # Creating the file is a side-effect we don't expect — assert the
-        # writer's path never points at the install root.
-        assert not writer.history_path.startswith(engine_config.INSTALL_ROOT + "/history.md")
+        # The writer must resolve outside the install root. commonpath gives
+        # us a portable (Windows-safe) containment check — if the history
+        # path were inside INSTALL_ROOT, their commonpath would equal it.
+        history_path = os.path.realpath(writer.history_path)
+        install_root = os.path.realpath(engine_config.INSTALL_ROOT)
+        assert os.path.commonpath([history_path, install_root]) != install_root
 
 
 class TestHistoryStoreDefault:

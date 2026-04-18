@@ -87,12 +87,14 @@ class TestInstallRootUnchanged:
         # Client-scoped values shift...
         engine_config._reset_client_repo_root_cache()
         assert engine_config.get_client_repo_root() == os.path.realpath(str(tmp_path))
-        # ...but install-scoped values do not.
-        assert engine_config.INSTALL_ROOT.endswith("Agents")
-        assert engine_config.AGENTS_DIR.endswith("agents")
-        assert engine_config.SKILLS_DIR.endswith("skills")
-        assert engine_config.IMPLANTS_DIR.endswith("implants")
-        assert engine_config.INSTALL_DATA_DIR.endswith("data")
+        # ...but install-scoped values do not. Assert structural relationships
+        # (direct children of INSTALL_ROOT) rather than the repo folder name,
+        # which can differ across CI checkouts.
+        install_root = os.path.realpath(engine_config.INSTALL_ROOT)
+        assert os.path.realpath(engine_config.AGENTS_DIR) == os.path.join(install_root, "agents")
+        assert os.path.realpath(engine_config.SKILLS_DIR) == os.path.join(install_root, "skills")
+        assert os.path.realpath(engine_config.IMPLANTS_DIR) == os.path.join(install_root, "implants")
+        assert os.path.realpath(engine_config.INSTALL_DATA_DIR) == os.path.join(install_root, "data")
 
 
 class TestDeprecatedAliases:

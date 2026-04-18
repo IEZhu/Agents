@@ -58,17 +58,19 @@ def get_client_repo_root() -> str:
     override = os.environ.get("AGENTS_CLIENT_REPO_ROOT")
     if override:
         resolved = os.path.realpath(os.path.expanduser(override))
-        logger.info("client-repo-root: env override -> %s", resolved)
+        # Debug-level so the server's INFO-configured root logger stays quiet
+        # on normal startup; AGENTS_DEBUG=1 surfaces these when diagnosing.
+        logger.debug("client-repo-root: env override -> %s", resolved)
         return resolved
 
     cwd = Path(os.getcwd())
     marker = _find_marker_upwards(cwd)
     if marker is not None:
-        logger.info("client-repo-root: walk-up marker -> %s", marker)
+        logger.debug("client-repo-root: walk-up marker -> %s", marker)
         return str(marker)
 
     fallback = str(cwd.resolve())
-    logger.info("client-repo-root: fallback cwd -> %s", fallback)
+    logger.debug("client-repo-root: fallback cwd -> %s", fallback)
     return fallback
 
 
