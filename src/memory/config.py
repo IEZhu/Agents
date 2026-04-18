@@ -1,29 +1,19 @@
 """Constants for the repository memory subsystem.
 
-All paths are derived from REPO_ROOT / DATA_DIR exposed by the engine config,
-so the memory tools pick up overrides made elsewhere automatically.
+Path constants (``HISTORY_FILE``, ``HISTORY_ARCHIVE_DIR``, ``CLAUDE_MD_FILE``,
+``DESCRIBE_HASH_FILE``, ``MEMORY_DATA_DIR``) are **client-repo-scoped** — each
+MCP session resolves them against ``src.engine.config.get_client_repo_root()``,
+not against the Agents install directory. One global Agents-Core install can
+then serve many client repos with isolated per-repo memory (issue #36).
+
+The path names are exposed via PEP 562 ``__getattr__`` so tests that swap the
+client root via ``_reset_client_repo_root_cache()`` see the updated value on
+the next attribute access.
 """
 
 import os
 
-from src.engine.config import DATA_DIR, REPO_ROOT
-
-# --- Filesystem layout -------------------------------------------------------
-
-# Vector store + hash file live under data/memory so they share the same
-# git-ignored data root as the routing/skills/implants stores.
-MEMORY_DATA_DIR = os.path.join(DATA_DIR, "memory")
-
-# Repo-root markdown artifacts (git-ignored by default — see .gitignore).
-HISTORY_FILE = os.path.join(REPO_ROOT, "history.md")
-HISTORY_ARCHIVE_DIR = os.path.join(REPO_ROOT, "history")
-CLAUDE_MD_FILE = os.path.join(REPO_ROOT, "CLAUDE.md")
-
-# Hash file used by RepoDescriber to skip work when the repo hasn't changed.
-DESCRIBE_HASH_FILE = os.path.join(MEMORY_DATA_DIR, ".describe_hash")
-
-# Vector store for lazy semantic recall over history entries.
-HISTORY_VECTOR_STORE_NAME = "history_store"
+from src.engine.config import get_client_data_dir, get_client_repo_root
 
 # --- Managed section markers (CLAUDE.md) -------------------------------------
 
@@ -71,3 +61,23 @@ DESCRIBE_EXCLUDED_DIRS = frozenset({
     ".vscode",
     "history",  # archived history files — describe doesn't care
 })
+
+# --- Vector store name (not a path) ------------------------------------------
+
+HISTORY_VECTOR_STORE_NAME = "history_store"
+
+
+# --- Lazy, client-scoped paths (PEP 562) -------------------------------------
+
+def __getattr__(name: str):
+    if name == "MEMORY_DATA_DIR":
+        return os.path.join(get_client_data_dir(), "memory")
+    if name == "HISTORY_FILE":
+        return os.path.join(get_client_repo_root(), "history.md")
+    if name == "HISTORY_ARCHIVE_DIR":
+        return os.path.join(get_client_repo_root(), "history")
+    if name == "CLAUDE_MD_FILE":
+        return os.path.join(get_client_repo_root(), "CLAUDE.md")
+    if name == "DESCRIBE_HASH_FILE":
+        return os.path.join(get_client_data_dir(), "memory", ".describe_hash")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
