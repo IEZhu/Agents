@@ -24,8 +24,11 @@ def _reset_cache():
 class TestResolutionOrder:
     def test_env_override_wins(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(tmp_path))
-        # Move cwd somewhere unrelated to prove env takes priority.
-        monkeypatch.chdir("/")
+        # Move cwd somewhere unrelated to prove env takes priority. Use a
+        # tmp subdir rather than "/" so the test is portable to Windows.
+        unrelated = tmp_path / "unrelated_cwd"
+        unrelated.mkdir()
+        monkeypatch.chdir(unrelated)
         assert engine_config.get_client_repo_root() == os.path.realpath(str(tmp_path))
 
     def test_env_override_expands_tilde(self, monkeypatch):
@@ -37,7 +40,11 @@ class TestResolutionOrder:
         real = tmp_path / "real"
         real.mkdir()
         link = tmp_path / "link"
-        link.symlink_to(real)
+        try:
+            link.symlink_to(real)
+        except OSError as exc:
+            # Windows and some restricted CI sandboxes deny symlink creation.
+            pytest.skip(f"symlink creation not supported here: {exc}")
         monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(link))
         assert engine_config.get_client_repo_root() == str(real.resolve())
 

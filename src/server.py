@@ -71,6 +71,30 @@ from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configu
 langfuse = get_langfuse()
 atexit.register(langfuse.flush)
 
+
+def _is_within(candidate: str, boundary: str) -> bool:
+    """Return True iff *candidate* resolves inside *boundary* (inclusive).
+
+    Uses ``os.path.commonpath`` so the check survives:
+
+    * boundary == filesystem root (``"/"`` on POSIX) — naive
+      ``startswith(boundary + os.sep)`` math would produce ``"//"`` and
+      reject everything after ``rstrip(os.sep)``.
+    * trailing-slash differences and path-normalization quirks.
+    * Windows cross-drive paths (``ValueError`` from ``commonpath``).
+
+    Mirrors the pattern in ``src/utils/prompt_loader.py:67``.
+    """
+    boundary_real = os.path.realpath(boundary)
+    candidate_real = os.path.realpath(candidate)
+    try:
+        return os.path.commonpath([boundary_real, candidate_real]) == boundary_real
+    except ValueError:
+        # Different drives on Windows, or mixed absolute/relative — treat
+        # as out-of-bounds.
+        return False
+
+
 # --- Tools ---
 
 @mcp.tool()
@@ -715,8 +739,7 @@ async def describe_repo(
             if not os.path.isabs(repo_path):
                 repo_path = os.path.join(client_root, repo_path)
             resolved = os.path.realpath(repo_path)
-            client_root_resolved = os.path.realpath(client_root) + os.sep
-            if resolved != client_root_resolved.rstrip(os.sep) and not resolved.startswith(client_root_resolved):
+            if not _is_within(resolved, client_root):
                 payload = {
                     "status": "error",
                     "error": f"repo_path must be within {client_root}",
@@ -803,8 +826,7 @@ async def write_repo_summary(
             if not os.path.isabs(repo_path):
                 repo_path = os.path.join(client_root, repo_path)
             resolved = os.path.realpath(repo_path)
-            client_root_resolved = os.path.realpath(client_root) + os.sep
-            if resolved != client_root_resolved.rstrip(os.sep) and not resolved.startswith(client_root_resolved):
+            if not _is_within(resolved, client_root):
                 payload = {
                     "status": "error",
                     "error": f"repo_path must be within {client_root}",
