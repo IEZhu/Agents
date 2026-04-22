@@ -270,7 +270,16 @@ if ! check_command python3; then
     exit 1
 fi
 
-VER=$(get_python_version python3)
+# `|| true` so a failing interpreter (broken pyenv shim, missing python in a
+# shim-but-no-version setup) does not fire the ERR trap and emit the generic
+# "please file an issue" FATAL block — this is a user-environment problem
+# that deserves a clear, actionable message instead.
+VER=$(get_python_version python3 || true)
+if [ -z "$VER" ]; then
+    print_error "python3 was found but failed to report its version"
+    print_error "Check for a broken interpreter or an unconfigured pyenv shim; install Python >= $PYTHON_MIN_VERSION"
+    exit 1
+fi
 if ! version_gte "$VER" "$PYTHON_MIN_VERSION"; then
     print_error "python3 is version $VER — requires >= $PYTHON_MIN_VERSION"
     exit 1
