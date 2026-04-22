@@ -81,15 +81,11 @@ set "SELECTED_PYTHON="
 set "PY_VER="
 set "PYCHECK=%HELPERS%\check_version.py"
 
-REM Try py launcher with specific versions (preferred on Windows)
-REM Using goto to avoid nested parentheses issues in cmd.exe
-for /f "delims=" %%A in ('py -3.11 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3.11" & set "PY_VER=%%A")
-if defined SELECTED_PYTHON goto :python_found
-
-for /f "delims=" %%A in ('py -3.10 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3.10" & set "PY_VER=%%A")
-if defined SELECTED_PYTHON goto :python_found
-
-for /f "delims=" %%A in ('py -3.12 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3.12" & set "PY_VER=%%A")
+REM Try py launcher (preferred on Windows; `py -3` picks the highest installed 3.x)
+REM Using goto to avoid nested parentheses issues in cmd.exe.
+REM `check_version.py` exits non-zero below the minimum, which makes `for /f`
+REM no-op silently — SELECTED_PYTHON stays undefined and we fall through.
+for /f "delims=" %%A in ('py -3 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=py -3" & set "PY_VER=%%A")
 if defined SELECTED_PYTHON goto :python_found
 
 REM Try plain python
@@ -101,8 +97,8 @@ for /f "delims=" %%A in ('python3 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=
 if defined SELECTED_PYTHON goto :python_found
 
 echo   %RED%x%NC% No suitable Python version found
-echo        Please install Python 3.10, 3.11, or 3.12.
-echo        Python 3.13+ has compatibility issues with some ML libraries
+echo        Please install Python 3.10 or newer and ensure `py -3`, `python`,
+echo        or `python3` is on PATH.
 exit /b 1
 
 :python_found
