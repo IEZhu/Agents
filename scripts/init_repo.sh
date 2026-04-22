@@ -33,9 +33,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_PATH="$REPO_ROOT/.venv"
 PYTHON_MIN_VERSION="3.10"
-# Upper bound for ML compatibility (exclusive)
-PYTHON_MAX_VERSION_MAJOR="3"
-PYTHON_MAX_VERSION_MINOR="13" # 3.13 is the first unsafe version
 
 # Canonical managed-section markers — must match scripts/_helpers/inject_claude_md.py.
 # Referenced both by the CLAUDE.md injector and by the fallback instructions block
@@ -206,11 +203,6 @@ version_gte() {
     printf '%s\n%s' "$2" "$1" | sort -V -C
 }
 
-version_lt() {
-    # Returns 0 (true) if $1 < $2
-    ! version_gte "$1" "$2"
-}
-
 # Inject Agents-Core MCP server entry into a JSON config file.
 # Usage: inject_mcp_config <config_path> <label>
 inject_mcp_config() {
@@ -271,44 +263,30 @@ if [ "$IS_NIXOS" = true ] && [ "$SKIP_MCP" = false ]; then
     print_success "NixOS detected — MCP config will include LD_LIBRARY_PATH env"
 fi
 
-# Find suitable Python interpreter
 SELECTED_PYTHON=""
 
-# 1. Check default python3
-if check_command python3; then
-    VER=$(get_python_version python3)
-    if version_gte "$VER" "$PYTHON_MIN_VERSION" && version_lt "$VER" "$PYTHON_MAX_VERSION_MAJOR.$PYTHON_MAX_VERSION_MINOR"; then
-        SELECTED_PYTHON="python3"
-        print_success "Found suitable Python: $SELECTED_PYTHON ($VER)"
-    else
-        print_warn "Default python3 is version $VER (supported: $PYTHON_MIN_VERSION - <$PYTHON_MAX_VERSION_MAJOR.$PYTHON_MAX_VERSION_MINOR)"
-    fi
-fi
-
-# 2. If default not suitable, search for specific versions
-if [ -z "$SELECTED_PYTHON" ]; then
-    print_step "Searching for alternative Python versions..."
-    # Order of preference: 3.11 -> 3.10 -> 3.12 (3.11 is most stable for ML now)
-    for CANDIDATE in python3.11 python3.10 python3.12; do
-        if check_command "$CANDIDATE"; then
-             VER=$(get_python_version "$CANDIDATE") || continue
-             [ -z "$VER" ] && continue
-             if version_gte "$VER" "$PYTHON_MIN_VERSION"; then
-                 SELECTED_PYTHON="$CANDIDATE"
-                 print_success "Found suitable Python: $SELECTED_PYTHON ($VER)"
-                 break
-             fi
-        fi
-    done
-fi
-
-# 3. Final check
-if [ -z "$SELECTED_PYTHON" ]; then
-    print_error "No suitable Python version found!"
-    echo "       Please install Python 3.10, 3.11, or 3.12."
-    echo "       (Python 3.13+ has compatibility issues with some ML libraries)"
+if ! check_command python3; then
+    print_error "python3 not found — please install Python $PYTHON_MIN_VERSION or newer"
     exit 1
 fi
+
+# `|| true` so a failing interpreter (broken pyenv shim, missing python in a
+# shim-but-no-version setup) does not fire the ERR trap and emit the generic
+# "please file an issue" FATAL block — this is a user-environment problem
+# that deserves a clear, actionable message instead.
+VER=$(get_python_version python3 || true)
+if [ -z "$VER" ]; then
+    print_error "python3 was found but failed to report its version"
+    print_error "Check for a broken interpreter or an unconfigured pyenv shim; install Python >= $PYTHON_MIN_VERSION"
+    exit 1
+fi
+if ! version_gte "$VER" "$PYTHON_MIN_VERSION"; then
+    print_error "python3 is version $VER — requires >= $PYTHON_MIN_VERSION"
+    exit 1
+fi
+
+SELECTED_PYTHON="python3"
+print_success "Found suitable Python: $SELECTED_PYTHON ($VER)"
 
 # Check pip
 print_step "Checking pip..."
