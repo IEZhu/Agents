@@ -1,4 +1,4 @@
-"""Check if Python version is in supported range (3.10 - 3.12).
+"""Check if Python version meets the minimum requirement (>= 3.10).
 
 Usage: python check_version.py
 Prints major.minor version if supported, exits with 1 otherwise.
@@ -6,6 +6,6 @@ Prints major.minor version if supported, exits with 1 otherwise.
 import sys
 
 v = sys.version_info
-if not ((3, 10) <= v[:2] < (3, 13)):
+if v[:2] < (3, 10):
     sys.exit(1)
 print(f"{v.major}.{v.minor}")
