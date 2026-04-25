@@ -55,8 +55,10 @@ mcp = FastMCP(
         "- NO_CHANGE → context unchanged, continue.\n"
         "- ERROR → answer directly (only fallback).\n\n"
         "Respond in the same language as the user's query (auto-detect). "
-        "Exceptions: code blocks, technical terms, and tool/CLI output stay in English.\n"
-        "Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]"
+        "Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory footer "
+        "labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.\n"
+        "Append at the end (labels in English, values are canonical IDs): "
+        "**Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]"
     ),
 )
 
@@ -280,8 +282,10 @@ async def route_and_load(
     - ERROR → Answer directly (only fallback).
 
     Respond in the same language as the user's query (auto-detect).
-    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
-    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
+    Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory
+    footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
+    Append at the end (labels in English, values are canonical IDs):
+    **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
     Pass `context_hash` from a previous response to enable delta mode.
     When context_hash maps to a previously loaded agent, sticky routing is activated:
     the router prefers keeping the current agent unless a very strong semantic signal
@@ -481,8 +485,10 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
     If the client supports sampling, returns a ready-made response (SUCCESS_SAMPLED).
     Otherwise returns the system_prompt for you to use as context.
     Respond in the same language as the user's query (auto-detect).
-    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
-    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
+    Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory
+    footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
+    Append at the end (labels in English, values are canonical IDs):
+    **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
     """
     try:
         chat_history_list = _normalize_chat_history(chat_history)

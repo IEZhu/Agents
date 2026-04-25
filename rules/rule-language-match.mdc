@@ -13,3 +13,4 @@ Always-English exceptions:
 - CLI/tool output verbatim
 - commit messages, PR titles, branch names
 - technical terms with no native equivalent (do not translate "callback", "deadlock", "race condition")
+- mandatory response footer labels: `Agent`, `Skills`, `Implants`, `Rules` (technical metadata; their values — agent/skill/implant/rule names — are also canonical English IDs)

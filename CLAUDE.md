@@ -23,8 +23,8 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
    - `ERROR` → Answer directly (only in this case).
 
 3. **Post-flight (after EVERY response):**
-   - Respond in the same language as the user's query (auto-detect). Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
-   - Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
+   - Respond in the same language as the user's query (auto-detect). Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
+   - Append at the end (labels in English, values are canonical IDs): **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
    - Call `log_interaction(agent_name, query, response_content)` — this **always** appends an entry to `history.md` and (if Langfuse is configured) sends a generation trace. For meaningful turns (decisions, fixes, refactors, new features), additionally pass `intent=`, `action=`, `outcome=`, `files=[...]`, `tags=[...]` to curate the entry; otherwise the raw query/response are used.
 
 4. **Repository memory (first session per repo):**
