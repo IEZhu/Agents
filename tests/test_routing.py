@@ -190,10 +190,13 @@ class TestStickyRouting:
         srv.SESSION_CACHE = self.original_session_cache
 
     def _make_enrich_result(self, agent_name):
-        """Helper: return a fake _load_and_enrich result."""
+        """Helper: return a fake _load_and_enrich result.
+
+        Tuple shape: (prompt, ctx_hash, skills_loaded, implants_loaded, rules_loaded, tier).
+        """
         prompt = f"system prompt for {agent_name}"
         ctx_hash = f"hash_{agent_name}"
-        return (prompt, ctx_hash, ["skill-a"], ["implant-a"], "standard")
+        return (prompt, ctx_hash, ["skill-a"], ["implant-a"], ["rule-a"], "standard")
 
     @pytest.mark.asyncio
     async def test_no_sticky_cache_miss_returns_route_required(self):
@@ -376,7 +379,7 @@ class TestStickyRouting:
         with patch.object(self.srv.router, "query_nearest",
                           new_callable=AsyncMock, return_value=None), \
              patch("src.server._load_and_enrich", new_callable=AsyncMock,
-                   return_value=("prompt", "prev_hash", ["s"], ["i"], "standard")), \
+                   return_value=("prompt", "prev_hash", ["s"], ["i"], ["r"], "standard")), \
              patch.object(self.srv.router, "update_cache", new_callable=AsyncMock):
             result = json.loads(await self.srv.route_and_load(
                 "Comment optimiser ce code?",
@@ -407,7 +410,7 @@ class TestPreferredImplants:
 
     def _fake_enrichment(self, **kwargs):
         from src.engine.enrichment import EnrichmentResult
-        return EnrichmentResult(prompt="enriched", skills_loaded=["s"], implants_loaded=["i"])
+        return EnrichmentResult(prompt="enriched", skills_loaded=["s"], implants_loaded=["i"], rules_loaded=["r"])
 
     @pytest.mark.asyncio
     async def test_tier_promoted_when_preferred_implants_present(self):
@@ -423,7 +426,7 @@ class TestPreferredImplants:
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()) as mock_enrich:
             # Short query → would infer "lite", but preferred_implants promotes to "standard"
-            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [])
             assert effective_tier == "standard"
 
@@ -440,7 +443,7 @@ class TestPreferredImplants:
              patch("src.server.load_agent_prompt", return_value="base prompt"), \
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()):
-            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [], tier="lite")
             assert effective_tier == "lite"
 
@@ -478,7 +481,7 @@ class TestPreferredImplants:
              patch("src.server.load_agent_prompt", return_value="base prompt"), \
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()):
-            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "universal_agent", "hi", [])
             assert effective_tier == "lite"
 
@@ -693,7 +696,7 @@ class TestKeywordBoosting:
              patch.object(srv.router, "keyword_veto", return_value="russian_lawyer"), \
              patch.object(srv.router, "update_cache", new_callable=AsyncMock) as mock_cache, \
              patch("src.server._load_and_enrich", new_callable=AsyncMock, return_value=(
-                 "prompt", "hash123", ["skill1"], ["implant1"], "standard"
+                 "prompt", "hash123", ["skill1"], ["implant1"], ["rule1"], "standard"
              )), \
              patch("src.server._sample_with_agent", new_callable=AsyncMock, return_value=None):
             result = await srv.route_and_load("Проверить доверенность на соответствие российскому законодательству")

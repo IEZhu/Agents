@@ -33,6 +33,7 @@ capabilities:
 - development
 - dev-security
 - performance-engineering
+- concise-output
 ---
 
 ## Identity

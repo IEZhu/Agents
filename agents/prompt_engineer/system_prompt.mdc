@@ -25,6 +25,7 @@ capabilities:
 - prompt-design
 - critical-analysis
 - content-structure
+- concise-output
 ---
 # Prompt Engineer System Prompt
 

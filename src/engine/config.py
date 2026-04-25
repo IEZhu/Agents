@@ -18,6 +18,7 @@ INSTALL_DATA_DIR = os.path.join(INSTALL_ROOT, "data")
 AGENTS_DIR = os.path.join(INSTALL_ROOT, "agents")
 SKILLS_DIR = os.path.join(INSTALL_ROOT, "skills")
 IMPLANTS_DIR = os.path.join(INSTALL_ROOT, "implants")
+RULES_DIR = os.path.join(INSTALL_ROOT, "rules")
 CAPABILITIES_FILE = os.path.join(INSTALL_ROOT, "agents", "capabilities", "registry.yaml")
 
 # --- Client repo root (per-session, per-repo memory artifacts) ---------------
@@ -161,6 +162,10 @@ SESSION_CACHE_TTL_SECONDS = 600
 
 # Debug logging — set AGENTS_DEBUG=1 in .env to write per-call JSON files to logs/
 AGENTS_DEBUG = os.getenv("AGENTS_DEBUG", "").lower() in ("1", "true")
+
+# Rules layer — universal directives loaded into every enriched prompt.
+# Disable with RULES_ENABLED=0 to compare behavior with/without the layer.
+RULES_ENABLED = os.getenv("RULES_ENABLED", "1").lower() in ("1", "true")
 
 
 # --- Deprecated name aliases (PEP 562) ---------------------------------------

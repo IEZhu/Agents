@@ -28,6 +28,7 @@ preferred_skills:
 capabilities:
 - dev-security
 - critical-analysis
+- concise-output
 ---
 # Security Expert System Prompt
 

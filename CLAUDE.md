@@ -23,8 +23,8 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
    - `ERROR` → Answer directly (only in this case).
 
 3. **Post-flight (after EVERY response):**
-   - Respond in the same language as the user's query (auto-detect). Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
-   - Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+   - Respond in the same language as the user's query (auto-detect). Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
+   - Append at the end (labels in English, values are canonical IDs): **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
    - Call `log_interaction(agent_name, query, response_content)` — this **always** appends an entry to `history.md` and (if Langfuse is configured) sends a generation trace. For meaningful turns (decisions, fixes, refactors, new features), additionally pass `intent=`, `action=`, `outcome=`, `files=[...]`, `tags=[...]` to curate the entry; otherwise the raw query/response are used.
 
 4. **Repository memory (first session per repo):**
@@ -61,6 +61,14 @@ If `route_and_load` fails or Agents-Core MCP is not connected:
 
 ---
 
+## Enrichment layers (order in every system prompt)
+
+1. **Base agent system_prompt** — agent persona from `agents/<name>/system_prompt.mdc`.
+2. **Rules** (`rules/rule-*.mdc`) — **always-on, universal, no semantic retrieval, no opt-out**. Loaded by `src/engine/rules.py`. Architectural invariant: rules apply to every agent without exception. Per-agent guidance belongs in `skills/`. Toggle via `RULES_ENABLED=0`.
+3. **Skills** (`skills/skill-*.mdc`) — semantic retrieval + per-agent opt-in via `preferred_skills` / `capabilities`. Caveman-style output compression lives here as `skill-caveman-tokenomics`, opt-in via the `concise-output` capability.
+4. **Capability Directives** — terse one-liners from `agents/capabilities/registry.yaml`.
+5. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
+
 ## Repository Structure
 
 ```
@@ -70,8 +78,9 @@ src/
     router.py          — SemanticRouter: cache lookup, keyword matching, agent catalog
     vector_store.py    — NumpyVectorStore: numpy-based cosine similarity store
     embedder.py        — FastEmbed wrapper (model configurable via EMBEDDING_MODEL env var)
-    config.py          — Thresholds, paths, env-based configuration
-    enrichment.py      — Prompt enrichment with skills/implants by tier (lite/standard/deep)
+    config.py          — Thresholds, paths, env-based configuration (RULES_ENABLED, RULES_DIR)
+    enrichment.py      — Prompt enrichment with rules/skills/implants by tier (lite/standard/deep)
+    rules.py           — Universal always-on rules layer (no retrieval, no opt-out)
     skills.py          — Skill retrieval from vector store
     implants.py        — Implant retrieval from vector store
     capabilities.py    — Capability -> skill resolution via registry.yaml
@@ -82,17 +91,19 @@ src/
     debug_logger.py    — JSON debug logging (AGENTS_DEBUG=1)
     langfuse_compat.py — Optional Langfuse observability
   schemas/
-    protocol.py        — RouterDecision, AgentRequest, EnrichmentResult
+    protocol.py        — RouterDecision, AgentRequest, AgentResponse
 agents/
   [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, skills)
   common/agent-schema.json — Frontmatter JSON schema
-  capabilities/registry.yaml — Capability -> skill mapping
-skills/skill-*.mdc         — Compiled skill prompts
+  capabilities/registry.yaml — Capability -> skill mapping (incl. concise-output)
+rules/rule-*.mdc           — Universal always-on directives (accuracy, honesty, language, sycophancy)
+skills/skill-*.mdc         — Compiled skill prompts (incl. skill-caveman-tokenomics)
 implants/implant-*.mdc     — Cognitive reasoning implants
 tests/
   test_routing.py      — Routing logic, sticky routing, keyword boosting tests
   test_vector_store.py — NumpyVectorStore correctness tests
   test_language.py     — Language detection tests
+  test_rules.py        — Rules layer: parsing, priority, invariant (no opt-out fields)
 ```
 
 ## Routing Flow (Internal)

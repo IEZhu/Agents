@@ -55,8 +55,10 @@ mcp = FastMCP(
         "- NO_CHANGE → context unchanged, continue.\n"
         "- ERROR → answer directly (only fallback).\n\n"
         "Respond in the same language as the user's query (auto-detect). "
-        "Exceptions: code blocks, technical terms, and tool/CLI output stay in English.\n"
-        "Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]"
+        "Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory footer "
+        "labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.\n"
+        "Append at the end (labels in English, values are canonical IDs): "
+        "**Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]"
     ),
 )
 
@@ -161,9 +163,9 @@ def _build_route_required(request_id: str, tier: str, candidates: list) -> str:
     debug_log("route_and_load", "res", result)
     return json.dumps(result, ensure_ascii=False)
 
-async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], str]:
-    """Shared helper: load prompt, enrich with skills/implants/capabilities.
-    Returns (final_prompt, context_hash, skills_loaded, implants_loaded, effective_tier).
+async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], list[str], str]:
+    """Shared helper: load prompt, enrich with rules/skills/implants/capabilities.
+    Returns (final_prompt, context_hash, skills_loaded, implants_loaded, rules_loaded, effective_tier).
     """
     tier_explicit = tier is not None
     if tier is None:
@@ -185,13 +187,28 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     cache_key = f"{agent_name}:{query_hash}:{tier}"
     if cache_key in SESSION_CACHE:
         cached = SESSION_CACHE[cache_key]
+        cache_used = False
         if isinstance(cached, tuple):
-            prompt, skills_loaded, implants_loaded = cached
-        else:
-            prompt, skills_loaded, implants_loaded = cached, [], []
-        logger.info(f"Session cache hit for {agent_name} (tier={tier})")
-        debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
-        return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, tier
+            if len(cached) == 4:
+                prompt, skills_loaded, implants_loaded, rules_loaded = cached
+                cache_used = True
+            elif len(cached) == 3:
+                # Pre-rules cache shape — accept but treat rules as empty.
+                prompt, skills_loaded, implants_loaded = cached
+                rules_loaded = []
+                cache_used = True
+        if cache_used:
+            logger.info(f"Session cache hit for {agent_name} (tier={tier})")
+            debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
+            return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, rules_loaded, tier
+        # Unknown shape — log loudly and evict so the bug surfaces deterministically
+        # instead of silently returning partial metadata.
+        logger.warning(
+            "SESSION_CACHE entry for %s has unexpected shape %r; evicting and refetching.",
+            cache_key, type(cached).__name__ + (f"[{len(cached)}]" if isinstance(cached, tuple) else ""),
+        )
+        debug_log("_load_and_enrich", "cache_corrupt", {"agent": agent_name, "tier": tier, "shape": str(type(cached))})
+        del SESSION_CACHE[cache_key]
 
     base_prompt = await loop.run_in_executor(None, load_agent_prompt, agent_name)
 
@@ -202,7 +219,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         preferred_implants=preferred_implants,
     )
     final_prompt = enrichment.prompt
-    SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded)
+    SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded)
     ctx_hash = _compute_context_hash(final_prompt)
     CONTEXT_HASH_CACHE[ctx_hash] = agent_name
     debug_log("_load_and_enrich", "res", {
@@ -211,8 +228,9 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         "preferred_implants": preferred_implants, "capabilities": capabilities,
         "skills_loaded": enrichment.skills_loaded,
         "implants_loaded": enrichment.implants_loaded,
+        "rules_loaded": enrichment.rules_loaded,
     })
-    return final_prompt, ctx_hash, enrichment.skills_loaded, enrichment.implants_loaded, tier
+    return final_prompt, ctx_hash, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded, tier
 
 
 async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> str:
@@ -264,8 +282,10 @@ async def route_and_load(
     - ERROR → Answer directly (only fallback).
 
     Respond in the same language as the user's query (auto-detect).
-    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
-    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+    Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory
+    footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
+    Append at the end (labels in English, values are canonical IDs):
+    **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
     Pass `context_hash` from a previous response to enable delta mode.
     When context_hash maps to a previously loaded agent, sticky routing is activated:
     the router prefers keeping the current agent unless a very strong semantic signal
@@ -393,7 +413,7 @@ async def route_and_load(
 
         # 3. Cache hit or meta-query — load enriched prompt
         # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote
-        final_prompt, new_hash, skills_loaded, implants_loaded, tier = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
+        final_prompt, new_hash, skills_loaded, implants_loaded, rules_loaded, tier = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
 
         if context_hash and context_hash == new_hash:
             result = {
@@ -404,6 +424,7 @@ async def route_and_load(
                 "tier": tier,
                 "skills_loaded": skills_loaded,
                 "implants_loaded": implants_loaded,
+                "rules_loaded": rules_loaded,
             }
             debug_log("route_and_load", "res", result)
             return json.dumps(result, ensure_ascii=False)
@@ -425,6 +446,7 @@ async def route_and_load(
                     "response": response,
                     "skills_loaded": skills_loaded,
                     "implants_loaded": implants_loaded,
+                    "rules_loaded": rules_loaded,
                 }
                 debug_log("route_and_load", "res", result)
                 return json.dumps(result, ensure_ascii=False)
@@ -443,6 +465,7 @@ async def route_and_load(
             "system_prompt": final_prompt,
             "skills_loaded": skills_loaded,
             "implants_loaded": implants_loaded,
+            "rules_loaded": rules_loaded,
         }
         debug_log("route_and_load", "res", result)
         return json.dumps(result, ensure_ascii=False)
@@ -462,15 +485,17 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
     If the client supports sampling, returns a ready-made response (SUCCESS_SAMPLED).
     Otherwise returns the system_prompt for you to use as context.
     Respond in the same language as the user's query (auto-detect).
-    Exceptions: code blocks, technical terms, and tool/CLI output stay in English.
-    Append at the end: **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants]
+    Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory
+    footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
+    Append at the end (labels in English, values are canonical IDs):
+    **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
     """
     try:
         chat_history_list = _normalize_chat_history(chat_history)
         request_id = str(uuid.uuid4())
         debug_log("get_agent_context", "req", {"agent_name": agent_name, "query": query, "reasoning": reasoning})
 
-        final_prompt, ctx_hash, skills_loaded, implants_loaded, _ = await _load_and_enrich(agent_name, query, chat_history_list)
+        final_prompt, ctx_hash, skills_loaded, implants_loaded, rules_loaded, _ = await _load_and_enrich(agent_name, query, chat_history_list)
         await router.update_cache(query, agent_name, reasoning, request_id)
 
         # Try sampling: generate response with agent's system prompt via client LLM
@@ -485,6 +510,7 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
                     "response": response,
                     "skills_loaded": skills_loaded,
                     "implants_loaded": implants_loaded,
+                    "rules_loaded": rules_loaded,
                 }
                 debug_log("get_agent_context", "res", result)
                 return json.dumps(result, ensure_ascii=False)
@@ -501,6 +527,7 @@ async def get_agent_context(agent_name: str, query: str, reasoning: str = "Selec
             "system_prompt": final_prompt,
             "skills_loaded": skills_loaded,
             "implants_loaded": implants_loaded,
+            "rules_loaded": rules_loaded,
         }
         debug_log("get_agent_context", "res", result)
         return json.dumps(result, ensure_ascii=False)
@@ -937,7 +964,7 @@ async def ask(query: str) -> list:
                 f"Agents:\n" + "\n".join(lines) + f"\n\nQuery: {query}"
             )]
 
-        prompt, _, _, _, _ = await _load_and_enrich(agent_name, query, [])
+        prompt, _, _, _, _, _ = await _load_and_enrich(agent_name, query, [])
         return [UserMessage(
             f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
             f"{prompt}\n\n"
@@ -963,7 +990,7 @@ def _register_agent_prompts():
         def make_prompt(a_name, d_name, r):
             async def agent_prompt(query: str) -> list:
                 try:
-                    prompt, _, _, _, _ = await _load_and_enrich(a_name, query, [])
+                    prompt, _, _, _, _, _ = await _load_and_enrich(a_name, query, [])
                     return [UserMessage(
                         f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
                         f"{prompt}\n\n"
@@ -1026,6 +1053,24 @@ def _warmup_embedding_model():
         logger.warning("Embedding model warmup failed: %s", e, exc_info=True)
 
 
+def _warmup_rules():
+    """Pre-load and cache the always-on rules layer at startup.
+
+    ``get_rules()`` does sync filesystem I/O on its first call (parsing
+    ``rules/rule-*.mdc``). It's invoked from ``get_dynamic_context_string``
+    on the async path, so without this warmup the very first request would
+    block the event loop while reading the rule files. Rules are static
+    for the process lifetime, so a single eager load amortizes the cost.
+    """
+    try:
+        from src.engine.rules import get_rules
+        rules = get_rules()
+        logger.info("Rules layer warmed up: %d rule(s) loaded", len(rules))
+    except Exception as e:
+        logger.warning("Rules layer warmup failed: %s", e, exc_info=True)
+
+
 if __name__ == "__main__":
     _warmup_embedding_model()
+    _warmup_rules()
     mcp.run()

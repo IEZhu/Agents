@@ -21,6 +21,7 @@ preferred_skills:
 capabilities:
 - content-structure
 - tech-documentation
+- concise-output
 ---
 # Agent Builder System Prompt
 

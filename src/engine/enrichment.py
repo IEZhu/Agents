@@ -10,6 +10,7 @@ from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
 from src.engine.skills import SkillRetriever
 from src.engine.implants import ImplantRetriever
 from src.engine.capabilities import resolve_capabilities
+from src.engine.rules import format_rules_for_prompt, get_rules
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class EnrichmentResult:
     prompt: str
     skills_loaded: list[str] = field(default_factory=list)
     implants_loaded: list[str] = field(default_factory=list)
+    rules_loaded: list[str] = field(default_factory=list)
 
 skill_retriever = SkillRetriever()
 implant_retriever = ImplantRetriever()
@@ -48,13 +50,47 @@ async def get_dynamic_context_string(
     capabilities: Optional[List[str]] = None,
     preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
-    """Retrieve and format dynamic context (Skills + Implants) based on tier."""
+    """Build the dynamic context block that ``enrich_agent_prompt`` appends to
+    an agent's base prompt.
+
+    The block itself is composed of four sub-layers in this fixed internal
+    order (tier only affects which sub-layers are populated):
+
+    1. **Rules** — always-on universal directives from ``rules/`` (no
+       semantic retrieval, no opt-out). Skipped only when ``RULES_ENABLED=0``.
+    2. **Skills** — semantic + capability-resolved (skipped at ``lite`` tier).
+    3. **Capability Directives** — terse one-liners from ``agents/capabilities/registry.yaml``.
+    4. **Implants** — cognitive reasoning patterns (``standard``/``deep`` tiers only).
+
+    Final concatenation in ``enrich_agent_prompt``: ``base_prompt + "\\n\\n" +
+    block``. The agent persona retains primacy; the dynamic block follows.
+
+    The returned ``EnrichmentResult`` carries the joined prompt fragment plus
+    the names loaded for each layer, which the server surfaces to clients.
+    """
     if chat_history is None:
         chat_history = []
     loop = asyncio.get_running_loop()
     context_parts: list[str] = []
     loaded_skill_names: list[str] = []
     loaded_implant_names: list[str] = []
+    loaded_rule_names: list[str] = []
+
+    # Rules layer must not break routing. The skills and implants blocks below
+    # are wrapped in try/except for the same reason — degrade gracefully to
+    # "fewer layers" rather than failing the whole request. `_parse_rule_file`
+    # already defends against malformed individual files (round 2 fix); this
+    # outer guard catches anything unexpected from `get_rules()` or the
+    # formatter (e.g. transient FS errors after `invalidate_cache()`).
+    try:
+        rules = get_rules()
+        if rules:
+            rules_block = format_rules_for_prompt(rules)
+            if rules_block:
+                context_parts.append(rules_block)
+                loaded_rule_names = [r.name for r in rules]
+    except Exception as e:
+        logger.error("Failed to load rules layer: %s", e, exc_info=True)
 
     effective_skills = list(preferred_skills or [])
     cap_directive = ""
@@ -136,6 +172,7 @@ async def get_dynamic_context_string(
         prompt="\n\n".join(context_parts),
         skills_loaded=loaded_skill_names,
         implants_loaded=loaded_implant_names,
+        rules_loaded=loaded_rule_names,
     )
 
 async def enrich_agent_prompt(
@@ -148,7 +185,16 @@ async def enrich_agent_prompt(
     capabilities: Optional[List[str]] = None,
     preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
-    """Enrich the base system prompt with dynamic skills and implants."""
+    """Append the dynamic context block (rules, skills, capability directives,
+    implants) to the agent's base system prompt and return the combined prompt.
+
+    Concatenation: ``base_prompt + "\\n\\n" + dynamic_block``. Agent persona
+    keeps primacy; the dynamic block follows. Any of the four sub-layers may be
+    empty depending on tier, ``RULES_ENABLED``, and the agent's frontmatter.
+
+    Returns ``EnrichmentResult`` with the combined prompt plus the names loaded
+    for each layer (``rules_loaded``, ``skills_loaded``, ``implants_loaded``).
+    """
     if chat_history is None:
         chat_history = []
     if tier is None:
@@ -163,4 +209,5 @@ async def enrich_agent_prompt(
         prompt=base_prompt,
         skills_loaded=enrichment.skills_loaded,
         implants_loaded=enrichment.implants_loaded,
+        rules_loaded=enrichment.rules_loaded,
     )
