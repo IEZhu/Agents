@@ -76,12 +76,21 @@ async def get_dynamic_context_string(
     loaded_implant_names: list[str] = []
     loaded_rule_names: list[str] = []
 
-    rules = get_rules()
-    if rules:
-        rules_block = format_rules_for_prompt(rules)
-        if rules_block:
-            context_parts.append(rules_block)
-            loaded_rule_names = [r.name for r in rules]
+    # Rules layer must not break routing. The skills and implants blocks below
+    # are wrapped in try/except for the same reason — degrade gracefully to
+    # "fewer layers" rather than failing the whole request. `_parse_rule_file`
+    # already defends against malformed individual files (round 2 fix); this
+    # outer guard catches anything unexpected from `get_rules()` or the
+    # formatter (e.g. transient FS errors after `invalidate_cache()`).
+    try:
+        rules = get_rules()
+        if rules:
+            rules_block = format_rules_for_prompt(rules)
+            if rules_block:
+                context_parts.append(rules_block)
+                loaded_rule_names = [r.name for r in rules]
+    except Exception as e:
+        logger.error("Failed to load rules layer: %s", e, exc_info=True)
 
     effective_skills = list(preferred_skills or [])
     cap_directive = ""

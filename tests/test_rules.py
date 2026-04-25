@@ -184,6 +184,41 @@ def test_loader_handles_missing_directory(tmp_path, monkeypatch):
     assert rules_module.load_all_rules() == []
 
 
+def test_enrichment_degrades_gracefully_when_rules_layer_raises(monkeypatch, caplog):
+    """A failure inside the rules layer must not break routing.
+
+    Regression guard for the cursor finding: ``get_dynamic_context_string``
+    used to call ``get_rules()`` outside any try/except, so an unexpected
+    error (FS hiccup after ``invalidate_cache()``, formatter bug, etc.)
+    would propagate and fail the whole request — even though the rules
+    layer is the ironically-named "always-on" guardrail. Skills/implants
+    already degrade to "fewer layers" on error; rules now do too.
+    """
+    import asyncio
+
+    from src.engine import enrichment as enrichment_module
+
+    def _boom():
+        raise RuntimeError("simulated rules-layer failure")
+
+    monkeypatch.setattr(enrichment_module, "get_rules", _boom)
+
+    async def _run():
+        return await enrichment_module.get_dynamic_context_string(
+            agent_name="universal_agent",
+            query="hello",
+            tier="lite",
+        )
+
+    with caplog.at_level("ERROR"):
+        result = asyncio.run(_run())
+
+    assert result.rules_loaded == [], "Rules failure must not populate rules_loaded"
+    assert any("Failed to load rules layer" in rec.message for rec in caplog.records)
+    # Routing continues — caller still gets a (possibly empty) prompt back.
+    assert isinstance(result.prompt, str)
+
+
 def test_loader_skips_rule_with_non_integer_priority(tmp_path, monkeypatch, caplog):
     """A malformed rule (e.g. ``priority: high``) must not crash the pipeline.
 
