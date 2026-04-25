@@ -56,7 +56,7 @@ async def get_dynamic_context_string(
     1. **Rules** — always-on universal directives from ``rules/`` (no
        semantic retrieval, no opt-out). Skipped only when ``RULES_ENABLED=0``.
     2. **Skills** — semantic + capability-resolved (skipped at ``lite`` tier).
-    3. **Capability Directives** — terse one-liners from ``capabilities/registry.yaml``.
+    3. **Capability Directives** — terse one-liners from ``agents/capabilities/registry.yaml``.
     4. **Implants** — cognitive reasoning patterns (``standard``/``deep`` tiers only).
 
     The returned ``EnrichmentResult`` carries the joined prompt fragment plus

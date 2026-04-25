@@ -170,3 +170,53 @@ def test_loader_handles_missing_directory(tmp_path, monkeypatch):
     monkeypatch.setattr(rules_module, "RULES_DIR", str(nonexistent))
     rules_module.invalidate_cache()
     assert rules_module.load_all_rules() == []
+
+
+def test_loader_skips_rule_with_non_integer_priority(tmp_path, monkeypatch, caplog):
+    """A malformed rule (e.g. ``priority: high``) must not crash the pipeline.
+
+    Regression guard: previously ``int(fm.get("priority"))`` raised ``ValueError``
+    that propagated through ``get_rules`` → ``get_dynamic_context_string`` and
+    failed every request. Now the bad file is skipped with an error log; well-
+    formed rules in the same directory continue to load.
+    """
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "rule-bad-priority.mdc").write_text(
+        textwrap.dedent(
+            """\
+            ---
+            name: bad-priority
+            description: Should be skipped, not crash.
+            priority: high
+            category: accuracy
+            ---
+            # Bad priority
+            Non-numeric priority used to take down the whole pipeline.
+            """
+        ),
+        encoding="utf-8",
+    )
+    (rules_dir / "rule-good.mdc").write_text(
+        textwrap.dedent(
+            """\
+            ---
+            name: good
+            description: Survives the malformed sibling.
+            priority: 5
+            category: accuracy
+            ---
+            Body.
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(rules_module, "RULES_DIR", str(rules_dir))
+    rules_module.invalidate_cache()
+
+    with caplog.at_level("ERROR"):
+        loaded = rules_module.load_all_rules()
+
+    assert [r.name for r in loaded] == ["good"], "Malformed rule must be skipped, not crash"
+    assert any("non-integer 'priority'" in rec.message for rec in caplog.records)

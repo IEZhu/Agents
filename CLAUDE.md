@@ -66,8 +66,8 @@ If `route_and_load` fails or Agents-Core MCP is not connected:
 1. **Base agent system_prompt** — agent persona from `agents/<name>/system_prompt.mdc`.
 2. **Rules** (`rules/rule-*.mdc`) — **always-on, universal, no semantic retrieval, no opt-out**. Loaded by `src/engine/rules.py`. Architectural invariant: rules apply to every agent without exception. Per-agent guidance belongs in `skills/`. Toggle via `RULES_ENABLED=0`.
 3. **Skills** (`skills/skill-*.mdc`) — semantic retrieval + per-agent opt-in via `preferred_skills` / `capabilities`. Caveman-style output compression lives here as `skill-caveman-tokenomics`, opt-in via the `concise-output` capability.
-4. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
-5. **Capability Directives** — terse one-liners from `agents/capabilities/registry.yaml`.
+4. **Capability Directives** — terse one-liners from `agents/capabilities/registry.yaml`.
+5. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
 
 ## Repository Structure
 

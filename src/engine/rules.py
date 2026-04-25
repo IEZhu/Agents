@@ -1,8 +1,8 @@
 """Always-on universal rules layer.
 
 Rules apply to every agent without exception. Anything per-agent belongs in
-``skills/`` (see ``capabilities/registry.yaml``). The architectural invariant
-is enforced in ``load_all_rules`` — any rule with ``applies_to`` or
+``skills/`` (see ``agents/capabilities/registry.yaml``). The architectural
+invariant is enforced in ``load_all_rules`` — any rule with ``applies_to`` or
 ``exclude_agents`` fields is rejected and logged.
 
 Rules are lazy-loaded via ``get_rules()``, sorted by ``priority`` (lower first),
@@ -19,7 +19,7 @@ import glob
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 import yaml
@@ -81,7 +81,7 @@ def _parse_rule_file(path: str) -> Optional[Rule]:
     if forbidden:
         logger.error(
             "Rule %s has forbidden fields %s — rules are universal. "
-            "Move per-agent guidance to a skill via capabilities/registry.yaml.",
+            "Move per-agent guidance to a skill via agents/capabilities/registry.yaml.",
             path, forbidden,
         )
         return None
@@ -91,10 +91,23 @@ def _parse_rule_file(path: str) -> Optional[Rule]:
         logger.error("Rule %s missing required 'name' field — skipped", path)
         return None
 
+    raw_priority = fm.get("priority", 50)
+    try:
+        priority = int(raw_priority)
+    except (TypeError, ValueError):
+        # A non-numeric priority (e.g. "high", a list) used to crash the entire
+        # enrichment pipeline because this exception bubbled up to every request.
+        # Skip the rule instead — one malformed file must not break routing.
+        logger.error(
+            "Rule %s has non-integer 'priority' value %r — skipped",
+            path, raw_priority,
+        )
+        return None
+
     return Rule(
         name=str(name),
         description=str(fm.get("description", "")),
-        priority=int(fm.get("priority", 50)),
+        priority=priority,
         category=str(fm.get("category", "general")),
         body=body.strip(),
         filename=os.path.basename(path),
