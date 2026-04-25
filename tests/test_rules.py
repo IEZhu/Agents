@@ -46,11 +46,23 @@ def test_rules_directory_exists():
 
 
 def test_v1_rule_files_present():
-    """The v1 set is the contract — adding/removing rules is a deliberate change."""
+    """The v1 set is the contract — adding/removing rules is a deliberate change.
+
+    Rules are always-on for every agent, so any addition or removal alters the
+    behavior of the whole system. The strict-equality check forces a paired
+    update of ``_EXPECTED_RULE_NAMES`` whenever ``rules/`` changes — that
+    paper trail is the point.
+    """
     files = _list_rule_files()
     names = {f.stem.removeprefix("rule-") for f in files}
-    assert _EXPECTED_RULE_NAMES <= names, (
-        f"Missing v1 rules: {_EXPECTED_RULE_NAMES - names}"
+    missing = _EXPECTED_RULE_NAMES - names
+    unexpected = names - _EXPECTED_RULE_NAMES
+    assert names == _EXPECTED_RULE_NAMES, (
+        f"Rule set changed. "
+        f"Missing v1 rules: {sorted(missing)}. "
+        f"Unexpected rule files: {sorted(unexpected)}. "
+        f"If this addition/removal is intentional, update _EXPECTED_RULE_NAMES "
+        f"in this test file as part of the same commit."
     )
 
 

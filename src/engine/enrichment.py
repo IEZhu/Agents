@@ -176,7 +176,16 @@ async def enrich_agent_prompt(
     capabilities: Optional[List[str]] = None,
     preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
-    """Enrich the base system prompt with dynamic skills and implants."""
+    """Append the dynamic context block (rules, skills, capability directives,
+    implants) to the agent's base system prompt and return the combined prompt.
+
+    Concatenation: ``base_prompt + "\\n\\n" + dynamic_block``. Agent persona
+    keeps primacy; the dynamic block follows. Any of the four sub-layers may be
+    empty depending on tier, ``RULES_ENABLED``, and the agent's frontmatter.
+
+    Returns ``EnrichmentResult`` with the combined prompt plus the names loaded
+    for each layer (``rules_loaded``, ``skills_loaded``, ``implants_loaded``).
+    """
     if chat_history is None:
         chat_history = []
     if tier is None:
