@@ -50,7 +50,18 @@ async def get_dynamic_context_string(
     capabilities: Optional[List[str]] = None,
     preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
-    """Retrieve and format dynamic context (Skills + Implants) based on tier."""
+    """Build the dynamic context block prepended to an agent's base prompt.
+
+    Layer order (constant; tier only affects what's in each layer):
+    1. **Rules** — always-on universal directives from ``rules/`` (no
+       semantic retrieval, no opt-out). Skipped only when ``RULES_ENABLED=0``.
+    2. **Skills** — semantic + capability-resolved (skipped at ``lite`` tier).
+    3. **Capability Directives** — terse one-liners from ``capabilities/registry.yaml``.
+    4. **Implants** — cognitive reasoning patterns (``standard``/``deep`` tiers only).
+
+    The returned ``EnrichmentResult`` carries the joined prompt fragment plus
+    the names loaded for each layer, which the server surfaces to clients.
+    """
     if chat_history is None:
         chat_history = []
     loop = asyncio.get_running_loop()

@@ -91,7 +91,7 @@ src/
     debug_logger.py    — JSON debug logging (AGENTS_DEBUG=1)
     langfuse_compat.py — Optional Langfuse observability
   schemas/
-    protocol.py        — RouterDecision, AgentRequest, EnrichmentResult (rules_loaded)
+    protocol.py        — RouterDecision, AgentRequest, AgentResponse
 agents/
   [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, skills)
   common/agent-schema.json — Frontmatter JSON schema

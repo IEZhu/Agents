@@ -185,19 +185,28 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     cache_key = f"{agent_name}:{query_hash}:{tier}"
     if cache_key in SESSION_CACHE:
         cached = SESSION_CACHE[cache_key]
+        cache_used = False
         if isinstance(cached, tuple):
             if len(cached) == 4:
                 prompt, skills_loaded, implants_loaded, rules_loaded = cached
+                cache_used = True
             elif len(cached) == 3:
+                # Pre-rules cache shape — accept but treat rules as empty.
                 prompt, skills_loaded, implants_loaded = cached
                 rules_loaded = []
-            else:
-                prompt, skills_loaded, implants_loaded, rules_loaded = cached[0], [], [], []
-        else:
-            prompt, skills_loaded, implants_loaded, rules_loaded = cached, [], [], []
-        logger.info(f"Session cache hit for {agent_name} (tier={tier})")
-        debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
-        return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, rules_loaded, tier
+                cache_used = True
+        if cache_used:
+            logger.info(f"Session cache hit for {agent_name} (tier={tier})")
+            debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
+            return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, rules_loaded, tier
+        # Unknown shape — log loudly and evict so the bug surfaces deterministically
+        # instead of silently returning partial metadata.
+        logger.warning(
+            "SESSION_CACHE entry for %s has unexpected shape %r; evicting and refetching.",
+            cache_key, type(cached).__name__ + (f"[{len(cached)}]" if isinstance(cached, tuple) else ""),
+        )
+        debug_log("_load_and_enrich", "cache_corrupt", {"agent": agent_name, "tier": tier, "shape": str(type(cached))})
+        del SESSION_CACHE[cache_key]
 
     base_prompt = await loop.run_in_executor(None, load_agent_prompt, agent_name)
 

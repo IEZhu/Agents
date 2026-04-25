@@ -5,10 +5,12 @@ Rules apply to every agent without exception. Anything per-agent belongs in
 is enforced in ``load_all_rules`` — any rule with ``applies_to`` or
 ``exclude_agents`` fields is rejected and logged.
 
-Rules are loaded once at import time, sorted by ``priority`` (lower first), and
-formatted as a single ``## Rules`` markdown block prepended to the dynamic
-context in ``enrichment.py``. No semantic retrieval, no caching — the set is
-fixed at process start.
+Rules are lazy-loaded via ``get_rules()``, sorted by ``priority`` (lower first),
+and formatted as a single ``## Rules`` markdown block prepended to the dynamic
+context in ``enrichment.py``. The loaded set is memoized into a process-local
+cache after the first call; there is no semantic retrieval, and rules are only
+re-read from disk when ``invalidate_cache()`` is called (e.g. by tests or after
+editing files at runtime).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import glob
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -28,6 +31,14 @@ logger = logging.getLogger(__name__)
 
 
 _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
+
+# Strip a single leading H1 heading from rule bodies when rendering.
+# Each rule body is wrapped under a "### Rule: <name>" subheader inside the
+# enrichment prompt; an authoring H1 inside the body would create mixed
+# heading levels (### then # then text), which breaks markdown semantics.
+# The rule's name is already shown in the per-rule header, so the H1 is
+# always redundant and safe to drop.
+_LEADING_H1_RE = re.compile(r"^#\s+[^\n]*\n+")
 
 
 @dataclass(frozen=True)
@@ -134,7 +145,12 @@ def invalidate_cache() -> None:
 
 
 def format_rules_for_prompt(rules: List[Rule]) -> str:
-    """Render the rules list as a single ``## Rules`` markdown block."""
+    """Render the rules list as a single ``## Rules`` markdown block.
+
+    A leading H1 heading inside a rule body (e.g. ``# No fabrication``) is
+    stripped — each rule is already wrapped under ``### Rule: <name>``, so an
+    H1 inside would produce mixed heading levels in the rendered prompt.
+    """
     if not rules:
         return ""
 
@@ -148,6 +164,7 @@ def format_rules_for_prompt(rules: List[Rule]) -> str:
         if rule.description:
             lines.append(f"_{rule.description}_")
         lines.append("")
-        lines.append(rule.body)
+        body = _LEADING_H1_RE.sub("", rule.body, count=1).lstrip()
+        lines.append(body)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
