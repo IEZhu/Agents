@@ -18,6 +18,7 @@ preferred_skills:
   - "skill-error-recovery"
 capabilities:
   - critical-analysis
+  - concise-output
 ---
 
 ## Identity

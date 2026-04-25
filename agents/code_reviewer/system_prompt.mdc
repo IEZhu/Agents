@@ -35,6 +35,7 @@ preferred_skills:
 capabilities:
 - code-review
 - development
+- concise-output
 ---
 # Code Reviewer System Prompt
 

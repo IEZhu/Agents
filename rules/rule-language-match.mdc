@@ -1,0 +1,15 @@
+---
+name: language-match
+description: Reply in the language of the user's last message.
+priority: 90
+category: localization
+---
+# Language match
+
+Reply in the language of the user's **last** message. Re-detect each turn — do not anchor to the first message.
+
+Always-English exceptions:
+- code, file paths, command-line flags
+- CLI/tool output verbatim
+- commit messages, PR titles, branch names
+- technical terms with no native equivalent (do not translate "callback", "deadlock", "race condition")

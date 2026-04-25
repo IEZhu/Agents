@@ -10,6 +10,7 @@ from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
 from src.engine.skills import SkillRetriever
 from src.engine.implants import ImplantRetriever
 from src.engine.capabilities import resolve_capabilities
+from src.engine.rules import format_rules_for_prompt, get_rules
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class EnrichmentResult:
     prompt: str
     skills_loaded: list[str] = field(default_factory=list)
     implants_loaded: list[str] = field(default_factory=list)
+    rules_loaded: list[str] = field(default_factory=list)
 
 skill_retriever = SkillRetriever()
 implant_retriever = ImplantRetriever()
@@ -55,6 +57,14 @@ async def get_dynamic_context_string(
     context_parts: list[str] = []
     loaded_skill_names: list[str] = []
     loaded_implant_names: list[str] = []
+    loaded_rule_names: list[str] = []
+
+    rules = get_rules()
+    if rules:
+        rules_block = format_rules_for_prompt(rules)
+        if rules_block:
+            context_parts.append(rules_block)
+            loaded_rule_names = [r.name for r in rules]
 
     effective_skills = list(preferred_skills or [])
     cap_directive = ""
@@ -136,6 +146,7 @@ async def get_dynamic_context_string(
         prompt="\n\n".join(context_parts),
         skills_loaded=loaded_skill_names,
         implants_loaded=loaded_implant_names,
+        rules_loaded=loaded_rule_names,
     )
 
 async def enrich_agent_prompt(
@@ -163,4 +174,5 @@ async def enrich_agent_prompt(
         prompt=base_prompt,
         skills_loaded=enrichment.skills_loaded,
         implants_loaded=enrichment.implants_loaded,
+        rules_loaded=enrichment.rules_loaded,
     )

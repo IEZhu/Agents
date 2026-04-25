@@ -202,3 +202,8 @@ child-psychology:
     - skill-psy-child-dev
     - skill-psy-digital-wellbeing
   directive: "Age-stage first. Normalize before pathologize. Attachment lens. Digital context assessment. Parent coaching. Authoritative boundaries. Never diagnose."
+
+concise-output:
+  skills:
+    - skill-caveman-tokenomics
+  directive: "Terse output. BLUF (answer-first). Drop fluff, keep technical substance verbatim. Off in code blocks, commits, PRs."
