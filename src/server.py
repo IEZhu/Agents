@@ -1053,6 +1053,24 @@ def _warmup_embedding_model():
         logger.warning("Embedding model warmup failed: %s", e, exc_info=True)
 
 
+def _warmup_rules():
+    """Pre-load and cache the always-on rules layer at startup.
+
+    ``get_rules()`` does sync filesystem I/O on its first call (parsing
+    ``rules/rule-*.mdc``). It's invoked from ``get_dynamic_context_string``
+    on the async path, so without this warmup the very first request would
+    block the event loop while reading the rule files. Rules are static
+    for the process lifetime, so a single eager load amortizes the cost.
+    """
+    try:
+        from src.engine.rules import get_rules
+        rules = get_rules()
+        logger.info("Rules layer warmed up: %d rule(s) loaded", len(rules))
+    except Exception as e:
+        logger.warning("Rules layer warmup failed: %s", e, exc_info=True)
+
+
 if __name__ == "__main__":
     _warmup_embedding_model()
+    _warmup_rules()
     mcp.run()
