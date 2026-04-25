@@ -50,14 +50,20 @@ async def get_dynamic_context_string(
     capabilities: Optional[List[str]] = None,
     preferred_implants: Optional[List[str]] = None,
 ) -> EnrichmentResult:
-    """Build the dynamic context block prepended to an agent's base prompt.
+    """Build the dynamic context block that ``enrich_agent_prompt`` appends to
+    an agent's base prompt.
 
-    Layer order (constant; tier only affects what's in each layer):
+    The block itself is composed of four sub-layers in this fixed internal
+    order (tier only affects which sub-layers are populated):
+
     1. **Rules** — always-on universal directives from ``rules/`` (no
        semantic retrieval, no opt-out). Skipped only when ``RULES_ENABLED=0``.
     2. **Skills** — semantic + capability-resolved (skipped at ``lite`` tier).
     3. **Capability Directives** — terse one-liners from ``agents/capabilities/registry.yaml``.
     4. **Implants** — cognitive reasoning patterns (``standard``/``deep`` tiers only).
+
+    Final concatenation in ``enrich_agent_prompt``: ``base_prompt + "\\n\\n" +
+    block``. The agent persona retains primacy; the dynamic block follows.
 
     The returned ``EnrichmentResult`` carries the joined prompt fragment plus
     the names loaded for each layer, which the server surfaces to clients.
