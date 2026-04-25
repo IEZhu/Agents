@@ -135,6 +135,37 @@ def test_format_rules_for_prompt_empty_list():
     assert rules_module.format_rules_for_prompt([]) == ""
 
 
+def test_format_rules_strips_leading_h1_only_with_horizontal_space():
+    """Regression guard for the H1-stripping regex.
+
+    `_LEADING_H1_RE` used to match `^#\\s+...` where `\\s+` greedily included
+    newlines. A rule body starting with a bare `#` line followed by real
+    content would have had that next content line silently swallowed when
+    rendered. The regex now requires `[ \\t]+` (horizontal whitespace only),
+    so a bare `#\\n` is left alone — the only thing dropped is a real
+    Markdown H1 like `# Title`.
+    """
+    rule_real_h1 = rules_module.Rule(
+        name="r1", description="d", priority=10, category="x",
+        body="# Real H1 heading\n\nbody after",
+        filename="rule-r1.mdc",
+    )
+    rule_bare_hash = rules_module.Rule(
+        name="r2", description="d", priority=20, category="x",
+        body="#\nFirst content line must survive\nrest",
+        filename="rule-r2.mdc",
+    )
+
+    rendered = rules_module.format_rules_for_prompt([rule_real_h1, rule_bare_hash])
+
+    # Real H1 is stripped — body underneath remains.
+    assert "Real H1 heading" not in rendered
+    assert "body after" in rendered
+
+    # Bare `#` + newline is NOT a valid H1; the first content line must survive.
+    assert "First content line must survive" in rendered
+
+
 def test_loader_rejects_synthetic_rule_with_forbidden_field(tmp_path, monkeypatch, caplog):
     """A rule file shipping ``exclude_agents`` must be rejected at load time."""
     rules_dir = tmp_path / "rules"

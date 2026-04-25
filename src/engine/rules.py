@@ -38,7 +38,11 @@ _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
 # heading levels (### then # then text), which breaks markdown semantics.
 # The rule's name is already shown in the per-rule header, so the H1 is
 # always redundant and safe to drop.
-_LEADING_H1_RE = re.compile(r"^#\s+[^\n]*\n+")
+#
+# `[ \t]+` (horizontal whitespace only) — NOT `\s+` — so a rule body that
+# happens to start with a bare `#` followed by a newline doesn't have its
+# first content line consumed along with the (non-existent) heading text.
+_LEADING_H1_RE = re.compile(r"^#[ \t]+[^\n]*\n+")
 
 
 @dataclass(frozen=True)
