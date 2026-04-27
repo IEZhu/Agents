@@ -593,6 +593,24 @@ class TestKeywordBoosting:
         matches = r.match_keywords("find the right model for the project")
         assert matches == []
 
+    def test_match_keywords_flipper_zero(self):
+        """Flipper Zero domain keywords route to flipper_zero_developer."""
+        r = self._make_router_with_keywords({
+            "flipper_zero_developer": [
+                "flipper zero", "flipperzero", ".fap", "subghz",
+                "application.fam", "ufbt", "stm32wb55",
+            ],
+            "software_engineer": ["refactor", "debug", "implement"],
+            "security_expert": ["xss", "sql injection"],
+        })
+        # Multi-keyword Flipper query → top match
+        matches = r.match_keywords("How to write a SubGHz scanner FAP for Flipper Zero")
+        assert matches[0][0] == "flipper_zero_developer"
+        assert matches[0][1] >= 2  # subghz, flipper zero, .fap all hit
+        # Generic refactor query should NOT route to flipper_zero_developer
+        matches = r.match_keywords("Refactor the JSON parser")
+        assert all(m[0] != "flipper_zero_developer" for m in matches)
+
     def test_match_keywords_short_token_word_boundary(self):
         """Short tokens use word-boundary matching: 'ux' must not match inside 'auxiliary'."""
         r = self._make_router_with_keywords({

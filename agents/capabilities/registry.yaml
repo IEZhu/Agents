@@ -207,3 +207,9 @@ concise-output:
   skills:
     - skill-caveman-tokenomics
   directive: "Terse output. BLUF (answer-first). Drop fluff, keep technical substance verbatim. Off in code blocks, commits, PRs."
+
+flipper-zero-development:
+  skills:
+    - skill-flipper-zero-development
+    - skill-dev-clean-code
+  directive: "Memory-tight: paired alloc/free. View lifetime > view_dispatcher. Worker threads joined before app_free. Manifest-driven build via ufbt. Region-check SubGHz. furi_hal only. Responsible-use: lab/CTF/own-devices."
