@@ -2,9 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
-
-import numpy as np
+from typing import List, Optional, Dict, Any, Tuple
 
 from src.engine.config import (
     ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL,
@@ -21,6 +19,10 @@ logger = logging.getLogger(__name__)
 ROUTER_CACHE_MAX_SIZE = 500
 KEYWORD_VETO_ROUTE_REQUIRED = "__ROUTE_REQUIRED__"
 _ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
+# Substring in the ValueError raised by NumpyVectorStore.query() when the
+# query vector and stored vectors disagree on dimensionality. Matched in
+# query_nearest() to trigger lazy self-heal.
+_DIM_MISMATCH_ERROR_FRAGMENT = "Dimension mismatch"
 
 
 class SemanticRouter:
@@ -33,51 +35,73 @@ class SemanticRouter:
         self._agent_descriptions = self._load_agent_descriptions()
 
     def _invalidate_on_model_change(self):
-        """Clear router cache when embedding model name OR vector dim changes.
+        """Clear router cache when the model name changes or the marker's
+        recorded dim drifts from the on-disk vector dim.
 
-        The marker file tracks the model name, but a name match doesn't
-        guarantee the on-disk vectors have the expected dim — the cache may
-        have been written by a different model whose marker was later
-        overwritten. Probe the embedder to confirm dim alignment when there
-        is cached data at risk.
+        Marker format: ``<model>|<dim>`` (current) or ``<model>`` (legacy,
+        accepted on read and upgraded on next save). A name match alone does
+        not guarantee correctness — the cache may have been written by a
+        different model whose marker was later overwritten — so we also
+        compare the marker's dim against the actual stored dim. Reading the
+        npz dim is cheap (already loaded by NumpyVectorStore), so this check
+        runs without loading the embedder. Queries against a stale cache
+        that still slips past this check self-heal in ``query_nearest``.
         """
-        stored_model = ""
-        try:
-            if os.path.exists(_ROUTER_MODEL_HASH_FILE):
-                with open(_ROUTER_MODEL_HASH_FILE, "r") as f:
-                    stored_model = f.read().strip()
-        except Exception:
-            pass
+        stored_model, stored_dim = self._read_marker()
+        cache_dim = self.store.dim()
 
         name_changed = stored_model != EMBEDDING_MODEL
-        dim_mismatch = False
+        dim_drifted = (
+            stored_dim is not None
+            and cache_dim is not None
+            and stored_dim != cache_dim
+        )
 
-        cache_dim = self.store.dim()
-        if cache_dim is not None and not name_changed:
-            try:
-                probe = embed_query("__router_dim_probe__")
-                embedder_dim = int(np.asarray(probe).squeeze().shape[0])
-                if cache_dim != embedder_dim:
-                    dim_mismatch = True
-                    logger.warning(
-                        "Router cache dim mismatch (cache=%d, embedder=%d), "
-                        "wiping stale cache",
-                        cache_dim, embedder_dim,
-                    )
-            except Exception as e:
-                logger.warning("Embedder dim probe failed during cache validation: %s", e)
-
-        if name_changed or dim_mismatch:
+        if name_changed or dim_drifted:
             if self.store.count() > 0:
                 logger.info(
-                    "Clearing router cache (model: %r → %r, dim_mismatch=%s)",
-                    stored_model or "<none>", EMBEDDING_MODEL, dim_mismatch,
+                    "Clearing router cache (model: %r → %r, dim_drifted=%s)",
+                    stored_model or "<none>", EMBEDDING_MODEL, dim_drifted,
                 )
                 self.store.clear()
                 self.store.save()
-            os.makedirs(DATA_DIR, exist_ok=True)
-            with open(_ROUTER_MODEL_HASH_FILE, "w") as f:
-                f.write(EMBEDDING_MODEL)
+            self._write_marker(EMBEDDING_MODEL, None)
+
+    @staticmethod
+    def _read_marker() -> Tuple[str, Optional[int]]:
+        """Parse the marker file. Returns (model_name, dim). dim is None for
+        legacy markers, missing files, or unparseable values."""
+        try:
+            if not os.path.exists(_ROUTER_MODEL_HASH_FILE):
+                return "", None
+            with open(_ROUTER_MODEL_HASH_FILE, "r") as f:
+                raw = f.read().strip()
+        except OSError:
+            return "", None
+        if "|" not in raw:
+            return raw, None
+        name, _, dim_str = raw.partition("|")
+        try:
+            return name, int(dim_str)
+        except ValueError:
+            return name, None
+
+    @staticmethod
+    def _write_marker(model_name: str, dim: Optional[int]) -> None:
+        """Persist (model_name, dim) to the marker. Empty caches write only
+        the model name so the legacy format is the natural rest state."""
+        os.makedirs(DATA_DIR, exist_ok=True)
+        payload = f"{model_name}|{dim}" if dim is not None else model_name
+        with open(_ROUTER_MODEL_HASH_FILE, "w") as f:
+            f.write(payload)
+
+    def _wipe_and_remark(self) -> None:
+        """Drop all cached entries and reset the marker. Used by the lazy
+        self-heal path in ``query_nearest`` when a query exposes a dim
+        mismatch the init-time check could not detect."""
+        self.store.clear()
+        self.store.save()
+        self._write_marker(EMBEDDING_MODEL, None)
 
     def _scan_agents(self) -> List[str]:
         """
@@ -251,9 +275,24 @@ class SemanticRouter:
 
         loop = asyncio.get_running_loop()
         query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
-        results = await loop.run_in_executor(
-            None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
-        )
+        try:
+            results = await loop.run_in_executor(
+                None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
+            )
+        except ValueError as e:
+            # Self-heal a stale cache whose vectors disagree with the current
+            # embedder's dim. The init-time marker check catches drift the
+            # codebase wrote, but a marker and npz that agree with each other
+            # but not with the embedder (e.g. cache restored from a backup
+            # taken under a different model) only surface here. Wipe, log,
+            # and let the query miss — the next update will repopulate.
+            if _DIM_MISMATCH_ERROR_FRAGMENT in str(e):
+                logger.warning(
+                    "Router cache dim mismatch at query time, wiping: %s", e
+                )
+                await loop.run_in_executor(None, self._wipe_and_remark)
+                return None
+            raise
 
         if results.ids and results.distances and len(results.distances) > 0:
             distance = results.distances[0]
@@ -308,6 +347,9 @@ class SemanticRouter:
                 )
                 self.store.trim(ROUTER_CACHE_MAX_SIZE)
                 self.store.save()
+                # Keep the marker in sync with cache contents so the next
+                # startup can detect drift without loading the embedder.
+                self._write_marker(EMBEDDING_MODEL, self.store.dim())
 
             await loop.run_in_executor(None, _mutate_and_save)
         except Exception as e:

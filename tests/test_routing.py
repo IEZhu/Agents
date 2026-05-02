@@ -735,14 +735,17 @@ class TestKeywordBoosting:
 
 
 class TestCacheInvalidation:
-    """Tests for _invalidate_on_model_change auto-rebuild on dim mismatch.
+    """Tests for router cache invalidation across init and query paths.
 
     Regression: a stale `data/router_cache.npz` with vectors from a different
     embedder (e.g. 1024-dim BGE-large) used to slip past the model-name check
     when the marker was overwritten. Every cache lookup then raised
     `ValueError: Dimension mismatch`, the error was swallowed, and the cache
-    was effectively dead. The router must now detect the dim mismatch on init
-    and wipe the stale store automatically.
+    was effectively dead. The router now records the cached dim alongside
+    the model name in the marker (`<model>|<dim>`) and wipes when those drift.
+    A query-time self-heal in ``query_nearest`` is the safety net for cases
+    the init-time check cannot detect (e.g. cache restored from backup that
+    was internally consistent but disagrees with the current embedder).
     """
 
     @pytest.fixture
@@ -773,67 +776,151 @@ class TestCacheInvalidation:
         )
         store.save()
 
-    def test_dim_mismatch_triggers_auto_rebuild(self, isolated_router_dir, monkeypatch):
-        """Stale cache with vectors of a different dim should be wiped on init."""
-        import numpy as np
+    def test_marker_dim_drift_wipes_at_init(self, isolated_router_dir, monkeypatch):
+        """Marker dim disagreeing with on-disk vector dim triggers init-time wipe."""
+        from unittest.mock import MagicMock
         from src.engine.config import EMBEDDING_MODEL
 
         self._seed_cache(isolated_router_dir, dim=1024)
-        # Marker matches current model — name check would let the stale cache through.
-        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
-
-        # Embedder returns 384 dims — disagrees with the seeded 1024-dim cache.
-        monkeypatch.setattr(
-            "src.engine.router.embed_query",
-            lambda text: np.zeros(384, dtype=np.float32),
+        # Marker claims dim=384 but the npz has 1024-dim vectors → drift.
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
         )
-
-        from src.engine.router import SemanticRouter
-        router = SemanticRouter()
-
-        assert router.store.count() == 0, (
-            "Router cache should auto-rebuild when stored vectors have a "
-            "different dim than the current embedder produces"
-        )
-
-    def test_matching_dim_preserves_cache(self, isolated_router_dir, monkeypatch):
-        """When dim matches the embedder, the cache must not be wiped."""
-        import numpy as np
-        from src.engine.config import EMBEDDING_MODEL
-
-        self._seed_cache(isolated_router_dir, dim=384)
-        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
-
-        monkeypatch.setattr(
-            "src.engine.router.embed_query",
-            lambda text: np.zeros(384, dtype=np.float32),
-        )
-
-        from src.engine.router import SemanticRouter
-        router = SemanticRouter()
-
-        assert router.store.count() == 1, (
-            "Router cache must be preserved when stored dim matches embedder"
-        )
-
-    def test_model_name_change_still_wipes(self, isolated_router_dir, monkeypatch):
-        """Existing behavior: a model-name change clears the cache without
-        needing to probe the embedder."""
-        import numpy as np
-
-        self._seed_cache(isolated_router_dir, dim=384)
-        (isolated_router_dir / ".router_cache_model").write_text("old-model-name")
-
-        # Probe should NOT be invoked when the name already differs — verify
-        # by raising if it is touched.
-        def _no_probe(text):
-            raise AssertionError("embed_query must not be called when name differs")
-        monkeypatch.setattr("src.engine.router.embed_query", _no_probe)
+        # Init must not load the embedder — guard with a MagicMock that fails
+        # the assertion if invoked, regardless of how the caller handles
+        # exceptions (assert_not_called is a metadata check, not a raise).
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
 
         from src.engine.router import SemanticRouter
         router = SemanticRouter()
 
         assert router.store.count() == 0
+        embed_mock.assert_not_called()
+
+    def test_matching_marker_and_cache_preserved(self, isolated_router_dir, monkeypatch):
+        """Marker recording the actual cache dim must preserve the store."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 1
+        embed_mock.assert_not_called()
+
+    def test_legacy_marker_preserves_cache_at_init(self, isolated_router_dir, monkeypatch):
+        """A legacy marker (just the model name, no dim) cannot detect drift —
+        defer to the query-time self-heal rather than wiping speculatively."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 1
+        embed_mock.assert_not_called()
+
+    def test_model_name_change_wipes_at_init(self, isolated_router_dir, monkeypatch):
+        """A model-name change clears the cache without loading the embedder."""
+        from unittest.mock import MagicMock
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text("old-model|384")
+
+        # MagicMock-based guard: assert_not_called() is a metadata check, so
+        # the assertion holds even if a regression catches AssertionError
+        # silently inside _invalidate_on_model_change.
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 0
+        embed_mock.assert_not_called()
+
+    def test_init_writes_legacy_marker_after_wipe(self, isolated_router_dir):
+        """After clearing a stale cache, the marker is rewritten with just
+        the current model name (no dim) — empty caches don't need a dim."""
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+
+        from src.engine.router import SemanticRouter
+        SemanticRouter()
+
+        assert (isolated_router_dir / ".router_cache_model").read_text() == EMBEDDING_MODEL
+
+    @pytest.mark.asyncio
+    async def test_lazy_self_heal_on_query_dim_mismatch(self, isolated_router_dir, monkeypatch):
+        """A cache that passed init-time checks but produces a query-time
+        ``ValueError: Dimension mismatch`` must be wiped on first lookup
+        rather than propagating the error or sticking around as dead weight."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Marker and cache agree on dim=1024 — init has no reason to wipe.
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|1024"
+        )
+
+        # Current embedder produces 384 dims — disagrees with the cache.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1, "init should keep the cache when marker matches"
+
+        result = await router.query_nearest("any query")
+
+        assert result is None, "lazy self-heal must return None on dim mismatch"
+        assert router.store.count() == 0, "store must be wiped after dim-mismatch query"
+
+    @pytest.mark.asyncio
+    async def test_update_cache_writes_marker_with_dim(self, isolated_router_dir, monkeypatch):
+        """After ``update_cache`` saves a new entry, the marker records both
+        the model name and the current cache dim."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Pre-seed marker as legacy so we can verify it's upgraded.
+        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        await router.update_cache(
+            query="hello",
+            agent_name="universal_agent",
+            reasoning="test",
+            request_id="req-1",
+        )
+
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == f"{EMBEDDING_MODEL}|384"
 
 
 class TestClearSessionCache:
