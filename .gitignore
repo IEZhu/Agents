@@ -2,6 +2,7 @@
 src/utils/__pycache__/
 src/schemas/__pycache__/
 src/engine/__pycache__/
+**/__pycache__/
 chroma_db/
 data/
 logs/
@@ -41,6 +42,14 @@ whisper_models/
 # Exceptions (keep these visible)
 !.gitignore
 !.git/
+!evals/reports/.gitkeep
+
+# Evals: keep baseline.md and SOURCES.md, ignore per-PR/per-run reports
+evals/.cache/
+evals/reports/2*.md
+# Unlabeled samples (contain raw source query texts — never commit)
+evals/datasets/_*.jsonl
+evals/datasets/_batches/
 
 agents_private.egg-info/
 
