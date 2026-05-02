@@ -734,6 +734,108 @@ class TestKeywordBoosting:
             assert result["status"] == "ROUTE_REQUIRED"
 
 
+class TestCacheInvalidation:
+    """Tests for _invalidate_on_model_change auto-rebuild on dim mismatch.
+
+    Regression: a stale `data/router_cache.npz` with vectors from a different
+    embedder (e.g. 1024-dim BGE-large) used to slip past the model-name check
+    when the marker was overwritten. Every cache lookup then raised
+    `ValueError: Dimension mismatch`, the error was swallowed, and the cache
+    was effectively dead. The router must now detect the dim mismatch on init
+    and wipe the stale store automatically.
+    """
+
+    @pytest.fixture
+    def isolated_router_dir(self, tmp_path, monkeypatch):
+        """Patch DATA_DIR + marker path so SemanticRouter uses a tmp directory."""
+        monkeypatch.setattr("src.engine.router.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            "src.engine.router._ROUTER_MODEL_HASH_FILE",
+            str(tmp_path / ".router_cache_model"),
+        )
+        return tmp_path
+
+    def _seed_cache(self, data_dir, dim):
+        """Write a router_cache.npz with `dim`-dimensional vectors."""
+        import numpy as np
+        from src.engine.vector_store import NumpyVectorStore
+
+        store = NumpyVectorStore(name="router_cache", data_dir=str(data_dir))
+        store.add(
+            ids=["seed"],
+            embeddings=np.random.rand(1, dim).astype(np.float32),
+            documents=["seed query"],
+            metadatas=[{
+                "target_agent": "universal_agent",
+                "reasoning": "seed",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }],
+        )
+        store.save()
+
+    def test_dim_mismatch_triggers_auto_rebuild(self, isolated_router_dir, monkeypatch):
+        """Stale cache with vectors of a different dim should be wiped on init."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        # Marker matches current model — name check would let the stale cache through.
+        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
+
+        # Embedder returns 384 dims — disagrees with the seeded 1024-dim cache.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 0, (
+            "Router cache should auto-rebuild when stored vectors have a "
+            "different dim than the current embedder produces"
+        )
+
+    def test_matching_dim_preserves_cache(self, isolated_router_dir, monkeypatch):
+        """When dim matches the embedder, the cache must not be wiped."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
+
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 1, (
+            "Router cache must be preserved when stored dim matches embedder"
+        )
+
+    def test_model_name_change_still_wipes(self, isolated_router_dir, monkeypatch):
+        """Existing behavior: a model-name change clears the cache without
+        needing to probe the embedder."""
+        import numpy as np
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text("old-model-name")
+
+        # Probe should NOT be invoked when the name already differs — verify
+        # by raising if it is touched.
+        def _no_probe(text):
+            raise AssertionError("embed_query must not be called when name differs")
+        monkeypatch.setattr("src.engine.router.embed_query", _no_probe)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 0
+
+
 class TestClearSessionCache:
     @pytest.mark.asyncio
     async def test_clears_both_caches(self):

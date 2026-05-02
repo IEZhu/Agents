@@ -4,6 +4,8 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
+import numpy as np
+
 from src.engine.config import (
     ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL,
     KEYWORD_OVERRIDE_MIN_HITS, KEYWORD_UNIQUENESS_RATIO,
@@ -31,7 +33,14 @@ class SemanticRouter:
         self._agent_descriptions = self._load_agent_descriptions()
 
     def _invalidate_on_model_change(self):
-        """Clear router cache when the embedding model changes."""
+        """Clear router cache when embedding model name OR vector dim changes.
+
+        The marker file tracks the model name, but a name match doesn't
+        guarantee the on-disk vectors have the expected dim — the cache may
+        have been written by a different model whose marker was later
+        overwritten. Probe the embedder to confirm dim alignment when there
+        is cached data at risk.
+        """
         stored_model = ""
         try:
             if os.path.exists(_ROUTER_MODEL_HASH_FILE):
@@ -40,11 +49,29 @@ class SemanticRouter:
         except Exception:
             pass
 
-        if stored_model != EMBEDDING_MODEL:
+        name_changed = stored_model != EMBEDDING_MODEL
+        dim_mismatch = False
+
+        cache_dim = self.store.dim()
+        if cache_dim is not None and not name_changed:
+            try:
+                probe = embed_query("__router_dim_probe__")
+                embedder_dim = int(np.asarray(probe).squeeze().shape[0])
+                if cache_dim != embedder_dim:
+                    dim_mismatch = True
+                    logger.warning(
+                        "Router cache dim mismatch (cache=%d, embedder=%d), "
+                        "wiping stale cache",
+                        cache_dim, embedder_dim,
+                    )
+            except Exception as e:
+                logger.warning("Embedder dim probe failed during cache validation: %s", e)
+
+        if name_changed or dim_mismatch:
             if self.store.count() > 0:
                 logger.info(
-                    "Embedding model changed (%s → %s), clearing router cache",
-                    stored_model or "<none>", EMBEDDING_MODEL,
+                    "Clearing router cache (model: %r → %r, dim_mismatch=%s)",
+                    stored_model or "<none>", EMBEDDING_MODEL, dim_mismatch,
                 )
                 self.store.clear()
                 self.store.save()
