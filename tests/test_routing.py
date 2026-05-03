@@ -937,6 +937,48 @@ class TestCacheInvalidation:
         assert leftovers == [], f"Atomic write left tmp debris: {leftovers}"
 
     @pytest.mark.asyncio
+    async def test_update_cache_self_heals_on_dim_mismatch(self, isolated_router_dir, monkeypatch):
+        """``update_cache`` must self-heal a dim-mismatched cache that
+        slipped past the init-time check (marker and npz internally
+        consistent at 1024-dim, but the current embedder produces 384).
+        ``NumpyVectorStore.add`` raises a dim-mismatch ``ValueError``;
+        ``update_cache`` catches it, wipes the stale store, retries the
+        add against the now-empty store, and rewrites the marker so the
+        new dim is recorded."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Marker and on-disk vectors agree at 1024-dim → init keeps cache.
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|1024"
+        )
+
+        # Current embedder produces 384-dim; the upcoming add will mismatch.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1, "init should keep the cache when marker matches"
+        assert router.store.dim() == 1024
+
+        await router.update_cache(
+            query="hello",
+            agent_name="universal_agent",
+            reasoning="test",
+            request_id="req-1",
+        )
+
+        # The 1024-dim seed should be gone, replaced by the new 384-dim entry.
+        assert router.store.count() == 1
+        assert router.store.dim() == 384
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == f"{EMBEDDING_MODEL}|384"
+
+    @pytest.mark.asyncio
     async def test_update_cache_writes_marker_with_dim(self, isolated_router_dir, monkeypatch):
         """After ``update_cache`` saves a new entry, the marker records both
         the model name and the current cache dim."""

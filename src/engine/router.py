@@ -385,10 +385,29 @@ class SemanticRouter:
     async def update_cache(self, query: str, agent_name: str, reasoning: str, request_id: str):
         """
         Manually adds an entry to the cache.
+
+        Self-heals a stale cache whose stored vector dim disagrees with the
+        current embedder: if ``NumpyVectorStore.add`` raises a dim-mismatch
+        ``ValueError``, the store is wiped and the add is retried once
+        against the now-empty store. This complements the query-time
+        self-heal in ``query_nearest`` for callers that hit ``update_cache``
+        before any lookup has run (e.g. an LLM routing decision recorded
+        before any cached query touched the store).
         """
         loop = asyncio.get_running_loop()
         try:
             query_emb = await loop.run_in_executor(None, embed_query, query)
+
+            add_kwargs = dict(
+                ids=[request_id],
+                embeddings=query_emb.reshape(1, -1),
+                documents=[query],
+                metadatas=[{
+                    "target_agent": agent_name,
+                    "reasoning": reasoning,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }],
+            )
 
             def _mutate_and_save():
                 # Hold the router-level lock for the whole (store + marker)
@@ -396,16 +415,20 @@ class SemanticRouter:
                 # callers can't interleave their disk writes and leave the
                 # marker disagreeing with the on-disk store.
                 with self._marker_lock:
-                    self.store.add(
-                        ids=[request_id],
-                        embeddings=query_emb.reshape(1, -1),
-                        documents=[query],
-                        metadatas=[{
-                            "target_agent": agent_name,
-                            "reasoning": reasoning,
-                            "timestamp": datetime.now(timezone.utc).isoformat()
-                        }],
-                    )
+                    try:
+                        self.store.add(**add_kwargs)
+                    except ValueError as e:
+                        if _DIM_MISMATCH_ERROR_FRAGMENT not in str(e):
+                            raise
+                        logger.warning(
+                            "Router cache dim mismatch on update, wiping and "
+                            "retrying with current-dim vectors: %s", e,
+                        )
+                        # Wipe the stale store; the empty store accepts any
+                        # dim on the next add, so the retry succeeds.
+                        self.store.clear()
+                        self.store.save()
+                        self.store.add(**add_kwargs)
                     self.store.trim(ROUTER_CACHE_MAX_SIZE)
                     self.store.save()
                     # Keep the marker in sync with cache contents so the
