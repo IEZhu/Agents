@@ -70,13 +70,17 @@ class SemanticRouter:
     @staticmethod
     def _read_marker() -> Tuple[str, Optional[int]]:
         """Parse the marker file. Returns (model_name, dim). dim is None for
-        legacy markers, missing files, or unparseable values."""
+        legacy markers, missing files, unreadable files, or unparseable
+        values. A corrupted marker (non-text bytes, IO failure) is treated
+        as "no marker" rather than crashing init — the caller falls back
+        to wiping and rewriting on the next save."""
         try:
             if not os.path.exists(_ROUTER_MODEL_HASH_FILE):
                 return "", None
-            with open(_ROUTER_MODEL_HASH_FILE, "r") as f:
+            with open(_ROUTER_MODEL_HASH_FILE, "r", encoding="utf-8") as f:
                 raw = f.read().strip()
-        except OSError:
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning("Failed to read router marker file: %s", e)
             return "", None
         if "|" not in raw:
             return raw, None
@@ -264,8 +268,12 @@ class SemanticRouter:
         the cache has no entries. No threshold is applied — the caller decides
         what to do with the distance.
 
-        Raises on errors so callers can distinguish empty cache from
-        lookup failure and handle each appropriately.
+        Returns None instead of raising when a query-vs-store dim mismatch
+        is detected: the stale store is wiped via ``_wipe_and_remark`` and
+        the lookup is treated as a cache miss so the next ``update_cache``
+        repopulates with vectors from the current embedder. All other
+        ``ValueError``s and any other exceptions still propagate so callers
+        can distinguish empty-cache from lookup-failure scenarios.
         """
         if self.store.count() == 0:
             return None

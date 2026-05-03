@@ -867,6 +867,29 @@ class TestCacheInvalidation:
 
         assert (isolated_router_dir / ".router_cache_model").read_text() == EMBEDDING_MODEL
 
+    def test_corrupt_marker_does_not_crash_init(self, isolated_router_dir, monkeypatch):
+        """A marker file with non-text bytes (e.g. partial write or
+        filesystem corruption) must not crash router initialization. Treat
+        as missing/legacy and let the next save rewrite it cleanly."""
+        from unittest.mock import MagicMock
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        # Non-UTF-8 bytes — `open(..., encoding="utf-8")` would raise
+        # UnicodeDecodeError if the read path didn't catch it.
+        (isolated_router_dir / ".router_cache_model").write_bytes(b"\xff\xfe\xfd corrupt")
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        # Must not raise UnicodeDecodeError or any other exception.
+        router = SemanticRouter()
+
+        # Corrupt marker is read as ("", None) → name_changed=True → wipe.
+        # The exact post-state isn't the point of this test; the point is
+        # that init survives the corruption.
+        assert router.store is not None
+        embed_mock.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_lazy_self_heal_on_query_dim_mismatch(self, isolated_router_dir, monkeypatch):
         """A cache that passed init-time checks but produces a query-time
