@@ -1,9 +1,9 @@
-# Agents-Core eval baseline — 2026-05-03 (8748ea0)
+# Agents-Core eval baseline — 2026-05-03 (b99d66f)
 
 ## BLUF
 
-- Routing top-1: **78.2%** (86/110)
-- Routing top-3: **79.1%**
+- Routing top-1: **77.3%** (85/110)
+- Routing top-3: **78.2%**
 - Skills P@3: **0.17** | R@5: **0.27** | MRR: **0.30**
 - Tier accuracy: **60.9%** (67/110)
 
@@ -11,15 +11,15 @@ Loader: total=110, drift=0, fetch_errors=0, local_cache=True
 
 ## 1. Routing accuracy
 
-- **Top-1 accuracy**: 86/110 = 78.2%
-- **Top-3 accuracy**: 87/110 = 79.1%
+- **Top-1 accuracy**: 85/110 = 77.3%
+- **Top-3 accuracy**: 86/110 = 78.2%
 
 **Prediction method distribution:**
-- fallback: 62
-- keyword: 48
+- fallback: 63
+- keyword: 47
 
 **Per-language top-1 accuracy:**
-- `en`: 67/90 (74%)
+- `en`: 66/90 (73%)
 - `es`: 10/10 (100%)
 - `ru`: 9/10 (90%)
 
@@ -28,7 +28,7 @@ Loader: total=110, drift=0, fetch_errors=0, local_cache=True
 - `massive_en`: 10/10 (100%)
 - `massive_es`: 10/10 (100%)
 - `massive_ru`: 9/10 (90%)
-- `wildbench`: 37/60 (62%)
+- `wildbench`: 36/60 (60%)
 
 **Top-10 miss-cases (sorted by label_confidence desc):**
 
@@ -40,10 +40,10 @@ Loader: total=110, drift=0, fetch_errors=0, local_cache=True
 | `wildbench-00337` | `math_scientist` | `universal_agent` | fallback | 0.78 |
 | `wildbench-00061` | `math_scientist` | `universal_agent` | fallback | 0.78 |
 | `wildbench-00231` | `deep_researcher` | `medical_expert` | keyword | 0.75 |
+| `wildbench-00838` | `deep_researcher` | `universal_agent` | fallback | 0.70 |
 | `wildbench-00205` | `data_analyst` | `fitness_coach` | keyword | 0.70 |
 | `wildbench-00880` | `math_scientist` | `software_engineer` | keyword | 0.70 |
 | `wildbench-00189` | `security_expert` | `sysadmin` | keyword | 0.70 |
-| `wildbench-00713` | `deep_researcher` | `education_tutor` | keyword | 0.70 |
 
 ## 2. Skill retrieval
 

@@ -22,12 +22,26 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
-# datasets is an optional dep (project.optional-dependencies.evals).
-try:
-    from datasets import load_dataset
-except ImportError:  # pragma: no cover
-    print("ERROR: 'datasets' not installed. Run: pip install -e '.[evals]'", file=sys.stderr)
-    sys.exit(2)
+# datasets is an optional dep (project.optional-dependencies.evals). We import
+# it lazily so this module — and the constants it exposes (DATASETS,
+# DatasetSpec, sha256_short) — can be imported in environments that only
+# need the local label-pipeline helpers without HF access.
+
+
+def _require_load_dataset():
+    """Lazy import of ``datasets.load_dataset``.
+
+    Raises ``RuntimeError`` instead of ``sys.exit`` so callers can handle the
+    missing dependency cleanly (e.g. tests, `--help`, or downstream importers
+    of ``DATASETS`` that never call into HF).
+    """
+    try:
+        from datasets import load_dataset  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "'datasets' not installed. Run: pip install -e '.[evals]'"
+        ) from exc
+    return load_dataset
 
 
 @dataclass(frozen=True)
@@ -151,6 +165,7 @@ DATASETS: dict[str, DatasetSpec] = {
 
 def _stream_first(spec: DatasetSpec, n: int = 1) -> Iterator[dict[str, Any]]:
     """Stream first n rows of a dataset (no full download)."""
+    load_dataset = _require_load_dataset()
     ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split, streaming=True)
     count = 0
     for row in ds:
@@ -244,6 +259,7 @@ def cmd_fetch_one(dataset_key: str, idx: int) -> int:
     # Use non-streaming load + direct index. The previous streaming +
     # list(_stream_first(..., n=idx+1)) was O(idx) network/buffer work and
     # could be very slow for large idx (e.g. CLINC samples in the thousands).
+    load_dataset = _require_load_dataset()
     ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split)
     if idx >= len(ds):
         print(f"ERROR: only {len(ds)} rows available, idx={idx} out of range", file=sys.stderr)

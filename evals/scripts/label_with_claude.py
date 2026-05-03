@@ -7,7 +7,8 @@ asks Claude Opus 4.7 to assign:
   - expected_tier  (lite / standard / deep)
   - expected_skills (subset of available skill IDs)
   - language, domain, label_confidence, reasoning
-…then appends a structured row to `evals/datasets/routing.jsonl`.
+…then writes a batch of structured rows to `evals/datasets/routing.jsonl`
+(the file is overwritten on each run; see `write_jsonl()`).
 
 Source query texts are NOT written to the jsonl — only the SHA-256 hash
 plus enough fetch metadata to re-resolve the row on each eval run.
@@ -45,15 +46,27 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    from datasets import load_dataset  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover
-    print("ERROR: 'datasets' not installed. Run: pip install -e '.[evals]'", file=sys.stderr)
-    sys.exit(2)
-
 from src.utils.prompt_loader import get_agent_metadata  # noqa: E402
 
 from evals.scripts.fetch import DATASETS, DatasetSpec, sha256_short  # noqa: E402
+
+
+def _require_load_dataset():
+    """Lazy import of ``datasets.load_dataset``.
+
+    Imported here (not at module top) so helpers like ``resolve_alloc`` and
+    ``list_agent_names`` remain importable in environments that don't have
+    the optional ``[evals]`` extras installed (e.g. unit tests of CLI arg
+    parsing). Raises ``RuntimeError`` instead of ``sys.exit`` so callers can
+    handle the missing dependency cleanly.
+    """
+    try:
+        from datasets import load_dataset  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "'datasets' not installed. Run: pip install -e '.[evals]'"
+        ) from exc
+    return load_dataset
 
 LABELER_MODEL = "claude-opus-4-7"
 
@@ -134,6 +147,7 @@ def _sample_from_dataset(
     filter_predicate=None,
 ) -> Iterable[Sample]:
     """Load a split (cached locally) and yield n random samples by source_idx."""
+    load_dataset = _require_load_dataset()
     ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split)
     indices = list(range(len(ds)))
     if filter_predicate is not None:

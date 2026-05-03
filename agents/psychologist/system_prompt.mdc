@@ -30,8 +30,8 @@ routing:
   - "alienation"
   - "meaningless life"
   - "hypervigilance"
-  - "depressed"
-  - "lonely"
+  - "feeling depressed"
+  - "i feel lonely"
   trigger_command: "/psy_session"
 context:
   file_globs:
