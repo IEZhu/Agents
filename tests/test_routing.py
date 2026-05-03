@@ -936,6 +936,65 @@ class TestCacheInvalidation:
         leftovers = list(isolated_router_dir.glob(".router_cache_model.*.tmp"))
         assert leftovers == [], f"Atomic write left tmp debris: {leftovers}"
 
+    def test_wipe_and_remark_skips_when_dim_already_healed(self, isolated_router_dir, monkeypatch):
+        """Race-safety: ``_wipe_and_remark(expected_dim=...)`` must skip the
+        wipe when the store has already been healed (e.g. by a concurrent
+        ``update_cache``) between the failing ``store.query`` and the lock
+        acquisition. Without this check, a query-time self-heal would
+        discard a freshly-added correct-dim entry."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Simulate: a concurrent writer already healed the cache to 384-dim.
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1
+        assert router.store.dim() == 384
+
+        # query_nearest would have failed against an old 1024-dim store; by
+        # the time _wipe_and_remark gets the lock, the store has been
+        # healed. The conditional re-check must skip the wipe.
+        router._wipe_and_remark(expected_dim=384)
+
+        assert router.store.count() == 1, (
+            "Conditional wipe must not discard a freshly-healed correct-dim cache"
+        )
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == f"{EMBEDDING_MODEL}|384"
+
+    def test_wipe_and_remark_wipes_when_dim_still_mismatched(self, isolated_router_dir, monkeypatch):
+        """Race-safety counterpart: when the store is still at the stale
+        dim under the lock, ``_wipe_and_remark(expected_dim=...)`` must
+        proceed with the wipe (the race didn't happen)."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|1024"
+        )
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1
+        assert router.store.dim() == 1024
+
+        # Embedder produces 384-dim; store is still 1024-dim under the lock.
+        router._wipe_and_remark(expected_dim=384)
+
+        assert router.store.count() == 0
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == EMBEDDING_MODEL
+
     @pytest.mark.asyncio
     async def test_update_cache_self_heals_on_dim_mismatch(self, isolated_router_dir, monkeypatch):
         """``update_cache`` must self-heal a dim-mismatched cache that

@@ -141,16 +141,33 @@ class SemanticRouter:
                     pass
             raise
 
-    def _wipe_and_remark(self) -> None:
-        """Drop all cached entries and reset the marker. Used by the lazy
-        self-heal path in ``query_nearest`` when a query exposes a dim
-        mismatch the init-time check could not detect.
+    def _wipe_and_remark(self, expected_dim: Optional[int] = None) -> None:
+        """Drop all cached entries and reset the marker.
 
-        Holds ``_marker_lock`` so a concurrent ``update_cache`` cannot
-        slip a marker write between the store clear and our marker reset,
-        which would leave the on-disk pair out of sync.
+        Used by the lazy self-heal path in ``query_nearest`` when a query
+        exposes a dim mismatch the init-time check could not detect. Holds
+        ``_marker_lock`` so a concurrent ``update_cache`` cannot slip a
+        marker write between the store clear and our marker reset.
+
+        When ``expected_dim`` is provided, the wipe is **conditional**: we
+        re-check the store's dim under the lock and skip the wipe if the
+        store is already empty or already at ``expected_dim``. This guards
+        against the race where a concurrent ``update_cache`` self-heals
+        the store between ``query_nearest``'s failing ``store.query`` (no
+        lock) and the wipe call (lock acquired here) — without the
+        re-check, the unconditional wipe would discard a freshly-healed
+        correct-dim entry.
         """
         with self._marker_lock:
+            if expected_dim is not None:
+                current_dim = self.store.dim()
+                if current_dim is None or current_dim == expected_dim:
+                    logger.info(
+                        "Router cache dim mismatch resolved by another writer "
+                        "(current=%s, expected=%s); skipping redundant wipe",
+                        current_dim, expected_dim,
+                    )
+                    return
             self.store.clear()
             self.store.save()
             self._write_marker(EMBEDDING_MODEL, None)
@@ -346,7 +363,14 @@ class SemanticRouter:
                 logger.warning(
                     "Router cache dim mismatch at query time, wiping: %s", e
                 )
-                await loop.run_in_executor(None, self._wipe_and_remark)
+                # Pass the embedder's dim so the locked wipe can detect
+                # and skip a redundant clear if a concurrent update_cache
+                # already self-healed the store between our failing
+                # store.query (no lock) and the wipe (lock acquired below).
+                embedder_dim = int(query_emb.shape[0])
+                await loop.run_in_executor(
+                    None, lambda: self._wipe_and_remark(expected_dim=embedder_dim)
+                )
                 return None
             raise
 
