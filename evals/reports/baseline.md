@@ -1,9 +1,9 @@
-# Agents-Core eval baseline — 2026-05-03 (affe551)
+# Agents-Core eval baseline — 2026-05-03 (8748ea0)
 
 ## BLUF
 
-- Routing top-1: **66.4%** (73/110)
-- Routing top-3: **71.8%**
+- Routing top-1: **78.2%** (86/110)
+- Routing top-3: **79.1%**
 - Skills P@3: **0.17** | R@5: **0.27** | MRR: **0.30**
 - Tier accuracy: **60.9%** (67/110)
 
@@ -11,39 +11,39 @@ Loader: total=110, drift=0, fetch_errors=0, local_cache=True
 
 ## 1. Routing accuracy
 
-- **Top-1 accuracy**: 73/110 = 66.4%
-- **Top-3 accuracy**: 79/110 = 71.8%
+- **Top-1 accuracy**: 86/110 = 78.2%
+- **Top-3 accuracy**: 87/110 = 79.1%
 
 **Prediction method distribution:**
-- fallback: 60
-- keyword: 50
+- fallback: 62
+- keyword: 48
 
 **Per-language top-1 accuracy:**
-- `en`: 54/90 (60%)
+- `en`: 67/90 (74%)
 - `es`: 10/10 (100%)
 - `ru`: 9/10 (90%)
 
 **Per-source top-1 accuracy:**
-- `clinc_oos`: 19/20 (95%)
+- `clinc_oos`: 20/20 (100%)
 - `massive_en`: 10/10 (100%)
 - `massive_es`: 10/10 (100%)
 - `massive_ru`: 9/10 (90%)
-- `wildbench`: 25/60 (42%)
+- `wildbench`: 37/60 (62%)
 
 **Top-10 miss-cases (sorted by label_confidence desc):**
 
 | id | expected | predicted | method | conf |
 |---|---|---|---|---|
-| `wildbench-00578` | `education_tutor` | `data_analyst` | keyword | 0.90 |
-| `wildbench-00252` | `prompt_engineer` | `universal_agent` | fallback | 0.85 |
-| `wildbench-00483` | `sysadmin` | `database_admin` | keyword | 0.85 |
-| `wildbench-00549` | `prompt_engineer` | `literary_writer` | keyword | 0.85 |
-| `wildbench-00433` | `prompt_engineer` | `medical_expert` | keyword | 0.85 |
 | `wildbench-00388` | `child_psychologist` | `universal_agent` | fallback | 0.85 |
-| `wildbench-00562` | `software_engineer` | `sysadmin` | keyword | 0.85 |
-| `wildbench-00656` | `literary_writer` | `deep_researcher` | keyword | 0.85 |
-| `wildbench-00515` | `math_scientist` | `investigative_analyst` | keyword | 0.82 |
-| `wildbench-00224` | `security_expert` | `daily_briefing` | keyword | 0.80 |
+| `wildbench-00562` | `software_engineer` | `universal_agent` | fallback | 0.85 |
+| `wildbench-00224` | `security_expert` | `universal_agent` | fallback | 0.80 |
+| `wildbench-00337` | `math_scientist` | `universal_agent` | fallback | 0.78 |
+| `wildbench-00061` | `math_scientist` | `universal_agent` | fallback | 0.78 |
+| `wildbench-00231` | `deep_researcher` | `medical_expert` | keyword | 0.75 |
+| `wildbench-00205` | `data_analyst` | `fitness_coach` | keyword | 0.70 |
+| `wildbench-00880` | `math_scientist` | `software_engineer` | keyword | 0.70 |
+| `wildbench-00189` | `security_expert` | `sysadmin` | keyword | 0.70 |
+| `wildbench-00713` | `deep_researcher` | `education_tutor` | keyword | 0.70 |
 
 ## 2. Skill retrieval
 

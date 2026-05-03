@@ -68,15 +68,23 @@ def _resolve_dataset_key(label: dict) -> str | None:
     return None
 
 
-def _fetch_via_hf(label: dict) -> str:
-    """Lazy-import datasets here so the loader stays cheap when unlabeled.jsonl exists."""
+def _fetch_via_hf(label: dict, cache: dict[tuple[str, str | None, str], object]) -> str:
+    """Lazy-import datasets here so the loader stays cheap when unlabeled.jsonl exists.
+
+    Re-uses already-loaded splits via ``cache`` (keyed by (hf_id, config, split))
+    so a 110-row eval triggers at most one ``load_dataset`` call per source.
+    """
     from datasets import load_dataset  # type: ignore[import-not-found]
 
     key = _resolve_dataset_key(label)
     if key is None:
         raise KeyError(f"no DatasetSpec match for source={label.get('source')!r} config={label.get('source_config')!r}")
     spec = DATASETS[key]
-    ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split)
+    cache_key = (spec.hf_id, spec.config, spec.split)
+    ds = cache.get(cache_key)
+    if ds is None:
+        ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split)
+        cache[cache_key] = ds
     row = ds[label["source_idx"]]
     return spec.extract_query(row)
 
@@ -98,7 +106,7 @@ def load_samples(routing_path: Path = ROUTING_JSONL) -> tuple[list[EvalSample], 
 
         if query is None:
             try:
-                query = _fetch_via_hf(label)
+                query = _fetch_via_hf(label, hf_loaded)
             except Exception as exc:
                 stats.fetch_errors += 1
                 samples.append(EvalSample(label=label, query="", fetch_error=str(exc)))

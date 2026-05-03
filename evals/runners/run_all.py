@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import datetime as dt
 import subprocess
 import sys
@@ -33,7 +32,7 @@ from evals.metrics.retrieval import format_markdown as format_retrieval  # noqa:
 from evals.metrics.routing import compute_metrics as compute_routing_metrics  # noqa: E402
 from evals.metrics.routing import format_markdown as format_routing  # noqa: E402
 from evals.runners.run_retrieval import run as run_retrieval  # noqa: E402
-from evals.runners.run_routing import run as run_routing_async  # noqa: E402
+from evals.runners.run_routing import run as run_routing  # noqa: E402
 from evals.runners.run_tier import run as run_tier  # noqa: E402
 
 REPORTS_DIR = REPO_ROOT / "evals" / "reports"
@@ -134,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     print("→ running routing eval...", file=sys.stderr)
-    routing_results, routing_meta = asyncio.run(run_routing_async())
+    routing_results, routing_meta = run_routing()
 
     print("→ running retrieval eval...", file=sys.stderr)
     skill_results, implant_results, _ = run_retrieval()

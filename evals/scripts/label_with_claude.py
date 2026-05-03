@@ -152,6 +152,14 @@ def _sample_from_dataset(
         yield Sample(spec.key, spec, idx, query, meta)
 
 
+def _stable_offset(key: str) -> int:
+    """Deterministic per-source seed offset. Python's built-in hash() is
+    randomised across processes (PYTHONHASHSEED), so use sha256 to keep
+    sampling reproducible across runs and machines.
+    """
+    return int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:4], "big") % 1000
+
+
 def iter_samples(alloc: dict[str, int], seed: int) -> list[Sample]:
     out: list[Sample] = []
     for key, n in alloc.items():
@@ -164,7 +172,7 @@ def iter_samples(alloc: dict[str, int], seed: int) -> list[Sample]:
             pred = lambda r: r.get("intent") == CLINC_OOS_LABEL_IDX
         else:
             pred = None
-        out.extend(_sample_from_dataset(spec, n, seed=seed + hash(key) % 1000, filter_predicate=pred))
+        out.extend(_sample_from_dataset(spec, n, seed=seed + _stable_offset(key), filter_predicate=pred))
     return out
 
 

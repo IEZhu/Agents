@@ -36,8 +36,19 @@ if [ -d ".venv" ]; then
     PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 elif [ -d "venv" ]; then
     PYTHON_BIN="$REPO_ROOT/venv/bin/python"
-elif command -v pyenv &> /dev/null && [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
-    PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+elif command -v pyenv &> /dev/null; then
+    if [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
+        PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+    else
+        AVAILABLE_VERSION="$(pyenv versions --bare | grep -v '^system$' | head -n 1 || echo '')"
+        if [ -n "$AVAILABLE_VERSION" ]; then
+            PYTHON_BIN="$HOME/.pyenv/versions/$AVAILABLE_VERSION/bin/python"
+        else
+            echo -e "${RED}❌ No pyenv Python versions found (excluding system).${NC}"
+            echo "Install one: pyenv install 3.12.4"
+            exit 1
+        fi
+    fi
 else
     echo -e "${RED}❌ No virtual environment found.${NC}"
     echo "Create one: python -m venv .venv && pip install -e '.[evals]'"
