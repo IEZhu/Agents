@@ -88,10 +88,21 @@ Do NOT add commentary outside the code block.
 """
 
 
+def _positive_int(raw: str) -> int:
+    try:
+        n = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected integer, got {raw!r}") from exc
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"--batches must be >= 1, got {n}")
+    return n
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="prepare_batches", description=__doc__)
     parser.add_argument("--unlabeled", type=Path, default=DEFAULT_UNLABELED_OUT)
-    parser.add_argument("--batches", type=int, default=5, help="number of batch files to produce")
+    parser.add_argument("--batches", type=_positive_int, default=5,
+                        help="number of batch files to produce (must be >= 1)")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_BATCH_DIR)
     args = parser.parse_args(argv)
 

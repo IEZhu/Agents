@@ -44,12 +44,14 @@ LABELER_TAG = "claude-opus-4-7@2026-05-03"  # Opus via Claude Code subagent disp
 
 
 def load_unlabeled(path: Path) -> dict[str, dict]:
-    """Map id -> source row (without query text in the returned dict)."""
+    """Map id -> source row (with the raw `query` field stripped so it never
+    leaks into committed artifacts via downstream record building)."""
     out: dict[str, dict] = {}
     for line in path.read_text("utf-8").splitlines():
         if not line.strip():
             continue
         row = json.loads(line)
+        row.pop("query", None)
         out[row["id"]] = row
     return out
 
@@ -92,7 +94,7 @@ def make_record(label: dict, source: dict) -> dict:
         "label_confidence": label.get("confidence"),
         "human_reviewed": False,
         "notes": label.get("reasoning") or "",
-        "tags": ["routing", label.get("language") or "unknown", label["id"].split("-")[0]],
+        "tags": ["routing", label.get("language") or "unknown", label["id"].rsplit("-", 1)[0]],
     }
 
 
@@ -124,12 +126,13 @@ def main(argv: list[str] | None = None) -> int:
         if lid in seen_ids:
             print(f"WARN: duplicate label for id {lid!r}", file=sys.stderr)
             continue
-        seen_ids.add(lid)
 
         agent = label.get("expected_agent")
         if agent not in valid_agents:
             invalid_agent_ids.append((lid, str(agent)))
             if args.strict:
+                # In strict mode this id stays unaccepted so it shows up in
+                # `missing = sources - seen_ids` reporting.
                 continue
             # downgrade to universal_agent for non-strict mode
             label = dict(label)
@@ -138,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"[auto-downgraded: original agent {agent!r} not in catalog] "
                 + (label.get("reasoning") or "")
             )[:240]
+        seen_ids.add(lid)
 
         cleaned_skills: list[str] = []
         for skill in label.get("expected_skills") or []:

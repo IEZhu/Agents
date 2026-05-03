@@ -53,7 +53,7 @@ def _git_sha() -> str:
         return "nogit"
 
 
-def _build_report(routing_results, routing_meta, skill_results, implant_results, tier_results, tier_meta) -> str:
+def _build_report(routing_results, routing_meta, skill_results, implant_results, tier_results) -> str:
     routing_metrics = compute_routing_metrics(routing_results)
     skill_metrics = compute_retrieval_metrics(skill_results)
     implant_metrics = compute_retrieval_metrics(implant_results)
@@ -139,10 +139,10 @@ def main(argv: list[str] | None = None) -> int:
     skill_results, implant_results, _ = run_retrieval()
 
     print("→ running tier eval...", file=sys.stderr)
-    tier_results, tier_meta = run_tier()
+    tier_results, _tier_meta = run_tier()
 
     report = _build_report(
-        routing_results, routing_meta, skill_results, implant_results, tier_results, tier_meta
+        routing_results, routing_meta, skill_results, implant_results, tier_results
     )
 
     if args.baseline:
