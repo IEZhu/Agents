@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ---HELP-BEGIN---
 # Wrapper for the Agents-Core eval harness (evals/).
 # Usage: ./scripts/eval.sh <command> [args]
 #
@@ -11,6 +12,7 @@
 #   tier             Run only the tier inference eval.
 #   validate         Probe the configured HuggingFace datasets (no API).
 #   prepare          Re-sample queries → evals/datasets/_unlabeled.jsonl and refresh batches.
+#   aggregate        Join labeled batches into evals/datasets/routing.jsonl (run after labeling).
 #   show [path]      cat the report at <path> (default: evals/reports/baseline.md).
 #   diff <new>       Show unified diff of baseline.md vs <new>.
 #   help             Print this message.
@@ -19,6 +21,7 @@
 #   ./scripts/eval.sh run
 #   ./scripts/eval.sh save && ./scripts/eval.sh diff evals/reports/2026-05-03_*.md
 #   ./scripts/eval.sh routing --json | jq '.top1_accuracy'
+# ---HELP-END---
 
 set -e
 
@@ -62,7 +65,15 @@ if ! "$PYTHON_BIN" -c 'import datasets' &> /dev/null; then
 fi
 
 usage() {
-    sed -n '2,22p' "$0" | sed 's/^# \?//'
+    # Print everything between ---HELP-BEGIN--- and ---HELP-END--- markers,
+    # stripped of the leading "# " prefix. Robust against new commands being
+    # added without bumping a hard-coded line range. Uses awk for portability
+    # (BSD/macOS sed disagrees with GNU sed on BRE alternation).
+    awk '
+        /^# ---HELP-BEGIN---$/ { flag = 1; next }
+        /^# ---HELP-END---$/   { flag = 0 }
+        flag                   { sub(/^# ?/, ""); print }
+    ' "$0"
 }
 
 cmd="${1:-run}"

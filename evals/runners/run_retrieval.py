@@ -25,15 +25,17 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from evals.metrics.retrieval import RetrievalResult, compute_metrics, format_markdown  # noqa: E402
-from evals.runners._loader import iter_valid, load_samples  # noqa: E402
+from evals.runners._loader import EvalSample, LoaderStats, iter_valid, load_samples  # noqa: E402
 from src.engine.implants import ImplantRetriever  # noqa: E402
 from src.engine.skills import SkillRetriever  # noqa: E402
 
 N_RESULTS = 5
 
 
-def run() -> tuple[list[RetrievalResult], list[RetrievalResult], dict]:
-    samples, stats = load_samples()
+def run(
+    preloaded: tuple[list[EvalSample], LoaderStats] | None = None,
+) -> tuple[list[RetrievalResult], list[RetrievalResult], dict]:
+    samples, stats = preloaded if preloaded is not None else load_samples()
     skills_retriever = SkillRetriever()
     implants_retriever = ImplantRetriever()
 

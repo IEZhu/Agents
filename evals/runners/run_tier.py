@@ -21,14 +21,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from evals.runners._loader import iter_valid, load_samples  # noqa: E402
+from evals.runners._loader import EvalSample, LoaderStats, iter_valid, load_samples  # noqa: E402
 from src.engine.enrichment import infer_tier  # noqa: E402
 
 TIERS = ("lite", "standard", "deep")
 
 
-def run() -> tuple[list[dict], dict]:
-    samples, stats = load_samples()
+def run(
+    preloaded: tuple[list[EvalSample], LoaderStats] | None = None,
+) -> tuple[list[dict], dict]:
+    samples, stats = preloaded if preloaded is not None else load_samples()
     results: list[dict] = []
     for sample in iter_valid(samples):
         predicted = infer_tier(sample.query)

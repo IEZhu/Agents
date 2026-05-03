@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -35,12 +36,21 @@ if str(REPO_ROOT) not in sys.path:
 from evals.scripts.label_with_claude import (  # noqa: E402
     DEFAULT_OUT,
     DEFAULT_UNLABELED_OUT,
+    LABELER_MODEL,
     list_agent_names,
     list_skill_ids,
 )
 
 DEFAULT_BATCH_DIR = REPO_ROOT / "evals" / "datasets" / "_batches"
-LABELER_TAG = "claude-opus-4-7@2026-05-03"  # Opus via Claude Code subagent dispatch
+
+
+def default_labeler_tag() -> str:
+    """Resolve the labeler provenance string. Precedence:
+      1. AGENTS_LABELER_TAG env var (explicit override, e.g. CI)
+      2. <LABELER_MODEL>@<today> (matches the convention used by --label)
+    Override per-invocation via the --labeler-tag CLI flag.
+    """
+    return os.environ.get("AGENTS_LABELER_TAG") or f"{LABELER_MODEL}@{dt.date.today().isoformat()}"
 
 
 def load_unlabeled(path: Path) -> dict[str, dict]:
@@ -74,7 +84,7 @@ def load_labels(batch_dir: Path) -> list[dict]:
     return out
 
 
-def make_record(label: dict, source: dict) -> dict:
+def make_record(label: dict, source: dict, labeler_tag: str) -> dict:
     return {
         "id": label["id"],
         "source": source["source"],
@@ -90,7 +100,7 @@ def make_record(label: dict, source: dict) -> dict:
         "expected_skills": label.get("expected_skills") or [],
         "expected_implants": [],
         "context_hash": None,
-        "labeled_by": LABELER_TAG,
+        "labeled_by": labeler_tag,
         "label_confidence": label.get("confidence"),
         "human_reviewed": False,
         "notes": label.get("reasoning") or "",
@@ -105,7 +115,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--strict", action="store_true",
                         help="fail (exit 1) if any expected_agent is invalid")
+    parser.add_argument("--labeler-tag", default=None,
+                        help="provenance string written to `labeled_by` "
+                             "(default: $AGENTS_LABELER_TAG or "
+                             "<LABELER_MODEL>@<today>)")
     args = parser.parse_args(argv)
+    labeler_tag = args.labeler_tag or default_labeler_tag()
 
     valid_agents = set(list_agent_names())
     valid_skills = set(list_skill_ids())
@@ -151,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                 invalid_skills_dropped[skill] += 1
         label = {**label, "expected_skills": cleaned_skills}
 
-        records.append(make_record(label, sources[lid]))
+        records.append(make_record(label, sources[lid], labeler_tag))
 
     missing = sorted(set(sources) - seen_ids)
 

@@ -336,12 +336,18 @@ def cmd_preview(args: argparse.Namespace) -> int:
         # In preview mode the int N overrides the alloc.
         alloc = {next(iter(alloc)): args.preview} if args.source else {}
         if not alloc:
-            # round-robin tiny preview across all configured sources.
+            # Distribute exactly N across all configured sources. For N < n_src
+            # the trailing sources get 0 (and are dropped). For N >= n_src each
+            # source gets floor(N/n_src), with the first (N mod n_src) sources
+            # getting one extra. Total always sums to N — never overshoots.
             sources = list(DEFAULT_ALLOC.keys())
-            per = max(1, args.preview // len(sources))
-            alloc = {s: per for s in sources}
-            while sum(alloc.values()) < args.preview:
-                alloc[sources[0]] += 1
+            n_src = len(sources)
+            per_each, remainder = divmod(args.preview, n_src)
+            alloc = {
+                s: per_each + (1 if i < remainder else 0)
+                for i, s in enumerate(sources)
+            }
+            alloc = {k: v for k, v in alloc.items() if v > 0}
     samples = iter_samples(alloc, seed=args.seed)
     agent_names = list_agent_names()
     skill_ids = list_skill_ids()

@@ -30,7 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from evals.metrics.routing import RoutingResult, compute_metrics, format_markdown  # noqa: E402
-from evals.runners._loader import iter_valid, load_samples  # noqa: E402
+from evals.runners._loader import EvalSample, LoaderStats, iter_valid, load_samples  # noqa: E402
 from src.engine.router import SemanticRouter  # noqa: E402
 
 
@@ -62,8 +62,10 @@ def predict_one(router: SemanticRouter, query: str, sample_id: str, label: dict)
     )
 
 
-def run() -> tuple[list[RoutingResult], dict]:
-    samples, stats = load_samples()
+def run(
+    preloaded: tuple[list[EvalSample], LoaderStats] | None = None,
+) -> tuple[list[RoutingResult], dict]:
+    samples, stats = preloaded if preloaded is not None else load_samples()
     router = SemanticRouter()
     results: list[RoutingResult] = []
     for sample in iter_valid(samples):

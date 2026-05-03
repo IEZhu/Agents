@@ -31,6 +31,7 @@ from evals.metrics.retrieval import compute_metrics as compute_retrieval_metrics
 from evals.metrics.retrieval import format_markdown as format_retrieval  # noqa: E402
 from evals.metrics.routing import compute_metrics as compute_routing_metrics  # noqa: E402
 from evals.metrics.routing import format_markdown as format_routing  # noqa: E402
+from evals.runners._loader import load_samples  # noqa: E402
 from evals.runners.run_retrieval import run as run_retrieval  # noqa: E402
 from evals.runners.run_routing import run as run_routing  # noqa: E402
 from evals.runners.run_tier import run as run_tier  # noqa: E402
@@ -132,14 +133,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="explicit output path")
     args = parser.parse_args(argv)
 
+    # Load samples once and share across all three runners — avoids triple
+    # routing.jsonl read, triple HF re-fetch, and triple sha256 verification.
+    print("→ loading samples (once)...", file=sys.stderr)
+    preloaded = load_samples()
+
     print("→ running routing eval...", file=sys.stderr)
-    routing_results, routing_meta = run_routing()
+    routing_results, routing_meta = run_routing(preloaded)
 
     print("→ running retrieval eval...", file=sys.stderr)
-    skill_results, implant_results, _ = run_retrieval()
+    skill_results, implant_results, _ = run_retrieval(preloaded)
 
     print("→ running tier eval...", file=sys.stderr)
-    tier_results, _tier_meta = run_tier()
+    tier_results, _tier_meta = run_tier(preloaded)
 
     report = _build_report(
         routing_results, routing_meta, skill_results, implant_results, tier_results
