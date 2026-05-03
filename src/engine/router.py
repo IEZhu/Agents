@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -28,6 +29,12 @@ _DIM_MISMATCH_ERROR_FRAGMENT = "Dimension mismatch"
 
 class SemanticRouter:
     def __init__(self):
+        # Serializes (store mutation + marker write) sequences across
+        # update_cache and the query-time self-heal so the on-disk marker
+        # cannot drift from the on-disk vector store under concurrent
+        # writers. NumpyVectorStore has its own lock for in-memory state,
+        # but doesn't span the marker write — this lock bridges that gap.
+        self._marker_lock = threading.RLock()
         self.store = NumpyVectorStore(name="router_cache", data_dir=DATA_DIR)
         self._invalidate_on_model_change()
 
@@ -97,17 +104,23 @@ class SemanticRouter:
     def _write_marker(model_name: str, dim: Optional[int]) -> None:
         """Persist (model_name, dim) to the marker atomically.
 
-        Writes to a tempfile in the same directory and ``os.replace``-s into
-        place — same crash-safety pattern as ``NumpyVectorStore.save``. A
-        crash mid-write leaves the original marker untouched rather than a
-        truncated payload that could trigger spurious wipes or decode
-        errors. Empty caches write only the model name so the legacy
-        format is the natural rest state.
+        Writes to a tempfile in the same directory as the marker and
+        ``os.replace``-s into place — same crash-safety pattern as
+        ``NumpyVectorStore.save``. A crash mid-write leaves the original
+        marker untouched rather than a truncated payload that could trigger
+        spurious wipes or decode errors. Empty caches write only the model
+        name so the legacy format is the natural rest state.
+
+        The temp file is created in ``os.path.dirname(_ROUTER_MODEL_HASH_FILE)``
+        rather than ``DATA_DIR`` so the rename stays on the same filesystem
+        even if a future refactor or test override decouples the two paths
+        (cross-filesystem ``os.replace`` is not atomic on POSIX).
         """
-        os.makedirs(DATA_DIR, exist_ok=True)
+        target_dir = os.path.dirname(_ROUTER_MODEL_HASH_FILE) or "."
+        os.makedirs(target_dir, exist_ok=True)
         payload = f"{model_name}|{dim}" if dim is not None else model_name
         fd, tmp_path = tempfile.mkstemp(
-            dir=DATA_DIR,
+            dir=target_dir,
             prefix=".router_cache_model.",
             suffix=".tmp",
         )
@@ -131,10 +144,16 @@ class SemanticRouter:
     def _wipe_and_remark(self) -> None:
         """Drop all cached entries and reset the marker. Used by the lazy
         self-heal path in ``query_nearest`` when a query exposes a dim
-        mismatch the init-time check could not detect."""
-        self.store.clear()
-        self.store.save()
-        self._write_marker(EMBEDDING_MODEL, None)
+        mismatch the init-time check could not detect.
+
+        Holds ``_marker_lock`` so a concurrent ``update_cache`` cannot
+        slip a marker write between the store clear and our marker reset,
+        which would leave the on-disk pair out of sync.
+        """
+        with self._marker_lock:
+            self.store.clear()
+            self.store.save()
+            self._write_marker(EMBEDDING_MODEL, None)
 
     def _scan_agents(self) -> List[str]:
         """
@@ -372,21 +391,27 @@ class SemanticRouter:
             query_emb = await loop.run_in_executor(None, embed_query, query)
 
             def _mutate_and_save():
-                self.store.add(
-                    ids=[request_id],
-                    embeddings=query_emb.reshape(1, -1),
-                    documents=[query],
-                    metadatas=[{
-                        "target_agent": agent_name,
-                        "reasoning": reasoning,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }],
-                )
-                self.store.trim(ROUTER_CACHE_MAX_SIZE)
-                self.store.save()
-                # Keep the marker in sync with cache contents so the next
-                # startup can detect drift without loading the embedder.
-                self._write_marker(EMBEDDING_MODEL, self.store.dim())
+                # Hold the router-level lock for the whole (store + marker)
+                # sequence so concurrent update_cache / _wipe_and_remark
+                # callers can't interleave their disk writes and leave the
+                # marker disagreeing with the on-disk store.
+                with self._marker_lock:
+                    self.store.add(
+                        ids=[request_id],
+                        embeddings=query_emb.reshape(1, -1),
+                        documents=[query],
+                        metadatas=[{
+                            "target_agent": agent_name,
+                            "reasoning": reasoning,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }],
+                    )
+                    self.store.trim(ROUTER_CACHE_MAX_SIZE)
+                    self.store.save()
+                    # Keep the marker in sync with cache contents so the
+                    # next startup can detect drift without loading the
+                    # embedder.
+                    self._write_marker(EMBEDDING_MODEL, self.store.dim())
 
             await loop.run_in_executor(None, _mutate_and_save)
         except Exception as e:
