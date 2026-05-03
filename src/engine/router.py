@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -92,12 +93,33 @@ class SemanticRouter:
 
     @staticmethod
     def _write_marker(model_name: str, dim: Optional[int]) -> None:
-        """Persist (model_name, dim) to the marker. Empty caches write only
-        the model name so the legacy format is the natural rest state."""
+        """Persist (model_name, dim) to the marker atomically.
+
+        Writes to a tempfile in the same directory and ``os.replace``-s into
+        place — same crash-safety pattern as ``NumpyVectorStore.save``. A
+        crash mid-write leaves the original marker untouched rather than a
+        truncated payload that could trigger spurious wipes or decode
+        errors. Empty caches write only the model name so the legacy
+        format is the natural rest state.
+        """
         os.makedirs(DATA_DIR, exist_ok=True)
         payload = f"{model_name}|{dim}" if dim is not None else model_name
-        with open(_ROUTER_MODEL_HASH_FILE, "w") as f:
-            f.write(payload)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=DATA_DIR,
+            prefix=".router_cache_model.",
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp_path, _ROUTER_MODEL_HASH_FILE)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise
 
     def _wipe_and_remark(self) -> None:
         """Drop all cached entries and reset the marker. Used by the lazy

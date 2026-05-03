@@ -919,6 +919,19 @@ class TestCacheInvalidation:
         assert result is None, "lazy self-heal must return None on dim mismatch"
         assert router.store.count() == 0, "store must be wiped after dim-mismatch query"
 
+    def test_write_marker_leaves_no_tempfile_on_success(self, isolated_router_dir):
+        """Atomic write via tempfile + os.replace must not leave any
+        ``.router_cache_model.*.tmp`` debris on a successful write."""
+        from src.engine.router import SemanticRouter
+
+        SemanticRouter._write_marker("test-model", 384)
+
+        marker = isolated_router_dir / ".router_cache_model"
+        assert marker.read_text(encoding="utf-8") == "test-model|384"
+
+        leftovers = list(isolated_router_dir.glob(".router_cache_model.*.tmp"))
+        assert leftovers == [], f"Atomic write left tmp debris: {leftovers}"
+
     @pytest.mark.asyncio
     async def test_update_cache_writes_marker_with_dim(self, isolated_router_dir, monkeypatch):
         """After ``update_cache`` saves a new entry, the marker records both
