@@ -217,6 +217,13 @@ class NumpyVectorStore:
         with self._lock:
             return len(self._ids)
 
+    def dim(self) -> Optional[int]:
+        """Return the embedding dimensionality, or None if the store is empty."""
+        with self._lock:
+            if self._embeddings is None or self._embeddings.size == 0:
+                return None
+            return int(self._embeddings.shape[1])
+
     @staticmethod
     def _validate_inputs(
         ids: List[str],

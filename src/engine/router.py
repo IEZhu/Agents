@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import os
+import tempfile
+import threading
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from src.engine.config import (
     ROUTER_SIMILARITY_THRESHOLD, AGENTS_DIR, DATA_DIR, EMBEDDING_MODEL,
@@ -19,10 +21,20 @@ logger = logging.getLogger(__name__)
 ROUTER_CACHE_MAX_SIZE = 500
 KEYWORD_VETO_ROUTE_REQUIRED = "__ROUTE_REQUIRED__"
 _ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
+# Substring in the ValueError raised by NumpyVectorStore.query() when the
+# query vector and stored vectors disagree on dimensionality. Matched in
+# query_nearest() to trigger lazy self-heal.
+_DIM_MISMATCH_ERROR_FRAGMENT = "Dimension mismatch"
 
 
 class SemanticRouter:
     def __init__(self):
+        # Serializes (store mutation + marker write) sequences across
+        # update_cache and the query-time self-heal so the on-disk marker
+        # cannot drift from the on-disk vector store under concurrent
+        # writers. NumpyVectorStore has its own lock for in-memory state,
+        # but doesn't span the marker write — this lock bridges that gap.
+        self._marker_lock = threading.RLock()
         self.store = NumpyVectorStore(name="router_cache", data_dir=DATA_DIR)
         self._invalidate_on_model_change()
 
@@ -31,26 +43,134 @@ class SemanticRouter:
         self._agent_descriptions = self._load_agent_descriptions()
 
     def _invalidate_on_model_change(self):
-        """Clear router cache when the embedding model changes."""
-        stored_model = ""
-        try:
-            if os.path.exists(_ROUTER_MODEL_HASH_FILE):
-                with open(_ROUTER_MODEL_HASH_FILE, "r") as f:
-                    stored_model = f.read().strip()
-        except Exception:
-            pass
+        """Clear router cache when the model name changes or the marker's
+        recorded dim drifts from the on-disk vector dim.
 
-        if stored_model != EMBEDDING_MODEL:
+        Marker format: ``<model>|<dim>`` (current) or ``<model>`` (legacy,
+        accepted on read and upgraded on next save). A name match alone does
+        not guarantee correctness — the cache may have been written by a
+        different model whose marker was later overwritten — so we also
+        compare the marker's dim against the actual stored dim. Reading the
+        npz dim is cheap (already loaded by NumpyVectorStore), so this check
+        runs without loading the embedder. Queries against a stale cache
+        that still slips past this check self-heal in ``query_nearest``.
+        """
+        stored_model, stored_dim = self._read_marker()
+        cache_dim = self.store.dim()
+
+        name_changed = stored_model != EMBEDDING_MODEL
+        dim_drifted = (
+            stored_dim is not None
+            and cache_dim is not None
+            and stored_dim != cache_dim
+        )
+
+        if name_changed or dim_drifted:
             if self.store.count() > 0:
                 logger.info(
-                    "Embedding model changed (%s → %s), clearing router cache",
-                    stored_model or "<none>", EMBEDDING_MODEL,
+                    "Clearing router cache (model: %r → %r, dim_drifted=%s)",
+                    stored_model or "<none>", EMBEDDING_MODEL, dim_drifted,
                 )
                 self.store.clear()
                 self.store.save()
-            os.makedirs(DATA_DIR, exist_ok=True)
-            with open(_ROUTER_MODEL_HASH_FILE, "w") as f:
-                f.write(EMBEDDING_MODEL)
+            self._write_marker(EMBEDDING_MODEL, None)
+
+    @staticmethod
+    def _read_marker() -> Tuple[str, Optional[int]]:
+        """Parse the marker file. Returns (model_name, dim). dim is None for
+        legacy markers, unparseable dim values, or any I/O failure (missing
+        file, decode error, OS error). I/O failures collapse to ``("", None)``
+        rather than crashing init; the caller in ``_invalidate_on_model_change``
+        then sees ``name_changed=True`` and either wipes the cache (non-empty
+        store) or just rewrites the marker (empty store) — both happen
+        immediately at init, not on a deferred save."""
+        try:
+            if not os.path.exists(_ROUTER_MODEL_HASH_FILE):
+                return "", None
+            with open(_ROUTER_MODEL_HASH_FILE, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+        except (OSError, UnicodeDecodeError) as e:
+            logger.warning("Failed to read router marker file: %s", e)
+            return "", None
+        if "|" not in raw:
+            return raw, None
+        name, _, dim_str = raw.partition("|")
+        try:
+            return name, int(dim_str)
+        except ValueError:
+            return name, None
+
+    @staticmethod
+    def _write_marker(model_name: str, dim: Optional[int]) -> None:
+        """Persist (model_name, dim) to the marker atomically.
+
+        Writes to a tempfile in the same directory as the marker and
+        ``os.replace``-s into place — same crash-safety pattern as
+        ``NumpyVectorStore.save``. A crash mid-write leaves the original
+        marker untouched rather than a truncated payload that could trigger
+        spurious wipes or decode errors. Empty caches write only the model
+        name so the legacy format is the natural rest state.
+
+        The temp file is created in ``os.path.dirname(_ROUTER_MODEL_HASH_FILE)``
+        rather than ``DATA_DIR`` so the rename stays on the same filesystem
+        even if a future refactor or test override decouples the two paths
+        (cross-filesystem ``os.replace`` is not atomic on POSIX).
+        """
+        target_dir = os.path.dirname(_ROUTER_MODEL_HASH_FILE) or "."
+        os.makedirs(target_dir, exist_ok=True)
+        payload = f"{model_name}|{dim}" if dim is not None else model_name
+        fd, tmp_path = tempfile.mkstemp(
+            dir=target_dir,
+            prefix=".router_cache_model.",
+            suffix=".tmp",
+        )
+        # Close the raw fd immediately and reopen by path to write — mirrors
+        # NumpyVectorStore.save(). os.fdopen() can raise (e.g. bad fd state)
+        # before installing a context-manager owner of the descriptor; closing
+        # here guarantees no descriptor leak on any subsequent failure.
+        os.close(fd)
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp_path, _ROUTER_MODEL_HASH_FILE)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise
+
+    def _wipe_and_remark(self, expected_dim: Optional[int] = None) -> None:
+        """Drop all cached entries and reset the marker.
+
+        Used by the lazy self-heal path in ``query_nearest`` when a query
+        exposes a dim mismatch the init-time check could not detect. Holds
+        ``_marker_lock`` so a concurrent ``update_cache`` cannot slip a
+        marker write between the store clear and our marker reset.
+
+        When ``expected_dim`` is provided, the wipe is **conditional**: we
+        re-check the store's dim under the lock and skip the wipe if the
+        store is already empty or already at ``expected_dim``. This guards
+        against the race where a concurrent ``update_cache`` self-heals
+        the store between ``query_nearest``'s failing ``store.query`` (no
+        lock) and the wipe call (lock acquired here) — without the
+        re-check, the unconditional wipe would discard a freshly-healed
+        correct-dim entry.
+        """
+        with self._marker_lock:
+            if expected_dim is not None:
+                current_dim = self.store.dim()
+                if current_dim is None or current_dim == expected_dim:
+                    logger.info(
+                        "Router cache dim mismatch resolved by another writer "
+                        "(current=%s, expected=%s); skipping redundant wipe",
+                        current_dim, expected_dim,
+                    )
+                    return
+            self.store.clear()
+            self.store.save()
+            self._write_marker(EMBEDDING_MODEL, None)
 
     def _scan_agents(self) -> List[str]:
         """
@@ -213,8 +333,12 @@ class SemanticRouter:
         the cache has no entries. No threshold is applied — the caller decides
         what to do with the distance.
 
-        Raises on errors so callers can distinguish empty cache from
-        lookup failure and handle each appropriately.
+        Returns None instead of raising when a query-vs-store dim mismatch
+        is detected: the stale store is wiped via ``_wipe_and_remark`` and
+        the lookup is treated as a cache miss so the next ``update_cache``
+        repopulates with vectors from the current embedder. All other
+        ``ValueError``s and any other exceptions still propagate so callers
+        can distinguish empty-cache from lookup-failure scenarios.
         """
         if self.store.count() == 0:
             return None
@@ -224,9 +348,31 @@ class SemanticRouter:
 
         loop = asyncio.get_running_loop()
         query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
-        results = await loop.run_in_executor(
-            None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
-        )
+        try:
+            results = await loop.run_in_executor(
+                None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
+            )
+        except ValueError as e:
+            # Self-heal a stale cache whose vectors disagree with the current
+            # embedder's dim. The init-time marker check catches drift the
+            # codebase wrote, but a marker and npz that agree with each other
+            # but not with the embedder (e.g. cache restored from a backup
+            # taken under a different model) only surface here. Wipe, log,
+            # and let the query miss — the next update will repopulate.
+            if _DIM_MISMATCH_ERROR_FRAGMENT in str(e):
+                logger.warning(
+                    "Router cache dim mismatch at query time, wiping: %s", e
+                )
+                # Pass the embedder's dim so the locked wipe can detect
+                # and skip a redundant clear if a concurrent update_cache
+                # already self-healed the store between our failing
+                # store.query (no lock) and the wipe (lock acquired below).
+                embedder_dim = int(query_emb.shape[0])
+                await loop.run_in_executor(
+                    None, lambda: self._wipe_and_remark(expected_dim=embedder_dim)
+                )
+                return None
+            raise
 
         if results.ids and results.distances and len(results.distances) > 0:
             distance = results.distances[0]
@@ -263,24 +409,56 @@ class SemanticRouter:
     async def update_cache(self, query: str, agent_name: str, reasoning: str, request_id: str):
         """
         Manually adds an entry to the cache.
+
+        Self-heals a stale cache whose stored vector dim disagrees with the
+        current embedder: if ``NumpyVectorStore.add`` raises a dim-mismatch
+        ``ValueError``, the store is wiped and the add is retried once
+        against the now-empty store. This complements the query-time
+        self-heal in ``query_nearest`` for callers that hit ``update_cache``
+        before any lookup has run (e.g. an LLM routing decision recorded
+        before any cached query touched the store).
         """
         loop = asyncio.get_running_loop()
         try:
             query_emb = await loop.run_in_executor(None, embed_query, query)
 
+            add_kwargs = dict(
+                ids=[request_id],
+                embeddings=query_emb.reshape(1, -1),
+                documents=[query],
+                metadatas=[{
+                    "target_agent": agent_name,
+                    "reasoning": reasoning,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }],
+            )
+
             def _mutate_and_save():
-                self.store.add(
-                    ids=[request_id],
-                    embeddings=query_emb.reshape(1, -1),
-                    documents=[query],
-                    metadatas=[{
-                        "target_agent": agent_name,
-                        "reasoning": reasoning,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }],
-                )
-                self.store.trim(ROUTER_CACHE_MAX_SIZE)
-                self.store.save()
+                # Hold the router-level lock for the whole (store + marker)
+                # sequence so concurrent update_cache / _wipe_and_remark
+                # callers can't interleave their disk writes and leave the
+                # marker disagreeing with the on-disk store.
+                with self._marker_lock:
+                    try:
+                        self.store.add(**add_kwargs)
+                    except ValueError as e:
+                        if _DIM_MISMATCH_ERROR_FRAGMENT not in str(e):
+                            raise
+                        logger.warning(
+                            "Router cache dim mismatch on update, wiping and "
+                            "retrying with current-dim vectors: %s", e,
+                        )
+                        # Wipe the stale store; the empty store accepts any
+                        # dim on the next add, so the retry succeeds.
+                        self.store.clear()
+                        self.store.save()
+                        self.store.add(**add_kwargs)
+                    self.store.trim(ROUTER_CACHE_MAX_SIZE)
+                    self.store.save()
+                    # Keep the marker in sync with cache contents so the
+                    # next startup can detect drift without loading the
+                    # embedder.
+                    self._write_marker(EMBEDDING_MODEL, self.store.dim())
 
             await loop.run_in_executor(None, _mutate_and_save)
         except Exception as e:

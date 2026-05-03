@@ -19,6 +19,7 @@ dependencies = [
     "pdf2image>=1.16.0",
     "Pillow>=10.0.0",
     "anthropic>=0.18.0",
+    "langdetect>=1.0",
 ]
 
 [tool.setuptools.packages.find]

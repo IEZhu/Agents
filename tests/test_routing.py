@@ -734,6 +734,336 @@ class TestKeywordBoosting:
             assert result["status"] == "ROUTE_REQUIRED"
 
 
+class TestCacheInvalidation:
+    """Tests for router cache invalidation across init and query paths.
+
+    Regression: a stale `data/router_cache.npz` with vectors from a different
+    embedder (e.g. 1024-dim BGE-large) used to slip past the model-name check
+    when the marker was overwritten. Every cache lookup then raised
+    `ValueError: Dimension mismatch`, the error was swallowed, and the cache
+    was effectively dead. The router now records the cached dim alongside
+    the model name in the marker (`<model>|<dim>`) and wipes when those drift.
+    A query-time self-heal in ``query_nearest`` is the safety net for cases
+    the init-time check cannot detect (e.g. cache restored from backup that
+    was internally consistent but disagrees with the current embedder).
+    """
+
+    @pytest.fixture
+    def isolated_router_dir(self, tmp_path, monkeypatch):
+        """Patch DATA_DIR + marker path so SemanticRouter uses a tmp directory."""
+        monkeypatch.setattr("src.engine.router.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            "src.engine.router._ROUTER_MODEL_HASH_FILE",
+            str(tmp_path / ".router_cache_model"),
+        )
+        return tmp_path
+
+    def _seed_cache(self, data_dir, dim):
+        """Write a router_cache.npz with `dim`-dimensional vectors."""
+        import numpy as np
+        from src.engine.vector_store import NumpyVectorStore
+
+        store = NumpyVectorStore(name="router_cache", data_dir=str(data_dir))
+        store.add(
+            ids=["seed"],
+            embeddings=np.random.rand(1, dim).astype(np.float32),
+            documents=["seed query"],
+            metadatas=[{
+                "target_agent": "universal_agent",
+                "reasoning": "seed",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }],
+        )
+        store.save()
+
+    def test_marker_dim_drift_wipes_at_init(self, isolated_router_dir, monkeypatch):
+        """Marker dim disagreeing with on-disk vector dim triggers init-time wipe."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        # Marker claims dim=384 but the npz has 1024-dim vectors → drift.
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+        # Init must not load the embedder — guard with a MagicMock that fails
+        # the assertion if invoked, regardless of how the caller handles
+        # exceptions (assert_not_called is a metadata check, not a raise).
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 0
+        embed_mock.assert_not_called()
+
+    def test_matching_marker_and_cache_preserved(self, isolated_router_dir, monkeypatch):
+        """Marker recording the actual cache dim must preserve the store."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 1
+        embed_mock.assert_not_called()
+
+    def test_legacy_marker_preserves_cache_at_init(self, isolated_router_dir, monkeypatch):
+        """A legacy marker (just the model name, no dim) cannot detect drift —
+        defer to the query-time self-heal rather than wiping speculatively."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 1
+        embed_mock.assert_not_called()
+
+    def test_model_name_change_wipes_at_init(self, isolated_router_dir, monkeypatch):
+        """A model-name change clears the cache without loading the embedder."""
+        from unittest.mock import MagicMock
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text("old-model|384")
+
+        # MagicMock-based guard: assert_not_called() is a metadata check, so
+        # the assertion holds even if a regression catches AssertionError
+        # silently inside _invalidate_on_model_change.
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+
+        assert router.store.count() == 0
+        embed_mock.assert_not_called()
+
+    def test_init_writes_legacy_marker_after_wipe(self, isolated_router_dir):
+        """After clearing a stale cache, the marker is rewritten with just
+        the current model name (no dim) — empty caches don't need a dim."""
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+
+        from src.engine.router import SemanticRouter
+        SemanticRouter()
+
+        assert (isolated_router_dir / ".router_cache_model").read_text() == EMBEDDING_MODEL
+
+    def test_corrupt_marker_does_not_crash_init(self, isolated_router_dir, monkeypatch):
+        """A marker file with non-text bytes (e.g. partial write or
+        filesystem corruption) must not crash router initialization.
+        ``_read_marker`` collapses the corrupted marker to ``("", None)``,
+        which makes ``name_changed=True`` in ``_invalidate_on_model_change``,
+        triggering an immediate wipe (non-empty store) or marker rewrite
+        (empty store) — repair is performed at init, not deferred to a
+        later save."""
+        from unittest.mock import MagicMock
+
+        self._seed_cache(isolated_router_dir, dim=384)
+        # Non-UTF-8 bytes — `open(..., encoding="utf-8")` would raise
+        # UnicodeDecodeError if the read path didn't catch it.
+        (isolated_router_dir / ".router_cache_model").write_bytes(b"\xff\xfe\xfd corrupt")
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        # Must not raise UnicodeDecodeError or any other exception.
+        router = SemanticRouter()
+
+        # Corrupt marker is read as ("", None) → name_changed=True → wipe.
+        # The exact post-state isn't the point of this test; the point is
+        # that init survives the corruption.
+        assert router.store is not None
+        embed_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lazy_self_heal_on_query_dim_mismatch(self, isolated_router_dir, monkeypatch):
+        """A cache that passed init-time checks but produces a query-time
+        ``ValueError: Dimension mismatch`` must be wiped on first lookup
+        rather than propagating the error or sticking around as dead weight."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Marker and cache agree on dim=1024 — init has no reason to wipe.
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|1024"
+        )
+
+        # Current embedder produces 384 dims — disagrees with the cache.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1, "init should keep the cache when marker matches"
+
+        result = await router.query_nearest("any query")
+
+        assert result is None, "lazy self-heal must return None on dim mismatch"
+        assert router.store.count() == 0, "store must be wiped after dim-mismatch query"
+
+    def test_write_marker_leaves_no_tempfile_on_success(self, isolated_router_dir):
+        """Atomic write via tempfile + os.replace must not leave any
+        ``.router_cache_model.*.tmp`` debris on a successful write."""
+        from src.engine.router import SemanticRouter
+
+        SemanticRouter._write_marker("test-model", 384)
+
+        marker = isolated_router_dir / ".router_cache_model"
+        assert marker.read_text(encoding="utf-8") == "test-model|384"
+
+        leftovers = list(isolated_router_dir.glob(".router_cache_model.*.tmp"))
+        assert leftovers == [], f"Atomic write left tmp debris: {leftovers}"
+
+    def test_wipe_and_remark_skips_when_dim_already_healed(self, isolated_router_dir, monkeypatch):
+        """Race-safety: ``_wipe_and_remark(expected_dim=...)`` must skip the
+        wipe when the store has already been healed (e.g. by a concurrent
+        ``update_cache``) between the failing ``store.query`` and the lock
+        acquisition. Without this check, a query-time self-heal would
+        discard a freshly-added correct-dim entry."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Simulate: a concurrent writer already healed the cache to 384-dim.
+        self._seed_cache(isolated_router_dir, dim=384)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|384"
+        )
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1
+        assert router.store.dim() == 384
+
+        # query_nearest would have failed against an old 1024-dim store; by
+        # the time _wipe_and_remark gets the lock, the store has been
+        # healed. The conditional re-check must skip the wipe.
+        router._wipe_and_remark(expected_dim=384)
+
+        assert router.store.count() == 1, (
+            "Conditional wipe must not discard a freshly-healed correct-dim cache"
+        )
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == f"{EMBEDDING_MODEL}|384"
+
+    def test_wipe_and_remark_wipes_when_dim_still_mismatched(self, isolated_router_dir, monkeypatch):
+        """Race-safety counterpart: when the store is still at the stale
+        dim under the lock, ``_wipe_and_remark(expected_dim=...)`` must
+        proceed with the wipe (the race didn't happen)."""
+        from unittest.mock import MagicMock
+        from src.engine.config import EMBEDDING_MODEL
+
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|1024"
+        )
+        embed_mock = MagicMock(side_effect=AssertionError("embedder must not load at init"))
+        monkeypatch.setattr("src.engine.router.embed_query", embed_mock)
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1
+        assert router.store.dim() == 1024
+
+        # Embedder produces 384-dim; store is still 1024-dim under the lock.
+        router._wipe_and_remark(expected_dim=384)
+
+        assert router.store.count() == 0
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == EMBEDDING_MODEL
+
+    @pytest.mark.asyncio
+    async def test_update_cache_self_heals_on_dim_mismatch(self, isolated_router_dir, monkeypatch):
+        """``update_cache`` must self-heal a dim-mismatched cache that
+        slipped past the init-time check (marker and npz internally
+        consistent at 1024-dim, but the current embedder produces 384).
+        ``NumpyVectorStore.add`` raises a dim-mismatch ``ValueError``;
+        ``update_cache`` catches it, wipes the stale store, retries the
+        add against the now-empty store, and rewrites the marker so the
+        new dim is recorded."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Marker and on-disk vectors agree at 1024-dim → init keeps cache.
+        self._seed_cache(isolated_router_dir, dim=1024)
+        (isolated_router_dir / ".router_cache_model").write_text(
+            f"{EMBEDDING_MODEL}|1024"
+        )
+
+        # Current embedder produces 384-dim; the upcoming add will mismatch.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert router.store.count() == 1, "init should keep the cache when marker matches"
+        assert router.store.dim() == 1024
+
+        await router.update_cache(
+            query="hello",
+            agent_name="universal_agent",
+            reasoning="test",
+            request_id="req-1",
+        )
+
+        # The 1024-dim seed should be gone, replaced by the new 384-dim entry.
+        assert router.store.count() == 1
+        assert router.store.dim() == 384
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == f"{EMBEDDING_MODEL}|384"
+
+    @pytest.mark.asyncio
+    async def test_update_cache_writes_marker_with_dim(self, isolated_router_dir, monkeypatch):
+        """After ``update_cache`` saves a new entry, the marker records both
+        the model name and the current cache dim."""
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Pre-seed marker as legacy so we can verify it's upgraded.
+        (isolated_router_dir / ".router_cache_model").write_text(EMBEDDING_MODEL)
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.zeros(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        await router.update_cache(
+            query="hello",
+            agent_name="universal_agent",
+            reasoning="test",
+            request_id="req-1",
+        )
+
+        marker = (isolated_router_dir / ".router_cache_model").read_text()
+        assert marker == f"{EMBEDDING_MODEL}|384"
+
+
 class TestClearSessionCache:
     @pytest.mark.asyncio
     async def test_clears_both_caches(self):
