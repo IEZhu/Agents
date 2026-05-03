@@ -48,25 +48,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.utils.prompt_loader import get_agent_metadata  # noqa: E402
 
-from evals.scripts.fetch import DATASETS, DatasetSpec, sha256_short  # noqa: E402
-
-
-def _require_load_dataset():
-    """Lazy import of ``datasets.load_dataset``.
-
-    Imported here (not at module top) so helpers like ``resolve_alloc`` and
-    ``list_agent_names`` remain importable in environments that don't have
-    the optional ``[evals]`` extras installed (e.g. unit tests of CLI arg
-    parsing). Raises ``RuntimeError`` instead of ``sys.exit`` so callers can
-    handle the missing dependency cleanly.
-    """
-    try:
-        from datasets import load_dataset  # type: ignore[import-not-found]
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "'datasets' not installed. Run: pip install -e '.[evals]'"
-        ) from exc
-    return load_dataset
+# Reuse the canonical lazy loader from fetch.py — keeps the missing-deps
+# error message in one place so the two callers can't drift.
+from evals.scripts.fetch import DATASETS, DatasetSpec, _require_load_dataset, sha256_short  # noqa: E402
 
 LABELER_MODEL = "claude-opus-4-7"
 
@@ -466,15 +450,21 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.preview is not None:
-        return cmd_preview(args)
-    if args.prepare:
-        return cmd_prepare(args)
-    if args.label:
-        if args.out is None:
-            args.out = DEFAULT_OUT
-        return cmd_label(args)
-    return 0
+    try:
+        if args.preview is not None:
+            return cmd_preview(args)
+        if args.prepare:
+            return cmd_prepare(args)
+        if args.label:
+            if args.out is None:
+                args.out = DEFAULT_OUT
+            return cmd_label(args)
+        return 0
+    except RuntimeError as exc:
+        # Catches the missing-`datasets` signal from `_require_load_dataset()`
+        # so the CLI exits cleanly (code 2) instead of dumping a stack trace.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

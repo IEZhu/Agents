@@ -58,11 +58,17 @@ else
     exit 1
 fi
 
-if ! "$PYTHON_BIN" -c 'import datasets' &> /dev/null; then
-    echo -e "${RED}❌ 'datasets' not installed in this venv.${NC}"
-    echo "Install eval deps: $PYTHON_BIN -m pip install -e '.[evals]'"
-    exit 1
-fi
+require_datasets() {
+    # Only commands that hit HuggingFace need the optional `datasets` extra.
+    # Help, show, diff, and aggregate operate on local files only — checking
+    # at the top blocks them in venvs without the extra (and also blocks
+    # `label_with_claude --preview 0`, which short-circuits to zero rows).
+    if ! "$PYTHON_BIN" -c 'import datasets' &> /dev/null; then
+        echo -e "${RED}❌ 'datasets' not installed in this venv.${NC}"
+        echo "Install eval deps: $PYTHON_BIN -m pip install -e '.[evals]'"
+        exit 1
+    fi
+}
 
 usage() {
     # Print everything between ---HELP-BEGIN--- and ---HELP-END--- markers,
@@ -81,12 +87,14 @@ shift || true
 
 case "$cmd" in
     run)
+        require_datasets
         echo -e "${GREEN}▶ Running all evals (deterministic, ~30s)${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.runners.run_all "$@"
         ;;
 
     baseline)
+        require_datasets
         echo -e "${GREEN}▶ Updating baseline.md${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.runners.run_all --baseline "$@"
@@ -96,6 +104,7 @@ case "$cmd" in
         ;;
 
     save)
+        require_datasets
         sha="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
         date_str="$(date +%F)"
         out="evals/reports/${date_str}_${sha}.md"
@@ -107,24 +116,29 @@ case "$cmd" in
         ;;
 
     routing)
+        require_datasets
         "$PYTHON_BIN" -m evals.runners.run_routing "$@"
         ;;
 
     retrieval)
+        require_datasets
         "$PYTHON_BIN" -m evals.runners.run_retrieval "$@"
         ;;
 
     tier)
+        require_datasets
         "$PYTHON_BIN" -m evals.runners.run_tier "$@"
         ;;
 
     validate)
+        require_datasets
         echo -e "${GREEN}▶ Validating source datasets via HuggingFace${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.scripts.fetch --validate
         ;;
 
     prepare)
+        require_datasets
         echo -e "${GREEN}▶ Sampling 110 queries → _unlabeled.jsonl${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.scripts.label_with_claude --prepare "$@"

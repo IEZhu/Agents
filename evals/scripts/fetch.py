@@ -282,10 +282,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--idx", type=int, default=0, help="row index for --dataset mode")
     args = parser.parse_args(argv)
 
-    if args.validate:
-        return cmd_validate()
-    if args.dataset:
-        return cmd_fetch_one(args.dataset, args.idx)
+    try:
+        if args.validate:
+            return cmd_validate()
+        if args.dataset:
+            return cmd_fetch_one(args.dataset, args.idx)
+    except RuntimeError as exc:
+        # Catches the missing-`datasets` signal from `_require_load_dataset()`
+        # so the CLI exits cleanly (code 2) instead of dumping a stack trace.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
     parser.print_help()
     return 0
 

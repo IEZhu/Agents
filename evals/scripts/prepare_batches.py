@@ -56,8 +56,12 @@ def build_batch_prompt(batch_idx: int, total_batches: int, rows: list[dict], sys
     for r in rows:
         text, truncated = truncate_query(r["query"])
         meta_summary = json.dumps(r.get("source_meta") or {}, ensure_ascii=False)
+        # Surface the truncation status in the header so the labeling subagent
+        # can factor it into label_confidence (instead of silently treating a
+        # 4 000-char prefix as if it were the whole query).
+        trunc_marker = " [TRUNCATED]" if truncated else ""
         queries_block_parts.append(
-            f"### {r['id']}  (source: {r['source']}, meta: {meta_summary})\n{text}\n"
+            f"### {r['id']}{trunc_marker}  (source: {r['source']}, meta: {meta_summary})\n{text}\n"
         )
     queries_block = "\n".join(queries_block_parts)
 
