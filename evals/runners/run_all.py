@@ -54,7 +54,8 @@ def _git_sha() -> str:
         return "nogit"
 
 
-def _build_report(routing_results, routing_meta, skill_results, implant_results, tier_results) -> str:
+def _build_report(routing_results, routing_meta, skill_results, implant_results, tier_results,
+                  *, baseline: bool = False) -> str:
     routing_metrics = compute_routing_metrics(routing_results)
     skill_metrics = compute_retrieval_metrics(skill_results)
     implant_metrics = compute_retrieval_metrics(implant_results)
@@ -82,10 +83,18 @@ def _build_report(routing_results, routing_meta, skill_results, implant_results,
         lines.append("- Skills: no labeled expected_skills (skipped P/R)")
     lines.append(f"- Tier accuracy: **{tier_accuracy:.1%}** ({tier_correct}/{total})")
     lines.append("")
-    lines.append(f"Loader: total={routing_meta['total_samples']}, "
-                 f"drift={routing_meta['drift_count']}, "
-                 f"fetch_errors={routing_meta['fetch_errors']}, "
-                 f"local_cache={routing_meta['used_local_cache']}")
+    # `local_cache` flips depending on whether the developer has the gitignored
+    # `_unlabeled.jsonl` locally — it doesn't reflect any metric. Omit it from
+    # the committed baseline so `eval.sh diff` only surfaces real metric
+    # changes; keep it in non-baseline reports for local debugging.
+    loader_parts = [
+        f"total={routing_meta['total_samples']}",
+        f"drift={routing_meta['drift_count']}",
+        f"fetch_errors={routing_meta['fetch_errors']}",
+    ]
+    if not baseline:
+        loader_parts.append(f"local_cache={routing_meta['used_local_cache']}")
+    lines.append("Loader: " + ", ".join(loader_parts))
     lines.append("")
 
     lines.append("## 1. Routing accuracy")
@@ -148,7 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     tier_results, _tier_meta = run_tier(preloaded)
 
     report = _build_report(
-        routing_results, routing_meta, skill_results, implant_results, tier_results
+        routing_results, routing_meta, skill_results, implant_results, tier_results,
+        baseline=args.baseline,
     )
 
     if args.baseline:

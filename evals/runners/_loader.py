@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from evals.scripts.fetch import DATASETS, sha256_short  # noqa: E402
+from evals.scripts.fetch import DATASETS, _require_load_dataset, sha256_short  # noqa: E402
 
 ROUTING_JSONL = REPO_ROOT / "evals" / "datasets" / "routing.jsonl"
 UNLABELED_JSONL = REPO_ROOT / "evals" / "datasets" / "_unlabeled.jsonl"
@@ -73,8 +73,11 @@ def _fetch_via_hf(label: dict, cache: dict[tuple[str, str | None, str], object])
 
     Re-uses already-loaded splits via ``cache`` (keyed by (hf_id, config, split))
     so a 110-row eval triggers at most one ``load_dataset`` call per source.
+
+    Routes the import through ``fetch._require_load_dataset()`` so the missing-
+    `[evals]`-extra error message is identical across the codebase.
     """
-    from datasets import load_dataset  # type: ignore[import-not-found]
+    load_dataset = _require_load_dataset()
 
     key = _resolve_dataset_key(label)
     if key is None:
@@ -107,6 +110,12 @@ def load_samples(routing_path: Path = ROUTING_JSONL) -> tuple[list[EvalSample], 
         if query is None:
             try:
                 query = _fetch_via_hf(label, hf_loaded)
+            except RuntimeError:
+                # Missing `[evals]` extra surfaces as RuntimeError from
+                # `_require_load_dataset()`. This is a setup error — every
+                # subsequent sample will hit the same wall, so bail out
+                # immediately instead of silently producing 0 valid samples.
+                raise
             except Exception as exc:
                 stats.fetch_errors += 1
                 samples.append(EvalSample(label=label, query="", fetch_error=str(exc)))

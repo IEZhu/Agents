@@ -1,4 +1,4 @@
-# Agents-Core eval baseline — 2026-05-03 (b99d66f)
+# Agents-Core eval baseline — 2026-05-03 (0ecf0a2)
 
 ## BLUF
 
@@ -7,7 +7,7 @@
 - Skills P@3: **0.17** | R@5: **0.27** | MRR: **0.30**
 - Tier accuracy: **60.9%** (67/110)
 
-Loader: total=110, drift=0, fetch_errors=0, local_cache=True
+Loader: total=110, drift=0, fetch_errors=0
 
 ## 1. Routing accuracy
 

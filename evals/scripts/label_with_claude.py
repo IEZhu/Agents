@@ -336,8 +336,13 @@ def cmd_preview(args: argparse.Namespace) -> int:
         if args.preview <= 0:
             alloc = {}
         else:
-            # In preview mode the int N overrides the alloc.
-            alloc = {next(iter(alloc)): args.preview} if args.source else {}
+            # In preview mode the int N overrides the alloc. Use ``args.source``
+            # directly instead of ``next(iter(alloc))``: the latter raises
+            # ``StopIteration`` when the requested source is in ``DATASETS`` but
+            # absent from ``DEFAULT_ALLOC`` (which makes ``resolve_alloc`` return
+            # an empty dict after the ``v > 0`` filter). ``argparse`` already
+            # constrains ``args.source`` to ``sorted(DATASETS)``, so it's safe.
+            alloc = {args.source: args.preview} if args.source else {}
             if not alloc:
                 # Distribute exactly N across all configured sources. For N < n_src
                 # the trailing sources get 0 (and are dropped). For N >= n_src each
