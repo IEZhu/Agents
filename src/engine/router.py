@@ -71,10 +71,12 @@ class SemanticRouter:
     @staticmethod
     def _read_marker() -> Tuple[str, Optional[int]]:
         """Parse the marker file. Returns (model_name, dim). dim is None for
-        legacy markers, missing files, unreadable files, or unparseable
-        values. A corrupted marker (non-text bytes, IO failure) is treated
-        as "no marker" rather than crashing init — the caller falls back
-        to wiping and rewriting on the next save."""
+        legacy markers, unparseable dim values, or any I/O failure (missing
+        file, decode error, OS error). I/O failures collapse to ``("", None)``
+        rather than crashing init; the caller in ``_invalidate_on_model_change``
+        then sees ``name_changed=True`` and either wipes the cache (non-empty
+        store) or just rewrites the marker (empty store) — both happen
+        immediately at init, not on a deferred save."""
         try:
             if not os.path.exists(_ROUTER_MODEL_HASH_FILE):
                 return "", None
@@ -109,8 +111,13 @@ class SemanticRouter:
             prefix=".router_cache_model.",
             suffix=".tmp",
         )
+        # Close the raw fd immediately and reopen by path to write — mirrors
+        # NumpyVectorStore.save(). os.fdopen() can raise (e.g. bad fd state)
+        # before installing a context-manager owner of the descriptor; closing
+        # here guarantees no descriptor leak on any subsequent failure.
+        os.close(fd)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 f.write(payload)
             os.replace(tmp_path, _ROUTER_MODEL_HASH_FILE)
         except Exception:
