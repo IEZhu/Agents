@@ -211,7 +211,7 @@ You will receive one user query. Call `assign_routing_label` with:
   - language: ISO-639-1 code (en, ru, es, …) or "unknown"
   - domain: short tag (dev, legal, medical, math, smart_home, oos, …)
   - confidence: float in [0,1] reflecting how clearly this maps to the chosen agent
-  - reasoning: <=200 chars explaining the choice
+  - reasoning: <=240 chars explaining the choice
 """
 
 

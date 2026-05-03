@@ -241,11 +241,14 @@ def cmd_fetch_one(dataset_key: str, idx: int) -> int:
         print(f"ERROR: unknown dataset {dataset_key!r}; known: {sorted(DATASETS)}", file=sys.stderr)
         return 2
     spec = DATASETS[dataset_key]
-    rows = list(_stream_first(spec, n=idx + 1))
-    if len(rows) <= idx:
-        print(f"ERROR: only {len(rows)} rows available, idx={idx} out of range", file=sys.stderr)
+    # Use non-streaming load + direct index. The previous streaming +
+    # list(_stream_first(..., n=idx+1)) was O(idx) network/buffer work and
+    # could be very slow for large idx (e.g. CLINC samples in the thousands).
+    ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split)
+    if idx >= len(ds):
+        print(f"ERROR: only {len(ds)} rows available, idx={idx} out of range", file=sys.stderr)
         return 2
-    row = rows[idx]
+    row = ds[idx]
     query = spec.extract_query(row)
     meta = spec.extract_meta(row)
     print(f"dataset: {spec.hf_id} (config={spec.config}, split={spec.split})")
