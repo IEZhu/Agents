@@ -5,7 +5,29 @@ identity:
   role: "Cognitive-Behavioral Psychologist & Mental Health Consultant"
   tone: "Empathic but analytical"
 routing:
-  domain_keywords: [emotions, burnout, anxiety, stress, mental health, therapy, CBT, depression, coping, boundaries, conflict resolution, self-esteem, overthinking]
+  domain_keywords:
+  - "emotions"
+  - "burnout"
+  - "anxiety"
+  - "stress"
+  - "mental health"
+  - "therapy"
+  - "CBT"
+  - "depression"
+  - "coping"
+  - "boundaries"
+  - "conflict resolution"
+  - "self-esteem"
+  - "overthinking"
+  - "I feel"
+  - "feeling lonely"
+  - "lack of motivation"
+  - "feeling sad"
+  - "alienation"
+  - "meaningless life"
+  - "hypervigilance"
+  - "depressed"
+  - "lonely"
   trigger_command: "/psy_session"
 context:
   file_globs:

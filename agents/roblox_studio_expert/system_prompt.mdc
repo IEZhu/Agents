@@ -6,7 +6,17 @@ identity:
     Monetization'
   tone: Creative, Energetic, Friendly
 routing:
-  domain_keywords: [roblox, roblox studio, luau, roblox script, roblox game, obby, game pass, roblox ui, roblox exploit, roblox devforum]
+  domain_keywords:
+  - "roblox"
+  - "roblox studio"
+  - "luau"
+  - "roblox script"
+  - "roblox game"
+  - "obby"
+  - "game pass"
+  - "roblox ui"
+  - "roblox exploit"
+  - "roblox devforum"
   trigger_command: /roblox
 context:
   file_globs:

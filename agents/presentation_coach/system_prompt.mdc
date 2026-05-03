@@ -5,7 +5,18 @@ identity:
   role: Presentation Structure and Psychology Expert
   tone: Insightful, Constructive, Slightly Provocative
 routing:
-  domain_keywords: [presentation, slides, pitch deck, public speaking, slide structure, keynote, powerpoint, talk, presentation structure, pitch, how to present]
+  domain_keywords:
+  - "presentation"
+  - "slides"
+  - "pitch deck"
+  - "public speaking"
+  - "slide structure"
+  - "keynote"
+  - "powerpoint"
+  - "talk"
+  - "presentation structure"
+  - "pitch"
+  - "how to present"
   trigger_command: /present
 context:
   file_globs:

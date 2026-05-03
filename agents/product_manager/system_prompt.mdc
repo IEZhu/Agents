@@ -6,15 +6,19 @@ identity:
   tone: "Strategic, User-Focused, Data-Informed"
 routing:
   domain_keywords:
-  - product
-  - requirements
-  - user story
-  - PRD
-  - feature
-  - roadmap
-  - prioritization
-  - stakeholder
-  - MVP
+  - "product manager"
+  - "product specification"
+  - "product roadmap"
+  - "product feature"
+  - "product strategy"
+  - "requirements doc"
+  - "user story"
+  - "PRD document"
+  - "PRD template"
+  - "prioritization framework"
+  - "stakeholder mapping"
+  - "MVP scope"
+  - "go to market"
   trigger_command: /pm
 context:
   file_globs:

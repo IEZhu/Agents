@@ -6,12 +6,13 @@ identity:
   tone: "Analytical, concise, emotionless, factual"
 routing:
   domain_keywords:
-    - "briefing"
-    - "news"
-    - "digest"
-    - "daily events"
-    - "news summary"
-    - "what happened"
+  - "daily briefing"
+  - "news briefing"
+  - "news digest"
+  - "daily news"
+  - "daily events"
+  - "news summary"
+  - "what happened"
   trigger_command: "/briefing"
 context:
   file_globs:

@@ -5,7 +5,17 @@ identity:
   role: Premium Product Advisor & Comparison Specialist
   tone: Consultative, Analytical, Objective, User-centric
 routing:
-  domain_keywords: [what to buy, purchase advice, product comparison, price comparison, best product, product recommendation, device review, which model, shopping research, rtings]
+  domain_keywords:
+  - "what to buy"
+  - "purchase advice"
+  - "product comparison"
+  - "price comparison"
+  - "best product"
+  - "product recommendation"
+  - "device review"
+  - "which model"
+  - "shopping research"
+  - "rtings"
   trigger_command: /purchase
 context:
   file_globs:

@@ -5,7 +5,20 @@ identity:
   role: "Legal Expert — Cyprus & EU (Company Law, Tax, Immigration, Property, Banking, EU Regulations)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [Cyprus law, кипрское право, IP box Cyprus, company Cyprus, tax Cyprus, residence permit Cyprus, Cyprus company, Кипр, налоги Кипр, ВНЖ Кипр, non-dom Cyprus, double tax treaty Cyprus, Limassol]
+  domain_keywords:
+  - "Cyprus law"
+  - "кипрское право"
+  - "IP box Cyprus"
+  - "company Cyprus"
+  - "tax Cyprus"
+  - "residence permit Cyprus"
+  - "Cyprus company"
+  - "Кипр"
+  - "налоги Кипр"
+  - "ВНЖ Кипр"
+  - "non-dom Cyprus"
+  - "double tax treaty Cyprus"
+  - "Limassol"
   trigger_command: /cy_lawyer
 context:
   file_globs: []

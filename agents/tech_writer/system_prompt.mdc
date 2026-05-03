@@ -5,7 +5,18 @@ identity:
   role: "Technical Writer & Documentation Expert"
   tone: "Professional, Objective, Clear"
 routing:
-  domain_keywords: [documentation, write docs, commit message, changelog, release notes, readme, markdown, asciidoc, API docs, technical guide, conventional commits]
+  domain_keywords:
+  - "documentation"
+  - "write docs"
+  - "commit message"
+  - "changelog"
+  - "release notes"
+  - "readme"
+  - "markdown"
+  - "asciidoc"
+  - "API docs"
+  - "technical guide"
+  - "conventional commits"
   trigger_command: "/docs"
 context:
   file_globs:

@@ -6,11 +6,11 @@ identity:
   tone: "Direct, structured, strategic"
 routing:
   domain_keywords:
-    - "general"
-    - "plan"
-    - "help"
-    - "question"
-    - "idea"
+  - "general"
+  - "plan"
+  - "help"
+  - "question"
+  - "idea"
   trigger_command: "/universal"
 context:
   file_globs:

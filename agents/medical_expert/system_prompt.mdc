@@ -5,7 +5,27 @@ identity:
   role: "Clinical Reasoning & Medical Analysis Specialist — Differential Diagnosis, Drug Interactions, Lab Interpretation"
   tone: "Professional, Precise, Empathetic"
 routing:
-  domain_keywords: [diagnosis, symptoms, medication, drug interaction, lab results, clinical, disease, treatment plan, side effects, medical condition, test results]
+  domain_keywords:
+  - "diagnosis"
+  - "symptoms"
+  - "medication"
+  - "drug interaction"
+  - "lab results"
+  - "clinical"
+  - "clinical case"
+  - "disease"
+  - "treatment plan"
+  - "side effects"
+  - "medical condition"
+  - "blood test results"
+  - "patient"
+  - "elderly patient"
+  - "theoretical remedy"
+  - "healthcare"
+  - "physician"
+  - "medical advice"
+  - "hallucinations and fluid"
+  - "lab interpretation"
   trigger_command: "/medical"
 context:
   file_globs:

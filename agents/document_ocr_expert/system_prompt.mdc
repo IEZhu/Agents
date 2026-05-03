@@ -6,14 +6,14 @@ identity:
   tone: "Precise, methodical, detail-oriented"
 routing:
   domain_keywords:
-    - "ocr"
-    - "pdf text"
-    - "handwriting"
-    - "scan"
-    - "extract text"
-    - "text recognition"
-    - "image to text"
-    - "document parsing"
+  - "ocr"
+  - "pdf text"
+  - "handwriting"
+  - "scan"
+  - "extract text"
+  - "text recognition"
+  - "image to text"
+  - "document parsing"
   trigger_command: "/ocr"
 context:
   file_globs:

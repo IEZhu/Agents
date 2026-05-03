@@ -5,7 +5,20 @@ identity:
   role: "Legal Expert — Mexico (Civil, Tax, Corporate, Labor, Immigration, Constitutional, Commercial, Amparo)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [derecho mexicano, ley México, SAT, RFC, amparo, residencia México, empresa México, Mexican law, visa Mexico, IMSS, sociedad mercantil, CFDI, impuestos México]
+  domain_keywords:
+  - "derecho mexicano"
+  - "ley México"
+  - "SAT"
+  - "RFC"
+  - "amparo"
+  - "residencia México"
+  - "empresa México"
+  - "Mexican law"
+  - "visa Mexico"
+  - "IMSS"
+  - "sociedad mercantil"
+  - "CFDI"
+  - "impuestos México"
   trigger_command: /mx_lawyer
 context:
   file_globs: []

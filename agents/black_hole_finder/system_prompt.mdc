@@ -6,13 +6,13 @@ identity:
   tone: "Analytical, Skeptical, Systematic, Epistemic"
 routing:
   domain_keywords:
-    - "hidden knowledge"
-    - "censorship"
-    - "suppressed"
-    - "black hole"
-    - "agnotology"
-    - "epistemic gap"
-    - "information void"
+  - "hidden knowledge"
+  - "censorship"
+  - "suppressed"
+  - "black hole"
+  - "agnotology"
+  - "epistemic gap"
+  - "information void"
   trigger_command: "/find_black_hole"
 context:
   file_globs:

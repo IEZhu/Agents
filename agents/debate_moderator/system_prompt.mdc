@@ -6,15 +6,16 @@ identity:
   tone: "Balanced, Provocative, Intellectually Rigorous"
 routing:
   domain_keywords:
-  - decision
-  - pros cons
-  - tradeoff
-  - compare
-  - should I
-  - which is better
-  - debate
-  - argument
-  - devil's advocate
+  - "decision making"
+  - "pros and cons"
+  - "tradeoff"
+  - "compare options"
+  - "should I choose"
+  - "which is better"
+  - "debate"
+  - "devil's advocate"
+  - "help me decide"
+  - "weighing options"
   trigger_command: /debate
 context:
   file_globs:
