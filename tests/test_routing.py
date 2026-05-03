@@ -869,8 +869,12 @@ class TestCacheInvalidation:
 
     def test_corrupt_marker_does_not_crash_init(self, isolated_router_dir, monkeypatch):
         """A marker file with non-text bytes (e.g. partial write or
-        filesystem corruption) must not crash router initialization. Treat
-        as missing/legacy and let the next save rewrite it cleanly."""
+        filesystem corruption) must not crash router initialization.
+        ``_read_marker`` collapses the corrupted marker to ``("", None)``,
+        which makes ``name_changed=True`` in ``_invalidate_on_model_change``,
+        triggering an immediate wipe (non-empty store) or marker rewrite
+        (empty store) — repair is performed at init, not deferred to a
+        later save."""
         from unittest.mock import MagicMock
 
         self._seed_cache(isolated_router_dir, dim=384)
