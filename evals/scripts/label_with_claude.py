@@ -318,7 +318,9 @@ def resolve_alloc(args: argparse.Namespace) -> dict[str, int]:
         alloc = {args.source: DEFAULT_ALLOC.get(args.source, 0)}
     else:
         alloc = dict(DEFAULT_ALLOC)
-    if args.limit:
+    if args.limit is not None:
+        if args.limit <= 0:
+            return {k: 0 for k in alloc}
         # Distribute the limit proportionally to default allocation.
         total = sum(alloc.values()) or 1
         scale = args.limit / total
@@ -332,22 +334,25 @@ def resolve_alloc(args: argparse.Namespace) -> dict[str, int]:
 
 def cmd_preview(args: argparse.Namespace) -> int:
     alloc = resolve_alloc(args)
-    if args.preview:
-        # In preview mode the int N overrides the alloc.
-        alloc = {next(iter(alloc)): args.preview} if args.source else {}
-        if not alloc:
-            # Distribute exactly N across all configured sources. For N < n_src
-            # the trailing sources get 0 (and are dropped). For N >= n_src each
-            # source gets floor(N/n_src), with the first (N mod n_src) sources
-            # getting one extra. Total always sums to N — never overshoots.
-            sources = list(DEFAULT_ALLOC.keys())
-            n_src = len(sources)
-            per_each, remainder = divmod(args.preview, n_src)
-            alloc = {
-                s: per_each + (1 if i < remainder else 0)
-                for i, s in enumerate(sources)
-            }
-            alloc = {k: v for k, v in alloc.items() if v > 0}
+    if args.preview is not None:
+        if args.preview <= 0:
+            alloc = {}
+        else:
+            # In preview mode the int N overrides the alloc.
+            alloc = {next(iter(alloc)): args.preview} if args.source else {}
+            if not alloc:
+                # Distribute exactly N across all configured sources. For N < n_src
+                # the trailing sources get 0 (and are dropped). For N >= n_src each
+                # source gets floor(N/n_src), with the first (N mod n_src) sources
+                # getting one extra. Total always sums to N — never overshoots.
+                sources = list(DEFAULT_ALLOC.keys())
+                n_src = len(sources)
+                per_each, remainder = divmod(args.preview, n_src)
+                alloc = {
+                    s: per_each + (1 if i < remainder else 0)
+                    for i, s in enumerate(sources)
+                }
+                alloc = {k: v for k, v in alloc.items() if v > 0}
     samples = iter_samples(alloc, seed=args.seed)
     agent_names = list_agent_names()
     skill_ids = list_skill_ids()
