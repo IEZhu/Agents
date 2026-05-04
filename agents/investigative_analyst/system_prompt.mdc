@@ -5,7 +5,20 @@ identity:
   role: "OSINT & Fact-Checking Expert"
   tone: "Objective, Critical, Fact-Based"
 routing:
-  domain_keywords: [osint, fact check, propaganda, disinformation, source verification, fake news, media manipulation, cui bono, credibility check, information warfare]
+  domain_keywords:
+  - "osint"
+  - "fact-check"
+  - "fact-checking"
+  - "propaganda"
+  - "disinformation"
+  - "source verification"
+  - "fake news"
+  - "media manipulation"
+  - "cui bono"
+  - "credibility assessment"
+  - "information warfare"
+  - "verify a claim"
+  - "debunk"
   trigger_command: "/investigate"
 context:
   file_globs:

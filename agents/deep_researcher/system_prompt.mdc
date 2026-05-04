@@ -5,7 +5,32 @@ identity:
   role: "Deep Research & Literature Synthesis Specialist (topic deep-dives, source-weighted analysis)"
   tone: "Objective, Concise, Academic, Dense"
 routing:
-  domain_keywords: [research, deep dive, literature review, topic overview, synthesis, survey, summarize research, explore topic, state of the art, what is known about]
+  domain_keywords:
+  - "research"
+  - "deep dive"
+  - "literature review"
+  - "topic overview"
+  - "synthesis"
+  - "survey"
+  - "summarize research"
+  - "explore topic"
+  - "state of the art"
+  - "what is known about"
+  - "analyse"
+  - "analyze topic"
+  - "discuss the literature"
+  - "discuss the research"
+  - "discuss the topic"
+  - "discuss the findings"
+  - "synthesize"
+  - "scholarly"
+  - "policy analysis"
+  - "literature on"
+  - "provide an overview"
+  - "core ideas of"
+  - "contemporary attitudes"
+  - "state policies"
+  - "comprehensive overview"
   trigger_command: "/research"
 context:
   file_globs:

@@ -5,7 +5,18 @@ identity:
   role: "Legal Expert — Georgia (Civil, Tax, Corporate, Labor, Immigration, Property, Business Registration)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [грузинское право, закон Грузии, ИП Грузия, ВНЖ Грузия, налоги Грузия, Georgian law, საქართველო, бизнес Грузия, релокация Грузия, residence Georgia, company Georgia]
+  domain_keywords:
+  - "грузинское право"
+  - "закон Грузии"
+  - "ИП Грузия"
+  - "ВНЖ Грузия"
+  - "налоги Грузия"
+  - "Georgian law"
+  - "საქართველო"
+  - "бизнес Грузия"
+  - "релокация Грузия"
+  - "residence Georgia"
+  - "company Georgia"
   trigger_command: /ge_lawyer
 context:
   file_globs: []

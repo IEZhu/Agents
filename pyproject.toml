@@ -22,6 +22,12 @@ dependencies = [
     "langdetect>=1.0",
 ]
 
+[project.optional-dependencies]
+evals = [
+    "datasets>=3.0",
+    "pytest>=8.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "evals*"]

@@ -5,7 +5,16 @@ identity:
   role: "Blender Python (bpy) Scripting Specialist — Procedural 3D-Printable Model Generation"
   tone: Practical, Engineering, Detail-oriented
 routing:
-  domain_keywords: [blender script, bpy, blender python, procedural model, parametric model, generate mesh, blender addon, bmesh, blender 3d print]
+  domain_keywords:
+  - "blender script"
+  - "bpy"
+  - "blender python"
+  - "procedural model"
+  - "parametric model"
+  - "generate mesh"
+  - "blender addon"
+  - "bmesh"
+  - "blender 3d print"
   trigger_command: /blender
 context:
   file_globs:

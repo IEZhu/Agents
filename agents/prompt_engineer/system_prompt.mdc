@@ -5,7 +5,28 @@ identity:
   role: "Prompt Design & Optimization Specialist"
   tone: "Methodical, Evidence-Based, Iterative"
 routing:
-  domain_keywords: [prompt engineering, system prompt, few-shot, chain of thought, optimize prompt, prompt template, improve prompt, prompt design, LLM instructions]
+  domain_keywords:
+  - "prompt engineering"
+  - "system prompt"
+  - "few-shot"
+  - "chain of thought"
+  - "optimize prompt"
+  - "prompt template"
+  - "improve prompt"
+  - "prompt design"
+  - "LLM instructions"
+  - "ChatGPT"
+  - "GPT-4"
+  - "GPT-3"
+  - "GPT prompt"
+  - "MixerGPT"
+  - "Encoder-GPT"
+  - "prompt compression"
+  - "refine prompt"
+  - "better prompt"
+  - "combine prompts"
+  - "mix prompts"
+  - "master in prompt"
   trigger_command: /prompt
 context:
   file_globs:

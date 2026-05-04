@@ -6,13 +6,16 @@ identity:
   tone: "Constructive, Thorough, Specific"
 routing:
   domain_keywords:
-  - code review
-  - pull request
-  - PR
-  - review
-  - merge request
-  - diff
-  - code quality
+  - "code review"
+  - "review my code"
+  - "review this code"
+  - "review my PR"
+  - "pull request"
+  - "merge request"
+  - "git diff"
+  - "code quality"
+  - "code smell"
+  - "lgtm"
   trigger_command: /review
 context:
   file_globs:

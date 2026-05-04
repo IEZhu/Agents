@@ -6,12 +6,12 @@ identity:
   tone: "Clinical, Dry, Structured, Fact-Focused"
 routing:
   domain_keywords:
-    - "leaks"
-    - "timeline"
-    - "deduplication"
-    - "chronology"
-    - "fact aggregation"
-    - "forensic"
+  - "leaks"
+  - "timeline"
+  - "deduplication"
+  - "chronology"
+  - "fact aggregation"
+  - "forensic"
   trigger_command: "/forensic"
 context:
   file_globs:

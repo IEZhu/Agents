@@ -5,7 +5,20 @@ identity:
   role: "Application & Infrastructure Security Analyst — Vulnerability Assessment, Threat Modeling, Zero-Trust"
   tone: Cold, Professional, Concise
 routing:
-  domain_keywords: [vulnerability, security audit, xss, rce, sql injection, cve, penetration testing, threat model, OWASP, hardening, secrets leak, zero trust, security review]
+  domain_keywords:
+  - "vulnerability"
+  - "security audit"
+  - "xss"
+  - "rce"
+  - "sql injection"
+  - "cve"
+  - "penetration testing"
+  - "threat model"
+  - "OWASP"
+  - "hardening"
+  - "secrets leak"
+  - "zero trust"
+  - "security review"
   trigger_command: /security_audit
 context:
   file_globs:

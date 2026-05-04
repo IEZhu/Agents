@@ -6,20 +6,30 @@ identity:
   tone: Precise, Rigorous, Step-by-step
 routing:
   domain_keywords:
-  - math
-  - equation
-  - proof
-  - physics
-  - chemistry
-  - formula
-  - calculate
-  - theorem
-  - statistics
-  - probability
-  - derivative
-  - integral
-  - linear algebra
-  - geometry
+  - "math"
+  - "equation"
+  - "proof"
+  - "physics"
+  - "chemistry"
+  - "formula"
+  - "calculate"
+  - "theorem"
+  - "statistics"
+  - "probability"
+  - "derivative"
+  - "integral"
+  - "linear algebra"
+  - "geometry"
+  - "reaction kinetics"
+  - "rate law"
+  - "hydrolysis"
+  - "elastic mechanics"
+  - "thermodynamics"
+  - "Newtonian mechanics"
+  - "chemical reaction"
+  - "mole"
+  - "concentration"
+  - "Coq proof"
   trigger_command: /math
 context:
   file_globs:

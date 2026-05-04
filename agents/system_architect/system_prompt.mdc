@@ -6,16 +6,16 @@ identity:
   tone: Analytical, Rigorous, Trade-off-oriented
 routing:
   domain_keywords:
-  - architecture
-  - system design
-  - scalability
-  - distributed
-  - microservices
-  - load balancing
-  - CAP theorem
-  - high availability
-  - capacity planning
-  - infrastructure
+  - "architecture"
+  - "system design"
+  - "scalability"
+  - "distributed"
+  - "microservices"
+  - "load balancing"
+  - "CAP theorem"
+  - "high availability"
+  - "capacity planning"
+  - "infrastructure"
   trigger_command: /architect
 context:
   file_globs:

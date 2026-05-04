@@ -5,7 +5,20 @@ identity:
   role: "Legal Expert — Kazakhstan (Civil, Tax, Corporate, Labor, Migration, Land, AIFC/Common Law Zone)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [казахстанское право, закон РК, НК РК, МФЦА, AIFC, ИП Казахстан, налоги РК, Kazakh law, Astana Hub, ТОО, бизнес Казахстан, ВНЖ Казахстан, земельный вопрос]
+  domain_keywords:
+  - "казахстанское право"
+  - "закон РК"
+  - "НК РК"
+  - "МФЦА"
+  - "AIFC"
+  - "ИП Казахстан"
+  - "налоги РК"
+  - "Kazakh law"
+  - "Astana Hub"
+  - "ТОО"
+  - "бизнес Казахстан"
+  - "ВНЖ Казахстан"
+  - "земельный вопрос"
   trigger_command: /kz_lawyer
 context:
   file_globs: []

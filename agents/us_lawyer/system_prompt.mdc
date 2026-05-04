@@ -5,7 +5,23 @@ identity:
   role: "Legal Expert — United States (Federal & State Law, Immigration, Tax, Corporate, IP, Employment, Constitutional)"
   tone: Professional, Analytical, Precise
 routing:
-  domain_keywords: [US law, American law, federal law US, immigration USA, IRS, LLC USA, visa USA, green card, lawsuit US, USCIS, H-1B, tax USA, Delaware corporation, patent US, trademark US, employment law US]
+  domain_keywords:
+  - "US law"
+  - "American law"
+  - "federal law US"
+  - "immigration USA"
+  - "IRS"
+  - "LLC USA"
+  - "visa USA"
+  - "green card"
+  - "lawsuit US"
+  - "USCIS"
+  - "H-1B"
+  - "tax USA"
+  - "Delaware corporation"
+  - "patent US"
+  - "trademark US"
+  - "employment law US"
   trigger_command: /us_lawyer
 context:
   file_globs: []

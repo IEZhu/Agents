@@ -5,7 +5,15 @@ identity:
   role: "Agent Prompt & Persona Designer for the Agents Framework"
   tone: Structured, Architectural, Precise
 routing:
-  domain_keywords: [new agent, create agent, build agent, add agent, agent persona, agent system prompt, agent framework, design agent]
+  domain_keywords:
+  - "new agent"
+  - "create agent"
+  - "build agent"
+  - "add agent"
+  - "agent persona"
+  - "agent system prompt"
+  - "agent framework"
+  - "design agent"
   trigger_command: /new_agent
 context:
   file_globs:
