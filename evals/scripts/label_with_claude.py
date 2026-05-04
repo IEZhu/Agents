@@ -39,7 +39,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 # Make ``src.utils.prompt_loader`` importable when running from repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -158,6 +158,23 @@ def _stable_offset(key: str) -> int:
     return int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:4], "big") % 1000
 
 
+def _is_clinc_oos_row(row: dict[str, Any]) -> bool:
+    """Filter predicate for ``clinc_oos``: keep only out-of-scope rows.
+
+    Hoisted to module level so it isn't re-defined on every ``iter_samples``
+    iteration and so future edits can't accidentally close over a loop
+    variable (the classic lambda-in-loop late-binding pitfall).
+    """
+    return row.get("intent") == CLINC_OOS_LABEL_IDX
+
+
+# Per-source row filters. Add new entries here when introducing a source whose
+# split needs to be narrowed (e.g., ``clinc_oos`` only keeps the OOS class).
+_SOURCE_FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
+    "clinc_oos": _is_clinc_oos_row,
+}
+
+
 def iter_samples(alloc: dict[str, int], seed: int) -> list[Sample]:
     out: list[Sample] = []
     for key, n in alloc.items():
@@ -166,10 +183,7 @@ def iter_samples(alloc: dict[str, int], seed: int) -> list[Sample]:
         if key not in DATASETS:
             raise ValueError(f"unknown source: {key}")
         spec = DATASETS[key]
-        if key == "clinc_oos":
-            pred = lambda r: r.get("intent") == CLINC_OOS_LABEL_IDX
-        else:
-            pred = None
+        pred = _SOURCE_FILTERS.get(key)
         out.extend(_sample_from_dataset(spec, n, seed=seed + _stable_offset(key), filter_predicate=pred))
     return out
 
