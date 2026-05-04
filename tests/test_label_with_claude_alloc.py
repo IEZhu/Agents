@@ -72,22 +72,21 @@ class TestCmdPreview:
         assert "samples: 0" in captured.out
 
     def test_preview_with_source_not_in_default_alloc_does_not_crash(self, capsys, monkeypatch):
-        """Regression: ``--source X --preview N`` for a source registered in
-        ``DATASETS`` but missing from ``DEFAULT_ALLOC`` previously crashed with
-        ``StopIteration`` because ``resolve_alloc`` filtered out the zero-valued
-        entry and ``next(iter(alloc))`` was called on the empty dict.
+        """Regression: ``--source X --preview N`` for a source missing from
+        ``DEFAULT_ALLOC`` previously crashed with ``StopIteration`` because
+        the old code path called ``next(iter(resolve_alloc(args)))``, and
+        ``resolve_alloc`` filtered out the zero-valued entry, leaving an
+        empty dict to iterate over.
 
-        We simulate the condition by adding a fake source to ``DATASETS`` (via
-        monkeypatch) without touching ``DEFAULT_ALLOC``. Sampling itself fails
-        since the fake source isn't a real HF dataset, but the failure must
-        come from the fetch path (``RuntimeError`` from a real HF lookup or
-        a clean per-sample fetch_error) — never from ``next(iter({}))``.
+        The fix uses ``args.source`` directly — there is no read of
+        ``DATASETS`` or ``DEFAULT_ALLOC`` in the new ``cmd_preview`` alloc-
+        building branch — so this test passes any string and asserts that
+        the resulting alloc contains exactly ``{args.source: args.preview}``,
+        without crashing. We monkeypatch ``iter_samples`` to keep the test
+        offline and away from HF I/O.
         """
         from evals.scripts import label_with_claude as mod
 
-        # The crash we're regression-testing happens before any fetch — when
-        # `cmd_preview` builds `alloc`. Patch `iter_samples` so we never reach
-        # the network/HF path and can assert the alloc contains the source.
         captured_alloc: dict[str, int] = {}
 
         def _fake_iter_samples(alloc, seed):
@@ -95,9 +94,6 @@ class TestCmdPreview:
             return []
 
         monkeypatch.setattr(mod, "iter_samples", _fake_iter_samples)
-        # Pretend `fakeset` is a registered DatasetSpec (argparse choices come
-        # from `sorted(DATASETS)`, so we'd normally need to pass a real key,
-        # but `cmd_preview` only inspects `args.source` as a string).
         rc = cmd_preview(_ns(source="fakeset", preview=2))
         assert rc == 0
         assert captured_alloc == {"fakeset": 2}

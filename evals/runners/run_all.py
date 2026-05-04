@@ -68,7 +68,11 @@ def _build_report(routing_results, routing_meta, skill_results, implant_results,
     today = dt.date.today().isoformat()
 
     lines: list[str] = []
-    lines.append(f"# Agents-Core eval baseline — {today} ({sha})")
+    # The committed `baseline.md` is the canonical reference for `eval.sh diff`;
+    # ad-hoc `run`/`save` reports are point-in-time snapshots. Title them
+    # accordingly so a saved report doesn't read as if it superseded baseline.
+    title_kind = "eval baseline" if baseline else "eval report"
+    lines.append(f"# Agents-Core {title_kind} — {today} ({sha})")
     lines.append("")
     lines.append("## BLUF")
     lines.append("")

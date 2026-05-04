@@ -46,8 +46,22 @@ def _reciprocal_rank(retrieved: list[str], expected: set[str]) -> float:
 
 def compute_metrics(results: Sequence[RetrievalResult], ks: tuple[int, ...] = (1, 3, 5)) -> RetrievalMetrics:
     with_expected = [r for r in results if r.expected]
-    n = len(with_expected) or 1
 
+    # Without any labeled expectations, P/R/MRR are undefined — return empty
+    # dicts and a sentinel ``mrr=0.0`` so JSON consumers see ``precision_at: {}``
+    # (clear "no data") instead of a fabricated zero score, and so callers can
+    # gate on ``samples_with_expected == 0`` without having to second-guess
+    # whether the zeros are real misses or absence of ground truth.
+    if not with_expected:
+        return RetrievalMetrics(
+            total=len(results),
+            samples_with_expected=0,
+            precision_at={},
+            recall_at={},
+            mrr=0.0,
+        )
+
+    n = len(with_expected)
     precision_at = {k: 0.0 for k in ks}
     recall_at = {k: 0.0 for k in ks}
     mrr_sum = 0.0
@@ -61,7 +75,7 @@ def compute_metrics(results: Sequence[RetrievalResult], ks: tuple[int, ...] = (1
 
     return RetrievalMetrics(
         total=len(results),
-        samples_with_expected=len(with_expected),
+        samples_with_expected=n,
         precision_at={k: precision_at[k] / n for k in ks},
         recall_at={k: recall_at[k] / n for k in ks},
         mrr=mrr_sum / n,

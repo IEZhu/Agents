@@ -1,4 +1,4 @@
-# Agents-Core eval baseline — 2026-05-03 (0ecf0a2)
+# Agents-Core eval baseline — 2026-05-04 (47d195d)
 
 ## BLUF
 

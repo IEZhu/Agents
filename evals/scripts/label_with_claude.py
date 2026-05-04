@@ -331,31 +331,31 @@ def resolve_alloc(args: argparse.Namespace) -> dict[str, int]:
 
 
 def cmd_preview(args: argparse.Namespace) -> int:
-    alloc = resolve_alloc(args)
-    if args.preview is not None:
-        if args.preview <= 0:
-            alloc = {}
-        else:
-            # In preview mode the int N overrides the alloc. Use ``args.source``
-            # directly instead of ``next(iter(alloc))``: the latter raises
-            # ``StopIteration`` when the requested source is in ``DATASETS`` but
-            # absent from ``DEFAULT_ALLOC`` (which makes ``resolve_alloc`` return
-            # an empty dict after the ``v > 0`` filter). ``argparse`` already
-            # constrains ``args.source`` to ``sorted(DATASETS)``, so it's safe.
-            alloc = {args.source: args.preview} if args.source else {}
-            if not alloc:
-                # Distribute exactly N across all configured sources. For N < n_src
-                # the trailing sources get 0 (and are dropped). For N >= n_src each
-                # source gets floor(N/n_src), with the first (N mod n_src) sources
-                # getting one extra. Total always sums to N — never overshoots.
-                sources = list(DEFAULT_ALLOC.keys())
-                n_src = len(sources)
-                per_each, remainder = divmod(args.preview, n_src)
-                alloc = {
-                    s: per_each + (1 if i < remainder else 0)
-                    for i, s in enumerate(sources)
-                }
-                alloc = {k: v for k, v in alloc.items() if v > 0}
+    # Preview mode always overrides the regular `--limit`-driven allocation,
+    # so we build `alloc` directly from `args.preview` and skip the
+    # `resolve_alloc(args)` round-trip that was previously a dead store.
+    if args.preview is None or args.preview <= 0:
+        alloc: dict[str, int] = {}
+    elif args.source:
+        # `argparse` already constrains `args.source` to `sorted(DATASETS)`, so
+        # `args.source` is safe to use directly — and skipping the
+        # `next(iter(resolve_alloc(args)))` trick avoids the `StopIteration`
+        # crash for sources that are in `DATASETS` but absent from
+        # `DEFAULT_ALLOC`.
+        alloc = {args.source: args.preview}
+    else:
+        # Distribute exactly N across all configured sources. For N < n_src
+        # the trailing sources get 0 (and are dropped). For N >= n_src each
+        # source gets floor(N/n_src), with the first (N mod n_src) sources
+        # getting one extra. Total always sums to N — never overshoots.
+        sources = list(DEFAULT_ALLOC.keys())
+        n_src = len(sources)
+        per_each, remainder = divmod(args.preview, n_src)
+        alloc = {
+            s: per_each + (1 if i < remainder else 0)
+            for i, s in enumerate(sources)
+        }
+        alloc = {k: v for k, v in alloc.items() if v > 0}
     samples = iter_samples(alloc, seed=args.seed)
     agent_names = list_agent_names()
     skill_ids = list_skill_ids()
