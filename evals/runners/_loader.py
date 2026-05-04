@@ -59,12 +59,21 @@ def _load_local_unlabeled() -> dict[str, str]:
 
 
 def _resolve_dataset_key(label: dict) -> str | None:
-    """Map (source hf_id, source_config) back to our DATASETS dict key."""
+    """Map (source hf_id, source_config, source_split) back to our DATASETS dict key.
+
+    Matches all three pointer fields so labels can't silently bind to a spec
+    that happens to share `(hf_id, config)` but uses a different split. The
+    `source_split` is treated as authoritative — if it's missing from the
+    label record (older `routing.jsonl` revisions), fall back to
+    `(hf_id, config)` only and let the call site decide whether to re-verify.
+    """
     source = label.get("source")
     config = label.get("source_config")
+    split = label.get("source_split")
     for key, spec in DATASETS.items():
         if spec.hf_id == source and spec.config == config:
-            return key
+            if split is None or spec.split == split:
+                return key
     return None
 
 
@@ -76,13 +85,31 @@ def _fetch_via_hf(label: dict, cache: dict[tuple[str, str | None, str], object])
 
     Routes the import through ``fetch._require_load_dataset()`` so the missing-
     `[evals]`-extra error message is identical across the codebase.
+
+    Asserts that the per-sample ``source_split`` from ``routing.jsonl`` matches
+    the resolved spec's split so the stored split pointer stays authoritative
+    instead of silently drifting if a future ``DATASETS`` edit changes splits.
     """
     load_dataset = _require_load_dataset()
 
     key = _resolve_dataset_key(label)
     if key is None:
-        raise KeyError(f"no DatasetSpec match for source={label.get('source')!r} config={label.get('source_config')!r}")
+        raise KeyError(
+            f"no DatasetSpec match for "
+            f"source={label.get('source')!r} "
+            f"config={label.get('source_config')!r} "
+            f"split={label.get('source_split')!r}"
+        )
     spec = DATASETS[key]
+    label_split = label.get("source_split")
+    if label_split is not None and label_split != spec.split:
+        # `_resolve_dataset_key` already guards against this, but assert here too
+        # so a future change that loosens the resolver (or a caller bypassing it)
+        # can't cause silent split drift.
+        raise ValueError(
+            f"split mismatch for {label.get('id')!r}: "
+            f"label.source_split={label_split!r} vs spec.split={spec.split!r}"
+        )
     cache_key = (spec.hf_id, spec.config, spec.split)
     ds = cache.get(cache_key)
     if ds is None:
