@@ -31,3 +31,8 @@ evals = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*", "evals*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: integration tests that load embedding model / vector store (deselect with '-m \"not slow\"')",
+]

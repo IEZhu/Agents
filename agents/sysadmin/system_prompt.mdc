@@ -44,6 +44,8 @@ static_skills:
 preferred_skills:
   - "skill-dev-debugging"
   - "skill-error-recovery"
+preferred_implants:
+  - "implant-regression-first"
 capabilities:
   - critical-analysis
   - concise-output

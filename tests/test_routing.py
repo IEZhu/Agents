@@ -485,6 +485,75 @@ class TestPreferredImplants:
                 "universal_agent", "hi", [])
             assert effective_tier == "lite"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("agent_name, expected_implants", [
+        ("software_engineer", ["implant-regression-first", "implant-iteration-budget"]),
+        ("sysadmin", ["implant-regression-first"]),
+        ("devops_engineer", ["implant-regression-first"]),
+    ])
+    async def test_debugging_implants_forwarded_for_real_agents(self, agent_name, expected_implants):
+        """Real agent frontmatter must forward debugging implants to enrich_agent_prompt."""
+        from src.utils.prompt_loader import get_agent_metadata
+
+        real_metadata = get_agent_metadata(agent_name)
+        assert real_metadata.get("preferred_implants") == expected_implants, (
+            f"Agent {agent_name} frontmatter missing/mismatched preferred_implants: "
+            f"got {real_metadata.get('preferred_implants')!r}"
+        )
+
+        with patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()) as mock_enrich:
+            await self.srv._load_and_enrich(agent_name, "explain a regression I just hit", [])
+            mock_enrich.assert_called_once()
+            assert mock_enrich.call_args.kwargs["preferred_implants"] == expected_implants
+
+
+# ---------------------------------------------------------------------------
+# Semantic retrieval thresholds for debugging implants (slow / integration)
+# ---------------------------------------------------------------------------
+
+class TestDebuggingImplantsRetrieval:
+    """Probe-query retrieval test for the three debugging implants.
+
+    Marked slow because it spins up ImplantRetriever (model load + index)
+    on first invocation. Run via: pytest -m slow.
+    """
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("query, expected_implant", [
+        ("функция логировала всё нормально, после моих правок перестала", "implant-regression-first.mdc"),
+        ("it was working yesterday and now it's broken after the deploy", "implant-regression-first.mdc"),
+        ("I'm going to design a TUI client around far2l, assuming it's a CLI app", "implant-verify-assumptions.mdc"),
+        ("this is my fourth attempt to fix the rendering, none worked", "implant-iteration-budget.mdc"),
+        ("no, that fix didn't work either, that's three tries now", "implant-iteration-budget.mdc"),
+    ])
+    def test_debugging_implants_retrieved_on_triggers(self, query, expected_implant):
+        from src.engine.implants import ImplantRetriever
+        retriever = ImplantRetriever()
+        results = retriever.retrieve(query=query, n_results=5)
+        ids = [r["filename"] for r in results]
+        assert expected_implant in ids, (
+            f"Expected {expected_implant} for query: {query!r}, got: {ids}"
+        )
+
+    @pytest.mark.slow
+    def test_debugging_implants_negative_control(self):
+        """Greenfield coding requests must NOT pull debugging implants."""
+        from src.engine.implants import ImplantRetriever
+        retriever = ImplantRetriever()
+        results = retriever.retrieve(query="write me a fibonacci function", n_results=5)
+        ids = [r["filename"] for r in results]
+        debugging_implants = {
+            "implant-regression-first.mdc",
+            "implant-verify-assumptions.mdc",
+            "implant-iteration-budget.mdc",
+        }
+        intersect = debugging_implants.intersection(ids)
+        assert not intersect, (
+            f"Negative control failed — debugging implants leaked for greenfield query: {intersect}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # clear_session_cache clears both caches
