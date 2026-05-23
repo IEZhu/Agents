@@ -28,6 +28,9 @@ static_skills:
 preferred_skills:
 - skill-content-structure
 - skill-mermaid-best-practices
+preferred_implants:
+- implant-skeleton-of-thought
+- implant-output-priming
 capabilities:
 - content-structure
 - visualization

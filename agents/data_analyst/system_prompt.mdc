@@ -31,6 +31,10 @@ static_skills:
 - skill-analysis-critical.mdc
 preferred_skills:
 - skill-analysis-critical
+preferred_implants:
+- implant-causal-reasoning
+- implant-chain-of-verification
+- implant-uncertainty-quantification
 capabilities:
 - critical-analysis
 - data-investigation

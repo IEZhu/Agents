@@ -34,6 +34,10 @@ preferred_skills:
 - skill-product-frameworks
 - skill-content-structure
 - skill-analysis-critical
+preferred_implants:
+- implant-premortem
+- implant-second-order-thinking
+- implant-verify-assumptions
 capabilities:
 - product-thinking
 - critical-analysis

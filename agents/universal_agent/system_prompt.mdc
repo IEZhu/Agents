@@ -19,6 +19,10 @@ static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:
   - "skill-content-structure"
+preferred_implants:
+  - implant-self-discover
+  - implant-step-back-prompting
+  - implant-decomposed-prompting
 capabilities:
   - content-structure
   - critical-analysis

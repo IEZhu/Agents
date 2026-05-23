@@ -25,6 +25,10 @@ static_skills:
 preferred_skills:
   - "skill-content-structure"
   - "skill-dense-summarization"
+preferred_implants:
+  - implant-skeleton-of-thought
+  - implant-narrative-of-thought
+  - implant-output-priming
 capabilities:
   - content-structure
   - dense-summary

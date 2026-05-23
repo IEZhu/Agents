@@ -27,6 +27,10 @@ static_skills:
   - "skill-analysis-critical.mdc"
 preferred_skills:
   - "skill-analysis-critical"
+preferred_implants:
+  - implant-cumulative-reasoning
+  - implant-chain-of-verification
+  - implant-causal-reasoning
 capabilities:
   - critical-analysis
   - trust-weighted-research

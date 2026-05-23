@@ -7,11 +7,35 @@ Queries are multilingual (EN, RU, DE, ES, FR) and depersonalized.
 
 import json
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from cachetools import TTLCache
 
 from src.server import _is_meta_query, _normalize_chat_history
 from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+AGENTS_DIR = REPO_ROOT / "agents"
+_NON_AGENT_DIRS = {"common", "capabilities"}
+
+
+def _discover_agents() -> list[str]:
+    """Return every agent directory under agents/ that has a system_prompt.mdc.
+
+    Used by parametric tests so any agent added in the future is covered
+    automatically — no manual list to update.
+    """
+    return sorted(
+        p.name
+        for p in AGENTS_DIR.iterdir()
+        if p.is_dir()
+        and p.name not in _NON_AGENT_DIRS
+        and (p / "system_prompt.mdc").exists()
+    )
+
+
+ALL_AGENT_NAMES = _discover_agents()
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +541,55 @@ class TestPreferredImplants:
                 f"missing expected {set(expected_implants) - set(forwarded)!r}"
             )
 
+    def test_every_agent_declares_preferred_implants(self):
+        """Coverage invariant: every agent in agents/ MUST declare at least one
+        preferred_implant.
+
+        Without a declared list, the agent depends on pure semantic retrieval
+        and may silently miss the implants it would benefit from when query
+        embedding distance exceeds IMPLANTS_RELEVANCE_THRESHOLD. The whole
+        point of the preferred_implants fast-path is to make that inclusion
+        deterministic — so an empty list defeats the mechanism.
+
+        This is a regression guard for future agents added to the repo.
+        """
+        from src.utils.prompt_loader import get_agent_metadata
+        missing = []
+        for agent in ALL_AGENT_NAMES:
+            implants = get_agent_metadata(agent).get("preferred_implants") or []
+            if not implants:
+                missing.append(agent)
+        assert not missing, (
+            f"{len(missing)} agent(s) missing preferred_implants: {missing}. "
+            f"Every agent must declare at least one (see plan: "
+            f"~/.claude/plans/resilient-cuddling-curry.md)."
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("agent_name", ALL_AGENT_NAMES)
+    async def test_preferred_implants_forwarded_for_every_agent(self, agent_name):
+        """Whatever each agent declares in frontmatter must be forwarded verbatim
+        to enrich_agent_prompt — proves the plumbing in _load_and_enrich works
+        end-to-end for every agent (not just the four historical ones)."""
+        from src.utils.prompt_loader import get_agent_metadata
+
+        declared = get_agent_metadata(agent_name).get("preferred_implants") or []
+        assert declared, (
+            f"{agent_name} declares no preferred_implants — "
+            f"forwarding test requires a non-empty list."
+        )
+
+        with patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()) as mock_enrich:
+            await self.srv._load_and_enrich(agent_name, "explain something", [])
+            mock_enrich.assert_called_once()
+            forwarded = mock_enrich.call_args.kwargs.get("preferred_implants") or []
+            assert list(forwarded) == list(declared), (
+                f"{agent_name}: enrich_agent_prompt received {forwarded!r}, "
+                f"expected exactly {declared!r}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Semantic retrieval thresholds for debugging implants (slow / integration)
@@ -573,6 +646,84 @@ class TestDebuggingImplantsRetrieval:
         assert not intersect, (
             f"Negative control failed — debugging implants leaked for greenfield query: {intersect}"
         )
+
+
+# ---------------------------------------------------------------------------
+# A/B sanity check: preferred-implants fast-path strictly improves recall@5
+# ---------------------------------------------------------------------------
+
+class TestPreferredImplantsRetrievalAB:
+    """Per-agent A/B: with vs. without preferred_implants forwarded, on the
+    agent's own role text as a probe query.
+
+    The point: forwarding preferred_implants guarantees those implants are
+    deterministically included (distance=0.0), while semantic retrieval over a
+    generic probe query may miss them when embedding distance exceeds
+    IMPLANTS_RELEVANCE_THRESHOLD. Asserts the treatment recall@5 is at least
+    as good as the semantic baseline — never worse, often strictly better.
+    """
+
+    @pytest.fixture(scope="class")
+    def retriever(self):
+        from src.engine.implants import ImplantRetriever
+        return ImplantRetriever()
+
+    # Representative cross-section: engineering, legal, analytical, creative,
+    # psychology. Probe is the agent's own role description — the kind of
+    # generic intake query where semantic retrieval most often under-shoots.
+    @pytest.mark.slow
+    @pytest.mark.parametrize("agent_name, probe_query", [
+        ("software_engineer", "help me with a coding task"),
+        ("code_reviewer", "review my pull request"),
+        ("system_architect", "design a distributed system"),
+        ("us_lawyer", "what does the contract require?"),
+        ("medical_expert", "interpret these lab results"),
+        ("deep_researcher", "summarize the literature on X"),
+        ("psychologist", "I am feeling anxious"),
+        ("debate_moderator", "help me weigh both sides"),
+        ("tech_writer", "draft API documentation"),
+        ("agent_builder", "design a new agent persona"),
+    ])
+    def test_preferred_implants_recall_at_least_as_good_as_semantic(
+        self, retriever, agent_name, probe_query,
+    ):
+        from src.utils.prompt_loader import get_agent_metadata
+
+        declared = get_agent_metadata(agent_name).get("preferred_implants") or []
+        assert declared, f"{agent_name} declares no preferred_implants"
+        expected = {f"{Path(x).stem}.mdc" for x in declared}
+
+        baseline = retriever.retrieve(query=probe_query, n_results=5, role=agent_name)
+        treatment = retriever.retrieve(
+            query=probe_query, n_results=5, role=agent_name,
+            preferred_implants=list(declared),
+        )
+        baseline_ids = {r["filename"] for r in baseline}
+        treatment_ids = {r["filename"] for r in treatment}
+
+        recall_base = len(expected & baseline_ids) / len(expected)
+        recall_treat = len(expected & treatment_ids) / len(expected)
+
+        # Treatment must include every declared implant (fast-path guarantee,
+        # subject to MAX_PREFERRED_IMPLANTS=5 — declared lists are <=3 in
+        # practice, well within the cap).
+        assert recall_treat == 1.0, (
+            f"{agent_name}: treatment recall@5 = {recall_treat:.2f} "
+            f"(expected 1.0). Missing in treatment: {expected - treatment_ids}. "
+            f"Got: {treatment_ids}"
+        )
+        # Treatment never worse than baseline — the actual A/B claim.
+        assert recall_treat >= recall_base, (
+            f"{agent_name}: treatment ({recall_treat:.2f}) regressed against "
+            f"semantic baseline ({recall_base:.2f})"
+        )
+        # Fast-path artefact: every declared implant lands at distance == 0.0.
+        for r in treatment:
+            if r["filename"] in expected:
+                assert r["distance"] == 0.0, (
+                    f"{agent_name}: {r['filename']} should have distance=0.0 "
+                    f"via fast-path, got {r['distance']:.4f}"
+                )
 
 
 # ---------------------------------------------------------------------------

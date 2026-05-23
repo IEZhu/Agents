@@ -32,6 +32,10 @@ preferred_skills:
   - "skill-tech-writing"
   - "skill-git-conventions"
   - "skill-content-structure"
+preferred_implants:
+  - implant-skeleton-of-thought
+  - implant-self-refine
+  - implant-chain-of-verification
 capabilities:
   - tech-documentation
   - content-structure

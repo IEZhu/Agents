@@ -29,6 +29,10 @@ preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
 - skill-blender-scripting
+preferred_implants:
+- implant-regression-first
+- implant-iteration-budget
+- implant-verify-assumptions
 capabilities:
 - development
 - blender-scripting

@@ -26,6 +26,9 @@ static_skills:
 preferred_skills:
 - skill-analysis-critical
 - skill-content-structure
+preferred_implants:
+- implant-step-back-prompting
+- implant-chain-of-verification
 capabilities:
 - critical-analysis
 - content-structure

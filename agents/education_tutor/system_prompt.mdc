@@ -30,6 +30,10 @@ preferred_skills:
 - skill-pedagogy
 - skill-content-structure
 - skill-dense-summarization
+preferred_implants:
+- implant-maieutic-prompting
+- implant-analogical-prompting
+- implant-step-back-prompting
 capabilities:
 - pedagogy
 - content-structure
