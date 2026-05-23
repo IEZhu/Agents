@@ -299,7 +299,10 @@ def process(agent: str, implants: list[str], check_only: bool) -> str:
     new_text = text[: m.start()] + block + text[m.start() :]
     if check_only:
         return f"WOULD-WRITE {agent}: inject {len(implants)} implants (style {style!r})"
-    path.write_text(new_text, encoding="utf-8")
+    try:
+        path.write_text(new_text, encoding="utf-8")
+    except OSError as exc:
+        return f"FAIL {agent}: cannot write {path} ({exc})"
     return f"OK   {agent}: +{len(implants)} implants"
 
 

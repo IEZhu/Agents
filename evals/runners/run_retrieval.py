@@ -54,20 +54,25 @@ def _agent_preferred_implants(agent_name: str | None) -> tuple[str, ...]:
     Cached per-agent so a 110-row eval triggers at most one frontmatter read
     per distinct ``expected_agent``.
 
-    Validation policy: malformed frontmatter is surfaced as a stderr warning
-    naming the offending agent and the unexpected type, then returns an empty
-    tuple so the eval keeps running. We deliberately do **not** raise — a
-    single misconfigured agent should not crash the whole batch, but the
-    silent-empty behavior of the previous bare ``except`` made degraded
-    metrics invisible. Now degraded samples are loud.
+    Validation policy: ``get_agent_metadata()`` already swallows read/parse
+    errors and returns ``{}`` (see ``src/utils/prompt_loader.py``), so we
+    cannot distinguish "agent missing" from "frontmatter broken" by catching
+    exceptions here. Instead we detect the empty-dict signal explicitly and
+    surface a stderr warning naming the offending agent so degraded samples
+    don't slip out of precision/recall/MRR silently. We deliberately do
+    **not** raise — a single misconfigured agent should not crash the whole
+    eval batch — but degraded samples are now loud.
     """
     if not agent_name:
         return ()
-    try:
-        meta = get_agent_metadata(agent_name) or {}
-    except (FileNotFoundError, PermissionError) as exc:
+    meta = get_agent_metadata(agent_name)
+    if not meta:
+        # get_agent_metadata returns {} for missing file, security-rejected
+        # path, or YAML parse error. All three are configuration bugs that
+        # silently degrade implant metrics if left invisible.
         print(
-            f"WARNING: could not read agent metadata for {agent_name!r}: {exc}",
+            f"WARNING: agent {agent_name!r} has no loadable frontmatter "
+            f"(missing file or malformed YAML) — preferred_implants treated as empty",
             file=sys.stderr,
         )
         return ()
