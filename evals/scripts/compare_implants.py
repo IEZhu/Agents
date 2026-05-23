@@ -100,6 +100,19 @@ def main(argv: list[str] | None = None) -> int:
         expected_from_agent=True,
     )
 
+    # Sanity: both runs consume the same preloaded sample list, so every
+    # loader-side field except the mode toggles must agree. A divergence here
+    # would mean run() mutated state under us or the loader returned
+    # different counts for identical input — either way, surface the bug
+    # immediately instead of rendering misleading deltas.
+    _MODE_KEYS = {"use_preferred_implants", "expected_from_agent"}
+    base_static = {k: v for k, v in base_meta.items() if k not in _MODE_KEYS}
+    treat_static = {k: v for k, v in treat_meta.items() if k not in _MODE_KEYS}
+    assert base_static == treat_static, (
+        f"Loader metadata diverged between baseline and treatment runs: "
+        f"baseline={base_static!r} treatment={treat_static!r}"
+    )
+
     base_metrics = compute_metrics(base_impl)
     treat_metrics = compute_metrics(treat_impl)
     report = render_report(base_metrics, treat_metrics, base_meta)

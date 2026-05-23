@@ -83,11 +83,25 @@ def _agent_preferred_implants(agent_name: str | None) -> tuple[str, ...]:
             file=sys.stderr,
         )
         return ()
-    raw = meta.get("preferred_implants") or []
+    raw = meta.get("preferred_implants")
+    if raw is None:
+        print(
+            f"WARNING: agent {agent_name!r} has no preferred_implants key in "
+            f"frontmatter — sample will drop out of implant metric denominators",
+            file=sys.stderr,
+        )
+        return ()
     if not isinstance(raw, list):
         print(
             f"WARNING: agent {agent_name!r} preferred_implants has type "
             f"{type(raw).__name__}, expected list — ignored",
+            file=sys.stderr,
+        )
+        return ()
+    if not raw:
+        print(
+            f"WARNING: agent {agent_name!r} preferred_implants is empty — "
+            f"sample will drop out of implant metric denominators",
             file=sys.stderr,
         )
         return ()
