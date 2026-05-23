@@ -52,16 +52,40 @@ def _agent_preferred_implants(agent_name: str | None) -> tuple[str, ...]:
     """Return the declared preferred_implants of an agent (as stems, no .mdc).
 
     Cached per-agent so a 110-row eval triggers at most one frontmatter read
-    per distinct ``expected_agent``. Missing agent / missing field → empty
-    tuple; callers treat empty as "no derivation possible for this sample".
+    per distinct ``expected_agent``.
+
+    Validation policy: malformed frontmatter is surfaced as a stderr warning
+    naming the offending agent and the unexpected type, then returns an empty
+    tuple so the eval keeps running. We deliberately do **not** raise — a
+    single misconfigured agent should not crash the whole batch, but the
+    silent-empty behavior of the previous bare ``except`` made degraded
+    metrics invisible. Now degraded samples are loud.
     """
     if not agent_name:
         return ()
     try:
         meta = get_agent_metadata(agent_name) or {}
-    except Exception:
+    except (FileNotFoundError, PermissionError) as exc:
+        print(
+            f"WARNING: could not read agent metadata for {agent_name!r}: {exc}",
+            file=sys.stderr,
+        )
+        return ()
+    if not isinstance(meta, dict):
+        print(
+            f"WARNING: agent {agent_name!r} frontmatter parsed to "
+            f"{type(meta).__name__}, expected dict — preferred_implants ignored",
+            file=sys.stderr,
+        )
         return ()
     raw = meta.get("preferred_implants") or []
+    if not isinstance(raw, list):
+        print(
+            f"WARNING: agent {agent_name!r} preferred_implants has type "
+            f"{type(raw).__name__}, expected list — ignored",
+            file=sys.stderr,
+        )
+        return ()
     return tuple(Path(x).stem for x in raw if isinstance(x, str))
 
 

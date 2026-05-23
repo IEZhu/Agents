@@ -270,12 +270,22 @@ def make_block(implants: list[str], style: str) -> str:
 
 
 def already_has_preferred_implants(text: str) -> bool:
-    return re.search(r"^preferred_implants:\s*$", text, re.MULTILINE) is not None
+    # Match the key in any shape — bare (`preferred_implants:`), inline empty
+    # (`preferred_implants: []`), explicit null (`preferred_implants: null`),
+    # or scalar value. A second injection on top of any of these would
+    # produce duplicate YAML keys, so this check has to be permissive on the
+    # value side while still anchored to the start of the line.
+    return re.search(r"^preferred_implants:", text, re.MULTILINE) is not None
 
 
 def process(agent: str, implants: list[str], check_only: bool) -> str:
     path = AGENTS / agent / "system_prompt.mdc"
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"FAIL {agent}: missing {path}"
+    except OSError as exc:
+        return f"FAIL {agent}: cannot read {path} ({exc})"
     if already_has_preferred_implants(text):
         return f"SKIP {agent}: already has preferred_implants"
 

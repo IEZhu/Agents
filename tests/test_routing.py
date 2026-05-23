@@ -561,8 +561,9 @@ class TestPreferredImplants:
                 missing.append(agent)
         assert not missing, (
             f"{len(missing)} agent(s) missing preferred_implants: {missing}. "
-            f"Every agent must declare at least one (see plan: "
-            f"~/.claude/plans/resilient-cuddling-curry.md)."
+            f"Every agent must declare at least one — the preferred_implants "
+            f"fast-path is what makes implant inclusion deterministic; an "
+            f"empty list defeats the mechanism."
         )
 
     @pytest.mark.asyncio
@@ -689,13 +690,20 @@ class TestPreferredImplantsRetrievalAB:
     ):
         from src.utils.prompt_loader import get_agent_metadata
 
+        n_results = 5
         declared = get_agent_metadata(agent_name).get("preferred_implants") or []
         assert declared, f"{agent_name} declares no preferred_implants"
-        expected = {f"{Path(x).stem}.mdc" for x in declared}
+        # Retrieval is capped at n_results, and the fast-path in
+        # ImplantRetriever.retrieve() applies the same cap to preferred_implants
+        # (`target_ids = all_target_ids[:n_results]` in src/engine/implants.py).
+        # If an agent ever declares more than n_results implants, only the
+        # first n_results will be deterministically loaded, so cap the expected
+        # set the same way to keep the recall assertion meaningful.
+        expected = {f"{Path(x).stem}.mdc" for x in declared[:n_results]}
 
-        baseline = retriever.retrieve(query=probe_query, n_results=5, role=agent_name)
+        baseline = retriever.retrieve(query=probe_query, n_results=n_results, role=agent_name)
         treatment = retriever.retrieve(
-            query=probe_query, n_results=5, role=agent_name,
+            query=probe_query, n_results=n_results, role=agent_name,
             preferred_implants=list(declared),
         )
         baseline_ids = {r["filename"] for r in baseline}
@@ -704,9 +712,8 @@ class TestPreferredImplantsRetrievalAB:
         recall_base = len(expected & baseline_ids) / len(expected)
         recall_treat = len(expected & treatment_ids) / len(expected)
 
-        # Treatment must include every declared implant (fast-path guarantee,
-        # subject to MAX_PREFERRED_IMPLANTS=5 — declared lists are <=3 in
-        # practice, well within the cap).
+        # Treatment must include every declared implant within the retrieval
+        # cap — that's the fast-path guarantee.
         assert recall_treat == 1.0, (
             f"{agent_name}: treatment recall@5 = {recall_treat:.2f} "
             f"(expected 1.0). Missing in treatment: {expected - treatment_ids}. "
