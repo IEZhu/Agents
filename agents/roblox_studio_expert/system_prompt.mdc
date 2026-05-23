@@ -32,6 +32,9 @@ preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
 - skill-roblox-development
+preferred_implants:
+- implant-regression-first
+- implant-iteration-budget
 capabilities:
 - development
 - roblox-development

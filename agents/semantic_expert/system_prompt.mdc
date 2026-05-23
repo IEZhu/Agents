@@ -27,6 +27,10 @@ preferred_skills:
   - "skill-analysis-critical"
   - "skill-content-structure"
   - "skill-tech-writing"
+preferred_implants:
+  - implant-narrative-of-thought
+  - implant-thread-of-thought
+  - implant-decomposed-prompting
 capabilities:
   - critical-analysis
   - epistemic-analysis

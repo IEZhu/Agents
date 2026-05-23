@@ -30,6 +30,10 @@ preferred_skills:
   - "skill-bio-mechanism"
   - "skill-bio-protocols"
   - "skill-analysis-critical"
+preferred_implants:
+  - implant-chain-of-verification
+  - implant-uncertainty-quantification
+  - implant-causal-reasoning
 capabilities:
   - bio-health
   - critical-analysis

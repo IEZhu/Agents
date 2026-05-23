@@ -34,6 +34,10 @@ preferred_skills:
 - skill-content-structure
 - skill-dense-summarization
 - skill-analysis-critical
+preferred_implants:
+- implant-layer-of-thoughts
+- implant-logic-of-thought
+- implant-chain-of-verification
 capabilities:
 - content-structure
 - critical-analysis

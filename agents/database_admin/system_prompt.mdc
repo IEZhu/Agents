@@ -46,6 +46,10 @@ static_skills:
 preferred_skills:
   - "skill-dev-debugging"
   - "skill-dev-clean-code"
+preferred_implants:
+  - implant-regression-first
+  - implant-verify-assumptions
+  - implant-iteration-budget
 capabilities:
   - development
   - critical-analysis

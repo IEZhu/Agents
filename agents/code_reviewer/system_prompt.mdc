@@ -35,6 +35,10 @@ preferred_skills:
 - skill-dev-clean-code
 - skill-dev-testing
 - skill-dev-security
+preferred_implants:
+- implant-role-play-expert
+- implant-chain-of-verification
+- implant-regression-first
 capabilities:
 - code-review
 - development

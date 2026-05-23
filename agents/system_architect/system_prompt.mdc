@@ -30,6 +30,10 @@ preferred_skills:
 - skill-dev-api-design
 - skill-mermaid-best-practices
 - skill-dev-performance
+preferred_implants:
+- implant-plan-and-solve-plus
+- implant-step-back-prompting
+- implant-premortem
 capabilities:
 - system-design
 - development

@@ -26,6 +26,10 @@ static_skills:
 preferred_skills:
 - skill-dev-clean-code
 - skill-git-conventions
+preferred_implants:
+- implant-plan-and-solve-plus
+- implant-verify-assumptions
+- implant-iteration-budget
 capabilities:
 - development
 - tech-documentation

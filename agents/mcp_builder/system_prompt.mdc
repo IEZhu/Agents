@@ -28,6 +28,10 @@ static_skills:
 preferred_skills:
   - "skill-mcp-development"
   - "skill-tech-writing"
+preferred_implants:
+  - implant-verify-assumptions
+  - implant-plan-and-solve-plus
+  - implant-iteration-budget
 capabilities:
   - development
   - tech-documentation

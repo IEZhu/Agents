@@ -42,6 +42,10 @@ preferred_skills:
 - skill-prompt-engineering
 - skill-analysis-critical
 - skill-content-structure
+preferred_implants:
+- implant-self-refine
+- implant-chain-of-verification
+- implant-contrastive-cot
 capabilities:
 - prompt-design
 - critical-analysis

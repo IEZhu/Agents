@@ -20,6 +20,10 @@ static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:
   - "skill-content-structure"
+preferred_implants:
+  - implant-narrative-of-thought
+  - implant-cumulative-reasoning
+  - implant-chain-of-verification
 capabilities:
   - data-investigation
   - content-structure

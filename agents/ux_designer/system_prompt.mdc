@@ -37,6 +37,10 @@ static_skills:
 preferred_skills:
 - skill-ux-principles
 - skill-content-structure
+preferred_implants:
+- implant-role-play-expert
+- implant-premortem
+- implant-second-order-thinking
 capabilities:
 - ux-design
 - content-structure

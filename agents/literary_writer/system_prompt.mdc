@@ -41,6 +41,10 @@ preferred_skills:
   - "skill-literary-devices"
   - "skill-narrative-craft"
   - "skill-content-structure"
+preferred_implants:
+  - implant-analogical-prompting
+  - implant-generated-knowledge
+  - implant-self-refine
 capabilities:
   - creative-writing
 ---

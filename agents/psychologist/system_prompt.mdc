@@ -42,6 +42,10 @@ static_skills:
 preferred_skills:
   - "skill-psy-cbt"
   - "skill-psy-nvc"
+preferred_implants:
+  - implant-maieutic-prompting
+  - implant-system-2-attention
+  - implant-step-back-prompting
 capabilities:
   - psychology
 ---

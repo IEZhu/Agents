@@ -26,6 +26,10 @@ static_skills:
 preferred_skills:
 - skill-decision-frameworks
 - skill-analysis-critical
+preferred_implants:
+- implant-multi-agent-debate
+- implant-steel-man
+- implant-premortem
 capabilities:
 - decision-making
 - critical-analysis

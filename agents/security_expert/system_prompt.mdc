@@ -38,6 +38,10 @@ preferred_skills:
 - skill-analysis-critical
 - skill-dev-clean-code
 - skill-dev-security
+preferred_implants:
+- implant-role-play-expert
+- implant-premortem
+- implant-steel-man
 capabilities:
 - dev-security
 - critical-analysis

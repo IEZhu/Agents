@@ -24,6 +24,10 @@ static_skills:
 preferred_skills:
   - "skill-agnotology"
   - "skill-analysis-critical"
+preferred_implants:
+  - implant-maieutic-prompting
+  - implant-chain-of-verification
+  - implant-step-back-prompting
 capabilities:
   - epistemic-analysis
 ---

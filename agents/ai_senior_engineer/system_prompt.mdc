@@ -22,6 +22,10 @@ static_skills:
   - "skill-content-structure.mdc"
 preferred_skills:
   - "skill-content-structure"
+preferred_implants:
+  - implant-self-discover
+  - implant-verify-assumptions
+  - implant-plan-and-solve-plus
 capabilities:
   - content-structure
   - prompt-design

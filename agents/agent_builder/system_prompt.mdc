@@ -26,6 +26,10 @@ static_skills:
 preferred_skills:
 - skill-content-structure
 - skill-tech-writing
+preferred_implants:
+- implant-self-discover
+- implant-plan-and-solve-plus
+- implant-verify-assumptions
 capabilities:
 - content-structure
 - tech-documentation

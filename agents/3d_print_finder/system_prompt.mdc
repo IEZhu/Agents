@@ -31,6 +31,9 @@ preferred_skills:
   - "skill-3d-platforms"
   - "skill-3d-print-search"
   - "skill-analysis-critical"
+preferred_implants:
+  - implant-chain-of-verification
+  - implant-premortem
 capabilities:
   - 3d-printing
   - consultative-intake

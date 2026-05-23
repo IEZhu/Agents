@@ -40,6 +40,10 @@ preferred_skills:
   - "skill-psy-nvc"
   - "skill-psy-child-dev"
   - "skill-psy-digital-wellbeing"
+preferred_implants:
+  - implant-step-back-prompting
+  - implant-system-2-attention
+  - implant-maieutic-prompting
 capabilities:
   - child-psychology
 ---
