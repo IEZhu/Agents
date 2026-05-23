@@ -1,0 +1,34 @@
+---
+description: Verify Assumptions Before Architecture. Before proposing architectural decisions, refactors, integrations, or "we should use X" recommendations — list 1-3 facts you're taking as true (e.g. "X is a TUI app", "the config was applied", "the process is killed", "the font is installed") and give each ONE-COMMAND verification. Run all verifications BEFORE designing. Prevents building architecture on a hypothesis instead of fact.
+globs: []
+alwaysApply: false
+short_name: VerifyAssumptions
+one_liner: list and verify 1-3 load-bearing facts before architectural decisions
+---
+## Pattern
+1. **Detect the signal**: You're about to propose a design, refactor, integration, library choice, or "we should X" recommendation.
+2. **Enumerate load-bearing assumptions**: List 1-3 facts your proposal depends on. Be specific — vague assumptions ("the system is fast enough") don't qualify; concrete claims do ("X is a TUI app, not GUI"; "the config is applied at startup"; "the lockfile pins version Y").
+3. **Pair each with a ONE-COMMAND verification**:
+   - "X is a TUI app" → `ls $(nix eval --raw nixpkgs#X)/Applications/` (presence of `.app` ⇒ GUI).
+   - "Config Y was applied" → `<app> +show-config | grep <key>`.
+   - "Font Z is found" → `fc-list | grep <font>`.
+   - "Process is killed" → `pgrep -f <name>`.
+   - "Migration ran" → `<db> -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 5"`.
+4. **Run all checks**. State the actual output.
+5. **Only then propose the design**. If any verification falsifies an assumption, revise the proposal before presenting it.
+
+## When to Use
+- Architectural recommendations ("we should use X").
+- Library / framework / tool choices.
+- Refactoring proposals that hinge on properties of existing code.
+- "It will work because Y" claims where Y is unverified.
+- Any decision presented before reading the code or running a check.
+
+## Limitations
+- Adds latency: 1-3 commands and their interpretation before the recommendation.
+- Verifications themselves can be wrong (running the wrong probe). The one-command form is a feature — it forces specificity, but doesn't guarantee correctness.
+- Not every assumption is verifiable in one command; for those, be explicit they are unverified ("assuming X, please confirm").
+- Overkill for trivial choices (which date library to use).
+
+## Anti-Pattern
+Building architecture on top of an unverified assumption ("we'll use kitty for wrapping because X is a TUI app") when a 5-second check (`ls .../Applications/`) would have falsified the premise. Without verify-step you build architecture on hypothesis, not fact.

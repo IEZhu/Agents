@@ -485,6 +485,95 @@ class TestPreferredImplants:
                 "universal_agent", "hi", [])
             assert effective_tier == "lite"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("agent_name, expected_implants", [
+        ("software_engineer", ["implant-regression-first", "implant-iteration-budget"]),
+        ("sysadmin", ["implant-regression-first"]),
+        ("devops_engineer", ["implant-regression-first"]),
+    ])
+    async def test_debugging_implants_forwarded_for_real_agents(self, agent_name, expected_implants):
+        """Real agent frontmatter must forward debugging implants to enrich_agent_prompt.
+
+        Uses subset semantics: adding new implants alongside the debugging ones
+        is fine, but removing/renaming any of the expected implants must fail.
+        """
+        from src.utils.prompt_loader import get_agent_metadata
+
+        real_metadata = get_agent_metadata(agent_name)
+        actual_in_frontmatter = real_metadata.get("preferred_implants") or []
+        assert set(expected_implants).issubset(set(actual_in_frontmatter)), (
+            f"Agent {agent_name} frontmatter missing debugging implants: "
+            f"expected superset of {expected_implants!r}, got {actual_in_frontmatter!r}"
+        )
+
+        with patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()) as mock_enrich:
+            await self.srv._load_and_enrich(agent_name, "explain a regression I just hit", [])
+            mock_enrich.assert_called_once()
+            forwarded = mock_enrich.call_args.kwargs["preferred_implants"] or []
+            assert set(expected_implants).issubset(set(forwarded)), (
+                f"enrich_agent_prompt received {forwarded!r}, "
+                f"missing expected {set(expected_implants) - set(forwarded)!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Semantic retrieval thresholds for debugging implants (slow / integration)
+# ---------------------------------------------------------------------------
+
+class TestDebuggingImplantsRetrieval:
+    """Probe-query retrieval test for the three debugging implants.
+
+    Marked slow because it spins up ImplantRetriever (model load + index)
+    on first invocation. Run via: pytest -m slow.
+    """
+
+    @pytest.fixture(scope="class")
+    def retriever(self):
+        """One ImplantRetriever instance reused across the class — avoids repeated
+        vector-store load/reindex on every parametrized case."""
+        from src.engine.implants import ImplantRetriever
+        return ImplantRetriever()
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("query, expected_implant", [
+        ("функция логировала всё нормально, после моих правок перестала", "implant-regression-first.mdc"),
+        ("it was working yesterday and now it's broken after the deploy", "implant-regression-first.mdc"),
+        ("I'm going to design a TUI client around far2l, assuming it's a CLI app", "implant-verify-assumptions.mdc"),
+        ("this is my fourth attempt to fix the rendering, none worked", "implant-iteration-budget.mdc"),
+        ("no, that fix didn't work either, that's three tries now", "implant-iteration-budget.mdc"),
+    ])
+    def test_debugging_implants_retrieved_on_triggers(self, retriever, query, expected_implant):
+        """Trigger phrases (RU + EN) must surface the matching debugging implant
+        within top-5 AND under the relevance threshold (so threshold drift is caught)."""
+        from src.engine.config import IMPLANTS_RELEVANCE_THRESHOLD
+        results = retriever.retrieve(query=query, n_results=5)
+        ids = [r["filename"] for r in results]
+        assert expected_implant in ids, (
+            f"Expected {expected_implant} for query: {query!r}, got: {ids}"
+        )
+        matched = next(r for r in results if r["filename"] == expected_implant)
+        assert matched["distance"] < IMPLANTS_RELEVANCE_THRESHOLD, (
+            f"Expected {expected_implant} distance < {IMPLANTS_RELEVANCE_THRESHOLD}, "
+            f"got {matched['distance']:.4f} for query {query!r}"
+        )
+
+    @pytest.mark.slow
+    def test_debugging_implants_negative_control(self, retriever):
+        """Greenfield coding requests must NOT pull debugging implants."""
+        results = retriever.retrieve(query="write me a fibonacci function", n_results=5)
+        ids = [r["filename"] for r in results]
+        debugging_implants = {
+            "implant-regression-first.mdc",
+            "implant-verify-assumptions.mdc",
+            "implant-iteration-budget.mdc",
+        }
+        intersect = debugging_implants.intersection(ids)
+        assert not intersect, (
+            f"Negative control failed — debugging implants leaked for greenfield query: {intersect}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # clear_session_cache clears both caches

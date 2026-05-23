@@ -33,6 +33,8 @@ static_skills:
 preferred_skills:
   - "skill-dev-clean-code"
   - "skill-dev-debugging"
+preferred_implants:
+  - "implant-regression-first"
 capabilities:
   - development
   - critical-analysis
