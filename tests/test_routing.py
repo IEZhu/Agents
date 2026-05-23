@@ -492,13 +492,18 @@ class TestPreferredImplants:
         ("devops_engineer", ["implant-regression-first"]),
     ])
     async def test_debugging_implants_forwarded_for_real_agents(self, agent_name, expected_implants):
-        """Real agent frontmatter must forward debugging implants to enrich_agent_prompt."""
+        """Real agent frontmatter must forward debugging implants to enrich_agent_prompt.
+
+        Uses subset semantics: adding new implants alongside the debugging ones
+        is fine, but removing/renaming any of the expected implants must fail.
+        """
         from src.utils.prompt_loader import get_agent_metadata
 
         real_metadata = get_agent_metadata(agent_name)
-        assert real_metadata.get("preferred_implants") == expected_implants, (
-            f"Agent {agent_name} frontmatter missing/mismatched preferred_implants: "
-            f"got {real_metadata.get('preferred_implants')!r}"
+        actual_in_frontmatter = real_metadata.get("preferred_implants") or []
+        assert set(expected_implants).issubset(set(actual_in_frontmatter)), (
+            f"Agent {agent_name} frontmatter missing debugging implants: "
+            f"expected superset of {expected_implants!r}, got {actual_in_frontmatter!r}"
         )
 
         with patch("src.server.load_agent_prompt", return_value="base prompt"), \
@@ -506,7 +511,11 @@ class TestPreferredImplants:
                    return_value=self._fake_enrichment()) as mock_enrich:
             await self.srv._load_and_enrich(agent_name, "explain a regression I just hit", [])
             mock_enrich.assert_called_once()
-            assert mock_enrich.call_args.kwargs["preferred_implants"] == expected_implants
+            forwarded = mock_enrich.call_args.kwargs["preferred_implants"] or []
+            assert set(expected_implants).issubset(set(forwarded)), (
+                f"enrich_agent_prompt received {forwarded!r}, "
+                f"missing expected {set(expected_implants) - set(forwarded)!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +538,7 @@ class TestDebuggingImplantsRetrieval:
         ("no, that fix didn't work either, that's three tries now", "implant-iteration-budget.mdc"),
     ])
     def test_debugging_implants_retrieved_on_triggers(self, query, expected_implant):
+        """Trigger phrases (RU + EN) must surface the matching debugging implant within top-5."""
         from src.engine.implants import ImplantRetriever
         retriever = ImplantRetriever()
         results = retriever.retrieve(query=query, n_results=5)

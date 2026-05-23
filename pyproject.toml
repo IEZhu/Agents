@@ -33,6 +33,7 @@ where = ["."]
 include = ["src*", "evals*"]
 
 [tool.pytest.ini_options]
+addopts = ["-m", "not slow"]
 markers = [
-    "slow: integration tests that load embedding model / vector store (deselect with '-m \"not slow\"')",
+    "slow: integration tests that load embedding model / vector store (opt-in: run with `pytest -m slow`)",
 ]
