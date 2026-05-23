@@ -9,7 +9,7 @@ one_liner: localize the regression before proposing any fix
 1. **Detect the signal**: User says "worked before", "broke yesterday", "stopped after I changed X", "used to work", "регрессия", "после моих правок перестало" — any reference to a working baseline that no longer works.
 2. **Halt hypothesis generation**: Do not propose fixes, root causes, or architectural theories yet.
 3. **Enumerate recent changes** in order of recency-likelihood:
-   - Edits made in the current chat session (highest prior — these are causally closest).
+   - Edits made in the current chat session (highest prior probability — these are causally closest).
    - `git log -5 --oneline` and `git diff HEAD~1` on the relevant repo.
    - Recently modified files: `find <path> -mtime -2 -type f`.
    - Recent config / dependency / lockfile / OS upgrade changes.

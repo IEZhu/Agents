@@ -529,6 +529,13 @@ class TestDebuggingImplantsRetrieval:
     on first invocation. Run via: pytest -m slow.
     """
 
+    @pytest.fixture(scope="class")
+    def retriever(self):
+        """One ImplantRetriever instance reused across the class — avoids repeated
+        vector-store load/reindex on every parametrized case."""
+        from src.engine.implants import ImplantRetriever
+        return ImplantRetriever()
+
     @pytest.mark.slow
     @pytest.mark.parametrize("query, expected_implant", [
         ("функция логировала всё нормально, после моих правок перестала", "implant-regression-first.mdc"),
@@ -537,21 +544,24 @@ class TestDebuggingImplantsRetrieval:
         ("this is my fourth attempt to fix the rendering, none worked", "implant-iteration-budget.mdc"),
         ("no, that fix didn't work either, that's three tries now", "implant-iteration-budget.mdc"),
     ])
-    def test_debugging_implants_retrieved_on_triggers(self, query, expected_implant):
-        """Trigger phrases (RU + EN) must surface the matching debugging implant within top-5."""
-        from src.engine.implants import ImplantRetriever
-        retriever = ImplantRetriever()
+    def test_debugging_implants_retrieved_on_triggers(self, retriever, query, expected_implant):
+        """Trigger phrases (RU + EN) must surface the matching debugging implant
+        within top-5 AND under the relevance threshold (so threshold drift is caught)."""
+        from src.engine.config import IMPLANTS_RELEVANCE_THRESHOLD
         results = retriever.retrieve(query=query, n_results=5)
         ids = [r["filename"] for r in results]
         assert expected_implant in ids, (
             f"Expected {expected_implant} for query: {query!r}, got: {ids}"
         )
+        matched = next(r for r in results if r["filename"] == expected_implant)
+        assert matched["distance"] < IMPLANTS_RELEVANCE_THRESHOLD, (
+            f"Expected {expected_implant} distance < {IMPLANTS_RELEVANCE_THRESHOLD}, "
+            f"got {matched['distance']:.4f} for query {query!r}"
+        )
 
     @pytest.mark.slow
-    def test_debugging_implants_negative_control(self):
+    def test_debugging_implants_negative_control(self, retriever):
         """Greenfield coding requests must NOT pull debugging implants."""
-        from src.engine.implants import ImplantRetriever
-        retriever = ImplantRetriever()
         results = retriever.retrieve(query="write me a fibonacci function", n_results=5)
         ids = [r["filename"] for r in results]
         debugging_implants = {
