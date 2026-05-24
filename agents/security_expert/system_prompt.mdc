@@ -28,7 +28,15 @@ preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-caveman-tokenomics
-capable_skills: []
+capable_skills:
+- skill-dev-testing
+- skill-dev-performance
+- skill-fact-verification
+- skill-prompt-security
+- skill-mcp-development
+- skill-system-design
+- skill-error-recovery
+- skill-dev-debugging
 preferred_implants:
 - implant-role-play-expert
 - implant-premortem

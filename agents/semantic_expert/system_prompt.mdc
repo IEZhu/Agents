@@ -24,7 +24,13 @@ preferred_skills:
 - skill-tech-writing
 - skill-reasoning-logic
 - skill-agnotology
-capable_skills: []
+capable_skills:
+- skill-decision-frameworks
+- skill-dense-summarization
+- skill-temporal-validation
+- skill-fact-verification
+- skill-forensic-process
+- skill-structured-output
 preferred_implants:
 - implant-narrative-of-thought
 - implant-thread-of-thought

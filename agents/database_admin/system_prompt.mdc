@@ -38,14 +38,21 @@ routing:
   - WHERE clause
   - ORM query
   trigger_command: /dba
-core_skills: []
+core_skills:
+- skill-system-design
 preferred_skills:
 - skill-dev-debugging
 - skill-dev-clean-code
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-caveman-tokenomics
-capable_skills: []
+capable_skills:
+- skill-mathematical-reasoning
+- skill-dev-testing
+- skill-error-recovery
+- skill-dev-performance
+- skill-dev-security
+- skill-dev-api-design
 preferred_implants:
 - implant-regression-first
 - implant-verify-assumptions

@@ -22,9 +22,16 @@ core_skills:
 - skill-tech-writing
 preferred_skills:
 - skill-git-conventions
-- skill-content-structure
 - skill-dense-summarization
-capable_skills: []
+capable_skills:
+- skill-mermaid-best-practices
+- skill-error-recovery
+- skill-narrative-craft
+- skill-temporal-validation
+- skill-fact-verification
+- skill-structured-output
+- skill-clickup-markdown
+- skill-creative-craft
 preferred_implants:
 - implant-skeleton-of-thought
 - implant-self-refine

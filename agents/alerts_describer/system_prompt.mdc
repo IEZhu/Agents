@@ -16,11 +16,17 @@ routing:
   - alert documentation
   - alertmanager
   trigger_command: /alerts_describer
-core_skills: []
+core_skills:
+- skill-tech-writing
 preferred_skills:
 - skill-dense-summarization
-- skill-content-structure
-capable_skills: []
+capable_skills:
+- skill-mermaid-best-practices
+- skill-structured-output
+- skill-error-recovery
+- skill-caveman-tokenomics
+- skill-temporal-validation
+- skill-forensic-process
 preferred_implants:
 - implant-skeleton-of-thought
 - implant-narrative-of-thought

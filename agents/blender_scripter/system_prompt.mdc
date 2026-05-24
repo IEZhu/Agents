@@ -22,7 +22,14 @@ core_skills:
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
-capable_skills: []
+capable_skills:
+- skill-error-recovery
+- skill-dev-performance
+- skill-dev-security
+- skill-dev-testing
+- skill-mathematical-reasoning
+- skill-3d-print-search
+- skill-code-generation
 preferred_implants:
 - implant-regression-first
 - implant-iteration-budget

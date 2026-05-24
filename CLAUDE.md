@@ -96,7 +96,7 @@ agents/
   [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, skills)
   common/agent-schema.json — Frontmatter JSON schema
   capabilities/registry.yaml — Capability -> skill mapping (incl. concise-output)
-rules/rule-*.mdc           — Universal always-on directives (accuracy, honesty, language, sycophancy)
+rules/rule-*.mdc           — Universal always-on directives (accuracy, honesty, language, sycophancy, content-structure)
 skills/skill-*.mdc         — Compiled skill prompts (incl. skill-caveman-tokenomics)
 implants/implant-*.mdc     — Cognitive reasoning implants
 tests/

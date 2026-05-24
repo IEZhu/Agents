@@ -13,13 +13,18 @@ routing:
   - copy agents to project
   - init agents
   trigger_command: /install_agents
-core_skills: []
-preferred_skills:
+core_skills:
 - skill-dev-clean-code
+preferred_skills:
 - skill-git-conventions
 - skill-dev-debugging
 - skill-tech-writing
-capable_skills: []
+capable_skills:
+- skill-mcp-development
+- skill-mermaid-best-practices
+- skill-structured-output
+- skill-error-recovery
+- skill-code-generation
 preferred_implants:
 - implant-plan-and-solve-plus
 - implant-verify-assumptions

@@ -22,10 +22,15 @@ core_skills:
 preferred_skills:
 - skill-3d-print-search
 - skill-analysis-critical
-- skill-content-structure
 - skill-decision-frameworks
 - skill-consultative-intake
-capable_skills: []
+capable_skills:
+- skill-purchase-research
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-dense-summarization
+- skill-tech-writing
+- skill-temporal-validation
 preferred_implants:
 - implant-chain-of-verification
 - implant-premortem

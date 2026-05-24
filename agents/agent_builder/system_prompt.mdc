@@ -18,11 +18,18 @@ routing:
 core_skills:
 - skill-tech-writing
 preferred_skills:
-- skill-content-structure
 - skill-dense-summarization
 - skill-git-conventions
 - skill-caveman-tokenomics
-capable_skills: []
+capable_skills:
+- skill-prompt-engineering
+- skill-prompt-design-process
+- skill-consultative-intake
+- skill-prompt-security
+- skill-prompt-techniques
+- skill-structured-output
+- skill-mcp-development
+- skill-token-economy
 preferred_implants:
 - implant-self-discover
 - implant-plan-and-solve-plus

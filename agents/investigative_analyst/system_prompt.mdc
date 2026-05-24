@@ -22,14 +22,19 @@ routing:
   trigger_command: /investigate
 core_skills:
 - skill-fact-verification
+- skill-forensic-process
 preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-dense-summarization
 - skill-temporal-validation
 - skill-source-trust-tiers
-- skill-forensic-process
-capable_skills: []
+capable_skills:
+- skill-decision-frameworks
+- skill-epistemic-method
+- skill-agnotology
+- skill-wayback-machine
+- skill-consultative-intake
 preferred_implants:
 - implant-cumulative-reasoning
 - implant-chain-of-verification

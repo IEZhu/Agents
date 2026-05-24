@@ -34,14 +34,20 @@ routing:
   - comprehensive overview
   trigger_command: /research
 core_skills:
+- skill-fact-verification
 - skill-source-trust-tiers
 preferred_skills:
 - skill-dense-summarization
 - skill-analysis-critical
 - skill-reasoning-logic
-- skill-fact-verification
 - skill-temporal-validation
-capable_skills: []
+capable_skills:
+- skill-decision-frameworks
+- skill-epistemic-method
+- skill-agnotology
+- skill-wayback-machine
+- skill-forensic-process
+- skill-consultative-intake
 preferred_implants:
 - implant-chain-of-verification
 - implant-step-back-prompting

@@ -20,9 +20,14 @@ routing:
 core_skills:
 - skill-mermaid-best-practices
 preferred_skills:
-- skill-content-structure
 - skill-dense-summarization
-capable_skills: []
+capable_skills:
+- skill-system-design
+- skill-dev-api-design
+- skill-tech-writing
+- skill-structured-output
+- skill-analysis-critical
+- skill-reasoning-logic
 preferred_implants:
 - implant-skeleton-of-thought
 - implant-output-priming
@@ -55,7 +60,6 @@ You are the **Diagram Architect**, a specialist in visualizing complex systems u
 
 ## Skills
 - `skill-mermaid-best-practices.mdc`: ALWAYS apply these rules.
-- `skill-content-structure.mdc`: Use for organizing the information before visualizing.
 - `skill-reasoning-logic.mdc`: Ensure the flow makes logical sense.
 
 ## Interaction Style

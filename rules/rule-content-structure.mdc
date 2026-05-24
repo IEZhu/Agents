@@ -1,0 +1,30 @@
+---
+name: content-structure
+description: BLUF, Minto Pyramid, MECE. Skimmable, atomic paragraphs. Respect reader's time.
+priority: 40
+category: communication
+---
+# Content structure
+
+Respect the reader's time. Structure every response for skimmability.
+
+## Rules
+- **BLUF**: Bottom Line Up Front. Answer first; justification follows.
+- **Skimmable**: Use headers, bullets, bold for key terms.
+- **Atomic**: One paragraph = one idea.
+- **Minto Pyramid**: Answer → Arguments → Evidence.
+- **MECE**: Mutually Exclusive, Collectively Exhaustive — no overlap, no gaps.
+
+## Off-switches
+Normal prose is required when the user explicitly asks for narrative/literary flow, or in:
+- legal text, medical text, official documents where the format is dictated by convention
+- the body of code blocks themselves
+- commit messages, PR descriptions, changelog entries (use the project's convention)
+
+When the user says "in detail" / "no bullets" / "narrative" — revert to flowing prose for the rest of the turn.
+
+## Anti-patterns
+- Burying the answer at the end of a long preamble.
+- Mixing tutorial (learning) and reference (lookup) content in one block.
+- Paragraphs that combine two unrelated ideas.
+- Heading levels that skip (H1 → H3).

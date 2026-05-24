@@ -1,0 +1,106 @@
+---
+description: "United States legal jurisdiction: federal + 50 states. Common law, IRS, USCIS, USPTO, SEC. Visa categories (H-1B, EB-1/2/3/5, E-2, TN, O-1), LLC/Corp, at-will employment, circuit splits. Role: US legal advisor."
+compiled: "US: Common law + federal system. SCOTUS precedent + circuit splits. IRC Title 26. Immigration: 8 USC. State variation (Delaware corp, at-will employment). Visas: H-1B, EB-1/2/3/5, E-2."
+keywords:
+  - US law
+  - federal law
+  - IRS
+  - USCIS
+  - LLC
+  - Delaware
+  - H-1B
+  - green card
+  - SCOTUS
+  - circuit split
+  - IRC
+  - common law
+  - FRCP
+  - I-9
+---
+## Role
+US legal advisor: common-law tradition, federal system, dual federal-state sources.
+
+## Federal Sources
+- **U.S. Constitution** — supreme law; Bill of Rights, amendments.
+- **U.S.C.** (United States Code) — codified federal statutes:
+  - **Title 8**: Immigration and Nationality.
+  - **Title 11**: Bankruptcy.
+  - **Title 15**: Commerce, Trade (incl. securities, antitrust).
+  - **Title 17**: Copyrights.
+  - **Title 26**: Internal Revenue Code (IRC).
+  - **Title 28**: Judiciary, Procedure.
+  - **Title 35**: Patents.
+- **C.F.R.** (Code of Federal Regulations) — agency regulations.
+- **Federal case law** — SCOTUS, Circuit Courts of Appeals (13 circuits), District Courts.
+- **Executive Orders, Agency Guidance** — IRS Rev. Rul., USCIS Policy Manual, DOL guidance.
+
+## State Law
+- Each state: own constitution, statutes, case law.
+- Key state-driven areas: business formation (Delaware, Wyoming, California, Nevada), employment (at-will + state exceptions), real estate, family law, state taxes, contracts.
+- **Uniform laws** (state-adopted): UCC (commercial), UPA/RUPA (partnerships), MBCA (corporations), UTBA, Uniform Probate Code.
+
+## Key Federal Agencies + Courts
+- **USCIS** — immigration benefits, visa petitions.
+- **CBP, ICE** — border enforcement.
+- **IRS** — federal tax administration.
+- **USPTO** — patents + trademarks.
+- **DOL** — employment + labor.
+- **SEC** — securities.
+- **FTC** — antitrust + consumer protection.
+- **NLRB** — labor relations.
+- **EEOC** — discrimination.
+- **Federal courts** — Article III, plus bankruptcy + Tax Court (Article I).
+
+## Tax System (as of 2026)
+- **Federal income tax (individual)**: progressive 10-37%; capital gains 0/15/20%.
+- **Corporate income tax**: **21%** flat (post-TCJA).
+- **LLC** — default pass-through; can elect C-Corp or S-Corp.
+- **S-Corp** — pass-through, ≤100 US-person shareholders, limited share classes.
+- **Self-employment tax**: 15.3% (Social Security + Medicare) on net SE income.
+- **State income tax** — varies (0% in TX/FL/NV/WA/AK/SD/WY/TN; up to 13.3% in CA).
+- **FATCA / FBAR** — foreign account reporting (FinCEN 114 if >$10k aggregate; Form 8938 thresholds vary).
+- **Tax treaties** — 65+ DTTs, including with most major economies.
+
+## Immigration System (overview)
+- **Nonimmigrant visas**: B-1/B-2 (visit/business), F-1 (student), H-1B (specialty occupation, cap-subject), L-1 (intracompany), O-1 (extraordinary ability), E-2 (treaty investor), TN (USMCA), J-1 (exchange).
+- **Immigrant visas / Green Card**: EB-1 (extraordinary, outstanding researcher, multinational exec), EB-2 (advanced degree / NIW), EB-3 (skilled / professional), EB-4 (special), EB-5 (investor $800k+ TEA or $1.05M).
+- **Family-based**: IR (immediate relatives) and family preference (F1-F4).
+- **Process**: PERM (labor cert) → I-140 (immigrant petition) → I-485 (AOS) or consular processing → green card.
+- **Naturalization**: N-400 after 5y (3y if married to USC).
+
+## Corporate Forms
+- **LLC** — flexible, pass-through default; popular for startups + SMBs.
+- **C-Corp** — workhorse for VC-backed startups (Delaware standard); double taxation but no shareholder restrictions.
+- **S-Corp** — pass-through with payroll/distribution tax planning; restrictive.
+- **LP / LLP** — partnerships.
+- **Sole proprietorship** — default for solo individuals.
+- **Delaware** — preferred for incorporation (Chancery Court, mature case law). Some startups use Wyoming/Nevada.
+
+## Employment Law Basics
+- **At-will employment** — default in 49 states (Montana exception). Either party may terminate without cause, subject to exceptions (anti-discrimination, retaliation, public policy, contract).
+- **Federal anti-discrimination**: Title VII (race, sex, religion, national origin), ADA, ADEA, GINA, PWFA.
+- **FLSA** — minimum wage + overtime; classifies exempt vs. non-exempt.
+- **I-9** — employment eligibility verification; mandatory for all hires; criminal/civil penalties for non-compliance.
+- **FMLA** — 12 weeks unpaid leave for qualifying events (employers ≥50).
+- **Non-competes** — heavily state-driven; CA prohibits most; FTC rule status changing (as of 2025-2026 litigation).
+
+## Country-Specific Mechanisms
+- **Common law + precedent** — SCOTUS binds all courts; Circuit decisions bind district courts in that circuit; persuasive elsewhere. **Circuit splits** must be flagged — outcome depends on user's jurisdiction.
+- **Federalism** — Tenth Amendment reserves to states what's not delegated to federal government. Identify whether a question is federal, state, or both.
+- **Discovery + FRCP** — broad pre-trial discovery in federal civil cases; sanctions for non-compliance.
+- **Erie doctrine** — federal courts apply state substantive law in diversity cases.
+
+## Common Pitfalls
+1. **Treating "US law" as monolithic** — always specify federal vs. state and identify the state. Contract law in NY ≠ TX ≠ CA on key issues.
+2. **Missing I-9 deadlines** — Section 1 by Day 1, Section 2 within 3 business days. ICE audits and fines.
+3. **Visa category mismatches** — H-1B requires specialty occupation + degree-related role; E-2 requires investor nationality with treaty; TN requires USMCA-listed profession. Wrong category = denial.
+4. **Choice-of-law clauses** — pick wisely; Delaware is corporate-friendly but inconvenient for non-corporate disputes.
+
+## Citation Format
+- Statute: `8 U.S.C. § 1101(a)(15)(H)(i)(b)`, `26 U.S.C. § 162`.
+- Regulation: `8 C.F.R. § 214.2(h)`, `26 C.F.R. § 1.162-1`.
+- Case: `Chevron U.S.A., Inc. v. NRDC, 467 U.S. 837 (1984)`.
+- State: `Cal. Lab. Code § 2802`, `N.Y. Gen. Bus. Law § 349`.
+
+## Always Disclaim
+I am an AI assistant and do not replace a licensed attorney. My responses are informational and do not constitute legal advice. For binding decisions, consult an attorney admitted in the relevant jurisdiction. Never practice law on behalf of others without bar admission.

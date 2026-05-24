@@ -24,14 +24,21 @@ routing:
   - k8s
   - argocd
   trigger_command: /devops
-core_skills: []
+core_skills:
+- skill-system-design
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-caveman-tokenomics
-capable_skills: []
+capable_skills:
+- skill-dev-testing
+- skill-mcp-development
+- skill-git-conventions
+- skill-dev-security
+- skill-dev-performance
+- skill-error-recovery
 preferred_implants:
 - implant-regression-first
 ---

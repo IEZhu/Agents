@@ -25,10 +25,15 @@ preferred_skills:
 - skill-mermaid-best-practices
 - skill-dev-performance
 - skill-dev-clean-code
+capable_skills:
 - skill-dev-debugging
-- skill-content-structure
 - skill-caveman-tokenomics
-capable_skills: []
+- skill-error-recovery
+- skill-dev-security
+- skill-dev-testing
+- skill-code-generation
+- skill-decision-frameworks
+- skill-multi-step-planning
 preferred_implants:
 - implant-plan-and-solve-plus
 - implant-step-back-prompting
