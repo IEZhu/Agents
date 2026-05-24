@@ -177,7 +177,7 @@ capable_skills:
    ```yaml
    ---
    description: "My Skill: what it provides. Key concepts: A, B, C. Role: Expert."
-   compiled: "Dense one-liner for retrieval embedding."
+   compiled: "Dense one-liner rendered at standard tier (token-saving)."
    keywords:
      - canonical phrase one
      - canonical phrase two

@@ -2,6 +2,7 @@ import logging
 import os
 import glob
 import hashlib
+import re
 import yaml
 from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any
@@ -250,9 +251,18 @@ class SkillRetriever:
             tier_label = "preferred" if sid in preferred_ids else "capable"
             if tier_label == "preferred":
                 d *= boost_factor
-            # Keyword boost: any literal keyword present in query lowers distance further.
+            # Keyword boost: any keyword that appears as a whole word/phrase in
+            # the query lowers distance further. Word-boundary matching avoids
+            # false positives like "ux" matching inside "linux" or short keywords
+            # ("rice") matching unrelated tokens ("price"). Keywords shorter than
+            # 3 chars are skipped — too noisy as literal matches.
             for kw in meta.get("keywords", []) or []:
-                if kw and isinstance(kw, str) and kw.lower() in query_lower:
+                if not (kw and isinstance(kw, str)):
+                    continue
+                kw_l = kw.lower().strip()
+                if len(kw_l) < 3:
+                    continue
+                if re.search(rf"\b{re.escape(kw_l)}\b", query_lower):
                     d *= keyword_boost
                     break
             if d < SKILLS_RELEVANCE_THRESHOLD:
