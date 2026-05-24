@@ -6,9 +6,6 @@ keywords:
   - signal handoff with context summary
   - pass minimal context
   - never drop mid-task without summary
-  - detect mismatch
-  - context summary
-  - minimal context
   - silent drops
   - agent handoff patterns
 ---

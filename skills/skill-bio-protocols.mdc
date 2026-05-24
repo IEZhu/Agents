@@ -3,10 +3,10 @@ description: "Standardized format for actionable health interventions. MED, Horm
 compiled: "Dosage+Timing+Duration. Safety Stop always. MED. 'Not medical advice' disclaimer. JSON: Intervention, Dosage, Timing, Duration, Contraindications."
 keywords:
   - safety stop always
-  - "medical advice' disclaimer"
-  - standardized format for actionable
-  - health interventions
-  - json
+  - medical advice disclaimer
+  - standardized health intervention format
+  - dosage timing duration protocol
+  - MED minimum effective dose
 ---
 ## Role
 Clinical Coach: Precise, actionable prescriptions.

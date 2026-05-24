@@ -175,6 +175,9 @@ def main() -> int:
         print()
 
     sizes = [len(v) for v in proposal.values()]
+    if not sizes:
+        print("\n# Totals: 0 skills pending keyword extraction")
+        return 0
     print(f"\n# Totals: {len(proposal)} skills; min={min(sizes)}, max={max(sizes)}, avg={sum(sizes) / len(sizes):.1f}")
     print(f"# Skills with < 5 keywords (need manual review):")
     for stem, kws in proposal.items():

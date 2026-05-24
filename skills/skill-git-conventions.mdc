@@ -6,6 +6,10 @@ keywords:
   - "type(scope): subject"
   - one change per commit
   - git commit conventions
+  - conventional commits format
+  - atomic commits
+  - imperative mood
+  - 72-char wrap
 ---
 ## Rules
 1. **Format**: `type(scope): subject`

@@ -4,16 +4,16 @@ compiled: "Snapshot: https://archive.org/wayback/available?url={URL}. CDX: colla
 tags: [research, archive, history, web, forensics, osint]
 globs: ["**/*.md"]
 keywords:
-  - "raw: id_ after timestamp"
-  - "rate: 1req/sec"
+  - raw html access after timestamp
+  - rate limit one request per second
   - cite wayback
   - response fields
   - temporal forensic layer
   - access historical web snapshots
-  - org wayback machine
-  - html
-  - url
-  - api
+  - internet archive wayback machine
+  - snapshot retrieval
+  - archive api
+  - find historical snapshot of a website
 ---
 
 # Skill: Wayback Machine

@@ -7,9 +7,6 @@ keywords:
   - constants not magic
   - descriptive names
   - dead code
-  - solid
-  - kiss
-  - yagni
   - boy scout rule
   - long method
   - large class

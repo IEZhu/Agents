@@ -150,7 +150,7 @@ def main():
             all_valid = False
 
         for msg in messages:
-            if "DEPRECATED" in msg or "should" in msg:
+            if any(tok in msg for tok in ("DEPRECATED", "REMOVED", "should")):
                 print(f"   ⚠️  {msg}")
             else:
                 print(f"   ❌ {msg}")

@@ -64,6 +64,11 @@
       "type": "array",
       "items": { "type": "string", "pattern": "^skill-[a-z-]+$" },
       "description": "Skills in semantic pool with base weight. Loaded only when query strongly matches (embedding + keyword)."
+    },
+    "preferred_implants": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^implant-[a-z0-9-]+$" },
+      "description": "Cognitive implants ranked above semantic candidates. Loaded in standard/deep tiers."
     }
   },
   "additionalProperties": false,

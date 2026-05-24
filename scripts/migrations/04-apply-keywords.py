@@ -7,13 +7,21 @@ closing `---` of frontmatter.
 """
 from __future__ import annotations
 
+import importlib.util
 import re
 import sys
-import yaml
 from pathlib import Path
 
-sys.path.insert(0, "/tmp")
-from extract_keywords import extract, split_frontmatter  # type: ignore
+# Load the sibling extractor (03-extract-keywords.py) — the dash in the
+# stem makes a regular `import` impossible, so we resolve it dynamically.
+_EXTRACTOR_PATH = Path(__file__).with_name("03-extract-keywords.py")
+_spec = importlib.util.spec_from_file_location("extract_keywords", _EXTRACTOR_PATH)
+if _spec is None or _spec.loader is None:
+    raise RuntimeError(f"Unable to load extractor module: {_EXTRACTOR_PATH}")
+_extractor = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_extractor)
+extract = _extractor.extract
+split_frontmatter = _extractor.split_frontmatter
 
 
 def insert_keywords(text: str, keywords: list[str]) -> str:

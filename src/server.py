@@ -178,12 +178,13 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     capable_skills = metadata.get("capable_skills", []) or []
     preferred_implants = metadata.get("preferred_implants", []) or []
 
-    # Promote tier to at least "standard" when the agent has any declared skills
-    # or implants, but only when tier was inferred (not explicitly set).
-    has_skills = bool(core_skills or preferred_skills or capable_skills)
-    if not tier_explicit and tier == "lite" and (has_skills or preferred_implants):
+    # Promote inferred tier to "standard" only when implants are declared.
+    # `lite` keeps mandatory `core_skills` (loaded unconditionally below) but
+    # skips the semantic skill pool and implants — exactly what short queries
+    # benefit from. Implants always need the semantic pipeline, so promote.
+    if not tier_explicit and tier == "lite" and preferred_implants:
         tier = "standard"
-        logger.info(f"Tier promoted to 'standard' for {agent_name} (has skills or implants)")
+        logger.info(f"Tier promoted to 'standard' for {agent_name} (preferred implants declared)")
 
     query_hash = hash(query)
     cache_key = f"{agent_name}:{query_hash}:{tier}"

@@ -49,8 +49,10 @@ Examples:
 ```yaml
 ---
 description: "Brief description with key concepts. Role: Persona."
-globs: ["**/*.py", "**/*.ts"]  # File patterns for auto-activation
-alwaysApply: false              # Whether to always include
+compiled: "Dense one-liner summary used by the router for embedding."
+keywords:                       # 5–10 phrases that drive the capable-skills
+  - keyword phrase one          # keyword boost in `SkillRetriever.retrieve()`.
+  - keyword phrase two
 ---
 ## Role
 Persona for this skill.
@@ -127,45 +129,43 @@ Persona for this skill.
 | `skill-token-economy` | Minimize token usage, eliminate redundancy |
 | `skill-error-recovery` | Universal error handling protocol |
 
-## Loading Methods
+## Loading Methods (3-Tier Per-Agent Model)
 
-### 1. Universal (core_skills.yaml)
+Every agent declares three skill lists in its frontmatter. Skills not present
+in any of the three are unavailable to that agent (explicit exclusion).
 
-Skills declared in `core_skills.yaml` at the repo root are auto-injected for every agent (with tier-policy gating). Use this for truly universal skills (e.g., output formatting). No per-agent listing needed.
+### 1. `core_skills` — Mandatory
 
-### 2. Capability-Composed
+Always loaded for the agent, regardless of tier. Use sparingly (1–3 items) —
+only skills the agent cannot function without.
 
-Skills bundled inside a capability in `agents/capabilities/registry.yaml`. The agent references the capability name; the engine resolves it to skills + a directive at enrichment time. Prefer capabilities over raw skill lists when the same cluster repeats across multiple agents.
+```yaml
+core_skills:
+  - skill-legal-citation
+```
 
-### 3. Per-Agent Preferred
+### 2. `preferred_skills` — Boosted Semantic Pool
 
-Defined in agent's `preferred_skills` frontmatter for agent-specific skills not covered by core or a capability:
+Skills that participate in semantic retrieval with a `distance × 0.7` boost.
+Loaded when the query semantically matches them. Typical size 3–8.
 
 ```yaml
 preferred_skills:
-  - "skill-dev-clean-code"
-  - "skill-dev-debugging"
+  - skill-dev-clean-code
+  - skill-dev-debugging
+  - skill-dev-testing
 ```
 
-MCP server uses vector search to select relevant skills based on:
-- Query content
-- Agent's preferred skills (priority)
-- Skill descriptions
+### 3. `capable_skills` — Base Semantic Pool
 
-### 4. Glob-Based Auto-Loading
-
-Skills with `globs` patterns activate when matching files are in context:
+Skills available with base distance, promoted by keyword match (`distance ×
+0.85` when any `keywords:` entry literally appears in the query). Use for the
+broader pool that may apply to sub-queries. Typical size 0–15.
 
 ```yaml
-globs: ["**/*.py", "**/*.ts"]
-```
-
-### 5. Always-Apply
-
-Skills with `alwaysApply: true` are always loaded:
-
-```yaml
-alwaysApply: true
+capable_skills:
+  - skill-prompt-security
+  - skill-tech-writing
 ```
 
 ## Creating a New Skill
@@ -176,8 +176,10 @@ alwaysApply: true
    ```yaml
    ---
    description: "My Skill: what it provides. Key concepts: A, B, C. Role: Expert."
-   globs: ["**/*.ext"]
-   alwaysApply: false
+   compiled: "Dense one-liner for retrieval embedding."
+   keywords:
+     - canonical phrase one
+     - canonical phrase two
    ---
    ## Role
    Expert in Domain: specific expertise.
@@ -195,11 +197,11 @@ alwaysApply: true
    - `another_action()`: What this does
    ```
 
-3. **Reference in agent** (only if not already covered by a capability):
+3. **Attach to one or more agents** by listing it in the agent's
+   `core_skills`, `preferred_skills`, or `capable_skills`:
    ```yaml
-   # In agent's system_prompt.mdc
    preferred_skills:
-     - "skill-domain-name"
+     - skill-domain-name
    ```
 
 4. **Restart MCP server**: To re-index skills

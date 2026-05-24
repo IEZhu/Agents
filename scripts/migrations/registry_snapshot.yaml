@@ -1,0 +1,209 @@
+# Capability Registry
+# Each capability is a named composition of skills + optional behavioral directives.
+# Agents reference capabilities; the enrichment pipeline resolves them to skills.
+
+critical-analysis:
+  skills:
+    - skill-analysis-critical
+    - skill-reasoning-logic
+  directive: "Attack arguments, not people. Find enthymemes. First principles. Falsify. CoV for claims. Step-back for complex problems."
+
+content-structure:
+  skills:
+    - skill-content-structure
+    - skill-dense-summarization
+  directive: "BLUF. Minto pyramid. MECE. Atomic paragraphs. 80/20 density."
+
+development:
+  skills:
+    - skill-dev-clean-code
+    - skill-dev-debugging
+  directive: "SOLID, DRY, KISS. Hypothesis-driven debugging. Reproduce first."
+
+dense-summary:
+  skills:
+    - skill-dense-summarization
+  directive: "80/20 rule. No fluff. BLUF → Findings → Nuance."
+
+trust-weighted-research:
+  skills:
+    - skill-analysis-critical
+    - skill-fact-verification
+  directive: "Trust tiers: peer-reviewed > expert community > media > marketing. Triangulate claims. Flag contradictions."
+
+bio-health:
+  skills:
+    - skill-bio-mechanism
+    - skill-bio-protocols
+  directive: "Mechanism first. Pathway before supplement. Dosage+timing+duration. Safety stop."
+
+tech-documentation:
+  skills:
+    - skill-tech-writing
+    - skill-git-conventions
+  directive: "Clarity. Active voice. Conventional commits. H1>H2>H3."
+
+dev-security:
+  skills:
+    - skill-dev-clean-code
+    - skill-dev-security
+  directive: "Trust no input. Sanitize. Parameterized SQL. OWASP top 10. CIA triad."
+
+consultative-intake:
+  skills:
+    - skill-content-structure
+    - skill-decision-frameworks
+  directive: "Phase 1: clarifying questions. Phase 2: confirm understanding. Phase 3: execute. Never assume. Use decision matrix for trade-offs."
+
+creative-writing:
+  skills:
+    - skill-literary-devices
+    - skill-narrative-craft
+    - skill-content-structure
+  directive: "Show don't tell. POV consistency. Subtext over exposition."
+
+psychology:
+  skills:
+    - skill-psy-cbt
+    - skill-psy-nvc
+  directive: "Socratic questions. I-statements. OFNR. Cognitive triangle."
+
+3d-printing:
+  skills:
+    - skill-3d-platforms
+    - skill-3d-print-search
+    - skill-analysis-critical
+  directive: "PQRS scoring. Tier 1 platforms first. FDM-specific filters."
+
+data-investigation:
+  skills:
+    - skill-analysis-critical
+    - skill-dense-summarization
+  directive: "Timeline reconstruction. Dedup. Fact extraction. Source triangulation."
+
+epistemic-analysis:
+  skills:
+    - skill-agnotology
+    - skill-analysis-critical
+  directive: "Semantic voids. Time-slicing. Cui bono. Triangulate anomalies."
+
+code-review:
+  skills:
+    - skill-dev-clean-code
+    - skill-dev-testing
+    - skill-dev-security
+  directive: "Review for: correctness, security, performance, readability, test coverage. Flag, don't fix."
+
+decision-making:
+  skills:
+    - skill-decision-frameworks
+    - skill-analysis-critical
+  directive: "Pre-mortem. Steel-man opposing view. 2nd order effects. Reversibility check."
+
+product-thinking:
+  skills:
+    - skill-product-frameworks
+    - skill-content-structure
+  directive: "User problem first. RICE prioritization. Measurable outcomes."
+
+temporal-research:
+  skills:
+    - skill-temporal-validation
+    - skill-fact-verification
+  directive: "Check freshness. Cross-reference dates. Flag stale claims."
+
+performance-engineering:
+  skills:
+    - skill-dev-performance
+    - skill-dev-clean-code
+  directive: "Measure first. Profile before optimizing. Benchmark before/after."
+
+prompt-design:
+  skills:
+    - skill-prompt-engineering
+    - skill-prompt-techniques
+    - skill-analysis-critical
+  directive: "Clear Role+Task+Constraints. Few-Shot Selection for format. Eval loop: golden set→metrics→iterate. Mega-Prompting for fire-and-forget. Directional Stimulus for focus."
+
+prompt-security:
+  skills:
+    - skill-prompt-security
+  directive: "Sandwich Defense. Instructional Hierarchy. Delimiters for data isolation. Negative Constraints for explicit prohibitions."
+
+roblox-development:
+  skills:
+    - skill-roblox-development
+    - skill-dev-clean-code
+  directive: "Server authority. Client never trusted. Performance budgets. Object pooling. Anti-exploit patterns."
+
+dev-tools:
+  skills:
+    - skill-mcp-development
+    - skill-dev-api-design
+  directive: "FastMCP. Async patterns. Docstring=prompt. Schema validation. pydantic for complex types."
+
+blender-scripting:
+  skills:
+    - skill-blender-scripting
+  directive: "bmesh over bpy.ops in loops. Manifold mesh mandatory. Parametric design. Print-ready validation."
+
+health-optimization:
+  skills:
+    - skill-fitness-programming
+    - skill-bio-protocols
+  directive: "Progressive overload. RPE 6-8. MEV/MAV/MRV. Spine-safe: neutral spine, hip hinge. Evidence-based."
+
+consumer-research:
+  skills:
+    - skill-purchase-research
+    - skill-analysis-critical
+  directive: "Weighted decision matrix. Trust-tiered sources. Sensitivity analysis ±10%. Total cost of ownership."
+
+visualization:
+  skills:
+    - skill-mermaid-best-practices
+    - skill-content-structure
+  directive: "Choose diagram type by data structure. Short labels. Minimize crossings. Sequence for interactions."
+
+pedagogy:
+  skills:
+    - skill-pedagogy
+    - skill-content-structure
+  directive: "Socratic method. Scaffold complexity. Zone of proximal development. Active recall. Check understanding before advancing."
+
+system-design:
+  skills:
+    - skill-system-design
+    - skill-dev-api-design
+  directive: "Requirements first. Back-of-envelope estimation. C4 model. Trade-offs explicit. Failure modes mandatory. Diagrams required."
+
+ux-design:
+  skills:
+    - skill-ux-principles
+    - skill-content-structure
+  directive: "Nielsen heuristics. Gestalt principles. WCAG AA minimum. Mobile-first. User testing validates assumptions."
+
+mathematical-reasoning:
+  skills:
+    - skill-mathematical-reasoning
+  directive: "Define variables. Show every step. Verify with back-substitution. Dimensional analysis. Estimate before computing."
+
+agentic-patterns:
+  skills:
+    - skill-react-pattern
+    - skill-agentic-loops
+    - skill-agent-handoff
+  directive: "Think before acting. One action at a time. Observe results. Max iterations. Convergence check. Handoff with context summary."
+
+child-psychology:
+  skills:
+    - skill-psy-cbt
+    - skill-psy-nvc
+    - skill-psy-child-dev
+    - skill-psy-digital-wellbeing
+  directive: "Age-stage first. Normalize before pathologize. Attachment lens. Digital context assessment. Parent coaching. Authoritative boundaries. Never diagnose."
+
+concise-output:
+  skills:
+    - skill-caveman-tokenomics
+  directive: "Terse output. BLUF (answer-first). Drop fluff, keep technical substance verbatim. Off in code blocks, commits, PRs."

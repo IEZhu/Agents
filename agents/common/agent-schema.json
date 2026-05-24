@@ -55,6 +55,11 @@
       "items": { "type": "string" },
       "description": "Skills available in the semantic pool with base weight. Loaded only when query strongly matches (embedding + keyword). Use for the broader pool of skills that might apply to sub-queries."
     },
+    "preferred_implants": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Cognitive implants surfaced above semantic candidates. Loaded in standard/deep tiers."
+    },
     "interaction_examples": {
       "type": "array",
       "items": {

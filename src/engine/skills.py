@@ -13,6 +13,19 @@ from src.engine.embedder import embed_texts, embed_query
 
 logger = logging.getLogger(__name__)
 
+
+def _normalize_keywords(raw: Any) -> List[str]:
+    """Coerce a frontmatter `keywords` value to a clean ``list[str]``.
+
+    Tolerates: missing, scalar string, list with non-string entries.
+    """
+    if isinstance(raw, list):
+        return [kw.strip() for kw in raw if isinstance(kw, str) and kw.strip()]
+    if isinstance(raw, str) and raw.strip():
+        return [raw.strip()]
+    return []
+
+
 class SkillRetriever:
     HASH_FILE = os.path.join(DATA_DIR, ".skills_hash")
 
@@ -94,7 +107,7 @@ class SkillRetriever:
                 # being available verbatim in metadata for keyword-bonus scoring.
                 description = frontmatter.get("description", "")
                 compiled = frontmatter.get("compiled", "")
-                keywords = frontmatter.get("keywords", []) or []
+                keywords = _normalize_keywords(frontmatter.get("keywords"))
                 filename = os.path.basename(file_path)
                 full_text = f"{description}\n{' '.join(keywords)}\n\n{body}"
 
@@ -184,25 +197,29 @@ class SkillRetriever:
         skills: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
 
-        # --- 1) Mandatory: load by ID, no scoring -----------------------------
+        # --- 1) Mandatory: load by ID, preserve declared order ----------------
         if mandatory:
             target_ids = [self._to_id(s) for s in mandatory]
             try:
                 results = self.store.get(ids=target_ids)
-                for i, sid in enumerate(results.ids):
-                    if sid in seen_ids:
+                by_id = {
+                    sid: (results.metadatas[i] or {}, results.documents[i])
+                    for i, sid in enumerate(results.ids)
+                }
+                for sid in target_ids:
+                    if sid not in by_id or sid in seen_ids:
                         continue
-                    meta = results.metadatas[i] or {}
+                    meta, doc = by_id[sid]
                     skills.append({
                         "filename": sid,
-                        "content": meta.get("body", results.documents[i]),
+                        "content": meta.get("body", doc),
                         "metadata": meta,
                         "distance": 0.0,
                         "tier": "mandatory",
                     })
                     seen_ids.add(sid)
-                if len(results.ids) < len(target_ids):
-                    missing = [tid for tid in target_ids if tid not in set(results.ids)]
+                missing = [tid for tid in target_ids if tid not in by_id]
+                if missing:
                     logger.warning(f"Mandatory skills not found in store: {missing}")
             except Exception as e:
                 logger.warning(f"Failed to load mandatory skills {target_ids}: {e}")

@@ -9,7 +9,6 @@ keywords:
   - cache hot paths
   - batch i/o
   - async where possible
-  - "amdahl's law"
   - premature optimization
   - regression prevention
 ---

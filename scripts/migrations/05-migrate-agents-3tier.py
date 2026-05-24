@@ -31,8 +31,11 @@ from pathlib import Path
 
 import yaml
 
-REPO_ROOT = Path("/Users/alexey.zhuchkov/Documents/Agents")
-REGISTRY = yaml.safe_load(Path("/tmp/registry_snapshot.yaml").read_text())
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_REGISTRY_PATH = Path(__file__).with_name("registry_snapshot.yaml")
+if not _REGISTRY_PATH.is_file():
+    raise FileNotFoundError(f"Missing registry snapshot: {_REGISTRY_PATH}")
+REGISTRY = yaml.safe_load(_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
 
 # Category C: old capability → new skill that replaces the directive.
 # When agent had this capability, ADD the new skill (the bundle skills are

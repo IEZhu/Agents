@@ -7,11 +7,11 @@ keywords:
   - start with answer
   - silence is gold
   - referential integrity
-  - token usage minimization during
+  - token usage minimization during generation
   - mcp
   - llm
-  - ci
-  - cd
+  - eliminate filler
+  - response-length control
 ---
 # Token Economy Skill
 

@@ -7,8 +7,6 @@ keywords:
   - budget tokens/time
   - checkpoint state
   - exit on convergence or budget
-  - max iterations
-  - convergence check
   - error recovery
   - autonomous agent loop patterns
 ---

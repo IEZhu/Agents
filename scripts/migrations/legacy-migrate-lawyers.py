@@ -62,16 +62,17 @@ def migrate(text: str) -> str:
     body = _strip_cap(body, "critical-analysis")
     body = _strip_cap(body, "dense-summary")
     indent_prefix = _detect_indent(body)
-    new_body = f"{indent_prefix} legal-reasoning\n" + body
-    replacement = header + new_body
+    if not re.search(r'^[ \t]*-[ \t]*"?legal-reasoning"?[ \t]*$', body, flags=re.MULTILINE):
+        body = f"{indent_prefix} legal-reasoning\n" + body
+    replacement = header + body
     return new_text[: m.start()] + replacement + new_text[m.end():]
 
 
 def main() -> int:
-    repo = Path(__file__).resolve().parents[1] / "Documents" / "Agents"
-    if not repo.is_dir():
-        # Fall back to cwd.
-        repo = Path.cwd()
+    repo = Path(__file__).resolve().parents[2]
+    if not (repo / "agents").is_dir():
+        print(f"Cannot locate repo root from script path: {repo}", file=sys.stderr)
+        return 1
     modified = 0
     for name in LAWYERS:
         path = repo / "agents" / name / "system_prompt.mdc"

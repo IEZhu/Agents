@@ -7,7 +7,6 @@ keywords:
   - test interdependency
   - mock at boundaries, not internals
   - test pyramid
-  - mock at boundaries
   - test behavior, not implementation
   - property-based testing
   - mutation testing
