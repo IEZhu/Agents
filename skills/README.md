@@ -54,6 +54,10 @@ keywords:                       # 5–10 phrases that drive the capable-skills
   - keyword phrase one          # keyword boost in `SkillRetriever.retrieve()`.
   - keyword phrase two          # The retrieval embedding uses
                                 # `description + keywords + body`, not `compiled`.
+                                # Matching: case-insensitive, non-word
+                                # look-around (no `\w` immediately before /
+                                # after the literal). Phrases containing
+                                # punctuation (e.g. ``(CoVe)``) are fine.
 ---
 ## Role
 Persona for this skill.

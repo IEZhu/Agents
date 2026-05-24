@@ -43,7 +43,7 @@
     "core_skills": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Mandatory skills — always loaded for this agent, regardless of tier. Use sparingly (1–3 items): only skills the agent cannot function without."
+      "description": "Mandatory skills — always loaded for this agent, regardless of tier. Use sparingly (0–3 items): only skills the agent cannot function without."
     },
     "preferred_skills": {
       "type": "array",

@@ -252,17 +252,21 @@ class SkillRetriever:
             if tier_label == "preferred":
                 d *= boost_factor
             # Keyword boost: any keyword that appears as a whole word/phrase in
-            # the query lowers distance further. Word-boundary matching avoids
-            # false positives like "ux" matching inside "linux" or short keywords
-            # ("rice") matching unrelated tokens ("price"). Keywords shorter than
-            # 3 chars are skipped — too noisy as literal matches.
+            # the query lowers distance further. We use look-around assertions
+            # (no `\w` char immediately before / after the match) instead of
+            # `\b` because many keywords end in punctuation, e.g.
+            # ``undulating (DUP)`` or ``chain-of-verification (CoVe)`` — for
+            # those `\b` after `)` requires the next char to be a word char and
+            # silently fails on `") yesterday"`. Look-arounds work for any
+            # keyword whose own boundary char is non-word, while still keeping
+            # short tokens like ``ui`` from matching inside ``build`` / ``linux``.
             for kw in meta.get("keywords", []) or []:
                 if not (kw and isinstance(kw, str)):
                     continue
                 kw_l = kw.lower().strip()
-                if len(kw_l) < 3:
+                if not kw_l:
                     continue
-                if re.search(rf"\b{re.escape(kw_l)}\b", query_lower):
+                if re.search(rf"(?<!\w){re.escape(kw_l)}(?!\w)", query_lower):
                     d *= keyword_boost
                     break
             if d < SKILLS_RELEVANCE_THRESHOLD:
@@ -272,7 +276,7 @@ class SkillRetriever:
         for d, sid, meta, doc in scored[:n_results]:
             if sid in seen_ids:
                 continue
-            tier_label = "preferred" if sid in {self._to_id(s) for s in preferred} else "capable"
+            tier_label = "preferred" if sid in preferred_ids else "capable"
             skills.append({
                 "filename": sid,
                 "content": meta.get("body", doc),
