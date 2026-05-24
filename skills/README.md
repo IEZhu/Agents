@@ -49,8 +49,15 @@ Examples:
 ```yaml
 ---
 description: "Brief description with key concepts. Role: Persona."
-globs: ["**/*.py", "**/*.ts"]  # File patterns for auto-activation
-alwaysApply: false              # Whether to always include
+compiled: "Dense one-liner used only when the skill is rendered at standard tier (token-saving)."
+keywords:                       # 5–10 phrases that drive the capable-skills
+  - keyword phrase one          # keyword boost in `SkillRetriever.retrieve()`.
+  - keyword phrase two          # The retrieval embedding uses
+                                # `description + keywords + body`, not `compiled`.
+                                # Matching: case-insensitive, non-word
+                                # look-around (no `\w` immediately before /
+                                # after the literal). Phrases containing
+                                # punctuation (e.g. ``(CoVe)``) are fine.
 ---
 ## Role
 Persona for this skill.
@@ -127,49 +134,43 @@ Persona for this skill.
 | `skill-token-economy` | Minimize token usage, eliminate redundancy |
 | `skill-error-recovery` | Universal error handling protocol |
 
-## Loading Methods
+## Loading Methods (3-Tier Per-Agent Model)
 
-### 1. Static Loading
+Every agent declares three skill lists in its frontmatter. Skills not present
+in any of the three are unavailable to that agent (explicit exclusion).
 
-Defined in agent's `static_skills` frontmatter:
+### 1. `core_skills` — Mandatory
+
+Always loaded for the agent, regardless of tier. Use sparingly (0–3 items) —
+only skills the agent cannot function without.
 
 ```yaml
-static_skills:
-  - "skill-dev-clean-code.mdc"
-  - "skill-dev-debugging.mdc"
+core_skills:
+  - skill-legal-citation
 ```
 
-Used when MCP is unavailable (fallback mode).
+### 2. `preferred_skills` — Boosted Semantic Pool
 
-### 2. Dynamic Loading (RAG)
-
-Defined in agent's `preferred_skills` frontmatter:
+Skills that participate in semantic retrieval with a `distance × 0.7` boost.
+Loaded when the query semantically matches them. Typical size 3–8.
 
 ```yaml
 preferred_skills:
-  - "skill-dev-clean-code"
-  - "skill-dev-debugging"
+  - skill-dev-clean-code
+  - skill-dev-debugging
+  - skill-dev-testing
 ```
 
-MCP server uses vector search to select relevant skills based on:
-- Query content
-- Agent's preferred skills
-- Skill descriptions
+### 3. `capable_skills` — Base Semantic Pool
 
-### 3. Glob-Based Auto-Loading
-
-Skills with `globs` patterns activate when matching files are in context:
+Skills available with base distance, promoted by keyword match (`distance ×
+0.85` when any `keywords:` entry literally appears in the query). Use for the
+broader pool that may apply to sub-queries. Typical size 0–15.
 
 ```yaml
-globs: ["**/*.py", "**/*.ts"]
-```
-
-### 4. Always-Apply
-
-Skills with `alwaysApply: true` are always loaded:
-
-```yaml
-alwaysApply: true
+capable_skills:
+  - skill-prompt-security
+  - skill-tech-writing
 ```
 
 ## Creating a New Skill
@@ -180,8 +181,10 @@ alwaysApply: true
    ```yaml
    ---
    description: "My Skill: what it provides. Key concepts: A, B, C. Role: Expert."
-   globs: ["**/*.ext"]
-   alwaysApply: false
+   compiled: "Dense one-liner rendered at standard tier (token-saving)."
+   keywords:
+     - canonical phrase one
+     - canonical phrase two
    ---
    ## Role
    Expert in Domain: specific expertise.
@@ -199,13 +202,11 @@ alwaysApply: true
    - `another_action()`: What this does
    ```
 
-3. **Reference in agent**:
+3. **Attach to one or more agents** by listing it in the agent's
+   `core_skills`, `preferred_skills`, or `capable_skills`:
    ```yaml
-   # In agent's system_prompt.mdc
-   static_skills:
-     - "skill-domain-name.mdc"
    preferred_skills:
-     - "skill-domain-name"
+     - skill-domain-name
    ```
 
 4. **Restart MCP server**: To re-index skills

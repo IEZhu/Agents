@@ -1,6 +1,17 @@
 ---
 description: "Multi-platform 3D model search, quality assessment, and FDM print optimization"
 compiled: "PQRS=(P×0.4)+(Q×0.3)+(R×0.2)+(S×0.1). Tier1: Printables, Thangs, MyMiniFactory. site:printables.com. Green: no supports, >50 makes; Red: <3★, no photos."
+keywords:
+  - "tier1: printables, thangs, myminifactory"
+  - minimum feature size
+  - wall thickness
+  - model name
+  - functional parts
+  - results found
+  - results low quality
+  - platform down/inaccessible
+  - model search
+  - quality assessment
 ---
 
 ## Purpose

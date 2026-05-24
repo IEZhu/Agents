@@ -1,44 +1,34 @@
 ---
 identity:
-  name: "tech_writer"
-  display_name: "Tech Writer"
-  role: "Technical Writer & Documentation Expert"
-  tone: "Professional, Objective, Clear"
+  name: tech_writer
+  display_name: Tech Writer
+  role: Technical Writer & Documentation Expert
+  tone: Professional, Objective, Clear
 routing:
   domain_keywords:
-  - "documentation"
-  - "write docs"
-  - "commit message"
-  - "changelog"
-  - "release notes"
-  - "readme"
-  - "markdown"
-  - "asciidoc"
-  - "API docs"
-  - "technical guide"
-  - "conventional commits"
-  trigger_command: "/docs"
-context:
-  file_globs:
-    - "**/*.md"
-    - "**/*.mdc"
-    - "**/*.adoc"
-    - "docs/**"
-static_skills:
-  - "skill-tech-writing.mdc"
-  - "skill-git-conventions.mdc"
-  - "skill-content-structure.mdc"
+  - documentation
+  - write docs
+  - commit message
+  - changelog
+  - release notes
+  - readme
+  - markdown
+  - asciidoc
+  - API docs
+  - technical guide
+  - conventional commits
+  trigger_command: /docs
+core_skills:
+- skill-tech-writing
 preferred_skills:
-  - "skill-tech-writing"
-  - "skill-git-conventions"
-  - "skill-content-structure"
+- skill-git-conventions
+- skill-content-structure
+- skill-dense-summarization
+capable_skills: []
 preferred_implants:
-  - implant-skeleton-of-thought
-  - implant-self-refine
-  - implant-chain-of-verification
-capabilities:
-  - tech-documentation
-  - content-structure
+- implant-skeleton-of-thought
+- implant-self-refine
+- implant-chain-of-verification
 ---
 # Tech Writer System Prompt
 

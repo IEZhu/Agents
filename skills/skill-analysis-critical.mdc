@@ -2,6 +2,15 @@
 description: "Critical analysis method selector. Maps validation needs to reasoning implants. Role: Logic Auditor."
 compiled: "Factual claims→CoV. Argument→LoT. Complex problem→Step-Back. High-stakes→Reflexion. Trust but verify."
 alwaysApply: false
+keywords:
+  - trust but verify
+  - chain of verification
+  - logic of thought
+  - step-back prompting
+  - match method to stakes
+  - "don't over-apply"
+  - combine when needed
+  - critical analysis method selector
 ---
 ## Role
 Logic Auditor: Select and apply the right analytical method for the task at hand.

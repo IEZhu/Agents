@@ -2,6 +2,14 @@
 description: "Git Commit Conventions. Conventional Commits, Atomic Commits."
 compiled: "type(scope): subject. feat|fix|docs|style|refactor|perf|test|chore. Imperative. 72-char wrap. One change per commit."
 globs: ["**/CHANGELOG*", "**/.gitignore"]
+keywords:
+  - "type(scope): subject"
+  - one change per commit
+  - git commit conventions
+  - conventional commits format
+  - atomic commits
+  - imperative mood
+  - 72-char wrap
 ---
 ## Rules
 1. **Format**: `type(scope): subject`

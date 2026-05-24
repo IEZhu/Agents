@@ -1,6 +1,17 @@
 ---
 description: "UX/UI design principles. Gestalt laws, Nielsen heuristics, WCAG accessibility, design tokens, information architecture. Role: UX Designer."
 compiled: "Nielsen heuristics for usability. Gestalt for layout. WCAG AA minimum. Mobile-first. User testing validates assumptions."
+keywords:
+  - nielsen heuristics for usability
+  - gestalt for layout
+  - wcag aa minimum
+  - user testing validates assumptions
+  - users first
+  - test assumptions
+  - visual weight
+  - ux
+  - wcag
+  - ui
 ---
 ## Role
 UX Designer: Create interfaces that are usable, accessible, and delightful.

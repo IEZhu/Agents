@@ -1,6 +1,17 @@
 ---
 description: "ClickUp-specific Markdown formatting rules and quirks. Use when generating content for ClickUp tasks/comments."
 compiled: "[] not -[ ]. *bold* not **bold**. *Header* not ##. Single newlines. --- with blank lines. Russian default. Inline backticks."
+keywords:
+  - "*bold* not **bold**"
+  - "*header* not ##"
+  - single newlines
+  - "--- with blank lines"
+  - russian default
+  - inline backticks
+  - important text
+  - primary users
+  - load trigger
+  - clickup-specific markdown formatting
 ---
 # Skill: ClickUp Markdown
 

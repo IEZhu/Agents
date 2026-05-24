@@ -173,15 +173,18 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
 
     loop = asyncio.get_running_loop()
     metadata = await loop.run_in_executor(None, get_agent_metadata, agent_name)
-    preferred_skills = metadata.get("preferred_skills", [])
-    preferred_implants = metadata.get("preferred_implants", [])
-    capabilities = metadata.get("capabilities", [])
+    core_skills = metadata.get("core_skills", []) or []
+    preferred_skills = metadata.get("preferred_skills", []) or []
+    capable_skills = metadata.get("capable_skills", []) or []
+    preferred_implants = metadata.get("preferred_implants", []) or []
 
-    # Promote tier to at least "standard" when agent declares skills/capabilities/implants,
-    # but only if tier was inferred (not explicitly set by the caller)
-    if not tier_explicit and tier == "lite" and (preferred_skills or capabilities or preferred_implants):
+    # Promote inferred tier to "standard" only when implants are declared.
+    # `lite` keeps mandatory `core_skills` (loaded unconditionally below) but
+    # skips the semantic skill pool and implants — exactly what short queries
+    # benefit from. Implants always need the semantic pipeline, so promote.
+    if not tier_explicit and tier == "lite" and preferred_implants:
         tier = "standard"
-        logger.info(f"Tier promoted to 'standard' for {agent_name} (has preferred_skills, capabilities, or preferred_implants)")
+        logger.info(f"Tier promoted to 'standard' for {agent_name} (preferred implants declared)")
 
     query_hash = hash(query)
     cache_key = f"{agent_name}:{query_hash}:{tier}"
@@ -213,9 +216,14 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     base_prompt = await loop.run_in_executor(None, load_agent_prompt, agent_name)
 
     enrichment = await enrich_agent_prompt(
-        agent_name, base_prompt, query, chat_history_list,
-        preferred_skills, tier,
-        capabilities=capabilities,
+        agent_name,
+        base_prompt,
+        query,
+        chat_history_list,
+        core_skills=core_skills,
+        preferred_skills=preferred_skills,
+        capable_skills=capable_skills,
+        tier=tier,
         preferred_implants=preferred_implants,
     )
     final_prompt = enrichment.prompt
@@ -224,8 +232,11 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     CONTEXT_HASH_CACHE[ctx_hash] = agent_name
     debug_log("_load_and_enrich", "res", {
         "agent": agent_name, "tier": tier, "cache": "miss",
-        "prompt_len": len(final_prompt), "preferred_skills": preferred_skills,
-        "preferred_implants": preferred_implants, "capabilities": capabilities,
+        "prompt_len": len(final_prompt),
+        "core_skills": core_skills,
+        "preferred_skills": preferred_skills,
+        "capable_skills": capable_skills,
+        "preferred_implants": preferred_implants,
         "skills_loaded": enrichment.skills_loaded,
         "implants_loaded": enrichment.implants_loaded,
         "rules_loaded": enrichment.rules_loaded,

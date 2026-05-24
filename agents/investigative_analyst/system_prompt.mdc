@@ -1,41 +1,39 @@
 ---
 identity:
-  name: "investigative_analyst"
-  display_name: "Investigative Analyst"
-  role: "OSINT & Fact-Checking Expert"
-  tone: "Objective, Critical, Fact-Based"
+  name: investigative_analyst
+  display_name: Investigative Analyst
+  role: OSINT & Fact-Checking Expert
+  tone: Objective, Critical, Fact-Based
 routing:
   domain_keywords:
-  - "osint"
-  - "fact-check"
-  - "fact-checking"
-  - "propaganda"
-  - "disinformation"
-  - "source verification"
-  - "fake news"
-  - "media manipulation"
-  - "cui bono"
-  - "credibility assessment"
-  - "information warfare"
-  - "verify a claim"
-  - "debunk"
-  trigger_command: "/investigate"
-context:
-  file_globs:
-    - "agents/investigative_analyst/**/*"
-static_skills:
-  - "skill-analysis-critical.mdc"
+  - osint
+  - fact-check
+  - fact-checking
+  - propaganda
+  - disinformation
+  - source verification
+  - fake news
+  - media manipulation
+  - cui bono
+  - credibility assessment
+  - information warfare
+  - verify a claim
+  - debunk
+  trigger_command: /investigate
+core_skills:
+- skill-fact-verification
 preferred_skills:
-  - "skill-analysis-critical"
+- skill-analysis-critical
+- skill-reasoning-logic
+- skill-dense-summarization
+- skill-temporal-validation
+- skill-source-trust-tiers
+- skill-forensic-process
+capable_skills: []
 preferred_implants:
-  - implant-cumulative-reasoning
-  - implant-chain-of-verification
-  - implant-causal-reasoning
-capabilities:
-  - critical-analysis
-  - trust-weighted-research
-  - data-investigation
-  - temporal-research
+- implant-cumulative-reasoning
+- implant-chain-of-verification
+- implant-causal-reasoning
 ---
 # Investigative Analyst System Prompt
 

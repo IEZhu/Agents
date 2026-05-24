@@ -4,7 +4,7 @@
   "title": "Agent Frontmatter Schema",
   "description": "JSON Schema for validating YAML frontmatter in agent system_prompt.mdc files",
   "type": "object",
-  "required": ["identity", "routing", "context", "static_skills"],
+  "required": ["identity", "routing", "core_skills", "preferred_skills", "capable_skills"],
   "properties": {
     "identity": {
       "type": "object",
@@ -12,8 +12,8 @@
       "properties": {
         "name": {
           "type": "string",
-          "pattern": "^[a-z_]+$",
-          "description": "Internal agent name in snake_case (e.g., 'software_engineer')"
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Internal agent name in snake_case (e.g., 'software_engineer', '3d_print_finder')"
         },
         "display_name": {
           "type": "string",
@@ -44,47 +44,54 @@
         },
         "trigger_command": {
           "type": "string",
-          "pattern": "^/[a-z_]+$",
-          "description": "Slash command to explicitly activate agent (e.g., '/dev')"
+          "pattern": "^/[a-z0-9_]+$",
+          "description": "Slash command to explicitly activate agent (e.g., '/dev', '/3dprint')"
         }
       },
       "additionalProperties": false
     },
-    "context": {
-      "type": "object",
-      "properties": {
-        "file_globs": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "File patterns that trigger this agent (glob syntax)"
-        }
-      },
-      "additionalProperties": false
-    },
-    "static_skills": {
+    "core_skills": {
       "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^skill-[a-z-]+\\.mdc$"
-      },
-      "description": "Skills for static fallback mode (with .mdc extension)"
+      "items": { "type": "string", "pattern": "^skill-[a-z0-9-]+$" },
+      "description": "Mandatory skills — always loaded for this agent. Use sparingly (0–3 items)."
     },
     "preferred_skills": {
       "type": "array",
-      "items": {
-        "type": "string",
-        "pattern": "^skill-[a-z-]+$"
-      },
-      "description": "Skills for MCP dynamic loading (without .mdc extension)"
+      "items": { "type": "string", "pattern": "^skill-[a-z0-9-]+$" },
+      "description": "Skills with distance boost in semantic search. Loaded when query matches them."
+    },
+    "capable_skills": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^skill-[a-z0-9-]+$" },
+      "description": "Skills in semantic pool with base weight. Loaded only when query strongly matches (embedding + keyword)."
+    },
+    "preferred_implants": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^implant-[a-z0-9-]+$" },
+      "description": "Cognitive implants ranked above semantic candidates. Loaded in standard/deep tiers."
     }
   },
   "additionalProperties": false,
   "definitions": {
     "deprecated_fields": {
       "skills": {
-        "description": "DEPRECATED: Use static_skills and preferred_skills instead",
+        "description": "DEPRECATED: Use core_skills / preferred_skills / capable_skills instead.",
+        "type": "null"
+      },
+      "static_skills": {
+        "description": "REMOVED: The engine never consumed this field. Use core_skills + preferred_skills + capable_skills.",
+        "type": "null"
+      },
+      "capabilities": {
+        "description": "REMOVED: Capability bundles are gone. Skills are now declared per-agent in core_skills/preferred_skills/capable_skills.",
+        "type": "null"
+      },
+      "context": {
+        "description": "REMOVED: context.file_globs was never consumed by the engine. Routing uses routing.domain_keywords + semantic search, not file types.",
+        "type": "null"
+      },
+      "file_globs": {
+        "description": "REMOVED: never consumed by the engine. See `context` deprecated_fields entry.",
         "type": "null"
       }
     }

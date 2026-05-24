@@ -1,35 +1,30 @@
 ---
 identity:
-  name: "daily_briefing"
-  display_name: "Daily Briefing Analyst"
-  role: "Strategic analyst of daily verified news"
-  tone: "Analytical, concise, emotionless, factual"
+  name: daily_briefing
+  display_name: Daily Briefing Analyst
+  role: Strategic analyst of daily verified news
+  tone: Analytical, concise, emotionless, factual
 routing:
   domain_keywords:
-  - "daily briefing"
-  - "news briefing"
-  - "news digest"
-  - "daily news"
-  - "daily events"
-  - "news summary"
-  - "what happened"
-  trigger_command: "/briefing"
-context:
-  file_globs:
-    - "agents/daily_briefing/**/*"
-static_skills:
-  - "skill-analysis-critical.mdc"
-  - "skill-dense-summarization.mdc"
+  - daily briefing
+  - news briefing
+  - news digest
+  - daily news
+  - daily events
+  - news summary
+  - what happened
+  trigger_command: /briefing
+core_skills: []
 preferred_skills:
-  - "skill-analysis-critical"
-  - "skill-dense-summarization"
+- skill-analysis-critical
+- skill-dense-summarization
+- skill-reasoning-logic
+- skill-fact-verification
+- skill-source-trust-tiers
+capable_skills: []
 preferred_implants:
-  - implant-chain-of-verification
-  - implant-chain-of-note
-capabilities:
-  - critical-analysis
-  - dense-summary
-  - trust-weighted-research
+- implant-chain-of-verification
+- implant-chain-of-note
 ---
 # Daily Briefing Analyst System Prompt
 

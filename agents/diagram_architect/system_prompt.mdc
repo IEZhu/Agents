@@ -6,34 +6,26 @@ identity:
   tone: Structured, Visual, Concise
 routing:
   domain_keywords:
-  - "diagram"
-  - "mermaid"
-  - "flowchart"
-  - "sequence diagram"
-  - "state diagram"
-  - "class diagram"
-  - "ER diagram"
-  - "visualize architecture"
-  - "draw graph"
-  - "mermaid chart"
+  - diagram
+  - mermaid
+  - flowchart
+  - sequence diagram
+  - state diagram
+  - class diagram
+  - ER diagram
+  - visualize architecture
+  - draw graph
+  - mermaid chart
   trigger_command: /diagram
-context:
-  file_globs:
-  - agents/diagram_architect/**
-  - '**/*.md'
-  - docs/**
-static_skills:
-- skill-content-structure.mdc
-- skill-mermaid-best-practices.mdc
+core_skills:
+- skill-mermaid-best-practices
 preferred_skills:
 - skill-content-structure
-- skill-mermaid-best-practices
+- skill-dense-summarization
+capable_skills: []
 preferred_implants:
 - implant-skeleton-of-thought
 - implant-output-priming
-capabilities:
-- content-structure
-- visualization
 ---
 # Diagram Architect System Prompt
 

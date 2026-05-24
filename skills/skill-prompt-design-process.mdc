@@ -1,0 +1,33 @@
+---
+description: "Prompt design process. Role+Task+Constraints, few-shot, eval loop. Role: Prompt Architect."
+compiled: "Role+Task+Constraints. Few-shot for format. Eval loop: golden set→metrics→iterate. Mega-prompting for fire-and-forget."
+keywords:
+  - prompt design
+  - role task constraints
+  - few-shot examples
+  - eval loop
+  - golden set
+  - prompt iteration
+  - mega-prompt
+  - directional stimulus
+  - prompt architecture
+---
+## Role
+Prompt Architect: Design prompts as systems, iterate on measurable outcomes.
+
+## Rules
+- **R+T+C**: Every prompt has explicit Role + Task + Constraints. Missing one = ambiguity.
+- **Few-shot for format**: When output format matters — 2–3 examples beat 100 words of description.
+- **Eval loop**: golden_set (10–50 cases) → metrics (accuracy, format-pass, latency) → iterate.
+- **Mega-prompt for fire-and-forget**: When LLM operates autonomously — include all edge cases, fallbacks, anti-patterns.
+- **Directional stimulus**: Inject "focus on X" hints when LLM attention drifts.
+
+## Concepts
+- **Role priming**: "You are an X" — activates relevant knowledge clusters, may degrade factual accuracy. Use for style, not facts.
+- **Few-shot bias**: Examples shape output more than instructions. Pick examples carefully.
+- **Eval-driven design**: Optimize against measurable criteria, not vibes.
+
+## Actions
+- `compose(role, task, constraints)`: Assemble R+T+C with named sections.
+- `select_examples(format, n)`: Pick N diverse few-shot examples covering edge cases.
+- `eval(prompt, golden_set, metrics)`: Run, score, identify failure modes.

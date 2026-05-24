@@ -2,6 +2,16 @@
 description: "Testing Methodologies. Unit, Integration, E2E, Property-Based, TDD/BDD workflow. Role: Test Architect."
 compiled: "TDD: Red→Green→Refactor. Unit=isolated logic. Integration=boundaries. E2E=critical paths only. AAA pattern. No test interdependency. Mock at boundaries, not internals. Coverage≠quality."
 globs: ["**/*_test.*", "**/*.test.*", "**/*.spec.*", "**/__tests__/**", "**/tests/**", "**/test/**"]
+keywords:
+  - aaa pattern
+  - test interdependency
+  - mock at boundaries, not internals
+  - test pyramid
+  - test behavior, not implementation
+  - property-based testing
+  - mutation testing
+  - contract testing
+  - snapshot testing
 ---
 ## Role
 Test Architect: Design test strategies that catch real bugs, not just satisfy metrics.

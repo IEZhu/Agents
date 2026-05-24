@@ -10,11 +10,15 @@ Checks for:
 """
 
 import os
+import re
 import sys
 import json
 import yaml
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+SKILL_ID_RE = re.compile(r"^skill-[a-z0-9-]+$")
+IMPLANT_ID_RE = re.compile(r"^implant-[a-z0-9-]+$")
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).parent
@@ -59,9 +63,15 @@ def validate_agent(agent_name: str, frontmatter: Dict, schema: Dict) -> Tuple[bo
         if field not in frontmatter:
             errors.append(f"Missing required field: '{field}'")
 
-    # Check for deprecated 'skills' field
+    # Check for deprecated fields
     if "skills" in frontmatter:
-        warnings.append("DEPRECATED: 'skills' field should be removed (use 'static_skills' and 'preferred_skills')")
+        warnings.append("DEPRECATED: 'skills' field should be removed (use core_skills / preferred_skills / capable_skills).")
+    if "static_skills" in frontmatter:
+        warnings.append("REMOVED: 'static_skills' is no longer used. Use core_skills / preferred_skills / capable_skills.")
+    if "capabilities" in frontmatter:
+        warnings.append("REMOVED: 'capabilities' bundles are gone. Distribute skills directly into core_skills / preferred_skills / capable_skills.")
+    if "context" in frontmatter:
+        warnings.append("REMOVED: 'context' block (including file_globs) is no longer used by the engine.")
 
     # Check identity structure
     if "identity" in frontmatter:
@@ -79,31 +89,32 @@ def validate_agent(agent_name: str, frontmatter: Dict, schema: Dict) -> Tuple[bo
         if "trigger_command" not in routing:
             errors.append("Missing routing.trigger_command")
 
-    # Check context structure
-    if "context" in frontmatter:
-        context = frontmatter["context"]
-        if "file_globs" not in context:
-            errors.append("Missing context.file_globs")
-
-    # Check static_skills
-    if "static_skills" in frontmatter:
-        skills = frontmatter["static_skills"]
-        if not isinstance(skills, list):
-            errors.append("static_skills must be an array")
-        else:
+    # Check core_skills / preferred_skills / capable_skills
+    for field_name in ("core_skills", "preferred_skills", "capable_skills"):
+        if field_name in frontmatter:
+            skills = frontmatter[field_name]
+            if not isinstance(skills, list):
+                errors.append(f"{field_name} must be an array")
+                continue
             for skill in skills:
-                if not skill.endswith(".mdc"):
-                    warnings.append(f"static_skills entry '{skill}' should end with .mdc")
+                if not isinstance(skill, str):
+                    errors.append(f"{field_name} entries must be strings, got {type(skill).__name__}")
+                elif skill.endswith(".mdc"):
+                    warnings.append(f"{field_name} entry '{skill}' should NOT include .mdc extension")
+                elif not SKILL_ID_RE.match(skill):
+                    errors.append(f"{field_name} entry '{skill}' must match {SKILL_ID_RE.pattern}")
 
-    # Check preferred_skills
-    if "preferred_skills" in frontmatter:
-        skills = frontmatter["preferred_skills"]
-        if not isinstance(skills, list):
-            errors.append("preferred_skills must be an array")
+    # Check preferred_implants
+    if "preferred_implants" in frontmatter:
+        implants = frontmatter["preferred_implants"]
+        if not isinstance(implants, list):
+            errors.append("preferred_implants must be an array")
         else:
-            for skill in skills:
-                if skill.endswith(".mdc"):
-                    warnings.append(f"preferred_skills entry '{skill}' should NOT include .mdc extension")
+            for imp in implants:
+                if not isinstance(imp, str):
+                    errors.append(f"preferred_implants entries must be strings, got {type(imp).__name__}")
+                elif not IMPLANT_ID_RE.match(imp):
+                    errors.append(f"preferred_implants entry '{imp}' must match {IMPLANT_ID_RE.pattern}")
 
     return (len(errors) == 0, errors + warnings)
 
@@ -157,7 +168,7 @@ def main():
             all_valid = False
 
         for msg in messages:
-            if "DEPRECATED" in msg or "should" in msg:
+            if any(tok in msg for tok in ("DEPRECATED", "REMOVED", "should")):
                 print(f"   ⚠️  {msg}")
             else:
                 print(f"   ❌ {msg}")

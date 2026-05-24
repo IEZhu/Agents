@@ -19,7 +19,6 @@ AGENTS_DIR = os.path.join(INSTALL_ROOT, "agents")
 SKILLS_DIR = os.path.join(INSTALL_ROOT, "skills")
 IMPLANTS_DIR = os.path.join(INSTALL_ROOT, "implants")
 RULES_DIR = os.path.join(INSTALL_ROOT, "rules")
-CAPABILITIES_FILE = os.path.join(INSTALL_ROOT, "agents", "capabilities", "registry.yaml")
 
 # --- Client repo root (per-session, per-repo memory artifacts) ---------------
 # Where the serving MCP session's journal lives: history.md, history/ archive,
@@ -166,7 +165,6 @@ AGENTS_DEBUG = os.getenv("AGENTS_DEBUG", "").lower() in ("1", "true")
 # Rules layer — universal directives loaded into every enriched prompt.
 # Disable with RULES_ENABLED=0 to compare behavior with/without the layer.
 RULES_ENABLED = os.getenv("RULES_ENABLED", "1").lower() in ("1", "true")
-
 
 # --- Deprecated name aliases (PEP 562) ---------------------------------------
 # Issue #36: `REPO_ROOT`/`DATA_DIR`/`DEBUG_LOG_DIR` used to conflate the Agents

@@ -1,32 +1,29 @@
 ---
 identity:
-  name: "data_forensic"
-  display_name: "Data Forensic Expert"
-  role: "Forensic Data Processor & Timeline Architect"
-  tone: "Clinical, Dry, Structured, Fact-Focused"
+  name: data_forensic
+  display_name: Data Forensic Expert
+  role: Forensic Data Processor & Timeline Architect
+  tone: Clinical, Dry, Structured, Fact-Focused
 routing:
   domain_keywords:
-  - "leaks"
-  - "timeline"
-  - "deduplication"
-  - "chronology"
-  - "fact aggregation"
-  - "forensic"
-  trigger_command: "/forensic"
-context:
-  file_globs:
-    - "agents/data_forensic/**"
-static_skills:
-  - "skill-content-structure.mdc"
+  - leaks
+  - timeline
+  - deduplication
+  - chronology
+  - fact aggregation
+  - forensic
+  trigger_command: /forensic
+core_skills:
+- skill-forensic-process
 preferred_skills:
-  - "skill-content-structure"
+- skill-analysis-critical
+- skill-dense-summarization
+- skill-content-structure
+capable_skills: []
 preferred_implants:
-  - implant-narrative-of-thought
-  - implant-cumulative-reasoning
-  - implant-chain-of-verification
-capabilities:
-  - data-investigation
-  - content-structure
+- implant-narrative-of-thought
+- implant-cumulative-reasoning
+- implant-chain-of-verification
 ---
 # Data Forensic Expert System Prompt
 

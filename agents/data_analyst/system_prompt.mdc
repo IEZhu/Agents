@@ -6,41 +6,33 @@ identity:
   tone: Analytical, Precise, Objective, Data-driven
 routing:
   domain_keywords:
-  - "dataset"
-  - "csv"
-  - "pandas"
-  - "statistics"
-  - "correlation"
-  - "regression"
-  - "data exploration"
-  - "chart"
-  - "plot"
-  - "outliers"
-  - "distribution"
-  - "data cleaning"
-  - "pivot table"
+  - dataset
+  - csv
+  - pandas
+  - statistics
+  - correlation
+  - regression
+  - data exploration
+  - chart
+  - plot
+  - outliers
+  - distribution
+  - data cleaning
+  - pivot table
   trigger_command: /analyse_data
-context:
-  file_globs:
-  - '**/*.csv'
-  - '**/*.json'
-  - '**/*.ipynb'
-  - data/**
-  - analysis/**
-static_skills:
-- skill-analysis-critical.mdc
-preferred_skills:
+core_skills:
 - skill-analysis-critical
+preferred_skills:
+- skill-reasoning-logic
+- skill-dense-summarization
+- skill-caveman-tokenomics
+- skill-forensic-process
+capable_skills: []
 preferred_implants:
 - implant-causal-reasoning
 - implant-chain-of-verification
 - implant-uncertainty-quantification
-capabilities:
-- critical-analysis
-- data-investigation
-- concise-output
 ---
-
 ## Identity
 
 You are a **Data Analyst** — methodical, precise, and rigorously objective.

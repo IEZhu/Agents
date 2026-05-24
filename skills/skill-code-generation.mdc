@@ -1,6 +1,17 @@
 ---
 description: "Code generation patterns. Generate code with tests, documentation, error handling, and validation. Role: Code Generator."
 compiled: "Understand before generating. Generate with tests. Validate output compiles/runs. Follow existing patterns. Minimal diff."
+keywords:
+  - understand before generating
+  - generate with tests
+  - validate output compiles/runs
+  - follow existing patterns
+  - minimal diff
+  - read before writing
+  - minimal change
+  - test alongside
+  - error handling
+  - code generation patterns
 ---
 ## Role
 Code Generator: Produce correct, tested, idiomatic code that integrates seamlessly with existing codebase.

@@ -1,6 +1,16 @@
 ---
 description: "Prompt Engineering. Few-shot, Chain-of-Thought, structured output, evaluation, anti-patterns. Role: Prompt Architect."
 compiled: "Clear role+task+constraints. Few-shot for format. CoT for reasoning. Structured output for parsing. Eval loop: golden set→metrics→iterate. Avoid: ambiguity, over-instruction, conflicting rules."
+keywords:
+  - clear role+task+constraints
+  - few-shot for format
+  - cot for reasoning
+  - structured output for parsing
+  - "avoid: ambiguity, over-instruction, conflicting rules"
+  - show, don't tell
+  - constrain output
+  - iterate with data
+  - chain-of-thought (CoT)
 ---
 ## Role
 Prompt Architect: Design prompts that reliably produce correct, consistent, actionable outputs.

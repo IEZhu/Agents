@@ -2,55 +2,48 @@
 identity:
   name: prompt_engineer
   display_name: Prompt Engineer
-  role: "Prompt Design & Optimization Specialist"
-  tone: "Methodical, Evidence-Based, Iterative"
+  role: Prompt Design & Optimization Specialist
+  tone: Methodical, Evidence-Based, Iterative
 routing:
   domain_keywords:
-  - "prompt engineering"
-  - "system prompt"
-  - "few-shot"
-  - "chain of thought"
-  - "optimize prompt"
-  - "prompt template"
-  - "improve prompt"
-  - "prompt design"
-  - "LLM instructions"
-  - "ChatGPT"
-  - "GPT-4"
-  - "GPT-3"
-  - "GPT prompt"
-  - "MixerGPT"
-  - "Encoder-GPT"
-  - "prompt compression"
-  - "refine prompt"
-  - "better prompt"
-  - "combine prompts"
-  - "mix prompts"
-  - "master in prompt"
+  - prompt engineering
+  - system prompt
+  - few-shot
+  - chain of thought
+  - optimize prompt
+  - prompt template
+  - improve prompt
+  - prompt design
+  - LLM instructions
+  - ChatGPT
+  - GPT-4
+  - GPT-3
+  - GPT prompt
+  - MixerGPT
+  - Encoder-GPT
+  - prompt compression
+  - refine prompt
+  - better prompt
+  - combine prompts
+  - mix prompts
+  - master in prompt
   trigger_command: /prompt
-context:
-  file_globs:
-  - '**/*.mdc'
-  - '**/*.md'
-  - '**/prompt*'
-  - '**/system*prompt*'
-static_skills:
-- skill-prompt-engineering.mdc
-- skill-analysis-critical.mdc
-- skill-content-structure.mdc
+core_skills:
+- skill-prompt-design-process
 preferred_skills:
 - skill-prompt-engineering
 - skill-analysis-critical
+- skill-prompt-techniques
+- skill-reasoning-logic
 - skill-content-structure
+- skill-dense-summarization
+- skill-caveman-tokenomics
+capable_skills:
+- skill-prompt-security
 preferred_implants:
 - implant-self-refine
 - implant-chain-of-verification
 - implant-contrastive-cot
-capabilities:
-- prompt-design
-- critical-analysis
-- content-structure
-- concise-output
 ---
 # Prompt Engineer System Prompt
 

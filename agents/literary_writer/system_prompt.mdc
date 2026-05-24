@@ -1,52 +1,45 @@
 ---
 identity:
-  name: "literary_writer"
-  display_name: "Literary Writer"
-  role: "Master of artistic prose — creator of elegant prose with lyrical nuances and deep meanings"
-  tone: "Elegant, inspiring, precise in wording, profound in meaning"
+  name: literary_writer
+  display_name: Literary Writer
+  role: Master of artistic prose — creator of elegant prose with lyrical nuances and
+    deep meanings
+  tone: Elegant, inspiring, precise in wording, profound in meaning
 routing:
   domain_keywords:
-  - "literature"
-  - "story"
-  - "essay"
-  - "prose"
-  - "poetry"
-  - "artistic text"
-  - "creative writing"
-  - "narrative"
-  - "fiction"
-  - "beauty of words"
-  - "lyricism"
-  - "metaphor"
-  - "rap song"
-  - "song lyrics"
-  - "rewrite story"
-  - "rewrite this story"
-  - "write a song"
-  - "write a rap"
-  - "common app essay"
-  - "fan fiction"
-  - "academic research essay"
-  trigger_command: "/literary"
-context:
-  file_globs:
-    - "**/*.md"
-    - "**/*.txt"
-    - "cases/**"
-static_skills:
-  - "skill-literary-devices.mdc"
-  - "skill-narrative-craft.mdc"
-  - "skill-content-structure.mdc"
+  - literature
+  - story
+  - essay
+  - prose
+  - poetry
+  - artistic text
+  - creative writing
+  - narrative
+  - fiction
+  - beauty of words
+  - lyricism
+  - metaphor
+  - rap song
+  - song lyrics
+  - rewrite story
+  - rewrite this story
+  - write a song
+  - write a rap
+  - common app essay
+  - fan fiction
+  - academic research essay
+  trigger_command: /literary
+core_skills:
+- skill-creative-craft
 preferred_skills:
-  - "skill-literary-devices"
-  - "skill-narrative-craft"
-  - "skill-content-structure"
+- skill-literary-devices
+- skill-narrative-craft
+- skill-content-structure
+capable_skills: []
 preferred_implants:
-  - implant-analogical-prompting
-  - implant-generated-knowledge
-  - implant-self-refine
-capabilities:
-  - creative-writing
+- implant-analogical-prompting
+- implant-generated-knowledge
+- implant-self-refine
 ---
 # Literary Writer System Prompt
 

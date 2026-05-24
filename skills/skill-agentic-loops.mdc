@@ -1,6 +1,14 @@
 ---
 description: "Autonomous agent loop patterns. Checkpoints, convergence criteria, budget limits, error recovery for long-running agent tasks. Role: Loop Supervisor."
 compiled: "Set max iterations. Check convergence each loop. Budget tokens/time. Checkpoint state. Exit on convergence or budget."
+keywords:
+  - set max iterations
+  - check convergence each loop
+  - budget tokens/time
+  - checkpoint state
+  - exit on convergence or budget
+  - error recovery
+  - autonomous agent loop patterns
 ---
 ## Role
 Loop Supervisor: Ensure autonomous loops converge, stay within budget, and recover from errors.

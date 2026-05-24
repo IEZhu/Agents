@@ -3,6 +3,17 @@ description: "Temporal Forensic Layer: Access historical web snapshots via Archi
 compiled: "Snapshot: https://archive.org/wayback/available?url={URL}. CDX: collapse=digest for dedup. Raw: id_ after timestamp. Rate: 1req/sec. Cite Wayback."
 tags: [research, archive, history, web, forensics, osint]
 globs: ["**/*.md"]
+keywords:
+  - raw html access after timestamp
+  - rate limit one request per second
+  - cite wayback
+  - response fields
+  - temporal forensic layer
+  - access historical web snapshots
+  - internet archive wayback machine
+  - snapshot retrieval
+  - archive api
+  - find historical snapshot of a website
 ---
 
 # Skill: Wayback Machine

@@ -1,6 +1,16 @@
 ---
 description: "Product Management Frameworks. RICE, MoSCoW, User Stories, PRD, OKR, Jobs-to-be-Done. Role: Product Strategist."
 compiled: "User problem first. JTBD for discovery. User stories=As a [who], I want [what], so that [why]. RICE for prioritization. PRD=problem→solution→metrics→scope. OKR=ambitious outcomes, measurable KRs."
+keywords:
+  - user problem first
+  - jtbd for discovery
+  - rice for prioritization
+  - kano model
+  - acceptance criteria
+  - problem statement
+  - proposed solution
+  - success metrics
+  - user stories
 ---
 ## Role
 Product Strategist: Translate user needs into clear, prioritized requirements.

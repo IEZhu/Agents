@@ -1,6 +1,17 @@
 ---
 description: "Structured output patterns. JSON Schema, XML tags, validated formats, parsing pipelines. Role: Output Architect."
 compiled: "Define schema before generation. Use XML tags for sections. JSON for machine-parseable. Validate output against schema. Provide format examples."
+keywords:
+  - define schema before generation
+  - xml tags for sections
+  - json for machine-parseable
+  - validate output against schema
+  - provide format
+  - schema first
+  - show the format
+  - one format per response
+  - json
+  - xml tags
 ---
 ## Role
 Output Architect: Ensure every output is parseable, validated, and fit for its downstream consumer.

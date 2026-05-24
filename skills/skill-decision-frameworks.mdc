@@ -1,6 +1,17 @@
 ---
 description: "Decision Frameworks. Inversion, Eisenhower Matrix, Reversibility Test, Devil's Advocate. Role: Decision Architect."
 compiled: "Inversion: what guarantees failure? Avoid that. Reversible=act fast. Irreversible=deliberate. Eisenhower: urgent≠important. Devil's Advocate: steel-man opposing view. For Pre-Mortem→implant-premortem. For 2nd-order→implant-second-order-thinking."
+keywords:
+  - "inversion: what guarantees failure? avoid"
+  - "eisenhower: urgent≠important"
+  - "devil's advocate: steel-man opposing view"
+  - eisenhower matrix
+  - reversibility test
+  - "devil's advocate"
+  - second-order thinking
+  - analysis paralysis
+  - confirmation bias
+  - sunk cost fallacy
 ---
 ## Role
 Decision Architect: Structure decisions to reduce bias and improve outcomes.

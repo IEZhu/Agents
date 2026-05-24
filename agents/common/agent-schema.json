@@ -40,35 +40,25 @@
       },
       "required": ["domain_keywords", "trigger_command"]
     },
-    "context": {
-      "type": "object",
-      "properties": {
-        "system_prompt": {
-          "type": "string",
-          "description": "Not used in frontmatter. The MDC markdown body below the closing --- IS the system prompt. This field exists for programmatic use only."
-        },
-        "file_globs": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Glob patterns for files this agent should have context of"
-        }
-      },
-      "required": ["file_globs"]
-    },
-    "static_skills": {
+    "core_skills": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Skills for static fallback mode (with .mdc extension), e.g., 'skill-analysis-critical.mdc'"
+      "description": "Mandatory skills — always loaded for this agent, regardless of tier. Use sparingly (0–3 items): only skills the agent cannot function without."
     },
     "preferred_skills": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Preferred skills for MCP dynamic loading (without extension), e.g., 'skill-analysis-critical'"
+      "description": "Skills that participate in semantic search with a distance boost. Loaded when query semantically matches them. Use for skills the agent uses often."
     },
-    "capabilities": {
+    "capable_skills": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Composable capabilities from agents/capabilities/registry.yaml, e.g., 'critical-analysis', 'trust-weighted-research'. Resolved to skills + directives at enrichment time."
+      "description": "Skills available in the semantic pool with base weight. Loaded only when query strongly matches (embedding + keyword). Use for the broader pool of skills that might apply to sub-queries."
+    },
+    "preferred_implants": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Cognitive implants surfaced above semantic candidates. Loaded in standard/deep tiers."
     },
     "interaction_examples": {
       "type": "array",
@@ -83,5 +73,5 @@
       "description": "Optional few-shot examples of ideal agent interactions. Reserved for future use — not yet consumed by the enrichment pipeline."
     }
   },
-  "required": ["identity", "routing", "context", "static_skills", "preferred_skills"]
+  "required": ["identity", "routing", "core_skills", "preferred_skills", "capable_skills"]
 }

@@ -1,39 +1,34 @@
 ---
 identity:
-  name: "semantic_expert"
-  display_name: "Semantic Expert"
-  role: "Meeting Transcript Analyst — Semantic Reconstruction, Decision Extraction, Action Items"
-  tone: "Concise, structured, no fluff"
+  name: semantic_expert
+  display_name: Semantic Expert
+  role: Meeting Transcript Analyst — Semantic Reconstruction, Decision Extraction,
+    Action Items
+  tone: Concise, structured, no fluff
 routing:
   domain_keywords:
-  - "meeting transcript"
-  - "meeting notes"
-  - "meeting minutes"
-  - "call recording"
-  - "action items"
-  - "meeting summary"
-  - "asr transcript"
-  - "speech to text"
-  - "decisions from meeting"
-  trigger_command: "/semantic_parse"
-context:
-  file_globs:
-    - "agents/semantic_expert/**"
-static_skills:
-  - "skill-analysis-critical.mdc"
-  - "skill-content-structure.mdc"
-  - "skill-tech-writing.mdc"
+  - meeting transcript
+  - meeting notes
+  - meeting minutes
+  - call recording
+  - action items
+  - meeting summary
+  - asr transcript
+  - speech to text
+  - decisions from meeting
+  trigger_command: /semantic_parse
+core_skills:
+- skill-epistemic-method
 preferred_skills:
-  - "skill-analysis-critical"
-  - "skill-content-structure"
-  - "skill-tech-writing"
+- skill-analysis-critical
+- skill-tech-writing
+- skill-reasoning-logic
+- skill-agnotology
+capable_skills: []
 preferred_implants:
-  - implant-narrative-of-thought
-  - implant-thread-of-thought
-  - implant-decomposed-prompting
-capabilities:
-  - critical-analysis
-  - epistemic-analysis
+- implant-narrative-of-thought
+- implant-thread-of-thought
+- implant-decomposed-prompting
 ---
 # Semantic Expert System Prompt
 

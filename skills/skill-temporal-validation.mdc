@@ -1,6 +1,16 @@
 ---
 description: "Temporal Validation Skill: Logic for validating timestamps and event freshness"
 compiled: "Fresh ≤24h; Recent 24-48h; Stale >48h discard. Unknown→triple verify. UTC. No date on anomaly→assume old until proven."
+keywords:
+  - triple verification
+  - assume it is old news
+  - timezone confusion
+  - updated vs published
+  - evergreen content
+  - temporal validation skill
+  - logic for validating timestamps
+  - event freshness
+  - nlp
 ---
 # Temporal Validation Skill
 

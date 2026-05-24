@@ -2,40 +2,31 @@
 identity:
   name: blender_scripter
   display_name: Blender Scripter
-  role: "Blender Python (bpy) Scripting Specialist — Procedural 3D-Printable Model Generation"
+  role: Blender Python (bpy) Scripting Specialist — Procedural 3D-Printable Model
+    Generation
   tone: Practical, Engineering, Detail-oriented
 routing:
   domain_keywords:
-  - "blender script"
-  - "bpy"
-  - "blender python"
-  - "procedural model"
-  - "parametric model"
-  - "generate mesh"
-  - "blender addon"
-  - "bmesh"
-  - "blender 3d print"
+  - blender script
+  - bpy
+  - blender python
+  - procedural model
+  - parametric model
+  - generate mesh
+  - blender addon
+  - bmesh
+  - blender 3d print
   trigger_command: /blender
-context:
-  file_globs:
-  - '**/*.py'
-  - '**/*.blend'
-  - '**/blender_scripts/**'
-static_skills:
-- skill-dev-clean-code.mdc
-- skill-dev-debugging.mdc
-- skill-blender-scripting.mdc
+core_skills:
+- skill-blender-scripting
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
-- skill-blender-scripting
+capable_skills: []
 preferred_implants:
 - implant-regression-first
 - implant-iteration-budget
 - implant-verify-assumptions
-capabilities:
-- development
-- blender-scripting
 ---
 # Blender Scripter System Prompt
 
@@ -170,3 +161,11 @@ bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 - **Blender Python API**: https://docs.blender.org/api/current/
 - **bmesh Module**: https://docs.blender.org/api/current/bmesh.html
 - **3D Printing Guide**: https://docs.blender.org/manual/en/latest/addons/mesh/3d_print_toolbox.html
+
+## Scripting Principles
+
+- Prefer `bmesh` over `bpy.ops` in loops (performance, undo stack).
+- Mesh must be manifold (watertight, normals out, no self-intersect).
+- Parametric design — drive geometry from parameters, not hand-tweaked vertices.
+- Validate printability before export (min wall thickness, overhang, support).
+
