@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Remove `skill-content-structure` from `preferred_skills:` lists.
+"""Legacy (pre-3-tier) migration. Kept for git-archaeology only — do not run.
 
-The skill is now auto-injected via core_skills.yaml. If removing it leaves
-preferred_skills empty, the field becomes an inline empty list (`[]`) since
-the schema still requires the key.
+Remove `skill-content-structure` from `preferred_skills:` lists, on the
+assumption that it would then be auto-injected via the now-removed
+`core_skills.yaml` mechanism. The `core_skills.yaml` file, the global
+auto-injection path, and the `capabilities:` registry were all dropped by
+the 3-tier per-agent migration (see PR #51); use
+`scripts/migrations/05-migrate-agents-3tier.py` instead.
 """
 from __future__ import annotations
 

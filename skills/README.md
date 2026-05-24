@@ -49,10 +49,11 @@ Examples:
 ```yaml
 ---
 description: "Brief description with key concepts. Role: Persona."
-compiled: "Dense one-liner summary used by the router for embedding."
+compiled: "Dense one-liner used only when the skill is rendered at standard tier (token-saving)."
 keywords:                       # 5–10 phrases that drive the capable-skills
   - keyword phrase one          # keyword boost in `SkillRetriever.retrieve()`.
-  - keyword phrase two
+  - keyword phrase two          # The retrieval embedding uses
+                                # `description + keywords + body`, not `compiled`.
 ---
 ## Role
 Persona for this skill.
@@ -136,7 +137,7 @@ in any of the three are unavailable to that agent (explicit exclusion).
 
 ### 1. `core_skills` — Mandatory
 
-Always loaded for the agent, regardless of tier. Use sparingly (1–3 items) —
+Always loaded for the agent, regardless of tier. Use sparingly (0–3 items) —
 only skills the agent cannot function without.
 
 ```yaml

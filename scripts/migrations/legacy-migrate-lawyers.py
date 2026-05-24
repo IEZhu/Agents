@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
-"""Migrate the 9 lawyer agents to use `legal-reasoning` capability.
+"""Legacy (pre-3-tier) migration. Kept for git-archaeology only — do not run.
 
-Changes per file:
+Migrates the 9 lawyer agents to the old `legal-reasoning` capability inside
+`capabilities:`. Both the `capabilities:` frontmatter field and the
+`legal-reasoning` capability bundle were removed by the 3-tier per-agent
+migration (see PR #51); the lawyer cluster now uses `core_skills:
+[skill-legal-citation]` directly. Use
+`scripts/migrations/05-migrate-agents-3tier.py` instead.
+
+Original behavior (preserved for the record):
 1. `preferred_skills:` block → empty list `preferred_skills: []`.
 2. `capabilities:` block → drop entries `critical-analysis` and `dense-summary`,
    insert `legal-reasoning` at the top of the list (just after the
