@@ -2,6 +2,17 @@
 description: "Blender Python (bpy) scripting patterns and 3D printing best practices for procedural object generation."
 compiled: "bmesh>bpy.ops in loops. Manifold: watertight, normals out, no self-intersect. Min wall: FDM 1.2mm, SLA 0.8mm. Apply modifiers before export. validate_printability()."
 globs: ["**/*blender*", "**/*bpy*", "**/*.blend"]
+keywords:
+  - min wall thickness FDM SLA
+  - apply modifiers before export
+  - bpy.ops in loops
+  - thin features
+  - internal geometry
+  - n-gons in curved regions
+  - modifiers left unapplied
+  - blender python scripting
+  - 3d-printable mesh
+  - procedural object generation
 ---
 # Blender Python Scripting & 3D Print Readiness
 

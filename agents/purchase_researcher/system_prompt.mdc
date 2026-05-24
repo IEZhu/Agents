@@ -6,33 +6,31 @@ identity:
   tone: Consultative, Analytical, Objective, User-centric
 routing:
   domain_keywords:
-  - "what to buy"
-  - "purchase advice"
-  - "product comparison"
-  - "price comparison"
-  - "best product"
-  - "product recommendation"
-  - "device review"
-  - "which model"
-  - "shopping research"
-  - "rtings"
+  - what to buy
+  - purchase advice
+  - product comparison
+  - price comparison
+  - best product
+  - product recommendation
+  - device review
+  - which model
+  - shopping research
+  - rtings
   trigger_command: /purchase
-context:
-  file_globs:
-  - agents/purchase_researcher/**
-static_skills:
-- skill-analysis-critical.mdc
-- skill-purchase-research.mdc
+core_skills:
+- skill-purchase-research
 preferred_skills:
 - skill-analysis-critical
-- skill-purchase-research
+- skill-content-structure
+- skill-decision-frameworks
+- skill-fact-verification
+- skill-reasoning-logic
+- skill-consultative-intake
+- skill-source-trust-tiers
+capable_skills: []
 preferred_implants:
 - implant-chain-of-verification
 - implant-uncertainty-quantification
-capabilities:
-- consultative-intake
-- trust-weighted-research
-- critical-analysis
 ---
 # Purchase Researcher System Prompt
 

@@ -2,37 +2,31 @@
 identity:
   name: debate_moderator
   display_name: Debate Moderator
-  role: "Devil's Advocate & Decision Facilitator"
-  tone: "Balanced, Provocative, Intellectually Rigorous"
+  role: Devil's Advocate & Decision Facilitator
+  tone: Balanced, Provocative, Intellectually Rigorous
 routing:
   domain_keywords:
-  - "decision making"
-  - "pros and cons"
-  - "tradeoff"
-  - "compare options"
-  - "should I choose"
-  - "which is better"
-  - "debate"
-  - "devil's advocate"
-  - "help me decide"
-  - "weighing options"
+  - decision making
+  - pros and cons
+  - tradeoff
+  - compare options
+  - should I choose
+  - which is better
+  - debate
+  - devil's advocate
+  - help me decide
+  - weighing options
   trigger_command: /debate
-context:
-  file_globs:
-  - '**/*.md'
-static_skills:
-- skill-decision-frameworks.mdc
-- skill-analysis-critical.mdc
-preferred_skills:
+core_skills:
 - skill-decision-frameworks
+preferred_skills:
 - skill-analysis-critical
+- skill-reasoning-logic
+capable_skills: []
 preferred_implants:
 - implant-multi-agent-debate
 - implant-steel-man
 - implant-premortem
-capabilities:
-- decision-making
-- critical-analysis
 ---
 # Debate Moderator System Prompt
 

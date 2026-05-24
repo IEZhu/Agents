@@ -89,14 +89,14 @@ class SkillRetriever:
                     except Exception as e:
                         logger.error(f"Failed to parse frontmatter for {file_path}: {e}")
 
-                # Prepare for indexing
-                # We index the full content (description + body) for better retrieval
+                # Prepare for indexing — concat description + keywords + body
+                # so keywords contribute to the embedding similarity, alongside
+                # being available verbatim in metadata for keyword-bonus scoring.
                 description = frontmatter.get("description", "")
-                full_text = f"{description}\n\n{body}"
-
-                filename = os.path.basename(file_path)
-
                 compiled = frontmatter.get("compiled", "")
+                keywords = frontmatter.get("keywords", []) or []
+                filename = os.path.basename(file_path)
+                full_text = f"{description}\n{' '.join(keywords)}\n\n{body}"
 
                 documents.append(full_text)
                 metadatas.append({
@@ -105,6 +105,7 @@ class SkillRetriever:
                     "path": file_path,
                     "body": body,
                     "compiled": compiled,
+                    "keywords": keywords,
                 })
                 ids.append(filename)
 
@@ -132,53 +133,127 @@ class SkillRetriever:
         self._save_hash(getattr(self, "_current_hash", None))
         logger.info(f"Successfully indexed {len(documents)} skills.")
 
+    @staticmethod
+    def _to_id(name: str) -> str:
+        """Normalize skill name to its storage ID (filename with .mdc)."""
+        return name if name.endswith(".mdc") else f"{name}.mdc"
+
     @observe(name="retrieve_skills")
-    def retrieve(self, query: str, n_results: int = 2, preferred_skills: List[str] = None) -> List[Dict[str, Any]]:
-        """
-        Retrieves relevant skills for a given query.
-        If preferred_skills are provided, loads them instead of vector search.
+    def retrieve(
+        self,
+        query: str,
+        *,
+        mandatory: List[str] | None = None,
+        preferred: List[str] | None = None,
+        capable: List[str] | None = None,
+        n_results: int = 2,
+        boost_factor: float = 0.7,
+        keyword_boost: float = 0.85,
+    ) -> List[Dict[str, Any]]:
+        """3-tier retrieval for the per-agent skill model.
+
+        Args:
+            query: User query for semantic ranking.
+            mandatory: Skills loaded unconditionally (core_skills for the agent).
+            preferred: Skills participating in semantic search with a distance
+                boost — ``distance × boost_factor`` (smaller distance = closer
+                match). Use for skills the agent uses often.
+            capable: Skills participating in semantic search with base distance.
+                Use for the broader pool of skills that might apply to specific
+                sub-queries.
+            n_results: Max additional skills from the semantic pool, on top of
+                ``mandatory``.
+            boost_factor: Multiplier applied to distance of preferred skills.
+                Values < 1.0 increase their effective rank. Default 0.7.
+            keyword_boost: Multiplier applied when any skill ``keywords`` entry
+                literally appears in the query (case-insensitive). Default 0.85.
+
+        Returns:
+            List of skill dicts with ``filename``, ``content``, ``metadata``,
+            ``distance``, and ``tier`` ("mandatory" / "preferred" / "capable").
+            Order: mandatory first (declaration order), then top-N semantic
+            results sorted by adjusted distance.
         """
         if self.store.count() == 0:
             return []
 
-        skills = []
+        mandatory = mandatory or []
+        preferred = preferred or []
+        capable = capable or []
 
-        if preferred_skills:
-            target_ids = [
-                f"{ps}.mdc" if not ps.endswith(".mdc") else ps
-                for ps in preferred_skills
-            ]
+        skills: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        # --- 1) Mandatory: load by ID, no scoring -----------------------------
+        if mandatory:
+            target_ids = [self._to_id(s) for s in mandatory]
             try:
                 results = self.store.get(ids=target_ids)
-                if results.ids:
-                    for i, skill_id in enumerate(results.ids):
-                        meta = results.metadatas[i] or {}
-                        content = meta.get('body', results.documents[i])
-                        skills.append({
-                            "filename": skill_id,
-                            "content": content,
-                            "metadata": meta,
-                            "distance": 0.0,
-                        })
-                logger.info(f"Loaded {len(skills)} preferred skills: {target_ids}")
-                return skills
+                for i, sid in enumerate(results.ids):
+                    if sid in seen_ids:
+                        continue
+                    meta = results.metadatas[i] or {}
+                    skills.append({
+                        "filename": sid,
+                        "content": meta.get("body", results.documents[i]),
+                        "metadata": meta,
+                        "distance": 0.0,
+                        "tier": "mandatory",
+                    })
+                    seen_ids.add(sid)
+                if len(results.ids) < len(target_ids):
+                    missing = [tid for tid in target_ids if tid not in set(results.ids)]
+                    logger.warning(f"Mandatory skills not found in store: {missing}")
             except Exception as e:
-                logger.warning(f"Failed to retrieve preferred skills {target_ids}: {e}")
+                logger.warning(f"Failed to load mandatory skills {target_ids}: {e}")
+
+        # --- 2) Semantic pool (preferred ∪ capable), filter, score, rank ------
+        if n_results <= 0:
+            return skills
+
+        preferred_ids = {self._to_id(s) for s in preferred}
+        capable_ids = {self._to_id(s) for s in capable}
+        pool_ids = (preferred_ids | capable_ids) - seen_ids
+        if not pool_ids:
+            return skills
 
         query_emb = embed_query(query)
-        results = self.store.query(query_embedding=query_emb, n_results=n_results)
+        query_lower = query.lower()
+        # Query a wide window then filter to pool — store may have more skills.
+        results = self.store.query(query_embedding=query_emb, n_results=self.store.count())
+        if not results.ids or not results.distances:
+            return skills
 
-        if results.ids and results.distances:
-            for i, distance in enumerate(results.distances):
-                if distance < SKILLS_RELEVANCE_THRESHOLD:
-                    meta = results.metadatas[i] or {}
-                    content = meta.get('body', results.documents[i])
-                    skills.append({
-                        "filename": results.ids[i],
-                        "content": content,
-                        "metadata": meta,
-                        "distance": distance,
-                    })
+        scored: list[tuple[float, str, dict, str]] = []
+        for i, sid in enumerate(results.ids):
+            if sid not in pool_ids:
+                continue
+            d = results.distances[i]
+            meta = results.metadatas[i] or {}
+            tier_label = "preferred" if sid in preferred_ids else "capable"
+            if tier_label == "preferred":
+                d *= boost_factor
+            # Keyword boost: any literal keyword present in query lowers distance further.
+            for kw in meta.get("keywords", []) or []:
+                if kw and isinstance(kw, str) and kw.lower() in query_lower:
+                    d *= keyword_boost
+                    break
+            if d < SKILLS_RELEVANCE_THRESHOLD:
+                scored.append((d, sid, meta, results.documents[i]))
+
+        scored.sort(key=lambda x: x[0])
+        for d, sid, meta, doc in scored[:n_results]:
+            if sid in seen_ids:
+                continue
+            tier_label = "preferred" if sid in {self._to_id(s) for s in preferred} else "capable"
+            skills.append({
+                "filename": sid,
+                "content": meta.get("body", doc),
+                "metadata": meta,
+                "distance": d,
+                "tier": tier_label,
+            })
+            seen_ids.add(sid)
 
         return skills
 

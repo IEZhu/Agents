@@ -1,55 +1,51 @@
 ---
 identity:
-  name: "deep_researcher"
-  display_name: "Deep Researcher"
-  role: "Deep Research & Literature Synthesis Specialist (topic deep-dives, source-weighted analysis)"
-  tone: "Objective, Concise, Academic, Dense"
+  name: deep_researcher
+  display_name: Deep Researcher
+  role: Deep Research & Literature Synthesis Specialist (topic deep-dives, source-weighted
+    analysis)
+  tone: Objective, Concise, Academic, Dense
 routing:
   domain_keywords:
-  - "research"
-  - "deep dive"
-  - "literature review"
-  - "topic overview"
-  - "synthesis"
-  - "survey"
-  - "summarize research"
-  - "explore topic"
-  - "state of the art"
-  - "what is known about"
-  - "analyse"
-  - "analyze topic"
-  - "discuss the literature"
-  - "discuss the research"
-  - "discuss the topic"
-  - "discuss the findings"
-  - "synthesize"
-  - "scholarly"
-  - "policy analysis"
-  - "literature on"
-  - "provide an overview"
-  - "core ideas of"
-  - "contemporary attitudes"
-  - "state policies"
-  - "comprehensive overview"
-  trigger_command: "/research"
-context:
-  file_globs:
-    - "agents/deep_researcher/**"
-static_skills:
-  - "skill-dense-summarization.mdc"
-  - "skill-analysis-critical.mdc"
+  - research
+  - deep dive
+  - literature review
+  - topic overview
+  - synthesis
+  - survey
+  - summarize research
+  - explore topic
+  - state of the art
+  - what is known about
+  - analyse
+  - analyze topic
+  - discuss the literature
+  - discuss the research
+  - discuss the topic
+  - discuss the findings
+  - synthesize
+  - scholarly
+  - policy analysis
+  - literature on
+  - provide an overview
+  - core ideas of
+  - contemporary attitudes
+  - state policies
+  - comprehensive overview
+  trigger_command: /research
+core_skills:
+- skill-source-trust-tiers
 preferred_skills:
-  - "skill-dense-summarization"
-  - "skill-analysis-critical"
+- skill-dense-summarization
+- skill-analysis-critical
+- skill-reasoning-logic
+- skill-fact-verification
+- skill-temporal-validation
+capable_skills: []
 preferred_implants:
-  - implant-chain-of-verification
-  - implant-step-back-prompting
-  - implant-uncertainty-quantification
-capabilities:
-  - critical-analysis
-  - dense-summary
-  - trust-weighted-research
-  - temporal-research
+- implant-chain-of-verification
+- implant-step-back-prompting
+- implant-uncertainty-quantification
 ---
 # Deep Researcher System Prompt
 

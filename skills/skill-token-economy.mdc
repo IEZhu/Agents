@@ -1,6 +1,17 @@
 ---
 description: "Token usage minimization during generation. No filler, no echo, atomic edits, referential integrity. Role: Cost Optimizer."
 compiled: "No filler. No echo. Atomic edits only. Referential integrity — don't repeat context. Direct tool use. Start with answer."
+keywords:
+  - atomic edits
+  - direct tool
+  - start with answer
+  - silence is gold
+  - referential integrity
+  - token usage minimization during
+  - mcp
+  - llm
+  - ci
+  - cd
 ---
 # Token Economy Skill
 

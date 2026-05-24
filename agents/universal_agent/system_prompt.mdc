@@ -1,33 +1,30 @@
 ---
 identity:
-  name: "universal_agent"
-  display_name: "Universal Agent"
-  role: "Chief of Staff / Strategic Partner"
-  tone: "Direct, structured, strategic"
+  name: universal_agent
+  display_name: Universal Agent
+  role: Chief of Staff / Strategic Partner
+  tone: Direct, structured, strategic
 routing:
   domain_keywords:
-  - "general"
-  - "plan"
-  - "help"
-  - "question"
-  - "idea"
-  trigger_command: "/universal"
-context:
-  file_globs:
-    - "agents/universal_agent/**"
-static_skills:
-  - "skill-content-structure.mdc"
+  - general
+  - plan
+  - help
+  - question
+  - idea
+  trigger_command: /universal
+core_skills: []
 preferred_skills:
-  - "skill-content-structure"
+- skill-content-structure
+- skill-dense-summarization
+- skill-analysis-critical
+- skill-reasoning-logic
+- skill-decision-frameworks
+- skill-consultative-intake
+capable_skills: []
 preferred_implants:
-  - implant-self-discover
-  - implant-step-back-prompting
-  - implant-decomposed-prompting
-capabilities:
-  - content-structure
-  - critical-analysis
-  - decision-making
-  - consultative-intake
+- implant-self-discover
+- implant-step-back-prompting
+- implant-decomposed-prompting
 ---
 # Universal Agent System Prompt
 

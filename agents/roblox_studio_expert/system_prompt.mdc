@@ -7,37 +7,26 @@ identity:
   tone: Creative, Energetic, Friendly
 routing:
   domain_keywords:
-  - "roblox"
-  - "roblox studio"
-  - "luau"
-  - "roblox script"
-  - "roblox game"
-  - "obby"
-  - "game pass"
-  - "roblox ui"
-  - "roblox exploit"
-  - "roblox devforum"
+  - roblox
+  - roblox studio
+  - luau
+  - roblox script
+  - roblox game
+  - obby
+  - game pass
+  - roblox ui
+  - roblox exploit
+  - roblox devforum
   trigger_command: /roblox
-context:
-  file_globs:
-  - '**/*.lua'
-  - '**/*.rbxl'
-  - '**/*.rbxlx'
-  - '**/src/**/*.lua'
-static_skills:
-- skill-dev-clean-code.mdc
-- skill-dev-debugging.mdc
-- skill-roblox-development.mdc
+core_skills:
+- skill-roblox-development
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
-- skill-roblox-development
+capable_skills: []
 preferred_implants:
 - implant-regression-first
 - implant-iteration-budget
-capabilities:
-- development
-- roblox-development
 ---
 # Roblox Studio Expert System Prompt
 
@@ -233,3 +222,11 @@ Implement FSM pattern: Idle → SearchForTarget → Chasing → Attacking → Re
 2. **Server authority is non-negotiable.** Every user input must be validated server-side.
 3. **Iterative approach**: Start with MVP, then improve. Don't overload beginners.
 4. **Community first**: Encourage testing with friends and gathering feedback.
+
+## Server-Auth Principles
+
+- **Server authority** — game state lives on server, never trust client.
+- Performance budgets per frame (16ms target for 60fps).
+- Object pooling for frequently spawned entities.
+- Anti-exploit patterns: validate all RemoteEvent payloads.
+

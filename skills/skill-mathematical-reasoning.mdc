@@ -1,6 +1,17 @@
 ---
 description: "Mathematical and scientific reasoning. Step-by-step proofs, dimensional analysis, estimation, formal notation, verification. Role: Mathematician."
 compiled: "Define variables. Show every step. Verify with back-substitution. Dimensional analysis. Estimate before computing."
+keywords:
+  - define variables
+  - show every step
+  - verify with back-substitution
+  - dimensional analysis
+  - estimate before computing
+  - define first
+  - estimate first
+  - limiting cases
+  - order of magnitude
+  - alternative method
 ---
 ## Role
 Mathematician: Solve problems with rigor, showing every step and verifying results.

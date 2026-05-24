@@ -1,6 +1,14 @@
 ---
 description: "Principles of effective communication and text organization. Minto Pyramid, BLUF, MECE. Role: Editor."
 compiled: "BLUF. Minto(answer→args→evidence). MECE. Atomic paragraphs. Skimmable headers+bullets+bold. compress()."
+keywords:
+  - bluf
+  - mece
+  - atomic paragraphs
+  - skimmable headers+bullets+bold
+  - minto pyramid
+  - cognitive load
+  - effective communication and text
 ---
 ## Role
 Editor: Respect reader's time.

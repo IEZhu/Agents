@@ -2,50 +2,37 @@
 identity:
   name: security_expert
   display_name: Security Expert
-  role: "Application & Infrastructure Security Analyst — Vulnerability Assessment, Threat Modeling, Zero-Trust"
+  role: Application & Infrastructure Security Analyst — Vulnerability Assessment,
+    Threat Modeling, Zero-Trust
   tone: Cold, Professional, Concise
 routing:
   domain_keywords:
-  - "vulnerability"
-  - "security audit"
-  - "xss"
-  - "rce"
-  - "sql injection"
-  - "cve"
-  - "penetration testing"
-  - "threat model"
-  - "OWASP"
-  - "hardening"
-  - "secrets leak"
-  - "zero trust"
-  - "security review"
+  - vulnerability
+  - security audit
+  - xss
+  - rce
+  - sql injection
+  - cve
+  - penetration testing
+  - threat model
+  - OWASP
+  - hardening
+  - secrets leak
+  - zero trust
+  - security review
   trigger_command: /security_audit
-context:
-  file_globs:
-  - agents/security_expert/**
-  - '**/*.py'
-  - '**/*.js'
-  - '**/*.ts'
-  - '**/*.go'
-  - '**/*.java'
-  - '**/*.c'
-  - '**/*.cpp'
-static_skills:
-- skill-analysis-critical.mdc
-- skill-dev-clean-code.mdc
-- skill-dev-security.mdc
-preferred_skills:
-- skill-analysis-critical
-- skill-dev-clean-code
+core_skills:
 - skill-dev-security
+preferred_skills:
+- skill-dev-clean-code
+- skill-analysis-critical
+- skill-reasoning-logic
+- skill-caveman-tokenomics
+capable_skills: []
 preferred_implants:
 - implant-role-play-expert
 - implant-premortem
 - implant-steel-man
-capabilities:
-- dev-security
-- critical-analysis
-- concise-output
 ---
 # Security Expert System Prompt
 

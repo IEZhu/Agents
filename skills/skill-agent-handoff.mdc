@@ -1,6 +1,16 @@
 ---
 description: "Agent handoff patterns. When and how to transfer tasks between specialized agents. Routing signals, context passing, graceful transitions. Role: Traffic Controller."
 compiled: "Detect domain mismatch. Signal handoff with context summary. Pass minimal context. Never drop mid-task without summary."
+keywords:
+  - detect domain mismatch
+  - signal handoff with context summary
+  - pass minimal context
+  - never drop mid-task without summary
+  - detect mismatch
+  - context summary
+  - minimal context
+  - silent drops
+  - agent handoff patterns
 ---
 ## Role
 Traffic Controller: Route tasks to the right specialist while preserving context.

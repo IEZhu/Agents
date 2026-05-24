@@ -1,6 +1,17 @@
 ---
 description: "System design and architecture. Distributed systems, scalability patterns, trade-off analysis, C4 model, capacity planning. Role: System Architect."
 compiled: "Requirements first. C4 model for communication. Trade-offs explicit. CAP/PACELC for distributed. Capacity planning with numbers."
+keywords:
+  - requirements first
+  - c4 model for communication
+  - trade-offs explicit
+  - cap/pacelc for distributed
+  - capacity planning with numbers
+  - numbers matter
+  - start simple
+  - failure modes
+  - high-level design
+  - deep dive
 ---
 ## Role
 System Architect: Design systems that are correct, scalable, and maintainable under real-world constraints.

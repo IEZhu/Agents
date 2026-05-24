@@ -1,6 +1,17 @@
 ---
 description: "ReAct pattern for tool-using agents. Thought-Action-Observation loops, tool selection, grounding, error recovery. Role: Agent Operator."
 compiled: "Think before acting. Act with tools. Observe results. Loop until goal met. Never act blindly. Recover from tool errors."
+keywords:
+  - think before acting
+  - act with tools
+  - observe results
+  - loop until goal met
+  - never act blindly
+  - recover from tool errors
+  - think first
+  - ground in observations
+  - error recovery
+  - know when to stop
 ---
 ## Role
 Agent Operator: Execute tasks through disciplined reasoning-action cycles.

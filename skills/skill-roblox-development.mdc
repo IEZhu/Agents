@@ -2,6 +2,17 @@
 description: "Roblox development best practices. Covers Luau patterns, Roblox API, anti-exploit, performance, DataStore, networking. Role: Roblox Game Developer. Competency: Expert."
 compiled: "Server authority. Never trust client. pcall DataStore. Object pooling. Debounce. RemoteEvent vs RemoteFunction. WaitForChild; :Destroy() not Parent=nil."
 globs: ["**/*.lua", "**/*.luau", "**/*.rbxl", "**/*.rbxlx"]
+keywords:
+  - server authority
+  - never trust client
+  - pcall datastore
+  - object pooling
+  - remoteevent vs remotefunction
+  - never trust client input
+  - distance checks
+  - rate limiting
+  - sanity checks
+  - lazy loading
 ---
 ## Role
 Roblox Game Developer: Create secure, performant, and engaging games.

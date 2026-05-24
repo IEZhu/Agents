@@ -1,6 +1,15 @@
 ---
 description: "Multi-step task planning and decomposition. Break complex goals into actionable steps with dependencies, checkpoints, and exit criteria. Role: Task Planner."
 compiled: "Decompose into steps. Identify dependencies. Set checkpoints. Define exit criteria. Replan on failure."
+keywords:
+  - decompose into steps
+  - identify dependencies
+  - set checkpoints
+  - define exit criteria
+  - replan on failure
+  - decompose first
+  - exit criteria
+  - multi-step task planning
 ---
 ## Role
 Task Planner: Transform ambiguous goals into executable step-by-step plans.

@@ -59,9 +59,15 @@ def validate_agent(agent_name: str, frontmatter: Dict, schema: Dict) -> Tuple[bo
         if field not in frontmatter:
             errors.append(f"Missing required field: '{field}'")
 
-    # Check for deprecated 'skills' field
+    # Check for deprecated fields
     if "skills" in frontmatter:
-        warnings.append("DEPRECATED: 'skills' field should be removed (use 'static_skills' and 'preferred_skills')")
+        warnings.append("DEPRECATED: 'skills' field should be removed (use core_skills / preferred_skills / capable_skills).")
+    if "static_skills" in frontmatter:
+        warnings.append("REMOVED: 'static_skills' is no longer used. Use core_skills / preferred_skills / capable_skills.")
+    if "capabilities" in frontmatter:
+        warnings.append("REMOVED: 'capabilities' bundles are gone. Distribute skills directly into core_skills / preferred_skills / capable_skills.")
+    if "context" in frontmatter:
+        warnings.append("REMOVED: 'context' block (including file_globs) is no longer used by the engine.")
 
     # Check identity structure
     if "identity" in frontmatter:
@@ -79,31 +85,18 @@ def validate_agent(agent_name: str, frontmatter: Dict, schema: Dict) -> Tuple[bo
         if "trigger_command" not in routing:
             errors.append("Missing routing.trigger_command")
 
-    # Check context structure
-    if "context" in frontmatter:
-        context = frontmatter["context"]
-        if "file_globs" not in context:
-            errors.append("Missing context.file_globs")
-
-    # Check static_skills
-    if "static_skills" in frontmatter:
-        skills = frontmatter["static_skills"]
-        if not isinstance(skills, list):
-            errors.append("static_skills must be an array")
-        else:
+    # Check core_skills / preferred_skills / capable_skills
+    for field_name in ("core_skills", "preferred_skills", "capable_skills"):
+        if field_name in frontmatter:
+            skills = frontmatter[field_name]
+            if not isinstance(skills, list):
+                errors.append(f"{field_name} must be an array")
+                continue
             for skill in skills:
-                if not skill.endswith(".mdc"):
-                    warnings.append(f"static_skills entry '{skill}' should end with .mdc")
-
-    # Check preferred_skills
-    if "preferred_skills" in frontmatter:
-        skills = frontmatter["preferred_skills"]
-        if not isinstance(skills, list):
-            errors.append("preferred_skills must be an array")
-        else:
-            for skill in skills:
-                if skill.endswith(".mdc"):
-                    warnings.append(f"preferred_skills entry '{skill}' should NOT include .mdc extension")
+                if not isinstance(skill, str):
+                    errors.append(f"{field_name} entries must be strings, got {type(skill).__name__}")
+                elif skill.endswith(".mdc"):
+                    warnings.append(f"{field_name} entry '{skill}' should NOT include .mdc extension")
 
     return (len(errors) == 0, errors + warnings)
 

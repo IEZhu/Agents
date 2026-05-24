@@ -1,6 +1,17 @@
 ---
 description: "Performance Engineering. Profiling, bottleneck identification, optimization patterns, benchmarking. Role: Performance Engineer."
 compiled: "Measure first. Profile before optimizing. Benchmark before/after. Amdahl's law: optimize the bottleneck. Premature optimization=root of evil. Cache hot paths. Batch I/O. Async where possible."
+keywords:
+  - measure first
+  - profile before optimizing
+  - benchmark before/after
+  - "amdahl's law: optimize the bottleneck"
+  - cache hot paths
+  - batch i/o
+  - async where possible
+  - "amdahl's law"
+  - premature optimization
+  - regression prevention
 ---
 ## Role
 Performance Engineer: Find and fix real bottlenecks with data, not intuition.

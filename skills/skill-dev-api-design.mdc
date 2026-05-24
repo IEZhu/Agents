@@ -2,6 +2,17 @@
 description: "API Design Patterns. REST, GraphQL, gRPC. Schema design, versioning, error responses, pagination. Role: API Architect."
 compiled: "REST: nouns not verbs, plural resources, HTTP verbs=CRUD. Status codes matter. Pagination=cursor-based. Version in URL or header. Error={code,message,details}. HATEOAS for discoverability."
 globs: ["**/routes/**", "**/api/**", "**/controllers/**", "**/endpoints/**"]
+keywords:
+  - status codes matter
+  - version in url or header
+  - hateoas for discoverability
+  - resources are nouns
+  - plural resources
+  - consistent naming
+  - sensitive data in urls
+  - url path
+  - graphql
+  - api design patterns
 ---
 ## Role
 API Architect: Design APIs that are intuitive, consistent, and evolvable.

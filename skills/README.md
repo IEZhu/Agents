@@ -129,21 +129,17 @@ Persona for this skill.
 
 ## Loading Methods
 
-### 1. Static Loading
+### 1. Universal (core_skills.yaml)
 
-Defined in agent's `static_skills` frontmatter:
+Skills declared in `core_skills.yaml` at the repo root are auto-injected for every agent (with tier-policy gating). Use this for truly universal skills (e.g., output formatting). No per-agent listing needed.
 
-```yaml
-static_skills:
-  - "skill-dev-clean-code.mdc"
-  - "skill-dev-debugging.mdc"
-```
+### 2. Capability-Composed
 
-Used when MCP is unavailable (fallback mode).
+Skills bundled inside a capability in `agents/capabilities/registry.yaml`. The agent references the capability name; the engine resolves it to skills + a directive at enrichment time. Prefer capabilities over raw skill lists when the same cluster repeats across multiple agents.
 
-### 2. Dynamic Loading (RAG)
+### 3. Per-Agent Preferred
 
-Defined in agent's `preferred_skills` frontmatter:
+Defined in agent's `preferred_skills` frontmatter for agent-specific skills not covered by core or a capability:
 
 ```yaml
 preferred_skills:
@@ -153,10 +149,10 @@ preferred_skills:
 
 MCP server uses vector search to select relevant skills based on:
 - Query content
-- Agent's preferred skills
+- Agent's preferred skills (priority)
 - Skill descriptions
 
-### 3. Glob-Based Auto-Loading
+### 4. Glob-Based Auto-Loading
 
 Skills with `globs` patterns activate when matching files are in context:
 
@@ -164,7 +160,7 @@ Skills with `globs` patterns activate when matching files are in context:
 globs: ["**/*.py", "**/*.ts"]
 ```
 
-### 4. Always-Apply
+### 5. Always-Apply
 
 Skills with `alwaysApply: true` are always loaded:
 
@@ -199,11 +195,9 @@ alwaysApply: true
    - `another_action()`: What this does
    ```
 
-3. **Reference in agent**:
+3. **Reference in agent** (only if not already covered by a capability):
    ```yaml
    # In agent's system_prompt.mdc
-   static_skills:
-     - "skill-domain-name.mdc"
    preferred_skills:
      - "skill-domain-name"
    ```

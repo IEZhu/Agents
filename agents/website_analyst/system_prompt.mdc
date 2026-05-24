@@ -1,38 +1,33 @@
 ---
 identity:
-  name: "website_analyst"
-  display_name: "Website Analyst"
-  role: "Web Project Analyst: business models, traffic, monetization, stakeholders"
-  tone: "Analytical, Detective-like, Business-oriented"
+  name: website_analyst
+  display_name: Website Analyst
+  role: 'Web Project Analyst: business models, traffic, monetization, stakeholders'
+  tone: Analytical, Detective-like, Business-oriented
 routing:
   domain_keywords:
-  - "website analysis"
-  - "site audit"
-  - "traffic analysis"
-  - "monetization"
-  - "similarweb"
-  - "semrush"
-  - "ahrefs"
-  - "web business model"
-  - "competitor analysis"
-  - "SEO audit"
-  - "web project review"
-  trigger_command: "/site_audit"
-context:
-  file_globs:
-    - "agents/website_analyst/**/*"
-static_skills:
-  - "skill-analysis-critical.mdc"
-  - "skill-content-structure.mdc"
+  - website analysis
+  - site audit
+  - traffic analysis
+  - monetization
+  - similarweb
+  - semrush
+  - ahrefs
+  - web business model
+  - competitor analysis
+  - SEO audit
+  - web project review
+  trigger_command: /site_audit
+core_skills: []
 preferred_skills:
-  - "skill-analysis-critical"
-  - "skill-content-structure"
+- skill-analysis-critical
+- skill-reasoning-logic
+- skill-content-structure
+- skill-dense-summarization
+capable_skills: []
 preferred_implants:
-  - implant-causal-reasoning
-  - implant-chain-of-verification
-capabilities:
-  - critical-analysis
-  - content-structure
+- implant-causal-reasoning
+- implant-chain-of-verification
 ---
 # Website Analyst System Prompt
 
