@@ -348,13 +348,17 @@ class SemanticRouter:
 
         loop = asyncio.get_running_loop()
         query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
-        # Ask for a small set of nearest neighbours, not just the top-1.
-        # A stale nearest entry (target_agent deleted in a refactor) would
-        # otherwise force a hard cache miss even when a perfectly valid 2nd-
-        # or 3rd-nearest entry exists. ``NumpyVectorStore.query`` performs a
-        # full dot product regardless of ``n_results``, so the extra cost is
-        # negligible at the cache cap (ROUTER_CACHE_MAX_SIZE = 500).
-        n_candidates = min(5, self.store.count())
+        # Ask for every neighbour the store holds, not just the top-K.
+        # When a refactor deletes multiple agents at once, an arbitrary
+        # number of stale entries can sit ahead of the first valid match.
+        # ``NumpyVectorStore.query`` performs a full dot product regardless
+        # of ``n_results`` and the store is capped at
+        # ``ROUTER_CACHE_MAX_SIZE = 500`` rows, so scanning the entire
+        # ranked list is microseconds. The valid hit's distance is still
+        # checked against ``ROUTER_SIMILARITY_THRESHOLD`` upstream in
+        # ``lookup_cache_with_distance`` — a far-but-valid neighbour
+        # produces a normal cache miss, not a false hit.
+        n_candidates = self.store.count()
         try:
             results = await loop.run_in_executor(
                 None, lambda: self.store.query(query_embedding=query_emb, n_results=n_candidates)
@@ -407,7 +411,8 @@ class SemanticRouter:
             )
         # All top-N candidates pointed at deleted agents — treat as miss.
         logger.info(
-            "All %d nearest cache entries are stale; falling through to re-route.",
+            "All %d cache entries are stale (their target_agents are no "
+            "longer in available_agents); falling through to re-route.",
             n_candidates,
         )
         return None

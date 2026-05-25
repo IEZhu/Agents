@@ -1418,7 +1418,7 @@ class TestCacheInvalidation:
             "query_nearest must skip the stale top-1 and return the next "
             "valid neighbour, not give up on the first stale hit"
         )
-        decision, distance = result
+        decision, _ = result
         assert decision.target_agent == "universal_agent"
         assert decision.is_cached is True
 
