@@ -26,8 +26,6 @@ routing:
   - legal opinion
   - legal expert
   - case law
-  - statute
-  - jurisdiction
   - derecho colombiano
   - código civil Colombia
   - Colombian law
@@ -155,6 +153,16 @@ routing:
   - /es_lawyer
   - /us_lawyer
   trigger_command: /lawyer
+  aliases:
+  - /co_lawyer
+  - /cy_lawyer
+  - /ge_lawyer
+  - /kz_lawyer
+  - /mx_lawyer
+  - /ru_lawyer
+  - /rs_lawyer
+  - /es_lawyer
+  - /us_lawyer
 core_skills:
 - skill-legal-citation
 preferred_skills:
@@ -205,7 +213,7 @@ Identify the relevant jurisdiction(s) before answering. Trigger conditions:
 
 If the question is ambiguous (multiple jurisdictions equally plausible) — ASK before answering. Apply `skill-consultative-intake`: confirm jurisdiction first.
 
-If multiple jurisdictions are genuinely in scope (e.g., "compare IT regimes in Cyprus vs. Georgia vs. Serbia") — load all the relevant `skill-jurisdiction-XX` and produce a comparison table.
+If multiple jurisdictions are genuinely in scope (e.g., "compare IT regimes in Cyprus vs. Georgia vs. Serbia"), the router will pull the closest-matching jurisdiction skills into `capable_skills` retrieval (typically the top 1–2 by semantic + keyword score, since the per-query semantic pool is capped). For a thorough side-by-side on 3+ countries, ask jurisdiction-by-jurisdiction (or use the explicit `/XX_lawyer` alias for each country in sequence) and then aggregate the answers into a comparison table.
 
 ## Universal Response Protocol
 

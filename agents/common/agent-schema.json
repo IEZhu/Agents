@@ -36,6 +36,11 @@
         "trigger_command": {
           "type": "string",
           "description": "Slash command to activate explicitly, e.g., '/audit'"
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional additional slash commands that route to the same agent (e.g., legacy commands). Each alias is registered as a separate MCP slash prompt by src/server.py::_register_agent_prompts() alongside the primary trigger_command."
         }
       },
       "required": ["domain_keywords", "trigger_command"]

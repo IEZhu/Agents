@@ -987,18 +987,28 @@ async def ask(query: str) -> list:
 
 
 def _register_agent_prompts():
-    """Dynamically register a /slash prompt for each agent's trigger_command."""
+    """Register a /slash prompt for each agent's trigger_command and any aliases.
+
+    Each agent's primary slash command comes from ``routing.trigger_command``.
+    Agents may also declare ``routing.aliases``: a list of additional slash
+    commands that route to the same agent (e.g., legacy per-country commands
+    consolidated into a single multi-jurisdiction agent). Every entry is
+    registered as its own MCP slash prompt.
+    """
     for agent_name in router.available_agents:
         meta = get_agent_metadata(agent_name)
-        trigger = meta.get("routing", {}).get("trigger_command", "")
-        if not trigger:
+        routing_meta = meta.get("routing", {})
+        trigger = routing_meta.get("trigger_command", "")
+        aliases = routing_meta.get("aliases", []) or []
+
+        commands = [c for c in ([trigger] + list(aliases)) if c]
+        if not commands:
             continue
 
-        prompt_name = trigger.lstrip("/")
         display_name = meta.get("identity", {}).get("display_name", agent_name)
         role = meta.get("identity", {}).get("role", "")
 
-        def make_prompt(a_name, d_name, r):
+        def make_prompt(a_name, d_name, r, p_name):
             async def agent_prompt(query: str) -> list:
                 try:
                     prompt, _, _, _, _, _ = await _load_and_enrich(a_name, query, [])
@@ -1010,11 +1020,13 @@ def _register_agent_prompts():
                     )]
                 except Exception as e:
                     return [UserMessage(f"{query}\n\n(Error loading {d_name}: {e})")]
-            agent_prompt.__name__ = prompt_name
+            agent_prompt.__name__ = p_name
             agent_prompt.__doc__ = f"{d_name} — {r}"
             return agent_prompt
 
-        mcp.prompt()(make_prompt(agent_name, display_name, role))
+        for cmd in commands:
+            prompt_name = cmd.lstrip("/")
+            mcp.prompt()(make_prompt(agent_name, display_name, role, prompt_name))
 
 
 _register_agent_prompts()
