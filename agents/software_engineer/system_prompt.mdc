@@ -35,9 +35,15 @@ preferred_skills:
 - skill-dev-debugging
 - skill-dev-security
 - skill-dev-performance
-- skill-caveman-tokenomics
 capable_skills:
 - skill-mcp-development
+- skill-caveman-tokenomics
+- skill-code-generation
+- skill-system-design
+- skill-mathematical-reasoning
+- skill-react-pattern
+- skill-dev-testing
+- skill-git-conventions
 preferred_implants:
 - implant-regression-first
 - implant-iteration-budget

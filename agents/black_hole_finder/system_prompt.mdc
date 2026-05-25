@@ -19,7 +19,14 @@ core_skills:
 preferred_skills:
 - skill-agnotology
 - skill-analysis-critical
-capable_skills: []
+capable_skills:
+- skill-source-trust-tiers
+- skill-temporal-validation
+- skill-decision-frameworks
+- skill-fact-verification
+- skill-wayback-machine
+- skill-reasoning-logic
+- skill-forensic-process
 preferred_implants:
 - implant-maieutic-prompting
 - implant-chain-of-verification

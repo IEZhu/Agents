@@ -24,10 +24,17 @@ core_skills:
 - skill-product-frameworks
 preferred_skills:
 - skill-analysis-critical
-- skill-content-structure
 - skill-reasoning-logic
 - skill-dense-summarization
-capable_skills: []
+- skill-consultative-intake
+capable_skills:
+- skill-fact-verification
+- skill-multi-step-planning
+- skill-system-design
+- skill-mermaid-best-practices
+- skill-decision-frameworks
+- skill-dev-api-design
+- skill-tech-writing
 preferred_implants:
 - implant-premortem
 - implant-second-order-thinking

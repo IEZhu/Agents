@@ -84,19 +84,13 @@ Also available programmatically via the MCP tool `list_agents`.
 |---|---|---|
 | `ux_designer` | `/ux` | UX/UI & Accessibility Expert — Usability, Design Systems, Information Architecture |
 
-## Legal (Jurisdiction-Specific)
+## Legal
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `colombian_lawyer` | `/co_lawyer` | Legal Expert — Colombia (Civil, Tax, Corporate, Labor, Immigration, Commercial, Constitutional) |
-| `cypriot_lawyer` | `/cy_lawyer` | Legal Expert — Cyprus & EU (Company Law, Tax, Immigration, Property, Banking, EU Regulations) |
-| `georgian_lawyer` | `/ge_lawyer` | Legal Expert — Georgia (Civil, Tax, Corporate, Labor, Immigration, Property, Business Registration) |
-| `kazakh_lawyer` | `/kz_lawyer` | Legal Expert — Kazakhstan (Civil, Tax, Corporate, Labor, Migration, Land, AIFC/Common Law Zone) |
-| `mexican_lawyer` | `/mx_lawyer` | Legal Expert — Mexico (Civil, Tax, Corporate, Labor, Immigration, Constitutional, Commercial, Amparo) |
-| `russian_lawyer` | `/ru_lawyer` | Legal Expert — Russian Federation (Civil, Tax, Corporate, Labor, Migration, Criminal, Family, Administrative Law) |
-| `serbian_lawyer` | `/rs_lawyer` | Legal Expert — Serbia (Civil, Tax, Corporate, Labor, Property, Immigration, EU Accession Law) |
-| `spanish_lawyer` | `/es_lawyer` | Legal Expert — Spain & EU (Civil, Tax, Corporate, Immigration, Labor, Real Estate, EU Regulations) |
-| `us_lawyer` | `/us_lawyer` | Legal Expert — United States (Federal & State Law, Immigration, Tax, Corporate, IP, Employment, Constitutional) |
+| `lawyer` | `/lawyer` | Multi-Jurisdictional Legal Expert (Colombia, Cyprus, Georgia, Kazakhstan, Mexico, Russia, Serbia, Spain, United States) |
+
+The single `lawyer` agent replaced nine country-specific clones (`colombian_lawyer`, `cypriot_lawyer`, `georgian_lawyer`, `kazakh_lawyer`, `mexican_lawyer`, `russian_lawyer`, `serbian_lawyer`, `spanish_lawyer`, `us_lawyer`). Per-jurisdiction knowledge now lives in `skill-jurisdiction-{co|cy|ge|kz|mx|ru|rs|es|us}` and is loaded into the `lawyer` agent's `capable_skills` pool — activated by country-specific keywords. Old trigger commands (`/co_lawyer`, `/cy_lawyer`, …, `/us_lawyer`) are preserved as routing aliases to `/lawyer`.
 
 ## Utilities
 
@@ -109,5 +103,5 @@ Also available programmatically via the MCP tool `list_agents`.
 
 ---
 
-**Total agents**: 51
-**Updated**: 2026-04-10
+**Total agents**: 43
+**Updated**: 2026-05-24

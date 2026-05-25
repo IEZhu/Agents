@@ -25,8 +25,14 @@ core_skills:
 - skill-pedagogy
 preferred_skills:
 - skill-dense-summarization
-- skill-content-structure
-capable_skills: []
+capable_skills:
+- skill-narrative-craft
+- skill-literary-devices
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-decision-frameworks
+- skill-creative-craft
+- skill-consultative-intake
 preferred_implants:
 - implant-maieutic-prompting
 - implant-analogical-prompting

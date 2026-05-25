@@ -25,6 +25,7 @@ _EXPECTED_RULE_NAMES = {
     "no-fabrication",
     "honest-uncertainty",
     "anti-sycophancy",
+    "content-structure",
     "language-match",
 }
 

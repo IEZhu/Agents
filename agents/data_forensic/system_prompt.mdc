@@ -18,8 +18,15 @@ core_skills:
 preferred_skills:
 - skill-analysis-critical
 - skill-dense-summarization
-- skill-content-structure
-capable_skills: []
+capable_skills:
+- skill-reasoning-logic
+- skill-decision-frameworks
+- skill-epistemic-method
+- skill-temporal-validation
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-wayback-machine
+- skill-structured-output
 preferred_implants:
 - implant-narrative-of-thought
 - implant-cumulative-reasoning

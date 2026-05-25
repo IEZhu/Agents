@@ -33,8 +33,18 @@ routing:
   trigger_command: /math
 core_skills:
 - skill-mathematical-reasoning
-preferred_skills: []
-capable_skills: []
+preferred_skills:
+- skill-reasoning-logic
+- skill-analysis-critical
+- skill-dev-debugging
+capable_skills:
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-temporal-validation
+- skill-dense-summarization
+- skill-decision-frameworks
+- skill-epistemic-method
+- skill-code-generation
 preferred_implants:
 - implant-chain-of-code
 - implant-program-of-thoughts

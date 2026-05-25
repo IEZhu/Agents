@@ -37,7 +37,13 @@ core_skills:
 - skill-psy-cbt
 preferred_skills:
 - skill-psy-nvc
-capable_skills: []
+capable_skills:
+- skill-narrative-craft
+- skill-decision-frameworks
+- skill-reasoning-logic
+- skill-pedagogy
+- skill-consultative-intake
+- skill-psy-digital-wellbeing
 preferred_implants:
 - implant-maieutic-prompting
 - implant-system-2-attention

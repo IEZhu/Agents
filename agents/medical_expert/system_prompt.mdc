@@ -28,16 +28,21 @@ routing:
   - fluid retention
   - lab interpretation
   trigger_command: /medical
-core_skills: []
+core_skills:
+- skill-bio-protocol-design
 preferred_skills:
 - skill-analysis-critical
 - skill-bio-mechanism
 - skill-bio-protocols
 - skill-reasoning-logic
 - skill-fact-verification
-- skill-bio-protocol-design
 - skill-source-trust-tiers
-capable_skills: []
+capable_skills:
+- skill-decision-frameworks
+- skill-temporal-validation
+- skill-dense-summarization
+- skill-consultative-intake
+- skill-epistemic-method
 preferred_implants:
 - implant-chain-of-verification
 - implant-uncertainty-quantification

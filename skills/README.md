@@ -103,13 +103,31 @@ Persona for this skill.
 
 | Skill | Description |
 |-------|-------------|
-| `skill-content-structure` | BLUF, Minto Pyramid, MECE frameworks |
 | `skill-tech-writing` | Technical documentation best practices |
 | `skill-git-conventions` | Conventional Commits, atomic commits |
 | `skill-clickup-markdown` | ClickUp-compatible markdown formatting |
 | `skill-mermaid-best-practices` | Diagram creation with Mermaid |
 | `skill-literary-devices` | Literary devices, tropes, sound symbolism |
 | `skill-narrative-craft` | Story building, voice, pacing, emotional arcs |
+
+> **Note**: `skill-content-structure` (BLUF, Minto Pyramid, MECE) was promoted to `rule-content-structure` — it is now always-on for every agent and no longer needs to be declared in agent configs.
+
+### Legal Jurisdictions
+
+| Skill | Description |
+|-------|-------------|
+| `skill-legal-citation` | Verbatim statute citation, jurisdiction discipline, conflict-of-laws (lex specialis/posterior) |
+| `skill-jurisdiction-co` | Colombia — Constitución 1991, SAS, DIAN, RUT, acción de tutela, ICA, Estatuto Tributario |
+| `skill-jurisdiction-cy` | Cyprus — Cap. 113, IP Box 2.5%, non-dom 17yr, DTT network 65+, EU acquis |
+| `skill-jurisdiction-ge` | Georgia — Virtual Zone IT, micro-business 0%, Estonian-model profit tax, NAPR |
+| `skill-jurisdiction-kz` | Kazakhstan — AIFC common law zone, Astana Hub, ТОО, НК РК |
+| `skill-jurisdiction-mx` | Mexico — amparo, CFDI, PTU 10%, fideicomiso, SAT, RFC, federal vs estado |
+| `skill-jurisdiction-ru` | Russia — ГК/НК/ТК/УК/КоАП, Plenums of Supreme Court, regional subjects |
+| `skill-jurisdiction-rs` | Serbia — ЗОО, д.о.о./а.д., paušalno, EU acquis harmonization |
+| `skill-jurisdiction-es` | Spain — IRPF/IS/IVA, NIE, autónomo, Ley Beckham, 17 Comunidades Autónomas |
+| `skill-jurisdiction-us` | United States — federal + 50 states, IRC, USCIS, LLC/Corp, H-1B/EB visas, circuit splits |
+
+All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool — loaded by keyword/semantic match when the user's query identifies a specific country.
 
 ### Domain-Specific
 

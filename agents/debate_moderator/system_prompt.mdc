@@ -22,7 +22,14 @@ core_skills:
 preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
-capable_skills: []
+capable_skills:
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-epistemic-method
+- skill-agnotology
+- skill-consultative-intake
+- skill-dense-summarization
+- skill-psy-nvc
 preferred_implants:
 - implant-multi-agent-debate
 - implant-steel-man

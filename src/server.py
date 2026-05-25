@@ -986,22 +986,62 @@ async def ask(query: str) -> list:
         return [UserMessage(f"{query}\n\n(Routing error: {e})")]
 
 
+def _build_retrieval_query(
+    invoked_cmd: Optional[str],
+    primary_trigger: str,
+    query: str,
+) -> str:
+    """Build the query passed to skill/implant retrieval inside `_load_and_enrich`.
+
+    For alias invocations (``invoked_cmd != primary_trigger``), prepend the
+    invoked slash command so that alias-specific skill keywords — e.g.,
+    ``/co_lawyer`` in ``skill-jurisdiction-co.mdc``'s ``keywords:`` list —
+    participate in capable-skill retrieval. Without this, ``/co_lawyer``
+    would route to the lawyer agent but miss the matching jurisdiction
+    skill when the user's text is short or generic.
+
+    For the primary ``trigger_command`` (and when ``invoked_cmd`` is ``None``
+    or empty), return the user's query unchanged. Prepending the primary
+    trigger would:
+      - leak command-name signals (``audit``, ``review``, ``compare``) into
+        ``infer_tier()`` and force ``deep`` tier on otherwise short queries;
+      - change the session cache key, defeating cross-invocation caching.
+    """
+    if invoked_cmd and invoked_cmd != primary_trigger:
+        return f"{invoked_cmd} {query}"
+    return query
+
+
 def _register_agent_prompts():
-    """Dynamically register a /slash prompt for each agent's trigger_command."""
+    """Register a /slash prompt for each agent's trigger_command and any aliases.
+
+    Each agent's primary slash command comes from ``routing.trigger_command``.
+    Agents may also declare ``routing.aliases``: a list of additional slash
+    commands that route to the same agent (e.g., legacy per-country commands
+    consolidated into a single multi-jurisdiction agent). Every entry is
+    registered as its own MCP slash prompt.
+
+    The retrieval query is built via :func:`_build_retrieval_query`, which
+    prepends the invoked slash command only when an alias is used.
+    """
     for agent_name in router.available_agents:
         meta = get_agent_metadata(agent_name)
-        trigger = meta.get("routing", {}).get("trigger_command", "")
-        if not trigger:
+        routing_meta = meta.get("routing", {})
+        trigger = routing_meta.get("trigger_command", "")
+        aliases = routing_meta.get("aliases", []) or []
+
+        commands = [c for c in [trigger, *aliases] if c]
+        if not commands:
             continue
 
-        prompt_name = trigger.lstrip("/")
         display_name = meta.get("identity", {}).get("display_name", agent_name)
         role = meta.get("identity", {}).get("role", "")
 
-        def make_prompt(a_name, d_name, r):
+        def make_prompt(a_name, d_name, r, p_name, invoked_cmd, primary_trigger):
             async def agent_prompt(query: str) -> list:
+                retrieval_query = _build_retrieval_query(invoked_cmd, primary_trigger, query)
                 try:
-                    prompt, _, _, _, _, _ = await _load_and_enrich(a_name, query, [])
+                    prompt, _, _, _, _, _ = await _load_and_enrich(a_name, retrieval_query, [])
                     return [UserMessage(
                         f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
                         f"{prompt}\n\n"
@@ -1010,11 +1050,13 @@ def _register_agent_prompts():
                     )]
                 except Exception as e:
                     return [UserMessage(f"{query}\n\n(Error loading {d_name}: {e})")]
-            agent_prompt.__name__ = prompt_name
+            agent_prompt.__name__ = p_name
             agent_prompt.__doc__ = f"{d_name} — {r}"
             return agent_prompt
 
-        mcp.prompt()(make_prompt(agent_name, display_name, role))
+        for cmd in commands:
+            prompt_name = cmd.lstrip("/")
+            mcp.prompt()(make_prompt(agent_name, display_name, role, prompt_name, cmd, trigger))
 
 
 _register_agent_prompts()

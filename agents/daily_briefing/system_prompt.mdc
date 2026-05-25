@@ -14,14 +14,19 @@ routing:
   - news summary
   - what happened
   trigger_command: /briefing
-core_skills: []
+core_skills:
+- skill-dense-summarization
 preferred_skills:
 - skill-analysis-critical
-- skill-dense-summarization
-- skill-reasoning-logic
 - skill-fact-verification
 - skill-source-trust-tiers
-capable_skills: []
+- skill-reasoning-logic
+capable_skills:
+- skill-temporal-validation
+- skill-wayback-machine
+- skill-agnotology
+- skill-decision-frameworks
+- skill-epistemic-method
 preferred_implants:
 - implant-chain-of-verification
 - implant-chain-of-note

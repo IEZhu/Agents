@@ -24,7 +24,13 @@ preferred_skills:
 - skill-dev-security
 - skill-dev-debugging
 - skill-caveman-tokenomics
-capable_skills: []
+capable_skills:
+- skill-error-recovery
+- skill-mathematical-reasoning
+- skill-system-design
+- skill-dev-performance
+- skill-dev-api-design
+- skill-git-conventions
 preferred_implants:
 - implant-role-play-expert
 - implant-chain-of-verification

@@ -35,11 +35,17 @@ preferred_skills:
 - skill-analysis-critical
 - skill-prompt-techniques
 - skill-reasoning-logic
-- skill-content-structure
 - skill-dense-summarization
 - skill-caveman-tokenomics
 capable_skills:
 - skill-prompt-security
+- skill-fact-verification
+- skill-consultative-intake
+- skill-react-pattern
+- skill-multi-step-planning
+- skill-agentic-loops
+- skill-structured-output
+- skill-token-economy
 preferred_implants:
 - implant-self-refine
 - implant-chain-of-verification

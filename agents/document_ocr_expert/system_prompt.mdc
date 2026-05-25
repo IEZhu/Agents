@@ -15,13 +15,18 @@ routing:
   - image to text
   - document parsing
   trigger_command: /ocr
-core_skills: []
+core_skills:
+- skill-structured-output
 preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
-- skill-content-structure
 - skill-dense-summarization
-capable_skills: []
+capable_skills:
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-forensic-process
+- skill-temporal-validation
+- skill-tech-writing
 preferred_implants:
 - implant-chain-of-verification
 - implant-contextual-compression

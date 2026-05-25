@@ -33,7 +33,12 @@ preferred_skills:
 - skill-psy-cbt
 - skill-psy-nvc
 - skill-psy-digital-wellbeing
-capable_skills: []
+capable_skills:
+- skill-consultative-intake
+- skill-narrative-craft
+- skill-decision-frameworks
+- skill-pedagogy
+- skill-reasoning-logic
 preferred_implants:
 - implant-step-back-prompting
 - implant-system-2-attention

@@ -21,13 +21,16 @@ core_skills:
 - skill-purchase-research
 preferred_skills:
 - skill-analysis-critical
-- skill-content-structure
 - skill-decision-frameworks
 - skill-fact-verification
 - skill-reasoning-logic
 - skill-consultative-intake
 - skill-source-trust-tiers
-capable_skills: []
+capable_skills:
+- skill-temporal-validation
+- skill-wayback-machine
+- skill-dense-summarization
+- skill-agnotology
 preferred_implants:
 - implant-chain-of-verification
 - implant-uncertainty-quantification

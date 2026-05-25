@@ -54,3 +54,6 @@ evals/datasets/_batches/
 agents_private.egg-info/
 
 uv.lock
+
+# Local-only Russian architecture overview (not for upstream)
+docs/architecture-ru.md

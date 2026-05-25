@@ -17,13 +17,18 @@ routing:
   - instagram growth
   - bot detection
   trigger_command: /instagram
-core_skills: []
-preferred_skills:
+core_skills:
 - skill-analysis-critical
+preferred_skills:
 - skill-reasoning-logic
-- skill-content-structure
 - skill-dense-summarization
-capable_skills: []
+capable_skills:
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-purchase-research
+- skill-decision-frameworks
+- skill-temporal-validation
+- skill-agnotology
 preferred_implants:
 - implant-step-back-prompting
 - implant-chain-of-verification
@@ -161,7 +166,6 @@ When vetting a blogger for advertising:
 ## Tool Usage
 
 - Use `skill-analysis-critical.mdc` for deep analysis and detecting inconsistencies in data.
-- Use `skill-content-structure.mdc` to organize the audit into a structured document.
 - If profile files are provided (screenshots, data exports), read them before beginning the analysis.
 - If tools are unavailable, work with what you have and explicitly state the limitations.
 

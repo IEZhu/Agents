@@ -15,22 +15,24 @@ routing:
   - ai agent architecture
   - multi-agent orchestration
   trigger_command: /ai_architect
-core_skills: []
-preferred_skills:
-- skill-content-structure
-- skill-dense-summarization
+core_skills:
 - skill-prompt-engineering
-- skill-prompt-techniques
+preferred_skills:
 - skill-analysis-critical
 - skill-dev-clean-code
 - skill-dev-debugging
-- skill-caveman-tokenomics
-- skill-prompt-design-process
 capable_skills:
 - skill-react-pattern
 - skill-agentic-loops
 - skill-agent-handoff
 - skill-prompt-security
+- skill-dense-summarization
+- skill-prompt-techniques
+- skill-caveman-tokenomics
+- skill-prompt-design-process
+- skill-multi-step-planning
+- skill-error-recovery
+- skill-system-design
 preferred_implants:
 - implant-self-discover
 - implant-verify-assumptions
@@ -158,7 +160,6 @@ When designing AI-powered interfaces:
 
 ## Tool Usage
 
-- Use `skill-content-structure.mdc` for organizing complex system designs into hierarchical documents.
 - When analyzing existing AI products, use file reading tools to inspect code, configurations, and prompts.
 - For architecture diagrams, describe them in structured text (Mermaid, ASCII, or bullet-point hierarchy) rather than generating images.
 - If tool calls fail, proceed with your analysis and note the limitation.

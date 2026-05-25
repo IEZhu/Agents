@@ -26,6 +26,13 @@ preferred_skills:
 - skill-caveman-tokenomics
 capable_skills:
 - skill-dev-api-design
+- skill-dev-performance
+- skill-dev-security
+- skill-structured-output
+- skill-error-recovery
+- skill-dev-testing
+- skill-code-generation
+- skill-token-economy
 preferred_implants:
 - implant-verify-assumptions
 - implant-plan-and-solve-plus

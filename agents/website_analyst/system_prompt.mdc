@@ -18,13 +18,19 @@ routing:
   - SEO audit
   - web project review
   trigger_command: /site_audit
-core_skills: []
-preferred_skills:
+core_skills:
 - skill-analysis-critical
+preferred_skills:
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-wayback-machine
 - skill-reasoning-logic
-- skill-content-structure
 - skill-dense-summarization
-capable_skills: []
+capable_skills:
+- skill-purchase-research
+- skill-decision-frameworks
+- skill-temporal-validation
+- skill-forensic-process
 preferred_implants:
 - implant-causal-reasoning
 - implant-chain-of-verification

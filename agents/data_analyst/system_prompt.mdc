@@ -27,7 +27,14 @@ preferred_skills:
 - skill-dense-summarization
 - skill-caveman-tokenomics
 - skill-forensic-process
-capable_skills: []
+capable_skills:
+- skill-temporal-validation
+- skill-fact-verification
+- skill-decision-frameworks
+- skill-source-trust-tiers
+- skill-mathematical-reasoning
+- skill-dev-performance
+- skill-structured-output
 preferred_implants:
 - implant-causal-reasoning
 - implant-chain-of-verification

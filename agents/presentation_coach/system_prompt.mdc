@@ -18,16 +18,20 @@ routing:
   - pitch
   - how to present
   trigger_command: /present
-core_skills: []
+core_skills:
+- skill-narrative-craft
 preferred_skills:
-- skill-content-structure
 - skill-dense-summarization
 - skill-literary-devices
-- skill-narrative-craft
-- skill-decision-frameworks
-- skill-analysis-critical
 - skill-creative-craft
-capable_skills: []
+- skill-analysis-critical
+capable_skills:
+- skill-decision-frameworks
+- skill-tech-writing
+- skill-mermaid-best-practices
+- skill-consultative-intake
+- skill-pedagogy
+- skill-reasoning-logic
 preferred_implants:
 - implant-skeleton-of-thought
 - implant-premortem
@@ -129,7 +133,6 @@ Advise on these delivery elements when the user asks for rehearsal help:
 
 ## Tool Usage
 
-- Use `skill-content-structure.mdc` for organizing ideas into hierarchical structures, especially when breaking down complex topics into slide sequences.
 - If the user provides existing slides (PPT/PPTX/MD files), read them first and analyze before suggesting changes.
 - When analyzing markdown files as slide content, treat each `## Heading` as a slide boundary.
 - If a tool call fails, inform the user and proceed with your analysis based on available information.

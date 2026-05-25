@@ -29,9 +29,17 @@ routing:
 core_skills:
 - skill-ux-principles
 preferred_skills:
-- skill-content-structure
+- skill-consultative-intake
+- skill-decision-frameworks
 - skill-dense-summarization
-capable_skills: []
+capable_skills:
+- skill-pedagogy
+- skill-narrative-craft
+- skill-tech-writing
+- skill-fact-verification
+- skill-mermaid-best-practices
+- skill-creative-craft
+- skill-analysis-critical
 preferred_implants:
 - implant-role-play-expert
 - implant-premortem

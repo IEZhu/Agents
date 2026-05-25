@@ -34,8 +34,11 @@ core_skills:
 preferred_skills:
 - skill-literary-devices
 - skill-narrative-craft
-- skill-content-structure
-capable_skills: []
+capable_skills:
+- skill-dense-summarization
+- skill-pedagogy
+- skill-tech-writing
+- skill-analysis-critical
 preferred_implants:
 - implant-analogical-prompting
 - implant-generated-knowledge

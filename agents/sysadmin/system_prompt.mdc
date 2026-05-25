@@ -36,14 +36,21 @@ routing:
   - log line
   - parse log
   trigger_command: /sysadmin
-core_skills: []
+core_skills:
+- skill-error-recovery
 preferred_skills:
 - skill-dev-debugging
-- skill-error-recovery
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-caveman-tokenomics
-capable_skills: []
+capable_skills:
+- skill-dev-testing
+- skill-mcp-development
+- skill-git-conventions
+- skill-mermaid-best-practices
+- skill-system-design
+- skill-dev-security
+- skill-tech-writing
 preferred_implants:
 - implant-regression-first
 ---

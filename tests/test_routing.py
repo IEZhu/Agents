@@ -677,7 +677,7 @@ class TestPreferredImplantsRetrievalAB:
         ("software_engineer", "help me with a coding task"),
         ("code_reviewer", "review my pull request"),
         ("system_architect", "design a distributed system"),
-        ("us_lawyer", "what does the contract require?"),
+        ("lawyer", "what does the contract require?"),
         ("medical_expert", "interpret these lab results"),
         ("deep_researcher", "summarize the literature on X"),
         ("psychologist", "I am feeling anxious"),
@@ -775,24 +775,24 @@ class TestKeywordBoosting:
 
     def test_match_keywords_no_match(self):
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["российское право", "закон рф"],
+            "lawyer": ["российское право", "закон рф"],
         })
         matches = r.match_keywords("How to bake a cake?")
         assert matches == []
 
     def test_match_keywords_multilingual_russian(self):
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["российское право", "закон рф", "гк рф", "нк рф"],
+            "lawyer": ["российское право", "закон рф", "гк рф", "нк рф"],
             "universal_agent": [],
         })
         matches = r.match_keywords("Анализ статьи ГК РФ про обязательства")
-        assert matches[0][0] == "russian_lawyer"
+        assert matches[0][0] == "lawyer"
         assert matches[0][1] >= 1
 
     def test_match_keywords_token_fallback(self):
         """Token-level matching: all significant tokens must appear in query."""
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["закон рф", "российское право"],
+            "lawyer": ["закон рф", "российское право"],
         })
         # "закон рф" → tokens ["закон", "рф"] (both significant).
         # Query has "закон" (via "законодательству") but NOT "рф" → no match
@@ -801,7 +801,7 @@ class TestKeywordBoosting:
         # When both tokens present → match
         matches = r.match_keywords("Проверить закон РФ на соответствие")
         assert len(matches) == 1
-        assert matches[0][0] == "russian_lawyer"
+        assert matches[0][0] == "lawyer"
 
     def test_match_keywords_token_fallback_requires_all_tokens(self):
         """Multi-word keyword requires ALL significant tokens to match, not just any."""
@@ -818,7 +818,7 @@ class TestKeywordBoosting:
     def test_match_keywords_retains_short_acronyms(self):
         """Short alphanumeric tokens like 'рф', 'ip', '3d' are kept as significant."""
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["закон рф"],
+            "lawyer": ["закон рф"],
         })
         # "закон рф" exact doesn't match, fallback tokens are ["закон", "рф"]
         # "рф" (2 chars, alphanumeric+alpha) is retained; both must match
@@ -856,24 +856,24 @@ class TestKeywordBoosting:
 
     def test_keyword_veto_confirms_cache(self):
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["закон рф", "гк рф"],
+            "lawyer": ["закон рф", "гк рф"],
         })
-        result = r.keyword_veto("Статья ГК РФ", "russian_lawyer")
+        result = r.keyword_veto("Статья ГК РФ", "lawyer")
         assert result is None
 
     def test_keyword_veto_overrides_cache(self):
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["закон рф", "гк рф", "нк рф"],
+            "lawyer": ["закон рф", "гк рф", "нк рф"],
             "universal_agent": [],
         })
         result = r.keyword_veto("Анализ ГК РФ и НК РФ", "universal_agent")
-        assert result == "russian_lawyer"
+        assert result == "lawyer"
 
     def test_keyword_veto_returns_route_required(self):
         """When two agents have similar keyword hits, return ROUTE_REQUIRED."""
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["закон рф"],
-            "kazakh_lawyer": ["закон рф"],  # same keyword in both
+            "lawyer": ["закон рф"],
+            "universal_agent_v2": ["закон рф"],  # same keyword in both
         })
         from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
         result = r.keyword_veto("Анализ закон РФ", "universal_agent")
@@ -883,7 +883,7 @@ class TestKeywordBoosting:
     def test_keyword_veto_ignores_weak_signal(self):
         """No match at all -> None (trust cache)."""
         r = self._make_router_with_keywords({
-            "russian_lawyer": ["российское право"],
+            "lawyer": ["российское право"],
         })
         result = r.keyword_veto("How to bake a cake?", "universal_agent")
         assert result is None
@@ -928,7 +928,7 @@ class TestKeywordBoosting:
 
     @pytest.mark.asyncio
     async def test_standard_routing_keyword_override(self):
-        """Integration: cache returns universal_agent, keywords override to russian_lawyer."""
+        """Integration: cache returns universal_agent, keywords override to lawyer."""
         import src.server as srv
         from src.schemas.protocol import RouterDecision
 
@@ -940,7 +940,7 @@ class TestKeywordBoosting:
         )
 
         with patch.object(srv.router, "lookup_cache", new_callable=AsyncMock, return_value=cached), \
-             patch.object(srv.router, "keyword_veto", return_value="russian_lawyer"), \
+             patch.object(srv.router, "keyword_veto", return_value="lawyer"), \
              patch.object(srv.router, "update_cache", new_callable=AsyncMock) as mock_cache, \
              patch("src.server._load_and_enrich", new_callable=AsyncMock, return_value=(
                  "prompt", "hash123", ["skill1"], ["implant1"], ["rule1"], "standard"
@@ -948,11 +948,11 @@ class TestKeywordBoosting:
              patch("src.server._sample_with_agent", new_callable=AsyncMock, return_value=None):
             result = await srv.route_and_load("Проверить доверенность на соответствие российскому законодательству")
             data = json.loads(result)
-            assert data["agent"] == "russian_lawyer"
+            assert data["agent"] == "lawyer"
             assert data["status"] in ("SUCCESS", "SUCCESS_SAMPLED")
             # Verify cache is updated with the overridden agent, not the original
             mock_cache.assert_called_once()
-            assert mock_cache.call_args[1].get("agent_name", mock_cache.call_args[0][1]) == "russian_lawyer"
+            assert mock_cache.call_args[1].get("agent_name", mock_cache.call_args[0][1]) == "lawyer"
 
     @pytest.mark.asyncio
     async def test_sticky_autoswitch_respects_ambiguous_keyword_veto(self):
@@ -1310,6 +1310,118 @@ class TestCacheInvalidation:
         marker = (isolated_router_dir / ".router_cache_model").read_text()
         assert marker == f"{EMBEDDING_MODEL}|384"
 
+    @pytest.mark.asyncio
+    async def test_query_nearest_skips_stale_target_agent(self, isolated_router_dir, monkeypatch):
+        """Regression: cache entries that point to a deleted agent must NOT
+        be returned. Without the guard, the stale name flows into
+        ``_load_and_enrich``, ``load_agent_prompt`` raises FileNotFoundError,
+        and the request ends as ERROR. With the guard, ``query_nearest``
+        returns ``None`` and the caller falls through to keyword veto /
+        ROUTE_REQUIRED.
+        """
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Seed cache with a vector pointing at a deleted agent name.
+        from src.engine.vector_store import NumpyVectorStore
+        store = NumpyVectorStore(name="router_cache", data_dir=str(isolated_router_dir))
+        store.add(
+            ids=["stale"],
+            embeddings=np.ones((1, 384), dtype=np.float32),
+            documents=["legacy query"],
+            metadatas=[{
+                "target_agent": "deleted_legacy_lawyer",
+                "reasoning": "from previous schema",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }],
+        )
+        store.save()
+        (isolated_router_dir / ".router_cache_model").write_text(f"{EMBEDDING_MODEL}|384")
+
+        # The query embedder produces the same vector as the seed, so the
+        # nearest-neighbour distance is 0 — strong cache hit territory.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.ones(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        # ``deleted_legacy_lawyer`` is not in ``available_agents`` (the test
+        # repo never had it). The guard must short-circuit.
+        assert "deleted_legacy_lawyer" not in router.available_agents
+
+        result = await router.query_nearest("legacy query")
+        assert result is None, (
+            "query_nearest must drop cache entries whose target_agent is no "
+            "longer in available_agents — otherwise route_and_load ends as ERROR"
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_nearest_falls_through_to_valid_neighbour(self, isolated_router_dir, monkeypatch):
+        """When the nearest cache entry is stale but a valid one is close
+        behind, ``query_nearest`` must skip the stale top-1 and return the
+        next valid candidate. Otherwise a single deleted agent permanently
+        forces cache misses for any query pattern whose nearest neighbour
+        happens to point at it.
+        """
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+        from src.engine.vector_store import NumpyVectorStore
+
+        # Two seeds: stale at near-zero distance, valid slightly further.
+        # Both share the first dimension dominantly; the stale entry is
+        # *closer* by a small margin (extra weight on dim 0).
+        stale_vec = np.zeros(384, dtype=np.float32)
+        stale_vec[0] = 1.0
+        valid_vec = np.zeros(384, dtype=np.float32)
+        valid_vec[0] = 0.9   # slightly less aligned with the query
+        valid_vec[1] = 0.1
+
+        store = NumpyVectorStore(name="router_cache", data_dir=str(isolated_router_dir))
+        store.add(
+            ids=["stale", "valid"],
+            embeddings=np.stack([stale_vec, valid_vec]),
+            documents=["legacy query", "neighbour query"],
+            metadatas=[
+                {
+                    "target_agent": "deleted_legacy_lawyer",
+                    "reasoning": "stale",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "target_agent": "universal_agent",
+                    "reasoning": "valid",
+                    "timestamp": "2026-01-02T00:00:00Z",
+                },
+            ],
+        )
+        store.save()
+        (isolated_router_dir / ".router_cache_model").write_text(f"{EMBEDDING_MODEL}|384")
+
+        # Probe vector aligned with dim 0: closer to stale (distance ~0),
+        # but ``valid`` is the next nearest.
+        probe = np.zeros(384, dtype=np.float32)
+        probe[0] = 1.0
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: probe,
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert "deleted_legacy_lawyer" not in router.available_agents
+        assert "universal_agent" in router.available_agents
+
+        result = await router.query_nearest("any query")
+        assert result is not None, (
+            "query_nearest must skip the stale top-1 and return the next "
+            "valid neighbour, not give up on the first stale hit"
+        )
+        decision, _ = result
+        assert decision.target_agent == "universal_agent"
+        assert decision.is_cached is True
+
 
 class TestClearSessionCache:
     @pytest.mark.asyncio
@@ -1323,3 +1435,61 @@ class TestClearSessionCache:
         assert len(srv.SESSION_CACHE) == 0
         assert len(srv.CONTEXT_HASH_CACHE) == 0
         assert "cleared" in result.lower()
+
+
+class TestBuildRetrievalQuery:
+    """Tests for `src.server._build_retrieval_query` — the helper that decides
+    whether to prepend the invoked slash command to the retrieval query.
+
+    The function exists because skill keyword retrieval reads the *query* text,
+    not the command name that triggered the prompt. For legacy alias commands
+    like `/co_lawyer` the country keyword lives only in the skill's
+    `keywords:` field; prepending the alias to the retrieval query makes that
+    keyword hit. For the primary `trigger_command` we must NOT prepend — doing
+    so would leak command-name signals into `infer_tier()` (e.g., `audit`
+    inside `/site_audit` forces `deep` tier) and change the session cache key.
+    """
+
+    def test_alias_prepends_invoked_command(self):
+        """An alias different from the trigger gets prepended to the query."""
+        from src.server import _build_retrieval_query
+        result = _build_retrieval_query(
+            invoked_cmd="/co_lawyer",
+            primary_trigger="/lawyer",
+            query="налоги SAS",
+        )
+        assert result == "/co_lawyer налоги SAS"
+
+    def test_primary_trigger_does_not_prepend(self):
+        """When the invoked command equals the primary trigger, return the
+        query unchanged — prepending would force `deep` tier on commands
+        whose name contains an `infer_tier` signal."""
+        from src.server import _build_retrieval_query
+        # `/site_audit` contains "audit" — a `_COMPLEX_SIGNALS` token. If the
+        # primary-trigger code path prepended it, every `/site_audit X` would
+        # be classified as `deep` regardless of `X`.
+        result = _build_retrieval_query(
+            invoked_cmd="/site_audit",
+            primary_trigger="/site_audit",
+            query="example.com",
+        )
+        assert result == "example.com"
+
+    def test_empty_invoked_command_returns_query(self):
+        """Safety: empty/None invoked_cmd just returns the query."""
+        from src.server import _build_retrieval_query
+        assert _build_retrieval_query("", "/lawyer", "hello") == "hello"
+        assert _build_retrieval_query(None, "/lawyer", "hello") == "hello"
+
+    def test_lawyer_alias_matches_jurisdiction_skill_via_keyword(self):
+        """Integration-style assertion of the design contract:
+        each `/XX_lawyer` slash, after prepending, contains the literal
+        keyword that `skill-jurisdiction-XX.mdc` declares in its
+        `keywords:` list — so `SkillRetriever` will keyword-hit even on a
+        short user query.
+        """
+        from src.server import _build_retrieval_query
+        for cc in ("co", "cy", "ge", "kz", "mx", "ru", "rs", "es", "us"):
+            alias = f"/{cc}_lawyer"
+            retrieval = _build_retrieval_query(alias, "/lawyer", "tax question")
+            assert alias in retrieval, f"alias {alias!r} not in retrieval query {retrieval!r}"

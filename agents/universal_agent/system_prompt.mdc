@@ -12,15 +12,22 @@ routing:
   - question
   - idea
   trigger_command: /universal
-core_skills: []
+core_skills:
+- skill-decision-frameworks
 preferred_skills:
-- skill-content-structure
-- skill-dense-summarization
 - skill-analysis-critical
 - skill-reasoning-logic
-- skill-decision-frameworks
+- skill-dense-summarization
+capable_skills:
 - skill-consultative-intake
-capable_skills: []
+- skill-fact-verification
+- skill-temporal-validation
+- skill-source-trust-tiers
+- skill-epistemic-method
+- skill-multi-step-planning
+- skill-agentic-loops
+- skill-product-frameworks
+- skill-tech-writing
 preferred_implants:
 - implant-self-discover
 - implant-step-back-prompting

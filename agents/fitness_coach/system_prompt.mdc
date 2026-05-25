@@ -29,7 +29,14 @@ preferred_skills:
 - skill-bio-protocols
 - skill-analysis-critical
 - skill-bio-protocol-design
-capable_skills: []
+capable_skills:
+- skill-pedagogy
+- skill-narrative-craft
+- skill-fact-verification
+- skill-dense-summarization
+- skill-source-trust-tiers
+- skill-consultative-intake
+- skill-psy-nvc
 preferred_implants:
 - implant-chain-of-verification
 - implant-uncertainty-quantification
