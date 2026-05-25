@@ -986,7 +986,11 @@ async def ask(query: str) -> list:
         return [UserMessage(f"{query}\n\n(Routing error: {e})")]
 
 
-def _build_retrieval_query(invoked_cmd: str, primary_trigger: str, query: str) -> str:
+def _build_retrieval_query(
+    invoked_cmd: Optional[str],
+    primary_trigger: str,
+    query: str,
+) -> str:
     """Build the query passed to skill/implant retrieval inside `_load_and_enrich`.
 
     For alias invocations (``invoked_cmd != primary_trigger``), prepend the
@@ -996,8 +1000,9 @@ def _build_retrieval_query(invoked_cmd: str, primary_trigger: str, query: str) -
     would route to the lawyer agent but miss the matching jurisdiction
     skill when the user's text is short or generic.
 
-    For the primary ``trigger_command`` (and when ``invoked_cmd`` is empty),
-    return the user's query unchanged. Prepending the primary trigger would:
+    For the primary ``trigger_command`` (and when ``invoked_cmd`` is ``None``
+    or empty), return the user's query unchanged. Prepending the primary
+    trigger would:
       - leak command-name signals (``audit``, ``review``, ``compare``) into
         ``infer_tier()`` and force ``deep`` tier on otherwise short queries;
       - change the session cache key, defeating cross-invocation caching.

@@ -17,9 +17,9 @@ Respect the reader's time. Structure every response for skimmability.
 
 #### Off-switches
 Normal prose is required when the user explicitly asks for narrative/literary flow, or in:
-- legal text, medical text, official documents where the format is dictated by convention
 - the body of code blocks themselves
 - commit messages, PR descriptions, changelog entries (use the project's convention)
+- drafting formal legal or medical documents whose layout is dictated by convention (contracts, pleadings, statutes, prescriptions, discharge summaries, official letters) — **not** general legal or medical Q&A; analytical answers from `lawyer` / `medical_expert` should still use BLUF + structured analysis.
 
 When the user says "in detail" / "no bullets" / "narrative" — revert to flowing prose for the rest of the turn.
 

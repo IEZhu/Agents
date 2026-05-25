@@ -1310,6 +1310,53 @@ class TestCacheInvalidation:
         marker = (isolated_router_dir / ".router_cache_model").read_text()
         assert marker == f"{EMBEDDING_MODEL}|384"
 
+    @pytest.mark.asyncio
+    async def test_query_nearest_skips_stale_target_agent(self, isolated_router_dir, monkeypatch):
+        """Regression: cache entries that point to a deleted agent must NOT
+        be returned. Without the guard, the stale name flows into
+        ``_load_and_enrich``, ``load_agent_prompt`` raises FileNotFoundError,
+        and the request ends as ERROR. With the guard, ``query_nearest``
+        returns ``None`` and the caller falls through to keyword veto /
+        ROUTE_REQUIRED.
+        """
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+
+        # Seed cache with a vector pointing at a deleted agent name.
+        from src.engine.vector_store import NumpyVectorStore
+        store = NumpyVectorStore(name="router_cache", data_dir=str(isolated_router_dir))
+        store.add(
+            ids=["stale"],
+            embeddings=np.ones((1, 384), dtype=np.float32),
+            documents=["legacy query"],
+            metadatas=[{
+                "target_agent": "deleted_legacy_lawyer",
+                "reasoning": "from previous schema",
+                "timestamp": "2026-01-01T00:00:00Z",
+            }],
+        )
+        store.save()
+        (isolated_router_dir / ".router_cache_model").write_text(f"{EMBEDDING_MODEL}|384")
+
+        # The query embedder produces the same vector as the seed, so the
+        # nearest-neighbour distance is 0 — strong cache hit territory.
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: np.ones(384, dtype=np.float32),
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        # ``deleted_legacy_lawyer`` is not in ``available_agents`` (the test
+        # repo never had it). The guard must short-circuit.
+        assert "deleted_legacy_lawyer" not in router.available_agents
+
+        result = await router.query_nearest("legacy query")
+        assert result is None, (
+            "query_nearest must drop cache entries whose target_agent is no "
+            "longer in available_agents — otherwise route_and_load ends as ERROR"
+        )
+
 
 class TestClearSessionCache:
     @pytest.mark.asyncio

@@ -377,8 +377,21 @@ class SemanticRouter:
         if results.ids and results.distances and len(results.distances) > 0:
             distance = results.distances[0]
             metadata = results.metadatas[0]
+            target_agent = metadata["target_agent"]
+            # Defensive: a cache entry can outlive its target agent (e.g., an
+            # agent directory was deleted in a refactor). Without this check,
+            # the stale name flows into ``_load_and_enrich`` and
+            # ``load_agent_prompt`` raises ``FileNotFoundError``, ending the
+            # request as ERROR instead of letting the caller re-route.
+            if target_agent not in self.available_agents:
+                logger.warning(
+                    "Skipping stale cache entry: target_agent=%r is not in available_agents "
+                    "(distance=%.4f). Treating as cache miss so the caller can re-route.",
+                    target_agent, distance,
+                )
+                return None
             decision = RouterDecision(
-                target_agent=metadata["target_agent"],
+                target_agent=target_agent,
                 confidence=1.0,
                 reasoning=f"Cached result (distance: {distance:.4f})",
                 is_cached=True,
