@@ -404,7 +404,12 @@ class SemanticRouter:
                     is_cached=True,
                 )
                 return decision, distance
-            logger.warning(
+            # DEBUG, not WARNING: after a bulk refactor (the very scenario this
+            # guard targets) the same query pattern can repeatedly skip several
+            # stale entries before reaching a valid one, which would flood logs
+            # at any higher level. The all-stale fallback below logs at INFO
+            # with the count, which is the actionable summary.
+            logger.debug(
                 "Skipping stale cache entry: target_agent=%r is not in available_agents "
                 "(distance=%.4f). Trying next nearest.",
                 target_agent, distance,
