@@ -3,7 +3,7 @@
 # Bench MCP vs vanilla on Google Gemini 3.1 Pro (low) (arms).
 #
 # Endpoints, API keys, and judge are all controlled by .env — this script only
-# picks the arm model. Switch judge via:  ./scripts/set_judge.sh <preset>
+# picks the arm model. Switch judge by setting JUDGE_PROVIDER/JUDGE_MODEL in .env.
 #
 # IMPORTANT: Gemini cannot be the judge — its structured-output via the
 # OpenAI-compat layer is unreliable (malformed_function_call / ignores schema).

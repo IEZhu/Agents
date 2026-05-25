@@ -30,18 +30,21 @@ _bench_resolve_python() {
     # Matches the fallback chain used by scripts/eval.sh and scripts/run_tests.sh:
     # prefer a local venv, then the preferred pyenv version, then any non-system
     # pyenv version so machines without exactly 3.12.4 do not fail unexpectedly.
+    # `pyenv root` is honored so a custom PYENV_ROOT (e.g. /opt/pyenv) works.
     if [ -d "$REPO_ROOT/.venv" ]; then
         PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
     elif [ -d "$REPO_ROOT/venv" ]; then
         PYTHON_BIN="$REPO_ROOT/venv/bin/python"
     elif command -v pyenv >/dev/null 2>&1; then
-        if [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
-            PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+        local pyenv_root
+        pyenv_root="$(pyenv root 2>/dev/null || echo "$HOME/.pyenv")"
+        if [ -f "$pyenv_root/versions/3.12.4/bin/python" ]; then
+            PYTHON_BIN="$pyenv_root/versions/3.12.4/bin/python"
         else
             local available_version
             available_version="$(pyenv versions --bare | grep -v '^system$' | head -n 1 || echo '')"
-            if [ -n "$available_version" ] && [ -f "$HOME/.pyenv/versions/$available_version/bin/python" ]; then
-                PYTHON_BIN="$HOME/.pyenv/versions/$available_version/bin/python"
+            if [ -n "$available_version" ] && [ -f "$pyenv_root/versions/$available_version/bin/python" ]; then
+                PYTHON_BIN="$pyenv_root/versions/$available_version/bin/python"
             else
                 echo -e "${RED}❌ No pyenv Python versions found (excluding system).${NC}"
                 echo "Install one: pyenv install 3.12.4"
@@ -120,7 +123,7 @@ _bench_check_judge_model() {
     if ! echo "$models_json" | grep -qF "\"id\":\"$JUDGE_MODEL\""; then
         echo -e "${RED}❌ JUDGE_MODEL='$JUDGE_MODEL' is not available at the configured endpoint.${NC}"
         echo "   Connect it via your local proxy's settings,"
-        echo -e "   or pick a different judge: ${BLUE}./scripts/set_judge.sh <preset>${NC}"
+        echo -e "   or pick a different judge by editing ${BLUE}JUDGE_PROVIDER${NC} / ${BLUE}JUDGE_MODEL${NC} in ${BLUE}.env${NC}."
         exit 1
     fi
     echo -e "${DIM}→ Endpoint: '$JUDGE_MODEL' available (judge)${NC}"
@@ -129,7 +132,7 @@ _bench_check_judge_model() {
 _bench_warn_if_gemini_judge() {
     if [[ "${JUDGE_MODEL:-}" == gemini-* ]]; then
         echo -e "${YELLOW}⚠  JUDGE_MODEL='$JUDGE_MODEL' — Gemini-as-judge is unreliable via OpenAI-compat layers (malformed function call / schema ignored).${NC}"
-        echo -e "   ${YELLOW}Recommended: ./scripts/set_judge.sh claude  (or any non-Gemini)${NC}"
+        echo -e "   ${YELLOW}Recommended: set ${BLUE}JUDGE_PROVIDER=anthropic${YELLOW} and ${BLUE}JUDGE_MODEL=claude-sonnet-4-6${YELLOW} (or any non-Gemini) in .env.${NC}"
     fi
 }
 

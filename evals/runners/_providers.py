@@ -151,11 +151,17 @@ def _supports_temperature_anthropic(model: str) -> bool:
 
 
 def judge_user_prompt(query: str, left: str, right: str) -> str:
+    # The instruction is provider-neutral: Anthropic submits via the
+    # `submit_verdict` tool (tool_choice forces it), and OpenAI returns a
+    # JSON object via `response_format=json_schema`. Either path is "matching
+    # the verdict schema", so we phrase it that way to avoid telling the
+    # OpenAI path it can call a tool that the request never declared.
     return (
         f"USER QUERY:\n{query}\n\n"
         f"---\nLEFT:\n{left}\n\n"
         f"---\nRIGHT:\n{right}\n\n"
-        f"---\nSubmit your verdict via the submit_verdict tool."
+        f"---\nSubmit your verdict as a JSON object matching the verdict schema "
+        f"(winner, reasoning, criterion_scores)."
     )
 
 
@@ -218,16 +224,20 @@ def call_judge_openai(
     #   1. Function-calling does NOT pass through reliably via OpenAI-compat proxy
     #      layers that relay to Gemini (observed: finish_reason=None, empty tool_calls).
     #   2. `tools + reasoning_effort` was banned on gpt-5.5 anyway; json_schema
-    #      avoids that conflict entirely. We still skip reasoning_effort here
-    #      (safer; the judge doesn't need extra thinking depth).
-    response = client.chat.completions.create(
-        model=model,
-        max_completion_tokens=max_tokens,
-        messages=[
+    #      avoids that conflict entirely.
+    # On gpt-5.x judges we also pin `reasoning_effort="none"` for the same reason
+    # `complete_openai` does: the default `"medium"` makes hidden reasoning
+    # tokens count against `max_completion_tokens`, and at the judge budget that
+    # has been observed to consume the entire allowance and leave
+    # `message.content` empty — which then trips the empty-content guard below.
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "max_completion_tokens": max_tokens,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": judge_user_prompt(query, left, right)},
         ],
-        response_format={
+        "response_format": {
             "type": "json_schema",
             "json_schema": {
                 "name": verdict_schema["name"],
@@ -239,7 +249,10 @@ def call_judge_openai(
                 # structured output; we json.loads + validate downstream.
             },
         },
-    )
+    }
+    if _is_reasoning_openai_model(model):
+        kwargs["reasoning_effort"] = "none"
+    response = client.chat.completions.create(**kwargs)
     choice = response.choices[0]
     content = choice.message.content
     if not content:

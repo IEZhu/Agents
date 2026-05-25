@@ -365,7 +365,12 @@ class TestOpenAIMaxCompletionTokensRegression:
         assert "max_completion_tokens" in kwargs and kwargs["max_completion_tokens"] == 700
         assert "max_tokens" not in kwargs
         assert "temperature" not in kwargs
-        assert "reasoning_effort" not in kwargs
+        # gpt-5.x judge: reasoning_effort MUST be "none" so hidden reasoning
+        # tokens don't consume the entire max_completion_tokens budget.
+        assert kwargs.get("reasoning_effort") == "none", (
+            "gpt-5.x judge must pin reasoning_effort='none' — otherwise default 'medium' "
+            "lets hidden reasoning eat max_completion_tokens and message.content is empty"
+        )
         # Critical regression assertion — never go back to tool_calls for the judge.
         assert "tools" not in kwargs, "judge must use response_format, not tools (proxy→Gemini paths drop tool_calls)"
         assert "tool_choice" not in kwargs
@@ -393,6 +398,32 @@ class TestOpenAIMaxCompletionTokensRegression:
 
         with pytest.raises(RuntimeError, match="empty content"):
             call_judge_openai(client, "q", "L", "R", "gpt-5.5", JUDGE_SYSTEM_PROMPT, 100, VERDICT_SCHEMA)
+
+    def test_call_judge_openai_omits_reasoning_effort_for_gpt4o(self):
+        """gpt-4o rejects `reasoning_effort` with HTTP 400. The judge path must
+        only send it for reasoning models — same contract as `complete_openai`."""
+        from unittest.mock import MagicMock
+
+        from evals.runners._providers import call_judge_openai
+        from evals.judges.pairwise_judge import JUDGE_SYSTEM_PROMPT, VERDICT_SCHEMA
+
+        message = MagicMock()
+        message.content = '{"winner": "tie", "reasoning": "x", "criterion_scores": {}}'
+        choice = MagicMock()
+        choice.message = message
+        choice.finish_reason = "stop"
+        response = MagicMock()
+        response.choices = [choice]
+        response.usage = FakeOpenAIUsage(prompt_tokens=30, completion_tokens=15)
+        client = MagicMock()
+        client.chat.completions.create = MagicMock(return_value=response)
+
+        call_judge_openai(client, "q", "L", "R", "gpt-4o", JUDGE_SYSTEM_PROMPT, 500, VERDICT_SCHEMA)
+
+        kwargs = client.chat.completions.create.call_args.kwargs
+        assert "reasoning_effort" not in kwargs, (
+            "gpt-4o rejects reasoning_effort — judge must only send it for gpt-5.x/o-series"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -636,7 +667,9 @@ class TestPricingSplitBetweenArmAndJudge:
     `pricing` field was reused for both, mis-reporting judge spend whenever
     the judge model differed from the arm model."""
 
-    def _build_ctx(self, *, arm_pricing: dict[str, float], judge_pricing: dict[str, float]):
+    def _build_ctx(
+        self, *, arm_pricing: dict[str, float], judge_pricing: dict[str, float],
+    ) -> tuple[dict, dict]:
         from evals.runners._providers import PRICING
         from evals.runners.run_mcp_vs_vanilla import (
             BenchmarkResult, QueryRun, TrialResult, build_template_context,

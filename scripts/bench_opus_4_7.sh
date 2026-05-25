@@ -3,7 +3,7 @@
 # Bench MCP vs vanilla on Claude Opus 4.7 (arms).
 #
 # Endpoints, API keys, and judge are all controlled by .env — this script only
-# picks the arm model. Switch judge via:  ./scripts/set_judge.sh <preset>
+# picks the arm model. Switch judge by setting JUDGE_PROVIDER/JUDGE_MODEL in .env.
 #
 # Defaults: --provider anthropic --model claude-opus-4-7 --dataset wildbench --n 1
 # ---HELP-END---

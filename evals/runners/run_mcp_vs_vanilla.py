@@ -39,6 +39,7 @@ import statistics
 import subprocess
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Literal
@@ -347,7 +348,6 @@ async def run_one_query(
     query: str,
     provider: ProviderImpl,
     async_client,
-    sync_client,
     judge_provider: ProviderImpl,
     judge_sync_client,
     model: str,
@@ -483,7 +483,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
     cost_breakdown = [vanilla_row, mcp_row, judge_row, total_row]
 
     agents = [r.mcp.mcp_meta["agent"] for r in runs if r.mcp.mcp_meta]
-    agent_counts = {a: agents.count(a) for a in set(agents)}
+    agent_counts = dict(Counter(agents))
     routing_summary = ", ".join(f"{a}×{c}" for a, c in sorted(agent_counts.items(), key=lambda kv: -kv[1])[:4])
 
     def median_lat(arm: str) -> int:
@@ -686,9 +686,14 @@ async def main_async(args: argparse.Namespace) -> int:
         raise SystemExit(f"{judge_provider.env_key} not set in env (required for --judge-provider {judge_provider.name})")
 
     async_client = provider.make_async_client()
-    sync_client = provider.make_sync_client()
-    # When judge_provider == provider, reuse the sync_client to save resources.
-    judge_sync_client = sync_client if judge_provider.name == provider.name else judge_provider.make_sync_client()
+    # Arms use only the async client; the judge runs synchronously inside
+    # `asyncio.to_thread`, so it needs a sync client of the judge provider.
+    # If judge_provider == arm provider, sharing one sync client is cheaper;
+    # otherwise the arm's sync client would be created and never used.
+    if judge_provider.name == provider.name:
+        judge_sync_client = provider.make_sync_client()
+    else:
+        judge_sync_client = judge_provider.make_sync_client()
     semaphore = asyncio.Semaphore(args.concurrency)
 
     t0 = time.perf_counter()
@@ -699,7 +704,6 @@ async def main_async(args: argparse.Namespace) -> int:
             query=q,
             provider=provider,
             async_client=async_client,
-            sync_client=sync_client,
             judge_provider=judge_provider,
             judge_sync_client=judge_sync_client,
             model=model,

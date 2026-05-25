@@ -34,7 +34,7 @@ Evaluation criteria (apply all five, weight equally):
 
 Score each criterion 1–5 for each response, then choose the overall winner.
 
-Output ONLY via the `submit_verdict` tool. Choose:
+Return your verdict as a structured object matching the verdict schema (the host wires this as a tool call for Anthropic and as a JSON-schema response for OpenAI — both paths land in the same shape). Choose:
 - "left" — LEFT is clearly better
 - "right" — RIGHT is clearly better
 - "tie" — both are roughly equivalent OR both are bad
