@@ -1357,6 +1357,71 @@ class TestCacheInvalidation:
             "longer in available_agents — otherwise route_and_load ends as ERROR"
         )
 
+    @pytest.mark.asyncio
+    async def test_query_nearest_falls_through_to_valid_neighbour(self, isolated_router_dir, monkeypatch):
+        """When the nearest cache entry is stale but a valid one is close
+        behind, ``query_nearest`` must skip the stale top-1 and return the
+        next valid candidate. Otherwise a single deleted agent permanently
+        forces cache misses for any query pattern whose nearest neighbour
+        happens to point at it.
+        """
+        import numpy as np
+        from src.engine.config import EMBEDDING_MODEL
+        from src.engine.vector_store import NumpyVectorStore
+
+        # Two seeds: stale at near-zero distance, valid slightly further.
+        # Both share the first dimension dominantly; the stale entry is
+        # *closer* by a small margin (extra weight on dim 0).
+        stale_vec = np.zeros(384, dtype=np.float32)
+        stale_vec[0] = 1.0
+        valid_vec = np.zeros(384, dtype=np.float32)
+        valid_vec[0] = 0.9   # slightly less aligned with the query
+        valid_vec[1] = 0.1
+
+        store = NumpyVectorStore(name="router_cache", data_dir=str(isolated_router_dir))
+        store.add(
+            ids=["stale", "valid"],
+            embeddings=np.stack([stale_vec, valid_vec]),
+            documents=["legacy query", "neighbour query"],
+            metadatas=[
+                {
+                    "target_agent": "deleted_legacy_lawyer",
+                    "reasoning": "stale",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "target_agent": "universal_agent",
+                    "reasoning": "valid",
+                    "timestamp": "2026-01-02T00:00:00Z",
+                },
+            ],
+        )
+        store.save()
+        (isolated_router_dir / ".router_cache_model").write_text(f"{EMBEDDING_MODEL}|384")
+
+        # Probe vector aligned with dim 0: closer to stale (distance ~0),
+        # but ``valid`` is the next nearest.
+        probe = np.zeros(384, dtype=np.float32)
+        probe[0] = 1.0
+        monkeypatch.setattr(
+            "src.engine.router.embed_query",
+            lambda text: probe,
+        )
+
+        from src.engine.router import SemanticRouter
+        router = SemanticRouter()
+        assert "deleted_legacy_lawyer" not in router.available_agents
+        assert "universal_agent" in router.available_agents
+
+        result = await router.query_nearest("any query")
+        assert result is not None, (
+            "query_nearest must skip the stale top-1 and return the next "
+            "valid neighbour, not give up on the first stale hit"
+        )
+        decision, distance = result
+        assert decision.target_agent == "universal_agent"
+        assert decision.is_cached is True
+
 
 class TestClearSessionCache:
     @pytest.mark.asyncio

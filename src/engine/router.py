@@ -348,9 +348,16 @@ class SemanticRouter:
 
         loop = asyncio.get_running_loop()
         query_emb = await loop.run_in_executor(None, embed_query, semantic_query)
+        # Ask for a small set of nearest neighbours, not just the top-1.
+        # A stale nearest entry (target_agent deleted in a refactor) would
+        # otherwise force a hard cache miss even when a perfectly valid 2nd-
+        # or 3rd-nearest entry exists. ``NumpyVectorStore.query`` performs a
+        # full dot product regardless of ``n_results``, so the extra cost is
+        # negligible at the cache cap (ROUTER_CACHE_MAX_SIZE = 500).
+        n_candidates = min(5, self.store.count())
         try:
             results = await loop.run_in_executor(
-                None, lambda: self.store.query(query_embedding=query_emb, n_results=1)
+                None, lambda: self.store.query(query_embedding=query_emb, n_results=n_candidates)
             )
         except ValueError as e:
             # Self-heal a stale cache whose vectors disagree with the current
@@ -374,29 +381,36 @@ class SemanticRouter:
                 return None
             raise
 
-        if results.ids and results.distances and len(results.distances) > 0:
-            distance = results.distances[0]
-            metadata = results.metadatas[0]
-            target_agent = metadata["target_agent"]
-            # Defensive: a cache entry can outlive its target agent (e.g., an
-            # agent directory was deleted in a refactor). Without this check,
-            # the stale name flows into ``_load_and_enrich`` and
-            # ``load_agent_prompt`` raises ``FileNotFoundError``, ending the
-            # request as ERROR instead of letting the caller re-route.
-            if target_agent not in self.available_agents:
-                logger.warning(
-                    "Skipping stale cache entry: target_agent=%r is not in available_agents "
-                    "(distance=%.4f). Treating as cache miss so the caller can re-route.",
-                    target_agent, distance,
+        if not (results.ids and results.distances and len(results.distances) > 0):
+            return None
+
+        # Defensive scan: a cache entry can outlive its target agent (an
+        # agent directory was deleted in a refactor). Skip stale entries and
+        # return the nearest *valid* one. Without this, the stale name flows
+        # into ``_load_and_enrich``, ``load_agent_prompt`` raises
+        # ``FileNotFoundError``, and the request ends as ERROR.
+        for i in range(len(results.distances)):
+            target_agent = results.metadatas[i]["target_agent"]
+            distance = results.distances[i]
+            if target_agent in self.available_agents:
+                decision = RouterDecision(
+                    target_agent=target_agent,
+                    confidence=1.0,
+                    reasoning=f"Cached result (distance: {distance:.4f})",
+                    is_cached=True,
                 )
-                return None
-            decision = RouterDecision(
-                target_agent=target_agent,
-                confidence=1.0,
-                reasoning=f"Cached result (distance: {distance:.4f})",
-                is_cached=True,
+                return decision, distance
+            logger.warning(
+                "Skipping stale cache entry: target_agent=%r is not in available_agents "
+                "(distance=%.4f). Trying next nearest.",
+                target_agent, distance,
             )
-            return decision, distance
+        # All top-N candidates pointed at deleted agents — treat as miss.
+        logger.info(
+            "All %d nearest cache entries are stale; falling through to re-route.",
+            n_candidates,
+        )
+        return None
         return None
 
     async def lookup_cache_with_distance(
