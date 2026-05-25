@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agents-Core MCP vs Vanilla — {{ date }}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0d12; --card: #131722; --fg: #e6edf3; --muted: #8b949e;
+    --accent: #58a6ff; --good: #3fb950; --bad: #f85149; --tie: #d29922;
+    --border: #30363d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+         font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  h2 { margin: 32px 0 12px; font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { margin: 18px 0 8px; font-size: 15px; }
+  .subtitle { color: var(--muted); margin-bottom: 24px; }
+  .grid { display: grid; gap: 16px; }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .kpi { display: flex; flex-direction: column; gap: 4px; }
+  .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi .value { font-size: 24px; font-weight: 600; }
+  .kpi .delta { font-size: 12px; }
+  .delta.good { color: var(--good); }
+  .delta.bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  details { background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+  details > summary { padding: 12px 16px; cursor: pointer; user-select: none; list-style: none; }
+  details > summary::before { content: "▸ "; color: var(--muted); }
+  details[open] > summary::before { content: "▾ "; }
+  details > summary > .q-preview { color: var(--muted); margin-left: 8px; }
+  details > .body { padding: 0 16px 16px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px;
+           background: var(--border); color: var(--fg); margin-right: 4px; }
+  .badge.win-mcp { background: var(--good); color: #0b0d12; }
+  .badge.win-vanilla { background: var(--bad); color: #fff; }
+  .badge.win-tie { background: var(--tie); color: #0b0d12; }
+  .badge.contradicted { background: #6e40c9; color: #fff; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+  .pair .col { background: #0b0d12; border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  .pair .col h4 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  pre.response { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .meta code { background: #0b0d12; padding: 1px 4px; border-radius: 3px; }
+  .judge-block { margin-top: 10px; padding: 10px; background: #0b0d12; border-radius: 6px; border: 1px solid var(--border); }
+  .judge-block .reason { font-style: italic; color: var(--muted); }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  canvas { max-width: 100%; }
+</style>
+</head>
+<body>
+
+<h1>Agents-Core MCP vs Vanilla LLM</h1>
+<p class="subtitle">
+  {{ date }} · arms: <code>{{ provider }}/{{ model }}</code> ·
+  judge: <code>{{ judge_provider }}/{{ judge_model }}</code>
+  {% if cross_provider_judge %}<span class="badge" style="background: #6e40c9; color: #fff;">cross-provider</span>{% endif %}
+  · N={{ n }} · seed={{ seed }} · source <code>{{ dataset_key }}</code> · commit <code>{{ commit_sha }}</code>
+</p>
+<div class="card" style="margin-bottom: 24px; border-left: 3px solid var(--tie);">
+  <strong>Provider note:</strong> {{ provider_notes }}
+</div>
+
+<h2>Summary</h2>
+
+<div class="card" style="border-left: 6px solid {% if summary.overall_winner == 'mcp' %}var(--good){% elif summary.overall_winner == 'vanilla' %}var(--bad){% else %}var(--tie){% endif %}; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+  <div>
+    <div class="label" style="color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Overall winner</div>
+    <div style="font-size: 28px; font-weight: 700; margin-top: 4px;">{{ summary.overall_winner_label }}</div>
+    <div style="color: var(--muted); margin-top: 4px;">{{ summary.overall_winner_margin }}</div>
+  </div>
+  <div style="text-align: right; color: var(--muted); font-size: 13px;">
+    Token overhead: <strong style="color: var(--fg);">{{ summary.token_overhead_pct }}%</strong><br>
+    Cost: <strong style="color: var(--fg);">${{ summary.total_cost_usd }}</strong>
+  </div>
+</div>
+
+<div class="grid grid-3">
+  <div class="card kpi">
+    <span class="label">MCP win-rate</span>
+    <span class="value">{{ summary.mcp_win_pct }}%</span>
+    <span class="delta {% if summary.mcp_wins > summary.vanilla_wins %}good{% elif summary.mcp_wins < summary.vanilla_wins %}bad{% endif %}">
+      {{ summary.mcp_wins }} wins · {{ summary.vanilla_wins }} losses · {{ summary.ties }} ties
+    </span>
+  </div>
+  <div class="card kpi">
+    <span class="label">Tokens per query (avg)</span>
+    <span class="value">{{ summary.avg_tokens_mcp }} / {{ summary.avg_tokens_vanilla }}</span>
+    <span class="delta {% if summary.token_overhead_pct <= 0 %}good{% else %}bad{% endif %}">
+      MCP overhead: {{ summary.token_overhead_pct }}% ({{ summary.token_overhead_abs }} tokens)
+    </span>
+  </div>
+  <div class="card kpi">
+    <span class="label">Total cost (USD)</span>
+    <span class="value">${{ summary.total_cost_usd }}</span>
+    <span class="delta">arms ${{ summary.cost_arms_usd }} · judge ${{ summary.cost_judge_usd }}</span>
+  </div>
+  <div class="card kpi">
+    <span class="label">Median latency (ms)</span>
+    <span class="value">{{ summary.median_latency_mcp_ms }} / {{ summary.median_latency_vanilla_ms }}</span>
+    <span class="delta">MCP / Vanilla</span>
+  </div>
+  <div class="card kpi">
+    <span class="label">Routing breakdown</span>
+    <span class="value">{{ summary.routing_unique_agents }} agents</span>
+    <span class="delta">{{ summary.routing_summary }}</span>
+  </div>
+  <div class="card kpi">
+    <span class="label">Judge contradictions</span>
+    <span class="value">{{ summary.contradictions }}/{{ n }}</span>
+    <span class="delta">(swap returned opposite verdicts → TIE)</span>
+  </div>
+  <div class="card kpi">
+    <span class="label">Truncated responses</span>
+    <span class="value">{{ summary.truncation_count }}/{{ n }}</span>
+    <span class="delta">
+      arm cap: <code>{{ summary.arm_max_tokens }}</code> tokens.
+      {% if summary.truncation_count > 0 %}Some responses hit the cap mid-sentence — bump --max-tokens.{% endif %}
+    </span>
+  </div>
+</div>
+
+<h2>Cost breakdown</h2>
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>Source</th>
+        <th class="num">Input tokens (sent)</th>
+        <th class="num">Output tokens (received)</th>
+        <th class="num">Cache read</th>
+        <th class="num">Input $$</th>
+        <th class="num">Output $$</th>
+        <th class="num">Cache read $$</th>
+        <th class="num">Total $$</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in cost_breakdown %}
+      <tr{% if row.label == "TOTAL" %} style="font-weight: 600; background: #0b0d12;"{% endif %}>
+        <td>{{ row.label }}</td>
+        <td class="num">{{ "{:,}".format(row.input_tokens) }}</td>
+        <td class="num">{{ "{:,}".format(row.output_tokens) }}</td>
+        <td class="num">{{ "{:,}".format(row.cache_read_tokens) }}</td>
+        <td class="num">${{ row.input_usd }}</td>
+        <td class="num">${{ row.output_usd }}</td>
+        <td class="num">${{ row.cache_read_usd }}</td>
+        <td class="num">${{ row.total_usd }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="meta" style="margin-top: 8px;">
+  Pricing (per 1M tokens) — input <code>${{ pricing.input }}</code> ·
+  output <code>${{ pricing.output }}</code> ·
+  cache_read <code>${{ pricing.cache_read }}</code> ·
+  cache_creation <code>${{ pricing.cache_creation }}</code>.
+  Output tokens are typically much more expensive than input — when MCP wins by writing longer answers, look at output $$.
+</p>
+
+<h2>Charts</h2>
+<div class="grid grid-2">
+  <div class="card"><canvas id="winRateChart" height="180"></canvas></div>
+  <div class="card"><canvas id="tokenChart" height="180"></canvas></div>
+</div>
+
+<h2>Per-query results</h2>
+{% for r in per_query %}
+<details>
+  <summary>
+    <span class="badge win-{{ r.final_verdict }}">{{ r.final_verdict | upper }}</span>
+    {% if r.contradicted %}<span class="badge contradicted">SWAP CONTRADICTED</span>{% endif %}
+    <strong>#{{ loop.index }}</strong>
+    <span class="q-preview">{{ r.query_preview }}</span>
+  </summary>
+  <div class="body">
+    <p><strong>Query:</strong></p>
+    <pre class="response">{{ r.query }}</pre>
+
+    <p class="meta">
+      Routing: <code>{{ r.mcp_meta.agent }}</code> · tier <code>{{ r.mcp_meta.tier }}</code> ·
+      skills <code>{{ r.mcp_meta.skills_loaded | join(", ") or "—" }}</code> ·
+      implants <code>{{ r.mcp_meta.implants_loaded | join(", ") or "—" }}</code> ·
+      rules <code>{{ r.mcp_meta.rules_loaded | join(", ") or "—" }}</code>
+    </p>
+
+    <div class="pair">
+      <div class="col">
+        <h4>Vanilla (no system prompt) {% if r.vanilla_truncated %}<span class="badge contradicted">⚠ TRUNCATED</span>{% endif %}</h4>
+        <pre class="response">{{ r.vanilla_response }}</pre>
+        <p class="meta">
+          tokens: in <code>{{ r.vanilla_usage.input_tokens }}</code> ·
+          out <code>{{ r.vanilla_usage.output_tokens }}</code> ·
+          latency <code>{{ r.vanilla_latency_ms }} ms</code>
+        </p>
+      </div>
+      <div class="col">
+        <h4>MCP-enriched {% if r.mcp_truncated %}<span class="badge contradicted">⚠ TRUNCATED</span>{% endif %}</h4>
+        <pre class="response">{{ r.mcp_response }}</pre>
+        <p class="meta">
+          tokens: in <code>{{ r.mcp_usage.input_tokens }}</code> ·
+          out <code>{{ r.mcp_usage.output_tokens }}</code> ·
+          cache_read <code>{{ r.mcp_usage.cache_read_input_tokens }}</code> ·
+          cache_create <code>{{ r.mcp_usage.cache_creation_input_tokens }}</code> ·
+          latency <code>{{ r.mcp_latency_ms }} ms</code>
+        </p>
+      </div>
+    </div>
+
+    <h3>Judge verdicts</h3>
+    {% if r.contradicted %}
+    <div class="judge-block" style="border-left: 3px solid #6e40c9; background: #1a0d2a;">
+      <strong>⚠ Swap contradiction — TIE assigned</strong>
+      <div class="reason" style="color: var(--fg);">
+        Both judge positions picked the same SIDE (left/right) regardless of which arm was placed there →
+        the judge has position bias, not a real preference. The verdict is forced to TIE.
+      </div>
+    </div>
+    {% endif %}
+    <div class="judge-block">
+      <strong>Position 1</strong> — LEFT=vanilla, RIGHT=mcp ·
+      winner: <code>{{ r.judge_pos1.winner }}</code>
+      → <span class="badge win-{{ r.judge_pos1.winner_arm }}">{{ r.judge_pos1.winner_arm | upper }}</span>
+      <div class="reason">{{ r.judge_pos1.reasoning }}</div>
+    </div>
+    <div class="judge-block">
+      <strong>Position 2</strong> — LEFT=mcp, RIGHT=vanilla ·
+      winner: <code>{{ r.judge_pos2.winner }}</code>
+      → <span class="badge win-{{ r.judge_pos2.winner_arm }}">{{ r.judge_pos2.winner_arm | upper }}</span>
+      <div class="reason">{{ r.judge_pos2.reasoning }}</div>
+    </div>
+  </div>
+</details>
+{% endfor %}
+
+<footer>
+  Dataset sha256: <code>{{ dataset_hash }}</code> ·
+  generated: <code>{{ generated_at }}</code> ·
+  total wall time: <code>{{ wall_time_s }}s</code><br>
+  pricing assumptions (USD per 1M tokens): input ${{ pricing.input }}, output ${{ pricing.output }},
+  cache_read ${{ pricing.cache_read }}, cache_creation ${{ pricing.cache_creation }} —
+  if these are stale, costs shown above are an estimate, not a billing fact.
+</footer>
+
+<script>
+  const winRateData = {{ chart_data.win_rate | tojson }};
+  const tokenData = {{ chart_data.tokens | tojson }};
+
+  new Chart(document.getElementById("winRateChart"), {
+    type: "bar",
+    data: {
+      labels: winRateData.labels,
+      datasets: [{
+        label: "Count",
+        data: winRateData.values,
+        backgroundColor: ["#3fb950", "#f85149", "#d29922"],
+      }],
+    },
+    options: {
+      indexAxis: "y",
+      plugins: { title: { display: true, text: "Pairwise verdicts (after swap)", color: "#e6edf3" }, legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#8b949e", precision: 0 }, grid: { color: "#30363d" } },
+        y: { ticks: { color: "#e6edf3" }, grid: { display: false } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById("tokenChart"), {
+    type: "bar",
+    data: {
+      labels: tokenData.labels,
+      datasets: [
+        { label: "input", data: tokenData.input, backgroundColor: "#58a6ff" },
+        { label: "output", data: tokenData.output, backgroundColor: "#3fb950" },
+        { label: "cache_read", data: tokenData.cache_read, backgroundColor: "#d29922" },
+        { label: "cache_creation", data: tokenData.cache_creation, backgroundColor: "#6e40c9" },
+      ],
+    },
+    options: {
+      plugins: { title: { display: true, text: "Average tokens per query (stacked)", color: "#e6edf3" }, legend: { labels: { color: "#e6edf3" } } },
+      scales: {
+        x: { stacked: true, ticks: { color: "#e6edf3" }, grid: { color: "#30363d" } },
+        y: { stacked: true, ticks: { color: "#8b949e" }, grid: { color: "#30363d" } },
+      },
+    },
+  });
+</script>
+
+</body>
+</html>

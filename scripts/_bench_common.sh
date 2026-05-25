@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Shared bench helpers. Source from bench_*.sh scripts. Not directly runnable.
+#
+# Functions exposed (all start with _bench_):
+#   _bench_load_env             — load .env (sources it, exports all KEY=VAL)
+#   _bench_resolve_python       — find Python (.venv / venv / pyenv)
+#   _bench_print_endpoints      — echo current OPENAI_BASE_URL, ANTHROPIC_BASE_URL, JUDGE
+#   _bench_probe_endpoint       — TCP probe :8317 if a base_url points to localhost
+#   _bench_check_extras <mods…> — verify Python modules are importable
+#   _bench_check_model <id> <hint> — verify model is present at /v1/models
+#   _bench_check_judge_model    — same for the JUDGE_MODEL env var
+#   _bench_warn_if_gemini_judge — soft-warn if JUDGE_MODEL is a Gemini alias
+#   _bench_run <label> <args…>  — invoke the Python runner with args
+#   _bench_open_report <path> <orig args…> — auto-open HTML unless --dry-run
+
+# Colours expected to be defined by the caller. Fallback if not.
+: "${GREEN:=\033[0;32m}"; : "${YELLOW:=\033[1;33m}"; : "${RED:=\033[0;31m}"
+: "${BLUE:=\033[0;34m}"; : "${DIM:=\033[2m}"; : "${NC:=\033[0m}"
+
+_bench_load_env() {
+    if [ -f "$REPO_ROOT/.env" ]; then
+        set -a
+        # shellcheck disable=SC1091
+        . "$REPO_ROOT/.env"
+        set +a
+    fi
+}
+
+_bench_resolve_python() {
+    if [ -d "$REPO_ROOT/.venv" ]; then
+        PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
+    elif [ -d "$REPO_ROOT/venv" ]; then
+        PYTHON_BIN="$REPO_ROOT/venv/bin/python"
+    elif command -v pyenv >/dev/null 2>&1 && [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
+        PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+    else
+        echo -e "${RED}❌ No Python venv found.${NC}"
+        exit 1
+    fi
+    echo -e "${DIM}→ python: $PYTHON_BIN${NC}"
+}
+
+_bench_print_endpoints() {
+    echo -e "${DIM}→ OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1 (default)}${NC}"
+    echo -e "${DIM}→ ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com (default)}${NC}"
+    echo -e "${DIM}→ GEMINI_BASE_URL: ${GEMINI_BASE_URL:-(unset — Gemini arms route via OPENAI_BASE_URL when proxied)}${NC}"
+    echo -e "${DIM}→ JUDGE: ${JUDGE_PROVIDER:-(arm provider)} / ${JUDGE_MODEL:-(provider default)}${NC}"
+}
+
+_bench_probe_endpoint() {
+    # Only probe if any base_url targets a local proxy on :8317.
+    if [[ "${OPENAI_BASE_URL:-}" == *localhost:8317* ]] || [[ "${ANTHROPIC_BASE_URL:-}" == *localhost:8317* ]]; then
+        if ! (echo > /dev/tcp/localhost/8317) 2>/dev/null; then
+            echo -e "${RED}❌ Configured endpoint not reachable on localhost:8317.${NC}"
+            echo "   Start your local proxy, or change *_BASE_URL in .env to a direct provider endpoint."
+            exit 1
+        fi
+        echo -e "${DIM}→ Local proxy: reachable on :8317${NC}"
+    fi
+}
+
+_bench_check_extras() {
+    local MISSING=""
+    for mod in "$@"; do
+        "$PYTHON_BIN" -c "import $mod" >/dev/null 2>&1 || MISSING="$MISSING $mod"
+    done
+    if [ -n "$MISSING" ]; then
+        echo -e "${RED}❌ Missing Python packages:${NC}$MISSING"
+        echo -e "   Install: ${BLUE}$PYTHON_BIN -m pip install -e '.[evals]'${NC}"
+        exit 1
+    fi
+    echo -e "${DIM}→ eval extras: ok${NC}"
+}
+
+_bench_check_model() {
+    local model="$1" connect_hint="$2" models_json
+    # Only meaningful when going through a local proxy at :8317.
+    if [[ "${OPENAI_BASE_URL:-}" != *localhost:8317* ]] && [[ "${ANTHROPIC_BASE_URL:-}" != *localhost:8317* ]]; then
+        return 0
+    fi
+    models_json=$(curl -sS --max-time 3 http://localhost:8317/v1/models 2>/dev/null) || {
+        echo -e "${RED}❌ Failed to query /v1/models on the configured endpoint.${NC}"
+        exit 1
+    }
+    if ! echo "$models_json" | grep -qF "\"id\":\"$model\""; then
+        echo -e "${RED}❌ Model '$model' is not available at the configured endpoint.${NC}"
+        echo "   Hint: connect '${connect_hint}' in your local proxy's settings,"
+        echo -e "   or list available models: ${BLUE}curl -s http://localhost:8317/v1/models | python3 -m json.tool${NC}"
+        exit 1
+    fi
+    echo -e "${DIM}→ Endpoint: '$model' available (arm)${NC}"
+}
+
+_bench_check_judge_model() {
+    # Read JUDGE_MODEL from env. If unset, runner uses provider default — skip check.
+    if [ -z "${JUDGE_MODEL:-}" ]; then
+        echo -e "${DIM}→ JUDGE_MODEL not set in .env — runner will use arm provider's default judge${NC}"
+        return 0
+    fi
+    if [[ "${OPENAI_BASE_URL:-}" != *localhost:8317* ]] && [[ "${ANTHROPIC_BASE_URL:-}" != *localhost:8317* ]]; then
+        return 0
+    fi
+    local models_json
+    models_json=$(curl -sS --max-time 3 http://localhost:8317/v1/models 2>/dev/null) || return 0
+    if ! echo "$models_json" | grep -qF "\"id\":\"$JUDGE_MODEL\""; then
+        echo -e "${RED}❌ JUDGE_MODEL='$JUDGE_MODEL' is not available at the configured endpoint.${NC}"
+        echo "   Connect it via your local proxy's settings,"
+        echo -e "   or pick a different judge: ${BLUE}./scripts/set_judge.sh <preset>${NC}"
+        exit 1
+    fi
+    echo -e "${DIM}→ Endpoint: '$JUDGE_MODEL' available (judge)${NC}"
+}
+
+_bench_warn_if_gemini_judge() {
+    if [[ "${JUDGE_MODEL:-}" == gemini-* ]]; then
+        echo -e "${YELLOW}⚠  JUDGE_MODEL='$JUDGE_MODEL' — Gemini-as-judge is unreliable via OpenAI-compat layers (malformed function call / schema ignored).${NC}"
+        echo -e "   ${YELLOW}Recommended: ./scripts/set_judge.sh claude  (or any non-Gemini)${NC}"
+    fi
+}
+
+_bench_run() {
+    local label="$1"; shift
+    echo ""
+    echo -e "${GREEN}▶ Bench: MCP vs vanilla on $label${NC}"
+    echo "================================================"
+    echo -e "${DIM}args: $*${NC}"
+    echo ""
+    "$PYTHON_BIN" -m evals.runners.run_mcp_vs_vanilla "$@"
+}
+
+_bench_open_report() {
+    local out_path="$1"; shift
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run|--dry_run) echo -e "${YELLOW}→ --dry-run: no report to open${NC}"; return 0 ;;
+        esac
+    done
+    if [ -f "$out_path" ]; then
+        echo -e "${GREEN}✓ Report:${NC} $out_path"
+        if command -v open >/dev/null 2>&1; then
+            open "$out_path"
+        elif command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$out_path" >/dev/null 2>&1 &
+        fi
+    fi
+}

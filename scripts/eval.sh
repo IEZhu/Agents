@@ -13,6 +13,9 @@
 #   validate         Probe the configured HuggingFace datasets (no API).
 #   prepare          Re-sample queries → evals/datasets/_unlabeled.jsonl and refresh batches.
 #   aggregate        Join labeled batches into evals/datasets/routing.jsonl (run after labeling).
+#   bench [args]     Benchmark MCP vs vanilla LLM on N queries; render HTML report.
+#                    Provider via --provider openai (default) | anthropic.
+#                    Passes args through (e.g. --n 10 --dataset wildbench --dry-run).
 #   show [path]      cat the report at <path> (default: evals/reports/baseline.md).
 #   diff <new>       Show unified diff of baseline.md vs <new>.
 #   help             Print this message.
@@ -154,6 +157,13 @@ case "$cmd" in
         echo -e "${GREEN}▶ Aggregating batch labels → routing.jsonl${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.scripts.aggregate_labels "$@"
+        ;;
+
+    bench)
+        require_datasets
+        echo -e "${GREEN}▶ Benchmarking MCP vs vanilla LLM${NC}"
+        echo "================================================"
+        "$PYTHON_BIN" -m evals.runners.run_mcp_vs_vanilla "$@"
         ;;
 
     show)
