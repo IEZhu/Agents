@@ -105,8 +105,10 @@ def get_pricing(model: str) -> dict[str, float]:
     if model in MODEL_PRICING:
         return MODEL_PRICING[model]
     # Try prefix match — dated snapshots map to their alias.
-    for alias, pricing in MODEL_PRICING.items():
-        if model.startswith(alias + "-") or model.startswith(alias + "@"):
+    # Sort by alias length descending so the most specific alias wins
+    # (e.g. `gpt-5.5-pro-2026-01-01` matches `gpt-5.5-pro`, not `gpt-5.5`).
+    for alias, pricing in sorted(MODEL_PRICING.items(), key=lambda item: len(item[0]), reverse=True):
+        if model.startswith((alias + "-", alias + "@")):
             return pricing
     # Conservative fallback — better to over-estimate than under-report.
     return {"input": 15.00, "output": 75.00, "cache_read": 1.50, "cache_creation": 18.75}

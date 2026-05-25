@@ -84,7 +84,10 @@ class BenchmarkResult:
     runs: list[QueryRun]
     dataset_hash: str
     wall_time_s: float
-    pricing: dict[str, float]
+    # Pricing is split per role so cross-provider / different-model judge runs
+    # bill arm tokens and judge tokens against the correct per-1M rates.
+    arm_pricing: dict[str, float]
+    judge_pricing: dict[str, float]
     generated_at: str = field(
         default_factory=lambda: dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
@@ -415,7 +418,8 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
     vanilla_wins = sum(1 for r in runs if r.verdict.final == "vanilla")
     ties = sum(1 for r in runs if r.verdict.final == "tie")
     contradictions = sum(1 for r in runs if r.verdict.contradicted)
-    pricing = result.pricing
+    arm_pricing = result.arm_pricing
+    judge_pricing = result.judge_pricing
 
     def tot(usage_key: str, arm: str) -> int:
         return sum(getattr(r, arm).usage[usage_key] for r in runs)
@@ -428,36 +432,55 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
     token_overhead_abs = avg_tokens_mcp - avg_tokens_vanilla
     token_overhead_pct = round(100 * token_overhead_abs / avg_tokens_vanilla, 1) if avg_tokens_vanilla else 0
 
-    cost_vanilla = sum(_cost_usd(r.vanilla.usage, pricing) for r in runs)
-    cost_mcp = sum(_cost_usd(r.mcp.usage, pricing) for r in runs)
-    cost_judge = sum(_cost_usd(r.verdict.total_usage, pricing) for r in runs)
+    cost_vanilla = sum(_cost_usd(r.vanilla.usage, arm_pricing) for r in runs)
+    cost_mcp = sum(_cost_usd(r.mcp.usage, arm_pricing) for r in runs)
+    cost_judge = sum(_cost_usd(r.verdict.total_usage, judge_pricing) for r in runs)
     total_cost = cost_vanilla + cost_mcp + cost_judge
 
     # Per-arm aggregate usage + per-component cost split, surfaced as table rows.
     vanilla_usage_total = _sum_usages([r.vanilla.usage for r in runs])
     mcp_usage_total = _sum_usages([r.mcp.usage for r in runs])
     judge_usage_total = _sum_usages([r.verdict.total_usage for r in runs])
-    total_usage = _sum_usages([vanilla_usage_total, mcp_usage_total, judge_usage_total])
 
-    def _row(label: str, usage: dict[str, int]) -> dict[str, Any]:
-        split = _cost_split(usage, pricing)
+    def _row(label: str, usage: dict[str, int], pricing_table: dict[str, float]) -> dict[str, Any]:
+        split = _cost_split(usage, pricing_table)
         return {
             "label": label,
             "input_tokens": usage["input_tokens"],
             "output_tokens": usage["output_tokens"],
             "cache_read_tokens": usage["cache_read_input_tokens"],
+            "cache_creation_tokens": usage["cache_creation_input_tokens"],
             "input_usd": f"{split['input_usd']:.4f}",
             "output_usd": f"{split['output_usd']:.4f}",
             "cache_read_usd": f"{split['cache_read_usd']:.4f}",
+            "cache_creation_usd": f"{split['cache_creation_usd']:.4f}",
             "total_usd": f"{sum(split.values()):.4f}",
         }
 
-    cost_breakdown = [
-        _row("Vanilla (arm)", vanilla_usage_total),
-        _row("MCP (arm)", mcp_usage_total),
-        _row("Judge (×2 swap)", judge_usage_total),
-        _row("TOTAL", total_usage),
-    ]
+    vanilla_row = _row("Vanilla (arm)", vanilla_usage_total, arm_pricing)
+    mcp_row = _row("MCP (arm)", mcp_usage_total, arm_pricing)
+    judge_row = _row("Judge (×2 swap)", judge_usage_total, judge_pricing)
+
+    # TOTAL aggregates the dollars from the three rows (which were each charged
+    # at their correct per-role rate). Re-pricing the summed tokens at a single
+    # table would silently mis-bill cross-provider runs.
+    def _sum_floats(*rows: dict[str, Any], key: str) -> float:
+        return sum(float(r[key]) for r in rows)
+
+    total_row = {
+        "label": "TOTAL",
+        "input_tokens": vanilla_usage_total["input_tokens"] + mcp_usage_total["input_tokens"] + judge_usage_total["input_tokens"],
+        "output_tokens": vanilla_usage_total["output_tokens"] + mcp_usage_total["output_tokens"] + judge_usage_total["output_tokens"],
+        "cache_read_tokens": vanilla_usage_total["cache_read_input_tokens"] + mcp_usage_total["cache_read_input_tokens"] + judge_usage_total["cache_read_input_tokens"],
+        "cache_creation_tokens": vanilla_usage_total["cache_creation_input_tokens"] + mcp_usage_total["cache_creation_input_tokens"] + judge_usage_total["cache_creation_input_tokens"],
+        "input_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='input_usd'):.4f}",
+        "output_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='output_usd'):.4f}",
+        "cache_read_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='cache_read_usd'):.4f}",
+        "cache_creation_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='cache_creation_usd'):.4f}",
+        "total_usd": f"{total_cost:.4f}",
+    }
+
+    cost_breakdown = [vanilla_row, mcp_row, judge_row, total_row]
 
     agents = [r.mcp.mcp_meta["agent"] for r in runs if r.mcp.mcp_meta]
     agent_counts = {a: agents.count(a) for a in set(agents)}
@@ -588,7 +611,9 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         "dataset_hash": result.dataset_hash,
         "generated_at": result.generated_at,
         "wall_time_s": round(result.wall_time_s, 1),
-        "pricing": pricing,
+        "arm_pricing": arm_pricing,
+        "judge_pricing": judge_pricing,
+        "cross_provider_pricing": arm_pricing != judge_pricing,
     }
 
 
@@ -687,8 +712,11 @@ async def main_async(args: argparse.Namespace) -> int:
     ])
     wall = time.perf_counter() - t0
 
-    # Use the per-model pricing table — falls back to provider-level if unknown.
-    pricing = get_pricing(model)
+    # Per-model pricing table — falls back to provider-level if unknown.
+    # Arm vs judge pricing is split so cross-provider / different-model judge
+    # runs bill each role against the correct per-1M rates.
+    arm_pricing = get_pricing(model)
+    judge_pricing = get_pricing(judge_model)
     result = BenchmarkResult(
         config={
             "provider": provider.name,
@@ -706,7 +734,8 @@ async def main_async(args: argparse.Namespace) -> int:
         runs=runs,
         dataset_hash=ds_hash,
         wall_time_s=wall,
-        pricing=pricing,
+        arm_pricing=arm_pricing,
+        judge_pricing=judge_pricing,
     )
 
     template_path = REPO_ROOT / "evals" / "templates" / "report.html.j2"
@@ -726,7 +755,8 @@ async def main_async(args: argparse.Namespace) -> int:
             "dataset_hash": result.dataset_hash,
             "wall_time_s": result.wall_time_s,
             "generated_at": result.generated_at,
-            "pricing": result.pricing,
+            "arm_pricing": result.arm_pricing,
+            "judge_pricing": result.judge_pricing,
             "runs": [
                 {
                     "idx": r.idx,

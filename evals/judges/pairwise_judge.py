@@ -2,11 +2,17 @@
 Pairwise LLM-as-judge with positional swap.
 
 Provider-agnostic: the actual API call lives in `evals/runners/_providers.py`.
-This module owns the pure logic — judge system prompt, tool/function schema,
+This module owns the pure logic — judge system prompt, verdict schema,
 swap aggregation — that does not depend on which SDK is used.
 
-Each judge call uses tool/function calling for a structured verdict:
+Each judge call returns a structured verdict shaped by `VERDICT_SCHEMA`:
   {"winner": "left" | "right" | "tie", "reasoning": str, "criterion_scores": {...}}
+
+The two provider adapters arrive at the same payload by different routes:
+  - Anthropic: tool-use with `tools` + `tool_choice` on the `submit_verdict` tool.
+  - OpenAI:    `response_format=json_schema` (structured outputs), since
+               function-calling does not pass through reliably via OpenAI-compat
+               proxy layers that relay to Gemini.
 
 `aggregate_with_swap` maps two judge calls (with positions swapped between them)
 back to an arm-level verdict and resolves contradictions to TIE.
@@ -36,8 +42,9 @@ Output ONLY via the `submit_verdict` tool. Choose:
 Be decisive: prefer "left"/"right" over "tie" unless the responses are genuinely indistinguishable. Position (LEFT vs RIGHT) is randomised — do not let order influence you.
 """
 
-# Anthropic-compatible schema; the OpenAI provider re-wraps `input_schema`
-# as `parameters` for the function-calling format.
+# Anthropic-shaped schema (`name` + `input_schema`). The OpenAI provider unwraps
+# `input_schema` and passes it as the `schema` field of a `response_format`
+# `json_schema` block; see `call_judge_openai` for the conversion.
 VERDICT_SCHEMA: dict[str, Any] = {
     "name": "submit_verdict",
     "description": "Submit the pairwise verdict for this query.",
@@ -96,6 +103,35 @@ class SwapVerdict:
     total_usage: dict[str, int]
 
 
+_ALLOWED_WINNERS = frozenset({"left", "right", "tie"})
+_REQUIRED_CRITERION_KEYS = frozenset({
+    "left_helpfulness", "left_correctness", "left_depth",
+    "left_structure", "left_intent_fit",
+    "right_helpfulness", "right_correctness", "right_depth",
+    "right_structure", "right_intent_fit",
+})
+
+
+def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[str, int]]:
+    """Validate that the judge payload conforms to VERDICT_SCHEMA before use.
+
+    Fail-fast on malformed responses instead of letting unknown winners silently
+    degrade to TIE in `aggregate_with_swap` — that would skew benchmark numbers
+    without raising an error.
+    """
+    winner = payload.get("winner")
+    reasoning = payload.get("reasoning")
+    scores = payload.get("criterion_scores")
+    if winner not in _ALLOWED_WINNERS:
+        raise RuntimeError(f"Judge returned invalid winner: {winner!r}")
+    if not isinstance(reasoning, str):
+        raise RuntimeError(f"Judge returned non-string reasoning: {type(reasoning).__name__}")
+    if not isinstance(scores, dict) or _REQUIRED_CRITERION_KEYS - scores.keys():
+        missing = sorted(_REQUIRED_CRITERION_KEYS - (scores.keys() if isinstance(scores, dict) else set()))
+        raise RuntimeError(f"Judge returned incomplete criterion_scores; missing keys: {missing}")
+    return winner, reasoning, dict(scores)
+
+
 def run_judge(
     *,
     provider,
@@ -120,10 +156,11 @@ def run_judge(
         max_tokens,
         VERDICT_SCHEMA,
     )
+    winner, reasoning, scores = _validate_verdict_payload(payload)
     return JudgeCall(
-        winner=payload["winner"],
-        reasoning=payload["reasoning"],
-        criterion_scores=dict(payload.get("criterion_scores", {})),
+        winner=winner,  # type: ignore[arg-type]
+        reasoning=reasoning,
+        criterion_scores=scores,
         usage=usage,
     )
 

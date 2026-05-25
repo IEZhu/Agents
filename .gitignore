@@ -42,7 +42,7 @@ whisper_models/
 # Exceptions (keep these visible)
 !.gitignore
 !.git/
-#Competition reports
+# Generated benchmark reports
 evals/reports/*
 
 # Evals: keep baseline.md and SOURCES.md, ignore per-PR/per-run reports

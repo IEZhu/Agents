@@ -464,7 +464,13 @@ class TestTruncationDetection:
         )
         from evals.judges.pairwise_judge import aggregate_with_swap
 
-        zero_usage = lambda out: {"input_tokens": 100, "output_tokens": out, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        def zero_usage(out: int) -> dict[str, int]:
+            return {
+                "input_tokens": 100,
+                "output_tokens": out,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            }
         van = TrialResult(arm="vanilla", response_text="x", usage=zero_usage(vanilla_out), latency_ms=10)
         mcp = TrialResult(arm="mcp", response_text="y", usage=zero_usage(mcp_out), latency_ms=10,
                           mcp_meta={"agent": "u", "tier": "lite", "skills_loaded": [], "implants_loaded": [], "rules_loaded": []})
@@ -476,7 +482,8 @@ class TestTruncationDetection:
             config={"provider": "openai", "provider_notes": "", "model": "gpt-4o", "judge_model": "gpt-4o",
                     "seed": 0, "dataset": "wildbench", "commit_sha": "x", "max_tokens": cap,
                     "judge_max_tokens": 4096, "concurrency": 1},
-            runs=[run], dataset_hash="h", wall_time_s=0.0, pricing=PRICING["openai"],
+            runs=[run], dataset_hash="h", wall_time_s=0.0,
+            arm_pricing=PRICING["openai"], judge_pricing=PRICING["openai"],
         )
         return build_template_context(result)
 
@@ -552,6 +559,159 @@ class TestPerModelPricing:
         assert p["input"] >= 5.0
         assert p["output"] >= 25.0
 
+    def test_longest_alias_match_wins_for_overlapping_prefixes(self):
+        """A dated snapshot of a more-specific alias must not match the shorter
+        alias first. Regression: insertion-order iteration let `gpt-5.5-pro-…`
+        match `gpt-5.5-` and pick up the cheaper non-Pro rate."""
+        from evals.runners._providers import get_pricing
+
+        p = get_pricing("gpt-5.5-pro-2026-01-01")
+        # Must resolve to gpt-5.5-pro, not gpt-5.5.
+        assert p["input"] == 30.00
+        assert p["output"] == 180.00
+
+
+class TestVerdictValidation:
+    """Provider payloads must conform to VERDICT_SCHEMA before being accepted —
+    otherwise a malformed response would degrade to a real-looking TIE inside
+    aggregate_with_swap, silently skewing benchmark numbers."""
+
+    @staticmethod
+    def _scores() -> dict[str, int]:
+        return {k: 3 for k in (
+            "left_helpfulness", "left_correctness", "left_depth",
+            "left_structure", "left_intent_fit",
+            "right_helpfulness", "right_correctness", "right_depth",
+            "right_structure", "right_intent_fit",
+        )}
+
+    def test_accepts_well_formed_payload(self):
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+
+        winner, reasoning, scores = _validate_verdict_payload({
+            "winner": "left",
+            "reasoning": "left is more direct.",
+            "criterion_scores": self._scores(),
+        })
+        assert winner == "left"
+        assert reasoning == "left is more direct."
+        assert scores == self._scores()
+
+    def test_rejects_invalid_winner(self):
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+        import pytest
+
+        with pytest.raises(RuntimeError, match="invalid winner"):
+            _validate_verdict_payload({
+                "winner": "banana",
+                "reasoning": "x",
+                "criterion_scores": self._scores(),
+            })
+
+    def test_rejects_missing_reasoning(self):
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+        import pytest
+
+        with pytest.raises(RuntimeError, match="reasoning"):
+            _validate_verdict_payload({
+                "winner": "left",
+                "criterion_scores": self._scores(),
+            })
+
+    def test_rejects_incomplete_criterion_scores(self):
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+        import pytest
+
+        with pytest.raises(RuntimeError, match="criterion_scores"):
+            _validate_verdict_payload({
+                "winner": "left",
+                "reasoning": "x",
+                "criterion_scores": {"left_helpfulness": 3},
+            })
+
+
+class TestPricingSplitBetweenArmAndJudge:
+    """Cross-provider / different-model judge runs must bill arm tokens and
+    judge tokens against their respective per-1M rates. Regression: a single
+    `pricing` field was reused for both, mis-reporting judge spend whenever
+    the judge model differed from the arm model."""
+
+    def _build_ctx(self, *, arm_pricing: dict[str, float], judge_pricing: dict[str, float]):
+        from evals.runners._providers import PRICING
+        from evals.runners.run_mcp_vs_vanilla import (
+            BenchmarkResult, QueryRun, TrialResult, build_template_context,
+        )
+        from evals.judges.pairwise_judge import aggregate_with_swap, JudgeCall
+
+        def usage(out: int, *, cache_create: int = 0) -> dict[str, int]:
+            return {
+                "input_tokens": 1_000_000,
+                "output_tokens": out,
+                "cache_creation_input_tokens": cache_create,
+                "cache_read_input_tokens": 0,
+            }
+
+        van = TrialResult(arm="vanilla", response_text="x", usage=usage(0), latency_ms=10)
+        mcp = TrialResult(arm="mcp", response_text="y", usage=usage(0, cache_create=1_000_000), latency_ms=10,
+                          mcp_meta={"agent": "u", "tier": "lite", "skills_loaded": [], "implants_loaded": [], "rules_loaded": []})
+        jc = JudgeCall(winner="tie", reasoning="x", criterion_scores={},
+                       usage=usage(1_000_000))
+        verdict = aggregate_with_swap(pos1=jc, pos2=jc, pos1_left_is="vanilla")
+        run = QueryRun(idx=1, query="q", source_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
+        result = BenchmarkResult(
+            config={"provider": "openai", "provider_notes": "", "model": "gpt-4o",
+                    "judge_provider": "anthropic", "judge_model": "claude-opus-4-7",
+                    "seed": 0, "dataset": "wildbench", "commit_sha": "x", "max_tokens": 2048,
+                    "judge_max_tokens": 4096, "concurrency": 1},
+            runs=[run], dataset_hash="h", wall_time_s=0.0,
+            arm_pricing=arm_pricing, judge_pricing=judge_pricing,
+        )
+        return build_template_context(result), PRICING
+
+    def test_judge_row_uses_judge_pricing_not_arm_pricing(self):
+        # Arm: gpt-4o ($2.50 / $10.00). Judge: claude-opus-4-7 ($5.00 / $25.00).
+        # The judge ran twice (positional swap), so judge usage doubles.
+        from evals.runners._providers import get_pricing
+
+        arm = get_pricing("gpt-4o")
+        judge = get_pricing("claude-opus-4-7")
+        ctx, _ = self._build_ctx(arm_pricing=arm, judge_pricing=judge)
+        rows = {row["label"]: row for row in ctx["cost_breakdown"]}
+        # Judge row's output billing: 2M output tokens × $25/1M = $50.0000.
+        # If arm pricing leaked in here, the result would be $20.0000.
+        assert rows["Judge (×2 swap)"]["output_usd"] == "50.0000"
+        # Vanilla row: 1M input tokens at arm $2.50/1M.
+        assert rows["Vanilla (arm)"]["input_usd"] == "2.5000"
+
+    def test_cache_creation_column_present_in_every_row(self):
+        from evals.runners._providers import get_pricing
+
+        arm = get_pricing("claude-sonnet-4-6")
+        ctx, _ = self._build_ctx(arm_pricing=arm, judge_pricing=arm)
+        for row in ctx["cost_breakdown"]:
+            assert "cache_creation_tokens" in row
+            assert "cache_creation_usd" in row
+        rows = {row["label"]: row for row in ctx["cost_breakdown"]}
+        # MCP row sourced 1M cache_creation tokens; at sonnet $3.75/1M → $3.7500.
+        assert rows["MCP (arm)"]["cache_creation_usd"] == "3.7500"
+
+    def test_total_row_sums_dollars_from_per_role_rows(self):
+        """TOTAL must aggregate the per-role-priced row dollars, not re-cost
+        the summed tokens at a single arbitrary rate."""
+        from evals.runners._providers import get_pricing
+
+        arm = get_pricing("gpt-4o")
+        judge = get_pricing("claude-opus-4-7")
+        ctx, _ = self._build_ctx(arm_pricing=arm, judge_pricing=judge)
+        rows = {row["label"]: row for row in ctx["cost_breakdown"]}
+        total = float(rows["TOTAL"]["total_usd"])
+        expected = (
+            float(rows["Vanilla (arm)"]["total_usd"])
+            + float(rows["MCP (arm)"]["total_usd"])
+            + float(rows["Judge (×2 swap)"]["total_usd"])
+        )
+        assert abs(total - expected) < 1e-4
+
 
 class TestTemplateEscaping:
     """User-supplied query/response text must be HTML-escaped to prevent XSS."""
@@ -595,7 +755,8 @@ class TestTemplateEscaping:
             runs=[run],
             dataset_hash="hash",
             wall_time_s=0.0,
-            pricing=PRICING["openai"],
+            arm_pricing=PRICING["openai"],
+            judge_pricing=PRICING["openai"],
         )
         template_path = REPO_ROOT / "evals" / "templates" / "report.html.j2"
         return render_html(result, template_path)

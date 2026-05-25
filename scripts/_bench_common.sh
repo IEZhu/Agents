@@ -27,14 +27,29 @@ _bench_load_env() {
 }
 
 _bench_resolve_python() {
+    # Matches the fallback chain used by scripts/eval.sh and scripts/run_tests.sh:
+    # prefer a local venv, then the preferred pyenv version, then any non-system
+    # pyenv version so machines without exactly 3.12.4 do not fail unexpectedly.
     if [ -d "$REPO_ROOT/.venv" ]; then
         PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
     elif [ -d "$REPO_ROOT/venv" ]; then
         PYTHON_BIN="$REPO_ROOT/venv/bin/python"
-    elif command -v pyenv >/dev/null 2>&1 && [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
-        PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+    elif command -v pyenv >/dev/null 2>&1; then
+        if [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
+            PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+        else
+            local available_version
+            available_version="$(pyenv versions --bare | grep -v '^system$' | head -n 1 || echo '')"
+            if [ -n "$available_version" ] && [ -f "$HOME/.pyenv/versions/$available_version/bin/python" ]; then
+                PYTHON_BIN="$HOME/.pyenv/versions/$available_version/bin/python"
+            else
+                echo -e "${RED}❌ No pyenv Python versions found (excluding system).${NC}"
+                echo "Install one: pyenv install 3.12.4"
+                exit 1
+            fi
+        fi
     else
-        echo -e "${RED}❌ No Python venv found.${NC}"
+        echo -e "${RED}❌ No Python venv found and pyenv not available.${NC}"
         exit 1
     fi
     echo -e "${DIM}→ python: $PYTHON_BIN${NC}"
@@ -130,9 +145,16 @@ _bench_run() {
 
 _bench_open_report() {
     local out_path="$1"; shift
+    # Honour CLI overrides: a user-supplied --out FILE or --out=FILE replaces
+    # the default path passed in by the caller. Without this, custom outputs
+    # are never opened.
+    local expect_out=""
     for arg in "$@"; do
         case "$arg" in
             --dry-run|--dry_run) echo -e "${YELLOW}→ --dry-run: no report to open${NC}"; return 0 ;;
+            --out=*) out_path="${arg#--out=}" ;;
+            --out) expect_out=1 ;;
+            *) if [ -n "$expect_out" ]; then out_path="$arg"; expect_out=""; fi ;;
         esac
     done
     if [ -f "$out_path" ]; then

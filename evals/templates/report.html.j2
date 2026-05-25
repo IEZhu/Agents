@@ -137,9 +137,11 @@
         <th class="num">Input tokens (sent)</th>
         <th class="num">Output tokens (received)</th>
         <th class="num">Cache read</th>
+        <th class="num">Cache create</th>
         <th class="num">Input $$</th>
         <th class="num">Output $$</th>
         <th class="num">Cache read $$</th>
+        <th class="num">Cache create $$</th>
         <th class="num">Total $$</th>
       </tr>
     </thead>
@@ -150,9 +152,11 @@
         <td class="num">{{ "{:,}".format(row.input_tokens) }}</td>
         <td class="num">{{ "{:,}".format(row.output_tokens) }}</td>
         <td class="num">{{ "{:,}".format(row.cache_read_tokens) }}</td>
+        <td class="num">{{ "{:,}".format(row.cache_creation_tokens) }}</td>
         <td class="num">${{ row.input_usd }}</td>
         <td class="num">${{ row.output_usd }}</td>
         <td class="num">${{ row.cache_read_usd }}</td>
+        <td class="num">${{ row.cache_creation_usd }}</td>
         <td class="num">${{ row.total_usd }}</td>
       </tr>
     {% endfor %}
@@ -160,10 +164,16 @@
   </table>
 </div>
 <p class="meta" style="margin-top: 8px;">
-  Pricing (per 1M tokens) — input <code>${{ pricing.input }}</code> ·
-  output <code>${{ pricing.output }}</code> ·
-  cache_read <code>${{ pricing.cache_read }}</code> ·
-  cache_creation <code>${{ pricing.cache_creation }}</code>.
+  Arm pricing (per 1M tokens) — input <code>${{ arm_pricing.input }}</code> ·
+  output <code>${{ arm_pricing.output }}</code> ·
+  cache_read <code>${{ arm_pricing.cache_read }}</code> ·
+  cache_creation <code>${{ arm_pricing.cache_creation }}</code>.
+  {% if cross_provider_pricing %}<br>
+  Judge pricing (per 1M tokens) — input <code>${{ judge_pricing.input }}</code> ·
+  output <code>${{ judge_pricing.output }}</code> ·
+  cache_read <code>${{ judge_pricing.cache_read }}</code> ·
+  cache_creation <code>${{ judge_pricing.cache_creation }}</code>.
+  {% endif %}<br>
   Output tokens are typically much more expensive than input — when MCP wins by writing longer answers, look at output $$.
 </p>
 
@@ -246,9 +256,13 @@
   Dataset sha256: <code>{{ dataset_hash }}</code> ·
   generated: <code>{{ generated_at }}</code> ·
   total wall time: <code>{{ wall_time_s }}s</code><br>
-  pricing assumptions (USD per 1M tokens): input ${{ pricing.input }}, output ${{ pricing.output }},
-  cache_read ${{ pricing.cache_read }}, cache_creation ${{ pricing.cache_creation }} —
-  if these are stale, costs shown above are an estimate, not a billing fact.
+  arm pricing assumptions (USD per 1M tokens): input ${{ arm_pricing.input }}, output ${{ arm_pricing.output }},
+  cache_read ${{ arm_pricing.cache_read }}, cache_creation ${{ arm_pricing.cache_creation }}.
+  {% if cross_provider_pricing %}<br>
+  judge pricing assumptions (USD per 1M tokens): input ${{ judge_pricing.input }}, output ${{ judge_pricing.output }},
+  cache_read ${{ judge_pricing.cache_read }}, cache_creation ${{ judge_pricing.cache_creation }}.
+  {% endif %}<br>
+  If these are stale, costs shown above are an estimate, not a billing fact.
 </footer>
 
 <script>
