@@ -122,7 +122,7 @@ Persona for this skill.
 | `skill-jurisdiction-ge` | Georgia — Virtual Zone IT, micro-business 0%, Estonian-model profit tax, NAPR |
 | `skill-jurisdiction-kz` | Kazakhstan — AIFC common law zone, Astana Hub, ТОО, НК РК |
 | `skill-jurisdiction-mx` | Mexico — amparo, CFDI, PTU 10%, fideicomiso, SAT, RFC, federal vs estado |
-| `skill-jurisdiction-ru` | Russia — ГК/НК/ТК/УК/КоАП, Pleums of Supreme Court, regional subjects |
+| `skill-jurisdiction-ru` | Russia — ГК/НК/ТК/УК/КоАП, Plenums of Supreme Court, regional subjects |
 | `skill-jurisdiction-rs` | Serbia — ЗОО, д.о.о./а.д., paušalno, EU acquis harmonization |
 | `skill-jurisdiction-es` | Spain — IRPF/IS/IVA, NIE, autónomo, Ley Beckham, 17 Comunidades Autónomas |
 | `skill-jurisdiction-us` | United States — federal + 50 states, IRC, USCIS, LLC/Corp, H-1B/EB visas, circuit splits |

@@ -23,13 +23,13 @@ core_skills:
 preferred_skills:
 - skill-git-conventions
 - skill-dense-summarization
-capable_skills:
 - skill-mermaid-best-practices
+- skill-structured-output
+capable_skills:
 - skill-error-recovery
 - skill-narrative-craft
 - skill-temporal-validation
 - skill-fact-verification
-- skill-structured-output
 - skill-clickup-markdown
 - skill-creative-craft
 preferred_implants:

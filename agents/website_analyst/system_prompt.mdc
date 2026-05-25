@@ -21,14 +21,14 @@ routing:
 core_skills:
 - skill-analysis-critical
 preferred_skills:
+- skill-fact-verification
+- skill-source-trust-tiers
+- skill-wayback-machine
 - skill-reasoning-logic
 - skill-dense-summarization
 capable_skills:
 - skill-purchase-research
-- skill-wayback-machine
 - skill-decision-frameworks
-- skill-fact-verification
-- skill-source-trust-tiers
 - skill-temporal-validation
 - skill-forensic-process
 preferred_implants:

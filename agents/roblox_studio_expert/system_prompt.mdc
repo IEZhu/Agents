@@ -23,12 +23,12 @@ core_skills:
 preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
+- skill-dev-performance
 capable_skills:
 - skill-dev-testing
 - skill-mathematical-reasoning
 - skill-system-design
 - skill-error-recovery
-- skill-dev-performance
 - skill-dev-security
 - skill-code-generation
 preferred_implants:

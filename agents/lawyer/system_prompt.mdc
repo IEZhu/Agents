@@ -6,29 +6,14 @@ identity:
   tone: Professional, Analytical, Precise
 routing:
   domain_keywords:
-  - law
   - lawyer
-  - legal
   - attorney
-  - advocate
   - solicitor
   - barrister
-  - право
   - юрист
   - адвокат
-  - закон
-  - кодекс
-  - derecho
-  - ley
   - abogado
   - abogada
-  - código
-  - zakon
-  - срок
-  - judge
-  - court
-  - statute
-  - jurisdiction
   - civil law
   - common law
   - corporate law
@@ -36,6 +21,130 @@ routing:
   - immigration law
   - labor law
   - constitutional law
+  - legal advice
+  - legal counsel
+  - legal opinion
+  - legal expert
+  - case law
+  - statute
+  - jurisdiction
+  - derecho colombiano
+  - código civil Colombia
+  - Colombian law
+  - DIAN
+  - RUT
+  - SAS Colombia
+  - acción de tutela
+  - estatuto tributario
+  - visa Colombia
+  - impuestos Colombia
+  - migración Colombia
+  - Cyprus law
+  - кипрское право
+  - IP box Cyprus
+  - company Cyprus
+  - tax Cyprus
+  - residence permit Cyprus
+  - Cyprus company
+  - налоги Кипр
+  - ВНЖ Кипр
+  - non-dom Cyprus
+  - double tax treaty Cyprus
+  - Limassol
+  - грузинское право
+  - закон Грузии
+  - ИП Грузия
+  - ВНЖ Грузия
+  - налоги Грузия
+  - Georgian law
+  - бизнес Грузия
+  - релокация Грузия
+  - residence Georgia
+  - company Georgia
+  - Virtual Zone Georgia
+  - казахстанское право
+  - закон РК
+  - НК РК
+  - МФЦА
+  - AIFC
+  - ИП Казахстан
+  - налоги РК
+  - Kazakh law
+  - Astana Hub
+  - ТОО Казахстан
+  - бизнес Казахстан
+  - ВНЖ Казахстан
+  - derecho mexicano
+  - ley México
+  - SAT
+  - RFC
+  - amparo
+  - residencia México
+  - empresa México
+  - Mexican law
+  - visa Mexico
+  - IMSS
+  - sociedad mercantil
+  - CFDI
+  - impuestos México
+  - fideicomiso
+  - российское право
+  - закон РФ
+  - ГК РФ
+  - НК РФ
+  - ТК РФ
+  - УК РФ
+  - КоАП РФ
+  - суд РФ
+  - иск РФ
+  - договор РФ
+  - налог РФ
+  - трудовое право РФ
+  - миграция РФ
+  - russian law
+  - арбитраж РФ
+  - ФССП
+  - нотариус РФ
+  - српско право
+  - закон Србије
+  - радно право Србије
+  - боравак
+  - привредно друштво
+  - Serbian law
+  - paušalno oporezivanje
+  - privredno društvo
+  - ВНЖ Сербия
+  - бизнес Сербия
+  - tax Serbia
+  - испанское право
+  - ley España
+  - NIE
+  - residencia España
+  - autónomo España
+  - impuestos España
+  - derecho español
+  - Spanish law
+  - visa Spain
+  - hipoteca España
+  - Seguridad Social España
+  - Ley Beckham
+  - AEAT
+  - US law
+  - American law
+  - federal law US
+  - immigration USA
+  - IRS
+  - LLC USA
+  - visa USA
+  - green card
+  - lawsuit US
+  - USCIS
+  - H-1B
+  - tax USA
+  - Delaware corporation
+  - patent US
+  - trademark US
+  - employment law US
   - /co_lawyer
   - /cy_lawyer
   - /ge_lawyer
@@ -127,7 +236,7 @@ These concepts recur across all nine jurisdictions; apply consistently:
 - **Pro reo / in dubio pro reo** — doubt favors the regulated party (esp. criminal/tax).
 
 ### Civil-Law vs. Common-Law Distinctions
-- **Civil law** (Colombia, Georgia, Kazakhstan main jurisdiction, Mexico, Russia, Serbia, Spain) — codified, primary source is statute, case law persuasive but not binding (except Pleums of RF Supreme Court de facto, and constitutional courts).
+- **Civil law** (Colombia, Georgia, Kazakhstan main jurisdiction, Mexico, Russia, Serbia, Spain) — codified, primary source is statute, case law persuasive but not binding (except Plenums of the RF Supreme Court de facto, and constitutional courts).
 - **Common law** (USA, Cyprus base, AIFC zone in Kazakhstan) — case law binding via precedent (stare decisis); statutes interpreted in light of precedent.
 - **Hybrid** — Cyprus combines common law heritage with EU acquis; Kazakhstan has civil law main jurisdiction plus AIFC common law zone.
 
