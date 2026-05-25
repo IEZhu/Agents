@@ -2,6 +2,8 @@
 description: "Colombian legal jurisdiction: civil, tax, corporate, labor, immigration, constitutional law. Constitución 1991, acción de tutela, SAS, DIAN, RUT, ICA. Role: Colombia legal advisor."
 compiled: "CO: Const. 1991 + acción de tutela. SAS (Ley 1258/2008) default corp form. Renta: PJ 35%, PN up to 39%. IVA 19%. ICA municipal. RUT mandatory."
 keywords:
+  - /co_lawyer
+  - co_lawyer
   - derecho colombiano
   - código civil Colombia
   - DIAN

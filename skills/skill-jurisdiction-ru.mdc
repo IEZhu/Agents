@@ -2,6 +2,8 @@
 description: "Russian Federation legal jurisdiction: civil, tax, corporate, labor, migration, criminal, family, administrative. Comprehensive code system, Plenums of Supreme Court, regional specificity. Role: RF legal advisor."
 compiled: "RU: Civil law. Codes: ГК (4 parts), НК (2), ТК, УК, КоАП, СК, ЖК, ЗК. SC Plenums binding interpretation. УСН/ПСН/самозанятые for SMB. Regional variation by субъект."
 keywords:
+  - /ru_lawyer
+  - ru_lawyer
   - российское право
   - ГК РФ
   - НК РФ
