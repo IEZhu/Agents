@@ -49,7 +49,7 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
 - Agents: `agents/[name]/system_prompt.mdc`
 - Skills: `skills/skill-*.mdc`
 - Implants: `implants/implant-*.mdc`
-- Capabilities: `agents/capabilities/registry.yaml`
+- Rules: `rules/rule-*.mdc`
 - Config: `.env` (LANGFUSE_* optional, ANTHROPIC_API_KEY for document OCR)
 
 ## Fallback (if MCP is unavailable)
@@ -65,9 +65,8 @@ If `route_and_load` fails or Agents-Core MCP is not connected:
 
 1. **Base agent system_prompt** — agent persona from `agents/<name>/system_prompt.mdc`.
 2. **Rules** (`rules/rule-*.mdc`) — **always-on, universal, no semantic retrieval, no opt-out**. Loaded by `src/engine/rules.py`. Architectural invariant: rules apply to every agent without exception. Per-agent guidance belongs in `skills/`. Toggle via `RULES_ENABLED=0`.
-3. **Skills** (`skills/skill-*.mdc`) — semantic retrieval + per-agent opt-in via `preferred_skills` / `capabilities`. Caveman-style output compression lives here as `skill-caveman-tokenomics`, opt-in via the `concise-output` capability.
-4. **Capability Directives** — terse one-liners from `agents/capabilities/registry.yaml`.
-5. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
+3. **Skills** (`skills/skill-*.mdc`) — semantic retrieval + per-agent opt-in via `core_skills` / `preferred_skills` / `capable_skills` in the agent frontmatter. Caveman-style output compression lives here as `skill-caveman-tokenomics` and is opted in per-agent like any other skill.
+4. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
 
 ## Repository Structure
 
@@ -83,7 +82,6 @@ src/
     rules.py           — Universal always-on rules layer (no retrieval, no opt-out)
     skills.py          — Skill retrieval from vector store
     implants.py        — Implant retrieval from vector store
-    capabilities.py    — Capability -> skill resolution via registry.yaml
     language.py        — Language detection (langdetect, 24 languages)
     context.py         — Context management
   utils/
@@ -93,9 +91,8 @@ src/
   schemas/
     protocol.py        — RouterDecision, AgentRequest, AgentResponse
 agents/
-  [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, skills)
-  common/agent-schema.json — Frontmatter JSON schema
-  capabilities/registry.yaml — Capability -> skill mapping (incl. concise-output)
+  [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, 3-tier skills, preferred_implants)
+  common/agent-schema.json — Frontmatter JSON schema (incl. optional routing.aliases for legacy slash commands)
 rules/rule-*.mdc           — Universal always-on directives (accuracy, honesty, language, sycophancy, content-structure)
 skills/skill-*.mdc         — Compiled skill prompts (incl. skill-caveman-tokenomics)
 implants/implant-*.mdc     — Cognitive reasoning implants

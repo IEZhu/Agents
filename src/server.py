@@ -994,6 +994,13 @@ def _register_agent_prompts():
     commands that route to the same agent (e.g., legacy per-country commands
     consolidated into a single multi-jurisdiction agent). Every entry is
     registered as its own MCP slash prompt.
+
+    The invoked slash command is prepended to the enrichment query so that
+    alias-specific skill keywords (e.g., ``/co_lawyer`` in
+    ``skill-jurisdiction-co.mdc``) reliably participate in capable-skill
+    retrieval — without this, calling ``/co_lawyer`` with a generic question
+    would route to the lawyer agent but miss the matching jurisdiction skill.
+    The user-visible ``USER QUERY`` line still shows the original text.
     """
     for agent_name in router.available_agents:
         meta = get_agent_metadata(agent_name)
@@ -1001,17 +1008,18 @@ def _register_agent_prompts():
         trigger = routing_meta.get("trigger_command", "")
         aliases = routing_meta.get("aliases", []) or []
 
-        commands = [c for c in ([trigger] + list(aliases)) if c]
+        commands = [c for c in [trigger, *aliases] if c]
         if not commands:
             continue
 
         display_name = meta.get("identity", {}).get("display_name", agent_name)
         role = meta.get("identity", {}).get("role", "")
 
-        def make_prompt(a_name, d_name, r, p_name):
+        def make_prompt(a_name, d_name, r, p_name, invoked_cmd):
             async def agent_prompt(query: str) -> list:
+                retrieval_query = f"{invoked_cmd} {query}" if invoked_cmd else query
                 try:
-                    prompt, _, _, _, _, _ = await _load_and_enrich(a_name, query, [])
+                    prompt, _, _, _, _, _ = await _load_and_enrich(a_name, retrieval_query, [])
                     return [UserMessage(
                         f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
                         f"{prompt}\n\n"
@@ -1026,7 +1034,7 @@ def _register_agent_prompts():
 
         for cmd in commands:
             prompt_name = cmd.lstrip("/")
-            mcp.prompt()(make_prompt(agent_name, display_name, role, prompt_name))
+            mcp.prompt()(make_prompt(agent_name, display_name, role, prompt_name, cmd))
 
 
 _register_agent_prompts()
