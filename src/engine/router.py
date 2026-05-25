@@ -411,7 +411,6 @@ class SemanticRouter:
             n_candidates,
         )
         return None
-        return None
 
     async def lookup_cache_with_distance(
         self, query: str, context: Dict[str, Any] = None
