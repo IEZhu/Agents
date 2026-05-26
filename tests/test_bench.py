@@ -668,6 +668,18 @@ class TestPerModelPricing:
         assert p["output"] == 180.00
 
 
+class TestRunJudgeDocstring:
+    """`run_judge.__doc__` must actually be the docstring — a triple-quoted
+    string placed after another statement in the body becomes an unused
+    runtime literal, not `__doc__`, and that broke `help(run_judge)`."""
+
+    def test_run_judge_has_docstring(self):
+        from evals.judges.pairwise_judge import run_judge
+        doc = run_judge.__doc__
+        assert doc is not None and doc.strip(), "run_judge has no docstring (or one placed after another statement)"
+        assert "Provider-agnostic" in doc
+
+
 class TestVerdictValidation:
     """Provider payloads must conform to VERDICT_SCHEMA before being accepted —
     otherwise a malformed response would degrade to a real-looking TIE inside

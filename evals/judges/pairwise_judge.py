@@ -160,10 +160,13 @@ def run_judge(
     model: str,
     max_tokens: int = 4096,
 ) -> JudgeCall:
-    # Default bumped from 1024 → 4096 so reasoning models (gpt-5.x) have
-    # headroom for both hidden reasoning tokens and the structured tool_call
-    # output. Anthropic / non-reasoning models simply use less of the budget.
-    """Provider-agnostic judge call. `provider` is a ProviderImpl from _providers.py."""
+    """Provider-agnostic judge call. `provider` is a ProviderImpl from _providers.py.
+
+    `max_tokens` defaults to 4096 (vs the legacy 1024) so reasoning models
+    (gpt-5.x) have headroom for both hidden reasoning tokens and the
+    structured tool_call / json_schema output. Anthropic and non-reasoning
+    models simply use less of the budget.
+    """
     payload, usage = provider.call_judge(
         sync_client,
         query,

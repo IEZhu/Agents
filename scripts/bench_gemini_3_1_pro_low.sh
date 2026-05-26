@@ -32,7 +32,7 @@ _bench_resolve_python
 _bench_print_endpoints
 _bench_probe_endpoint
 _bench_check_extras datasets jinja2 openai anthropic
-_bench_check_model "$MODEL" "$CONNECT_HINT"
+_bench_check_model "$MODEL" "$CONNECT_HINT" "$PROVIDER"
 _bench_check_judge_model
 _bench_warn_if_gemini_judge
 

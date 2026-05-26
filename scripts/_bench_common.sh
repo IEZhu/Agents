@@ -71,18 +71,39 @@ _bench_print_endpoints() {
     echo -e "${DIM}→ JUDGE: ${JUDGE_PROVIDER:-(arm provider)} / ${JUDGE_MODEL:-(provider default)}${NC}"
 }
 
+_bench_match_local_origin() {
+    # If $1 is an `http(s)://(localhost|127.0.0.1)[:port]…` URL, print the
+    # `scheme://host[:port]` prefix. Empty output otherwise. The hostname is
+    # anchored with `:` / `/` / end-of-string so `localhost.example.com` is
+    # NOT misclassified as a local proxy.
+    local url="${1:-}"
+    if [[ "$url" =~ ^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?)(/|$) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    fi
+}
+
+_bench_local_proxy_url_for() {
+    # Provider-specific lookup. Reads the matching `*_BASE_URL` from .env so
+    # split-proxy setups (e.g. OpenAI on one local port, Anthropic on another)
+    # do not collapse onto whichever was listed first.
+    case "${1:-}" in
+        openai)    _bench_match_local_origin "${OPENAI_BASE_URL:-}" ;;
+        anthropic) _bench_match_local_origin "${ANTHROPIC_BASE_URL:-}" ;;
+        *)         _bench_local_proxy_url ;;
+    esac
+}
+
 _bench_local_proxy_url() {
-    # Print "scheme://host:port" (no trailing slash, no path) if either
-    # OPENAI_BASE_URL or ANTHROPIC_BASE_URL points at a local proxy
-    # (localhost / 127.0.0.1). Empty output otherwise.
-    #
-    # The hostname is anchored with a `:` / `/` / end-of-string boundary so
-    # values like `https://localhost.example.com/v1` are NOT misclassified
-    # as a local proxy.
+    # Print the first local origin found among OPENAI_BASE_URL /
+    # ANTHROPIC_BASE_URL. Used when no provider hint is available (e.g.
+    # `_bench_probe_endpoint` only needs to know whether SOMETHING points at
+    # a local proxy). Prefer `_bench_local_proxy_url_for <provider>` when
+    # the caller knows which side of the bench it is checking.
     local url
     for url in "${OPENAI_BASE_URL:-}" "${ANTHROPIC_BASE_URL:-}"; do
-        if [[ "$url" =~ ^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?)(/|$) ]]; then
-            echo "${BASH_REMATCH[1]}"
+        local origin; origin="$(_bench_match_local_origin "$url")"
+        if [ -n "$origin" ]; then
+            echo "$origin"
             return 0
         fi
     done
@@ -154,10 +175,19 @@ print("yes" if found else "no")
 }
 
 _bench_check_model() {
-    local model="$1" connect_hint="$2" models_json
+    local model="$1" connect_hint="$2" arm_provider="${3:-}" models_json
     # Only meaningful when going through a local proxy. Endpoint is derived
-    # from .env *_BASE_URL — there is no hardcoded host here.
-    local origin; origin="$(_bench_local_proxy_url)"
+    # from .env *_BASE_URL — there is no hardcoded host here. When the caller
+    # passes the arm provider, we look up THAT provider's BASE_URL so a
+    # split-proxy setup (OpenAI on one local port, Anthropic on another)
+    # queries the right side. Falls back to "first local match" otherwise
+    # for backwards compatibility with older bench scripts.
+    local origin
+    if [ -n "$arm_provider" ]; then
+        origin="$(_bench_local_proxy_url_for "$arm_provider")"
+    else
+        origin="$(_bench_local_proxy_url)"
+    fi
     [ -z "$origin" ] && return 0
     models_json=$(curl -sS --max-time 3 "${origin}/v1/models" 2>/dev/null) || {
         echo -e "${RED}❌ Failed to query ${origin}/v1/models.${NC}"
@@ -178,7 +208,15 @@ _bench_check_judge_model() {
         echo -e "${DIM}→ JUDGE_MODEL not set in .env — runner will use arm provider's default judge${NC}"
         return 0
     fi
-    local origin; origin="$(_bench_local_proxy_url)"
+    # JUDGE_PROVIDER (from .env) tells us which *_BASE_URL the judge uses;
+    # this matters when arm and judge live on different local proxies.
+    # Falls back to the first-local-match helper if JUDGE_PROVIDER is unset.
+    local origin
+    if [ -n "${JUDGE_PROVIDER:-}" ]; then
+        origin="$(_bench_local_proxy_url_for "$JUDGE_PROVIDER")"
+    else
+        origin="$(_bench_local_proxy_url)"
+    fi
     [ -z "$origin" ] && return 0
     local models_json
     # Fail fast on curl errors — silently returning 0 hid judge preflight
