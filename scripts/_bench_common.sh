@@ -176,6 +176,20 @@ _bench_check_extras() {
     echo -e "${DIM}→ eval extras: ok${NC}"
 }
 
+_bench_required_sdk_modules() {
+    # Echo provider SDK module names required for THIS run, given the arm
+    # provider as $1. Includes the judge provider (from env JUDGE_PROVIDER,
+    # falling back to the arm) when it differs. The provider name maps 1:1
+    # to the SDK module name (`openai`, `anthropic`). No duplicates.
+    local arm="${1:-}"
+    [ -z "$arm" ] && return 0
+    echo "$arm"
+    local judge="${JUDGE_PROVIDER:-$arm}"
+    if [ -n "$judge" ] && [ "$judge" != "$arm" ]; then
+        echo "$judge"
+    fi
+}
+
 _bench_models_have_id() {
     # Structured JSON check: does `data[].id` of the response contain $1?
     # Avoids the false negatives that `grep "\"id\":\"$model\""` produced on

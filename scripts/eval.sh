@@ -37,18 +37,20 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# ---- venv discovery (mirrors scripts/run_tests.sh) ----
+# ---- venv discovery (mirrors scripts/_bench_common.sh::_bench_resolve_python) ----
+# `pyenv root` is honored so a custom PYENV_ROOT (e.g. /opt/pyenv) works.
 if [ -d ".venv" ]; then
     PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 elif [ -d "venv" ]; then
     PYTHON_BIN="$REPO_ROOT/venv/bin/python"
 elif command -v pyenv &> /dev/null; then
-    if [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
-        PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+    PYENV_ROOT_DIR="$(pyenv root 2>/dev/null || echo "$HOME/.pyenv")"
+    if [ -f "$PYENV_ROOT_DIR/versions/3.12.4/bin/python" ]; then
+        PYTHON_BIN="$PYENV_ROOT_DIR/versions/3.12.4/bin/python"
     else
         AVAILABLE_VERSION="$(pyenv versions --bare | grep -v '^system$' | head -n 1 || echo '')"
-        if [ -n "$AVAILABLE_VERSION" ]; then
-            PYTHON_BIN="$HOME/.pyenv/versions/$AVAILABLE_VERSION/bin/python"
+        if [ -n "$AVAILABLE_VERSION" ] && [ -f "$PYENV_ROOT_DIR/versions/$AVAILABLE_VERSION/bin/python" ]; then
+            PYTHON_BIN="$PYENV_ROOT_DIR/versions/$AVAILABLE_VERSION/bin/python"
         else
             echo -e "${RED}❌ No pyenv Python versions found (excluding system).${NC}"
             echo "Install one: pyenv install 3.12.4"
@@ -166,12 +168,26 @@ case "$cmd" in
         # The thin scripts/bench_*.sh wrappers do this via _bench_load_env; the
         # `eval.sh bench` path needs the same so it doesn't fail preflight
         # purely because .env was not exported into the calling shell.
-        if [ -f "$REPO_ROOT/.env" ]; then
-            set -a
-            # shellcheck disable=SC1091
-            . "$REPO_ROOT/.env"
-            set +a
-        fi
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/scripts/_bench_common.sh"
+        _bench_load_env
+        # Reuse the bench common preflight so dependency / proxy mistakes fail
+        # at the script edge rather than mid-run with a Python traceback.
+        # Provider-specific model checks need to know --provider, which is
+        # inside "$@" — we parse it out without disturbing the original args.
+        BENCH_PROVIDER="openai"  # matches run_mcp_vs_vanilla.parse_args default
+        prev=""
+        for arg in "$@"; do
+            if [ "$prev" = "--provider" ]; then BENCH_PROVIDER="$arg"; prev=""; continue; fi
+            case "$arg" in
+                --provider=*) BENCH_PROVIDER="${arg#--provider=}" ;;
+                --provider)   prev="--provider" ;;
+            esac
+        done
+        _bench_print_endpoints
+        _bench_probe_endpoint
+        # shellcheck disable=SC2046
+        _bench_check_extras datasets jinja2 $(_bench_required_sdk_modules "$BENCH_PROVIDER")
         echo -e "${GREEN}▶ Benchmarking MCP vs vanilla LLM${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.runners.run_mcp_vs_vanilla "$@"

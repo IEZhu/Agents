@@ -73,7 +73,13 @@ class TrialResult:
 class QueryRun:
     idx: int
     query: str
-    source_idx: int
+    # Position in the shuffled streaming iterator at sample time — NOT the
+    # HuggingFace split row index. Streaming + `.shuffle(buffer_size=…)`
+    # discards the original row index, so this field cannot be passed back to
+    # `evals.scripts.fetch --idx` to recover the source row; it only exists
+    # for in-run debugging. Provenance lives in `dataset_hash` + the query
+    # text itself.
+    stream_idx: int
     vanilla: TrialResult
     mcp: TrialResult
     verdict: SwapVerdict
@@ -100,7 +106,14 @@ class BenchmarkResult:
 
 
 def sample_queries(dataset_key: str, n: int, seed: int) -> list[tuple[int, str]]:
-    """Stream the dataset and yield N (source_idx, query) pairs with a deterministic shuffle."""
+    """Stream the dataset and yield N (stream_idx, query) pairs with a deterministic shuffle.
+
+    `stream_idx` is the enumerate position after `.shuffle(buffer_size=…)`,
+    NOT the original HuggingFace split row index. Don't pass it back to
+    `evals.scripts.fetch --idx` — that consumer expects the unshuffled
+    split index, which is unrecoverable once streaming + buffered shuffle
+    has been applied.
+    """
     if dataset_key not in DATASETS:
         raise SystemExit(f"unknown dataset {dataset_key!r}; choices: {sorted(DATASETS)}")
     spec = DATASETS[dataset_key]
@@ -344,7 +357,7 @@ def _synthetic_empty_tie(reason: str) -> SwapVerdict:
 async def run_one_query(
     *,
     idx: int,
-    source_idx: int,
+    stream_idx: int,
     query: str,
     provider: ProviderImpl,
     async_client,
@@ -376,7 +389,7 @@ async def run_one_query(
                 judge_model=judge_model,
                 judge_max_tokens=judge_max_tokens,
             )
-    return QueryRun(idx=idx, query=query, source_idx=source_idx, vanilla=vanilla, mcp=mcp, verdict=verdict)
+    return QueryRun(idx=idx, query=query, stream_idx=stream_idx, vanilla=vanilla, mcp=mcp, verdict=verdict)
 
 
 # --------------------------------------------------------------------------- #
@@ -437,12 +450,16 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
     cost_judge = sum(_cost_usd(r.verdict.total_usage, judge_pricing) for r in runs)
     total_cost = cost_vanilla + cost_mcp + cost_judge
 
-    # Per-arm aggregate usage + per-component cost split, surfaced as table rows.
+    # Per-arm aggregate usage + per-component cost split.
+    # Costs are kept as floats through aggregation and formatted exactly once
+    # at the end — formatting per-component first and re-summing the formatted
+    # strings would drift by sub-cent rounding (Copilot regression), making
+    # TOTAL.input + TOTAL.output + … ≠ TOTAL.total in the rendered HTML.
     vanilla_usage_total = _sum_usages([r.vanilla.usage for r in runs])
     mcp_usage_total = _sum_usages([r.mcp.usage for r in runs])
     judge_usage_total = _sum_usages([r.verdict.total_usage for r in runs])
 
-    def _row(label: str, usage: dict[str, int], pricing_table: dict[str, float]) -> dict[str, Any]:
+    def _numeric_row(label: str, usage: dict[str, int], pricing_table: dict[str, float]) -> dict[str, Any]:
         split = _cost_split(usage, pricing_table)
         return {
             "label": label,
@@ -450,37 +467,44 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "output_tokens": usage["output_tokens"],
             "cache_read_tokens": usage["cache_read_input_tokens"],
             "cache_creation_tokens": usage["cache_creation_input_tokens"],
-            "input_usd": f"{split['input_usd']:.4f}",
-            "output_usd": f"{split['output_usd']:.4f}",
-            "cache_read_usd": f"{split['cache_read_usd']:.4f}",
-            "cache_creation_usd": f"{split['cache_creation_usd']:.4f}",
-            "total_usd": f"{sum(split.values()):.4f}",
+            "_input_usd": split["input_usd"],
+            "_output_usd": split["output_usd"],
+            "_cache_read_usd": split["cache_read_usd"],
+            "_cache_creation_usd": split["cache_creation_usd"],
+            "_total_usd": sum(split.values()),
         }
 
-    vanilla_row = _row("Vanilla (arm)", vanilla_usage_total, arm_pricing)
-    mcp_row = _row("MCP (arm)", mcp_usage_total, arm_pricing)
-    judge_row = _row("Judge (×2 swap)", judge_usage_total, judge_pricing)
+    def _format_row(r: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "label": r["label"],
+            "input_tokens": r["input_tokens"],
+            "output_tokens": r["output_tokens"],
+            "cache_read_tokens": r["cache_read_tokens"],
+            "cache_creation_tokens": r["cache_creation_tokens"],
+            "input_usd": f"{r['_input_usd']:.4f}",
+            "output_usd": f"{r['_output_usd']:.4f}",
+            "cache_read_usd": f"{r['_cache_read_usd']:.4f}",
+            "cache_creation_usd": f"{r['_cache_creation_usd']:.4f}",
+            "total_usd": f"{r['_total_usd']:.4f}",
+        }
 
-    # TOTAL aggregates the dollars from the three rows (which were each charged
-    # at their correct per-role rate). Re-pricing the summed tokens at a single
-    # table would silently mis-bill cross-provider runs.
-    def _sum_floats(*rows: dict[str, Any], key: str) -> float:
-        return sum(float(r[key]) for r in rows)
+    vanilla_num = _numeric_row("Vanilla (arm)", vanilla_usage_total, arm_pricing)
+    mcp_num = _numeric_row("MCP (arm)", mcp_usage_total, arm_pricing)
+    judge_num = _numeric_row("Judge (×2 swap)", judge_usage_total, judge_pricing)
 
-    total_row = {
+    total_num = {
         "label": "TOTAL",
-        "input_tokens": vanilla_usage_total["input_tokens"] + mcp_usage_total["input_tokens"] + judge_usage_total["input_tokens"],
-        "output_tokens": vanilla_usage_total["output_tokens"] + mcp_usage_total["output_tokens"] + judge_usage_total["output_tokens"],
-        "cache_read_tokens": vanilla_usage_total["cache_read_input_tokens"] + mcp_usage_total["cache_read_input_tokens"] + judge_usage_total["cache_read_input_tokens"],
-        "cache_creation_tokens": vanilla_usage_total["cache_creation_input_tokens"] + mcp_usage_total["cache_creation_input_tokens"] + judge_usage_total["cache_creation_input_tokens"],
-        "input_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='input_usd'):.4f}",
-        "output_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='output_usd'):.4f}",
-        "cache_read_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='cache_read_usd'):.4f}",
-        "cache_creation_usd": f"{_sum_floats(vanilla_row, mcp_row, judge_row, key='cache_creation_usd'):.4f}",
-        "total_usd": f"{total_cost:.4f}",
+        "input_tokens": sum(r["input_tokens"] for r in (vanilla_num, mcp_num, judge_num)),
+        "output_tokens": sum(r["output_tokens"] for r in (vanilla_num, mcp_num, judge_num)),
+        "cache_read_tokens": sum(r["cache_read_tokens"] for r in (vanilla_num, mcp_num, judge_num)),
+        "cache_creation_tokens": sum(r["cache_creation_tokens"] for r in (vanilla_num, mcp_num, judge_num)),
+        "_input_usd": sum(r["_input_usd"] for r in (vanilla_num, mcp_num, judge_num)),
+        "_output_usd": sum(r["_output_usd"] for r in (vanilla_num, mcp_num, judge_num)),
+        "_cache_read_usd": sum(r["_cache_read_usd"] for r in (vanilla_num, mcp_num, judge_num)),
+        "_cache_creation_usd": sum(r["_cache_creation_usd"] for r in (vanilla_num, mcp_num, judge_num)),
+        "_total_usd": total_cost,
     }
-
-    cost_breakdown = [vanilla_row, mcp_row, judge_row, total_row]
+    cost_breakdown = [_format_row(r) for r in (vanilla_num, mcp_num, judge_num, total_num)]
 
     agents = [r.mcp.mcp_meta["agent"] for r in runs if r.mcp.mcp_meta]
     agent_counts = dict(Counter(agents))
@@ -673,8 +697,8 @@ async def main_async(args: argparse.Namespace) -> int:
         f"concurrency={args.concurrency}",
         file=sys.stderr,
     )
-    for i, (src_idx, q) in enumerate(queries, 1):
-        print(f"  [{i:>2}] (src={src_idx}) {q[:100]}{'…' if len(q) > 100 else ''}", file=sys.stderr)
+    for i, (s_idx, q) in enumerate(queries, 1):
+        print(f"  [{i:>2}] (stream={s_idx}) {q[:100]}{'…' if len(q) > 100 else ''}", file=sys.stderr)
 
     if args.dry_run:
         print(f"[bench] --dry-run: skipping API calls", file=sys.stderr)
@@ -705,7 +729,7 @@ async def main_async(args: argparse.Namespace) -> int:
     runs = await asyncio.gather(*[
         run_one_query(
             idx=i,
-            source_idx=src_idx,
+            stream_idx=s_idx,
             query=q,
             provider=provider,
             async_client=async_client,
@@ -717,7 +741,7 @@ async def main_async(args: argparse.Namespace) -> int:
             judge_max_tokens=args.judge_max_tokens,
             semaphore=semaphore,
         )
-        for i, (src_idx, q) in enumerate(queries, 1)
+        for i, (s_idx, q) in enumerate(queries, 1)
     ])
     wall = time.perf_counter() - t0
 
@@ -769,7 +793,7 @@ async def main_async(args: argparse.Namespace) -> int:
             "runs": [
                 {
                     "idx": r.idx,
-                    "source_idx": r.source_idx,
+                    "stream_idx": r.stream_idx,
                     "query": r.query,
                     "vanilla": asdict(r.vanilla),
                     "mcp": asdict(r.mcp),

@@ -515,7 +515,7 @@ class TestTruncationDetection:
         jc = JudgeCall(winner="tie", reasoning="x", criterion_scores={},
                        usage={"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0})
         verdict = aggregate_with_swap(pos1=jc, pos2=jc, pos1_left_is="vanilla")
-        run = QueryRun(idx=1, query="q", source_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
+        run = QueryRun(idx=1, query="q", stream_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
         result = BenchmarkResult(
             config={"provider": "openai", "provider_notes": "", "model": "gpt-4o", "judge_model": "gpt-4o",
                     "seed": 0, "dataset": "wildbench", "commit_sha": "x", "max_tokens": cap,
@@ -804,7 +804,7 @@ class TestPricingSplitBetweenArmAndJudge:
         jc = JudgeCall(winner="tie", reasoning="x", criterion_scores={},
                        usage=usage(1_000_000))
         verdict = aggregate_with_swap(pos1=jc, pos2=jc, pos1_left_is="vanilla")
-        run = QueryRun(idx=1, query="q", source_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
+        run = QueryRun(idx=1, query="q", stream_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
         result = BenchmarkResult(
             config={"provider": "openai", "provider_notes": "", "model": "gpt-4o",
                     "judge_provider": "anthropic", "judge_model": "claude-opus-4-7",
@@ -859,6 +859,43 @@ class TestPricingSplitBetweenArmAndJudge:
         )
         assert abs(total - expected) < 1e-4
 
+    def test_total_row_components_consistent_with_total(self):
+        """TOTAL.input + TOTAL.output + TOTAL.cache_read + TOTAL.cache_creation
+        must equal TOTAL.total_usd to 4 decimal places. Regression: components
+        were previously computed by summing already-formatted 4dp strings while
+        total_usd came from raw float, so sub-cent drift could make the visible
+        TOTAL row not add up."""
+        from evals.runners._providers import get_pricing
+
+        arm = get_pricing("gpt-4o")
+        judge = get_pricing("claude-opus-4-7")
+        ctx, _ = self._build_ctx(arm_pricing=arm, judge_pricing=judge)
+        rows = {row["label"]: row for row in ctx["cost_breakdown"]}
+        t = rows["TOTAL"]
+        components = (
+            float(t["input_usd"]) + float(t["output_usd"])
+            + float(t["cache_read_usd"]) + float(t["cache_creation_usd"])
+        )
+        assert abs(components - float(t["total_usd"])) < 1e-4, (
+            f"TOTAL row inconsistent: components={components} vs total={t['total_usd']}"
+        )
+
+
+class TestStreamIdxIsNotSourceIdx:
+    """`source_idx` used to advertise itself as the HuggingFace split row index,
+    but `sample_queries` reads `enumerate` on a shuffled streaming iterator —
+    that's the stream position, not a recoverable provenance pointer. The
+    field was renamed to `stream_idx` to stop misleading downstream readers."""
+
+    def test_queryrun_has_stream_idx_not_source_idx(self):
+        from evals.runners.run_mcp_vs_vanilla import QueryRun
+        fields = {f.name for f in QueryRun.__dataclass_fields__.values()}
+        assert "stream_idx" in fields
+        assert "source_idx" not in fields, (
+            "source_idx is misleading (it's the shuffled-stream position, not the HF row index). "
+            "Use stream_idx so downstream tooling doesn't try to pass it to fetch --idx."
+        )
+
 
 class TestTemplateEscaping:
     """User-supplied query/response text must be HTML-escaped to prevent XSS."""
@@ -886,7 +923,7 @@ class TestTemplateEscaping:
             latency_ms=10,
             mcp_meta={"agent": "x", "tier": "lite", "skills_loaded": [], "implants_loaded": [], "rules_loaded": []},
         )
-        run = QueryRun(idx=1, query=query, source_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
+        run = QueryRun(idx=1, query=query, stream_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
 
         result = BenchmarkResult(
             config={

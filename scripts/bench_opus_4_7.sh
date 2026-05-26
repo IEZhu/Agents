@@ -27,7 +27,8 @@ _bench_load_env
 _bench_resolve_python
 _bench_print_endpoints
 _bench_probe_endpoint
-_bench_check_extras datasets jinja2 anthropic openai
+# Required SDKs depend on PROVIDER + JUDGE_PROVIDER (.env) — no over-requirement.
+_bench_check_extras datasets jinja2 $(_bench_required_sdk_modules "$PROVIDER")
 _bench_check_model "$MODEL" "$CONNECT_HINT" "$PROVIDER"
 _bench_check_judge_model
 
