@@ -304,27 +304,27 @@ async def judge_with_swap(
 ) -> SwapVerdict:
     """Judge can be a different provider than arms — e.g. Gemini arms judged
     by Claude. This breaks position bias AND avoids per-provider quirks
-    (Gemini is unreliable as a json_schema judge via OpenAI-compat layers)."""
-    pos1 = await asyncio.to_thread(
-        run_judge,
-        provider=judge_provider,
-        sync_client=judge_sync_client,
-        query=query,
-        left=vanilla_text,
-        right=mcp_text,
-        model=judge_model,
-        max_tokens=judge_max_tokens,
-    )
-    pos2 = await asyncio.to_thread(
-        run_judge,
-        provider=judge_provider,
-        sync_client=judge_sync_client,
-        query=query,
-        left=mcp_text,
-        right=vanilla_text,
-        model=judge_model,
-        max_tokens=judge_max_tokens,
-    )
+    (Gemini is unreliable as a json_schema judge via OpenAI-compat layers).
+
+    Each position is wrapped in `_with_retries` so a transient rate-limit or
+    timeout from the judge provider does not fail the whole query — arms
+    already retry, the judge must match that contract.
+    """
+
+    async def _judge_one(left_text: str, right_text: str) -> JudgeCall:
+        return await asyncio.to_thread(
+            run_judge,
+            provider=judge_provider,
+            sync_client=judge_sync_client,
+            query=query,
+            left=left_text,
+            right=right_text,
+            model=judge_model,
+            max_tokens=judge_max_tokens,
+        )
+
+    pos1 = await _with_retries(lambda: _judge_one(vanilla_text, mcp_text))
+    pos2 = await _with_retries(lambda: _judge_one(mcp_text, vanilla_text))
     return aggregate_with_swap(pos1=pos1, pos2=pos2, pos1_left_is="vanilla")
 
 
@@ -694,6 +694,11 @@ async def main_async(args: argparse.Namespace) -> int:
         judge_sync_client = provider.make_sync_client()
     else:
         judge_sync_client = judge_provider.make_sync_client()
+    # Pre-warm the SemanticRouter singleton before launching concurrent tasks.
+    # `_get_router` is sync (no `await`) so under asyncio cooperative
+    # scheduling it would be atomic anyway, but constructing it eagerly here
+    # removes any ambiguity and avoids the first-query latency spike.
+    _get_router()
     semaphore = asyncio.Semaphore(args.concurrency)
 
     t0 = time.perf_counter()

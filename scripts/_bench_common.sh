@@ -75,9 +75,13 @@ _bench_local_proxy_url() {
     # Print "scheme://host:port" (no trailing slash, no path) if either
     # OPENAI_BASE_URL or ANTHROPIC_BASE_URL points at a local proxy
     # (localhost / 127.0.0.1). Empty output otherwise.
+    #
+    # The hostname is anchored with a `:` / `/` / end-of-string boundary so
+    # values like `https://localhost.example.com/v1` are NOT misclassified
+    # as a local proxy.
     local url
     for url in "${OPENAI_BASE_URL:-}" "${ANTHROPIC_BASE_URL:-}"; do
-        if [[ "$url" =~ ^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?) ]]; then
+        if [[ "$url" =~ ^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?)(/|$) ]]; then
             echo "${BASH_REMATCH[1]}"
             return 0
         fi
@@ -129,6 +133,26 @@ _bench_check_extras() {
     echo -e "${DIM}→ eval extras: ok${NC}"
 }
 
+_bench_models_have_id() {
+    # Structured JSON check: does `data[].id` of the response contain $1?
+    # Avoids the false negatives that `grep "\"id\":\"$model\""` produced on
+    # pretty-printed or reordered JSON output. Echoes "yes" or "no" so
+    # callers can branch without subshell exit-status pitfalls.
+    local target="$1"
+    "$PYTHON_BIN" -c '
+import json, sys
+target = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("no")
+    sys.exit(0)
+items = data.get("data", []) if isinstance(data, dict) else data
+found = any(isinstance(item, dict) and item.get("id") == target for item in (items or []))
+print("yes" if found else "no")
+' "$target" 2>/dev/null || echo "no"
+}
+
 _bench_check_model() {
     local model="$1" connect_hint="$2" models_json
     # Only meaningful when going through a local proxy. Endpoint is derived
@@ -139,7 +163,7 @@ _bench_check_model() {
         echo -e "${RED}❌ Failed to query ${origin}/v1/models.${NC}"
         exit 1
     }
-    if ! echo "$models_json" | grep -qF "\"id\":\"$model\""; then
+    if [ "$(echo "$models_json" | _bench_models_have_id "$model")" != "yes" ]; then
         echo -e "${RED}❌ Model '$model' is not available at ${origin}.${NC}"
         echo "   Hint: connect '${connect_hint}' in your local proxy's settings,"
         echo -e "   or list available models: ${BLUE}curl -s ${origin}/v1/models | python3 -m json.tool${NC}"
@@ -157,8 +181,13 @@ _bench_check_judge_model() {
     local origin; origin="$(_bench_local_proxy_url)"
     [ -z "$origin" ] && return 0
     local models_json
-    models_json=$(curl -sS --max-time 3 "${origin}/v1/models" 2>/dev/null) || return 0
-    if ! echo "$models_json" | grep -qF "\"id\":\"$JUDGE_MODEL\""; then
+    # Fail fast on curl errors — silently returning 0 hid judge preflight
+    # failures and deferred them to runtime. Match `_bench_check_model`.
+    models_json=$(curl -sS --max-time 3 "${origin}/v1/models" 2>/dev/null) || {
+        echo -e "${RED}❌ Failed to query ${origin}/v1/models (judge preflight).${NC}"
+        exit 1
+    }
+    if [ "$(echo "$models_json" | _bench_models_have_id "$JUDGE_MODEL")" != "yes" ]; then
         echo -e "${RED}❌ JUDGE_MODEL='$JUDGE_MODEL' is not available at ${origin}.${NC}"
         echo "   Connect it via your local proxy's settings,"
         echo -e "   or pick a different judge by editing ${BLUE}JUDGE_PROVIDER${NC} / ${BLUE}JUDGE_MODEL${NC} in ${BLUE}.env${NC}."

@@ -198,6 +198,10 @@ class TestCostSplit:
 
 class TestProviderDispatch:
     def test_openai_provider_resolves(self):
+        # `get_provider("openai")` imports the openai SDK eagerly. Skip the
+        # test cleanly when running outside the `[evals]` extra rather than
+        # erroring on a missing optional dependency.
+        pytest.importorskip("openai")
         from evals.runners._providers import get_provider
 
         p = get_provider("openai")
@@ -207,6 +211,9 @@ class TestProviderDispatch:
         assert "input" in p.pricing and "output" in p.pricing
 
     def test_anthropic_provider_resolves(self):
+        # Same rationale as the openai test — anthropic SDK is also an
+        # `[evals]`-extra dependency.
+        pytest.importorskip("anthropic")
         from evals.runners._providers import get_provider
 
         p = get_provider("anthropic")
@@ -557,6 +564,65 @@ class TestEmptyArmShortCircuit:
         assert "empty" in v.pos1.reasoning.lower()
 
 
+class TestJudgeRetry:
+    """Judge calls must retry on transient API errors — arms already do, and
+    a one-off RateLimitError from the judge should not collapse the whole
+    query into a runtime failure."""
+
+    def test_judge_with_swap_retries_on_transient_error(self):
+        import asyncio
+        from unittest.mock import patch
+
+        from evals.runners.run_mcp_vs_vanilla import judge_with_swap
+        from evals.judges.pairwise_judge import JudgeCall
+
+        # Bypass the retry's SDK-specific exception filter — register our
+        # sentinel as a retryable error type for this test.
+        class _Transient(Exception):
+            pass
+
+        zero_usage = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        ok_call = JudgeCall(
+            winner="left",
+            reasoning="r",
+            criterion_scores={k: 3 for k in (
+                "left_helpfulness", "left_correctness", "left_depth", "left_structure", "left_intent_fit",
+                "right_helpfulness", "right_correctness", "right_depth", "right_structure", "right_intent_fit",
+            )},
+            usage=dict(zero_usage),
+        )
+
+        calls = {"n": 0}
+
+        def fake_run_judge(**kwargs):
+            calls["n"] += 1
+            # Throw transient once on EACH position so we exercise the retry
+            # path for both pos1 and pos2.
+            if calls["n"] in (1, 3):
+                raise _Transient("simulated rate-limit")
+            return ok_call
+
+        async def _no_sleep(_seconds):
+            return None
+
+        with patch("evals.runners.run_mcp_vs_vanilla._get_retryable", return_value=(_Transient,)), \
+             patch("evals.runners.run_mcp_vs_vanilla.run_judge", side_effect=fake_run_judge), \
+             patch("evals.runners.run_mcp_vs_vanilla.asyncio.sleep", side_effect=_no_sleep):
+            verdict = asyncio.run(judge_with_swap(
+                judge_provider=None,  # not used by the mocked run_judge
+                judge_sync_client=None,
+                query="q",
+                vanilla_text="v",
+                mcp_text="m",
+                judge_model="claude-sonnet-4-6",
+                judge_max_tokens=100,
+            ))
+
+        # Each position retried once (4 total: pos1 fail+ok, pos2 fail+ok).
+        assert calls["n"] == 4
+        assert verdict.final in {"vanilla", "mcp", "tie"}
+
+
 class TestPerModelPricing:
     """Per-model pricing lookup so report $-numbers stay correct regardless
     of which --model is passed."""
@@ -659,6 +725,39 @@ class TestVerdictValidation:
                 "reasoning": "x",
                 "criterion_scores": {"left_helpfulness": 3},
             })
+
+    def test_rejects_non_integer_criterion_score(self):
+        """VERDICT_SCHEMA pins `integer 1..5`; a string score must fail-fast,
+        not bleed into criterion_scores as garbage analytics data."""
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+        import pytest
+
+        bad = self._scores()
+        bad["left_helpfulness"] = "five"  # type: ignore[assignment]
+        with pytest.raises(RuntimeError, match="non-integer"):
+            _validate_verdict_payload({"winner": "left", "reasoning": "x", "criterion_scores": bad})
+
+    def test_rejects_boolean_score_disguised_as_int(self):
+        """`bool` is a subclass of `int` in Python, so `True` would silently
+        sail through a plain `isinstance(int)` check as 1. The validator must
+        reject it explicitly."""
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+        import pytest
+
+        bad = self._scores()
+        bad["left_helpfulness"] = True  # type: ignore[assignment]
+        with pytest.raises(RuntimeError, match="non-integer"):
+            _validate_verdict_payload({"winner": "left", "reasoning": "x", "criterion_scores": bad})
+
+    def test_rejects_out_of_range_criterion_score(self):
+        from evals.judges.pairwise_judge import _validate_verdict_payload
+        import pytest
+
+        for bad_value in (0, 6, -1, 100):
+            bad = self._scores()
+            bad["right_correctness"] = bad_value
+            with pytest.raises(RuntimeError, match="out-of-range"):
+                _validate_verdict_payload({"winner": "right", "reasoning": "x", "criterion_scores": bad})
 
 
 class TestPricingSplitBetweenArmAndJudge:

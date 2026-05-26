@@ -112,12 +112,20 @@ _REQUIRED_CRITERION_KEYS = frozenset({
 })
 
 
+_SCORE_MIN = 1
+_SCORE_MAX = 5
+
+
 def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[str, int]]:
     """Validate that the judge payload conforms to VERDICT_SCHEMA before use.
 
     Fail-fast on malformed responses instead of letting unknown winners silently
     degrade to TIE in `aggregate_with_swap` — that would skew benchmark numbers
     without raising an error.
+
+    Score values are checked against the schema's `integer 1..5` constraint:
+    `bool` is rejected explicitly because `isinstance(True, int) is True` in
+    Python and a `True`/`False` score should not silently sail through as 1/0.
     """
     winner = payload.get("winner")
     reasoning = payload.get("reasoning")
@@ -129,7 +137,17 @@ def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[s
     if not isinstance(scores, dict) or _REQUIRED_CRITERION_KEYS - scores.keys():
         missing = sorted(_REQUIRED_CRITERION_KEYS - (scores.keys() if isinstance(scores, dict) else set()))
         raise RuntimeError(f"Judge returned incomplete criterion_scores; missing keys: {missing}")
-    return winner, reasoning, dict(scores)
+    for key in _REQUIRED_CRITERION_KEYS:
+        v = scores[key]
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise RuntimeError(
+                f"Judge returned non-integer criterion score for {key!r}: {v!r} (type {type(v).__name__})"
+            )
+        if not (_SCORE_MIN <= v <= _SCORE_MAX):
+            raise RuntimeError(
+                f"Judge returned out-of-range criterion score for {key!r}: {v} (expected {_SCORE_MIN}..{_SCORE_MAX})"
+            )
+    return winner, reasoning, {k: scores[k] for k in _REQUIRED_CRITERION_KEYS}
 
 
 def run_judge(
