@@ -897,6 +897,122 @@ class TestStreamIdxIsNotSourceIdx:
         )
 
 
+class TestBuildMcpSystemPromptRoutingFidelity:
+    """The MCP arm must replicate `route_and_load`'s routing path, not bypass
+    it with raw `match_keywords`. Each routing branch (cache hit, keyword
+    override, ambiguous veto, meta-query, cache-miss fallback) must surface
+    via `mcp_meta["routing_path"]` so the report can show how many bench
+    queries reflect real production routing vs. the deterministic fallback."""
+
+    @staticmethod
+    def _patches(*, lookup_cache_result, keyword_veto_result, is_meta, match_keywords_result):
+        """Build a context manager that patches the production routing
+        primitives for build_mcp_system_prompt. The patched _load_and_enrich
+        returns a dummy prompt + empty skill/implant/rule sets so we only
+        observe the routing-decision logic.
+        """
+        import asyncio
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        # router.lookup_cache returns a RouterDecision-like object or None.
+        cached_decision = None
+        if lookup_cache_result is not None:
+            cached_decision = MagicMock()
+            cached_decision.target_agent = lookup_cache_result
+
+        async def _async_load(agent_name, query, history, *_):
+            return (f"prompt-for-{agent_name}", "ctx-hash", [], [], [], "lite")
+
+        async def _async_lookup(query, ctx):
+            return cached_decision
+
+        fake_router = MagicMock()
+        fake_router.lookup_cache = AsyncMock(side_effect=_async_lookup)
+        fake_router.keyword_veto = MagicMock(return_value=keyword_veto_result)
+        fake_router.match_keywords = MagicMock(return_value=match_keywords_result)
+        return patch.multiple(
+            "evals.runners.run_mcp_vs_vanilla",
+            _get_router=MagicMock(return_value=fake_router),
+            _strip_platform_instructions=MagicMock(side_effect=lambda p: p),
+        ), patch.multiple(
+            "src.server",
+            _load_and_enrich=AsyncMock(side_effect=_async_load),
+            _is_meta_query=MagicMock(return_value=is_meta),
+        )
+
+    def _run(self, **kwargs) -> dict:
+        import asyncio
+        from evals.runners.run_mcp_vs_vanilla import build_mcp_system_prompt
+        patches = self._patches(**kwargs)
+        # ExitStack-like manual entry since _patches returns a tuple
+        ctx0 = patches[0]
+        ctx1 = patches[1]
+        with ctx0, ctx1:
+            _prompt, meta = asyncio.run(build_mcp_system_prompt("any query"))
+        return meta
+
+    def test_cache_hit_no_veto(self):
+        meta = self._run(
+            lookup_cache_result="software_engineer",
+            keyword_veto_result=None,
+            is_meta=False,
+            match_keywords_result=[],
+        )
+        assert meta["agent"] == "software_engineer"
+        assert meta["routing_path"] == "cache_hit"
+
+    def test_cache_hit_keyword_override(self):
+        meta = self._run(
+            lookup_cache_result="software_engineer",
+            keyword_veto_result="lawyer",
+            is_meta=False,
+            match_keywords_result=[],
+        )
+        assert meta["agent"] == "lawyer"
+        assert meta["routing_path"] == "keyword_override_cached"
+
+    def test_cache_hit_ambiguous_veto_falls_back_to_keyword(self):
+        from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
+        meta = self._run(
+            lookup_cache_result="software_engineer",
+            keyword_veto_result=KEYWORD_VETO_ROUTE_REQUIRED,
+            is_meta=False,
+            match_keywords_result=[("data_analyst", 3)],
+        )
+        assert meta["agent"] == "data_analyst"
+        assert meta["routing_path"] == "keyword_fallback_after_ambiguous_veto"
+
+    def test_cache_miss_meta_query_picks_universal_agent(self):
+        meta = self._run(
+            lookup_cache_result=None,
+            keyword_veto_result=None,
+            is_meta=True,
+            match_keywords_result=[("software_engineer", 5)],  # ignored — meta wins
+        )
+        assert meta["agent"] == "universal_agent"
+        assert meta["routing_path"] == "meta_query"
+
+    def test_cache_miss_non_meta_uses_keyword_fallback(self):
+        meta = self._run(
+            lookup_cache_result=None,
+            keyword_veto_result=None,
+            is_meta=False,
+            match_keywords_result=[("debate_moderator", 2)],
+        )
+        assert meta["agent"] == "debate_moderator"
+        assert meta["routing_path"] == "keyword_fallback"
+
+    def test_cache_miss_no_keyword_hits_falls_back_to_universal_agent(self):
+        meta = self._run(
+            lookup_cache_result=None,
+            keyword_veto_result=None,
+            is_meta=False,
+            match_keywords_result=[],
+        )
+        assert meta["agent"] == "universal_agent"
+        assert meta["routing_path"] == "keyword_fallback"
+
+
 class TestTemplateEscaping:
     """User-supplied query/response text must be HTML-escaped to prevent XSS."""
 

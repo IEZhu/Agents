@@ -115,6 +115,9 @@
     <span class="label">Routing breakdown</span>
     <span class="value">{{ summary.routing_unique_agents }} agents</span>
     <span class="delta">{{ summary.routing_summary }}</span>
+    <span class="delta" title="cache_hit / keyword_override_cached / meta_query reflect production routing; keyword_fallback* are bench stand-ins for the LLM-picker step that production would invoke on cache miss.">
+      paths: {{ summary.routing_path_summary }}
+    </span>
   </div>
   <div class="card kpi">
     <span class="label">Judge contradictions</span>
@@ -201,6 +204,7 @@
 
     <p class="meta">
       Routing: <code>{{ r.mcp_meta.agent }}</code> · tier <code>{{ r.mcp_meta.tier }}</code> ·
+      path <code>{{ r.mcp_meta.routing_path }}</code> ·
       skills <code>{{ r.mcp_meta.skills_loaded | join(", ") or "—" }}</code> ·
       implants <code>{{ r.mcp_meta.implants_loaded | join(", ") or "—" }}</code> ·
       rules <code>{{ r.mcp_meta.rules_loaded | join(", ") or "—" }}</code>

@@ -176,18 +176,30 @@ case "$cmd" in
         # Provider-specific model checks need to know --provider, which is
         # inside "$@" — we parse it out without disturbing the original args.
         BENCH_PROVIDER="openai"  # matches run_mcp_vs_vanilla.parse_args default
+        BENCH_MODEL=""
         prev=""
         for arg in "$@"; do
             if [ "$prev" = "--provider" ]; then BENCH_PROVIDER="$arg"; prev=""; continue; fi
+            if [ "$prev" = "--model" ]; then BENCH_MODEL="$arg"; prev=""; continue; fi
             case "$arg" in
                 --provider=*) BENCH_PROVIDER="${arg#--provider=}" ;;
                 --provider)   prev="--provider" ;;
+                --model=*)    BENCH_MODEL="${arg#--model=}" ;;
+                --model)      prev="--model" ;;
             esac
         done
         _bench_print_endpoints
         _bench_probe_endpoint
         # shellcheck disable=SC2046
         _bench_check_extras datasets jinja2 $(_bench_required_sdk_modules "$BENCH_PROVIDER")
+        # When --model is provided AND the configured base_url points at a
+        # local proxy, check the model is registered there. If --model is
+        # omitted, the runner picks the provider's default and we skip the
+        # check (the runner will fail clearly if that default isn't served).
+        if [ -n "$BENCH_MODEL" ]; then
+            _bench_check_model "$BENCH_MODEL" "$BENCH_MODEL" "$BENCH_PROVIDER"
+        fi
+        _bench_check_judge_model
         echo -e "${GREEN}▶ Benchmarking MCP vs vanilla LLM${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.runners.run_mcp_vs_vanilla "$@"

@@ -205,21 +205,64 @@ def _get_router() -> Any:
 
 
 async def build_mcp_system_prompt(query: str) -> tuple[str, dict[str, Any]]:
-    """Replicate route_and_load's prompt-building path without going through MCP."""
-    from src.server import _load_and_enrich
+    """Replicate `src.server.route_and_load` for the no-LLM-picker portion.
+
+    Production flow on a fresh query (no sticky agent, no context_hash):
+      1. `router.lookup_cache(query)` — semantic cache hit?
+         - Hit → apply `keyword_veto`:
+             - veto == agent       → cache confirms
+             - veto is another id  → keyword override
+             - veto == ROUTE_REQUIRED → ambiguous, production hands to LLM-picker
+         - Miss → fall to step 2.
+      2. `_is_meta_query(query)` → `universal_agent`.
+      3. Otherwise → ROUTE_REQUIRED → LLM-picker chooses an agent from
+         `router.get_agent_catalog()`.
+
+    The bench harness cannot reproduce step 3's LLM-picker without going
+    circular (the LLM under bench would also be making the routing call),
+    so for cache-miss-and-not-meta-query queries we fall back to the top
+    `match_keywords` hit (or `universal_agent` if no hit). Every branch is
+    recorded in `mcp_meta["routing_path"]` so the report can surface how
+    many queries used a real cache hit vs the deterministic fallback —
+    that distinction matters for interpreting the bench result.
+    """
+    from src.server import _load_and_enrich, _is_meta_query
+    from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
 
     router = _get_router()
-    hits = router.match_keywords(query)
-    if hits and hits[0][1] > 0:
-        agent_name = hits[0][0]
-    else:
+
+    def _keyword_fallback() -> str:
+        hits = router.match_keywords(query)
+        return hits[0][0] if hits and hits[0][1] > 0 else "universal_agent"
+
+    cached = await router.lookup_cache(query, {})
+    if cached is not None:
+        veto = router.keyword_veto(query, cached.target_agent)
+        if veto is None:
+            agent_name = cached.target_agent
+            routing_path = "cache_hit"
+        elif veto == KEYWORD_VETO_ROUTE_REQUIRED:
+            # Production: ambiguous → LLM-picker. Bench: deterministic stand-in.
+            agent_name = _keyword_fallback()
+            routing_path = "keyword_fallback_after_ambiguous_veto"
+        else:
+            agent_name = veto
+            routing_path = "keyword_override_cached"
+    elif _is_meta_query(query):
         agent_name = "universal_agent"
+        routing_path = "meta_query"
+    else:
+        # Production cache miss → ROUTE_REQUIRED → LLM-picker. Bench stand-in
+        # is the top match_keywords hit, falling back to universal_agent.
+        agent_name = _keyword_fallback()
+        routing_path = "keyword_fallback"
 
     prompt, _ctx_hash, skills, implants, rules, tier = await _load_and_enrich(agent_name, query, [])
     cleaned = _strip_platform_instructions(prompt)
     return cleaned, {
         "agent": agent_name,
         "tier": tier,
+        "routing_path": routing_path,
         "skills_loaded": list(skills),
         "implants_loaded": list(implants),
         "rules_loaded": list(rules),
@@ -510,6 +553,16 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
     agent_counts = dict(Counter(agents))
     routing_summary = ", ".join(f"{a}×{c}" for a, c in sorted(agent_counts.items(), key=lambda kv: -kv[1])[:4])
 
+    # Distribution of routing paths — how many queries used a real cache hit
+    # vs. the deterministic keyword fallback vs. meta-query. Surface this so
+    # the report makes clear which slice of the bench reflects production
+    # routing fidelity vs. the no-LLM-picker stand-in.
+    routing_paths = [r.mcp.mcp_meta.get("routing_path", "unknown") for r in runs if r.mcp.mcp_meta]
+    routing_path_counts = dict(Counter(routing_paths))
+    routing_path_summary = ", ".join(
+        f"{p}×{c}" for p, c in sorted(routing_path_counts.items(), key=lambda kv: -kv[1])
+    )
+
     def median_lat(arm: str) -> int:
         vals = [getattr(r, arm).latency_ms for r in runs]
         return int(statistics.median(vals)) if vals else 0
@@ -547,6 +600,8 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         "median_latency_mcp_ms": median_lat("mcp"),
         "routing_unique_agents": len(agent_counts),
         "routing_summary": routing_summary or "—",
+        "routing_path_summary": routing_path_summary or "—",
+        "routing_path_counts": routing_path_counts,
     }
 
     def _resolved_arm(winner: str, left_arm: str) -> str:
@@ -586,7 +641,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "mcp_usage": r.mcp.usage,
             "mcp_latency_ms": r.mcp.latency_ms,
             "mcp_truncated": mcp_truncated,
-            "mcp_meta": r.mcp.mcp_meta or {"agent": "?", "tier": "?", "skills_loaded": [], "implants_loaded": [], "rules_loaded": []},
+            "mcp_meta": r.mcp.mcp_meta or {"agent": "?", "tier": "?", "routing_path": "?", "skills_loaded": [], "implants_loaded": [], "rules_loaded": []},
             "judge_pos1": {
                 "winner": r.verdict.pos1.winner,
                 "winner_arm": _resolved_arm(r.verdict.pos1.winner, "vanilla"),
