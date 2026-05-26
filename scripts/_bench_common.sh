@@ -117,28 +117,50 @@ _bench_local_proxy_host_port() {
     echo "${origin#*://}"
 }
 
-_bench_probe_endpoint() {
-    # Only probe if any *_BASE_URL targets a local proxy. The host:port is
-    # whatever the user put in .env — there is no hardcoded value here.
-    local origin; origin="$(_bench_local_proxy_url)"
+_bench_origin_to_host_port() {
+    # Translate "scheme://host[:port]" to "host port" — explicit port falls
+    # back to 80 / 443 by scheme when omitted. Echoes the pair separated by
+    # a space so the caller can `read host port`.
+    local origin="${1:-}"
     [ -z "$origin" ] && return 0
-    local hp; hp="$(_bench_local_proxy_host_port)"
+    local hp="${origin#*://}"
     local host="${hp%:*}"
     local port="${hp##*:}"
-    # If the URL had no explicit port, `hp` equals `host` and `port` ends up
-    # the same — fall back to the scheme default so the probe is meaningful.
     if [ "$host" = "$port" ]; then
         case "$origin" in
             https://*) port=443 ;;
             *) port=80 ;;
         esac
     fi
-    if ! (echo > /dev/tcp/"$host"/"$port") 2>/dev/null; then
-        echo -e "${RED}❌ Configured endpoint not reachable on ${host}:${port}.${NC}"
-        echo "   Start your local proxy, or change *_BASE_URL in .env to a direct provider endpoint."
-        exit 1
-    fi
-    echo -e "${DIM}→ Local proxy: reachable on ${host}:${port}${NC}"
+    echo "$host $port"
+}
+
+_bench_probe_endpoint() {
+    # Probe EVERY distinct local origin among OPENAI_BASE_URL /
+    # ANTHROPIC_BASE_URL. In split-proxy setups (different ports), both
+    # need to be reachable; checking only the first matched origin would
+    # mask the other side being down.
+    local origins=()
+    local seen=""
+    local url origin
+    for url in "${OPENAI_BASE_URL:-}" "${ANTHROPIC_BASE_URL:-}"; do
+        origin="$(_bench_match_local_origin "$url")"
+        if [ -n "$origin" ] && [[ "$seen" != *"|${origin}|"* ]]; then
+            seen="${seen}|${origin}|"
+            origins+=("$origin")
+        fi
+    done
+    [ "${#origins[@]}" -eq 0 ] && return 0
+    for origin in "${origins[@]}"; do
+        local host port
+        read -r host port < <(_bench_origin_to_host_port "$origin")
+        if ! (echo > /dev/tcp/"$host"/"$port") 2>/dev/null; then
+            echo -e "${RED}❌ Configured endpoint not reachable on ${host}:${port}.${NC}"
+            echo "   Start your local proxy, or change *_BASE_URL in .env to a direct provider endpoint."
+            exit 1
+        fi
+        echo -e "${DIM}→ Local proxy: reachable on ${host}:${port}${NC}"
+    done
 }
 
 _bench_check_extras() {

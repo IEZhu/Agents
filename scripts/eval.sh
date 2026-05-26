@@ -161,6 +161,17 @@ case "$cmd" in
 
     bench)
         require_datasets
+        # Source .env so OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_BASE_URL /
+        # ANTHROPIC_BASE_URL / JUDGE_PROVIDER / JUDGE_MODEL reach the runner.
+        # The thin scripts/bench_*.sh wrappers do this via _bench_load_env; the
+        # `eval.sh bench` path needs the same so it doesn't fail preflight
+        # purely because .env was not exported into the calling shell.
+        if [ -f "$REPO_ROOT/.env" ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . "$REPO_ROOT/.env"
+            set +a
+        fi
         echo -e "${GREEN}▶ Benchmarking MCP vs vanilla LLM${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.runners.run_mcp_vs_vanilla "$@"

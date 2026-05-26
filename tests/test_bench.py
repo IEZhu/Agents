@@ -676,7 +676,10 @@ class TestRunJudgeDocstring:
     def test_run_judge_has_docstring(self):
         from evals.judges.pairwise_judge import run_judge
         doc = run_judge.__doc__
-        assert doc is not None and doc.strip(), "run_judge has no docstring (or one placed after another statement)"
+        # Split per Ruff PT018: distinct assertions give clearer pytest output
+        # — `doc is None` and `doc is "" / whitespace-only` are different bugs.
+        assert doc is not None, "run_judge has no __doc__ (docstring placed after another statement?)"
+        assert doc.strip(), "run_judge.__doc__ is whitespace-only"
         assert "Provider-agnostic" in doc
 
 
