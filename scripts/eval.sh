@@ -13,6 +13,9 @@
 #   validate         Probe the configured HuggingFace datasets (no API).
 #   prepare          Re-sample queries → evals/datasets/_unlabeled.jsonl and refresh batches.
 #   aggregate        Join labeled batches into evals/datasets/routing.jsonl (run after labeling).
+#   bench [args]     Benchmark MCP vs vanilla LLM on N queries; render HTML report.
+#                    Provider via --provider openai (default) | anthropic.
+#                    Passes args through (e.g. --n 10 --dataset wildbench --dry-run).
 #   show [path]      cat the report at <path> (default: evals/reports/baseline.md).
 #   diff <new>       Show unified diff of baseline.md vs <new>.
 #   help             Print this message.
@@ -34,18 +37,20 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# ---- venv discovery (mirrors scripts/run_tests.sh) ----
+# ---- venv discovery (mirrors scripts/_bench_common.sh::_bench_resolve_python) ----
+# `pyenv root` is honored so a custom PYENV_ROOT (e.g. /opt/pyenv) works.
 if [ -d ".venv" ]; then
     PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 elif [ -d "venv" ]; then
     PYTHON_BIN="$REPO_ROOT/venv/bin/python"
 elif command -v pyenv &> /dev/null; then
-    if [ -f "$HOME/.pyenv/versions/3.12.4/bin/python" ]; then
-        PYTHON_BIN="$HOME/.pyenv/versions/3.12.4/bin/python"
+    PYENV_ROOT_DIR="$(pyenv root 2>/dev/null || echo "$HOME/.pyenv")"
+    if [ -f "$PYENV_ROOT_DIR/versions/3.12.4/bin/python" ]; then
+        PYTHON_BIN="$PYENV_ROOT_DIR/versions/3.12.4/bin/python"
     else
         AVAILABLE_VERSION="$(pyenv versions --bare | grep -v '^system$' | head -n 1 || echo '')"
-        if [ -n "$AVAILABLE_VERSION" ]; then
-            PYTHON_BIN="$HOME/.pyenv/versions/$AVAILABLE_VERSION/bin/python"
+        if [ -n "$AVAILABLE_VERSION" ] && [ -f "$PYENV_ROOT_DIR/versions/$AVAILABLE_VERSION/bin/python" ]; then
+            PYTHON_BIN="$PYENV_ROOT_DIR/versions/$AVAILABLE_VERSION/bin/python"
         else
             echo -e "${RED}❌ No pyenv Python versions found (excluding system).${NC}"
             echo "Install one: pyenv install 3.12.4"
@@ -154,6 +159,50 @@ case "$cmd" in
         echo -e "${GREEN}▶ Aggregating batch labels → routing.jsonl${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.scripts.aggregate_labels "$@"
+        ;;
+
+    bench)
+        require_datasets
+        # Source .env so OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_BASE_URL /
+        # ANTHROPIC_BASE_URL / JUDGE_PROVIDER / JUDGE_MODEL reach the runner.
+        # The thin scripts/bench_*.sh wrappers do this via _bench_load_env; the
+        # `eval.sh bench` path needs the same so it doesn't fail preflight
+        # purely because .env was not exported into the calling shell.
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/scripts/_bench_common.sh"
+        _bench_load_env
+        # Reuse the bench common preflight so dependency / proxy mistakes fail
+        # at the script edge rather than mid-run with a Python traceback.
+        # Provider-specific model checks need to know --provider, which is
+        # inside "$@" — we parse it out without disturbing the original args.
+        BENCH_PROVIDER="openai"  # matches run_mcp_vs_vanilla.parse_args default
+        BENCH_MODEL=""
+        prev=""
+        for arg in "$@"; do
+            if [ "$prev" = "--provider" ]; then BENCH_PROVIDER="$arg"; prev=""; continue; fi
+            if [ "$prev" = "--model" ]; then BENCH_MODEL="$arg"; prev=""; continue; fi
+            case "$arg" in
+                --provider=*) BENCH_PROVIDER="${arg#--provider=}" ;;
+                --provider)   prev="--provider" ;;
+                --model=*)    BENCH_MODEL="${arg#--model=}" ;;
+                --model)      prev="--model" ;;
+            esac
+        done
+        _bench_print_endpoints
+        _bench_probe_endpoint
+        # shellcheck disable=SC2046
+        _bench_check_extras datasets jinja2 $(_bench_required_sdk_modules "$BENCH_PROVIDER")
+        # When --model is provided AND the configured base_url points at a
+        # local proxy, check the model is registered there. If --model is
+        # omitted, the runner picks the provider's default and we skip the
+        # check (the runner will fail clearly if that default isn't served).
+        if [ -n "$BENCH_MODEL" ]; then
+            _bench_check_model "$BENCH_MODEL" "$BENCH_MODEL" "$BENCH_PROVIDER"
+        fi
+        _bench_check_judge_model
+        echo -e "${GREEN}▶ Benchmarking MCP vs vanilla LLM${NC}"
+        echo "================================================"
+        "$PYTHON_BIN" -m evals.runners.run_mcp_vs_vanilla "$@"
         ;;
 
     show)

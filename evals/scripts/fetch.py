@@ -104,6 +104,26 @@ def _extract_clinc_meta(row: dict[str, Any]) -> dict[str, Any]:
     return {"intent": row.get("intent")}
 
 
+def _extract_lmsys_query(row: dict[str, Any]) -> str:
+    """lmsys-chat-1m: `conversation` is a list of {role, content}; first user turn is the query."""
+    convo = row.get("conversation") or []
+    for turn in convo:
+        if isinstance(turn, dict) and turn.get("role") == "user":
+            content = turn.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+    raise ValueError(f"no user turn in conversation: keys={list(row)}")
+
+
+def _extract_lmsys_meta(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "model": row.get("model"),
+        "language": row.get("language"),
+        "turn": row.get("turn"),
+        "openai_moderation": row.get("openai_moderation"),
+    }
+
+
 DATASETS: dict[str, DatasetSpec] = {
     "wildbench": DatasetSpec(
         key="wildbench",
@@ -159,6 +179,17 @@ DATASETS: dict[str, DatasetSpec] = {
         license="CC-BY-3.0",
         license_url="https://huggingface.co/datasets/clinc_oos",
         notes="Out-of-scope subset filtered downstream where intent label corresponds to 'oos'.",
+    ),
+    "lmsys_chat_1m": DatasetSpec(
+        key="lmsys_chat_1m",
+        hf_id="lmsys/lmsys-chat-1m",
+        config=None,
+        split="train",
+        extract_query=_extract_lmsys_query,
+        extract_meta=_extract_lmsys_meta,
+        license="LMSYS-Chat-1M License (research-only, gated)",
+        license_url="https://huggingface.co/datasets/lmsys/lmsys-chat-1m",
+        notes="Real-world user/LLM chats. Requires HF_TOKEN with dataset access granted. First user turn used as query.",
     ),
 }
 

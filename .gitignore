@@ -42,7 +42,8 @@ whisper_models/
 # Exceptions (keep these visible)
 !.gitignore
 !.git/
-!evals/reports/.gitkeep
+# Generated benchmark reports
+evals/reports/*
 
 # Evals: keep baseline.md and SOURCES.md, ignore per-PR/per-run reports
 evals/.cache/
@@ -56,4 +57,4 @@ agents_private.egg-info/
 uv.lock
 
 # Local-only Russian architecture overview (not for upstream)
-docs/architecture-ru.md
+docs/*-ru.md
