@@ -2,7 +2,7 @@
 One-shot routing-label generator for the evals golden set.
 
 Pulls a deterministic sample from each source dataset (via fetch.DATASETS),
-asks Claude Opus 4.7 to assign:
+asks Claude Opus 4.8 to assign:
   - expected_agent (one of the 51 specialist agents)
   - expected_tier  (lite / standard / deep)
   - expected_skills (subset of available skill IDs)
@@ -52,7 +52,7 @@ from src.utils.prompt_loader import get_agent_metadata  # noqa: E402
 # error message in one place so the two callers can't drift.
 from evals.scripts.fetch import DATASETS, DatasetSpec, _require_load_dataset, sha256_short  # noqa: E402
 
-LABELER_MODEL = "claude-opus-4-7"
+LABELER_MODEL = "claude-opus-4-8"
 
 # Per-source sample allocation. Total = 110.
 DEFAULT_ALLOC: dict[str, int] = {

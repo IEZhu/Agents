@@ -331,11 +331,12 @@ class TestOpenAIMaxCompletionTokensRegression:
         assert _is_reasoning_openai_model("gpt-4-turbo") is False
 
     def test_supports_temperature_anthropic_classifier(self):
-        """Opus 4.7 deprecates temperature; other Claude models accept it."""
+        """Opus 4.7 and 4.8 deprecate temperature; other Claude models accept it."""
         from evals.runners._providers import _supports_temperature_anthropic
 
-        # Deny — Opus 4.7 returns HTTP 400 on temperature.
+        # Deny — Opus 4.7 and 4.8 return HTTP 400 on temperature (sampling params removed).
         assert _supports_temperature_anthropic("claude-opus-4-7") is False
+        assert _supports_temperature_anthropic("claude-opus-4-8") is False
         # Allow — verified via N=30 Sonnet 4.6 bench run.
         assert _supports_temperature_anthropic("claude-sonnet-4-6") is True
         assert _supports_temperature_anthropic("claude-sonnet-4-5") is True
@@ -647,6 +648,16 @@ class TestPerModelPricing:
         p = get_pricing("claude-sonnet-4-6")
         assert p["input"] == 3.00
         assert p["output"] == 15.00
+
+    def test_anthropic_opus_current_judge(self):
+        """Opus 4.8 is the default judge (.env JUDGE_MODEL). It must resolve to
+        the real $5/$25 Opus rate, not the conservative unknown-model fallback —
+        otherwise reported judge cost silently inflates to $15/$75."""
+        from evals.runners._providers import get_pricing
+
+        p = get_pricing("claude-opus-4-8")
+        assert p["input"] == 5.00
+        assert p["output"] == 25.00
 
     def test_unknown_model_returns_conservative_fallback(self):
         from evals.runners._providers import get_pricing

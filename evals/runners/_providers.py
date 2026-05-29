@@ -76,6 +76,7 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_read": 0.10, "cache_creation": 1.25},
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_creation": 3.75},
     "claude-sonnet-4-5": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_creation": 3.75},
+    "claude-opus-4-8": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_creation": 6.25},
     "claude-opus-4-7": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_creation": 6.25},
     "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_creation": 6.25},
 
@@ -135,13 +136,16 @@ def _is_reasoning_openai_model(model: str) -> bool:
 def _supports_temperature_anthropic(model: str) -> bool:
     """False if the model REJECTS the `temperature` parameter outright.
 
-    Verified: Claude Opus 4.7 returns HTTP 400 `'temperature' is deprecated for
-    this model.` Other Claude models (Sonnet 4.6, Haiku 4.5, older Opus) still
-    accept `temperature=0` — confirmed by an N=30 Sonnet 4.6 bench run.
+    Claude Opus 4.7 returns HTTP 400 `'temperature' is deprecated for this
+    model.` Opus 4.8 inherits the same request surface — `temperature`/`top_p`/
+    `top_k` were removed on Opus 4.7 and remain removed on 4.8 (per the Anthropic
+    model-migration guide) — so it is denied too. Other Claude models (Sonnet
+    4.6, Haiku 4.5, older Opus) still accept `temperature=0` — confirmed by an
+    N=30 Sonnet 4.6 bench run.
     """
     m = model.lower()
     # Deny list grows as new models deprecate temperature.
-    deny_prefixes = ("claude-opus-4-7",)
+    deny_prefixes = ("claude-opus-4-7", "claude-opus-4-8")
     return not any(m.startswith(p) for p in deny_prefixes)
 
 
@@ -278,7 +282,7 @@ async def complete_anthropic(
     system_prompt: str | None,
     max_tokens: int,
 ) -> tuple[str, dict[str, int], int]:
-    # Opus 4.7 deprecates `temperature` — see _supports_temperature_anthropic.
+    # Opus 4.7/4.8 deprecate `temperature` — see _supports_temperature_anthropic.
     # For models that still accept it, we keep `temperature=0` for determinism.
     t0 = time.perf_counter()
     kwargs: dict[str, Any] = {
