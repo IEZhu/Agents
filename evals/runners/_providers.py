@@ -25,6 +25,48 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from evals.judges.pairwise_judge import JudgeValidationError
+
+
+# --------------------------------------------------------------------------- #
+# Agentic-harness contamination
+# --------------------------------------------------------------------------- #
+# The benchmark sends NO `tools`, so a clean Messages API completion can never
+# contain tool-call XML or injected system-reminders. When the configured
+# backend is an agentic relay (e.g. a Claude-Code-style proxy), it occasionally
+# leaks that scaffolding into a plain completion — e.g.
+# `<invocation><parameter name="command">pwd</parameter></invocation>` or a
+# hallucinated `<system-reminder>...`. These markers detect that leak so the
+# runner can re-roll the call and capture a faithful answer instead of garbage.
+_HARNESS_ARTIFACT_MARKERS: tuple[str, ...] = (
+    "<invocation>",
+    "</invocation>",
+    "<parameter name=",
+    "<system-reminder>",
+    "</system-reminder>",
+    "<function_calls>",
+    "<invoke name=",
+    "antml:invoke",
+    "antml:parameter",
+)
+
+
+def has_harness_artifacts(text: str | None) -> bool:
+    """True if `text` carries agentic-harness scaffolding leaked by the backend.
+
+    High-specificity multi-char markers only — legitimate content that uses `<`
+    in code (generics, ``<summary>``, ``a < b``) does not match.
+    """
+    return bool(text) and any(m in text for m in _HARNESS_ARTIFACT_MARKERS)
+
+
+class ContaminatedResponseError(RuntimeError):
+    """An arm completion leaked agentic-harness scaffolding instead of a faithful
+    answer. Raised so the runner re-rolls the call — the leak is intermittent
+    backend behavior, the same class as the judge's malformed-verdict case.
+    Subclasses RuntimeError; fail-fast survives once retries are exhausted.
+    """
+
 
 # --------------------------------------------------------------------------- #
 # Usage normalisation
@@ -76,6 +118,7 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_read": 0.10, "cache_creation": 1.25},
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_creation": 3.75},
     "claude-sonnet-4-5": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_creation": 3.75},
+    "claude-opus-4-8": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_creation": 6.25},
     "claude-opus-4-7": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_creation": 6.25},
     "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_creation": 6.25},
 
@@ -135,13 +178,16 @@ def _is_reasoning_openai_model(model: str) -> bool:
 def _supports_temperature_anthropic(model: str) -> bool:
     """False if the model REJECTS the `temperature` parameter outright.
 
-    Verified: Claude Opus 4.7 returns HTTP 400 `'temperature' is deprecated for
-    this model.` Other Claude models (Sonnet 4.6, Haiku 4.5, older Opus) still
-    accept `temperature=0` — confirmed by an N=30 Sonnet 4.6 bench run.
+    Claude Opus 4.7 returns HTTP 400 `'temperature' is deprecated for this
+    model.` Opus 4.8 inherits the same request surface — `temperature`/`top_p`/
+    `top_k` were removed on Opus 4.7 and remain removed on 4.8 (per the Anthropic
+    model-migration guide) — so it is denied too. Other Claude models (Sonnet
+    4.6, Haiku 4.5, older Opus) still accept `temperature=0` — confirmed by an
+    N=30 Sonnet 4.6 bench run.
     """
     m = model.lower()
     # Deny list grows as new models deprecate temperature.
-    deny_prefixes = ("claude-opus-4-7",)
+    deny_prefixes = ("claude-opus-4-7", "claude-opus-4-8")
     return not any(m.startswith(p) for p in deny_prefixes)
 
 
@@ -206,6 +252,11 @@ async def complete_openai(
     response = await client.chat.completions.create(**kwargs)
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = response.choices[0].message.content or ""
+    if has_harness_artifacts(text):
+        raise ContaminatedResponseError(
+            f"OpenAI completion leaked agentic-harness scaffolding; re-rolling "
+            f"(finish_reason={response.choices[0].finish_reason})"
+        )
     return text, normalise_usage_openai(response.usage), latency_ms
 
 
@@ -256,13 +307,21 @@ def call_judge_openai(
     choice = response.choices[0]
     content = choice.message.content
     if not content:
-        raise RuntimeError(
+        raise JudgeValidationError(
             f"OpenAI judge returned empty content; finish_reason={choice.finish_reason}"
         )
     try:
         args = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"OpenAI judge content is not valid JSON: {exc}; first 200 chars: {content[:200]!r}") from exc
+        raise JudgeValidationError(f"OpenAI judge content is not valid JSON: {exc}; first 200 chars: {content[:200]!r}") from exc
+    if not isinstance(args, dict):
+        # Valid JSON but not an object (e.g. `[]` / `null` from a proxy) — would
+        # raise an untyped AttributeError in _validate_verdict_payload's `.get`,
+        # bypassing the JudgeValidationError retry path. Type it here instead.
+        raise JudgeValidationError(
+            f"OpenAI judge content is valid JSON but not an object "
+            f"(got {type(args).__name__}); first 200 chars: {content[:200]!r}"
+        )
     return args, normalise_usage_openai(response.usage)
 
 
@@ -278,7 +337,7 @@ async def complete_anthropic(
     system_prompt: str | None,
     max_tokens: int,
 ) -> tuple[str, dict[str, int], int]:
-    # Opus 4.7 deprecates `temperature` — see _supports_temperature_anthropic.
+    # Opus 4.7/4.8 deprecate `temperature` — see _supports_temperature_anthropic.
     # For models that still accept it, we keep `temperature=0` for determinism.
     t0 = time.perf_counter()
     kwargs: dict[str, Any] = {
@@ -293,6 +352,11 @@ async def complete_anthropic(
     response = await client.messages.create(**kwargs)
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = "".join(getattr(b, "text", "") for b in response.content if getattr(b, "type", "") == "text")
+    if has_harness_artifacts(text):
+        raise ContaminatedResponseError(
+            f"Anthropic completion leaked agentic-harness scaffolding; re-rolling "
+            f"(stop_reason={response.stop_reason})"
+        )
     return text, normalise_usage_anthropic(response.usage), latency_ms
 
 
@@ -323,7 +387,7 @@ def call_judge_anthropic(
             payload = dict(block.input)
             break
     if payload is None:
-        raise RuntimeError(f"Anthropic judge returned no tool_use; stop_reason={response.stop_reason}")
+        raise JudgeValidationError(f"Anthropic judge returned no tool_use; stop_reason={response.stop_reason}")
     return payload, normalise_usage_anthropic(response.usage)
 
 

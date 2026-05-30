@@ -19,6 +19,7 @@ routing:
   - conventional commits
   trigger_command: /docs
 core_skills:
+- skill-content-structure
 - skill-tech-writing
 preferred_skills:
 - skill-git-conventions

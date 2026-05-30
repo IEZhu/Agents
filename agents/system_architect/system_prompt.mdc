@@ -19,6 +19,7 @@ routing:
   - infrastructure
   trigger_command: /architect
 core_skills:
+- skill-content-structure
 - skill-system-design
 preferred_skills:
 - skill-dev-api-design

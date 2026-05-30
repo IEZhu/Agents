@@ -31,7 +31,7 @@ _bench_check_extras datasets jinja2 $(_bench_required_sdk_modules "$PROVIDER")
 _bench_check_model "$MODEL" "$CONNECT_HINT" "$PROVIDER"
 _bench_check_judge_model
 
-OUT="$REPO_ROOT/evals/reports/$(date +%F)_mcp_vs_vanilla_${OUT_SLUG}.html"
+OUT="$REPO_ROOT/evals/reports/$(date +%F_%H%M%S)_mcp_vs_vanilla_${OUT_SLUG}.html"
 DEFAULT_ARGS=(--provider "$PROVIDER" --model "$MODEL" --dataset wildbench --n 1 --out "$OUT")
 
 _bench_run "$LABEL" "${DEFAULT_ARGS[@]}" "$@"

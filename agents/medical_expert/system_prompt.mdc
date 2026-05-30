@@ -29,6 +29,7 @@ routing:
   - lab interpretation
   trigger_command: /medical
 core_skills:
+- skill-content-structure
 - skill-bio-protocol-design
 preferred_skills:
 - skill-analysis-critical

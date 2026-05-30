@@ -19,6 +19,7 @@ routing:
   - web project review
   trigger_command: /site_audit
 core_skills:
+- skill-content-structure
 - skill-analysis-critical
 preferred_skills:
 - skill-fact-verification

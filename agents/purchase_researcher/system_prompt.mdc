@@ -18,6 +18,7 @@ routing:
   - rtings
   trigger_command: /purchase
 core_skills:
+- skill-content-structure
 - skill-purchase-research
 preferred_skills:
 - skill-analysis-critical

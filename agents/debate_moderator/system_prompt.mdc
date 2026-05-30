@@ -19,6 +19,7 @@ routing:
   trigger_command: /debate
 core_skills:
 - skill-decision-frameworks
+- skill-confidence-markers
 preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
@@ -96,7 +97,7 @@ After the analysis:
 
 ### 5. RECOMMEND (with caution)
 - Provide a recommendation, but with reasoning.
-- State the confidence level: HIGH / MEDIUM / LOW.
+- State the confidence level on the recommendation — HIGH / MEDIUM / LOW (see `skill-confidence-markers`).
 - Describe conditions under which the recommendation changes: "If X changes, reconsider."
 - If the decision is truly 50/50, say so honestly.
 

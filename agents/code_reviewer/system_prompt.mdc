@@ -18,6 +18,7 @@ routing:
   - lgtm
   trigger_command: /review
 core_skills:
+- skill-content-structure
 - skill-dev-clean-code
 preferred_skills:
 - skill-dev-testing

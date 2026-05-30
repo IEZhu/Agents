@@ -42,7 +42,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -50,11 +50,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from evals.judges.pairwise_judge import (  # noqa: E402
     JudgeCall,
+    JudgeValidationError,
     SwapVerdict,
+    _CRITERIA,
+    _SCORE_MAX as JUDGE_SCORE_MAX,
+    _SCORE_MIN as JUDGE_SCORE_MIN,
     aggregate_with_swap,
     run_judge,
 )
-from evals.runners._providers import ProviderImpl, get_pricing, get_provider  # noqa: E402
+from evals.runners._providers import ContaminatedResponseError, ProviderImpl, get_pricing, get_provider  # noqa: E402
 from evals.scripts.fetch import DATASETS, _require_load_dataset  # noqa: E402
 
 logger = logging.getLogger("bench")
@@ -105,6 +109,50 @@ class BenchmarkResult:
 # --------------------------------------------------------------------------- #
 
 
+def _is_transient_hf_error(exc: BaseException) -> bool:
+    """True for transient HuggingFace Hub / network failures worth retrying.
+
+    Retry on 5xx and 429 (rate-limit) HTTP statuses and on connection/timeout
+    transport errors. Do NOT retry 4xx like 404 (dataset/revision missing) or
+    401/403 (auth) — those are deterministic, so a retry only wastes time.
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is not None:
+        return status == 429 or 500 <= status < 600
+    # No HTTP status attached ⇒ connection/timeout/transport-level failure.
+    name = type(exc).__name__
+    return any(token in name for token in (
+        "Timeout", "ConnectError", "ConnectionError", "ReadError",
+        "TransportError", "ProtocolError",
+    ))
+
+
+def _retry_sync_transient(fn, *, what: str, attempts: int = 4, base_delay: float = 3.0):
+    """Run a sync callable, retrying transient HF/network errors with backoff.
+
+    HuggingFace Hub returns intermittent 5xx (e.g. 504 Gateway Time-out) when
+    resolving dataset files. A fixed seed makes the retried call deterministic,
+    so re-running the whole load+sample is safe. Non-transient errors (404,
+    auth, schema) propagate immediately rather than burning the retry budget.
+    """
+    last: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 — re-raised below unless transient
+            if not _is_transient_hf_error(exc) or attempt == attempts - 1:
+                raise
+            last = exc
+            delay = base_delay * (2 ** attempt)
+            logger.warning(
+                "transient error during %s (%s); retrying in %.0fs (attempt %d/%d)",
+                what, type(exc).__name__, delay, attempt + 2, attempts,
+            )
+            time.sleep(delay)
+    assert last is not None  # unreachable: loop either returns or raises
+    raise last
+
+
 def sample_queries(dataset_key: str, n: int, seed: int) -> list[tuple[int, str]]:
     """Stream the dataset and yield N (stream_idx, query) pairs with a deterministic shuffle.
 
@@ -118,19 +166,26 @@ def sample_queries(dataset_key: str, n: int, seed: int) -> list[tuple[int, str]]
         raise SystemExit(f"unknown dataset {dataset_key!r}; choices: {sorted(DATASETS)}")
     spec = DATASETS[dataset_key]
     load_dataset = _require_load_dataset()
-    ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split, streaming=True)
-    ds = ds.shuffle(seed=seed, buffer_size=max(n * 50, 500))
-    out: list[tuple[int, str]] = []
-    for i, row in enumerate(ds):
-        try:
-            q = spec.extract_query(row)
-        except Exception:
-            continue
-        if not q or len(q.strip()) < 10:
-            continue
-        out.append((i, q.strip()))
-        if len(out) >= n:
-            break
+
+    def _load_and_sample() -> list[tuple[int, str]]:
+        ds = load_dataset(spec.hf_id, name=spec.config, split=spec.split, streaming=True)
+        ds = ds.shuffle(seed=seed, buffer_size=max(n * 50, 500))
+        collected: list[tuple[int, str]] = []
+        for i, row in enumerate(ds):
+            try:
+                q = spec.extract_query(row)
+            except Exception:
+                continue
+            if not q or len(q.strip()) < 10:
+                continue
+            collected.append((i, q.strip()))
+            if len(collected) >= n:
+                break
+        return collected
+
+    # HF Hub 5xx/timeouts on dataset resolution are transient; the fixed seed
+    # makes the retried load+shuffle deterministic, so retrying is safe.
+    out = _retry_sync_transient(_load_and_sample, what=f"load+sample {dataset_key!r}")
     if len(out) < n:
         raise SystemExit(f"dataset {dataset_key} yielded only {len(out)}/{n} usable queries")
     return out
@@ -204,7 +259,55 @@ def _get_router() -> Any:
     return _ROUTER_SINGLETON
 
 
-async def build_mcp_system_prompt(query: str) -> tuple[str, dict[str, Any]]:
+# Per-process cache so the order-swap (two judge passes) and multi-N re-runs don't
+# repay the picker call for a query already routed this run. Keyed by
+# (provider, model, query) so picks can't leak across providers/models in the same
+# process (multi-config sweeps, in-process test runs).
+_PICKER_CACHE: dict[tuple[str, str, str], str] = {}
+
+
+async def _llm_pick_agent(provider: ProviderImpl, client, model: str, query: str) -> str:
+    """Production-faithful stand-in for the ROUTE_REQUIRED LLM-picker.
+
+    Production returns ROUTE_REQUIRED on a cache miss and lets the *calling* LLM
+    pick an agent from the candidate catalog. The bench reproduces that by asking
+    the arm model — the same model that then answers — to choose, instead of the
+    keyword stand-in that misroutes free-form prompts (financial-statement →
+    fitness_coach, quantum-circuit A* → education_tutor). The pick is bounded to a
+    tiny completion and is not billed into arm usage (small, and cached per
+    (provider, model, query)).
+    """
+    cache_key = (provider.name, model, query)
+    if cache_key in _PICKER_CACHE:
+        return _PICKER_CACHE[cache_key]
+    router = _get_router()
+    catalog = router.get_agent_catalog()
+    catalog_names = [c["name"] for c in catalog]  # stable order → deterministic fallback
+    names = set(catalog_names)
+    listing = "\n".join(f"- {c['name']}: {c.get('role', '')}" for c in catalog)
+    picker_system = (
+        "You are a router for a multi-agent system. Choose the single best "
+        "specialist agent for the user's query from the list below. Reply with "
+        "ONLY the agent name (the identifier before the colon), nothing else.\n\n"
+        f"Agents:\n{listing}"
+    )
+    text, _usage, _latency_ms = await _with_retries(
+        lambda: provider.complete(client, model, query, picker_system, 32)
+    )
+    cleaned = (text or "").strip().lower()
+    agent = "universal_agent"
+    if cleaned:
+        first = cleaned.split()[0].strip(".,`*:\"'")
+        # Exact first-token match, else first catalog name that appears in the reply.
+        agent = first if first in names else next((n for n in catalog_names if n in cleaned), "universal_agent")
+    _PICKER_CACHE[cache_key] = agent
+    return agent
+
+
+async def build_mcp_system_prompt(
+    query: str,
+    pick_agent: "Callable[[str], Awaitable[str]] | None" = None,
+) -> tuple[str, dict[str, Any]]:
     """Replicate `src.server.route_and_load` for the no-LLM-picker portion.
 
     Production flow on a fresh query (no sticky agent, no context_hash):
@@ -218,13 +321,14 @@ async def build_mcp_system_prompt(query: str) -> tuple[str, dict[str, Any]]:
       3. Otherwise → ROUTE_REQUIRED → LLM-picker chooses an agent from
          `router.get_agent_catalog()`.
 
-    The bench harness cannot reproduce step 3's LLM-picker without going
-    circular (the LLM under bench would also be making the routing call),
-    so for cache-miss-and-not-meta-query queries we fall back to the top
-    `match_keywords` hit (or `universal_agent` if no hit). Every branch is
-    recorded in `mcp_meta["routing_path"]` so the report can surface how
-    many queries used a real cache hit vs the deterministic fallback —
-    that distinction matters for interpreting the bench result.
+    When `pick_agent` is provided (the bench wires it to the arm model — see
+    `_llm_pick_agent`), step 3's ROUTE_REQUIRED is reproduced faithfully: the arm
+    model picks from `router.get_agent_catalog()`, mirroring production. When it's
+    omitted (unit tests, or a no-LLM context), the bench falls back to the top
+    `match_keywords` hit (or `universal_agent` if no hit). Every branch is recorded
+    in `mcp_meta["routing_path"]` so the report shows how many queries used a real
+    cache hit, the LLM-picker, or the deterministic keyword fallback — that
+    distinction matters for interpreting the bench result.
     """
     from src.server import _load_and_enrich, _is_meta_query
     from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
@@ -242,9 +346,13 @@ async def build_mcp_system_prompt(query: str) -> tuple[str, dict[str, Any]]:
             agent_name = cached.target_agent
             routing_path = "cache_hit"
         elif veto == KEYWORD_VETO_ROUTE_REQUIRED:
-            # Production: ambiguous → LLM-picker. Bench: deterministic stand-in.
-            agent_name = _keyword_fallback()
-            routing_path = "keyword_fallback_after_ambiguous_veto"
+            # Production: ambiguous → LLM-picker (or deterministic keyword stand-in).
+            if pick_agent is not None:
+                agent_name = await pick_agent(query)
+                routing_path = "llm_picker_after_ambiguous_veto"
+            else:
+                agent_name = _keyword_fallback()
+                routing_path = "keyword_fallback_after_ambiguous_veto"
         else:
             agent_name = veto
             routing_path = "keyword_override_cached"
@@ -252,10 +360,13 @@ async def build_mcp_system_prompt(query: str) -> tuple[str, dict[str, Any]]:
         agent_name = "universal_agent"
         routing_path = "meta_query"
     else:
-        # Production cache miss → ROUTE_REQUIRED → LLM-picker. Bench stand-in
-        # is the top match_keywords hit, falling back to universal_agent.
-        agent_name = _keyword_fallback()
-        routing_path = "keyword_fallback"
+        # Production cache miss → ROUTE_REQUIRED → LLM-picker (or keyword stand-in).
+        if pick_agent is not None:
+            agent_name = await pick_agent(query)
+            routing_path = "llm_picker"
+        else:
+            agent_name = _keyword_fallback()
+            routing_path = "keyword_fallback"
 
     prompt, _ctx_hash, skills, implants, rules, tier = await _load_and_enrich(agent_name, query, [])
     cleaned = _strip_platform_instructions(prompt)
@@ -288,6 +399,14 @@ def _retryable_api_errors() -> tuple[type[BaseException], ...]:
         errs += [_A1, _A2, _A3]
     except ImportError:
         pass
+    # A malformed structured verdict (e.g. missing `winner`) is transient for a
+    # stochastic judge — especially via a proxy under concurrent load — so a
+    # re-roll is the right treatment, same contract as transient API errors.
+    # Fail-fast survives: once `_with_retries` exhausts attempts, it propagates.
+    errs.append(JudgeValidationError)
+    # A leaked agentic-harness completion is intermittent backend contamination;
+    # re-roll the arm call to capture a faithful answer (the bench sends no tools).
+    errs.append(ContaminatedResponseError)
     return tuple(errs)
 
 
@@ -334,7 +453,10 @@ async def run_arm_vanilla(provider: ProviderImpl, client, query: str, model: str
 
 
 async def run_arm_mcp(provider: ProviderImpl, client, query: str, model: str, max_tokens: int) -> TrialResult:
-    system_prompt, mcp_meta = await build_mcp_system_prompt(query)
+    async def _pick(q: str) -> str:
+        return await _llm_pick_agent(provider, client, model, q)
+
+    system_prompt, mcp_meta = await build_mcp_system_prompt(query, pick_agent=_pick)
     text, usage, latency_ms = await _with_retries(
         lambda: provider.complete(client, model, query, system_prompt, max_tokens)
     )
@@ -613,6 +735,14 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             return right_arm
         return "tie"
 
+    def _winner_corner(winner: str) -> str:
+        """Display the raw judge pick in boxing terms — left/right corner ('tie' unchanged)."""
+        if winner == "left":
+            return "left corner"
+        if winner == "right":
+            return "right corner"
+        return "tie"
+
     # Detect truncation: an arm hitting >= 98% of the max_tokens cap almost
     # certainly stopped at the limit rather than naturally completing.
     arm_max = result.config.get("max_tokens", 0)
@@ -633,6 +763,10 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "query_preview": r.query[:120] + ("…" if len(r.query) > 120 else ""),
             "final_verdict": r.verdict.final,
             "contradicted": r.verdict.contradicted,
+            "margin": r.verdict.margin,
+            "final_by_score": r.verdict.final_by_score,
+            "margin_str": ("n/a" if r.verdict.margin is None else f"{r.verdict.margin:+.1f}"),
+            "margin_scale": len(_CRITERIA) * (result.config.get("judge_score_max", JUDGE_SCORE_MAX) - JUDGE_SCORE_MIN),  # max |mcp−vanilla|: len(_CRITERIA) × (max − min)
             "vanilla_response": r.vanilla.response_text,
             "vanilla_usage": r.vanilla.usage,
             "vanilla_latency_ms": r.vanilla.latency_ms,
@@ -645,11 +779,13 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "judge_pos1": {
                 "winner": r.verdict.pos1.winner,
                 "winner_arm": _resolved_arm(r.verdict.pos1.winner, "vanilla"),
+                "winner_corner": _winner_corner(r.verdict.pos1.winner),
                 "reasoning": r.verdict.pos1.reasoning,
             },
             "judge_pos2": {
                 "winner": r.verdict.pos2.winner,
                 "winner_arm": _resolved_arm(r.verdict.pos2.winner, "mcp"),
+                "winner_corner": _winner_corner(r.verdict.pos2.winner),
                 "reasoning": r.verdict.pos2.reasoning,
             },
         })
@@ -675,6 +811,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         "date": dt.date.today().isoformat(),
         "model": result.config["model"],
         "judge_model": result.config["judge_model"],
+        "judge_score_max": result.config.get("judge_score_max", JUDGE_SCORE_MAX),
         "judge_provider": result.config.get("judge_provider", result.config["provider"]),
         "cross_provider_judge": result.config.get("judge_provider") not in (None, result.config["provider"]),
         "provider": result.config["provider"],
@@ -817,6 +954,7 @@ async def main_async(args: argparse.Namespace) -> int:
             "commit_sha": _git_sha(),
             "max_tokens": args.max_tokens,
             "judge_max_tokens": args.judge_max_tokens,
+            "judge_score_max": JUDGE_SCORE_MAX,
             "concurrency": args.concurrency,
         },
         runs=runs,
@@ -832,7 +970,9 @@ async def main_async(args: argparse.Namespace) -> int:
     if args.out:
         out_path = Path(args.out)
     else:
-        out_path = REPO_ROOT / "evals" / "reports" / f"{dt.date.today().isoformat()}_mcp_vs_vanilla_{provider.name}.html"
+        # Timestamp (not just date) so repeated same-day runs don't overwrite.
+        stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        out_path = REPO_ROOT / "evals" / "reports" / f"{stamp}_mcp_vs_vanilla_{provider.name}.html"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
 
@@ -855,6 +995,10 @@ async def main_async(args: argparse.Namespace) -> int:
                     "verdict": {
                         "final": r.verdict.final,
                         "contradicted": r.verdict.contradicted,
+                        "margin": r.verdict.margin,
+                        "final_by_score": r.verdict.final_by_score,
+                        "mcp_avg": r.verdict.mcp_avg,
+                        "vanilla_avg": r.verdict.vanilla_avg,
                         "total_usage": r.verdict.total_usage,
                         "pos1": asdict(r.verdict.pos1),
                         "pos2": asdict(r.verdict.pos2),
@@ -917,7 +1061,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=8,
         help="max queries in flight simultaneously (default: 8). Each query uses 2 arm + 2 judge API calls.",
     )
-    p.add_argument("--out", help="output HTML path (default: evals/reports/<date>_mcp_vs_vanilla_<provider>.html)")
+    p.add_argument("--out", help="output HTML path (default: evals/reports/<date>_<HHMMSS>_mcp_vs_vanilla_<provider>.html)")
     p.add_argument("--save-json", "--save_json", action="store_true", help="also dump raw run data as <out>.json")
     p.add_argument("--dry-run", "--dry_run", action="store_true", help="sample queries and print them; no API calls")
     return p.parse_args(argv)

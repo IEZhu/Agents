@@ -21,6 +21,7 @@ routing:
   - go to market
   trigger_command: /pm
 core_skills:
+- skill-content-structure
 - skill-product-frameworks
 preferred_skills:
 - skill-analysis-critical

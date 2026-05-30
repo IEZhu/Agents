@@ -23,7 +23,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-JUDGE_SYSTEM_PROMPT = """You are an impartial expert evaluator. You will be shown a USER QUERY and two AI responses labelled LEFT and RIGHT. Decide which response better serves the user.
+# Scoring scale + criteria — single-sourced so the prompt, schema, validation, and
+# margin code all agree. Widened 1–5 → 1–10 (Phase 2) to fight score compression:
+# on a 5-point scale judges cluster at 4–5, shrinking the per-query margin signal.
+# Changing _SCORE_MAX here updates the prompt text, the schema maxima, the
+# validation range, and the margin scale at once — no drift.
+_SCORE_MIN = 1
+_SCORE_MAX = 10
+_CRITERIA = ("helpfulness", "correctness", "depth", "structure", "intent_fit")
+_ALLOWED_WINNERS = frozenset({"left", "right", "tie"})
+_REQUIRED_CRITERION_KEYS = frozenset(
+    f"{side}_{c}" for side in ("left", "right") for c in _CRITERIA
+)
+
+JUDGE_SYSTEM_PROMPT = f"""You are an impartial expert evaluator. You will be shown a USER QUERY and two AI responses labelled LEFT and RIGHT. Decide which response better serves the user.
 
 Evaluation criteria (apply all five, weight equally):
 1. **helpfulness** — does it answer the question and move the user forward?
@@ -32,7 +45,9 @@ Evaluation criteria (apply all five, weight equally):
 4. **structure** — is it organised, skimmable, free of redundancy?
 5. **intent-fit** — does it address what the user actually asked, not adjacent topics?
 
-Score each criterion 1–5 for each response, then choose the overall winner.
+Score each criterion {_SCORE_MIN}–{_SCORE_MAX} for each response, then choose the overall winner.
+
+Use the FULL {_SCORE_MIN}–{_SCORE_MAX} range and be discriminative: reserve the top scores ({_SCORE_MAX-1}–{_SCORE_MAX}) for genuinely excellent work and the bottom ({_SCORE_MIN}–{_SCORE_MIN+2}) for clear deficiencies — do NOT default to high scores. A real quality difference between the two responses must surface as a score difference; identical scores on every criterion should be rare and mean the responses are truly indistinguishable on that criterion. Calibrate to quality, not politeness.
 
 Return your verdict as a structured object matching the verdict schema (the host wires this as a tool call for Anthropic and as a JSON-schema response for OpenAI — both paths land in the same shape). Choose:
 - "left" — LEFT is clearly better
@@ -41,6 +56,14 @@ Return your verdict as a structured object matching the verdict schema (the host
 
 Be decisive: prefer "left"/"right" over "tie" unless the responses are genuinely indistinguishable. Position (LEFT vs RIGHT) is randomised — do not let order influence you.
 """
+
+# Criterion-score properties, built from `_CRITERIA`/`_SCORE_MIN`/`_SCORE_MAX` so
+# the schema's bounds can never drift from the validation range or the prompt.
+_CRITERION_SCORE_PROPERTIES: dict[str, Any] = {
+    f"{side}_{c}": {"type": "integer", "minimum": _SCORE_MIN, "maximum": _SCORE_MAX}
+    for side in ("left", "right")
+    for c in _CRITERIA
+}
 
 # Anthropic-shaped schema (`name` + `input_schema`). The OpenAI provider unwraps
 # `input_schema` and passes it as the `schema` field of a `response_format`
@@ -63,22 +86,8 @@ VERDICT_SCHEMA: dict[str, Any] = {
             },
             "criterion_scores": {
                 "type": "object",
-                "properties": {
-                    "left_helpfulness": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "left_correctness": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "left_depth": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "left_structure": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "left_intent_fit": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "right_helpfulness": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "right_correctness": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "right_depth": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "right_structure": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "right_intent_fit": {"type": "integer", "minimum": 1, "maximum": 5},
-                },
-                "required": [
-                    "left_helpfulness", "left_correctness", "left_depth", "left_structure", "left_intent_fit",
-                    "right_helpfulness", "right_correctness", "right_depth", "right_structure", "right_intent_fit",
-                ],
+                "properties": _CRITERION_SCORE_PROPERTIES,
+                "required": list(_CRITERION_SCORE_PROPERTIES),
             },
         },
         "required": ["winner", "reasoning", "criterion_scores"],
@@ -101,19 +110,43 @@ class SwapVerdict:
     pos2: JudgeCall
     contradicted: bool
     total_usage: dict[str, int]
+    # Swap-averaged per-criterion score margin (additive L/R position bias cancels).
+    # All defaulted so existing constructors (e.g. a synthetic empty-tie) keep working.
+    mcp_avg: float | None = None
+    vanilla_avg: float | None = None
+    margin: float | None = None              # mcp_avg - vanilla_avg; None if scores absent
+    final_by_score: Literal["vanilla", "mcp", "tie", "unscored"] = "unscored"
 
 
-_ALLOWED_WINNERS = frozenset({"left", "right", "tie"})
-_REQUIRED_CRITERION_KEYS = frozenset({
-    "left_helpfulness", "left_correctness", "left_depth",
-    "left_structure", "left_intent_fit",
-    "right_helpfulness", "right_correctness", "right_depth",
-    "right_structure", "right_intent_fit",
-})
+# Tie dead-zone for the swap-averaged score margin (scale 0..len(_CRITERIA)*_SCORE_MAX).
+# Default 0: "tie" means the averaged totals are exactly equal. Significance is decided
+# by the Wilcoxon signed-rank test on per-query margins (evals/scripts/bench_significance.py),
+# not by a hand-tuned dead-zone — a non-zero ε is a researcher degree of freedom
+# (gaming surface), so keep it at 0 for the live verdict.
+MARGIN_EPSILON = 0.0
 
 
-_SCORE_MIN = 1
-_SCORE_MAX = 5
+def _arm_total(scores: dict[str, int], side: str) -> float | None:
+    """Sum a side's per-criterion scores (max = len(_CRITERIA)*_SCORE_MAX). Returns
+    None if any score is missing — e.g. a synthetic empty-tie stub or a legacy/partial
+    payload — so the margin degrades to 'unscored' rather than raising."""
+    keys = [f"{side}_{c}" for c in _CRITERIA]
+    if not scores or any(k not in scores for k in keys):
+        return None
+    return float(sum(scores[k] for k in keys))
+
+
+class JudgeValidationError(RuntimeError):
+    """A judge response did not conform to VERDICT_SCHEMA.
+
+    Subclasses RuntimeError (so existing `except RuntimeError` callers and tests
+    keep working) but is a distinct type the runner's retry wrapper targets to
+    re-roll a malformed verdict. A stochastic judge — especially via a local
+    proxy under concurrent load — occasionally returns an incomplete tool_use
+    payload (e.g. missing `winner`); that is transient and a re-roll usually
+    fixes it. Fail-fast is preserved: once retries are exhausted this propagates
+    and the run stops rather than silently degrading the verdict to TIE.
+    """
 
 
 def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[str, int]]:
@@ -123,7 +156,7 @@ def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[s
     degrade to TIE in `aggregate_with_swap` — that would skew benchmark numbers
     without raising an error.
 
-    Score values are checked against the schema's `integer 1..5` constraint:
+    Score values are checked against the schema's `integer 1..10` constraint:
     `bool` is rejected explicitly because `isinstance(True, int) is True` in
     Python and a `True`/`False` score should not silently sail through as 1/0.
     """
@@ -131,20 +164,22 @@ def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[s
     reasoning = payload.get("reasoning")
     scores = payload.get("criterion_scores")
     if winner not in _ALLOWED_WINNERS:
-        raise RuntimeError(f"Judge returned invalid winner: {winner!r}")
+        raise JudgeValidationError(
+            f"Judge returned invalid winner: {winner!r} (payload keys: {sorted(payload)})"
+        )
     if not isinstance(reasoning, str):
-        raise RuntimeError(f"Judge returned non-string reasoning: {type(reasoning).__name__}")
+        raise JudgeValidationError(f"Judge returned non-string reasoning: {type(reasoning).__name__}")
     if not isinstance(scores, dict) or _REQUIRED_CRITERION_KEYS - scores.keys():
         missing = sorted(_REQUIRED_CRITERION_KEYS - (scores.keys() if isinstance(scores, dict) else set()))
-        raise RuntimeError(f"Judge returned incomplete criterion_scores; missing keys: {missing}")
+        raise JudgeValidationError(f"Judge returned incomplete criterion_scores; missing keys: {missing}")
     for key in _REQUIRED_CRITERION_KEYS:
         v = scores[key]
         if isinstance(v, bool) or not isinstance(v, int):
-            raise RuntimeError(
+            raise JudgeValidationError(
                 f"Judge returned non-integer criterion score for {key!r}: {v!r} (type {type(v).__name__})"
             )
         if not (_SCORE_MIN <= v <= _SCORE_MAX):
-            raise RuntimeError(
+            raise JudgeValidationError(
                 f"Judge returned out-of-range criterion score for {key!r}: {v} (expected {_SCORE_MIN}..{_SCORE_MAX})"
             )
     return winner, reasoning, {k: scores[k] for k in _REQUIRED_CRITERION_KEYS}
@@ -191,6 +226,7 @@ def aggregate_with_swap(
     pos1: JudgeCall,
     pos2: JudgeCall,
     pos1_left_is: Literal["vanilla", "mcp"],
+    epsilon: float = MARGIN_EPSILON,
 ) -> SwapVerdict:
     """Map two judge calls (positions swapped between them) to a single arm-level verdict.
 
@@ -226,6 +262,32 @@ def aggregate_with_swap(
         final = "tie"
         contradicted = True
 
+    # Swap-averaged score margin: each arm occupies opposite slots across the two
+    # calls, so averaging the two orders cancels an additive L/R position offset
+    # exactly. This recovers signal the holistic-winner contradiction→TIE rule
+    # discards. None if either call lacks complete scores (then 'unscored').
+    mcp_side_p1 = "right" if pos1_left_is == "vanilla" else "left"
+    van_side_p1 = "left" if pos1_left_is == "vanilla" else "right"
+    mcp_side_p2 = "right" if pos2_left_is == "vanilla" else "left"
+    van_side_p2 = "left" if pos2_left_is == "vanilla" else "right"
+
+    mcp_p1, mcp_p2 = _arm_total(pos1.criterion_scores, mcp_side_p1), _arm_total(pos2.criterion_scores, mcp_side_p2)
+    van_p1, van_p2 = _arm_total(pos1.criterion_scores, van_side_p1), _arm_total(pos2.criterion_scores, van_side_p2)
+
+    if None in (mcp_p1, mcp_p2, van_p1, van_p2):
+        mcp_avg = vanilla_avg = margin = None
+        final_by_score: str = "unscored"
+    else:
+        mcp_avg = (mcp_p1 + mcp_p2) / 2.0
+        vanilla_avg = (van_p1 + van_p2) / 2.0
+        margin = mcp_avg - vanilla_avg
+        if margin > epsilon:
+            final_by_score = "mcp"
+        elif margin < -epsilon:
+            final_by_score = "vanilla"
+        else:
+            final_by_score = final  # holistic winner breaks ties inside the dead-zone
+
     total = {
         k: pos1.usage.get(k, 0) + pos2.usage.get(k, 0)
         for k in {"input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"}
@@ -237,4 +299,8 @@ def aggregate_with_swap(
         pos2=pos2,
         contradicted=contradicted,
         total_usage=total,
+        mcp_avg=mcp_avg,
+        vanilla_avg=vanilla_avg,
+        margin=margin,
+        final_by_score=final_by_score,  # type: ignore[arg-type]
     )

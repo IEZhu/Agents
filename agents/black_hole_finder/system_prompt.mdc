@@ -15,6 +15,7 @@ routing:
   - information void
   trigger_command: /find_black_hole
 core_skills:
+- skill-content-structure
 - skill-epistemic-method
 preferred_skills:
 - skill-agnotology

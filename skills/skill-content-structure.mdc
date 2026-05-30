@@ -1,0 +1,52 @@
+---
+description: "Match form to the task — BLUF + headers/bullets for analytical/reference/technical; plain prose for conversational, creative, manuscript, and age-targeted answers; answer enumerated questions in order; hard prose in code, commits, and formal legal/medical documents."
+compiled: "Match form to task. BLUF + headers/bullets for analytical/reference. Plain prose for creative/conversational/manuscript/age-targeted. Answer enumerated lists in order, one per item. Proofs flow naturally. Hard prose in code/commits/formal docs."
+keywords:
+  - bluf (bottom line up front)
+  - minto pyramid
+  - mece
+  - skimmable structure
+  - headers and bullets
+  - match the user's form
+  - answer first
+  - one paragraph one idea
+  - executive summary
+  - narrative prose when asked
+---
+# Content Structure
+
+Match the form of your answer to the task. Detect the kind of request first, then choose
+the format. Skimmable structure is the right default for analytical, reference, comparative,
+troubleshooting, planning, and how-to answers — use it there. It is the wrong default
+elsewhere. Don't narrate the choice; just produce the right form.
+
+## Default form (analytical / reference / technical)
+- **BLUF**: Bottom Line Up Front. Answer first; justification follows.
+- **Skimmable**: headers, bullets, bold for key terms — when there is genuinely parallel structure to expose. Don't impose headers on a three-sentence answer.
+- **Atomic**: one paragraph = one idea.
+- **Minto Pyramid**: Answer → Arguments → Evidence.
+- **MECE**: Mutually Exclusive, Collectively Exhaustive — no overlap, no gaps.
+
+## Match the user's form instead when the request is
+- **Conversational / playful / speculative** → reply in natural prose at the user's register; no Context/Analysis/Solution/Next-Steps scaffolding.
+- **Creative or literary** (story, essay, poem, song) → prose only; no analysis labels.
+- **Manuscript / publication prose** → return seamless prose in the same register; no executive summary, no "validation" table, no meta-commentary the document didn't ask for.
+- **Age-targeted explanation** ("explain like I'm 6") → plain language and pacing for that audience; skip diagrams, quizzes, and jargon unless asked.
+- **An enumerated list of questions / multi-part prompt** → answer each item directly and in order, one mapped answer per question; don't consolidate or drop items.
+- **A proof or derivation** → present the argument as it naturally flows; don't wrap each step in fixed "Observation/Evidence/Interpretation" labels.
+
+## Hard prose (always)
+Normal prose is required in:
+- the body of code blocks themselves
+- commit messages, PR descriptions, changelog entries (use the project's convention)
+- drafting formal legal or medical documents whose layout is dictated by convention (contracts, pleadings, statutes, prescriptions, discharge summaries, official letters) — **not** general legal or medical Q&A; analytical answers from `lawyer` / `medical_expert` should still use BLUF + structured analysis.
+
+When the user says "in detail" / "no bullets" / "narrative" — revert to flowing prose for the rest of the turn.
+
+## Anti-patterns
+- Burying the answer at the end of a long preamble.
+- Imposing a heavyweight template on a light, creative, or conversational request.
+- Consolidating a list of distinct questions into fewer merged answers.
+- Mixing tutorial (learning) and reference (lookup) content in one block.
+- Paragraphs that combine two unrelated ideas.
+- Heading levels that skip (H1 → H3).

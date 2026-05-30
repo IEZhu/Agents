@@ -16,6 +16,7 @@ routing:
   - multi-agent orchestration
   trigger_command: /ai_architect
 core_skills:
+- skill-content-structure
 - skill-prompt-engineering
 preferred_skills:
 - skill-analysis-critical

@@ -98,6 +98,9 @@ Persona for this skill.
 | `skill-temporal-validation` | Time-sensitive fact verification |
 | `skill-fact-verification` | Source triangulation, chain-of-verification, anomaly detection |
 | `skill-wayback-machine` | Temporal forensic layer via Archive.org Wayback Machine |
+| `skill-confidence-markers` | Calibrated confidence markers (HIGH/MEDIUM/LOW + domain variants) on findings/recommendations/solutions — deliberate, not per-sentence |
+
+> **Note**: `skill-confidence-markers` holds the confidence-LABELING mechanics that used to live inside `rule-honest-uncertainty`. The rule keeps the universal honesty principle (calibrate to evidence; never imply you verified what you only recalled), while the per-context labeling discipline is **opt-in via `core_skills`** on agents that emit explicit markers (e.g. `security_expert`, `software_engineer`, `debate_moderator`) — rules stay universal, per-agent behavior lives in skills.
 
 ### Content & Communication
 
@@ -109,8 +112,9 @@ Persona for this skill.
 | `skill-mermaid-best-practices` | Diagram creation with Mermaid |
 | `skill-literary-devices` | Literary devices, tropes, sound symbolism |
 | `skill-narrative-craft` | Story building, voice, pacing, emotional arcs |
+| `skill-content-structure` | Form-matching: BLUF/headers/MECE for analytical & reference; plain prose for creative/conversational/manuscript |
 
-> **Note**: `skill-content-structure` (BLUF, Minto Pyramid, MECE) was promoted to `rule-content-structure` — it is now always-on for every agent and no longer needs to be declared in agent configs.
+> **Note**: `skill-content-structure` was briefly promoted to an always-on `rule-content-structure`, then demoted back to a skill — its behavior is per-context (analytical vs creative vs manuscript), not a flat universal directive, so it does not belong in the rules layer. It is now **opt-in via `core_skills`** on analytical/technical/reference agents and is excluded from pure-prose/therapeutic agents (e.g. `literary_writer`, `psychologist`).
 
 ### Legal Jurisdictions
 

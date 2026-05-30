@@ -238,20 +238,28 @@
     <div class="judge-block" style="border-left: 3px solid #6e40c9; background: #1a0d2a;">
       <strong>⚠ Swap contradiction — TIE assigned</strong>
       <div class="reason" style="color: var(--fg);">
-        Both judge positions picked the same SIDE (left/right) regardless of which arm was placed there →
-        the judge has position bias, not a real preference. The verdict is forced to TIE.
+        Both judge rounds picked the same corner (left/right) regardless of which arm was placed there →
+        the judge has corner bias, not a real preference. The verdict is forced to TIE.
       </div>
     </div>
     {% endif %}
+    {% if r.margin is not none %}
+    <div class="judge-block" style="border-left: 3px solid #2da44e;">
+      <strong>Score margin</strong> (swap-averaged, position-bias-robust) ·
+      mcp−vanilla = <code>{{ r.margin_str }}</code> / ±{{ r.margin_scale }}
+      → <span class="badge win-{{ r.final_by_score }}">{{ r.final_by_score | upper }}</span>
+      <div class="reason">Per-criterion 1–{{ judge_score_max }} scores summed per arm and averaged across both orders — additive L/R position bias cancels. Independent of the holistic winner below.</div>
+    </div>
+    {% endif %}
     <div class="judge-block">
-      <strong>Position 1</strong> — LEFT=vanilla, RIGHT=mcp ·
-      winner: <code>{{ r.judge_pos1.winner }}</code>
+      <strong>Round 1</strong> — left corner=vanilla, right corner=mcp ·
+      winner: <code>{{ r.judge_pos1.winner_corner }}</code>
       → <span class="badge win-{{ r.judge_pos1.winner_arm }}">{{ r.judge_pos1.winner_arm | upper }}</span>
       <div class="reason">{{ r.judge_pos1.reasoning }}</div>
     </div>
     <div class="judge-block">
-      <strong>Position 2</strong> — LEFT=mcp, RIGHT=vanilla ·
-      winner: <code>{{ r.judge_pos2.winner }}</code>
+      <strong>Round 2</strong> — left corner=mcp, right corner=vanilla ·
+      winner: <code>{{ r.judge_pos2.winner_corner }}</code>
       → <span class="badge win-{{ r.judge_pos2.winner_arm }}">{{ r.judge_pos2.winner_arm | upper }}</span>
       <div class="reason">{{ r.judge_pos2.reasoning }}</div>
     </div>

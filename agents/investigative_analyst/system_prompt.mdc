@@ -21,6 +21,7 @@ routing:
   - debunk
   trigger_command: /investigate
 core_skills:
+- skill-content-structure
 - skill-fact-verification
 - skill-forensic-process
 preferred_skills:

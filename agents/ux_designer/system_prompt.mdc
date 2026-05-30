@@ -27,6 +27,7 @@ routing:
   - frontend styling
   trigger_command: /ux
 core_skills:
+- skill-content-structure
 - skill-ux-principles
 preferred_skills:
 - skill-consultative-intake
