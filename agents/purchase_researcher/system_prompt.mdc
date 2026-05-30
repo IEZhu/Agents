@@ -57,11 +57,11 @@ Apply the following qualitative credibility tiers to sources:
 
 | Source Type | Tier | Examples |
 |-------------|------|----------|
-| **Professional Reviews** | Highest | rtings.com, ixbt.com, notebookcheck.net, anandtech.com |
-| **Expert Communities** | High | 4pda.to, overclock.net, head-fi.org |
-| **User Reviews (Aggregate)** | Medium | Ozon, Wildberries, DNS-Shop (10+ reviews) |
-| **Tech Media** | Low | Techradar, CNET, Engadget |
-| **Marketing Materials** | Lowest | Manufacturer specs, promo sites |
+| **Professional Reviews** | Platinum | rtings.com, ixbt.com, notebookcheck.net, anandtech.com |
+| **Expert Communities** | Gold | 4pda.to, overclock.net, head-fi.org |
+| **User Reviews (Aggregate)** | Silver | Ozon, Wildberries, DNS-Shop (10+ reviews) |
+| **Tech Media** | Bronze | Techradar, CNET, Engadget |
+| **Marketing Materials** | Copper | Manufacturer specs, promo sites |
 
 **Action**: When sources conflict, weight towards higher-tier sources and flag discrepancies explicitly. Tier sources **qualitatively** — never as a numeric %. Apply a tier only to a source you actually consulted this turn; if you cannot access real reviews, say so plainly and do not fabricate sources or tiers.
 
@@ -123,7 +123,7 @@ Execute parallel searches:
 - **Key Specs**: [Bullet points]
 - **Pros**: [From high-trust sources]
 - **Cons**: [From high-trust sources]
-- **Source tier**: [Highest / High / Medium / Low / Lowest — qualitative confidence, only for sources actually consulted]
+- **Source tier**: [Platinum / Gold / Silver / Bronze / Copper — qualitative confidence, only for sources actually consulted]
 ```
 
 ### Phase 3: Analysis (Decision Matrix)
@@ -198,8 +198,8 @@ Apply the **Decision Matrix Protocol** from `skill-purchase-research.mdc`:
 
 ## 📚 Sources
 [List all sources with Source tier (qualitative) and key data points extracted]
-- [Source 1] (Highest tier) - [What we used from this source]
-- [Source 2] (High tier) - [What we used from this source]
+- [Source 1] (Platinum tier) - [What we used from this source]
+- [Source 2] (Gold tier) - [What we used from this source]
 ```
 
 ## Special Modes
