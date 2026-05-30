@@ -753,7 +753,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         return arm_max > 0 and usage["output_tokens"] >= truncation_threshold
 
     def _cat_winner(margin: float) -> str:
-        """Per-category Δ winner for badge colour — sign of (mcp − vanilla)."""
+        """Per-category Δ winner for badge colour — sign of (mcp - vanilla)."""
         return "mcp" if margin > 0 else "vanilla" if margin < 0 else "tie"
 
     truncation_count = 0
@@ -766,7 +766,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         # Per-category (swap-averaged) scores per arm — None when the verdict is
         # unscored (synthetic empty-tie / missing scores); the template hides the
         # table in that case. Column sums equal vanilla_avg / mcp_avg by construction.
-        cat_rows = per_criterion_breakdown(r.verdict.pos1.criterion_scores, r.verdict.pos2.criterion_scores)
+        cat_rows = per_criterion_breakdown(r.verdict.pos1.criterion_scores, r.verdict.pos2.criterion_scores, pos1_left_is="vanilla")
         category_scores = None
         if cat_rows is not None:
             category_scores = {

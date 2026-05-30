@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -20,6 +21,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from evals.judges.pairwise_judge import JudgeCall, aggregate_with_swap
+
+if TYPE_CHECKING:
+    from evals.runners.run_mcp_vs_vanilla import BenchmarkResult
 
 
 def _jc(winner: str, *, in_=10, out=20, cc=0, cr=0) -> JudgeCall:
@@ -1585,7 +1589,7 @@ class TestPerCategoryScoresInReport:
         d.update({f"right_{c}": right_val for c in _CRITERIA})
         return d
 
-    def _build(self, *, scored: bool):
+    def _build(self, *, scored: bool) -> tuple[BenchmarkResult, dict[str, Any]]:
         from evals.runners._providers import PRICING
         from evals.runners.run_mcp_vs_vanilla import (
             BenchmarkResult, QueryRun, TrialResult, build_template_context,
