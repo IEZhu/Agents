@@ -891,7 +891,7 @@ class TestVerdictValidation:
             })
 
     def test_rejects_non_integer_criterion_score(self):
-        """VERDICT_SCHEMA pins `integer 1..5`; a string score must fail-fast,
+        """VERDICT_SCHEMA pins `integer 1..10`; a string score must fail-fast,
         not bleed into criterion_scores as garbage analytics data."""
         from evals.judges.pairwise_judge import _validate_verdict_payload
         import pytest

@@ -44,6 +44,8 @@ from math import comb, erfc
 from pathlib import Path
 from typing import Any
 
+from evals.judges.pairwise_judge import _CRITERIA  # single source of truth — keep margin re-derivation in sync
+
 _REPORTS_DIR = Path(__file__).resolve().parents[1] / "reports"
 
 
@@ -176,11 +178,8 @@ def paired_compare(baseline: dict[str, Any], other: dict[str, Any]) -> dict[str,
 # Swap-averaged score-margin (position-bias-robust), re-derived from stored scores
 # --------------------------------------------------------------------------- #
 
-_CRITERIA = ("helpfulness", "correctness", "depth", "structure", "intent_fit")
-
-
 def _side_total(scores: dict | None, side: str) -> float | None:
-    """Sum a side's five criterion scores (max 25); None if any are missing."""
+    """Sum a side's five criterion scores (max 50); None if any are missing."""
     if not scores:
         return None
     keys = [f"{side}_{c}" for c in _CRITERIA]
@@ -316,7 +315,7 @@ def _fmt_report(stats: dict[str, Any], path: Path) -> str:
         f"  Wilson 95% CI on MCP share = [{lo:.1%}, {hi:.1%}]",
         f"  DECISION GATE (lower bound > 50%): {'PASS — MCP wins' if ships else 'not met'}",
         "",
-        f"Methodology health:",
+        "Methodology health:",
         f"  contradiction rate = {stats['contradiction_rate']:.1%}  ({stats['contradicted']}/{stats['n']})",
         f"  routing_path = {stats['routing']}",
         f"  tier         = {stats['tiers']}",

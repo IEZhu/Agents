@@ -156,7 +156,7 @@ def _validate_verdict_payload(payload: dict[str, Any]) -> tuple[str, str, dict[s
     degrade to TIE in `aggregate_with_swap` — that would skew benchmark numbers
     without raising an error.
 
-    Score values are checked against the schema's `integer 1..5` constraint:
+    Score values are checked against the schema's `integer 1..10` constraint:
     `bool` is rejected explicitly because `isinstance(True, int) is True` in
     Python and a `True`/`False` score should not silently sail through as 1/0.
     """

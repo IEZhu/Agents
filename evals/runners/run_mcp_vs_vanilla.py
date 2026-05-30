@@ -52,6 +52,7 @@ from evals.judges.pairwise_judge import (  # noqa: E402
     JudgeCall,
     JudgeValidationError,
     SwapVerdict,
+    _CRITERIA,
     _SCORE_MAX as JUDGE_SCORE_MAX,
     aggregate_with_swap,
     run_judge,
@@ -258,8 +259,10 @@ def _get_router() -> Any:
 
 
 # Per-process cache so the order-swap (two judge passes) and multi-N re-runs don't
-# repay the picker call for a query already routed this run.
-_PICKER_CACHE: dict[str, str] = {}
+# repay the picker call for a query already routed this run. Keyed by
+# (provider, model, query) so picks can't leak across providers/models in the same
+# process (multi-config sweeps, in-process test runs).
+_PICKER_CACHE: dict[tuple[str, str, str], str] = {}
 
 
 async def _llm_pick_agent(provider: ProviderImpl, client, model: str, query: str) -> str:
@@ -270,13 +273,16 @@ async def _llm_pick_agent(provider: ProviderImpl, client, model: str, query: str
     the arm model — the same model that then answers — to choose, instead of the
     keyword stand-in that misroutes free-form prompts (financial-statement →
     fitness_coach, quantum-circuit A* → education_tutor). The pick is bounded to a
-    tiny completion and is not billed into arm usage (small, and cached per query).
+    tiny completion and is not billed into arm usage (small, and cached per
+    (provider, model, query)).
     """
-    if query in _PICKER_CACHE:
-        return _PICKER_CACHE[query]
+    cache_key = (provider.name, model, query)
+    if cache_key in _PICKER_CACHE:
+        return _PICKER_CACHE[cache_key]
     router = _get_router()
     catalog = router.get_agent_catalog()
-    names = {c["name"] for c in catalog}
+    catalog_names = [c["name"] for c in catalog]  # stable order → deterministic fallback
+    names = set(catalog_names)
     listing = "\n".join(f"- {c['name']}: {c.get('role', '')}" for c in catalog)
     picker_system = (
         "You are a router for a multi-agent system. Choose the single best "
@@ -292,8 +298,8 @@ async def _llm_pick_agent(provider: ProviderImpl, client, model: str, query: str
     if cleaned:
         first = cleaned.split()[0].strip(".,`*:\"'")
         # Exact first-token match, else first catalog name that appears in the reply.
-        agent = first if first in names else next((n for n in names if n in cleaned), "universal_agent")
-    _PICKER_CACHE[query] = agent
+        agent = first if first in names else next((n for n in catalog_names if n in cleaned), "universal_agent")
+    _PICKER_CACHE[cache_key] = agent
     return agent
 
 
@@ -759,7 +765,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "margin": r.verdict.margin,
             "final_by_score": r.verdict.final_by_score,
             "margin_str": ("n/a" if r.verdict.margin is None else f"{r.verdict.margin:+.1f}"),
-            "margin_scale": 5 * result.config.get("judge_score_max", 5),  # 5 criteria × max score
+            "margin_scale": len(_CRITERIA) * result.config.get("judge_score_max", JUDGE_SCORE_MAX),  # len(_CRITERIA) × max score
             "vanilla_response": r.vanilla.response_text,
             "vanilla_usage": r.vanilla.usage,
             "vanilla_latency_ms": r.vanilla.latency_ms,
