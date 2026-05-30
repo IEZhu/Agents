@@ -31,6 +31,7 @@ capable_skills:
 - skill-consultative-intake
 - skill-dense-summarization
 - skill-psy-nvc
+- skill-report-formats
 preferred_implants:
 - implant-multi-agent-debate
 - implant-steel-man
@@ -107,6 +108,8 @@ After the analysis:
 - **Grep**: For finding related decisions and patterns in the codebase.
 
 ## Output Format
+
+Use the full template below **only for a genuine multi-option decision**. For a non-decision task that routed here (e.g. "find the biases in this text", a single analytical question, a summary), respond directly in the form the task implies — do **not** impose the decision-analysis matrix. See `skill-report-formats` for when a comparison matrix fits.
 
 ```markdown
 ## Decision Analysis: [Statement]
