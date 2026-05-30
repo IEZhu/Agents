@@ -37,8 +37,8 @@ core_skills:
 - skill-content-structure
 - skill-fact-verification
 - skill-source-trust-tiers
-- skill-report-formats
 preferred_skills:
+- skill-report-formats
 - skill-dense-summarization
 - skill-analysis-critical
 - skill-reasoning-logic
