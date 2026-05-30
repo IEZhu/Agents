@@ -44,7 +44,7 @@ from math import comb, erfc
 from pathlib import Path
 from typing import Any
 
-from evals.judges.pairwise_judge import _CRITERIA, _arm_total  # single source of truth — keep margin re-derivation in sync
+from evals.judges.pairwise_judge import _CRITERIA, _SCORE_MIN, _arm_total  # single source of truth — keep margin re-derivation in sync
 
 _REPORTS_DIR = Path(__file__).resolve().parents[1] / "reports"
 
@@ -248,9 +248,9 @@ def analyze_margins(report: dict[str, Any], epsilon: float = 0.0) -> dict[str, A
     losses = sum(1 for m in margins if m < -epsilon)
     ties = sum(1 for m in margins if abs(m) <= epsilon)
     W, p = wilcoxon_signed_rank(margins, epsilon=epsilon)
-    # Margin scale = #criteria × max criterion score; old (1-5) reports omit
-    # judge_score_max → default 5, so the label reads ±25 for them and ±50 for 1-10.
-    scale = len(_CRITERIA) * report.get("config", {}).get("judge_score_max", 5)
+    # Margin scale = max possible |mcp−vanilla| = #criteria × (max − min). Old (1-5)
+    # reports omit judge_score_max → default 5, so the label reads ±20 for them and ±45 for 1-10.
+    scale = len(_CRITERIA) * (report.get("config", {}).get("judge_score_max", 5) - _SCORE_MIN)
     return {
         "n_scored": n,
         "wins": wins, "losses": losses, "ties": ties,

@@ -54,6 +54,7 @@ from evals.judges.pairwise_judge import (  # noqa: E402
     SwapVerdict,
     _CRITERIA,
     _SCORE_MAX as JUDGE_SCORE_MAX,
+    _SCORE_MIN as JUDGE_SCORE_MIN,
     aggregate_with_swap,
     run_judge,
 )
@@ -765,7 +766,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "margin": r.verdict.margin,
             "final_by_score": r.verdict.final_by_score,
             "margin_str": ("n/a" if r.verdict.margin is None else f"{r.verdict.margin:+.1f}"),
-            "margin_scale": len(_CRITERIA) * result.config.get("judge_score_max", JUDGE_SCORE_MAX),  # len(_CRITERIA) × max score
+            "margin_scale": len(_CRITERIA) * (result.config.get("judge_score_max", JUDGE_SCORE_MAX) - JUDGE_SCORE_MIN),  # max |mcp−vanilla|: len(_CRITERIA) × (max − min)
             "vanilla_response": r.vanilla.response_text,
             "vanilla_usage": r.vanilla.usage,
             "vanilla_latency_ms": r.vanilla.latency_ms,
