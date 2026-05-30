@@ -63,8 +63,10 @@ def binom_two_sided_p(k: int, n: int, p: float = 0.5) -> float:
         return 1.0
     probs = [comb(n, i) * (p ** i) * ((1 - p) ** (n - i)) for i in range(n + 1)]
     observed = probs[k]
-    eps = 1e-9  # float slack so the observed outcome itself is always included
-    return min(1.0, sum(pr for pr in probs if pr <= observed + eps))
+    # Relative slack so the observed outcome and its float-equal mirror are always
+    # included, without an absolute floor that would wrongly pull in far-more-likely
+    # outcomes when `observed` is tiny (extreme k/n).
+    return min(1.0, sum(pr for pr in probs if pr <= observed * (1.0 + 1e-9)))
 
 
 def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -139,9 +141,14 @@ def _final_by_query(report: dict[str, Any]) -> dict[tuple[str, int], str]:
     seen: Counter = Counter()
     for r in report.get("runs", []):
         q = r.get("query")
+        if q is None:
+            continue
+        # Advance the occurrence per row, BEFORE the value filter, so a row missing
+        # `final` in only one report doesn't shift later occurrence numbers and
+        # misalign the cross-report join.
+        seen[q] += 1
         final = r.get("verdict", {}).get("final")
-        if q is not None and final is not None:
-            seen[q] += 1
+        if final is not None:
             out[(q, seen[q])] = final
     return out
 
@@ -273,9 +280,11 @@ def _margins_by_query(report: dict[str, Any]) -> dict[tuple[str, int], float]:
     seen: Counter = Counter()
     for r in report.get("runs", []):
         q = r.get("query")
+        if q is None:
+            continue
+        seen[q] += 1  # advance per occurrence before the value filter (see _final_by_query)
         m = _query_margin(r)
-        if q is not None and m is not None:
-            seen[q] += 1
+        if m is not None:
             out[(q, seen[q])] = m
     return out
 

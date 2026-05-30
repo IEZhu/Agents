@@ -148,6 +148,33 @@ class TestPairedCompare:
         assert c["gains"] == 1          # 2nd 'dup': vanilla→mcp
         assert c["losses"] == 0
 
+    def test_missing_value_keeps_occurrence_alignment(self):
+        # A duplicate missing `final` in only one report must not shift later
+        # occurrence numbers: the counter advances per row, before the filter.
+        base = {"runs": [
+            {"query": "dup"},            # occurrence 1, no verdict → not stored
+            _run("dup", "mcp"),          # occurrence 2
+        ]}
+        other = {"runs": [
+            _run("dup", "vanilla"),      # occurrence 1
+            _run("dup", "mcp"),          # occurrence 2
+        ]}
+        c = paired_compare(base, other)
+        assert c["paired_n"] == 1        # only occurrence 2 is in both reports
+        assert c["gains"] == 0 and c["losses"] == 0   # both occ-2 are mcp
+
+
+class TestBinomTwoSidedP:
+    def test_extreme_tail_uses_relative_tolerance(self):
+        # k=0, n=40: only k=0 and k=40 are as-unlikely-as the observed outcome,
+        # so the exact two-sided p is 2/2**40. An absolute 1e-9 floor would wrongly
+        # add far-more-likely outcomes and inflate it above 1e-9.
+        assert abs(binom_two_sided_p(0, 40) - 2 / 2 ** 40) < 1e-18
+        assert binom_two_sided_p(0, 40) < 1e-9
+
+    def test_symmetric_small_n_unchanged(self):
+        assert binom_two_sided_p(0, 2) == 0.5   # tails {0, 2} = 0.25 + 0.25
+
 
 class TestWilcoxon:
     def test_all_positive_is_smallest_exact_p(self):
