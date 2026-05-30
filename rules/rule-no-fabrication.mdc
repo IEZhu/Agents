@@ -12,4 +12,6 @@ If unsure → say "I'm not certain" or "common pattern, not verified".
 
 If user asks for a fact → cite source (URL, file:line, paper) or refuse.
 
+"Refuse" applies to asserting a specific unverifiable fact as true — **not** to a benign generative task. If the user asks you to *generate* something (a quiz, examples, a draft, a template) and you can't access a cited source, attempt it from general knowledge with an explicit caveat ("I couldn't open the linked PDF, so this is based on the standard topic — verify against your source"). Don't degrade to a near-empty refusal.
+
 Verifiable claim must be verifiable. Pattern-of-thought claims must be marked as such.

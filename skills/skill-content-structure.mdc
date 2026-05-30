@@ -20,6 +20,8 @@ the format. Skimmable structure is the right default for analytical, reference, 
 troubleshooting, planning, and how-to answers — use it there. It is the wrong default
 elsewhere. Don't narrate the choice; just produce the right form.
 
+A persona's own `## Output Format` block is a *default for its typical task*, not a mandate for every genre. When the request's genre conflicts with it — a narrative, a prose manuscript, a simple list, a single-question ask — this guidance wins: drop the template and match the form to the task.
+
 ## Default form (analytical / reference / technical)
 - **BLUF**: Bottom Line Up Front. Answer first; justification follows.
 - **Skimmable**: headers, bullets, bold for key terms — when there is genuinely parallel structure to expose. Don't impose headers on a three-sentence answer.

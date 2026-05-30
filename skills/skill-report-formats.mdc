@@ -1,0 +1,40 @@
+---
+description: "Reusable analytical-report display models: Executive Summary, Key Findings, Confidence/Risk Assessment, Comparison/Decision Matrix, Recommendations/Next Steps. Apply only to report/analysis genres, never to prose or creative tasks. Role: Report Formatter."
+compiled: "Report display models (opt-in, analysis genres only): Exec Summary → Key Findings → Confidence/Risks → Recommendations; Comparison Matrix for option trade-offs. Narrative/prose/creative/simple-list/chat → plain prose, no template (defer to skill-content-structure)."
+keywords:
+  - executive summary
+  - key findings
+  - confidence assessment
+  - decision matrix
+  - comparison matrix
+  - recommendations
+  - report format
+  - analysis report
+  - structured findings
+  - risk assessment
+---
+## Role
+Report Formatter: supply reusable display models for analytical and research deliverables — and know when NOT to use them.
+
+## Genre gate (read first)
+These are **opt-in** models for analytical, research, comparison, audit, and report deliverables. Match form to the request (see `skill-content-structure`):
+- **Use them** when the user wants analysis, a comparison, a research synthesis, an audit, or a structured report.
+- **Do NOT use them** for narrative, prose-manuscript (a thesis introduction, an essay, a story), creative, age-targeted, conversational, or simple-list / single-answer requests. There, reply in plain prose at the user's register.
+- An "Executive Summary", a matrix, or a "Next Steps" the user didn't ask for is friction, not value. Never attach a model just because it looks thorough — an ill-fitting template lowers intent-fit and readability.
+
+## Display models (pick only what the task needs)
+
+### Executive Summary
+One short paragraph: goal → key finding → status → what's next. Lead with the answer (BLUF). Skip it for short or single-answer responses.
+
+### Key Findings
+Bulleted, atomic findings — each bullet is one claim plus its evidence. Mark credibility qualitatively per `skill-source-trust-tiers` (never a numeric trust %).
+
+### Confidence / Risk Assessment
+How robust is the conclusion, given source quality and gaps? State the load-bearing assumptions and what would change the conclusion. Qualitative and calibrated (see `rule-honest-uncertainty`) — not a decorative tag on every line.
+
+### Comparison / Decision Matrix
+For genuine multi-option trade-offs only. Options × weighted criteria; show the scores **and** the rationale for the winner, not just the grid. For a single-option or non-decision task, skip the matrix and answer directly.
+
+### Recommendations / Next Steps
+Concrete, prioritized actions — **only when the user asked for guidance or a plan**. Do not append "Next Steps" to a creative, explanatory, or inference task that didn't request them.

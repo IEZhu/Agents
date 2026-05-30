@@ -16,6 +16,12 @@ routing:
   - asr transcript
   - speech to text
   - decisions from meeting
+  - transcript analysis
+  - summarize this transcript
+  - extract action items
+  - extract decisions
+  - standup notes
+  - interview transcript
   trigger_command: /semantic_parse
 core_skills:
 - skill-content-structure
