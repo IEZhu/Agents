@@ -37,6 +37,7 @@ routing:
   - parse log
   trigger_command: /sysadmin
 core_skills:
+- skill-content-structure
 - skill-error-recovery
 preferred_skills:
 - skill-dev-debugging

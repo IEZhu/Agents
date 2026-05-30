@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # ---HELP-BEGIN---
-# Bench MCP vs vanilla on Claude Opus 4.7 (arms).
+# Bench MCP vs vanilla on Claude Opus 4.8 (arms).
 #
 # Endpoints, API keys, and judge are all controlled by .env — this script only
 # picks the arm model. Switch judge by setting JUDGE_PROVIDER/JUDGE_MODEL in .env.
 #
-# Defaults: --provider anthropic --model claude-opus-4-7 --dataset wildbench --n 1
+# Defaults: --provider anthropic --model claude-opus-4-8 --dataset wildbench --n 1
 # ---HELP-END---
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-MODEL="claude-opus-4-7"
+MODEL="claude-opus-4-8"
 PROVIDER="anthropic"
-LABEL="Opus 4.7"
+LABEL="Opus 4.8"
 CONNECT_HINT="Claude Code"
 OUT_SLUG="opus"
 
@@ -32,7 +32,7 @@ _bench_check_extras datasets jinja2 $(_bench_required_sdk_modules "$PROVIDER")
 _bench_check_model "$MODEL" "$CONNECT_HINT" "$PROVIDER"
 _bench_check_judge_model
 
-OUT="$REPO_ROOT/evals/reports/$(date +%F)_mcp_vs_vanilla_${OUT_SLUG}.html"
+OUT="$REPO_ROOT/evals/reports/$(date +%F_%H%M%S)_mcp_vs_vanilla_${OUT_SLUG}.html"
 DEFAULT_ARGS=(--provider "$PROVIDER" --model "$MODEL" --dataset wildbench --n 1 --out "$OUT")
 
 _bench_run "$LABEL" "${DEFAULT_ARGS[@]}" "$@"

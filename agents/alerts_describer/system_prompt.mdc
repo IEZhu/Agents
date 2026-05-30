@@ -17,6 +17,7 @@ routing:
   - alertmanager
   trigger_command: /alerts_describer
 core_skills:
+- skill-content-structure
 - skill-tech-writing
 preferred_skills:
 - skill-dense-summarization

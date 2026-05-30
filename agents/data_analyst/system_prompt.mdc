@@ -21,6 +21,7 @@ routing:
   - pivot table
   trigger_command: /analyse_data
 core_skills:
+- skill-content-structure
 - skill-analysis-critical
 preferred_skills:
 - skill-reasoning-logic

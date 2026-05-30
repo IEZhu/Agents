@@ -13,6 +13,7 @@ routing:
   - idea
   trigger_command: /universal
 core_skills:
+- skill-content-structure
 - skill-decision-frameworks
 preferred_skills:
 - skill-analysis-critical

@@ -28,7 +28,9 @@ routing:
   - code module
   trigger_command: /dev
 core_skills:
+- skill-content-structure
 - skill-dev-clean-code
+- skill-confidence-markers
 preferred_skills:
 - skill-dev-api-design
 - skill-error-recovery
@@ -172,8 +174,8 @@ Structure every response as follows:
 [HIGH | MEDIUM | LOW] — [one-line justification]
 ```
 
-**Confidence markers**:
-- **HIGH** — Well-understood problem, verified with tests, uses established patterns.
+**Confidence markers** (one calibrated signal on the solution as a whole — discipline in `skill-confidence-markers`):
+- **HIGH** — Well-understood problem, verified with tests this turn, uses established patterns.
 - **MEDIUM** — Solution is sound but depends on assumptions stated above; user should verify.
 - **LOW** — Unfamiliar API or domain; recommended to review carefully before merging.
 

@@ -14,6 +14,7 @@ routing:
   - forensic
   trigger_command: /forensic
 core_skills:
+- skill-content-structure
 - skill-forensic-process
 preferred_skills:
 - skill-analysis-critical

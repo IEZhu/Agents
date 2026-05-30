@@ -623,6 +623,144 @@ class TestJudgeRetry:
         assert calls["n"] == 4
         assert verdict.final in {"vanilla", "mcp", "tie"}
 
+    def test_judge_with_swap_retries_on_malformed_verdict(self):
+        """A malformed verdict (e.g. missing `winner`) from a stochastic judge —
+        common via a local proxy under concurrent load — is transient and must
+        be re-rolled, not abort the whole run. Regression: a single incomplete
+        tool_use payload crashed the entire benchmark with
+        'Judge returned invalid winner: None'. This exercises the REAL retryable
+        set (no `_get_retryable` patch), proving JudgeValidationError is wired in."""
+        import asyncio
+        from unittest.mock import patch
+
+        from evals.runners.run_mcp_vs_vanilla import judge_with_swap
+        from evals.judges.pairwise_judge import JudgeCall, JudgeValidationError
+
+        zero_usage = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        ok_call = JudgeCall(
+            winner="left",
+            reasoning="r",
+            criterion_scores={k: 3 for k in (
+                "left_helpfulness", "left_correctness", "left_depth", "left_structure", "left_intent_fit",
+                "right_helpfulness", "right_correctness", "right_depth", "right_structure", "right_intent_fit",
+            )},
+            usage=dict(zero_usage),
+        )
+        calls = {"n": 0}
+
+        def fake_run_judge(**kwargs):
+            calls["n"] += 1
+            if calls["n"] in (1, 3):  # one malformed verdict on each position
+                raise JudgeValidationError("Judge returned invalid winner: None (payload keys: [])")
+            return ok_call
+
+        async def _no_sleep(_seconds):
+            return None
+
+        with patch("evals.runners.run_mcp_vs_vanilla.run_judge", side_effect=fake_run_judge), \
+             patch("evals.runners.run_mcp_vs_vanilla.asyncio.sleep", side_effect=_no_sleep):
+            verdict = asyncio.run(judge_with_swap(
+                judge_provider=None,
+                judge_sync_client=None,
+                query="q",
+                vanilla_text="v",
+                mcp_text="m",
+                judge_model="claude-opus-4-8",
+                judge_max_tokens=100,
+            ))
+
+        assert calls["n"] == 4  # each position: malformed once + ok
+        assert verdict.final in {"vanilla", "mcp", "tie"}
+
+    def test_malformed_verdict_is_in_real_retryable_set(self):
+        """JudgeValidationError must be registered as retryable, else the bench
+        aborts on the first malformed verdict instead of re-rolling."""
+        from evals.runners.run_mcp_vs_vanilla import _retryable_api_errors
+        from evals.judges.pairwise_judge import JudgeValidationError
+
+        assert JudgeValidationError in _retryable_api_errors()
+
+    def test_call_judge_anthropic_raises_validation_error_on_no_tool_use(self):
+        """If the (proxy-relayed) judge returns no tool_use block, the provider
+        must raise the retryable JudgeValidationError — not a bare RuntimeError
+        that aborts the run un-retried. Same root cause as winner=None: an
+        intermittently malformed judge response under proxy load."""
+        from unittest.mock import MagicMock
+        import pytest
+
+        from evals.runners._providers import call_judge_anthropic
+        from evals.judges.pairwise_judge import JudgeValidationError, VERDICT_SCHEMA
+
+        client = MagicMock()
+        resp = MagicMock()
+        resp.content = []  # no tool_use block — judge produced no verdict
+        resp.stop_reason = "end_turn"
+        client.messages.create.return_value = resp
+
+        with pytest.raises(JudgeValidationError, match="no tool_use"):
+            call_judge_anthropic(
+                client, "q", "L", "R", "claude-opus-4-8", "sys", 4096, VERDICT_SCHEMA,
+            )
+
+
+class TestHarnessContamination:
+    """The bench sends no tools, so any tool-call XML / system-reminder in a
+    completion is agentic-harness scaffolding leaked by the backend proxy. Such
+    a response is not a faithful arm answer — the runner must re-roll to capture
+    a valid one (the leak is intermittent), mirroring the judge's verdict re-roll."""
+
+    def test_has_harness_artifacts_detects_leak_not_legit_code(self):
+        from evals.runners._providers import has_harness_artifacts
+
+        # Real leaked scaffolding (from a contaminated bench run) → True.
+        assert has_harness_artifacts('ok\n<invocation>\n<parameter name="command">pwd</parameter>\n</invocation>')
+        assert has_harness_artifacts("system<system-reminder>The user opened /tmp/</system-reminder>")
+        assert has_harness_artifacts('text\n<invoke name="bash">')
+        # Legitimate content using `<` must NOT trip the detector.
+        assert not has_harness_artifacts("```csharp\npublic List<int> f() {}\n```")
+        assert not has_harness_artifacts("Use <summary> tags; if a < b then ...")
+        assert not has_harness_artifacts("")
+        assert not has_harness_artifacts(None)
+
+    def test_contaminated_response_error_in_retryable_set(self):
+        from evals.runners.run_mcp_vs_vanilla import _retryable_api_errors
+        from evals.runners._providers import ContaminatedResponseError
+
+        assert ContaminatedResponseError in _retryable_api_errors()
+
+    def test_run_arm_re_rolls_contaminated_completion_until_valid(self):
+        """User requirement: a valid arm response must be returned. A contaminated
+        completion is re-rolled via the REAL retryable set (no _get_retryable
+        patch) until clean — not scored as garbage and not crashing the run."""
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from evals.runners.run_mcp_vs_vanilla import run_arm_vanilla
+        from evals.runners._providers import ContaminatedResponseError
+
+        usage = {"input_tokens": 1, "output_tokens": 1,
+                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        calls = {"n": 0}
+
+        async def fake_complete(client, model, query, system_prompt, max_tokens):
+            calls["n"] += 1
+            if calls["n"] == 1:  # backend leaks harness scaffolding once
+                raise ContaminatedResponseError("leaked <invocation> scaffolding")
+            return "clean essay answer", dict(usage), 10
+
+        provider = SimpleNamespace(complete=fake_complete)
+
+        async def _no_sleep(_s):
+            return None
+
+        with patch("evals.runners.run_mcp_vs_vanilla.asyncio.sleep", side_effect=_no_sleep):
+            res = asyncio.run(run_arm_vanilla(provider, None, "q", "claude-opus-4-8", 100))
+
+        assert calls["n"] == 2  # contaminated once, re-rolled, then clean
+        assert res.response_text == "clean essay answer"
+        assert res.arm == "vanilla"
+
 
 class TestPerModelPricing:
     """Per-model pricing lookup so report $-numbers stay correct regardless
@@ -779,11 +917,40 @@ class TestVerdictValidation:
         from evals.judges.pairwise_judge import _validate_verdict_payload
         import pytest
 
-        for bad_value in (0, 6, -1, 100):
+        for bad_value in (0, 11, -1, 100):   # scale is 1..10 (Phase 2); 11 is out of range
             bad = self._scores()
             bad["right_correctness"] = bad_value
             with pytest.raises(RuntimeError, match="out-of-range"):
                 _validate_verdict_payload({"winner": "right", "reasoning": "x", "criterion_scores": bad})
+
+    def test_scale_is_1_to_10_and_single_sourced(self):
+        """Phase 2 widened the scale to 1–10, single-sourced from _SCORE_MAX:
+        the schema maxima, the validation range, and the constant must all agree."""
+        from evals.judges.pairwise_judge import (
+            _SCORE_MAX, _validate_verdict_payload, VERDICT_SCHEMA,
+        )
+        assert _SCORE_MAX == 10
+        props = VERDICT_SCHEMA["input_schema"]["properties"]["criterion_scores"]["properties"]
+        assert {p["maximum"] for p in props.values()} == {_SCORE_MAX}
+        # A perfect 10 across the board must now validate.
+        top = self._scores()
+        for k in top:
+            top[k] = _SCORE_MAX
+        winner, _r, scores = _validate_verdict_payload({"winner": "left", "reasoning": "x", "criterion_scores": top})
+        assert scores["left_helpfulness"] == 10
+
+    def test_invalid_payload_raises_judge_validation_error(self):
+        """Validation failures must be the typed JudgeValidationError (a
+        RuntimeError subclass) so the runner's retry wrapper can re-roll a
+        malformed verdict while existing `except RuntimeError` callers and the
+        match-based tests above keep working. Mirrors the real crash: the judge
+        returned a tool_use payload with no `winner`."""
+        from evals.judges.pairwise_judge import _validate_verdict_payload, JudgeValidationError
+        import pytest
+
+        assert issubclass(JudgeValidationError, RuntimeError)
+        with pytest.raises(JudgeValidationError, match="invalid winner"):
+            _validate_verdict_payload({"reasoning": "x", "criterion_scores": self._scores()})  # winner missing
 
 
 class TestPricingSplitBetweenArmAndJudge:
@@ -951,7 +1118,7 @@ class TestBuildMcpSystemPromptRoutingFidelity:
             _is_meta_query=MagicMock(return_value=is_meta),
         )
 
-    def _run(self, **kwargs) -> dict:
+    def _run(self, *, pick_agent=None, **kwargs) -> dict:
         import asyncio
         from evals.runners.run_mcp_vs_vanilla import build_mcp_system_prompt
         patches = self._patches(**kwargs)
@@ -959,7 +1126,7 @@ class TestBuildMcpSystemPromptRoutingFidelity:
         ctx0 = patches[0]
         ctx1 = patches[1]
         with ctx0, ctx1:
-            _prompt, meta = asyncio.run(build_mcp_system_prompt("any query"))
+            _prompt, meta = asyncio.run(build_mcp_system_prompt("any query", pick_agent=pick_agent))
         return meta
 
     def test_cache_hit_no_veto(self):
@@ -1022,6 +1189,244 @@ class TestBuildMcpSystemPromptRoutingFidelity:
         )
         assert meta["agent"] == "universal_agent"
         assert meta["routing_path"] == "keyword_fallback"
+
+    def test_cache_miss_uses_llm_picker_when_available(self):
+        """With a picker wired in (production parity), cache-miss routing goes to
+        the LLM-picker, not the keyword stand-in — the keyword hit is ignored."""
+        async def _pick(_q):
+            return "system_architect"
+        meta = self._run(
+            pick_agent=_pick,
+            lookup_cache_result=None,
+            keyword_veto_result=None,
+            is_meta=False,
+            match_keywords_result=[("debate_moderator", 9)],  # ignored when picker present
+        )
+        assert meta["agent"] == "system_architect"
+        assert meta["routing_path"] == "llm_picker"
+
+    def test_ambiguous_veto_uses_llm_picker_when_available(self):
+        from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
+        async def _pick(_q):
+            return "data_analyst"
+        meta = self._run(
+            pick_agent=_pick,
+            lookup_cache_result="software_engineer",
+            keyword_veto_result=KEYWORD_VETO_ROUTE_REQUIRED,
+            is_meta=False,
+            match_keywords_result=[("debate_moderator", 9)],  # ignored when picker present
+        )
+        assert meta["agent"] == "data_analyst"
+        assert meta["routing_path"] == "llm_picker_after_ambiguous_veto"
+
+    def test_meta_query_ignores_picker(self):
+        """Meta-queries route to universal_agent regardless of any picker."""
+        async def _pick(_q):
+            raise AssertionError("picker must not be called for a meta-query")
+        meta = self._run(
+            pick_agent=_pick,
+            lookup_cache_result=None,
+            keyword_veto_result=None,
+            is_meta=True,
+            match_keywords_result=[],
+        )
+        assert meta["agent"] == "universal_agent"
+        assert meta["routing_path"] == "meta_query"
+
+
+class TestLlmPickAgent:
+    """`_llm_pick_agent` maps the arm model's reply to a catalog agent name,
+    falls back to universal_agent on an unrecognized/empty reply, and caches
+    per query so the order-swap and multi-N re-runs don't repay the call."""
+
+    def _pick(self, reply_text, catalog_names, *, query="q-unique"):
+        import asyncio
+        from unittest.mock import patch, MagicMock
+        import evals.runners.run_mcp_vs_vanilla as mod
+
+        fake_router = MagicMock()
+        fake_router.get_agent_catalog = MagicMock(
+            return_value=[{"name": n, "role": f"{n} role"} for n in catalog_names]
+        )
+
+        async def _complete(_client, _model, _query, _system, _max_tokens):
+            return reply_text, {}, 1.0
+
+        provider = MagicMock()
+        provider.complete = _complete  # real async fn; _with_retries awaits it
+
+        with patch.object(mod, "_get_router", MagicMock(return_value=fake_router)):
+            mod._PICKER_CACHE.clear()
+            return asyncio.run(mod._llm_pick_agent(provider, None, "m", query))
+
+    def test_exact_name_reply(self):
+        assert self._pick("system_architect", ["system_architect", "data_analyst"]) == "system_architect"
+
+    def test_name_embedded_in_sentence(self):
+        assert self._pick("The best fit is data_analyst.", ["system_architect", "data_analyst"]) == "data_analyst"
+
+    def test_unrecognized_reply_falls_back_to_universal_agent(self):
+        assert self._pick("none of the above", ["system_architect", "data_analyst"]) == "universal_agent"
+
+    def test_empty_reply_falls_back_to_universal_agent(self):
+        assert self._pick("   ", ["system_architect"]) == "universal_agent"
+
+
+class TestTransientHfErrorClassification:
+    """Dataset-load retries must fire on transient HF/network failures (5xx,
+    429, connection/timeout) but NOT on deterministic ones (404, auth)."""
+
+    @staticmethod
+    def _http(code):
+        class _Resp:
+            status_code = code
+        class _Err(Exception):
+            response = _Resp()
+        return _Err(f"http {code}")
+
+    def test_5xx_is_transient(self):
+        from evals.runners.run_mcp_vs_vanilla import _is_transient_hf_error
+        assert _is_transient_hf_error(self._http(504)) is True
+        assert _is_transient_hf_error(self._http(500)) is True
+
+    def test_429_is_transient(self):
+        from evals.runners.run_mcp_vs_vanilla import _is_transient_hf_error
+        assert _is_transient_hf_error(self._http(429)) is True
+
+    def test_4xx_not_transient(self):
+        from evals.runners.run_mcp_vs_vanilla import _is_transient_hf_error
+        assert _is_transient_hf_error(self._http(404)) is False
+        assert _is_transient_hf_error(self._http(403)) is False
+
+    def test_connection_error_by_name_is_transient(self):
+        from evals.runners.run_mcp_vs_vanilla import _is_transient_hf_error
+        class ConnectTimeout(Exception):
+            pass
+        assert _is_transient_hf_error(ConnectTimeout("x")) is True
+
+    def test_plain_exception_not_transient(self):
+        from evals.runners.run_mcp_vs_vanilla import _is_transient_hf_error
+        assert _is_transient_hf_error(ValueError("nope")) is False
+
+
+class TestSampleQueriesRetry:
+    """A transient HF 504 during dataset load is retried (fixed seed ⇒ the
+    retried load is deterministic); a non-transient 404 propagates."""
+
+    class _DS:
+        def __init__(self, rows):
+            self.rows = rows
+        def shuffle(self, **_kwargs):
+            return self
+        def __iter__(self):
+            return iter(self.rows)
+
+    class _Spec:
+        hf_id = "x"
+        config = None
+        split = "train"
+        @staticmethod
+        def extract_query(row):
+            return row["q"]
+
+    def _patch(self, loader, monkeypatch):
+        import evals.runners.run_mcp_vs_vanilla as mod
+        monkeypatch.setattr(mod, "DATASETS", {"wildbench": self._Spec()})
+        monkeypatch.setattr(mod, "_require_load_dataset", lambda: loader)
+        monkeypatch.setattr(mod.time, "sleep", lambda *_a, **_k: None)  # skip real backoff
+        return mod
+
+    def test_retries_then_succeeds(self, monkeypatch):
+        class _Resp:
+            status_code = 504
+        class _HfErr(Exception):
+            response = _Resp()
+        calls = {"n": 0}
+
+        def loader(*_a, **_k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _HfErr("504 Gateway Time-out")
+            return TestSampleQueriesRetry._DS(
+                [{"q": f"this is usable query number {i}"} for i in range(10)]
+            )
+
+        mod = self._patch(loader, monkeypatch)
+        out = mod.sample_queries("wildbench", 3, seed=42)
+        assert calls["n"] == 2          # failed once, retried, succeeded
+        assert len(out) == 3
+
+    def test_non_transient_propagates(self, monkeypatch):
+        import pytest
+        class _Resp:
+            status_code = 404
+        class _HfErr(Exception):
+            response = _Resp()
+
+        def loader(*_a, **_k):
+            raise _HfErr("404 not found")
+
+        mod = self._patch(loader, monkeypatch)
+        with pytest.raises(_HfErr):
+            mod.sample_queries("wildbench", 3, seed=42)
+
+
+class TestScoreMarginAggregation:
+    """Swap-averaged score margin in aggregate_with_swap: additive L/R position
+    bias cancels; ε dead-zone falls back to the holistic winner; missing scores
+    degrade to 'unscored' without touching the winner-based `final`."""
+
+    @staticmethod
+    def _scores(left, right):
+        keys = ["helpfulness", "correctness", "depth", "structure", "intent_fit"]
+        d = {}
+        for i, k in enumerate(keys):
+            d["left_" + k] = left[i]
+            d["right_" + k] = right[i]
+        return d
+
+    def _call(self, winner, scores):
+        from evals.judges.pairwise_judge import JudgeCall
+        return JudgeCall(winner=winner, reasoning="r", criterion_scores=scores, usage={})
+
+    def test_swap_cancels_additive_position_bias(self):
+        from evals.judges.pairwise_judge import aggregate_with_swap
+        # True totals: vanilla=10, mcp=11 (mcp better by 1). Inject +1/criterion
+        # bias on whatever sits LEFT. pos1 left=vanilla, pos2 left=mcp.
+        pos1 = self._call("left", self._scores((3, 3, 3, 3, 3), (2, 2, 2, 2, 3)))   # left=van+bias=15, right=mcp=11
+        pos2 = self._call("left", self._scores((3, 3, 3, 3, 4), (2, 2, 2, 2, 2)))   # left=mcp+bias=16, right=van=10
+        v = aggregate_with_swap(pos1=pos1, pos2=pos2, pos1_left_is="vanilla")
+        assert v.mcp_avg == 13.5 and v.vanilla_avg == 12.5
+        assert v.margin == 1.0            # recovers the true +1, bias cancelled
+        assert v.final_by_score == "mcp"
+
+    def test_epsilon_dead_zone_falls_back_to_holistic(self):
+        from evals.judges.pairwise_judge import aggregate_with_swap
+        pos1 = self._call("left", self._scores((3, 3, 3, 3, 3), (2, 2, 2, 2, 3)))
+        pos2 = self._call("left", self._scores((3, 3, 3, 3, 4), (2, 2, 2, 2, 2)))
+        # margin = +1.0; with ε>=1 it's inside the dead-zone → use holistic `final`.
+        # pos1 winner=left→vanilla, pos2 winner=left→mcp → contradiction → final=tie.
+        v = aggregate_with_swap(pos1=pos1, pos2=pos2, pos1_left_is="vanilla", epsilon=2.0)
+        assert v.margin == 1.0
+        assert v.final == "tie" and v.contradicted is True
+        assert v.final_by_score == "tie"          # fell back to holistic
+        v0 = aggregate_with_swap(pos1=pos1, pos2=pos2, pos1_left_is="vanilla", epsilon=0.0)
+        assert v0.final_by_score == "mcp"         # outside dead-zone → margin decides
+
+    def test_unscored_when_scores_missing(self):
+        from evals.judges.pairwise_judge import aggregate_with_swap
+        v = aggregate_with_swap(pos1=self._call("left", {}), pos2=self._call("right", {}), pos1_left_is="vanilla")
+        assert v.margin is None and v.mcp_avg is None and v.vanilla_avg is None
+        assert v.final_by_score == "unscored"
+        assert v.final == "vanilla"               # winner-based verdict untouched
+
+    def test_margin_sign_flips_with_pos1_left_is(self):
+        from evals.judges.pairwise_judge import aggregate_with_swap
+        p1 = self._call("left", self._scores((5, 5, 5, 5, 5), (1, 1, 1, 1, 1)))
+        p2 = self._call("left", self._scores((4, 4, 4, 4, 4), (2, 2, 2, 2, 2)))
+        m_v = aggregate_with_swap(pos1=p1, pos2=p2, pos1_left_is="vanilla").margin
+        m_m = aggregate_with_swap(pos1=p1, pos2=p2, pos1_left_is="mcp").margin
+        assert m_v == -m_m and m_v != 0          # which arm is "mcp" only flips the sign
 
 
 class TestTemplateEscaping:
@@ -1088,3 +1493,19 @@ class TestTemplateEscaping:
         pytest.importorskip("jinja2")
         html = self._render("Hello & welcome <user>", "ok")
         assert "Hello &amp; welcome &lt;user&gt;" in html
+
+    def test_judge_verdicts_use_boxing_round_corner_labels(self):
+        """Judge verdicts render in boxing terms: Round N + left/right corner,
+        not Position N + LEFT/RIGHT. winner shows the corner ('left corner'/
+        'right corner'), and the swap seating stays truthful per round."""
+        pytest.importorskip("jinja2")
+        html = self._render("benign query", "ok")  # pos1 winner=left, pos2 winner=right
+        # New vocabulary present
+        assert "Round 1" in html and "Round 2" in html
+        assert "left corner=vanilla" in html and "right corner=mcp" in html   # Round 1 seating
+        assert "left corner=mcp" in html and "right corner=vanilla" in html   # Round 2 seating (swap)
+        assert "<code>left corner</code>" in html   # pos1 winner=left → left corner
+        assert "<code>right corner</code>" in html  # pos2 winner=right → right corner
+        # Old vocabulary gone
+        assert "Position 1" not in html and "Position 2" not in html
+        assert "LEFT=" not in html and "RIGHT=" not in html

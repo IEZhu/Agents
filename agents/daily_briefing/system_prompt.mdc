@@ -15,6 +15,7 @@ routing:
   - what happened
   trigger_command: /briefing
 core_skills:
+- skill-content-structure
 - skill-dense-summarization
 preferred_skills:
 - skill-analysis-critical

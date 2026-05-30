@@ -39,6 +39,7 @@ routing:
   - ORM query
   trigger_command: /dba
 core_skills:
+- skill-content-structure
 - skill-system-design
 preferred_skills:
 - skill-dev-debugging

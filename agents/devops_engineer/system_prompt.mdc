@@ -25,6 +25,7 @@ routing:
   - argocd
   trigger_command: /devops
 core_skills:
+- skill-content-structure
 - skill-system-design
 preferred_skills:
 - skill-dev-clean-code

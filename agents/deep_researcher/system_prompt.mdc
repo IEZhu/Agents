@@ -34,6 +34,7 @@ routing:
   - comprehensive overview
   trigger_command: /research
 core_skills:
+- skill-content-structure
 - skill-fact-verification
 - skill-source-trust-tiers
 preferred_skills:

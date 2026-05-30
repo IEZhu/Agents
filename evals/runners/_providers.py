@@ -25,6 +25,48 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from evals.judges.pairwise_judge import JudgeValidationError
+
+
+# --------------------------------------------------------------------------- #
+# Agentic-harness contamination
+# --------------------------------------------------------------------------- #
+# The benchmark sends NO `tools`, so a clean Messages API completion can never
+# contain tool-call XML or injected system-reminders. When the configured
+# backend is an agentic relay (e.g. a Claude-Code-style proxy), it occasionally
+# leaks that scaffolding into a plain completion — e.g.
+# `<invocation><parameter name="command">pwd</parameter></invocation>` or a
+# hallucinated `<system-reminder>...`. These markers detect that leak so the
+# runner can re-roll the call and capture a faithful answer instead of garbage.
+_HARNESS_ARTIFACT_MARKERS: tuple[str, ...] = (
+    "<invocation>",
+    "</invocation>",
+    "<parameter name=",
+    "<system-reminder>",
+    "</system-reminder>",
+    "<function_calls>",
+    "<invoke name=",
+    "antml:invoke",
+    "antml:parameter",
+)
+
+
+def has_harness_artifacts(text: str | None) -> bool:
+    """True if `text` carries agentic-harness scaffolding leaked by the backend.
+
+    High-specificity multi-char markers only — legitimate content that uses `<`
+    in code (generics, ``<summary>``, ``a < b``) does not match.
+    """
+    return bool(text) and any(m in text for m in _HARNESS_ARTIFACT_MARKERS)
+
+
+class ContaminatedResponseError(RuntimeError):
+    """An arm completion leaked agentic-harness scaffolding instead of a faithful
+    answer. Raised so the runner re-rolls the call — the leak is intermittent
+    backend behavior, the same class as the judge's malformed-verdict case.
+    Subclasses RuntimeError; fail-fast survives once retries are exhausted.
+    """
+
 
 # --------------------------------------------------------------------------- #
 # Usage normalisation
@@ -210,6 +252,11 @@ async def complete_openai(
     response = await client.chat.completions.create(**kwargs)
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = response.choices[0].message.content or ""
+    if has_harness_artifacts(text):
+        raise ContaminatedResponseError(
+            f"OpenAI completion leaked agentic-harness scaffolding; re-rolling "
+            f"(finish_reason={response.choices[0].finish_reason})"
+        )
     return text, normalise_usage_openai(response.usage), latency_ms
 
 
@@ -260,13 +307,13 @@ def call_judge_openai(
     choice = response.choices[0]
     content = choice.message.content
     if not content:
-        raise RuntimeError(
+        raise JudgeValidationError(
             f"OpenAI judge returned empty content; finish_reason={choice.finish_reason}"
         )
     try:
         args = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"OpenAI judge content is not valid JSON: {exc}; first 200 chars: {content[:200]!r}") from exc
+        raise JudgeValidationError(f"OpenAI judge content is not valid JSON: {exc}; first 200 chars: {content[:200]!r}") from exc
     return args, normalise_usage_openai(response.usage)
 
 
@@ -297,6 +344,11 @@ async def complete_anthropic(
     response = await client.messages.create(**kwargs)
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = "".join(getattr(b, "text", "") for b in response.content if getattr(b, "type", "") == "text")
+    if has_harness_artifacts(text):
+        raise ContaminatedResponseError(
+            f"Anthropic completion leaked agentic-harness scaffolding; re-rolling "
+            f"(stop_reason={response.stop_reason})"
+        )
     return text, normalise_usage_anthropic(response.usage), latency_ms
 
 
@@ -327,7 +379,7 @@ def call_judge_anthropic(
             payload = dict(block.input)
             break
     if payload is None:
-        raise RuntimeError(f"Anthropic judge returned no tool_use; stop_reason={response.stop_reason}")
+        raise JudgeValidationError(f"Anthropic judge returned no tool_use; stop_reason={response.stop_reason}")
     return payload, normalise_usage_anthropic(response.usage)
 
 

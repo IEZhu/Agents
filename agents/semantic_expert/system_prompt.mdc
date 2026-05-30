@@ -18,6 +18,7 @@ routing:
   - decisions from meeting
   trigger_command: /semantic_parse
 core_skills:
+- skill-content-structure
 - skill-epistemic-method
 preferred_skills:
 - skill-analysis-critical

@@ -164,6 +164,7 @@ routing:
   - /es_lawyer
   - /us_lawyer
 core_skills:
+- skill-content-structure
 - skill-legal-citation
 preferred_skills:
 - skill-decision-frameworks

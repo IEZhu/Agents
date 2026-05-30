@@ -32,6 +32,7 @@ routing:
   - Coq proof
   trigger_command: /math
 core_skills:
+- skill-content-structure
 - skill-mathematical-reasoning
 preferred_skills:
 - skill-reasoning-logic
