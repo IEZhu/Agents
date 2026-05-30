@@ -136,6 +136,42 @@ def _arm_total(scores: dict[str, int], side: str) -> float | None:
     return float(sum(scores[k] for k in keys))
 
 
+def per_criterion_breakdown(
+    pos1_scores: dict[str, int] | None,
+    pos2_scores: dict[str, int] | None,
+    *,
+    pos1_left_is: Literal["vanilla", "mcp"] = "vanilla",
+) -> list[dict[str, Any]] | None:
+    """Swap-averaged per-criterion scores for each arm, re-derived from the two
+    judge calls' criterion_scores. One row per criterion, in `_CRITERIA` order:
+
+        {"criterion": "helpfulness", "vanilla": 9.0, "mcp": 7.5, "margin": -1.5}
+
+    Side mapping mirrors `aggregate_with_swap` (for pos1_left_is='vanilla':
+    pos1 right=mcp/left=vanilla, pos2 left=mcp/right=vanilla), so summing a
+    column yields exactly the SwapVerdict `vanilla_avg` / `mcp_avg`. Returns
+    None if either payload is missing any of the 10 keys (legacy/partial
+    verdict, synthetic empty-tie) so callers render 'unscored' rather than
+    half a table.
+    """
+    if not pos1_scores or not pos2_scores:
+        return None
+    pos2_left_is = "mcp" if pos1_left_is == "vanilla" else "vanilla"
+    mcp_side_p1 = "right" if pos1_left_is == "vanilla" else "left"
+    van_side_p1 = "left" if pos1_left_is == "vanilla" else "right"
+    mcp_side_p2 = "right" if pos2_left_is == "vanilla" else "left"
+    van_side_p2 = "left" if pos2_left_is == "vanilla" else "right"
+    rows: list[dict[str, Any]] = []
+    for c in _CRITERIA:
+        try:
+            mcp = (pos1_scores[f"{mcp_side_p1}_{c}"] + pos2_scores[f"{mcp_side_p2}_{c}"]) / 2.0
+            vanilla = (pos1_scores[f"{van_side_p1}_{c}"] + pos2_scores[f"{van_side_p2}_{c}"]) / 2.0
+        except KeyError:
+            return None
+        rows.append({"criterion": c, "vanilla": vanilla, "mcp": mcp, "margin": mcp - vanilla})
+    return rows
+
+
 class JudgeValidationError(RuntimeError):
     """A judge response did not conform to VERDICT_SCHEMA.
 
@@ -266,20 +302,17 @@ def aggregate_with_swap(
     # calls, so averaging the two orders cancels an additive L/R position offset
     # exactly. This recovers signal the holistic-winner contradiction→TIE rule
     # discards. None if either call lacks complete scores (then 'unscored').
-    mcp_side_p1 = "right" if pos1_left_is == "vanilla" else "left"
-    van_side_p1 = "left" if pos1_left_is == "vanilla" else "right"
-    mcp_side_p2 = "right" if pos2_left_is == "vanilla" else "left"
-    van_side_p2 = "left" if pos2_left_is == "vanilla" else "right"
-
-    mcp_p1, mcp_p2 = _arm_total(pos1.criterion_scores, mcp_side_p1), _arm_total(pos2.criterion_scores, mcp_side_p2)
-    van_p1, van_p2 = _arm_total(pos1.criterion_scores, van_side_p1), _arm_total(pos2.criterion_scores, van_side_p2)
-
-    if None in (mcp_p1, mcp_p2, van_p1, van_p2):
+    # Single-sourced via `per_criterion_breakdown` so the per-category report
+    # rows sum to exactly these totals — the side mapping lives in one place.
+    rows = per_criterion_breakdown(
+        pos1.criterion_scores, pos2.criterion_scores, pos1_left_is=pos1_left_is
+    )
+    if rows is None:
         mcp_avg = vanilla_avg = margin = None
         final_by_score: str = "unscored"
     else:
-        mcp_avg = (mcp_p1 + mcp_p2) / 2.0
-        vanilla_avg = (van_p1 + van_p2) / 2.0
+        mcp_avg = sum(r["mcp"] for r in rows)
+        vanilla_avg = sum(r["vanilla"] for r in rows)
         margin = mcp_avg - vanilla_avg
         if margin > epsilon:
             final_by_score = "mcp"

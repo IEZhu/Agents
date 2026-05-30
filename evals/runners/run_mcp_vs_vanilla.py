@@ -56,6 +56,7 @@ from evals.judges.pairwise_judge import (  # noqa: E402
     _SCORE_MAX as JUDGE_SCORE_MAX,
     _SCORE_MIN as JUDGE_SCORE_MIN,
     aggregate_with_swap,
+    per_criterion_breakdown,
     run_judge,
 )
 from evals.runners._providers import ContaminatedResponseError, ProviderImpl, get_pricing, get_provider  # noqa: E402
@@ -751,6 +752,10 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
     def _is_truncated(usage: dict[str, int]) -> bool:
         return arm_max > 0 and usage["output_tokens"] >= truncation_threshold
 
+    def _cat_winner(margin: float) -> str:
+        """Per-category Δ winner for badge colour — sign of (mcp − vanilla)."""
+        return "mcp" if margin > 0 else "vanilla" if margin < 0 else "tie"
+
     truncation_count = 0
     per_query: list[dict[str, Any]] = []
     for r in runs:
@@ -758,6 +763,30 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         mcp_truncated = _is_truncated(r.mcp.usage)
         if vanilla_truncated or mcp_truncated:
             truncation_count += 1
+        # Per-category (swap-averaged) scores per arm — None when the verdict is
+        # unscored (synthetic empty-tie / missing scores); the template hides the
+        # table in that case. Column sums equal vanilla_avg / mcp_avg by construction.
+        cat_rows = per_criterion_breakdown(r.verdict.pos1.criterion_scores, r.verdict.pos2.criterion_scores)
+        category_scores = None
+        if cat_rows is not None:
+            category_scores = {
+                "rows": [
+                    {
+                        "criterion": row["criterion"].replace("_", "-"),
+                        "vanilla": f"{row['vanilla']:.1f}",
+                        "mcp": f"{row['mcp']:.1f}",
+                        "margin_str": f"{row['margin']:+.1f}",
+                        "winner": _cat_winner(row["margin"]),
+                    }
+                    for row in cat_rows
+                ],
+                "total": {
+                    "vanilla": f"{r.verdict.vanilla_avg:.1f}",
+                    "mcp": f"{r.verdict.mcp_avg:.1f}",
+                    "margin_str": f"{r.verdict.margin:+.1f}",
+                    "winner": _cat_winner(r.verdict.margin),
+                },
+            }
         per_query.append({
             "query": r.query,
             "query_preview": r.query[:120] + ("…" if len(r.query) > 120 else ""),
@@ -767,6 +796,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
             "final_by_score": r.verdict.final_by_score,
             "margin_str": ("n/a" if r.verdict.margin is None else f"{r.verdict.margin:+.1f}"),
             "margin_scale": len(_CRITERIA) * (result.config.get("judge_score_max", JUDGE_SCORE_MAX) - JUDGE_SCORE_MIN),  # max |mcp−vanilla|: len(_CRITERIA) × (max − min)
+            "category_scores": category_scores,
             "vanilla_response": r.vanilla.response_text,
             "vanilla_usage": r.vanilla.usage,
             "vanilla_latency_ms": r.vanilla.latency_ms,

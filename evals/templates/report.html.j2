@@ -251,6 +251,33 @@
       <div class="reason">Per-criterion 1–{{ judge_score_max }} scores summed per arm and averaged across both orders — additive L/R position bias cancels. Independent of the holistic winner below.</div>
     </div>
     {% endif %}
+    {% if r.category_scores %}
+    <div class="judge-block">
+      <strong>Per-category scores</strong> (swap-averaged, 1–{{ judge_score_max }} per category)
+      <table style="margin-top: 8px;">
+        <thead><tr>
+          <th>Category</th><th class="num">Vanilla</th><th class="num">MCP</th><th class="num">Δ mcp−van</th>
+        </tr></thead>
+        <tbody>
+          {% for c in r.category_scores.rows %}
+          <tr>
+            <td>{{ c.criterion }}</td>
+            <td class="num">{{ c.vanilla }}</td>
+            <td class="num">{{ c.mcp }}</td>
+            <td class="num"><span class="delta {% if c.winner == 'mcp' %}good{% elif c.winner == 'vanilla' %}bad{% endif %}">{{ c.margin_str }}</span></td>
+          </tr>
+          {% endfor %}
+          <tr style="font-weight: 600; border-top: 2px solid var(--border);">
+            <td>TOTAL</td>
+            <td class="num">{{ r.category_scores.total.vanilla }}</td>
+            <td class="num">{{ r.category_scores.total.mcp }}</td>
+            <td class="num"><span class="delta {% if r.category_scores.total.winner == 'mcp' %}good{% elif r.category_scores.total.winner == 'vanilla' %}bad{% endif %}">{{ r.category_scores.total.margin_str }}</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="reason">Each arm's swap-averaged score per category (judge ran both orders; additive L/R position bias cancels). Column sums equal the Score margin above.</div>
+    </div>
+    {% endif %}
     <div class="judge-block">
       <strong>Round 1</strong> — left corner=vanilla, right corner=mcp ·
       winner: <code>{{ r.judge_pos1.winner_corner }}</code>

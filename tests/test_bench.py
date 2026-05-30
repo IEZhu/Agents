@@ -1509,3 +1509,146 @@ class TestTemplateEscaping:
         # Old vocabulary gone
         assert "Position 1" not in html and "Position 2" not in html
         assert "LEFT=" not in html and "RIGHT=" not in html
+
+
+# --------------------------------------------------------------------------- #
+# Per-category (swap-averaged) scores — helper, context, and render
+# --------------------------------------------------------------------------- #
+
+
+class TestPerCriterionBreakdown:
+    """`per_criterion_breakdown` re-derives each arm's swap-averaged score per
+    category. Convention (judge_with_swap): pos1 left=vanilla/right=mcp;
+    pos2 left=mcp/right=vanilla."""
+
+    def test_swap_averaged_values_and_order(self):
+        from evals.judges.pairwise_judge import per_criterion_breakdown, _CRITERIA
+
+        pos1 = {f"left_{c}": 8 for c in _CRITERIA}   # vanilla in pos1
+        pos1.update({f"right_{c}": 6 for c in _CRITERIA})  # mcp in pos1
+        pos2 = {f"left_{c}": 7 for c in _CRITERIA}   # mcp in pos2
+        pos2.update({f"right_{c}": 9 for c in _CRITERIA})  # vanilla in pos2
+
+        rows = per_criterion_breakdown(pos1, pos2)
+        assert [row["criterion"] for row in rows] == list(_CRITERIA)
+        for row in rows:
+            assert row["vanilla"] == 8.5   # (8 + 9) / 2
+            assert row["mcp"] == 6.5       # (6 + 7) / 2
+            assert row["margin"] == -2.0
+
+    def test_sums_match_aggregate_with_swap(self):
+        """Column sums must equal the SwapVerdict vanilla_avg / mcp_avg — the
+        per-category table and the headline Score margin cannot drift."""
+        from evals.judges.pairwise_judge import (
+            per_criterion_breakdown, aggregate_with_swap, JudgeCall, _CRITERIA,
+        )
+
+        zero = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        pos1_scores: dict[str, int] = {}
+        pos2_scores: dict[str, int] = {}
+        for i, c in enumerate(_CRITERIA):
+            pos1_scores[f"left_{c}"] = 5 + i        # vanilla, pos1
+            pos1_scores[f"right_{c}"] = 8 - i       # mcp, pos1
+            pos2_scores[f"left_{c}"] = 6 + (i % 3)  # mcp, pos2
+            pos2_scores[f"right_{c}"] = 4 + i       # vanilla, pos2
+        pos1 = JudgeCall(winner="left", reasoning="r", criterion_scores=pos1_scores, usage=dict(zero))
+        pos2 = JudgeCall(winner="right", reasoning="r", criterion_scores=pos2_scores, usage=dict(zero))
+
+        v = aggregate_with_swap(pos1=pos1, pos2=pos2, pos1_left_is="vanilla")
+        rows = per_criterion_breakdown(pos1_scores, pos2_scores)
+        assert sum(r["mcp"] for r in rows) == v.mcp_avg
+        assert sum(r["vanilla"] for r in rows) == v.vanilla_avg
+        assert abs(sum(r["margin"] for r in rows) - v.margin) < 1e-9
+        # Pin the convention on the first criterion.
+        assert rows[0]["vanilla"] == (pos1_scores["left_helpfulness"] + pos2_scores["right_helpfulness"]) / 2.0
+        assert rows[0]["mcp"] == (pos1_scores["right_helpfulness"] + pos2_scores["left_helpfulness"]) / 2.0
+
+    def test_missing_or_partial_scores_return_none(self):
+        from evals.judges.pairwise_judge import per_criterion_breakdown, _CRITERIA
+
+        full = {f"{side}_{c}": 5 for side in ("left", "right") for c in _CRITERIA}
+        assert per_criterion_breakdown({}, full) is None
+        assert per_criterion_breakdown(full, None) is None
+        assert per_criterion_breakdown(full, {"left_helpfulness": 5}) is None  # partial
+
+
+class TestPerCategoryScoresInReport:
+    """`build_template_context` must surface per-category scores per test, and
+    the template must render them as a table — present when scored, absent when
+    the verdict is unscored (synthetic empty-tie)."""
+
+    @staticmethod
+    def _scores(left_val: int, right_val: int) -> dict[str, int]:
+        from evals.judges.pairwise_judge import _CRITERIA
+
+        d = {f"left_{c}": left_val for c in _CRITERIA}
+        d.update({f"right_{c}": right_val for c in _CRITERIA})
+        return d
+
+    def _build(self, *, scored: bool):
+        from evals.runners._providers import PRICING
+        from evals.runners.run_mcp_vs_vanilla import (
+            BenchmarkResult, QueryRun, TrialResult, build_template_context,
+        )
+        from evals.judges.pairwise_judge import aggregate_with_swap, JudgeCall
+
+        usage = {"input_tokens": 100, "output_tokens": 50, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        van = TrialResult(arm="vanilla", response_text="x", usage=dict(usage), latency_ms=10)
+        mcp = TrialResult(arm="mcp", response_text="y", usage=dict(usage), latency_ms=10,
+                          mcp_meta={"agent": "u", "tier": "lite", "routing_path": "cache_hit",
+                                    "skills_loaded": [], "implants_loaded": [], "rules_loaded": []})
+        if scored:
+            pos1 = JudgeCall(winner="left", reasoning="r", criterion_scores=self._scores(8, 6), usage=dict(usage))
+            pos2 = JudgeCall(winner="right", reasoning="r", criterion_scores=self._scores(7, 9), usage=dict(usage))
+        else:
+            empty = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+            pos1 = JudgeCall(winner="tie", reasoning="r", criterion_scores={}, usage=dict(empty))
+            pos2 = JudgeCall(winner="tie", reasoning="r", criterion_scores={}, usage=dict(empty))
+        verdict = aggregate_with_swap(pos1=pos1, pos2=pos2, pos1_left_is="vanilla")
+        run = QueryRun(idx=1, query="q", stream_idx=0, vanilla=van, mcp=mcp, verdict=verdict)
+        result = BenchmarkResult(
+            config={"provider": "openai", "provider_notes": "", "model": "gpt-4o", "judge_model": "gpt-4o",
+                    "seed": 0, "dataset": "wildbench", "commit_sha": "x", "max_tokens": 8192,
+                    "judge_max_tokens": 4096, "concurrency": 1},
+            runs=[run], dataset_hash="h", wall_time_s=0.0,
+            arm_pricing=PRICING["openai"], judge_pricing=PRICING["openai"],
+        )
+        return result, build_template_context(result)
+
+    def test_category_scores_present_and_correct_when_scored(self):
+        from evals.judges.pairwise_judge import _CRITERIA
+
+        _result, ctx = self._build(scored=True)
+        cs = ctx["per_query"][0]["category_scores"]
+        assert cs is not None
+        assert [row["criterion"] for row in cs["rows"]] == [c.replace("_", "-") for c in _CRITERIA]
+        # vanilla_c=(8+9)/2=8.5 ; mcp_c=(6+7)/2=6.5 ; Δ=-2.0 → vanilla better.
+        first = cs["rows"][0]
+        assert (first["vanilla"], first["mcp"], first["margin_str"], first["winner"]) == ("8.5", "6.5", "-2.0", "vanilla")
+        # Totals (5 criteria) tie to the headline margin.
+        assert cs["total"]["vanilla"] == "42.5"
+        assert cs["total"]["mcp"] == "32.5"
+        assert cs["total"]["margin_str"] == ctx["per_query"][0]["margin_str"]
+        assert cs["total"]["winner"] == "vanilla"
+
+    def test_category_scores_none_when_unscored(self):
+        _result, ctx = self._build(scored=False)
+        assert ctx["per_query"][0]["category_scores"] is None
+
+    def test_render_includes_per_category_table(self):
+        pytest.importorskip("jinja2")
+        from evals.runners.run_mcp_vs_vanilla import render_html
+
+        result, _ctx = self._build(scored=True)
+        html = render_html(result, REPO_ROOT / "evals" / "templates" / "report.html.j2")
+        assert "Per-category scores" in html
+        assert "intent-fit" in html          # criterion label uses hyphen form
+        assert "<td>TOTAL</td>" in html
+
+    def test_render_omits_table_when_unscored(self):
+        pytest.importorskip("jinja2")
+        from evals.runners.run_mcp_vs_vanilla import render_html
+
+        result, _ctx = self._build(scored=False)
+        html = render_html(result, REPO_ROOT / "evals" / "templates" / "report.html.j2")
+        assert "Per-category scores" not in html
