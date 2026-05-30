@@ -810,6 +810,7 @@ def build_template_context(result: BenchmarkResult) -> dict[str, Any]:
         "date": dt.date.today().isoformat(),
         "model": result.config["model"],
         "judge_model": result.config["judge_model"],
+        "judge_score_max": result.config.get("judge_score_max", JUDGE_SCORE_MAX),
         "judge_provider": result.config.get("judge_provider", result.config["provider"]),
         "cross_provider_judge": result.config.get("judge_provider") not in (None, result.config["provider"]),
         "provider": result.config["provider"],

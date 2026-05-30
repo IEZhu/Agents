@@ -44,7 +44,7 @@ from math import comb, erfc
 from pathlib import Path
 from typing import Any
 
-from evals.judges.pairwise_judge import _CRITERIA  # single source of truth — keep margin re-derivation in sync
+from evals.judges.pairwise_judge import _CRITERIA, _arm_total  # single source of truth — keep margin re-derivation in sync
 
 _REPORTS_DIR = Path(__file__).resolve().parents[1] / "reports"
 
@@ -178,16 +178,6 @@ def paired_compare(baseline: dict[str, Any], other: dict[str, Any]) -> dict[str,
 # Swap-averaged score-margin (position-bias-robust), re-derived from stored scores
 # --------------------------------------------------------------------------- #
 
-def _side_total(scores: dict | None, side: str) -> float | None:
-    """Sum a side's five criterion scores (max 50); None if any are missing."""
-    if not scores:
-        return None
-    keys = [f"{side}_{c}" for c in _CRITERIA]
-    if any(k not in scores for k in keys):
-        return None
-    return float(sum(scores[k] for k in keys))
-
-
 def _query_margin(run: dict[str, Any]) -> float | None:
     """Swap-averaged mcp-minus-vanilla score margin for one run, re-derived from
     the stored per-criterion scores (no judge re-call). Report convention (see
@@ -196,8 +186,8 @@ def _query_margin(run: dict[str, Any]) -> float | None:
     v = run.get("verdict", {})
     p1 = (v.get("pos1") or {}).get("criterion_scores")
     p2 = (v.get("pos2") or {}).get("criterion_scores")
-    mcp_p1, van_p1 = _side_total(p1, "right"), _side_total(p1, "left")
-    mcp_p2, van_p2 = _side_total(p2, "left"), _side_total(p2, "right")
+    mcp_p1, van_p1 = _arm_total(p1, "right"), _arm_total(p1, "left")
+    mcp_p2, van_p2 = _arm_total(p2, "left"), _arm_total(p2, "right")
     if None in (mcp_p1, van_p1, mcp_p2, van_p2):
         return None
     return ((mcp_p1 + mcp_p2) - (van_p1 + van_p2)) / 2.0

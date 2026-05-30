@@ -248,7 +248,7 @@
       <strong>Score margin</strong> (swap-averaged, position-bias-robust) ·
       mcp−vanilla = <code>{{ r.margin_str }}</code> / ±{{ r.margin_scale }}
       → <span class="badge win-{{ r.final_by_score }}">{{ r.final_by_score | upper }}</span>
-      <div class="reason">Per-criterion 1–10 scores summed per arm and averaged across both orders — additive L/R position bias cancels. Independent of the holistic winner below.</div>
+      <div class="reason">Per-criterion 1–{{ judge_score_max }} scores summed per arm and averaged across both orders — additive L/R position bias cancels. Independent of the holistic winner below.</div>
     </div>
     {% endif %}
     <div class="judge-block">

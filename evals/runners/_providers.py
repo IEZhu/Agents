@@ -314,6 +314,14 @@ def call_judge_openai(
         args = json.loads(content)
     except json.JSONDecodeError as exc:
         raise JudgeValidationError(f"OpenAI judge content is not valid JSON: {exc}; first 200 chars: {content[:200]!r}") from exc
+    if not isinstance(args, dict):
+        # Valid JSON but not an object (e.g. `[]` / `null` from a proxy) — would
+        # raise an untyped AttributeError in _validate_verdict_payload's `.get`,
+        # bypassing the JudgeValidationError retry path. Type it here instead.
+        raise JudgeValidationError(
+            f"OpenAI judge content is valid JSON but not an object "
+            f"(got {type(args).__name__}); first 200 chars: {content[:200]!r}"
+        )
     return args, normalise_usage_openai(response.usage)
 
 
