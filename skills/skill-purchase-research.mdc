@@ -1,6 +1,6 @@
 ---
 description: "Decision Matrix methodology for product comparison and purchase research. Weighted scoring, trust-tiered sources, value optimization."
-compiled: "Score=Σ(Weight×Score). Trust tiers: Platinum(100%)>Gold(85%)>Silver(70%)>Bronze(60%)>Copper(30%). Premium>Luxury. Sensitivity ±10%. Marginal value <0.5/₽1000→lower tier."
+compiled: "Score=Σ(Weight×Score). Trust tiers (qualitative, never numeric %): Platinum>Gold>Silver>Bronze>Copper. Premium>Luxury. Sensitivity ±10%. Marginal value <0.5/₽1000→lower tier."
 keywords:
   - conflict resolution
   - premium indicators
@@ -36,15 +36,17 @@ Final Score = Σ(Weight_i × Score_i) where i = 1 to n criteria
 
 ### 2. Trust-Weighted Sources
 
-Not all information is equally reliable. Apply trust scoring:
+Not all information is equally reliable. Apply qualitative credibility tiers (never a numeric %):
 
-| Tier | Trust % | Source Types | Usage |
-|------|---------|--------------|-------|
-| **Platinum** | 100% | Professional test labs (rtings, notebookcheck, anandtech) | Primary truth for technical specs |
-| **Gold** | 85% | Expert communities (4pda, overclock.net, head-fi) | Real-world usage, long-term reliability |
-| **Silver** | 70% | Aggregated user reviews (10+ reviews on retail sites) | Common issues, QA problems |
-| **Bronze** | 60% | Tech journalism (CNET, Techradar) | Industry context, trends |
-| **Copper** | 30% | Marketing materials | Specs only, verify elsewhere |
+| Tier | Source Types | Usage |
+|------|--------------|-------|
+| **Platinum** | Professional test labs (rtings, notebookcheck, anandtech) | Primary truth for technical specs |
+| **Gold** | Expert communities (4pda, overclock.net, head-fi) | Real-world usage, long-term reliability |
+| **Silver** | Aggregated user reviews (10+ reviews on retail sites) | Common issues, QA problems |
+| **Bronze** | Tech journalism (CNET, Techradar) | Industry context, trends |
+| **Copper** | Marketing materials | Specs only, verify elsewhere |
+
+Tiers are qualitative labels, not scores — never attach a numeric %. Apply a tier only to a source you actually consulted this turn; with no retrieval available, hedge qualitatively and do not invent sources or tiers.
 
 **Conflict Resolution**: When sources disagree, weight by trust tier. If Platinum contradicts Bronze, trust Platinum.
 
