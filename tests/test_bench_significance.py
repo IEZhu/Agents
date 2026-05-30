@@ -137,6 +137,17 @@ class TestPairedCompare:
         assert c["losses"] == 1         # q1 mcp→vanilla
         assert c["net"] == -1
 
+    def test_duplicate_query_text_does_not_collapse(self):
+        # sample_queries does not de-dup, so one report can carry the same query
+        # text twice. Joining by text alone drops all but the last occurrence and
+        # undercounts paired_n; (query, occurrence) keys keep every row.
+        base = {"runs": [_run("dup", "mcp"), _run("dup", "vanilla"), _run("uniq", "mcp")]}
+        other = {"runs": [_run("dup", "mcp"), _run("dup", "mcp"), _run("uniq", "mcp")]}
+        c = paired_compare(base, other)
+        assert c["paired_n"] == 3       # both 'dup' occurrences + 'uniq', not 2
+        assert c["gains"] == 1          # 2nd 'dup': vanilla→mcp
+        assert c["losses"] == 0
+
 
 class TestWilcoxon:
     def test_all_positive_is_smallest_exact_p(self):
@@ -186,4 +197,18 @@ class TestMarginReports:
         other = {"runs": [_mrun("q1", (2, 2, 2, 2, 2), (3, 3, 3, 3, 3), (3, 3, 3, 3, 3), (2, 2, 2, 2, 2))]}  # margin +5
         pm = paired_margins(base, other)
         assert pm["paired_n"] == 1
+        assert pm["mean_delta"] == 5.0
+
+    def test_paired_margins_keeps_duplicate_queries(self):
+        # duplicate query text must not collapse in the margin join either
+        base = {"runs": [
+            _mrun("dup", (2, 2, 2, 2, 2), (2, 2, 2, 2, 2), (2, 2, 2, 2, 2), (2, 2, 2, 2, 2)),
+            _mrun("dup", (2, 2, 2, 2, 2), (2, 2, 2, 2, 2), (2, 2, 2, 2, 2), (2, 2, 2, 2, 2)),
+        ]}
+        other = {"runs": [
+            _mrun("dup", (2, 2, 2, 2, 2), (3, 3, 3, 3, 3), (3, 3, 3, 3, 3), (2, 2, 2, 2, 2)),
+            _mrun("dup", (2, 2, 2, 2, 2), (3, 3, 3, 3, 3), (3, 3, 3, 3, 3), (2, 2, 2, 2, 2)),
+        ]}
+        pm = paired_margins(base, other)
+        assert pm["paired_n"] == 2      # both occurrences kept, not collapsed to 1
         assert pm["mean_delta"] == 5.0

@@ -128,15 +128,21 @@ def analyze(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _final_by_query(report: dict[str, Any]) -> dict[str, str]:
-    """Map query text → final verdict. Query text is a stable join key across
-    runs (idx can drift if sampling changes; the same seed keeps the text)."""
-    out: dict[str, str] = {}
+def _final_by_query(report: dict[str, Any]) -> dict[tuple[str, int], str]:
+    """Map (query text, occurrence) → final verdict. Query text is a stable join
+    key across runs (idx can drift if sampling changes; the same seed keeps the
+    text). The occurrence counter keeps duplicate query texts in one report from
+    collapsing — sample_queries does not de-dup, so the Nth occurrence of a text
+    in the baseline pairs with the Nth in the other report and paired_n stays
+    correct."""
+    out: dict[tuple[str, int], str] = {}
+    seen: Counter = Counter()
     for r in report.get("runs", []):
         q = r.get("query")
         final = r.get("verdict", {}).get("final")
         if q is not None and final is not None:
-            out[q] = final
+            seen[q] += 1
+            out[(q, seen[q])] = final
     return out
 
 
@@ -260,13 +266,17 @@ def analyze_margins(report: dict[str, Any], epsilon: float = 0.0) -> dict[str, A
     }
 
 
-def _margins_by_query(report: dict[str, Any]) -> dict[str, float]:
-    out: dict[str, float] = {}
+def _margins_by_query(report: dict[str, Any]) -> dict[tuple[str, int], float]:
+    # (query, occurrence) key — same rationale as _final_by_query: preserve
+    # duplicate query texts so paired margin deltas don't drop rows.
+    out: dict[tuple[str, int], float] = {}
+    seen: Counter = Counter()
     for r in report.get("runs", []):
         q = r.get("query")
         m = _query_margin(r)
         if q is not None and m is not None:
-            out[q] = m
+            seen[q] += 1
+            out[(q, seen[q])] = m
     return out
 
 
