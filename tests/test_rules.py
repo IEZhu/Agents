@@ -26,6 +26,7 @@ _EXPECTED_RULE_NAMES = {
     "honest-uncertainty",
     "anti-sycophancy",
     "language-match",
+    "serve-the-request",
 }
 
 
