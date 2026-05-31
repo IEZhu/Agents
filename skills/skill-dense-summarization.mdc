@@ -1,6 +1,6 @@
 ---
 description: "Guidelines for condensing information to high density"
-compiled: "80/20. No fluff. Bullets for lists; tables for comparison. Source [1]. BLUF→Key Findings→Nuance→References."
+compiled: "Condensing existing material only (not authoring). Explicit length/count/completeness overrides 80/20. No fluff. Bullets for lists; tables for comparison. BLUF→Key Findings→Nuance→References."
 keywords:
   - bullets for lists
   - tables for comparison
@@ -17,6 +17,9 @@ keywords:
 
 ## Core Principle: Pareto Efficiency (80/20)
 Your goal is to capture 80% of the value (insight, facts, nuance) in 20% of the volume.
+
+## Scope & Precedence
+Apply this skill when **condensing or summarizing existing material**. It does **not** apply when the user asks you to author, draft, compose, or expand content. It **never** overrides an explicit length, word-count, item-count, or completeness requirement — those are hard constraints that outrank 80/20 compression. Never compress below a size the user explicitly asked for (if they ask for "4000+ words" or "20 questions", deliver that in full, densely — not less).
 
 ## Rules
 
