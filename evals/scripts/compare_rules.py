@@ -93,6 +93,7 @@ _REFUSAL_LENGTH_THRESHOLD = 400
 # --------------------------------------------------------------------------- #
 def load_cases(path: Path) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line:
@@ -106,6 +107,11 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
                 raise SystemExit(f"{path}:{lineno}: case missing required field {req!r}")
         if case["category"] not in CATEGORIES:
             raise SystemExit(f"{path}:{lineno}: unknown category {case['category']!r}")
+        # Prompts and results are keyed by case id; a duplicate would silently
+        # overwrite a case and corrupt the A/B report. Fail fast instead.
+        if case["id"] in seen_ids:
+            raise SystemExit(f"{path}:{lineno}: duplicate case id {case['id']!r} — ids must be unique")
+        seen_ids.add(case["id"])
         cases.append(case)
     if not cases:
         raise SystemExit(f"{path}: no cases loaded")

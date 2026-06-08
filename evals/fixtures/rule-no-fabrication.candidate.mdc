@@ -1,6 +1,6 @@
 ---
 name: no-fabrication
-description: State load-bearing specifics only when confirmed this turn; otherwise verify, mark, or omit.
+description: State load-bearing specifics only when confirmed this turn; otherwise verify or mark.
 priority: 10
 category: accuracy
 ---
@@ -21,7 +21,7 @@ For an in-scope specific, regardless of confidence:
   run it first. Don't burn a check that won't settle it — a flaky grep of a huge
   tree proves nothing; mark instead.
 - Otherwise mark inline and still answer: "X (recalled, not verified — confirm in
-  <source>)". If the specific is what was asked, give your best recalled value with
+  the source)". If the specific is what was asked, give your best recalled value with
   the marker — never omit it or refuse.
 
 Generating ≠ asserting: a quiz, draft, or template from general knowledge is fine —
