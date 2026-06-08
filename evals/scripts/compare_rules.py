@@ -51,11 +51,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-# build_mcp_system_prompt replicates production routing+enrichment; with
-# pick_agent=None it uses deterministic keyword routing (no LLM call), which is
-# exactly what --dry-run needs.
-from evals.runners.run_mcp_vs_vanilla import build_mcp_system_prompt  # noqa: E402
 from src.engine.rules import invalidate_cache  # noqa: E402
+
+# NOTE: build_mcp_system_prompt (from evals.runners.run_mcp_vs_vanilla) is imported
+# lazily inside build_prompts() — it pulls numpy/the embedder, so keeping it out of
+# module scope lets the pure grading helpers (load_cases / deterministic_fails) be
+# imported and unit-tested without that heavy dependency.
 
 RULE_PATH = REPO_ROOT / "rules" / "rule-no-fabrication.mdc"
 DEFAULT_DATASET = REPO_ROOT / "evals" / "datasets" / "no_fabrication.jsonl"
@@ -76,11 +77,14 @@ _HEDGE_MARKERS = re.compile(
     r"сверьс[яь]|не уверен)",
     re.IGNORECASE,
 )
-# Near-empty refusal / defer: asks for the file/source instead of attempting.
+# Defer/refuse: an explicit REQUEST for the user to hand over the source. Kept
+# high-precision on purpose — an honest "I can't access the link" caveat is REQUIRED
+# in deliver-carveout answers, so matching that here would falsely fail good replies.
+# Whether an "I can't access" answer is a near-empty refusal is left to the grader.
 _REFUSAL = re.compile(
-    r"(please (?:provide|share|paste|attach|send)|i (?:don'?t|do not) have access|"
-    r"unable to (?:access|open|read)|can'?t (?:access|open|read)|"
-    r"пришлите|предоставьте|не могу (?:открыть|получить доступ|прочитать))",
+    r"(please (?:provide|share|paste|attach|send)|"
+    r"(?:can|could|would) you (?:please )?(?:provide|share|paste|attach|send)|"
+    r"пришлите|предоставьте|вышлите)",
     re.IGNORECASE,
 )
 # Responses shorter than this are likely near-empty refusals rather than
@@ -166,6 +170,10 @@ async def build_prompts(cases: list[dict[str, Any]], variant_path: Path | None) 
     Returns {case_id: {"system_prompt": str, "meta": dict}}.
     The swap is held open for the whole build so all prompts see the same rule.
     """
+    # Lazy import: pulls numpy/the embedder, kept out of module scope so the pure
+    # grading helpers stay importable (and unit-testable) without that dependency.
+    from evals.runners.run_mcp_vs_vanilla import build_mcp_system_prompt
+
     out: dict[str, dict[str, Any]] = {}
     with swap_rule(variant_path):
         for case in cases:
