@@ -83,6 +83,9 @@ _REFUSAL = re.compile(
     r"пришлите|предоставьте|не могу (?:открыть|получить доступ|прочитать))",
     re.IGNORECASE,
 )
+# Responses shorter than this are likely near-empty refusals rather than
+# substantive answers that merely mention an access limitation in passing.
+_REFUSAL_LENGTH_THRESHOLD = 400
 
 
 # --------------------------------------------------------------------------- #
@@ -178,7 +181,7 @@ def deterministic_fails(case: dict[str, Any], answer: str) -> list[str]:
             fails.append(f"contains known-wrong token: {tok!r}")
     if checks.get("forbid_hedge_markers") and _HEDGE_MARKERS.search(answer):
         fails.append("hedge/verify marker applied to settled common knowledge")
-    if checks.get("forbid_refusal") and _REFUSAL.search(answer) and len(answer) < 400:
+    if checks.get("forbid_refusal") and _REFUSAL.search(answer) and len(answer) < _REFUSAL_LENGTH_THRESHOLD:
         fails.append("near-empty refusal / defer instead of best-effort")
     return fails
 
@@ -278,6 +281,7 @@ def _rule_block(system_prompt: str) -> str:
 
 async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
     print(f"[dry-run] cases: {len(cases)}\n  baseline rule:  {baseline_path}\n  candidate rule: {candidate_path}")
+    _get_base_original_bytes()  # snapshot the live rule file BEFORE any swap
     base = await build_prompts(cases, baseline_path)
     cand = await build_prompts(cases, candidate_path)
 
@@ -305,7 +309,7 @@ async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
     print(_rule_block(cand[sample_id]["system_prompt"]))
 
     # Verify the live rule file was restored after the swaps.
-    restored = RULE_PATH.read_bytes() == base_original_bytes
+    restored = RULE_PATH.read_bytes() == _get_base_original_bytes()
     print(f"\n[dry-run] live rule file restored to original: {'yes' if restored else 'NO! — investigate'}")
     if not restored:
         problems += 1
@@ -375,8 +379,17 @@ async def full_ab(cases, args) -> int:
     return 0
 
 
-# Captured at startup so dry-run can assert the live file is restored intact.
-base_original_bytes = RULE_PATH.read_bytes()
+# Snapshot of the live rule file used by dry-run to assert it was restored intact.
+# Read lazily (not at import time) so importing this module never fails when the
+# rule file is absent — e.g. a fresh clone, CI, or import for type-checking.
+_base_original_bytes: bytes | None = None
+
+
+def _get_base_original_bytes() -> bytes:
+    global _base_original_bytes
+    if _base_original_bytes is None:
+        _base_original_bytes = RULE_PATH.read_bytes()
+    return _base_original_bytes
 
 
 def main() -> int:
