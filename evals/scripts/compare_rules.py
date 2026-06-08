@@ -18,11 +18,14 @@ Merge gate: the candidate must REDUCE fabrication-FAIL WITHOUT raising
 overhedge-FAIL (and not regress deliver-FAIL).
 
 Rule swap: rules are universal and identical for every agent, so the only thing
-that changes between arms is this one rule's text. The runner backs up
-``rules/rule-no-fabrication.mdc``, copies the arm's variant over it, calls
+that changes between arms is this one rule's text. Each arm copies its OWN variant
+(``--baseline-rule`` / ``--candidate-rule``, both defaulting to fixtures under
+``evals/fixtures/``) over ``rules/rule-no-fabrication.mdc``, calls
 ``invalidate_cache()``, builds the prompt, and ALWAYS restores in a ``finally``.
-Candidate variants live under ``evals/fixtures/`` (outside the ``rules/rule-*.mdc``
-glob) so they are never loaded as an extra rule.
+Because both arms swap explicit fixtures, the A/B does not depend on whatever
+currently lives in the live rule file — it keeps working after the candidate is
+adopted as the live rule. Fixtures sit outside the ``rules/rule-*.mdc`` glob so
+they are never loaded as an extra rule.
 
 Usage:
     # mechanics only, no API calls, no spend:
@@ -107,7 +110,7 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- #
-# Rule swap (baseline = live file; candidate = fixture copied in, then restored)
+# Rule swap (each arm copies its own fixture over the live rule, then restores)
 # --------------------------------------------------------------------------- #
 def _invalidate_all_caches() -> None:
     """Drop every cache that could serve a prompt built under the OTHER rule.
