@@ -276,6 +276,76 @@ def test_wrong_branch_does_not_write_throttle_stamp(repos, tmp_path, monkeypatch
     assert not stamp.exists()
 
 
+def test_network_reached_failure_writes_throttle_stamp(tmp_path, monkeypatch):
+    # A post-network outcome (e.g. FETCH_FAILED) must write the throttle stamp.
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    stamp = tmp_path / ".check"
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(stamp))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda: UpdateStatus.FETCH_FAILED)
+
+    self_update._run_update_safely()
+    assert stamp.exists()
+
+
+# --- timeout / network-reached boundary --------------------------------------
+
+def test_timeout_before_fetch_is_pre_network(repos, recorder, monkeypatch):
+    # A timeout on a pre-fetch local op (status) is not a network failure: it
+    # returns NO_GIT (pre-network), so the throttle stamp is not written later.
+    real = self_update._run_git
+
+    def fake(args, cwd, timeout):
+        if args and args[0] == "status":
+            raise subprocess.TimeoutExpired(cmd="git status", timeout=timeout)
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+    assert status == UpdateStatus.NO_GIT
+    assert recorder.calls == []
+
+
+def test_timeout_after_fetch_is_network_failure(repos, recorder, monkeypatch):
+    # A timeout after a successful fetch (here on rev-list) is a network-reached
+    # failure, so it returns FETCH_FAILED.
+    real = self_update._run_git
+
+    def fake(args, cwd, timeout):
+        if args and args[0] == "rev-list":
+            raise subprocess.TimeoutExpired(cmd="git rev-list", timeout=timeout)
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+    assert status == UpdateStatus.FETCH_FAILED
+    assert recorder.calls == []
+
+
+def test_exception_after_merge_rolls_back(repos, monkeypatch):
+    # If a git op raises AFTER the fast-forward, the tree must be rolled back.
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    real = self_update._run_git
+    head_calls = {"n": 0}
+
+    def fake(args, cwd, timeout):
+        # Blow up only on the post-merge `rev-parse HEAD` (the 2nd bare one;
+        # the 1st is the pre-merge old_sha lookup).
+        if args[:2] == ["rev-parse", "HEAD"]:
+            head_calls["n"] += 1
+            if head_calls["n"] >= 2:
+                raise subprocess.TimeoutExpired(cmd="git rev-parse HEAD", timeout=timeout)
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=lambda rr: True)
+
+    assert status == UpdateStatus.FETCH_FAILED  # network was reached
+    assert _head(repos.local) == old  # rolled back despite the post-merge failure
+
+
 # --- state file round-trip ---------------------------------------------------
 
 def test_state_roundtrip(tmp_path, monkeypatch):

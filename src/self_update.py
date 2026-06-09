@@ -237,7 +237,7 @@ def log_last_update() -> None:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             state = json.load(f)
         logger.info(
-            "Auto-update: last run %s (%s -> %s) at %s",
+            "Auto-update: last applied update %s (%s -> %s) at %s",
             state.get("status"),
             (state.get("old_sha") or "")[:9],
             (state.get("new_sha") or "")[:9],
@@ -308,9 +308,11 @@ def check_and_apply_update(
         logger.info("Auto-update: %s is not a git work tree; skipping.", repo_root)
         return UpdateStatus.NO_GIT
 
-    # Tracks whether we reached the network (fetch). A timeout before that point
-    # is a local-op failure that must not write the throttle stamp.
+    # State read by the exception handler below: whether we reached the network
+    # (fetch), and whether the fast-forward already mutated the working tree.
     network_reached = False
+    merged = False
+    old_sha = ""
     try:
         # Step 2 — branch guard: only act on the target branch.
         cur = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root, git_timeout)
@@ -388,6 +390,7 @@ def check_and_apply_update(
         if merge.returncode != 0:
             logger.warning("Auto-update: fast-forward merge failed; skipping. %s", merge.stderr.strip())
             return UpdateStatus.MERGE_FAILED
+        merged = True  # tree is now mutated; any later failure must roll back
         new = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         new_sha = new.stdout.strip() if new.returncode == 0 else ""
         logger.info("Auto-update: fast-forwarded %s -> %s on %s.", old_sha[:9], new_sha[:9], branch)
@@ -420,13 +423,23 @@ def check_and_apply_update(
         )
         _write_state(UpdateStatus.UPDATED, old_sha, new_sha)
         return UpdateStatus.UPDATED
-    except subprocess.TimeoutExpired:
-        # A git op should not time out under the budget; if one does, the system
-        # is in a bad state, so fail open rather than crash the thread. Only a
-        # post-fetch timeout is a network failure (FETCH_FAILED, which writes the
-        # throttle stamp); a pre-fetch local-op timeout stays pre-network (NO_GIT)
-        # so it does not suppress the next real attempt.
-        logger.warning("Auto-update: a git operation timed out; serving current code.")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        # A git op should not time out (or git vanish) under the budget. Fail open
+        # rather than crash the thread. If the fast-forward already mutated the
+        # tree, roll back so we never strand the install on new code without
+        # rebuilt indexes.
+        if merged and old_sha:
+            logger.error("Auto-update: exception after fast-forward; rolling back to %s.", old_sha[:9])
+            try:
+                rollback = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
+                if rollback.returncode != 0:
+                    logger.error("Auto-update: rollback after exception failed. %s", rollback.stderr.strip())
+            except Exception:
+                logger.error("Auto-update: rollback after exception raised.", exc_info=True)
+        # Only a post-fetch failure counts as a network failure (FETCH_FAILED,
+        # which writes the throttle stamp); a pre-fetch local-op failure stays
+        # pre-network (NO_GIT) so it does not suppress the next real attempt.
+        logger.warning("Auto-update: a git operation failed; serving current code.")
         return UpdateStatus.FETCH_FAILED if network_reached else UpdateStatus.NO_GIT
 
 
