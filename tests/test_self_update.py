@@ -175,6 +175,19 @@ def test_skip_on_diverged(repos, recorder):
     assert _head(repos.local) != _head(repos.upstream)
 
 
+def test_skip_when_ahead_only(repos, recorder):
+    # Local has a commit the remote lacks and the remote has nothing new
+    # (ahead>0, behind==0): must skip, not report UP_TO_DATE, and not reindex.
+    _commit(repos.local, "local-only.txt", "local\n", "local only")
+    ahead_head = _head(repos.local)
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+
+    assert status == UpdateStatus.SKIPPED_AHEAD
+    assert recorder.calls == []
+    assert _head(repos.local) == ahead_head  # untouched
+
+
 def test_fetch_failure_is_fail_open(repos, recorder):
     # Clean tree, correct branch, but a bogus remote -> fetch fails, no raise.
     status = check_and_apply_update(

@@ -64,6 +64,7 @@ class UpdateStatus:
     FETCH_FAILED = "FETCH_FAILED"
     UP_TO_DATE = "UP_TO_DATE"
     SKIPPED_DIVERGED = "SKIPPED_DIVERGED"
+    SKIPPED_AHEAD = "SKIPPED_AHEAD"
     MERGE_FAILED = "MERGE_FAILED"
     REINDEX_FAILED = "REINDEX_FAILED"
     UPDATED = "UPDATED"
@@ -307,6 +308,9 @@ def check_and_apply_update(
         logger.info("Auto-update: %s is not a git work tree; skipping.", repo_root)
         return UpdateStatus.NO_GIT
 
+    # Tracks whether we reached the network (fetch). A timeout before that point
+    # is a local-op failure that must not write the throttle stamp.
+    network_reached = False
     try:
         # Step 2 — branch guard: only act on the target branch.
         cur = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root, git_timeout)
@@ -337,6 +341,7 @@ def check_and_apply_update(
 
         # Step 4 — fetch the target branch.
         try:
+            network_reached = True
             fetch = _run_git(["fetch", remote, branch], repo_root, git_timeout)
         except subprocess.TimeoutExpired:
             logger.warning("Auto-update: git fetch timed out after %ds; serving current code.", git_timeout)
@@ -365,15 +370,18 @@ def check_and_apply_update(
         except ValueError:
             logger.warning("Auto-update: unexpected rev-list output %r; skipping.", counts.stdout)
             return UpdateStatus.FETCH_FAILED
+        if ahead > 0:
+            # Local has commits the remote lacks: diverged (when also behind) or
+            # purely ahead. Either way, never fast-forward over local work.
+            outcome = UpdateStatus.SKIPPED_DIVERGED if behind > 0 else UpdateStatus.SKIPPED_AHEAD
+            logger.info(
+                "Auto-update: local branch has unpushed commits vs %s (ahead %d, behind %d); skipping.",
+                remote_ref, ahead, behind,
+            )
+            return outcome
         if behind == 0:
             logger.info("Auto-update: already up to date with %s.", remote_ref)
             return UpdateStatus.UP_TO_DATE
-        if ahead > 0:
-            logger.info(
-                "Auto-update: local branch diverged from %s (ahead %d, behind %d); skipping.",
-                remote_ref, ahead, behind,
-            )
-            return UpdateStatus.SKIPPED_DIVERGED
 
         # Step 6 — fast-forward only.
         merge = _run_git(["merge", "--ff-only", "FETCH_HEAD"], repo_root, git_timeout)
@@ -413,10 +421,13 @@ def check_and_apply_update(
         _write_state(UpdateStatus.UPDATED, old_sha, new_sha)
         return UpdateStatus.UPDATED
     except subprocess.TimeoutExpired:
-        # A local git op should not time out under the budget; if one does the
-        # system is in a bad state — fail open rather than crash the thread.
+        # A git op should not time out under the budget; if one does, the system
+        # is in a bad state, so fail open rather than crash the thread. Only a
+        # post-fetch timeout is a network failure (FETCH_FAILED, which writes the
+        # throttle stamp); a pre-fetch local-op timeout stays pre-network (NO_GIT)
+        # so it does not suppress the next real attempt.
         logger.warning("Auto-update: a git operation timed out; serving current code.")
-        return UpdateStatus.FETCH_FAILED
+        return UpdateStatus.FETCH_FAILED if network_reached else UpdateStatus.NO_GIT
 
 
 # --- Background orchestration -------------------------------------------------
