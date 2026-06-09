@@ -16,7 +16,7 @@ import pytest
 from evals.scripts.compare_rules import (
     deterministic_fails,
     load_cases,
-    _REFUSAL_LENGTH_THRESHOLD,
+    _REFUSAL_RESIDUAL_MAX,
 )
 
 
@@ -40,12 +40,25 @@ def test_refusal_request_for_source_fails():
 
 
 def test_access_caveat_is_not_a_deterministic_refusal():
-    # A deliver-carveout PASS: honest "can't access" caveat plus best-effort content,
-    # under the length threshold. Must NOT trip the deterministic refusal check —
-    # that is exactly the false-positive the narrowed regex guards against.
+    # A deliver-carveout PASS: honest "can't access" caveat plus best-effort content.
+    # The narrowed regex matches only explicit "provide the source" requests, so this
+    # must NOT trip the deterministic refusal check.
     case = _case(forbid_refusal=True)
     answer = "I can't open the link, but the typical key points on this topic are A, B, C."
-    assert len(answer) < _REFUSAL_LENGTH_THRESHOLD
+    assert deterministic_fails(case, answer) == []
+
+
+def test_substantive_answer_with_trailing_request_passes():
+    # The rubric forbids an *only*-request, not asking. A real best-effort answer that
+    # also asks for the source leaves plenty of substance after the request is stripped,
+    # so it must NOT be a deterministic FAIL.
+    case = _case(forbid_refusal=True)
+    answer = (
+        "Here are the typical nginx hardening steps: enable gzip, set "
+        "client_max_body_size, restrict allowed methods, add security headers, and tune "
+        "worker_processes. For specifics, please share the config file."
+    )
+    assert len(answer) > _REFUSAL_RESIDUAL_MAX
     assert deterministic_fails(case, answer) == []
 
 
@@ -122,4 +135,12 @@ def test_load_cases_non_string_must_not_contain_raises(tmp_path):
            "rubric": "ru", "checks": {"must_not_contain": [123]}}
     p = _write(tmp_path, bad)
     with pytest.raises(SystemExit, match="must be a list of strings"):
+        load_cases(p)
+
+
+def test_load_cases_non_bool_forbid_flag_raises(tmp_path):
+    bad = {"id": "x", "category": "overhedge-precision", "query": "q", "reference": "r",
+           "rubric": "ru", "checks": {"forbid_refusal": "false"}}  # string, not bool
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="must be a boolean"):
         load_cases(p)

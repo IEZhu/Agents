@@ -87,9 +87,11 @@ _REFUSAL = re.compile(
     r"пришлите|предоставьте|вышлите)",
     re.IGNORECASE,
 )
-# Responses shorter than this are likely near-empty refusals rather than
-# substantive answers that merely mention an access limitation in passing.
-_REFUSAL_LENGTH_THRESHOLD = 400
+# A near-empty defer is flagged by how much substance is LEFT after removing the
+# request-for-source phrase: the rubric allows asking for the source as long as a
+# best-effort answer is also given, so "answer + polite ask" must not trip. Only
+# when little remains (mostly just the request) is it a real defer.
+_REFUSAL_RESIDUAL_MAX = 120
 
 
 # --------------------------------------------------------------------------- #
@@ -120,6 +122,9 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
         mnc = checks.get("must_not_contain", [])
         if not isinstance(mnc, list) or not all(isinstance(t, str) for t in mnc):
             raise SystemExit(f"{path}:{lineno}: 'checks.must_not_contain' must be a list of strings")
+        for flag in ("forbid_hedge_markers", "forbid_refusal"):
+            if flag in checks and not isinstance(checks[flag], bool):
+                raise SystemExit(f"{path}:{lineno}: 'checks.{flag}' must be a boolean")
         # Prompts and results are keyed by case id; a duplicate would silently
         # overwrite a case and corrupt the A/B report. Fail fast instead.
         if case["id"] in seen_ids:
@@ -204,8 +209,10 @@ def deterministic_fails(case: dict[str, Any], answer: str) -> list[str]:
             fails.append(f"contains known-wrong token: {tok!r}")
     if checks.get("forbid_hedge_markers") and _HEDGE_MARKERS.search(answer):
         fails.append("hedge/verify marker applied to settled common knowledge")
-    if checks.get("forbid_refusal") and _REFUSAL.search(answer) and len(answer) < _REFUSAL_LENGTH_THRESHOLD:
-        fails.append("near-empty refusal / defer instead of best-effort")
+    if checks.get("forbid_refusal") and _REFUSAL.search(answer):
+        residual = _REFUSAL.sub(" ", answer).strip()
+        if len(residual) < _REFUSAL_RESIDUAL_MAX:
+            fails.append("near-empty refusal / defer instead of best-effort")
     return fails
 
 
