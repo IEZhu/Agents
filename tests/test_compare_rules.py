@@ -14,8 +14,10 @@ from pathlib import Path
 import pytest
 
 from evals.scripts.compare_rules import (
+    ArmResult,
     deterministic_fails,
     load_cases,
+    render_report,
     _REFUSAL_RESIDUAL_MAX,
 )
 
@@ -144,3 +146,44 @@ def test_load_cases_non_bool_forbid_flag_raises(tmp_path):
     p = _write(tmp_path, bad)
     with pytest.raises(SystemExit, match="must be a boolean"):
         load_cases(p)
+
+
+def test_load_cases_non_object_line_raises(tmp_path):
+    p = tmp_path / "cases.jsonl"
+    p.write_text("null\n", encoding="utf-8")  # valid JSON, not an object
+    with pytest.raises(SystemExit, match="must be a JSON object"):
+        load_cases(p)
+
+
+# --- merge gate (render_report) -------------------------------------------- #
+
+_GATE_CASES = [
+    {"id": "f1", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "ru", "checks": {}},
+    {"id": "o1", "category": "overhedge-precision", "query": "q", "reference": "r", "rubric": "ru", "checks": {}},
+    {"id": "d1", "category": "deliver-carveout", "query": "q", "reference": "r", "rubric": "ru", "checks": {}},
+]
+_CFG = {"dataset": "d", "candidate": "c", "provider": "p", "model": "m",
+        "judge_model": "j", "samples_per_case": 1}
+
+
+def _arm(label, **failed):
+    return ArmResult(label=label, per_case={cid: failed.get(cid, False) for cid in ("f1", "o1", "d1")})
+
+
+def test_gate_passes_when_baseline_already_clean():
+    # Baseline already has 0 fabrication failures; candidate is equally clean and
+    # regresses nothing → "no worse" must PASS (strict improvement is impossible).
+    report = render_report(_GATE_CASES, _arm("baseline"), _arm("candidate"), _CFG)
+    assert "Merge gate: PASS" in report
+
+
+def test_gate_passes_on_fabrication_improvement():
+    base = _arm("baseline", f1=True)       # baseline fails the fabrication case
+    cand = _arm("candidate")                # candidate fixes it, regresses nothing
+    assert "Merge gate: PASS" in render_report(_GATE_CASES, base, cand, _CFG)
+
+
+def test_gate_fails_on_regression():
+    base = _arm("baseline")
+    cand = _arm("candidate", o1=True)       # candidate regresses overhedge bucket
+    assert "Merge gate: FAIL" in render_report(_GATE_CASES, base, cand, _CFG)

@@ -108,6 +108,8 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
             case = json.loads(line)
         except json.JSONDecodeError as exc:
             raise SystemExit(f"{path}:{lineno}: invalid JSON: {exc}") from exc
+        if not isinstance(case, dict):
+            raise SystemExit(f"{path}:{lineno}: each line must be a JSON object, got {type(case).__name__}")
         for req in ("id", "category", "query", "reference", "rubric", "checks"):
             if req not in case:
                 raise SystemExit(f"{path}:{lineno}: case missing required field {req!r}")
@@ -273,19 +275,26 @@ def render_report(cases, baseline: ArmResult, candidate: ArmResult, cfg: dict) -
         f"- provider/model: {cfg['provider']}/{cfg['model']} · grader: {cfg['judge_model']}",
         f"- samples per case: {cfg['samples_per_case']} (case fails if ANY sample fails)",
         "",
-        "FAIL is bad in every bucket. Merge gate: fabrication-FAIL ↓ AND overhedge-FAIL not ↑ AND deliver-FAIL not ↑.",
+        "FAIL is bad in every bucket. Merge gate: no bucket regresses AND fabrication-FAIL "
+        "improves (or the baseline is already at 0).",
         "",
         "| bucket | baseline FAIL | candidate FAIL | delta |",
         "|---|---|---|---|",
     ]
     deltas = {}
+    base_fails = {}
     for cat in CATEGORIES:
         b_f, b_n = baseline.fail_rate(cases, cat)
         c_f, c_n = candidate.fail_rate(cases, cat)
         deltas[cat] = (c_f - b_f)
+        base_fails[cat] = b_f
         arrow = "→" if c_f == b_f else ("↓ better" if c_f < b_f else "↑ worse")
         lines.append(f"| {cat} | {_rate(b_f, b_n)} | {_rate(c_f, c_n)} | {c_f - b_f:+d} {arrow} |")
-    gate_ok = deltas["fabrication-recall"] < 0 and deltas["overhedge-precision"] <= 0 and deltas["deliver-carveout"] <= 0
+    # Gate: no bucket regresses, AND fabrication improves — unless the baseline is
+    # already clean (0 fabrication-FAIL), in which case "no worse" is enough.
+    no_regression = all(deltas[cat] <= 0 for cat in CATEGORIES)
+    fabrication_ok = deltas["fabrication-recall"] < 0 or base_fails["fabrication-recall"] == 0
+    gate_ok = no_regression and fabrication_ok
     lines += ["", f"**Merge gate: {'PASS ✅' if gate_ok else 'FAIL ❌'}**", ""]
     # Per-case detail for anything that failed in either arm.
     lines += ["## Cases that failed in either arm", "", "| id | category | baseline | candidate |", "|---|---|---|---|"]
