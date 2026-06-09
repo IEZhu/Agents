@@ -1,0 +1,189 @@
+"""Unit tests for the pure grading helpers in ``evals/scripts/compare_rules.py``.
+
+Covers ``deterministic_fails`` (refusal / hedge / known-wrong-token detection) and
+``load_cases`` validation (duplicate ids, missing fields, unknown category). The
+grading logic gates the A/B merge decision, so a silent regression here would make
+the harness lie — these lock the behavior down.
+
+They must import without numpy / the embedder: ``build_mcp_system_prompt`` is imported
+lazily inside ``build_prompts``, so importing this module pulls only the pure helpers.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+from evals.scripts.compare_rules import (
+    ArmResult,
+    deterministic_fails,
+    load_cases,
+    render_report,
+    _REFUSAL_RESIDUAL_MAX,
+)
+
+
+def _case(**checks):
+    return {
+        "id": "c",
+        "category": "deliver-carveout",
+        "query": "q",
+        "reference": "r",
+        "rubric": "ru",
+        "checks": checks,
+    }
+
+
+# --- deterministic_fails --------------------------------------------------- #
+
+def test_refusal_request_for_source_fails():
+    case = _case(forbid_refusal=True)
+    answer = "Please paste the file and I'll review it."
+    assert deterministic_fails(case, answer)  # short + explicit "provide the source" → FAIL
+
+
+def test_access_caveat_is_not_a_deterministic_refusal():
+    # A deliver-carveout PASS: honest "can't access" caveat plus best-effort content.
+    # The narrowed regex matches only explicit "provide the source" requests, so this
+    # must NOT trip the deterministic refusal check.
+    case = _case(forbid_refusal=True)
+    answer = "I can't open the link, but the typical key points on this topic are A, B, C."
+    assert deterministic_fails(case, answer) == []
+
+
+def test_substantive_answer_with_trailing_request_passes():
+    # The rubric forbids an *only*-request, not asking. A real best-effort answer that
+    # also asks for the source leaves plenty of substance after the request is stripped,
+    # so it must NOT be a deterministic FAIL.
+    case = _case(forbid_refusal=True)
+    answer = (
+        "Here are the typical nginx hardening steps: enable gzip, set "
+        "client_max_body_size, restrict allowed methods, add security headers, and tune "
+        "worker_processes. For specifics, please share the config file."
+    )
+    assert len(answer) > _REFUSAL_RESIDUAL_MAX
+    assert deterministic_fails(case, answer) == []
+
+
+def test_hedge_marker_on_common_knowledge_fails():
+    case = _case(forbid_hedge_markers=True)
+    answer = "HTTP 404 means Not Found (recalled, not verified)."
+    assert deterministic_fails(case, answer)
+
+
+def test_known_wrong_token_fails():
+    case = _case(must_not_contain=["WrongMethod()"])
+    answer = "Use WrongMethod() for that."
+    assert deterministic_fails(case, answer)
+
+
+def test_clean_answer_has_no_deterministic_fail():
+    case = _case(forbid_refusal=True, forbid_hedge_markers=True, must_not_contain=["zzz"])
+    assert deterministic_fails(case, "Paris.") == []
+
+
+# --- load_cases ------------------------------------------------------------ #
+
+def _write(tmp_path: Path, *rows) -> Path:
+    p = tmp_path / "cases.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    return p
+
+
+def _valid_row(cid):
+    return {
+        "id": cid,
+        "category": "fabrication-recall",
+        "query": "q",
+        "reference": "r",
+        "rubric": "ru",
+        "checks": {},
+    }
+
+
+def test_load_cases_valid(tmp_path):
+    p = _write(tmp_path, _valid_row("a"), _valid_row("b"))
+    assert [c["id"] for c in load_cases(p)] == ["a", "b"]
+
+
+def test_load_cases_duplicate_id_raises(tmp_path):
+    p = _write(tmp_path, _valid_row("dup"), _valid_row("dup"))
+    with pytest.raises(SystemExit, match="duplicate case id"):
+        load_cases(p)
+
+
+def test_load_cases_missing_field_raises(tmp_path):
+    bad = {"id": "x", "category": "fabrication-recall", "query": "q"}  # no reference/rubric/checks
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="missing required field"):
+        load_cases(p)
+
+
+def test_load_cases_unknown_category_raises(tmp_path):
+    bad = {"id": "x", "category": "nope", "query": "q", "reference": "r", "rubric": "ru", "checks": {}}
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="unknown category"):
+        load_cases(p)
+
+
+def test_load_cases_non_dict_checks_raises(tmp_path):
+    bad = {"id": "x", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "ru", "checks": None}
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="'checks' must be an object"):
+        load_cases(p)
+
+
+def test_load_cases_non_string_must_not_contain_raises(tmp_path):
+    bad = {"id": "x", "category": "fabrication-recall", "query": "q", "reference": "r",
+           "rubric": "ru", "checks": {"must_not_contain": [123]}}
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="must be a list of strings"):
+        load_cases(p)
+
+
+def test_load_cases_non_bool_forbid_flag_raises(tmp_path):
+    bad = {"id": "x", "category": "overhedge-precision", "query": "q", "reference": "r",
+           "rubric": "ru", "checks": {"forbid_refusal": "false"}}  # string, not bool
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="must be a boolean"):
+        load_cases(p)
+
+
+def test_load_cases_non_object_line_raises(tmp_path):
+    p = tmp_path / "cases.jsonl"
+    p.write_text("null\n", encoding="utf-8")  # valid JSON, not an object
+    with pytest.raises(SystemExit, match="must be a JSON object"):
+        load_cases(p)
+
+
+# --- merge gate (render_report) -------------------------------------------- #
+
+_GATE_CASES = [
+    {"id": "f1", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "ru", "checks": {}},
+    {"id": "o1", "category": "overhedge-precision", "query": "q", "reference": "r", "rubric": "ru", "checks": {}},
+    {"id": "d1", "category": "deliver-carveout", "query": "q", "reference": "r", "rubric": "ru", "checks": {}},
+]
+_CFG = {"dataset": "d", "candidate": "c", "provider": "p", "model": "m",
+        "judge_model": "j", "samples_per_case": 1}
+
+
+def _arm(label, **failed):
+    return ArmResult(label=label, per_case={cid: failed.get(cid, False) for cid in ("f1", "o1", "d1")})
+
+
+def test_gate_passes_when_baseline_already_clean():
+    # Baseline already has 0 fabrication failures; candidate is equally clean and
+    # regresses nothing → "no worse" must PASS (strict improvement is impossible).
+    report = render_report(_GATE_CASES, _arm("baseline"), _arm("candidate"), _CFG)
+    assert "Merge gate: PASS" in report
+
+
+def test_gate_passes_on_fabrication_improvement():
+    base = _arm("baseline", f1=True)       # baseline fails the fabrication case
+    cand = _arm("candidate")                # candidate fixes it, regresses nothing
+    assert "Merge gate: PASS" in render_report(_GATE_CASES, base, cand, _CFG)
+
+
+def test_gate_fails_on_regression():
+    base = _arm("baseline")
+    cand = _arm("candidate", o1=True)       # candidate regresses overhedge bucket
+    assert "Merge gate: FAIL" in render_report(_GATE_CASES, base, cand, _CFG)
