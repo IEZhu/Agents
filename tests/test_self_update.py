@@ -5,6 +5,7 @@ injected as a recorder, so no embedding model is ever loaded. Not marked slow.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,10 @@ import pytest
 
 from src import self_update
 from src.self_update import UpdateStatus, check_and_apply_update
+
+# These tests shell out to the real `git` CLI; skip cleanly where it's absent
+# (minimal CI sandboxes, some Windows runners) instead of erroring the suite.
+pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git CLI not available")
 
 
 # --- git fixture helpers -----------------------------------------------------
@@ -101,6 +106,42 @@ def test_reindex_failure_rolls_back(repos):
 
     assert status == UpdateStatus.REINDEX_FAILED
     assert _head(repos.local) == old  # rolled back to the pre-merge commit
+
+
+def test_reindex_failure_rollback_removes_added_file(repos):
+    # The pulled update ADDS a new path. git reset --hard must remove it and
+    # leave a clean tree (covers the added-file rollback case, not just edits).
+    (repos.upstream / "newdir").mkdir()
+    _commit(repos.upstream, "newdir/added.txt", "added\n", "add new file")
+    old = _head(repos.local)
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=lambda rr: False)
+
+    assert status == UpdateStatus.REINDEX_FAILED
+    assert _head(repos.local) == old
+    assert not (repos.local / "newdir" / "added.txt").exists()
+    assert _git(repos.local, "status", "--porcelain").stdout.strip() == ""
+
+
+def test_reindex_exception_triggers_rollback(repos):
+    # A reindex that *raises* (not just returns False) must still roll back.
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+
+    def boom(repo_root):
+        raise RuntimeError("reindex crashed")
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=boom)
+
+    assert status == UpdateStatus.REINDEX_FAILED
+    assert _head(repos.local) == old
+
+
+def test_bad_remote_or_branch_is_skipped(repos, recorder):
+    # A remote/branch starting with '-' would be argument injection; refuse early.
+    status = check_and_apply_update(str(repos.local), "-x", "main", reindex_fn=recorder)
+    assert status == UpdateStatus.SKIPPED_BAD_CONFIG
+    assert recorder.calls == []
 
 
 def test_skip_on_wrong_branch(repos, recorder):

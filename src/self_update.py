@@ -58,6 +58,7 @@ class UpdateStatus:
     """Outcome of one :func:`check_and_apply_update` run (string constants)."""
 
     NO_GIT = "NO_GIT"
+    SKIPPED_BAD_CONFIG = "SKIPPED_BAD_CONFIG"
     SKIPPED_WRONG_BRANCH = "SKIPPED_WRONG_BRANCH"
     SKIPPED_DIRTY = "SKIPPED_DIRTY"
     FETCH_FAILED = "FETCH_FAILED"
@@ -72,7 +73,12 @@ class UpdateStatus:
 # stamp for these, so a wrong-branch / dirty skip never delays a later
 # legitimate check (the branch guard is local and instant).
 _PRE_NETWORK_STATUSES = frozenset(
-    {UpdateStatus.NO_GIT, UpdateStatus.SKIPPED_WRONG_BRANCH, UpdateStatus.SKIPPED_DIRTY}
+    {
+        UpdateStatus.NO_GIT,
+        UpdateStatus.SKIPPED_BAD_CONFIG,
+        UpdateStatus.SKIPPED_WRONG_BRANCH,
+        UpdateStatus.SKIPPED_DIRTY,
+    }
 )
 
 
@@ -84,6 +90,7 @@ try:  # pragma: no cover - platform-specific
     import fcntl as _fcntl
 
     def _try_lock(fh) -> bool:
+        """Acquire an exclusive non-blocking lock; return False if already held."""
         try:
             _fcntl.flock(fh.fileno(), _fcntl.LOCK_EX | _fcntl.LOCK_NB)
             return True
@@ -91,6 +98,7 @@ try:  # pragma: no cover - platform-specific
             return False
 
     def _unlock(fh) -> None:
+        """Release the lock held on *fh* (best effort)."""
         try:
             _fcntl.flock(fh.fileno(), _fcntl.LOCK_UN)
         except OSError:
@@ -98,9 +106,11 @@ try:  # pragma: no cover - platform-specific
 
 except ImportError:  # pragma: no cover - Windows
     def _try_lock(fh) -> bool:
+        """No-op lock on platforms without fcntl; always reports success."""
         return True
 
     def _unlock(fh) -> None:
+        """No-op unlock on platforms without fcntl."""
         return None
 
 
@@ -119,6 +129,16 @@ def _process_lock(path: str):
 
 
 # --- git / reindex helpers ---------------------------------------------------
+
+def _is_safe_arg(value: str) -> bool:
+    """True if *value* is a non-empty token git won't mistake for an option.
+
+    Guards against argument injection when a remote or branch name (sourced from
+    AGENTS_AUTO_UPDATE_REMOTE / _BRANCH) begins with ``-`` and git would parse it
+    as a flag rather than a positional argument.
+    """
+    return bool(value) and not value.startswith("-")
+
 
 def _run_git(args, cwd: str, timeout: int) -> subprocess.CompletedProcess:
     """Run ``git <args>`` capturing output. Does not raise on non-zero exit.
@@ -191,6 +211,7 @@ def _warn_if_deps_changed(repo_root: str, old_sha: str, new_sha: str, timeout: i
 # --- State + throttle persistence --------------------------------------------
 
 def _write_state(status: str, old_sha: str, new_sha: str) -> None:
+    """Atomically persist the latest update outcome to ``STATE_FILE``."""
     payload = {
         "status": status,
         "old_sha": old_sha,
@@ -226,6 +247,7 @@ def log_last_update() -> None:
 
 
 def _recently_checked(interval: int) -> bool:
+    """True if the throttle stamp was written within the last *interval* seconds."""
     if interval <= 0:
         return False
     try:
@@ -235,6 +257,7 @@ def _recently_checked(interval: int) -> bool:
 
 
 def _touch_check_stamp() -> None:
+    """Record 'now' as the time of the last network check (for throttling)."""
     try:
         os.makedirs(os.path.dirname(CHECK_STAMP) or ".", exist_ok=True)
         with open(CHECK_STAMP, "w", encoding="utf-8") as f:
@@ -261,6 +284,15 @@ def check_and_apply_update(
     ``python -m src.reindex``. Returns an :class:`UpdateStatus` value.
     """
     reindex = reindex_fn or (lambda rr: _run_reindex(rr, reindex_timeout))
+
+    # Step 0 — reject config values git could misread as options (argument
+    # injection via AGENTS_AUTO_UPDATE_REMOTE / _BRANCH starting with '-').
+    if not (_is_safe_arg(remote) and _is_safe_arg(branch)):
+        logger.warning(
+            "Auto-update: refusing unsafe remote/branch (%r / %r); skipping.",
+            remote, branch,
+        )
+        return UpdateStatus.SKIPPED_BAD_CONFIG
 
     # Step 1 — git available and repo_root is a work tree.
     try:
@@ -298,6 +330,10 @@ def check_and_apply_update(
 
         head = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         old_sha = head.stdout.strip() if head.returncode == 0 else ""
+        if not old_sha:
+            # Without a baseline commit we cannot roll back, so refuse to mutate.
+            logger.warning("Auto-update: could not resolve current HEAD; skipping.")
+            return UpdateStatus.NO_GIT
 
         # Step 4 — fetch the target branch.
         try:
@@ -351,7 +387,14 @@ def check_and_apply_update(
         _warn_if_deps_changed(repo_root, old_sha, new_sha, git_timeout)
 
         # Step 7 — rebuild the vector stores with the new code; roll back on failure.
-        if not reindex(repo_root):
+        # reindex_fn may raise (injected fns, unexpected errors); treat any raise
+        # as a failure so the rollback below always runs.
+        try:
+            reindex_ok = bool(reindex(repo_root))
+        except Exception:
+            logger.error("Auto-update: reindex raised; treating as failure.", exc_info=True)
+            reindex_ok = False
+        if not reindex_ok:
             logger.error("Auto-update: reindex failed; rolling back to %s.", old_sha[:9])
             rollback = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
             if rollback.returncode != 0:
