@@ -1126,4 +1126,12 @@ def _warmup_rules():
 if __name__ == "__main__":
     _warmup_embedding_model()
     _warmup_rules()
+    # Background self-update: fast-forwards the install's git repo and rebuilds
+    # the vector stores in a daemon thread WITHOUT blocking startup; the pulled
+    # code takes effect on the next start. No-op unless on the target branch.
+    # See src/self_update.py. Started after warmup so the hot path is already
+    # imported and the reindex subprocess doesn't contend for the model load.
+    from src.self_update import log_last_update, start_background_update
+    log_last_update()
+    start_background_update()
     mcp.run()

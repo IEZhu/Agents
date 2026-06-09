@@ -1,0 +1,237 @@
+"""Tests for the background self-updater (src/self_update.py).
+
+Fast by design: real temporary git repos (git is quick) but the reindex step is
+injected as a recorder, so no embedding model is ever loaded. Not marked slow.
+"""
+
+import os
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from src import self_update
+from src.self_update import UpdateStatus, check_and_apply_update
+
+
+# --- git fixture helpers -----------------------------------------------------
+
+def _git(cwd, *args, check=True):
+    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed in {cwd}: {r.stderr}")
+    return r
+
+
+def _init_repo(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    _git(path, "init", "-q")
+    # Pin the initial branch to 'main' portably (no reliance on init.defaultBranch).
+    _git(path, "symbolic-ref", "HEAD", "refs/heads/main")
+    _git(path, "config", "user.email", "test@example.com")
+    _git(path, "config", "user.name", "Test")
+    _git(path, "config", "commit.gpgsign", "false")
+    return path
+
+
+def _commit(path: Path, filename: str, content: str, msg: str):
+    (path / filename).write_text(content)
+    _git(path, "add", "-A")
+    _git(path, "commit", "-q", "-m", msg)
+
+
+def _head(path) -> str:
+    return _git(path, "rev-parse", "HEAD").stdout.strip()
+
+
+@pytest.fixture
+def repos(tmp_path):
+    """An 'upstream' repo on main with one commit, plus a 'local' clone of it."""
+    upstream = _init_repo(tmp_path / "upstream")
+    _commit(upstream, "file.txt", "v1\n", "init")
+    local = tmp_path / "local"
+    _git(tmp_path, "clone", "-q", str(upstream), str(local))
+    _git(local, "config", "user.email", "test@example.com")
+    _git(local, "config", "user.name", "Test")
+    _git(local, "config", "commit.gpgsign", "false")
+    return SimpleNamespace(upstream=upstream, local=local)
+
+
+@pytest.fixture
+def recorder():
+    calls = []
+
+    def fn(repo_root):
+        calls.append(repo_root)
+        return True
+
+    fn.calls = calls
+    return fn
+
+
+# --- check_and_apply_update: the state machine -------------------------------
+
+def test_up_to_date_no_reindex(repos, recorder):
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+    assert status == UpdateStatus.UP_TO_DATE
+    assert recorder.calls == []
+
+
+def test_fast_forward_applies_and_reindexes(repos, recorder):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+
+    assert status == UpdateStatus.UPDATED
+    new = _head(repos.local)
+    assert new == _head(repos.upstream)  # fast-forwarded to upstream tip
+    assert new != old
+    assert recorder.calls == [str(repos.local)]  # reindex ran against the repo
+
+
+def test_reindex_failure_rolls_back(repos):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+
+    status = check_and_apply_update(
+        str(repos.local), "origin", "main", reindex_fn=lambda rr: False
+    )
+
+    assert status == UpdateStatus.REINDEX_FAILED
+    assert _head(repos.local) == old  # rolled back to the pre-merge commit
+
+
+def test_skip_on_wrong_branch(repos, recorder):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    _git(repos.local, "checkout", "-q", "-b", "feature")
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+
+    assert status == UpdateStatus.SKIPPED_WRONG_BRANCH
+    assert recorder.calls == []
+
+
+def test_skip_on_dirty_tree(repos, recorder):
+    (repos.local / "file.txt").write_text("uncommitted change\n")
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+
+    assert status == UpdateStatus.SKIPPED_DIRTY
+    assert recorder.calls == []
+
+
+def test_skip_on_diverged(repos, recorder):
+    _commit(repos.upstream, "file.txt", "remote-change\n", "remote")
+    _commit(repos.local, "other.txt", "local-change\n", "local")
+
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder)
+
+    assert status == UpdateStatus.SKIPPED_DIVERGED
+    assert recorder.calls == []
+    # local commit is preserved
+    assert _head(repos.local) != _head(repos.upstream)
+
+
+def test_fetch_failure_is_fail_open(repos, recorder):
+    # Clean tree, correct branch, but a bogus remote -> fetch fails, no raise.
+    status = check_and_apply_update(
+        str(repos.local), "no-such-remote", "main", reindex_fn=recorder
+    )
+    assert status == UpdateStatus.FETCH_FAILED
+    assert recorder.calls == []
+
+
+def test_not_a_git_tree(tmp_path, recorder):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    status = check_and_apply_update(str(plain), "origin", "main", reindex_fn=recorder)
+    assert status == UpdateStatus.NO_GIT
+    assert recorder.calls == []
+
+
+# --- start_background_update / _run_update_safely: orchestration -------------
+
+def test_disabled_spawns_no_thread(monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", False)
+    assert self_update.start_background_update() is None
+
+
+def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    calls = []
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda: calls.append(1) or UpdateStatus.UP_TO_DATE)
+
+    thread = self_update.start_background_update()
+    assert thread is not None
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert calls == [1]
+
+
+def test_throttle_skips_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 9999)
+    self_update._touch_check_stamp()  # fresh stamp -> within the window
+    calls = []
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda: calls.append(1) or UpdateStatus.UP_TO_DATE)
+
+    self_update._run_update_safely()
+    assert calls == []  # throttled before any check
+
+
+def test_lock_contention_skips_check(tmp_path, monkeypatch):
+    fcntl = pytest.importorskip("fcntl")
+    lock = str(tmp_path / ".update.lock")
+    monkeypatch.setattr(self_update, "LOCK_FILE", lock)
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    calls = []
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda: calls.append(1) or UpdateStatus.UP_TO_DATE)
+
+    holder = open(lock, "w")
+    fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        self_update._run_update_safely()
+    finally:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+        holder.close()
+
+    assert calls == []  # another holder -> skipped
+
+
+def test_wrong_branch_does_not_write_throttle_stamp(repos, tmp_path, monkeypatch):
+    # A pre-network skip must not stamp the throttle, so a later on-branch check
+    # is never delayed.
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    stamp = tmp_path / ".check"
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(stamp))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda: UpdateStatus.SKIPPED_WRONG_BRANCH)
+
+    self_update._run_update_safely()
+    assert not stamp.exists()
+
+
+# --- state file round-trip ---------------------------------------------------
+
+def test_state_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / ".last_update.json"))
+    self_update._write_state(UpdateStatus.UPDATED, "a" * 40, "b" * 40)
+    assert os.path.exists(self_update.STATE_FILE)
+    # Must not raise on a present, well-formed file.
+    self_update.log_last_update()
+
+
+def test_log_last_update_missing_file_is_silent(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / "does-not-exist.json"))
+    self_update.log_last_update()  # no exception

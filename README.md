@@ -57,6 +57,35 @@ AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 
 > **Note**: Embeddings are handled locally by `fastembed` (ONNX Runtime). Model is selected during setup — no external API key is required for core routing.
 
+### Background Auto-Update
+
+The server can keep itself current. On startup a daemon thread (non-blocking, so it
+never delays serving) fast-forwards the install's own git repo and rebuilds the vector
+stores; the pulled code takes effect on the **next** start (for per-session stdio
+servers, the next spawn). The heavy reindex runs in the background of the current
+session so the next one starts fast.
+
+It is **safe by default**:
+
+- acts **only** when the checked-out branch is `AGENTS_AUTO_UPDATE_BRANCH` (default
+  `main`) — a **no-op on feature branches**, so local development is never touched;
+- only when the working tree is clean, and only **fast-forward** (never merge, rebase,
+  or switch branches);
+- a failed reindex (e.g. broken new code) is **rolled back** to the previous commit;
+- any error (offline, lock held by another process, timeout) is logged and the server
+  keeps serving the current code. Dependencies are **not** auto-installed.
+
+```env
+AGENTS_AUTO_UPDATE=1                     # 0 to disable
+AGENTS_AUTO_UPDATE_REMOTE=origin
+AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
+AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
+AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
+AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600
+```
+
+Run a manual rebuild any time with `python -m src.reindex`.
+
 ---
 
 ## 🎯 How It Works
