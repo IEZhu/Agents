@@ -11,8 +11,8 @@ the TYPE of claim, not on how sure you feel.
 
 In scope: load-bearing specifics that could plausibly be wrong — API / method names
 and signatures, version numbers, CLI flags, config keys, paths, numbers / benchmarks,
-quotes, citations, URLs. Settled common knowledge (`open()` reads a file, 404 = not
-found) is stated plainly — don't tag it.
+quotes, citations, URLs. Settled common knowledge (`len()` returns an object's
+length, 404 = not found) is stated plainly — don't tag it.
 
 For an in-scope specific, regardless of confidence:
 - Assert it as fact only if you confirmed it THIS turn — read it, ran it, opened the

@@ -108,3 +108,18 @@ def test_load_cases_unknown_category_raises(tmp_path):
     p = _write(tmp_path, bad)
     with pytest.raises(SystemExit, match="unknown category"):
         load_cases(p)
+
+
+def test_load_cases_non_dict_checks_raises(tmp_path):
+    bad = {"id": "x", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "ru", "checks": None}
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="'checks' must be an object"):
+        load_cases(p)
+
+
+def test_load_cases_non_string_must_not_contain_raises(tmp_path):
+    bad = {"id": "x", "category": "fabrication-recall", "query": "q", "reference": "r",
+           "rubric": "ru", "checks": {"must_not_contain": [123]}}
+    p = _write(tmp_path, bad)
+    with pytest.raises(SystemExit, match="must be a list of strings"):
+        load_cases(p)

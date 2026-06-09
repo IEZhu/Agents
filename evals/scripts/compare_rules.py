@@ -111,6 +111,15 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
                 raise SystemExit(f"{path}:{lineno}: case missing required field {req!r}")
         if case["category"] not in CATEGORIES:
             raise SystemExit(f"{path}:{lineno}: unknown category {case['category']!r}")
+        # Validate the shape of `checks` so a malformed dataset fails fast here
+        # rather than crashing later inside deterministic_fails (e.g. checks=null,
+        # or a non-string in must_not_contain calling .lower()).
+        checks = case["checks"]
+        if not isinstance(checks, dict):
+            raise SystemExit(f"{path}:{lineno}: 'checks' must be an object, got {type(checks).__name__}")
+        mnc = checks.get("must_not_contain", [])
+        if not isinstance(mnc, list) or not all(isinstance(t, str) for t in mnc):
+            raise SystemExit(f"{path}:{lineno}: 'checks.must_not_contain' must be a list of strings")
         # Prompts and results are keyed by case id; a duplicate would silently
         # overwrite a case and corrupt the A/B report. Fail fast instead.
         if case["id"] in seen_ids:
