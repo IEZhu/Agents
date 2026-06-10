@@ -133,6 +133,26 @@ def _float_env(name: str, default: float, lo: float = 0.0, hi: float = 1.0) -> f
     return value
 
 
+def _int_env(name: str, default: int, lo: int = 0, hi: Optional[int] = None) -> int:
+    """Parse an int from an env var, falling back to *default* on bad values or out-of-range.
+
+    Mirrors :func:`_float_env`; ``hi=None`` means no upper bound (used for
+    timeouts / intervals that have no natural ceiling).
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid value for %s=%r, using default %d", name, raw, default)
+        return default
+    if value < lo or (hi is not None and value > hi):
+        logger.warning("Out-of-range value for %s=%d, using default %d", name, value, default)
+        return default
+    return value
+
+
 ROUTER_SIMILARITY_THRESHOLD = _float_env("ROUTER_SIMILARITY_THRESHOLD", 0.95)
 # Sticky agent: auto-switch to a different agent without LLM if cosine distance
 # is below this value. Intentionally tighter than the router's distance cutoff
@@ -165,6 +185,25 @@ AGENTS_DEBUG = os.getenv("AGENTS_DEBUG", "").lower() in ("1", "true")
 # Rules layer — universal directives loaded into every enriched prompt.
 # Disable with RULES_ENABLED=0 to compare behavior with/without the layer.
 RULES_ENABLED = os.getenv("RULES_ENABLED", "1").lower() in ("1", "true")
+
+# --- Auto-update (background self-update) ------------------------------------
+# The server can keep itself current by pulling its own git repo (INSTALL_ROOT)
+# in a daemon thread at startup — non-blocking — and rebuilding the vector
+# stores; the new code takes effect on the *next* start. It acts ONLY when the
+# checked-out branch is AUTO_UPDATE_BRANCH and the tree is clean, fast-forward
+# only. On any other branch (feature branches / local development) it is a
+# no-op. Opt out with AGENTS_AUTO_UPDATE=0.
+AUTO_UPDATE_ENABLED = os.getenv("AGENTS_AUTO_UPDATE", "1").lower() in ("1", "true")
+AUTO_UPDATE_REMOTE = os.getenv("AGENTS_AUTO_UPDATE_REMOTE", "origin")
+AUTO_UPDATE_BRANCH = os.getenv("AGENTS_AUTO_UPDATE_BRANCH", "main")
+# Seconds allotted to each git CLI/network op (status/fetch/merge/...).
+AUTO_UPDATE_GIT_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_TIMEOUT", 30, lo=1)
+# Throttle: skip the network fetch if the last check was within this many
+# seconds (stdio servers respawn frequently). 0 disables throttling.
+AUTO_UPDATE_MIN_INTERVAL = _int_env("AGENTS_AUTO_UPDATE_INTERVAL", 900, lo=0)
+# The reindex subprocess loads the embedding model and re-embeds all .mdc
+# files, so it needs a generous ceiling.
+AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 600, lo=1)
 
 # --- Deprecated name aliases (PEP 562) ---------------------------------------
 # Issue #36: `REPO_ROOT`/`DATA_DIR`/`DEBUG_LOG_DIR` used to conflate the Agents
