@@ -204,6 +204,19 @@ AUTO_UPDATE_MIN_INTERVAL = _int_env("AGENTS_AUTO_UPDATE_INTERVAL", 900, lo=0)
 # The reindex subprocess loads the embedding model and re-embeds all .mdc
 # files, so it needs a generous ceiling.
 AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 600, lo=1)
+# Two-phase staged update (the default). When on, the background daemon does NOT
+# mutate the live install: it prepares the new version + freshly-built indexes in
+# an isolated git worktree under AUTO_UPDATE_STAGING_DIR and writes a marker; the
+# next start activates it with a fast local ff-merge + atomic file move (see
+# src/self_update.py, Phase A/B). Set to 0 to fall back to the legacy in-place
+# fast-forward+reindex path (check_and_apply_update).
+AUTO_UPDATE_STAGING = os.getenv("AGENTS_AUTO_UPDATE_STAGING", "1").lower() in ("1", "true")
+# Parent dir for per-sha staging worktrees. MUST share a filesystem with
+# INSTALL_DATA_DIR so the activation move (os.replace) is atomic; under data/
+# (gitignored) by default so it never dirties the live tree.
+AUTO_UPDATE_STAGING_DIR = os.getenv(
+    "AGENTS_AUTO_UPDATE_STAGING_DIR", os.path.join(INSTALL_DATA_DIR, ".prepared")
+)
 
 # --- Deprecated name aliases (PEP 562) ---------------------------------------
 # Issue #36: `REPO_ROOT`/`DATA_DIR`/`DEBUG_LOG_DIR` used to conflate the Agents
