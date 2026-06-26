@@ -25,6 +25,7 @@ preferred_skills:
 - skill-decision-frameworks
 - skill-consultative-intake
 capable_skills:
+- skill-web-search
 - skill-purchase-research
 - skill-fact-verification
 - skill-source-trust-tiers

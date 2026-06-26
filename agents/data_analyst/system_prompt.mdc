@@ -24,6 +24,7 @@ core_skills:
 - skill-content-structure
 - skill-analysis-critical
 preferred_skills:
+- skill-web-search
 - skill-reasoning-logic
 - skill-dense-summarization
 - skill-caveman-tokenomics

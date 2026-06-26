@@ -42,6 +42,7 @@ core_skills:
 - skill-content-structure
 - skill-system-design
 preferred_skills:
+- skill-web-search
 - skill-dev-debugging
 - skill-dev-clean-code
 - skill-analysis-critical

@@ -21,6 +21,7 @@ preferred_skills:
 - skill-agnotology
 - skill-analysis-critical
 capable_skills:
+- skill-web-search
 - skill-source-trust-tiers
 - skill-temporal-validation
 - skill-decision-frameworks

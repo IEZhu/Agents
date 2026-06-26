@@ -20,6 +20,7 @@ preferred_skills:
 - skill-analysis-critical
 - skill-dense-summarization
 capable_skills:
+- skill-web-search
 - skill-reasoning-logic
 - skill-decision-frameworks
 - skill-epistemic-method
