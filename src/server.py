@@ -24,6 +24,18 @@ logger = logging.getLogger("mcp-server")
 env_path = os.path.join(os.path.dirname(__file__), "../.env")
 dotenv.load_dotenv(env_path)
 
+# ── Phase A: activate a prepared staged update BEFORE the engine imports below.
+# Those imports eagerly construct SemanticRouter()/SkillRetriever()/ImplantRetriever()
+# at module scope, loading the vector stores into memory — so the fast local
+# ff-merge + atomic file move must happen first, here. Guarded by __name__ so a
+# plain ``import src.server`` (tests, the reindex subprocess) has no git side
+# effect; True only when launched as the main module (``python src/server.py`` or
+# ``python -m src.server``). See src/self_update.py (Phase A/B).
+# IMPORTANT: do not move any ``from src.engine...`` import above this block.
+if __name__ == "__main__":
+    from src.self_update import run_activation_safely
+    run_activation_safely()
+
 # Langfuse is optional — server works without keys
 
 from src.engine.router import SemanticRouter, KEYWORD_VETO_ROUTE_REQUIRED
@@ -1126,11 +1138,13 @@ def _warmup_rules():
 if __name__ == "__main__":
     _warmup_embedding_model()
     _warmup_rules()
-    # Background self-update: fast-forwards the install's git repo and rebuilds
-    # the vector stores in a daemon thread WITHOUT blocking startup; the pulled
-    # code takes effect on the next start. No-op unless on the target branch.
-    # See src/self_update.py. Started after warmup so the hot path is already
-    # imported and the reindex subprocess doesn't contend for the model load.
+    # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
+    # prepare the next update — fetch + build the new version's indexes in an
+    # isolated git worktree and write a marker — so the NEXT start activates it via
+    # a fast move (Phase A, at the top of this file). With AGENTS_AUTO_UPDATE_STAGING=0
+    # it falls back to the legacy in-place fast-forward+reindex. No-op unless on the
+    # target branch. Started after warmup so the reindex subprocess doesn't contend
+    # for the model load. See src/self_update.py.
     from src.self_update import log_last_update, start_background_update
     log_last_update()
     start_background_update()

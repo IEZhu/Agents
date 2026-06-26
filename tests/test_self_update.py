@@ -4,6 +4,7 @@ Fast by design: real temporary git repos (git is quick) but the reindex step is
 injected as a recorder, so no embedding model is ever loaded. Not marked slow.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ import pytest
 
 from src import self_update
 from src.self_update import UpdateStatus, check_and_apply_update
+from src.self_update import PreparedStatus, ActivationStatus
 
 # These tests shell out to the real `git` CLI; skip cleanly where it's absent
 # (minimal CI sandboxes, some Windows runners) instead of erroring the suite.
@@ -73,6 +75,41 @@ def recorder():
 
     fn.calls = calls
     return fn
+
+
+# --- staged-store helpers (Phase A/B) ----------------------------------------
+
+# (store_name, hash_file) — mirrors self_update._STAGED_STORES.
+_FAKE_STORES = [("skills_store", ".skills_hash"), ("implants_store", ".implants_hash")]
+
+
+def _write_fake_store_set(data_dir: Path):
+    """Write plausible (but tiny, numpy-free) store files into *data_dir*.
+
+    Mirrors what a real reindex produces: a `<name>.npz`, a `<name>.json` with a
+    `save_version`, and the `.<name>_hash` marker — enough to exercise the move
+    and validation paths without loading the embedding model.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    for i, (name, hash_file) in enumerate(_FAKE_STORES):
+        (data_dir / f"{name}.npz").write_bytes(b"fake-npz-" + name.encode())
+        (data_dir / f"{name}.json").write_text(
+            json.dumps({"save_version": f"ver-{i}", "ids": [], "documents": [], "metadatas": []})
+        )
+        (data_dir / hash_file).write_text(f"hash-{i}")
+
+
+@pytest.fixture
+def staging(tmp_path):
+    """A staging-parent dir + a fake reindex builder that writes store files into
+    <staging>/<sha>/data/ (no embedding model loaded)."""
+    parent = tmp_path / "staging"
+
+    def builder(staging_dir):
+        _write_fake_store_set(Path(staging_dir) / "data")
+        return True
+
+    return SimpleNamespace(parent=str(parent), builder=builder)
 
 
 # --- check_and_apply_update: the state machine -------------------------------
@@ -214,6 +251,7 @@ def test_disabled_spawns_no_thread(monkeypatch):
 
 def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)  # exercise the legacy path
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
@@ -229,6 +267,7 @@ def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
 
 
 def test_throttle_skips_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 9999)
@@ -244,6 +283,7 @@ def test_throttle_skips_check(tmp_path, monkeypatch):
 def test_lock_contention_skips_check(tmp_path, monkeypatch):
     fcntl = pytest.importorskip("fcntl")
     lock = str(tmp_path / ".update.lock")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", lock)
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
@@ -265,6 +305,7 @@ def test_lock_contention_skips_check(tmp_path, monkeypatch):
 def test_wrong_branch_does_not_write_throttle_stamp(repos, tmp_path, monkeypatch):
     # A pre-network skip must not stamp the throttle, so a later on-branch check
     # is never delayed.
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     stamp = tmp_path / ".check"
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(stamp))
@@ -278,6 +319,7 @@ def test_wrong_branch_does_not_write_throttle_stamp(repos, tmp_path, monkeypatch
 
 def test_network_reached_failure_writes_throttle_stamp(tmp_path, monkeypatch):
     # A post-network outcome (e.g. FETCH_FAILED) must write the throttle stamp.
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     stamp = tmp_path / ".check"
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(stamp))
@@ -359,3 +401,446 @@ def test_state_roundtrip(tmp_path, monkeypatch):
 def test_log_last_update_missing_file_is_silent(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / "does-not-exist.json"))
     self_update.log_last_update()  # no exception
+
+
+# --- prepared-update marker I/O (Phase A/B) ----------------------------------
+
+def test_prepared_marker_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    self_update._write_prepared_marker(
+        target_sha="a" * 40,
+        base_sha="b" * 40,
+        branch="main",
+        embedding_model="some-model",
+        staging_dir=str(tmp_path / ".prepared" / ("a" * 40)),
+        stores=["skills_store", "implants_store"],
+    )
+    m = self_update._read_prepared_marker()
+    assert m is not None
+    assert m["schema"] == 1
+    assert m["target_sha"] == "a" * 40
+    assert m["base_sha"] == "b" * 40
+    assert m["branch"] == "main"
+    assert m["embedding_model"] == "some-model"
+    assert m["stores"] == ["skills_store", "implants_store"]
+    assert "built_at" in m
+
+
+def test_read_prepared_marker_missing_is_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    assert self_update._read_prepared_marker() is None
+
+
+def test_read_prepared_marker_garbage_is_none(tmp_path, monkeypatch):
+    p = tmp_path / ".prepared_update.json"
+    p.write_text("{not valid json")
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(p))
+    assert self_update._read_prepared_marker() is None
+
+
+# --- Phase B: prepare_update -------------------------------------------------
+
+def test_prepare_happy_path_writes_marker_and_leaves_live_untouched(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+
+    assert status == PreparedStatus.PREPARED
+    assert _head(repos.local) == old  # live tree NOT mutated by prepare
+    m = self_update._read_prepared_marker()
+    assert m is not None
+    assert m["target_sha"] == _head(repos.upstream)
+    assert m["base_sha"] == old
+    assert m["embedding_model"] == self_update.EMBEDDING_MODEL
+    assert m["stores"] == ["skills_store", "implants_store"]
+    # staged stores live in the worktree, not the live install
+    wt_data = Path(staging.parent) / m["target_sha"] / "data"
+    assert (wt_data / "skills_store.npz").exists()
+    assert (wt_data / ".skills_hash").exists()
+
+
+def test_prepare_up_to_date_no_worktree(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+    assert status == PreparedStatus.UP_TO_DATE
+    assert self_update._read_prepared_marker() is None
+    assert not Path(staging.parent).exists() or not any(Path(staging.parent).iterdir())
+
+
+def test_prepare_diverged_skips(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "remote\n", "remote")
+    _commit(repos.local, "other.txt", "local\n", "local")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+    assert status == PreparedStatus.SKIPPED_DIVERGED
+    assert self_update._read_prepared_marker() is None
+
+
+def test_prepare_reindex_failure_aborts_clean(repos, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    parent = str(tmp_path / "staging")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=lambda sd: False, staging_parent=parent,
+    )
+
+    assert status == PreparedStatus.PREPARE_REINDEX_FAILED
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == old
+    # no lingering worktree registered under the staging parent
+    wt_list = _git(repos.local, "worktree", "list", "--porcelain").stdout
+    assert os.path.abspath(parent) not in wt_list
+
+
+def test_prepare_reindex_raises_aborts_clean(repos, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+
+    def boom(staging_dir):
+        raise RuntimeError("reindex crashed")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=boom, staging_parent=str(tmp_path / "staging"),
+    )
+    assert status == PreparedStatus.PREPARE_REINDEX_FAILED
+    assert self_update._read_prepared_marker() is None
+
+
+def test_prepare_stage_inconsistent_when_no_stores_written(repos, tmp_path, monkeypatch):
+    # Builder returns True but writes no store files -> validation fails -> no marker.
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=lambda sd: True, staging_parent=str(tmp_path / "staging"),
+    )
+    assert status == PreparedStatus.PREPARE_STAGE_INCONSISTENT
+    assert self_update._read_prepared_marker() is None
+
+
+def test_prepare_worktree_add_failure(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    real = self_update._run_git
+
+    def fake(args, cwd, timeout):
+        if args[:2] == ["worktree", "add"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="boom")
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+    assert status == PreparedStatus.PREPARE_WORKTREE_FAILED
+    assert self_update._read_prepared_marker() is None
+
+
+# --- Phase A: activate_prepared_update ---------------------------------------
+
+@pytest.fixture
+def phase_a_env(tmp_path, monkeypatch, staging):
+    """Redirect marker / staging-root / state paths to temp; STAGING_ROOT is the
+    staging parent so activation derives staging dirs there."""
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", staging.parent)
+    monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / ".last_update.json"))
+    return staging
+
+
+def _prepare(repos, env):
+    return self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=env.builder, staging_parent=env.parent,
+    )
+
+
+def test_activate_happy_path(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+
+    assert status == ActivationStatus.ACTIVATED
+    assert _head(repos.local) == target  # ff-merged to the prepared target
+    assert _head(repos.local) != old
+    live = repos.local / "data"
+    assert (live / "skills_store.npz").exists()
+    assert (live / "skills_store.json").exists()
+    assert (live / ".skills_hash").exists()
+    assert (live / "implants_store.npz").exists()
+    # marker + staging cleaned up
+    assert self_update._read_prepared_marker() is None
+    assert not (Path(phase_a_env.parent) / target).exists()
+
+
+def test_activate_no_marker_is_noop(repos, phase_a_env):
+    old = _head(repos.local)
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.NO_MARKER
+    assert _head(repos.local) == old
+
+
+def test_activate_model_mismatch_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model="a-different-model"
+    )
+    assert status == ActivationStatus.INVALID_MODEL_MISMATCH
+    assert _head(repos.local) == old  # not merged
+    assert self_update._read_prepared_marker() is None  # discarded
+
+
+def test_activate_sha_missing_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Corrupt the marker's target to a non-existent commit.
+    m = self_update._read_prepared_marker()
+    m["target_sha"] = "f" * 40
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_SHA_MISSING
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_not_ff_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Advance local on a divergent line so target is no longer an ancestor path.
+    _commit(repos.local, "local-only.txt", "x\n", "diverge")
+    diverged = _head(repos.local)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_NOT_FF
+    assert _head(repos.local) == diverged
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_dirty_tree_skips(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    (repos.local / "file.txt").write_text("dirty\n")  # uncommitted change
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_DIRTY
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_staging_missing_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    # Remove the staged worktree files out from under the marker.
+    shutil.rmtree(Path(phase_a_env.parent) / target, ignore_errors=True)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_STAGING_MISSING
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_already_at_target_completes_move(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    # Simulate "crashed after merge, before move": HEAD already == target.
+    _git(repos.local, "merge", "--ff-only", target)
+    assert _head(repos.local) == target
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATED
+    assert _head(repos.local) == target  # unchanged (no second merge)
+    assert (repos.local / "data" / "skills_store.npz").exists()  # move completed
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_merge_fails_keeps_old(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    real = self_update._run_git
+
+    def fake(args, cwd, timeout):
+        if args[:2] == ["merge", "--ff-only"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="merge boom")
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATE_MERGE_FAILED
+    assert _head(repos.local) == old  # not moved
+    assert not (repos.local / "data" / "skills_store.npz").exists()  # stores untouched
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_move_failure_unlinks_hash_first(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    live = repos.local / "data"
+    live.mkdir(exist_ok=True)
+    (live / ".skills_hash").write_text("OLD-HASH")  # must be unlinked before the npz move
+
+    real_replace = os.replace
+
+    def boom(src, dst, *a, **k):
+        if str(dst).endswith(".npz"):
+            raise OSError("disk full")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(self_update.os, "replace", boom)
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+    # delete-hash-first ordering: the live hash is gone, so the retriever will be
+    # forced to re-embed rather than trust a stale hash over a half-moved store.
+    assert not (live / ".skills_hash").exists()
+    assert self_update._read_prepared_marker() is None
+
+
+# --- orchestration: staged dispatch + startup activation ---------------------
+
+def test_run_activation_safely_noop_when_master_switch_off(monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", False)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    calls = []
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda *a, **k: calls.append(1) or "X")
+    self_update.run_activation_safely()
+    assert calls == []
+
+
+def test_run_activation_safely_lock_free_when_nothing_staged(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "no-staging"))
+    git_calls = []
+    monkeypatch.setattr(self_update, "_run_git",
+                        lambda *a, **k: git_calls.append(a) or SimpleNamespace(returncode=0, stdout="", stderr=""))
+    act_calls = []
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda *a, **k: act_calls.append(1) or "X")
+    self_update.run_activation_safely()
+    assert git_calls == []  # never forked git
+    assert act_calls == []  # never even took the lock / called activate
+
+
+def test_run_activation_safely_activates_when_marker_present(tmp_path, monkeypatch):
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    calls = []
+    monkeypatch.setattr(self_update, "activate_prepared_update",
+                        lambda *a, **k: calls.append(1) or ActivationStatus.ACTIVATED)
+    self_update.run_activation_safely()
+    assert calls == [1]
+
+
+def test_run_update_safely_skips_prepare_when_marker_pending(tmp_path, monkeypatch):
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    prep = []
+    monkeypatch.setattr(self_update, "prepare_update", lambda *a, **k: prep.append(1) or PreparedStatus.PREPARED)
+    self_update._run_update_safely()
+    assert prep == []  # a prepared update is pending -> do not prepare again
+
+
+def test_run_update_safely_staging_dispatches_to_prepare(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    calls = {"prepare": 0, "legacy": 0}
+    monkeypatch.setattr(self_update, "prepare_update",
+                        lambda *a, **k: calls.__setitem__("prepare", calls["prepare"] + 1) or PreparedStatus.UP_TO_DATE)
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda *a, **k: calls.__setitem__("legacy", calls["legacy"] + 1) or UpdateStatus.UP_TO_DATE)
+    self_update._run_update_safely()
+    assert calls == {"prepare": 1, "legacy": 0}
+
+
+def test_run_update_safely_legacy_dispatches_to_check_and_apply(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    calls = {"prepare": 0, "legacy": 0}
+    monkeypatch.setattr(self_update, "prepare_update",
+                        lambda *a, **k: calls.__setitem__("prepare", calls["prepare"] + 1) or PreparedStatus.UP_TO_DATE)
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda *a, **k: calls.__setitem__("legacy", calls["legacy"] + 1) or UpdateStatus.UP_TO_DATE)
+    self_update._run_update_safely()
+    assert calls == {"prepare": 0, "legacy": 1}
+
+
+def test_server_activates_before_engine_imports():
+    # Phase A must run before server.py's `from src.engine...` imports, which
+    # eagerly load the vector stores into memory at module scope. Guard the
+    # ordering invariant statically (numpy-free) so a future reorder is caught.
+    # Match real code lines, not comments/docstrings that mention the strings.
+    server_py = Path(__file__).resolve().parents[1] / "src" / "server.py"
+    lines = server_py.read_text().splitlines()
+    act_line = next(
+        (i for i, l in enumerate(lines)
+         if "run_activation_safely()" in l and not l.lstrip().startswith("#")),
+        None,
+    )
+    eng_line = next((i for i, l in enumerate(lines) if l.startswith("from src.engine")), None)
+    assert act_line is not None, "server.py must call run_activation_safely()"
+    assert eng_line is not None, "server.py must import from src.engine"
+    assert act_line < eng_line, "run_activation_safely() must precede the engine imports"
