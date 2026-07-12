@@ -873,11 +873,13 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
     sha (the crash-between-merge-and-move case) — the caller then skips the merge
     and only completes the file move.
     """
-    # Gate 1 — well-formed marker. `stores` must be a non-empty list of store
-    # names: a truthy non-list (hand-edited / corrupted marker) would raise
-    # mid-validation or mid-move, and the blanket except in
-    # run_activation_safely would then strand the marker on disk forever —
-    # Phase B skips preparing while a marker exists.
+    # Gate 1 — well-formed marker. `stores` must be a non-empty list of KNOWN
+    # store names (prepare_update always records the full _STAGED_STORES set):
+    # a truthy non-list would raise mid-validation/move and strand the marker
+    # on disk forever (Phase B skips preparing while a marker exists), while
+    # unknown names would validate and move NOTHING yet still ff-merge —
+    # activating new code without its pre-built stores.
+    known_stores = {name for name, _ in _STAGED_STORES}
     target_sha = marker.get("target_sha")
     stores = marker.get("stores")
     if (
@@ -886,7 +888,7 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
         or not _FULL_SHA_RE.match(target_sha)
         or not isinstance(stores, list)
         or not stores
-        or not all(isinstance(s, str) for s in stores)
+        or not all(isinstance(s, str) and s in known_stores for s in stores)
     ):
         logger.warning("Auto-update: prepared marker is malformed; discarding.")
         return ActivationStatus.INVALID_MARKER, False

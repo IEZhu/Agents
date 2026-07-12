@@ -699,6 +699,24 @@ def test_activate_non_list_stores_discards(repos, phase_a_env):
     assert self_update._read_prepared_marker() is None
 
 
+def test_activate_unknown_stores_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Unknown store names would validate and move NOTHING while still
+    # ff-merging — new code would activate without its pre-built stores.
+    m = self_update._read_prepared_marker()
+    m["stores"] = ["unknown_store"]
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_MARKER
+    assert _head(repos.local) == old  # merge never ran
+    assert self_update._read_prepared_marker() is None
+
+
 def test_activate_marker_branch_mismatch_discards(repos, phase_a_env):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
     old = _head(repos.local)
