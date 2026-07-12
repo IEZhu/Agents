@@ -779,6 +779,27 @@ def test_activate_move_failure_unlinks_hash_first(repos, phase_a_env, monkeypatc
     assert self_update._read_prepared_marker() is None
 
 
+def test_prune_never_touches_live_install_when_staging_dir_is_repo_root(repos):
+    # Misconfiguration: AGENTS_AUTO_UPDATE_STAGING_DIR set to the repo root.
+    # `git worktree list` reports the main worktree (the live install); it must
+    # never be returned for rmtree.
+    assert self_update._staging_worktrees(str(repos.local), str(repos.local), 30) == []
+    self_update._prune_staging_worktrees(str(repos.local), str(repos.local), 30)
+    assert (repos.local / ".git").exists()
+    assert (repos.local / "file.txt").exists()
+
+
+def test_prune_never_touches_live_install_when_staging_dir_is_repo_ancestor(repos, tmp_path):
+    # Misconfiguration: staging dir set to an ancestor of the repo. The main
+    # worktree lies "under the parent" but is not a <sha>-named staging
+    # checkout, so it must be filtered out.
+    assert self_update._staging_worktrees(str(repos.local), str(tmp_path), 30) == []
+    self_update._prune_staging_worktrees(str(repos.local), str(tmp_path), 30)
+    assert (repos.local / ".git").exists()
+    assert (repos.local / "file.txt").exists()
+    assert (repos.upstream / "file.txt").exists()  # sibling repo untouched too
+
+
 def test_prune_removes_empty_staging_parent(repos, tmp_path):
     # An empty leftover parent would defeat the lock-free startup fast path
     # (run_activation_safely stats STAGING_ROOT) on every subsequent start.
