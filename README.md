@@ -59,11 +59,20 @@ AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 
 ### Background Auto-Update
 
-The server can keep itself current. On startup a daemon thread (non-blocking, so it
-never delays serving) fast-forwards the install's own git repo and rebuilds the vector
-stores; the pulled code takes effect on the **next** start (for per-session stdio
-servers, the next spawn). The heavy reindex runs in the background of the current
-session so the next one starts fast.
+The server can keep itself current. Updates are **two-phase** — prepared in the
+background, activated on the next start — so the live install is never mutated
+mid-session:
+
+1. **Prepare** (background): a daemon thread (non-blocking, so it never delays
+   serving) fetches the target branch and, if the install is fast-forwardable,
+   builds the new version's vector stores in an isolated git worktree under
+   `data/.prepared/<sha>`, then writes a marker. The live tree and stores are
+   untouched.
+2. **Activate** (next start): if a valid prepared update exists, the server
+   fast-forwards the live tree (local, no network) and atomically moves the
+   pre-built stores into `data/` — the expensive embedding already happened in
+   phase 1, so startup stays fast. For per-session stdio servers that's simply
+   the next spawn.
 
 It is **safe by default**:
 
@@ -71,7 +80,8 @@ It is **safe by default**:
   `main`) — a **no-op on feature branches**, so local development is never touched;
 - only when the working tree is clean, and only **fast-forward** (never merge, rebase,
   or switch branches);
-- a failed reindex (e.g. broken new code) is **rolled back** to the previous commit;
+- a failed staged build discards the worktree and leaves the install as-is; crash
+  windows self-heal via the store's torn-pair detection and content-hash re-embed;
 - any error (offline, lock held by another process, timeout) is logged and the server
   keeps serving the current code. Dependencies are **not** auto-installed.
 
@@ -81,8 +91,14 @@ AGENTS_AUTO_UPDATE_REMOTE=origin
 AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
-AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600
+AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds allowed for the staged index build
+AGENTS_AUTO_UPDATE_STAGING=1             # 0 = legacy in-place update (ff + reindex, rollback on failure)
+AGENTS_AUTO_UPDATE_STAGING_DIR=          # staging parent (default data/.prepared; same filesystem as data/)
 ```
+
+With `AGENTS_AUTO_UPDATE_STAGING=0` the updater falls back to the legacy in-place
+path: fast-forward the live tree and rebuild the stores right there, rolling back
+to the previous commit if the rebuild fails.
 
 Run a manual rebuild any time with `python -m src.reindex`.
 
