@@ -47,6 +47,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
+from typing import Optional
 
 from src.engine.config import (
     INSTALL_ROOT,
@@ -636,6 +637,12 @@ def _prune_staging_worktrees(repo_root: str, staging_parent: str, git_timeout: i
         _run_git(["worktree", "prune"], repo_root, git_timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
+    # Remove the now-empty parent: its mere existence makes the startup fast
+    # path in run_activation_safely take the lock and fork git on every start.
+    try:
+        os.rmdir(staging_parent)
+    except OSError:
+        pass  # non-empty (live staging present) or already gone — keep it
 
 
 def _add_worktree(staging_parent: str, target_sha: str, repo_root: str, git_timeout: int):
@@ -744,7 +751,7 @@ def prepare_update(
     git_timeout: int = AUTO_UPDATE_GIT_TIMEOUT,
     reindex_timeout: int = AUTO_UPDATE_REINDEX_TIMEOUT,
     reindex_fn=None,
-    staging_parent: str = None,
+    staging_parent: Optional[str] = None,
 ) -> str:
     """Phase B: prepare a staged update WITHOUT mutating the live install.
 
@@ -840,16 +847,31 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
     sha (the crash-between-merge-and-move case) — the caller then skips the merge
     and only completes the file move.
     """
-    # Gate 1 — well-formed marker.
+    # Gate 1 — well-formed marker. `stores` must be a non-empty list of store
+    # names: a truthy non-list (hand-edited / corrupted marker) would raise
+    # mid-validation or mid-move, and the blanket except in
+    # run_activation_safely would then strand the marker on disk forever —
+    # Phase B skips preparing while a marker exists.
     target_sha = marker.get("target_sha")
+    stores = marker.get("stores")
     if (
         marker.get("schema") != PREPARED_MARKER_SCHEMA
         or not isinstance(target_sha, str)
         or not _FULL_SHA_RE.match(target_sha)
-        or not marker.get("stores")
+        or not isinstance(stores, list)
+        or not stores
+        or not all(isinstance(s, str) for s in stores)
     ):
         logger.warning("Auto-update: prepared marker is malformed; discarding.")
         return ActivationStatus.INVALID_MARKER, False
+
+    # Gate 1b — the marker was prepared for the branch we would activate on.
+    if marker.get("branch") != branch:
+        logger.info(
+            "Auto-update: marker prepared for branch %r, expected %r; discarding.",
+            marker.get("branch"), branch,
+        )
+        return ActivationStatus.INVALID_WRONG_BRANCH, False
 
     # Gate 2 — embedding model matches the current process.
     if marker.get("embedding_model") != embedding_model:
