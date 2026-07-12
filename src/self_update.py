@@ -157,6 +157,7 @@ class ActivationStatus:
     INVALID_WRONG_BRANCH = "INVALID_WRONG_BRANCH"
     INVALID_STAGING_MISSING = "INVALID_STAGING_MISSING"
     INVALID_STAGING_INCONSISTENT = "INVALID_STAGING_INCONSISTENT"
+    INVALID_CROSS_DEVICE = "INVALID_CROSS_DEVICE"
     ACTIVATE_MERGE_FAILED = "ACTIVATE_MERGE_FAILED"
     ACTIVATE_MOVE_FAILED = "ACTIVATE_MOVE_FAILED"
 
@@ -632,7 +633,9 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
                 and ap != root
                 and _FULL_SHA_RE.match(os.path.basename(ap))
             ):
-                out.append(path)
+                # Return the validated absolute path, not git's raw string, so
+                # the callers' remove/rmtree act on exactly what was validated.
+                out.append(ap)
     return out
 
 
@@ -842,6 +845,14 @@ def _silent_unlink(path: str) -> None:
         pass
 
 
+def _same_filesystem(path_a: str, path_b: str) -> bool:
+    """True if both paths live on the same device (``st_dev``); False on any stat error."""
+    try:
+        return os.stat(path_a).st_dev == os.stat(path_b).st_dev
+    except OSError:
+        return False
+
+
 def _discard_staging(repo_root: str, git_timeout: int) -> None:
     """Drop a prepared update: remove the marker FIRST, then reap staging worktrees.
 
@@ -942,6 +953,21 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
         return ActivationStatus.INVALID_STAGING_MISSING, False
     if not _validate_staged_stores(staging_dir, marker.get("stores", [])):
         return ActivationStatus.INVALID_STAGING_INCONSISTENT, False
+
+    # Gate 8 — staging and live data must share a filesystem: the activation
+    # move relies on atomic os.replace, which fails with EXDEV across mounts —
+    # and by then the ff-merge (the commit point) would already have run.
+    live_data = os.path.join(repo_root, "data")
+    try:
+        os.makedirs(live_data, exist_ok=True)
+    except OSError:
+        pass  # the stat below fails -> discard
+    if not _same_filesystem(os.path.join(staging_dir, "data"), live_data):
+        logger.warning(
+            "Auto-update: staging dir %s is not on the same filesystem as %s; discarding.",
+            staging_dir, live_data,
+        )
+        return ActivationStatus.INVALID_CROSS_DEVICE, False
 
     return None, already_at_target
 

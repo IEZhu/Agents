@@ -716,6 +716,34 @@ def test_activate_marker_branch_mismatch_discards(repos, phase_a_env):
     assert self_update._read_prepared_marker() is None
 
 
+def test_activate_cross_device_staging_discards(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Staging on a different mount: os.replace would fail with EXDEV after the
+    # ff-merge commit point, so the gate must discard BEFORE merging.
+    monkeypatch.setattr(self_update, "_same_filesystem", lambda a, b: False)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_CROSS_DEVICE
+    assert _head(repos.local) == old  # merge never ran
+    assert self_update._read_prepared_marker() is None
+
+
+def test_staging_worktrees_returns_validated_absolute_paths(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+
+    paths = self_update._staging_worktrees(str(repos.local), phase_a_env.parent, 30)
+    assert len(paths) == 1
+    # The returned value is the validated absolute path, not git's raw string.
+    assert paths[0] == os.path.abspath(paths[0])
+    assert os.path.basename(paths[0]) == target
+
+
 def test_activate_already_at_target_completes_move(repos, phase_a_env):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
     assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
