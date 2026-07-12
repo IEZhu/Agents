@@ -93,7 +93,7 @@ AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
 AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds allowed for the staged index build
 AGENTS_AUTO_UPDATE_STAGING=1             # 0 = legacy in-place update (ff + reindex, rollback on failure)
-AGENTS_AUTO_UPDATE_STAGING_DIR=          # staging parent (default data/.prepared; same filesystem as data/)
+# AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
 
 With `AGENTS_AUTO_UPDATE_STAGING=0` the updater falls back to the legacy in-place

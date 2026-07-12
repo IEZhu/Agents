@@ -680,6 +680,42 @@ def test_activate_staging_missing_discards(repos, phase_a_env):
     assert self_update._read_prepared_marker() is None
 
 
+def test_activate_non_list_stores_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Corrupt the marker: `stores` is truthy but not a list. Gate 1 must reject
+    # it — raising mid-validation/move would strand the marker on disk and make
+    # Phase B skip preparing forever.
+    m = self_update._read_prepared_marker()
+    m["stores"] = 5
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_MARKER
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_marker_branch_mismatch_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Marker recorded for a different branch than the one we'd activate on.
+    m = self_update._read_prepared_marker()
+    m["branch"] = "some-other-branch"
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_WRONG_BRANCH
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
 def test_activate_already_at_target_completes_move(repos, phase_a_env):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
     assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
@@ -741,6 +777,25 @@ def test_activate_move_failure_unlinks_hash_first(repos, phase_a_env, monkeypatc
     # forced to re-embed rather than trust a stale hash over a half-moved store.
     assert not (live / ".skills_hash").exists()
     assert self_update._read_prepared_marker() is None
+
+
+def test_prune_removes_empty_staging_parent(repos, tmp_path):
+    # An empty leftover parent would defeat the lock-free startup fast path
+    # (run_activation_safely stats STAGING_ROOT) on every subsequent start.
+    parent = tmp_path / "staging-parent"
+    parent.mkdir()
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+    assert not parent.exists()
+
+
+def test_prune_keeps_non_empty_staging_parent(repos, tmp_path):
+    # Foreign content under the parent must never be deleted by the reaper.
+    parent = tmp_path / "staging-parent"
+    parent.mkdir()
+    (parent / "stray.txt").write_text("x")
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+    assert parent.exists()
+    assert (parent / "stray.txt").read_text() == "x"
 
 
 # --- orchestration: staged dispatch + startup activation ---------------------
@@ -836,11 +891,11 @@ def test_server_activates_before_engine_imports():
     server_py = Path(__file__).resolve().parents[1] / "src" / "server.py"
     lines = server_py.read_text().splitlines()
     act_line = next(
-        (i for i, l in enumerate(lines)
-         if "run_activation_safely()" in l and not l.lstrip().startswith("#")),
+        (i for i, line in enumerate(lines)
+         if "run_activation_safely()" in line and not line.lstrip().startswith("#")),
         None,
     )
-    eng_line = next((i for i, l in enumerate(lines) if l.startswith("from src.engine")), None)
+    eng_line = next((i for i, line in enumerate(lines) if line.startswith("from src.engine")), None)
     assert act_line is not None, "server.py must call run_activation_safely()"
     assert eng_line is not None, "server.py must import from src.engine"
     assert act_line < eng_line, "run_activation_safely() must precede the engine imports"
