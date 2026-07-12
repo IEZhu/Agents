@@ -88,6 +88,10 @@ _STAGED_STORES = (
     ("implants_store", ".implants_hash"),
 )
 
+# A full 40-hex commit sha — the shape of both a marker's target_sha and the
+# basename of every staging worktree prepare_update creates.
+_FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
+
 
 class UpdateStatus:
     """Outcome of one :func:`check_and_apply_update` run (string constants)."""
@@ -596,11 +600,19 @@ def check_and_apply_update(
 # --- Phase B: prepare a staged update (git worktree) -------------------------
 
 def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
-    """Return the paths of registered git worktrees that live under *staging_parent*.
+    """Return the registered git worktrees that are OUR staging checkouts.
 
     Parses ``git worktree list --porcelain``. Used to reap **any** staging
     worktree (of any sha) — ``git worktree prune`` alone won't remove one whose
     directory still exists, so a crashed prepare would otherwise leak it forever.
+
+    Callers ``rmtree`` every returned path, and the porcelain list always
+    includes the **main worktree** (the live install), so this filter is
+    defense-in-depth against a misconfigured ``AGENTS_AUTO_UPDATE_STAGING_DIR``
+    (the repo root, or one of its ancestors): a path qualifies only if it is
+    strictly UNDER *staging_parent*, is not *repo_root* itself, and its basename
+    is a full sha — the exact shape ``prepare_update`` creates. The live install
+    and unrelated user worktrees are never returned.
     """
     try:
         r = _run_git(["worktree", "list", "--porcelain"], repo_root, git_timeout)
@@ -609,12 +621,17 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
     if r.returncode != 0:
         return []
     parent = os.path.abspath(staging_parent)
+    root = os.path.abspath(repo_root)
     out = []
     for line in r.stdout.splitlines():
         if line.startswith("worktree "):
             path = line[len("worktree "):].strip()
             ap = os.path.abspath(path)
-            if ap == parent or ap.startswith(parent + os.sep):
+            if (
+                ap.startswith(parent + os.sep)
+                and ap != root
+                and _FULL_SHA_RE.match(os.path.basename(ap))
+            ):
                 out.append(path)
     return out
 
@@ -816,9 +833,6 @@ def prepare_update(
 
 
 # --- Phase A: activate a prepared update (startup) ---------------------------
-
-_FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
-
 
 def _silent_unlink(path: str) -> None:
     """Remove *path* if present; ignore a missing file or any OS error."""
