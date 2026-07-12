@@ -1023,6 +1023,14 @@ def activate_prepared_update(
     """
     marker = _read_prepared_marker()
     if marker is None:
+        # Distinguish "no file" (the common fast path) from "file present but
+        # unreadable": the latter would otherwise satisfy run_activation_safely's
+        # existence gate forever, costing a lock + git forks on every start
+        # until someone removes the file by hand.
+        if os.path.exists(PREPARED_MARKER):
+            logger.warning("Auto-update: prepared marker exists but is unreadable; discarding.")
+            _discard_staging(repo_root, git_timeout)
+            return ActivationStatus.INVALID_MARKER
         return ActivationStatus.NO_MARKER
 
     invalid, already_at_target = _validate_prepared(
@@ -1091,6 +1099,17 @@ def run_activation_safely() -> None:
                 # We only took the lock because STAGING_ROOT had leftovers (a crashed
                 # prepare with no marker) -> reap the orphan worktrees.
                 _prune_staging_worktrees(INSTALL_ROOT, STAGING_ROOT, AUTO_UPDATE_GIT_TIMEOUT)
+            elif status == ActivationStatus.ACTIVATED:
+                # The live tree now holds the new version, but this process was
+                # compiled from the old one (server.py / config / self_update are
+                # already imported). Re-exec so the activation start serves the
+                # new code end-to-end; stdio fds survive exec, and the marker is
+                # gone, so the re-exec'd process takes the NO_MARKER fast path.
+                logger.info("Auto-update: re-exec into the updated code.")
+                try:
+                    os.execv(sys.executable, [sys.executable, *sys.argv])
+                except OSError:
+                    logger.warning("Auto-update: re-exec failed; new code applies on the next start.")
             logger.debug("Auto-update: activation finished with status %s", status)
     except Exception:
         logger.warning("Auto-update: startup activation crashed (ignored).", exc_info=True)

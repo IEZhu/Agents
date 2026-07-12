@@ -716,6 +716,21 @@ def test_activate_marker_branch_mismatch_discards(repos, phase_a_env):
     assert self_update._read_prepared_marker() is None
 
 
+def test_activate_unreadable_marker_discards(repos, phase_a_env):
+    # A marker FILE that exists but cannot be parsed must be discarded (not
+    # treated as NO_MARKER): its mere existence gates run_activation_safely's
+    # fast path, so leaving it would cost a lock + git forks on every start.
+    old = _head(repos.local)
+    Path(self_update.PREPARED_MARKER).write_text("{not-json", encoding="utf-8")
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_MARKER
+    assert not os.path.exists(self_update.PREPARED_MARKER)  # discarded
+    assert _head(repos.local) == old
+
+
 def test_activate_cross_device_staging_discards(repos, phase_a_env, monkeypatch):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
     old = _head(repos.local)
@@ -881,11 +896,51 @@ def test_run_activation_safely_activates_when_marker_present(tmp_path, monkeypat
     monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
     monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    execs = []
+    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
     calls = []
     monkeypatch.setattr(self_update, "activate_prepared_update",
                         lambda *a, **k: calls.append(1) or ActivationStatus.ACTIVATED)
     self_update.run_activation_safely()
     assert calls == [1]
+
+
+def test_run_activation_safely_reexecs_after_activation(tmp_path, monkeypatch):
+    # A successful activation must re-exec the process so the activation start
+    # serves the new code end-to-end (this module was compiled pre-merge).
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "activate_prepared_update",
+                        lambda *a, **k: ActivationStatus.ACTIVATED)
+    execs = []
+    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    self_update.run_activation_safely()
+    assert len(execs) == 1
+    exe, argv = execs[0]
+    assert exe == self_update.sys.executable
+    assert argv[0] == self_update.sys.executable
+
+
+def test_run_activation_safely_no_reexec_when_discarded(tmp_path, monkeypatch):
+    # Non-ACTIVATED outcomes (discards, failures) must NOT re-exec.
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "activate_prepared_update",
+                        lambda *a, **k: ActivationStatus.INVALID_MARKER)
+    execs = []
+    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    self_update.run_activation_safely()
+    assert execs == []
 
 
 def test_run_update_safely_skips_prepare_when_marker_pending(tmp_path, monkeypatch):
