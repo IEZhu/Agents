@@ -799,6 +799,7 @@ def test_activate_merge_fails_keeps_old(repos, phase_a_env, monkeypatch):
 
 def test_activate_move_failure_unlinks_hash_first(repos, phase_a_env, monkeypatch):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
     assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
     live = repos.local / "data"
     live.mkdir(exist_ok=True)
@@ -820,6 +821,27 @@ def test_activate_move_failure_unlinks_hash_first(repos, phase_a_env, monkeypatc
     # forced to re-embed rather than trust a stale hash over a half-moved store.
     assert not (live / ".skills_hash").exists()
     assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == old  # merge rolled back — old code keeps serving
+
+
+def test_activate_move_failure_rolls_back_merge(repos, phase_a_env, monkeypatch):
+    # A failed store move after a successful ff-merge must restore the pre-merge
+    # tree: otherwise the process serves old imported code over a new on-disk
+    # tree, and the next start runs new code without its pre-built stores.
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+    monkeypatch.setattr(
+        self_update, "_activate_staged_stores",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == old
+    assert (repos.local / "file.txt").read_text(encoding="utf-8") == "v1\n"  # worktree content restored
 
 
 def test_prune_never_touches_live_install_when_staging_dir_is_repo_root(repos):

@@ -29,8 +29,9 @@ Safety invariants (both paths):
       (``AUTO_UPDATE_BRANCH``) — a no-op on feature branches / local dev,
     * only when the working tree is clean, and only **fast-forward** (never
       merge / rebase / auto-checkout),
-    * staging never mutates the live install; a failed prepare writes no marker
-      and the legacy path rolls back a failed reindex,
+    * staging never mutates the live install; a failed prepare writes no marker,
+      the legacy path rolls back a failed reindex, and a failed activation move
+      rolls back the just-merged tree,
     * crash windows self-heal: the store's torn-pair detection plus the
       content-hash re-embed mean a half-applied move is repaired on load,
     * every failure is logged and swallowed — the server is never crashed or
@@ -1018,7 +1019,9 @@ def activate_prepared_update(
     Runs at startup BEFORE the engine modules load the stores. The common case is
     no marker (a single stat). When a valid marker exists: ff-merge the live tree
     to the prepared sha (no network) and move the pre-built stores in. Any gate
-    failure or move failure discards the staging and keeps serving the old code.
+    failure discards the staging and keeps serving the old code; a move failure
+    additionally rolls the just-merged tree back to the pre-merge commit (best
+    effort), so a failed activation never leaves new code without its stores.
     Pure of threading/locking. Returns an :class:`ActivationStatus` value.
     """
     marker = _read_prepared_marker()
@@ -1047,8 +1050,17 @@ def activate_prepared_update(
 
     # Commit point: the ff-merge. Skipped when already at the target (a prior run
     # merged then died before the move) — we only need to finish the move.
+    merged_now = False
+    pre_merge_sha = ""
     if not already_at_target:
         try:
+            head = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
+            pre_merge_sha = head.stdout.strip() if head.returncode == 0 else ""
+            if not pre_merge_sha:
+                # Without a rollback point we refuse to merge at all.
+                logger.error("Auto-update: cannot resolve pre-merge HEAD; discarding.")
+                _discard_staging(repo_root, git_timeout)
+                return ActivationStatus.ACTIVATE_MERGE_FAILED
             merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             logger.error("Auto-update: activation merge error: %s; discarding.", e)
@@ -1058,6 +1070,7 @@ def activate_prepared_update(
             logger.error("Auto-update: activation ff-merge failed; discarding. %s", merge.stderr.strip())
             _discard_staging(repo_root, git_timeout)
             return ActivationStatus.ACTIVATE_MERGE_FAILED
+        merged_now = True
 
     try:
         _activate_staged_stores(staging_dir, repo_root, stores)
@@ -1065,6 +1078,21 @@ def activate_prepared_update(
         logger.error(
             "Auto-update: activation move failed (%s); discarding. Stores re-embed on load.", e,
         )
+        if merged_now:
+            # This run performed the merge: restore the pre-merge tree so the
+            # process keeps serving the old code (no mixed-version runtime and
+            # no new code without its stores). In the already_at_target resume
+            # case the merge was a prior run's fait accompli — completing or
+            # discarding is all that can be done there.
+            try:
+                rollback = _run_git(["reset", "--hard", pre_merge_sha], repo_root, git_timeout)
+                if rollback.returncode != 0:
+                    logger.error(
+                        "Auto-update: rollback after failed move FAILED — tree is on new code. %s",
+                        rollback.stderr.strip(),
+                    )
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                logger.error("Auto-update: rollback after failed move raised.", exc_info=True)
         _discard_staging(repo_root, git_timeout)
         return ActivationStatus.ACTIVATE_MOVE_FAILED
 
