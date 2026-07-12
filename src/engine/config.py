@@ -215,10 +215,15 @@ AUTO_UPDATE_STAGING = os.getenv("AGENTS_AUTO_UPDATE_STAGING", "1").lower() in ("
 # INSTALL_DATA_DIR so the activation move (os.replace) is atomic; under data/
 # (gitignored) by default so it never dirties the live tree. `or` (not a getenv
 # default) so an empty AGENTS_AUTO_UPDATE_STAGING_DIR= line in .env falls back
-# to the default instead of producing CWD-relative staging paths.
-AUTO_UPDATE_STAGING_DIR = os.getenv(
-    "AGENTS_AUTO_UPDATE_STAGING_DIR"
-) or os.path.join(INSTALL_DATA_DIR, ".prepared")
+# to the default. Relative values (including the default) are anchored under
+# INSTALL_DATA_DIR so the path never depends on the process CWD — the MCP
+# server is spawned with an arbitrary working directory.
+_staging_dir_env = os.getenv("AGENTS_AUTO_UPDATE_STAGING_DIR") or ".prepared"
+AUTO_UPDATE_STAGING_DIR = (
+    _staging_dir_env
+    if os.path.isabs(_staging_dir_env)
+    else os.path.join(INSTALL_DATA_DIR, _staging_dir_env)
+)
 
 # --- Deprecated name aliases (PEP 562) ---------------------------------------
 # Issue #36: `REPO_ROOT`/`DATA_DIR`/`DEBUG_LOG_DIR` used to conflate the Agents
