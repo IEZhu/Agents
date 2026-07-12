@@ -938,7 +938,7 @@ def test_server_activates_before_engine_imports():
     # ordering invariant statically (numpy-free) so a future reorder is caught.
     # Match real code lines, not comments/docstrings that mention the strings.
     server_py = Path(__file__).resolve().parents[1] / "src" / "server.py"
-    lines = server_py.read_text().splitlines()
+    lines = server_py.read_text(encoding="utf-8").splitlines()
     act_line = next(
         (i for i, line in enumerate(lines)
          if "run_activation_safely()" in line and not line.lstrip().startswith("#")),
