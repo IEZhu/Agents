@@ -11,12 +11,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
+from src.utils.prompt_loader import split_frontmatter
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ID = "skill-web-search"
-SKILL_FILE = Path("skills/skill-web-search.mdc")
-RULE_FILE = Path("rules/rule-no-fabrication.mdc")
+SKILL_FILE = REPO_ROOT / "skills/skill-web-search.mdc"
+RULE_FILE = REPO_ROOT / "rules/rule-no-fabrication.mdc"
 
 # Wiring contract: changing a tier is a deliberate change — update this map too.
 WIRING = {
@@ -39,7 +43,9 @@ ALL_TIERS = ("core_skills", "preferred_skills", "capable_skills")
 
 
 def _frontmatter(path: Path) -> dict:
-    return yaml.safe_load(path.read_text().split("---\n")[1])
+    frontmatter, _ = split_frontmatter(path.read_text(encoding="utf-8"))
+    assert frontmatter is not None, f"{path} has no frontmatter"
+    return yaml.safe_load(frontmatter)
 
 
 # --- Skill artifact ------------------------------------------------------------
@@ -72,7 +78,7 @@ def test_keywords_are_atomic_for_keyword_boost():
     [(a, t) for t, agents in WIRING.items() for a in agents],
 )
 def test_skill_wired_to_correct_tier(agent, tier):
-    fm = _frontmatter(Path(f"agents/{agent}/system_prompt.mdc"))
+    fm = _frontmatter(REPO_ROOT / f"agents/{agent}/system_prompt.mdc")
     assert SKILL_ID in (fm.get(tier) or []), f"{agent}: {SKILL_ID} not in {tier}"
     for other in ALL_TIERS:
         if other != tier:
@@ -81,7 +87,7 @@ def test_skill_wired_to_correct_tier(agent, tier):
 
 @pytest.mark.parametrize("agent", EXCLUDED)
 def test_skill_not_wired_to_excluded_agents(agent):
-    fm = _frontmatter(Path(f"agents/{agent}/system_prompt.mdc"))
+    fm = _frontmatter(REPO_ROOT / f"agents/{agent}/system_prompt.mdc")
     for tier in ALL_TIERS:
         assert SKILL_ID not in (fm.get(tier) or []), f"{agent} should not have {SKILL_ID}"
 
@@ -91,18 +97,38 @@ def test_skill_not_wired_to_excluded_agents(agent):
 def test_no_fabrication_rule_carries_search_trigger():
     """The decision to search must live in the always-on rule layer so it fires
     even in lite tier where preferred/capable skills do not load."""
-    body = RULE_FILE.read_text().lower()
+    body = RULE_FILE.read_text(encoding="utf-8").lower()
     assert "search" in body and "fetch the web" in body
 
 
 # --- Behavioral: core skill loads even at lite tier (n_results=0) ---------------
 
-def test_core_skill_loads_in_lite_tier():
+def test_core_skill_loads_in_lite_tier(tmp_path, monkeypatch):
     """Core agents get the skill on EVERY tier; lite passes n_results=0, so only
     mandatory (core) skills load — this proves the core wiring is reachable."""
-    from src.engine.skills import SkillRetriever
+    from src.engine import skills
+    from src.engine.vector_store import NumpyVectorStore
 
-    r = SkillRetriever()
-    res = r.retrieve("x", mandatory=[SKILL_ID], n_results=0)
-    names = [s.get("filename", "") for s in res]
-    assert any(n.startswith(SKILL_ID) for n in names), f"core/lite did not load: {names}"
+    def unexpected_embedding(*args, **kwargs):
+        pytest.fail("Mandatory-only retrieval must not use embeddings")
+
+    monkeypatch.setattr(skills, "embed_texts", unexpected_embedding)
+    monkeypatch.setattr(skills, "embed_query", unexpected_embedding)
+
+    _, body = split_frontmatter(SKILL_FILE.read_text(encoding="utf-8"))
+    filename = SKILL_FILE.name
+    # Skip __init__: it can reindex every skill in the shared installation.
+    retriever = object.__new__(skills.SkillRetriever)
+    retriever.store = NumpyVectorStore(name="skills", data_dir=str(tmp_path))
+    retriever.store.replace(
+        ids=[filename],
+        embeddings=np.array([[1.0, 0.0]], dtype=np.float32),
+        documents=[body],
+        metadatas=[{"filename": filename, "body": body}],
+    )
+    res = retriever.retrieve(
+        "x", mandatory=[SKILL_ID], preferred=["skill-dev-debugging"], n_results=0,
+    )
+    assert [skill["filename"] for skill in res] == [filename]
+    assert res[0]["content"] == body
+    assert res[0]["tier"] == "mandatory"
