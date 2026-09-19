@@ -251,12 +251,13 @@ def test_disabled_spawns_no_thread(monkeypatch):
 
 def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
-    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)  # exercise the legacy path
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "missing.json"))
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
     calls = []
-    monkeypatch.setattr(self_update, "check_and_apply_update",
+    monkeypatch.setattr(self_update, "prepare_update",
                         lambda: calls.append(1) or UpdateStatus.UP_TO_DATE)
 
     thread = self_update.start_background_update()
@@ -1036,10 +1037,190 @@ def test_server_activates_before_engine_imports():
     lines = server_py.read_text(encoding="utf-8").splitlines()
     act_line = next(
         (i for i, line in enumerate(lines)
-         if "run_activation_safely()" in line and not line.lstrip().startswith("#")),
+         if "run_server(__file__)" in line and not line.lstrip().startswith("#")),
         None,
     )
     eng_line = next((i for i, line in enumerate(lines) if line.startswith("from src.engine")), None)
-    assert act_line is not None, "server.py must call run_activation_safely()"
+    assert act_line is not None, "server.py must enter the leased bootstrap"
     assert eng_line is not None, "server.py must import from src.engine"
-    assert act_line < eng_line, "run_activation_safely() must precede the engine imports"
+    assert act_line < eng_line, "leased bootstrap must precede the engine imports"
+
+
+@pytest.mark.parametrize("metadata", [5, None, [], "save_version", {"save_version": 5}])
+def test_malformed_store_metadata_is_discarded(repos, phase_a_env, metadata):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    meta = Path(phase_a_env.parent) / marker["target_sha"] / "data/skills_store.json"
+    meta.write_text(json.dumps(metadata))
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.INVALID_STAGING_INCONSISTENT
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == original
+    # A bad marker must not strand the background updater forever.
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+
+@pytest.mark.parametrize("field,value", [
+    ("base_sha", 5), ("base_sha", None), ("base_sha", ""),
+    ("stores", ["skills_store"]),
+])
+def test_incomplete_marker_is_rejected_before_merge(repos, phase_a_env, field, value):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    marker[field] = value
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(marker))
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.INVALID_MARKER
+    assert _head(repos.local) == original
+    assert self_update._read_prepared_marker() is None
+
+
+def test_live_reader_keeps_prepared_update_pending(repos, phase_a_env):
+    from src.startup import server_session
+    pytest.importorskip("fcntl")
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    code = '''
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from src.startup import server_session
+root = Path(sys.argv[2])
+with server_session(root, lambda: None):
+    print((root / "file.txt").read_text().strip(), flush=True)
+    sys.stdin.readline()
+    print((root / "file.txt").read_text().strip(), flush=True)
+'''
+    process = subprocess.Popen(
+        [self_update.sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]), str(repos.local)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    activate = lambda: self_update.activate_prepared_update(str(repos.local), "main")
+    try:
+        assert process.stdout.readline().strip() == "v1"
+        with server_session(repos.local, activate):
+            assert _head(repos.local) == original
+            assert self_update._read_prepared_marker() is not None
+        output, errors = process.communicate(input="next request\n", timeout=5)
+        assert process.returncode == 0, errors
+        assert output.strip() == "v1"
+        with server_session(repos.local, activate):
+            assert _head(repos.local) == _head(repos.upstream)
+            assert self_update._read_prepared_marker() is None
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        process.communicate(timeout=5)
+
+
+def test_moved_prebuilt_stores_load_without_embedding(repos, phase_a_env, monkeypatch):
+    import numpy as np
+    from src.engine import skills, implants
+
+    specs = (
+        (skills, skills.SkillRetriever, "skills", "SKILLS_DIR", ".skills_hash"),
+        (implants, implants.ImplantRetriever, "implants", "IMPLANTS_DIR", ".implants_hash"),
+    )
+    for _, _, folder, _, _ in specs:
+        (repos.upstream / folder).mkdir()
+        _commit(repos.upstream, f"{folder}/demo.mdc", "---\ndescription: Demo\n---\nBody\n", folder)
+
+    def configure(patch, root, embed):
+        for module, cls, folder, setting, sidecar in specs:
+            patch.setattr(module, setting, str(root / folder))
+            patch.setattr(module, "DATA_DIR", str(root / "data"))
+            patch.setattr(cls, "HASH_FILE", str(root / "data" / sidecar))
+            patch.setattr(module, "embed_texts", embed)
+
+    def builder(root):
+        with monkeypatch.context() as patch:
+            configure(patch, Path(root), lambda docs: np.ones((len(docs), 3), dtype=np.float32))
+            for _, cls, _, _, _ in specs:
+                assert cls().store.count() == 1
+        return True
+
+    assert self_update.prepare_update(str(repos.local), "origin", "main", reindex_fn=builder,
+                                     staging_parent=phase_a_env.parent) == PreparedStatus.PREPARED
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATED
+    configure(monkeypatch, repos.local, lambda docs: pytest.fail("activation re-embedded prepared stores"))
+    for module, cls, folder, _, _ in specs:
+        assert cls().store.count() == 1
+        # Relocation is ignored, but actual content changes still invalidate.
+        (repos.local / folder / "demo.mdc").write_text("changed\n")
+        assert cls.__new__(cls)._needs_reindex()[0]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX git hook")
+@pytest.mark.parametrize("staged", [True, False])
+def test_merge_timeout_after_head_advanced_rolls_back(repos, phase_a_env, staged):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    hook = repos.local / ".git/hooks/post-merge"
+    hook.write_text("#!/bin/sh\nsleep 2\n")
+    hook.chmod(0o755)
+    if staged:
+        status = self_update.activate_prepared_update(str(repos.local), "main", git_timeout=1)
+        assert status == ActivationStatus.ACTIVATE_MERGE_FAILED
+        assert self_update._read_prepared_marker() is None
+    else:
+        status = check_and_apply_update(str(repos.local), "origin", "main", git_timeout=1)
+        assert status == UpdateStatus.FETCH_FAILED
+    assert _head(repos.local) == original
+    assert (repos.local / "file.txt").read_text() == "v1\n"
+
+
+def test_activation_rollback_failure_is_distinct(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    real_git = self_update._run_git
+
+    def failing_git(args, cwd, timeout):
+        if args[0] == "merge":
+            real_git(args, cwd, timeout)
+            raise subprocess.TimeoutExpired("git merge", timeout)
+        if args[0] == "reset":
+            return SimpleNamespace(returncode=1, stdout="", stderr="reset failed")
+        return real_git(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", failing_git)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+
+
+@pytest.mark.parametrize("failure", ["rollback", "exec"])
+def test_unsafe_activation_failure_does_not_fall_through(tmp_path, monkeypatch, failure):
+    marker = tmp_path / "marker.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / "update.lock"))
+    status = ActivationStatus.ACTIVATE_ROLLBACK_FAILED if failure == "rollback" else ActivationStatus.ACTIVATED
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda: status)
+
+    def fail_exec(*args):
+        raise OSError("exec failed")
+
+    monkeypatch.setattr(self_update.os, "execv", fail_exec)
+    with pytest.raises(SystemExit, match="restart required"):
+        self_update.run_activation_safely()
+
+
+@pytest.mark.parametrize("status", [UpdateStatus.UPDATED, UpdateStatus.ROLLBACK_FAILED])
+def test_legacy_updates_only_at_quiet_startup(monkeypatch, status):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
+    calls = []
+    monkeypatch.setattr(self_update, "_run_update_safely", lambda: calls.append("update") or status)
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: calls.append("exec"))
+    assert self_update.start_background_update() is None
+    if status == UpdateStatus.ROLLBACK_FAILED:
+        with pytest.raises(SystemExit, match="restart required"):
+            self_update.run_activation_safely()
+        assert calls == ["update"]
+    else:
+        self_update.run_activation_safely()
+        assert calls == ["update", "exec"]

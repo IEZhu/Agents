@@ -11,18 +11,20 @@ Two-phase, "prepare in the background, activate by move on the next start"
     ``AUTO_UPDATE_STAGING_DIR`` and write a marker. The live install is never
     touched.
   * **Phase A — activate** (:func:`activate_prepared_update`, via
-    :func:`run_activation_safely` at the very top of ``server.py``'s ``__main__``,
+    :func:`run_activation_safely` inside ``startup.py``'s exclusive session lease,
     before the engine modules eagerly load the stores): if a valid prepared marker
     exists, fast-forward the live tree to the prepared sha (local, no network) and
     atomically move the pre-built stores into ``data/``. The expensive embedding
     already happened in Phase B, so this is just a merge + a few ``os.replace``.
 
-Set ``AGENTS_AUTO_UPDATE_STAGING=0`` to fall back to the legacy in-place path
+Set ``AGENTS_AUTO_UPDATE_STAGING=0`` to use the synchronous in-place path at an
+idle startup under the same exclusive lease
 (:func:`check_and_apply_update`): fast-forward + reindex on the live tree, rolled
 back via ``git reset --hard`` if the reindex fails.
 
-Either way the new code takes effect on the **next** start (for per-session stdio
-servers, the next spawn) — the running process keeps its already-imported code.
+The new code takes effect at the next start with no active readers. Every server
+holds a shared installation lease for its lifetime, protecting lazy prompt reads
+as well as imports. A start contending with activation waits before engine imports.
 
 Safety invariants (both paths):
     * acts **only** when the checked-out branch is the target branch
@@ -34,8 +36,8 @@ Safety invariants (both paths):
       rolls back the just-merged tree,
     * crash windows self-heal: the store's torn-pair detection plus the
       content-hash re-embed mean a half-applied move is repaired on load,
-    * every failure is logged and swallowed — the server is never crashed or
-      blocked by the updater.
+    * ordinary update failures preserve the current version; a failed rollback
+      or re-exec stops startup rather than allowing mixed versions to serve.
 """
 
 import json
@@ -107,6 +109,7 @@ class UpdateStatus:
     SKIPPED_AHEAD = "SKIPPED_AHEAD"
     MERGE_FAILED = "MERGE_FAILED"
     REINDEX_FAILED = "REINDEX_FAILED"
+    ROLLBACK_FAILED = "ROLLBACK_FAILED"
     UPDATED = "UPDATED"
 
 
@@ -161,6 +164,7 @@ class ActivationStatus:
     INVALID_CROSS_DEVICE = "INVALID_CROSS_DEVICE"
     ACTIVATE_MERGE_FAILED = "ACTIVATE_MERGE_FAILED"
     ACTIVATE_MOVE_FAILED = "ACTIVATE_MOVE_FAILED"
+    ACTIVATE_ROLLBACK_FAILED = "ACTIVATE_ROLLBACK_FAILED"
 
 
 # --- Cross-process lock (non-blocking) ---------------------------------------
@@ -542,14 +546,13 @@ def check_and_apply_update(
     if target_sha is None:
         return status  # terminal: skip / up-to-date / pre-merge failure
 
-    merged = False  # tracks whether the ff-merge already mutated the tree
     try:
         # Step 6 — fast-forward only.
         merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
         if merge.returncode != 0:
             logger.warning("Auto-update: fast-forward merge failed; skipping. %s", merge.stderr.strip())
-            return UpdateStatus.MERGE_FAILED
-        merged = True
+            return (UpdateStatus.MERGE_FAILED if _rollback_activation(repo_root, old_sha, git_timeout)
+                    else UpdateStatus.ROLLBACK_FAILED)
         new = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         new_sha = new.stdout.strip() if new.returncode == 0 else ""
         logger.info("Auto-update: fast-forwarded %s -> %s on %s.", old_sha[:9], new_sha[:9], branch)
@@ -566,12 +569,8 @@ def check_and_apply_update(
             reindex_ok = False
         if not reindex_ok:
             logger.error("Auto-update: reindex failed; rolling back to %s.", old_sha[:9])
-            rollback = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
-            if rollback.returncode != 0:
-                logger.error(
-                    "Auto-update: ROLLBACK FAILED — repo is on new code without rebuilt indexes. %s",
-                    rollback.stderr.strip(),
-                )
+            if not _rollback_activation(repo_root, old_sha, git_timeout):
+                return UpdateStatus.ROLLBACK_FAILED
             _write_state(UpdateStatus.REINDEX_FAILED, old_sha, new_sha)
             return UpdateStatus.REINDEX_FAILED
 
@@ -587,14 +586,11 @@ def check_and_apply_update(
         # has already put us past the network, so this is always FETCH_FAILED. If
         # the fast-forward already mutated the tree, roll back so we never strand
         # the install on new code without rebuilt indexes.
-        if merged and old_sha:
+        # Even the merge command itself can time out after advancing HEAD.
+        if old_sha:
             logger.error("Auto-update: exception after fast-forward; rolling back to %s.", old_sha[:9])
-            try:
-                rollback = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
-                if rollback.returncode != 0:
-                    logger.error("Auto-update: rollback after exception failed. %s", rollback.stderr.strip())
-            except Exception:
-                logger.error("Auto-update: rollback after exception raised.", exc_info=True)
+            if not _rollback_activation(repo_root, old_sha, git_timeout):
+                return UpdateStatus.ROLLBACK_FAILED
         logger.warning("Auto-update: a git operation failed; serving current code.")
         return UpdateStatus.FETCH_FAILED
 
@@ -758,7 +754,7 @@ def _validate_staged_stores(staging_dir: str, stores) -> bool:
         except (OSError, ValueError):
             logger.warning("Auto-update: staged store %s json is unreadable.", name)
             return False
-        if "save_version" not in payload:
+        if not isinstance(payload, dict) or not isinstance(payload.get("save_version"), str):
             logger.warning("Auto-update: staged store %s json missing save_version.", name)
             return False
     return True
@@ -881,14 +877,18 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
     # activating new code without its pre-built stores.
     known_stores = {name for name, _ in _STAGED_STORES}
     target_sha = marker.get("target_sha")
+    base_sha = marker.get("base_sha")
     stores = marker.get("stores")
     if (
         marker.get("schema") != PREPARED_MARKER_SCHEMA
         or not isinstance(target_sha, str)
         or not _FULL_SHA_RE.match(target_sha)
+        or not isinstance(base_sha, str)
+        or not _FULL_SHA_RE.match(base_sha)
         or not isinstance(stores, list)
         or not stores
         or not all(isinstance(s, str) and s in known_stores for s in stores)
+        or set(stores) != known_stores
     ):
         logger.warning("Auto-update: prepared marker is malformed; discarding.")
         return ActivationStatus.INVALID_MARKER, False
@@ -1066,12 +1066,17 @@ def activate_prepared_update(
             merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             logger.error("Auto-update: activation merge error: %s; discarding.", e)
+            # A timeout can occur in post-merge, after HEAD has advanced.
+            restored = not pre_merge_sha or _rollback_activation(repo_root, pre_merge_sha, git_timeout)
             _discard_staging(repo_root, git_timeout)
-            return ActivationStatus.ACTIVATE_MERGE_FAILED
+            return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
+                    else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         if merge.returncode != 0:
             logger.error("Auto-update: activation ff-merge failed; discarding. %s", merge.stderr.strip())
+            restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout)
             _discard_staging(repo_root, git_timeout)
-            return ActivationStatus.ACTIVATE_MERGE_FAILED
+            return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
+                    else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         merged_now = True
 
     try:
@@ -1080,23 +1085,17 @@ def activate_prepared_update(
         logger.error(
             "Auto-update: activation move failed (%s); discarding. Stores re-embed on load.", e,
         )
+        restored = True
         if merged_now:
             # This run performed the merge: restore the pre-merge tree so the
             # process keeps serving the old code (no mixed-version runtime and
             # no new code without its stores). In the already_at_target resume
             # case the merge was a prior run's fait accompli — completing or
             # discarding is all that can be done there.
-            try:
-                rollback = _run_git(["reset", "--hard", pre_merge_sha], repo_root, git_timeout)
-                if rollback.returncode != 0:
-                    logger.error(
-                        "Auto-update: rollback after failed move FAILED — tree is on new code. %s",
-                        rollback.stderr.strip(),
-                    )
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                logger.error("Auto-update: rollback after failed move raised.", exc_info=True)
+            restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout)
         _discard_staging(repo_root, git_timeout)
-        return ActivationStatus.ACTIVATE_MOVE_FAILED
+        return (ActivationStatus.ACTIVATE_MOVE_FAILED if restored
+                else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
 
     _discard_staging(repo_root, git_timeout)
     _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha)
@@ -1104,18 +1103,40 @@ def activate_prepared_update(
     return ActivationStatus.ACTIVATED
 
 
+def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int) -> bool:
+    """Restore the pre-activation tree even if merge timed out after changing HEAD."""
+    try:
+        result = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        logger.error("Auto-update: activation rollback raised.", exc_info=True)
+        return False
+    if result.returncode != 0:
+        logger.error("Auto-update: activation rollback failed: %s", result.stderr.strip())
+        return False
+    return True
+
+
 # --- Background orchestration -------------------------------------------------
 
 def run_activation_safely() -> None:
-    """Phase A entry: activate a prepared update at startup, swallowing every error.
+    """Phase A entry, called with startup's exclusive installation lease held.
 
-    Called as the very first thing in ``server.py``'s ``__main__`` (before the
+    Called by ``startup.py`` under an exclusive installation lease (before the
     engine modules eagerly load the stores). Cheap on the common no-update path:
     honors the master switch, then a single lock-free ``stat`` — it only takes the
     lock and touches git when a prepared update (or a leftover staging dir) exists.
     """
     try:
-        if not (AUTO_UPDATE_ENABLED and AUTO_UPDATE_STAGING):
+        if not AUTO_UPDATE_ENABLED:
+            return
+        if not AUTO_UPDATE_STAGING:
+            # Legacy in-place work also needs a quiet installation. Run it here,
+            # never in a background thread holding a lifetime reader lease.
+            status = _run_update_safely()
+            if status == UpdateStatus.ROLLBACK_FAILED:
+                raise SystemExit("Auto-update could not restore the installation; restart required.")
+            if status == UpdateStatus.UPDATED:
+                _reexec_updated_server()
             return
         # Lock-free fast path: nothing staged -> nothing to do (one stat each).
         if not os.path.exists(PREPARED_MARKER) and not os.path.exists(STAGING_ROOT):
@@ -1129,6 +1150,8 @@ def run_activation_safely() -> None:
                 # We only took the lock because STAGING_ROOT had leftovers (a crashed
                 # prepare with no marker) -> reap the orphan worktrees.
                 _prune_staging_worktrees(INSTALL_ROOT, STAGING_ROOT, AUTO_UPDATE_GIT_TIMEOUT)
+            elif status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED:
+                raise SystemExit("Auto-update could not restore the installation; restart required.")
             elif status == ActivationStatus.ACTIVATED:
                 # The live tree now holds the new version, but this process was
                 # compiled from the old one (server.py / config / self_update are
@@ -1136,20 +1159,26 @@ def run_activation_safely() -> None:
                 # new code end-to-end; stdio fds survive exec, and the marker is
                 # gone, so the re-exec'd process takes the NO_MARKER fast path.
                 logger.info("Auto-update: re-exec into the updated code.")
-                try:
-                    os.execv(sys.executable, [sys.executable, *sys.argv])
-                except OSError:
-                    logger.warning("Auto-update: re-exec failed; new code applies on the next start.")
+                _reexec_updated_server()
             logger.debug("Auto-update: activation finished with status %s", status)
     except Exception:
         logger.warning("Auto-update: startup activation crashed (ignored).", exc_info=True)
 
 
-def _run_update_safely() -> None:
+def _reexec_updated_server() -> None:
+    try:
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+    except OSError as exc:
+        # Falling through would mix already-imported old modules with new files.
+        raise SystemExit("Auto-update re-exec failed; restart required.") from exc
+
+
+def _run_update_safely() -> Optional[str]:
     """Lock + throttle + run the background update, swallowing every error.
 
     Dispatches to Phase B (:func:`prepare_update`) when staging is on, else the
-    legacy in-place :func:`check_and_apply_update`. When staging is on and a
+    synchronous in-place :func:`check_and_apply_update` (the caller must hold the
+    exclusive installation lease for that mode). When staging is on and a
     prepared update is already pending activation, it does NOT prepare again.
     """
     try:
@@ -1169,6 +1198,7 @@ def _run_update_safely() -> None:
             if status not in _PRE_NETWORK_STATUSES:
                 _touch_check_stamp()
             logger.debug("Auto-update: finished with status %s", status)
+            return status
     except Exception:
         logger.warning("Auto-update: background update crashed (ignored).", exc_info=True)
 
@@ -1180,6 +1210,11 @@ def start_background_update():
     """
     if not AUTO_UPDATE_ENABLED:
         logger.debug("Auto-update: disabled (AGENTS_AUTO_UPDATE=0).")
+        return None
+    from src.startup import fcntl
+    if fcntl is None or not AUTO_UPDATE_STAGING:
+        # Unsupported locking platforms never auto-update. The legacy mode runs
+        # synchronously at startup under the exclusive installation lease.
         return None
     thread = threading.Thread(target=_run_update_safely, name="auto-update", daemon=True)
     thread.start()

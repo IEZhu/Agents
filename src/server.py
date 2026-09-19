@@ -1,9 +1,19 @@
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# Acquire the installation lease before loading application/configuration code.
+# The bootstrap re-reads this file under the lease and holds it until server exit.
+if __name__ == "__main__" and not globals().get("_agents_bootstrapped"):
+    from src.startup import run_server
+    run_server(__file__)
+    raise SystemExit(0)
+
 import atexit
 import hashlib
 import logging
 import uuid
-import os
-import sys
 import re
 import json
 import asyncio
@@ -14,8 +24,6 @@ from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent
 from typing import Optional, List
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-server")
@@ -23,18 +31,6 @@ logger = logging.getLogger("mcp-server")
 # Load env vars
 env_path = os.path.join(os.path.dirname(__file__), "../.env")
 dotenv.load_dotenv(env_path)
-
-# ── Phase A: activate a prepared staged update BEFORE the engine imports below.
-# Those imports eagerly construct SemanticRouter()/SkillRetriever()/ImplantRetriever()
-# at module scope, loading the vector stores into memory — so the fast local
-# ff-merge + atomic file move must happen first, here. Guarded by __name__ so a
-# plain ``import src.server`` (tests, the reindex subprocess) has no git side
-# effect; True only when launched as the main module (``python src/server.py`` or
-# ``python -m src.server``). See src/self_update.py (Phase A/B).
-# IMPORTANT: do not move any ``from src.engine...`` import above this block.
-if __name__ == "__main__":
-    from src.self_update import run_activation_safely
-    run_activation_safely()
 
 # Langfuse is optional — server works without keys
 

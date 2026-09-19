@@ -188,8 +188,8 @@ RULES_ENABLED = os.getenv("RULES_ENABLED", "1").lower() in ("1", "true")
 
 # --- Auto-update (background self-update) ------------------------------------
 # The server can keep itself current by pulling its own git repo (INSTALL_ROOT)
-# in a daemon thread at startup — non-blocking — and rebuilding the vector
-# stores; the new code takes effect on the *next* start. It acts ONLY when the
+# in a daemon thread — non-blocking — and preparing the vector stores; the new
+# code takes effect at the next start with no active readers. It acts ONLY when the
 # checked-out branch is AUTO_UPDATE_BRANCH and the tree is clean, fast-forward
 # only. On any other branch (feature branches / local development) it is a
 # no-op. Opt out with AGENTS_AUTO_UPDATE=0.
@@ -207,9 +207,9 @@ AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 600
 # Two-phase staged update (the default). When on, the background daemon does NOT
 # mutate the live install: it prepares the new version + freshly-built indexes in
 # an isolated git worktree under AUTO_UPDATE_STAGING_DIR and writes a marker; the
-# next start activates it with a fast local ff-merge + atomic file move (see
-# src/self_update.py, Phase A/B). Set to 0 to fall back to the legacy in-place
-# fast-forward+reindex path (check_and_apply_update).
+# next idle start activates it with a local ff-merge + atomic file move (see
+# src/self_update.py, Phase A/B). Set to 0 for synchronous in-place fast-forward
+# + reindex at idle startup, also under the exclusive installation lease.
 AUTO_UPDATE_STAGING = os.getenv("AGENTS_AUTO_UPDATE_STAGING", "1").lower() in ("1", "true")
 # Parent dir for per-sha staging worktrees. MUST share a filesystem with
 # INSTALL_DATA_DIR so the activation move (os.replace) is atomic; under data/

@@ -49,7 +49,8 @@ class SkillRetriever:
         h = hashlib.md5()
         h.update(EMBEDDING_MODEL.encode())
         for path in sorted(glob.glob(os.path.join(SKILLS_DIR, "*.mdc"))):
-            h.update(path.encode())
+            # Prepared stores move from a worktree into the live install.
+            h.update(os.path.basename(path).encode())
             with open(path, "rb") as f:
                 h.update(f.read())
         return h.hexdigest()
