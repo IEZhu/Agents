@@ -60,7 +60,7 @@ AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 ### Background Auto-Update
 
 The server can keep itself current. Updates are **two-phase** — prepared in the
-background, activated on the next start — so the live install is never mutated
+background, activated on the next idle start — so the live install is never mutated
 mid-session:
 
 1. **Prepare** (background): a daemon thread (non-blocking, so it never delays
@@ -68,11 +68,14 @@ mid-session:
    builds the new version's vector stores in an isolated git worktree under
    `data/.prepared/<sha>`, then writes a marker. The live tree and stores are
    untouched.
-2. **Activate** (next start): if a valid prepared update exists, the server
+2. **Activate** (next idle start): if a valid prepared update exists and no other
+   server session is using this installation, the server
    fast-forwards the live tree (local, no network) and atomically moves the
    pre-built stores into `data/` — the expensive embedding already happened in
-   phase 1, so startup stays fast. For per-session stdio servers that's simply
-   the next spawn.
+   phase 1. Existing sessions hold a shared installation lock for their lifetime;
+   overlapping starts keep serving the current version and leave the update
+   pending. A start during activation waits before importing application code.
+   Background preparation uses a separate lock and does not delay startup.
 
 It is **safe by default**:
 
@@ -82,8 +85,15 @@ It is **safe by default**:
   or switch branches);
 - a failed staged build discards the worktree and leaves the install as-is; crash
   windows self-heal via the store's torn-pair detection and content-hash re-embed;
-- any error (offline, lock held by another process, timeout) is logged and the server
-  keeps serving the current code. Dependencies are **not** auto-installed.
+- offline/fetch/build failures leave the current version available. A failed
+  activation merge (including a timeout after HEAD moved) restores the old tree.
+  If rollback or re-exec fails, startup stops instead of serving mixed versions.
+  Dependencies are **not** auto-installed.
+
+Lifetime locks require POSIX `flock` (Linux/macOS). On platforms without it the
+server runs with automatic updates disabled. When upgrading from a version that
+does not hold these locks, restart all existing server sessions once. Manual Git
+operations and rebuilds must also be done with those sessions stopped.
 
 ```env
 AGENTS_AUTO_UPDATE=1                     # 0 to disable
@@ -92,13 +102,15 @@ AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is chec
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
 AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds allowed for the staged index build
-AGENTS_AUTO_UPDATE_STAGING=1             # 0 = legacy in-place update (ff + reindex, rollback on failure)
+AGENTS_AUTO_UPDATE_STAGING=1             # 0 = synchronous in-place update at an idle start
 # AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
 
 With `AGENTS_AUTO_UPDATE_STAGING=0` the updater falls back to the legacy in-place
-path: fast-forward the live tree and rebuild the stores right there, rolling back
-to the previous commit if the rebuild fails.
+path at an idle start under the same exclusive installation lock: fast-forward
+the live tree and rebuild the stores right there, rolling back to the previous
+commit if the rebuild fails. This mode can delay startup for fetch and reindex;
+it no longer mutates files in a background thread while sessions are serving.
 
 Run a manual rebuild any time with `python -m src.reindex`.
 
