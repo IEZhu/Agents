@@ -1443,6 +1443,38 @@ def test_staging_cleanup_excludes_live_repo_through_symlink(tmp_path):
     assert self_update._staging_worktrees(str(alias), str(tmp_path), 30) == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink staging paths")
+@pytest.mark.parametrize("symlink_parent", [False, True])
+def test_staging_cleanup_does_not_follow_replaced_worktree_paths(repos, tmp_path, symlink_parent):
+    parent = tmp_path / "staging"
+    registered = parent / ("a" * 40)
+    _git(repos.local, "worktree", "add", "--detach", str(registered), "HEAD")
+    moved_path = parent if symlink_parent else registered
+    protected = tmp_path / "protected" if symlink_parent else parent / ("b" * 40)
+    moved_path.rename(protected)
+    moved_path.symlink_to(protected, target_is_directory=True)
+    target = protected / registered.name if symlink_parent else protected
+    sentinel = target / "keep.txt"
+    sentinel.write_text("unrelated contents must survive cleanup\n")
+
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+
+    assert sentinel.read_text() == "unrelated contents must survive cleanup\n"
+    assert moved_path.is_symlink()
+    assert (repos.local / "file.txt").exists()
+
+
+def test_staging_cleanup_preserves_nested_user_worktree(repos, tmp_path):
+    parent = tmp_path / "staging"
+    nested = parent / "user" / ("a" * 40)
+    _git(repos.local, "worktree", "add", "--detach", str(nested), "HEAD")
+
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+
+    assert (nested / "file.txt").read_text() == "v1\n"
+    assert _head(nested) == _head(repos.local)
+
+
 @pytest.mark.parametrize("deny_cleanup", [False, True])
 def test_legacy_reindex_failure_invalidates_new_store_hashes(repos, monkeypatch, deny_cleanup):
     _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")

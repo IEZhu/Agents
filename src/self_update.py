@@ -668,9 +668,10 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
     includes the **main worktree** (the live install), so this filter is
     defense-in-depth against a misconfigured ``AGENTS_AUTO_UPDATE_STAGING_DIR``
     (the repo root, or one of its ancestors): a path qualifies only if it is
-    strictly UNDER *staging_parent*, is not *repo_root* itself, and its basename
-    is a full sha — the exact shape ``prepare_update`` creates. The live install
-    and unrelated user worktrees are never returned.
+    a direct child of canonical *staging_parent*, is not *repo_root* itself, and
+    its basename is a full sha — the exact shape ``prepare_update`` creates.
+    Reject symlinked paths instead of following them to a cleanup target. The
+    live install and unrelated user worktrees are never returned.
     """
     try:
         r = _run_git(["worktree", "list", "--porcelain"], repo_root, git_timeout)
@@ -684,14 +685,16 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
     for line in r.stdout.splitlines():
         if line.startswith("worktree "):
             path = line[len("worktree "):].strip()
-            ap = os.path.realpath(path)
+            ap = os.path.abspath(path)
             if (
-                ap.startswith(parent + os.sep)
+                os.path.dirname(ap) == parent
                 and ap != root
                 and _FULL_SHA_RE.match(os.path.basename(ap))
+                and not os.path.islink(ap)
+                and os.path.realpath(ap) == ap
             ):
-                # Return the validated absolute path, not git's raw string, so
-                # the callers' remove/rmtree act on exactly what was validated.
+                # Keep the registered path: never substitute a symlink target
+                # for the worktree that git actually listed.
                 out.append(ap)
     return out
 
