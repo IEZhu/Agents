@@ -250,6 +250,7 @@ def test_disabled_spawns_no_thread(monkeypatch):
 
 
 def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
+    pytest.importorskip("fcntl")
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
     monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
     monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "missing.json"))
@@ -1098,7 +1099,8 @@ with server_session(root, lambda: None):
         [self_update.sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]), str(repos.local)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
-    activate = lambda: self_update.activate_prepared_update(str(repos.local), "main")
+    def activate():
+        return self_update.activate_prepared_update(str(repos.local), "main")
     try:
         assert process.stdout.readline().strip() == "v1"
         with server_session(repos.local, activate):
@@ -1224,3 +1226,74 @@ def test_legacy_updates_only_at_quiet_startup(monkeypatch, status):
     else:
         self_update.run_activation_safely()
         assert calls == ["update", "exec"]
+
+
+def _configure_startup_activation(monkeypatch, repos):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(repos.local / "data/.update.lock"))
+    activate = self_update.activate_prepared_update
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda: activate(str(repos.local), "main"))
+
+
+def test_post_commit_cleanup_launch_failure_still_reexecs(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    _configure_startup_activation(monkeypatch, repos)
+    real_git = self_update._run_git
+
+    def permission_denied_during_cleanup(args, cwd, timeout):
+        if args[0] == "worktree":
+            raise PermissionError("cannot launch cleanup git")
+        return real_git(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", permission_denied_during_cleanup)
+    execs = []
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: execs.append(True))
+    self_update.run_activation_safely()
+    assert _head(repos.local) == _head(repos.upstream)
+    assert self_update._read_prepared_marker() is None
+    assert json.loads(Path(self_update.STATE_FILE).read_text())["status"] == ActivationStatus.ACTIVATED
+    assert execs == [True]
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_rollback_launch_failure_stops_startup(repos, phase_a_env, monkeypatch, staged):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    _configure_startup_activation(monkeypatch, repos)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", staged)
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(repos.local / "data/.check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    monkeypatch.setattr(self_update, "check_and_apply_update", lambda: check_and_apply_update(str(repos.local), "origin", "main"))
+    real_git = self_update._run_git
+
+    def permission_denied_during_rollback(args, cwd, timeout):
+        if args[0] == "merge":
+            real_git(args, cwd, timeout)
+            raise subprocess.TimeoutExpired("git merge", timeout)
+        if args[0] == "reset":
+            raise PermissionError("cannot launch rollback git")
+        return real_git(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", permission_denied_during_rollback)
+    with pytest.raises(SystemExit, match="could not restore"):
+        self_update.run_activation_safely()
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_unexpected_startup_update_exception_cannot_serve_mixed_tree(tmp_path, monkeypatch, staged):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", staged)
+    marker = tmp_path / "marker.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / "update.lock"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+
+    def unexpected_failure():
+        raise RuntimeError("unexpected failure after mutation")
+
+    monkeypatch.setattr(self_update, "activate_prepared_update" if staged else "check_and_apply_update", unexpected_failure)
+    with pytest.raises(SystemExit, match="startup failed"):
+        self_update.run_activation_safely()

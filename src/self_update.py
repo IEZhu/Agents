@@ -857,7 +857,12 @@ def _discard_staging(repo_root: str, git_timeout: int) -> None:
     staging set on the next start.
     """
     _silent_unlink(PREPARED_MARKER)
-    _prune_staging_worktrees(repo_root, STAGING_ROOT, git_timeout)
+    try:
+        _prune_staging_worktrees(repo_root, STAGING_ROOT, git_timeout)
+    except Exception:
+        # Cleanup is best-effort, including after merge/move have committed.
+        # It must never bypass the caller's re-exec or rollback-failure handling.
+        logger.warning("Auto-update: staging cleanup failed; will retry later.", exc_info=True)
 
 
 def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
@@ -1107,7 +1112,7 @@ def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int) -> bool
     """Restore the pre-activation tree even if merge timed out after changing HEAD."""
     try:
         result = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, OSError):
         logger.error("Auto-update: activation rollback raised.", exc_info=True)
         return False
     if result.returncode != 0:
@@ -1149,7 +1154,7 @@ def run_activation_safely() -> None:
             if status == ActivationStatus.NO_MARKER:
                 # We only took the lock because STAGING_ROOT had leftovers (a crashed
                 # prepare with no marker) -> reap the orphan worktrees.
-                _prune_staging_worktrees(INSTALL_ROOT, STAGING_ROOT, AUTO_UPDATE_GIT_TIMEOUT)
+                _discard_staging(INSTALL_ROOT, AUTO_UPDATE_GIT_TIMEOUT)
             elif status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED:
                 raise SystemExit("Auto-update could not restore the installation; restart required.")
             elif status == ActivationStatus.ACTIVATED:
@@ -1161,8 +1166,11 @@ def run_activation_safely() -> None:
                 logger.info("Auto-update: re-exec into the updated code.")
                 _reexec_updated_server()
             logger.debug("Auto-update: activation finished with status %s", status)
-    except Exception:
-        logger.warning("Auto-update: startup activation crashed (ignored).", exc_info=True)
+    except Exception as exc:
+        # Expected failures return explicit statuses. An unexpected exception
+        # gives us no guarantee that the live tree was left untouched.
+        logger.error("Auto-update: startup activation crashed.", exc_info=True)
+        raise SystemExit("Auto-update startup failed; restart required.") from exc
 
 
 def _reexec_updated_server() -> None:
@@ -1200,6 +1208,8 @@ def _run_update_safely() -> Optional[str]:
             logger.debug("Auto-update: finished with status %s", status)
             return status
     except Exception:
+        if not AUTO_UPDATE_STAGING:
+            raise  # synchronous in-place caller must stop on unknown tree state
         logger.warning("Auto-update: background update crashed (ignored).", exc_info=True)
 
 

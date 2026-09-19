@@ -1136,10 +1136,10 @@ if __name__ == "__main__":
     _warmup_rules()
     # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
     # prepare the next update — fetch + build the new version's indexes in an
-    # isolated git worktree and write a marker — so the NEXT start activates it via
-    # a fast move (Phase A, at the top of this file). With AGENTS_AUTO_UPDATE_STAGING=0
-    # it falls back to the legacy in-place fast-forward+reindex. No-op unless on the
-    # target branch. Started after warmup so the reindex subprocess doesn't contend
+    # isolated git worktree and write a marker — so the next idle start activates
+    # it via a fast move under startup.py's exclusive lease. Legacy mode already
+    # ran synchronously there and starts no background thread. No-op unless on
+    # the target branch. Started after warmup so reindex doesn't contend
     # for the model load. See src/self_update.py.
     from src.self_update import log_last_update, start_background_update
     log_last_update()
