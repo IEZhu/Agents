@@ -809,6 +809,76 @@ def test_activate_cross_device_staging_discards(repos, phase_a_env, monkeypatch)
     assert self_update._read_prepared_marker() is None
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX staging symlinks")
+@pytest.mark.parametrize("redirect_root", [False, True])
+def test_activation_rejects_redirected_staging_without_touching_target(repos, phase_a_env, tmp_path, redirect_root):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target_sha = _head(repos.upstream)
+    parent = Path(phase_a_env.parent)
+    staged = parent / target_sha
+    protected_parent = tmp_path / "protected"
+    protected_parent.mkdir()
+    protected = protected_parent / target_sha
+    # Keep the target registered: cleanup must not accept it merely because the
+    # redirected STAGING_ROOT resolves to its otherwise valid canonical parent.
+    _git(repos.local, "worktree", "move", str(staged), str(protected))
+    if redirect_root:
+        parent.rmdir()
+        parent.symlink_to(protected_parent, target_is_directory=True)
+    else:
+        staged.symlink_to(protected, target_is_directory=True)
+    saved = {p.name: p.read_bytes() for p in (protected / "data").iterdir()}
+
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+
+    assert status == ActivationStatus.INVALID_STAGING_INCONSISTENT
+    assert _head(repos.local) == original
+    assert {p.name: p.read_bytes() for p in (protected / "data").iterdir()} == saved
+    assert (protected / "file.txt").read_text() == "v2\n"
+    assert not (repos.local / "data/skills_store.npz").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX staging symlinks")
+def test_prepare_rejects_redirected_staging_root(repos, phase_a_env, tmp_path):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    parent = Path(phase_a_env.parent)
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    (protected / "keep.txt").write_text("user data\n")
+    parent.symlink_to(protected, target_is_directory=True)
+
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARE_WORKTREE_FAILED
+    assert list(protected.iterdir()) == [protected / "keep.txt"]
+    assert (protected / "keep.txt").read_text() == "user data\n"
+    assert self_update._read_prepared_marker() is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX staging symlinks")
+@pytest.mark.parametrize("redirect", ["data", "skills_store.npz"])
+def test_activation_rejects_redirected_store_contents(repos, phase_a_env, tmp_path, redirect):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    staged = Path(phase_a_env.parent) / _head(repos.upstream)
+    path = staged / "data" if redirect == "data" else staged / "data" / redirect
+    protected = tmp_path / "protected-content"
+    path.rename(protected)
+    saved = ({p.name: p.read_bytes() for p in protected.iterdir()}
+             if protected.is_dir() else protected.read_bytes())
+    path.symlink_to(protected, target_is_directory=protected.is_dir())
+
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+
+    assert status == ActivationStatus.INVALID_STAGING_INCONSISTENT
+    assert _head(repos.local) == original
+    current = ({p.name: p.read_bytes() for p in protected.iterdir()}
+               if protected.is_dir() else protected.read_bytes())
+    assert current == saved
+    assert not (repos.local / "data/skills_store.npz").exists()
+
+
 def test_staging_worktrees_returns_validated_absolute_paths(repos, phase_a_env):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
     assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED

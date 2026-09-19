@@ -45,6 +45,7 @@ import json
 import logging
 import os
 import re
+import selectors
 import shutil
 import signal
 import subprocess
@@ -241,6 +242,7 @@ def _run_command(args, cwd: str, timeout: int, *, env=None) -> subprocess.Comple
         return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                               timeout=timeout, env=env, check=False)
     completed_read, completed_write = os.pipe()
+    deadline = time.monotonic() + timeout
     try:
         with subprocess.Popen(
             args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -262,6 +264,13 @@ def _run_command(args, cwd: str, timeout: int, *, env=None) -> subprocess.Comple
             finally:
                 # The leader may be gone while a descendant still holds the
                 # same flock description. Never unlock/downgrade it early.
+                with selectors.DefaultSelector() as completion:
+                    completion.register(completed_read, selectors.EVENT_READ)
+                    if not completion.select(max(0, deadline - time.monotonic())):
+                        logger.warning(
+                            "Auto-update: waiting for descendants of PID %s (%s) to release inherited leases.",
+                            process.pid, args[0],
+                        )
                 while os.read(completed_read, 4096):
                     pass
             return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
@@ -682,6 +691,12 @@ def check_and_apply_update(
 
 # --- Phase B: prepare a staged update (git worktree) -------------------------
 
+def _is_unredirected_path(path: str) -> bool:
+    """Reject symlinks at *path* or in its parent components."""
+    absolute = os.path.abspath(path)
+    return not os.path.islink(absolute) and os.path.realpath(absolute) == absolute
+
+
 def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
     """Return the registered git worktrees that are OUR staging checkouts.
 
@@ -698,6 +713,8 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
     Reject symlinked paths instead of following them to a cleanup target. The
     live install and unrelated user worktrees are never returned.
     """
+    if not _is_unredirected_path(staging_parent):
+        return []
     try:
         r = _run_git(["worktree", "list", "--porcelain"], repo_root, git_timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -715,8 +732,7 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
                 os.path.dirname(ap) == parent
                 and ap != root
                 and _FULL_SHA_RE.match(os.path.basename(ap))
-                and not os.path.islink(ap)
-                and os.path.realpath(ap) == ap
+                and _is_unredirected_path(ap)
             ):
                 # Keep the registered path: never substitute a symlink target
                 # for the worktree that git actually listed.
@@ -731,6 +747,9 @@ def _prune_staging_worktrees(repo_root: str, staging_parent: str, git_timeout: i
     dir, then ``git worktree prune``. Bounds orphan accumulation regardless of how
     a previous prepare/activation died.
     """
+    if not _is_unredirected_path(staging_parent):
+        logger.warning("Auto-update: refusing cleanup through redirected staging parent %s", staging_parent)
+        return
     for path in _staging_worktrees(repo_root, staging_parent, git_timeout):
         try:
             _run_git(["worktree", "remove", "--force", path], repo_root, git_timeout)
@@ -757,6 +776,9 @@ def _add_worktree(staging_parent: str, target_sha: str, repo_root: str, git_time
     fresh one. Returns the staging dir path, or ``None`` on failure. The worktree
     shares the repo's object store, so the checkout is cheap.
     """
+    if not _is_unredirected_path(staging_parent):
+        logger.warning("Auto-update: refusing redirected staging parent %s", staging_parent)
+        return None
     _prune_staging_worktrees(repo_root, staging_parent, git_timeout)
     try:
         os.makedirs(staging_parent, exist_ok=True)
@@ -822,14 +844,21 @@ def _validate_staged_stores(staging_dir: str, stores) -> bool:
     detection at load time is handled by ``NumpyVectorStore._load``.
     """
     data_dir = os.path.join(staging_dir, "data")
+    if not _is_unredirected_path(data_dir):
+        logger.warning("Auto-update: staged data path is redirected.")
+        return False
     for name, hash_file in _STAGED_STORES:
         if name not in stores:
             continue
-        if not os.path.exists(os.path.join(data_dir, hash_file)):
-            logger.warning("Auto-update: staged store %s is missing its hash file.", name)
-            return False
+        hash_path = os.path.join(data_dir, hash_file)
         npz = os.path.join(data_dir, f"{name}.npz")
         meta = os.path.join(data_dir, f"{name}.json")
+        if not all(_is_unredirected_path(path) for path in (hash_path, npz, meta)):
+            logger.warning("Auto-update: staged store %s contains a redirected artifact.", name)
+            return False
+        if not os.path.exists(hash_path):
+            logger.warning("Auto-update: staged store %s is missing its hash file.", name)
+            return False
         npz_exists, meta_exists = os.path.exists(npz), os.path.exists(meta)
         if not npz_exists and not meta_exists:
             continue  # valid-empty store
@@ -1045,6 +1074,9 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
     # rather than trusting the marker's recorded absolute path (robust to a moved
     # install); a missing/torn staging set discards and lets Phase B re-prepare.
     staging_dir = os.path.join(STAGING_ROOT, target_sha)
+    if not _is_unredirected_path(STAGING_ROOT) or not _is_unredirected_path(staging_dir):
+        logger.warning("Auto-update: prepared staging path is redirected; discarding.")
+        return ActivationStatus.INVALID_STAGING_INCONSISTENT, False
     if not os.path.isdir(staging_dir):
         logger.warning("Auto-update: staging dir for %s is missing; discarding.", target_sha[:9])
         return ActivationStatus.INVALID_STAGING_MISSING, False
