@@ -1117,6 +1117,33 @@ def _invalidate_store_hashes(data_dir: str, stores=_STAGED_STORES) -> None:
         raise error
 
 
+def _relocate_store_metadata(metadata_path: str, source_dir: str) -> None:
+    """Point persisted source paths at the live checkout without rebuilding vectors.
+
+    Derive paths from the indexers' flat filenames, not their old absolute prefix:
+    the installation itself may have moved since preparation. Keep save_version
+    unchanged so the existing NPZ/JSON pair remains coherent.
+    """
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        try:
+            payload = json.load(f)
+        except ValueError as exc:
+            raise OSError("Cannot relocate unreadable store metadata") from exc
+    records = payload.get("metadatas") if isinstance(payload, dict) else None
+    if not isinstance(records, list):
+        raise OSError("Cannot relocate malformed store metadata")
+    for record in records:
+        filename = record.get("filename") if isinstance(record, dict) else None
+        if (not isinstance(filename, str) or filename in {"", ".", ".."}
+                or os.path.basename(filename) != filename):
+            raise OSError("Cannot relocate invalid source filename")
+        record["path"] = os.path.join(os.path.abspath(source_dir), filename)
+    # This is still a staged file. A failed write takes the normal activation
+    # rollback path; no new hash is published until the entire batch succeeds.
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+
+
 def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
     """Move the staged store set into the live ``<repo_root>/data`` atomically per file.
 
@@ -1138,6 +1165,7 @@ def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
             dst_npz = os.path.join(dst_data, f"{name}.npz")
             dst_json = os.path.join(dst_data, f"{name}.json")
             if os.path.exists(src_npz) and os.path.exists(src_json):
+                _relocate_store_metadata(src_json, os.path.join(repo_root, name.removesuffix("_store")))
                 os.replace(src_npz, dst_npz)
                 os.replace(src_json, dst_json)
             else:
