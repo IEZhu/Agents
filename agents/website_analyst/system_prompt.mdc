@@ -22,6 +22,7 @@ core_skills:
 - skill-content-structure
 - skill-analysis-critical
 preferred_skills:
+- skill-web-search
 - skill-fact-verification
 - skill-source-trust-tiers
 - skill-wayback-machine

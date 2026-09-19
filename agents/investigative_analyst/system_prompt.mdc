@@ -25,6 +25,7 @@ core_skills:
 - skill-fact-verification
 - skill-forensic-process
 preferred_skills:
+- skill-web-search
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-dense-summarization

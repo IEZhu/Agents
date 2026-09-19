@@ -40,6 +40,7 @@ core_skills:
 - skill-content-structure
 - skill-error-recovery
 preferred_skills:
+- skill-web-search
 - skill-dev-debugging
 - skill-analysis-critical
 - skill-reasoning-logic

@@ -24,6 +24,7 @@ preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
 capable_skills:
+- skill-web-search
 - skill-fact-verification
 - skill-source-trust-tiers
 - skill-epistemic-method

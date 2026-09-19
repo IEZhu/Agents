@@ -32,6 +32,7 @@ core_skills:
 - skill-dev-clean-code
 - skill-confidence-markers
 preferred_skills:
+- skill-web-search
 - skill-dev-api-design
 - skill-error-recovery
 - skill-dev-debugging
