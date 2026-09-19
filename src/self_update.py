@@ -901,14 +901,6 @@ def prepare_update(
 
 # --- Phase A: activate a prepared update (startup) ---------------------------
 
-def _silent_unlink(path: str) -> None:
-    """Remove *path* if present; ignore a missing file or any OS error."""
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-
-
 def _same_filesystem(path_a: str, path_b: str) -> bool:
     """True if both paths live on the same device (``st_dev``); False on any stat error."""
     try:
@@ -929,9 +921,10 @@ def _discard_staging(repo_root: str, git_timeout: int) -> None:
     """Drop a prepared update: remove the marker FIRST, then reap staging worktrees.
 
     Marker-first so a crash mid-cleanup can never re-activate a half-removed
-    staging set on the next start.
+    staging set on the next start. Failure to remove the marker must propagate
+    before any worktree cleanup; only an already-missing marker is harmless.
     """
-    _silent_unlink(PREPARED_MARKER)
+    _unlink_if_present(PREPARED_MARKER)
     try:
         _prune_staging_worktrees(repo_root, STAGING_ROOT, git_timeout)
     except Exception:

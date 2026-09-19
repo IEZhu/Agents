@@ -1300,6 +1300,39 @@ def test_post_commit_cleanup_launch_failure_still_reexecs(repos, phase_a_env, mo
     assert execs == [True]
 
 
+@pytest.mark.parametrize("invalid_marker", [False, True])
+def test_marker_removal_failure_stops_startup_and_preserves_staging(repos, phase_a_env, monkeypatch, invalid_marker):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    if invalid_marker:
+        marker = self_update._read_prepared_marker()
+        marker["branch"] = "another-branch"
+        Path(self_update.PREPARED_MARKER).write_text(json.dumps(marker))
+    _configure_startup_activation(monkeypatch, repos)
+    remove = self_update.os.remove
+
+    def denied(path, *args, **kwargs):
+        if str(path) == self_update.PREPARED_MARKER:
+            raise PermissionError("cannot remove prepared marker")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    execs = []
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: execs.append(True))
+    with pytest.raises(SystemExit, match="startup failed") as failure:
+        self_update.run_activation_safely()
+
+    assert isinstance(failure.value.__cause__, PermissionError)
+    assert self_update._read_prepared_marker() is not None
+    assert (Path(phase_a_env.parent) / target).is_dir()
+    assert execs == []
+    assert _head(repos.local) == (original if invalid_marker else target)
+    if not invalid_marker:
+        assert (repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
 @pytest.mark.parametrize("staged", [True, False])
 def test_rollback_launch_failure_stops_startup(repos, phase_a_env, monkeypatch, staged):
     _commit(repos.upstream, "file.txt", "v2\n", "update")
