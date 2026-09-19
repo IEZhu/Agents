@@ -75,6 +75,7 @@ mid-session:
    phase 1. Existing sessions hold a shared installation lock for their lifetime;
    overlapping starts keep serving the current version and leave the update
    pending. A start during activation waits before importing application code.
+   After waiting, it reloads both the bootstrap and server code under the lease.
    Background preparation uses a separate lock and does not delay startup.
    Git/reindex children inherit the relevant leases, so an orphan worker remains
    protected until it exits even if its server process has already stopped.
@@ -87,6 +88,9 @@ It is **safe by default**:
   or switch branches);
 - a failed staged build discards the worktree and leaves the install as-is; crash
   recovery also uses the store's torn-pair detection and content-hash re-embed;
+- store activation invalidates all hashes before moving files and publishes new
+  hashes only after all pairs have moved. Any batch failure invalidates all hashes
+  again; if that cannot be completed, the recovery journal keeps startup blocked;
 - offline/fetch/build failures leave the current version available. A failed
   activation merge (including a timeout after HEAD moved) restores the old tree.
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's

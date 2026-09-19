@@ -6,8 +6,10 @@ exit; only a startup with no existing readers can activate an update.
 """
 
 import logging
+import importlib
 import os
 import runpy
+import sys
 from contextlib import contextmanager
 
 UPDATE_JOURNAL = ".update_in_progress.json"
@@ -80,6 +82,11 @@ def _activate(repo_root, session_fd):
 def run_server(server_path):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(server_path)))
     with server_session(repo_root, lambda fd: _activate(repo_root, fd)):
+        # A contender imported this bootstrap before waiting for the writer.
+        # Refresh its module too: updated application code may use new symbols.
+        # Use a fresh namespace: reload() would retain names removed by the update.
+        del sys.modules[__name__]
+        importlib.import_module(__name__)
         # The outer server.py was compiled before we acquired the lease. Read it
         # again now so a contending startup cannot execute the previous version.
         runpy.run_path(server_path, run_name="__main__",

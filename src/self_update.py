@@ -1041,38 +1041,49 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
     return None, already_at_target
 
 
+class StoreInvalidationError(OSError):
+    """A partially published store batch could not be marked for rebuilding."""
+
+
 def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
     """Move the staged store set into the live ``<repo_root>/data`` atomically per file.
 
-    Ordering per store is ``unlink(live .hash) -> replace(.npz) -> replace(.json)
-    -> put(.hash)``. Deleting the live hash first means any crash mid-move leaves
-    *no* hash (forcing a clean re-embed on load) rather than a stale hash masking a
-    half-moved store. Each ``os.replace`` is atomic (same filesystem). Raises
-    ``OSError`` on a failed move so the caller can fail to ACTIVATE_MOVE_FAILED.
+    Invalidate every hash, move every store pair, then publish every new hash.
+    Any failure after moving starts invalidates the entire batch again, including
+    hashes already published. If that cleanup fails, the recovery journal must
+    remain in place; even a code-only update may change the index format.
     """
     src_data = os.path.join(staging_dir, "data")
     dst_data = os.path.join(repo_root, "data")
     os.makedirs(dst_data, exist_ok=True)
-    for name, hash_file in _STAGED_STORES:
-        if name not in stores:
-            continue
-        src_npz = os.path.join(src_data, f"{name}.npz")
-        src_json = os.path.join(src_data, f"{name}.json")
-        src_hash = os.path.join(src_data, hash_file)
-        dst_npz = os.path.join(dst_data, f"{name}.npz")
-        dst_json = os.path.join(dst_data, f"{name}.json")
-        dst_hash = os.path.join(dst_data, hash_file)
-
-        _unlink_if_present(dst_hash)
-        if os.path.exists(src_npz) and os.path.exists(src_json):
-            os.replace(src_npz, dst_npz)
-            os.replace(src_json, dst_json)
-        else:
-            # Staged store is valid-empty (save() removed both files): clear the
-            # live store too so the moved hash matches an empty store.
-            _unlink_if_present(dst_npz)
-            _unlink_if_present(dst_json)
-        os.replace(src_hash, dst_hash)
+    selected = [(name, hash_file) for name, hash_file in _STAGED_STORES if name in stores]
+    # Failure here is harmless to old stores: no data file has moved yet.
+    for _, hash_file in selected:
+        _unlink_if_present(os.path.join(dst_data, hash_file))
+    try:
+        for name, _ in selected:
+            src_npz = os.path.join(src_data, f"{name}.npz")
+            src_json = os.path.join(src_data, f"{name}.json")
+            dst_npz = os.path.join(dst_data, f"{name}.npz")
+            dst_json = os.path.join(dst_data, f"{name}.json")
+            if os.path.exists(src_npz) and os.path.exists(src_json):
+                os.replace(src_npz, dst_npz)
+                os.replace(src_json, dst_json)
+            else:
+                _unlink_if_present(dst_npz)
+                _unlink_if_present(dst_json)
+        for _, hash_file in selected:
+            os.replace(os.path.join(src_data, hash_file), os.path.join(dst_data, hash_file))
+    except OSError:
+        invalidation_error = None
+        for _, hash_file in selected:
+            try:
+                _unlink_if_present(os.path.join(dst_data, hash_file))
+            except OSError as exc:
+                invalidation_error = exc
+        if invalidation_error is not None:
+            raise StoreInvalidationError("Cannot invalidate the partial store batch") from invalidation_error
+        raise
 
 
 def activate_prepared_update(
@@ -1156,15 +1167,18 @@ def activate_prepared_update(
         logger.error(
             "Auto-update: activation move failed (%s); discarding. Stores re-embed on load.", e,
         )
-        restored = True
+        stores_invalidated = not isinstance(e, StoreInvalidationError)
+        restored = stores_invalidated
         if merged_now:
             # This run performed the merge: restore the pre-merge tree so the
             # process keeps serving the old code (no mixed-version runtime and
             # no new code without its stores). In the already_at_target resume
             # case the merge was a prior run's fait accompli — completing or
             # discarding is all that can be done there.
-            restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout)
-        else:
+            tree_restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout,
+                                                clear_journal=stores_invalidated)
+            restored = tree_restored and stores_invalidated
+        elif stores_invalidated:
             # No code mutation in this run; missing hashes repair partial moves.
             _finish_update(repo_root)
         if restored:
@@ -1179,7 +1193,7 @@ def activate_prepared_update(
     return ActivationStatus.ACTIVATED
 
 
-def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int) -> bool:
+def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int, *, clear_journal=True) -> bool:
     """Restore the pre-activation tree even if merge timed out after changing HEAD."""
     try:
         result = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
@@ -1190,7 +1204,8 @@ def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int) -> bool
         logger.error("Auto-update: activation rollback failed: %s", result.stderr.strip())
         return False
     try:
-        _finish_update(repo_root)
+        if clear_journal:
+            _finish_update(repo_root)
     except OSError:
         logger.error("Auto-update: restored tree but could not clear recovery journal.", exc_info=True)
         return False
