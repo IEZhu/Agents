@@ -76,6 +76,8 @@ mid-session:
    overlapping starts keep serving the current version and leave the update
    pending. A start during activation waits before importing application code.
    Background preparation uses a separate lock and does not delay startup.
+   Git/reindex children inherit the relevant leases, so an orphan worker remains
+   protected until it exits even if its server process has already stopped.
 
 It is **safe by default**:
 
@@ -84,7 +86,7 @@ It is **safe by default**:
 - only when the working tree is clean, and only **fast-forward** (never merge, rebase,
   or switch branches);
 - a failed staged build discards the worktree and leaves the install as-is; crash
-  windows self-heal via the store's torn-pair detection and content-hash re-embed;
+  recovery also uses the store's torn-pair detection and content-hash re-embed;
 - offline/fetch/build failures leave the current version available. A failed
   activation merge (including a timeout after HEAD moved) restores the old tree.
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's
@@ -95,6 +97,16 @@ Lifetime locks require POSIX `flock` (Linux/macOS). On platforms without it the
 server runs with automatic updates disabled. When upgrading from a version that
 does not hold these locks, restart all existing server sessions once. Manual Git
 operations and rebuilds must also be done with those sessions stopped.
+
+Before changing the live tree, the updater flushes a recovery journal to
+`data/.update_in_progress.json`. It removes this guard only after successful
+activation or rollback. An interrupted mutation or failed rollback keeps the
+journal (and available staging artifacts); subsequent starts stop before importing
+the application, even with auto-update disabled. To recover, stop the sessions,
+inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
+chosen revision, and successfully run `python -m src.reindex` there. Remove the
+journal only after verifying the restored checkout and rebuilt stores, then
+restart the server. An unreadable journal also requires this explicit recovery.
 
 ```env
 AGENTS_AUTO_UPDATE=1                     # 0 to disable

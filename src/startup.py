@@ -10,10 +10,25 @@ import os
 import runpy
 from contextlib import contextmanager
 
+UPDATE_JOURNAL = ".update_in_progress.json"
+
 try:
     import fcntl
 except ImportError:  # Windows: serve normally, but do not auto-update.
     fcntl = None
+
+
+def assert_installation_safe(repo_root):
+    """Reject an interrupted mutation before any application code is imported."""
+    journal = os.path.join(repo_root, "data", UPDATE_JOURNAL)
+    try:
+        os.lstat(journal)
+    except FileNotFoundError:
+        return
+    raise SystemExit(
+        f"Unfinished auto-update: {journal}. Restore the installation and rebuild "
+        "its stores, then remove this journal only after successful recovery."
+    )
 
 
 @contextmanager
@@ -25,6 +40,7 @@ def server_session(repo_root, activate):
     critical section would be unsafe.
     """
     if fcntl is None:
+        assert_installation_safe(repo_root)
         logging.getLogger(__name__).warning(
             "Auto-update disabled: shared installation locks are unavailable."
         )
@@ -42,25 +58,28 @@ def server_session(repo_root, activate):
             # must finish before we load config, prompts, stores or engine code.
             fcntl.flock(lease, fcntl.LOCK_SH)
         else:
-            activate()
+            assert_installation_safe(repo_root)
+            activate(lease.fileno())
             fcntl.flock(lease, fcntl.LOCK_SH)
         try:
+            # The writer we waited for may have crashed or failed rollback.
+            assert_installation_safe(repo_root)
             yield
         finally:
             fcntl.flock(lease, fcntl.LOCK_UN)
 
 
-def _activate(repo_root):
+def _activate(repo_root, session_fd):
     # These imports must stay inside the exclusive lease.
     from dotenv import load_dotenv
     load_dotenv(os.path.join(repo_root, ".env"))
     from src.self_update import run_activation_safely
-    run_activation_safely()
+    run_activation_safely(session_fd)
 
 
 def run_server(server_path):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(server_path)))
-    with server_session(repo_root, lambda: _activate(repo_root)):
+    with server_session(repo_root, lambda fd: _activate(repo_root, fd)):
         # The outer server.py was compiled before we acquired the lease. Read it
         # again now so a contending startup cannot execute the previous version.
         runpy.run_path(server_path, run_name="__main__",

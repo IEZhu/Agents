@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -22,10 +23,12 @@ def leased_install(tmp_path):
     shutil.copy(ROOT / "src/startup.py", source / "startup.py")
     # Execute the actual production entry guard, with a tiny server body that
     # avoids loading embeddings. No .env/network work in the activation stub.
-    prefix = (ROOT / "src/server.py").read_text(encoding="utf-8").split("import atexit", 1)[0]
+    server_source = (ROOT / "src/server.py").read_text(encoding="utf-8")
+    assert "import atexit" in server_source, "server.py no longer contains the stub split marker"
+    prefix = server_source.split("import atexit", 1)[0]
     server = source / "server.py"
     server.write_text(prefix + 'print("OLD_SERVER", flush=True)\n')
-    (source / "self_update.py").write_text('def run_activation_safely(): pass\n')
+    (source / "self_update.py").write_text('def run_activation_safely(session_fd): pass\n')
     (tmp_path / "data").mkdir()
     return tmp_path, server, prefix
 
@@ -82,7 +85,7 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from src.startup import server_session
 root = Path(sys.argv[2])
-with server_session(root, lambda: None):
+with server_session(root, lambda fd: None):
     print((root / "prompt.mdc").read_text(), flush=True)
     sys.stdin.readline()
     print((root / "prompt.mdc").read_text(), flush=True)
@@ -90,12 +93,12 @@ with server_session(root, lambda: None):
     process = _child(code, ROOT, root, cwd=root.parent)
     try:
         assert process.stdout.readline().strip() == "old prompt"
-        with startup.server_session(root, lambda: prompt.write_text("new prompt")):
+        with startup.server_session(root, lambda fd: prompt.write_text("new prompt")):
             assert prompt.read_text() == "old prompt"
         output, errors = process.communicate(input="next request\n", timeout=5)
         assert process.returncode == 0, errors
         assert output.strip() == "old prompt"
-        with startup.server_session(root, lambda: prompt.write_text("new prompt")):
+        with startup.server_session(root, lambda fd: prompt.write_text("new prompt")):
             assert prompt.read_text() == "new prompt"
     finally:
         _stop(process)
@@ -120,5 +123,95 @@ def test_unsupported_locking_disables_updates_but_serves(tmp_path, monkeypatch):
     monkeypatch.setattr(startup, "fcntl", None)
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
     monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
-    with startup.server_session(tmp_path, lambda: pytest.fail("unsafe activation")):
+    with startup.server_session(tmp_path, lambda fd: pytest.fail("unsafe activation")):
         assert self_update.start_background_update() is None
+
+
+@pytest.mark.parametrize("journal_content", ["", "{broken", '{"old_sha": "abc"}'])
+def test_unfinished_update_blocks_before_application_imports(leased_install, journal_content):
+    root, server, _ = leased_install
+    (root / "data" / startup.UPDATE_JOURNAL).write_text(journal_content)
+    process = _child('import runpy, sys; runpy.run_path(sys.argv[1], run_name="__main__")', server, cwd=root.parent)
+    try:
+        output, errors = process.communicate(timeout=5)
+        assert process.returncode != 0
+        assert "Unfinished auto-update" in errors
+        assert "OLD_SERVER" not in output
+    finally:
+        _stop(process)
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_reindex_child_retains_leases_after_parent_exits(tmp_path, staged):
+    pytest.importorskip("fcntl")
+    root = tmp_path / "install"
+    source = root / "src"
+    source.mkdir(parents=True)
+    (source / "__init__.py").touch()
+    (source / "reindex.py").write_text('''
+import os, time
+from pathlib import Path
+Path("worker.pid").write_text(str(os.getpid()))
+deadline = time.monotonic() + 15
+while not Path("finish").exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+Path("finished").touch()
+''', encoding="utf-8")
+    code = '''
+import sys
+sys.path.insert(0, sys.argv[1])
+from src import self_update as su
+from src.startup import server_session
+root, staged = sys.argv[2], sys.argv[3] == "True"
+def run_worker(session_fd):
+    # Legacy writes the live install and retains the exclusive session lease.
+    # Background staged preparation only needs the updater lease.
+    with su._inherit_lock(None if staged else session_fd):
+        with su._process_lock(root + "/data/.update.lock") as acquired:
+            assert acquired
+            worker = su._run_reindex_at if staged else su._run_reindex
+            worker(root, 15)
+with server_session(root, run_worker):
+    pass
+'''
+    parent = _child(code, ROOT, root, staged, cwd=tmp_path)
+    worker_pid = None
+
+    def wait_for(predicate):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.02)
+        pytest.fail("worker/lease transition timed out")
+
+    try:
+        pid_file = root / "worker.pid"
+        wait_for(lambda: pid_file.exists() and bool(pid_file.read_text()))
+        worker_pid = int(pid_file.read_text())
+        parent.kill()  # abrupt stdio server exit while its daemon owns a child
+        parent.communicate(timeout=5)
+        with self_update._process_lock(str(root / "data/.update.lock")) as acquired:
+            assert not acquired  # a new startup cannot prune the active worktree
+        if not staged:
+            with self_update._process_lock(str(root / "data/.sessions.lock")) as acquired:
+                assert not acquired  # legacy worker still writes the live stores
+        (root / "finish").touch()
+        wait_for(lambda: (root / "finished").exists())
+
+        def released():
+            with self_update._process_lock(str(root / "data/.update.lock")) as acquired:
+                return acquired
+
+        wait_for(released)
+        if not staged:
+            with self_update._process_lock(str(root / "data/.sessions.lock")) as acquired:
+                assert acquired
+        worker_pid = None
+    finally:
+        _stop(parent)
+        if worker_pid is not None:
+            try:
+                os.kill(worker_pid, 15)
+            except ProcessLookupError:
+                pass

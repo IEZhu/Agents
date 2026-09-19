@@ -34,8 +34,9 @@ Safety invariants (both paths):
     * staging never mutates the live install; a failed prepare writes no marker,
       the legacy path rolls back a failed reindex, and a failed activation move
       rolls back the just-merged tree,
-    * crash windows self-heal: the store's torn-pair detection plus the
-      content-hash re-embed mean a half-applied move is repaired on load,
+    * an interrupted live mutation leaves a recovery journal that blocks later
+      startup; after recovery, torn-pair detection and content hashes repair any
+      incomplete stores on load,
     * ordinary update failures preserve the current version; a failed rollback
       or re-exec stops startup rather than allowing mixed versions to serve.
 """
@@ -51,6 +52,8 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Optional
+
+from src.startup import UPDATE_JOURNAL
 
 from src.engine.config import (
     INSTALL_ROOT,
@@ -168,9 +171,28 @@ class ActivationStatus:
 
 
 # --- Cross-process lock (non-blocking) ---------------------------------------
-# fcntl.flock on POSIX; no-op on Windows where stdio MCP doesn't run concurrent
-# sessions. Mirrors the helper in src/memory/history.py but uses LOCK_NB so a
+# fcntl.flock on POSIX; automatic updates are disabled without POSIX locks.
+# Mirrors the helper in src/memory/history.py but uses LOCK_NB so a
 # held lock means "another server is already updating" -> skip immediately.
+_lock_state = threading.local()
+
+
+def _subprocess_lock_fds():
+    """Leases a child must retain if its updater parent exits unexpectedly."""
+    return getattr(_lock_state, "fds", ()) if os.name == "posix" else ()
+
+
+@contextmanager
+def _inherit_lock(fd):
+    """Register a held lease for subprocesses launched on the current thread."""
+    previous = _subprocess_lock_fds()
+    _lock_state.fds = previous if fd is None else (*previous, fd)
+    try:
+        yield
+    finally:
+        _lock_state.fds = previous
+
+
 try:  # pragma: no cover - platform-specific
     import fcntl as _fcntl
 
@@ -206,7 +228,8 @@ def _process_lock(path: str):
     fh = open(path, "w")
     acquired = _try_lock(fh)
     try:
-        yield acquired
+        with _inherit_lock(fh.fileno() if acquired else None):
+            yield acquired
     finally:
         if acquired:
             _unlock(fh)
@@ -238,6 +261,7 @@ def _run_git(args, cwd: str, timeout: int) -> subprocess.CompletedProcess:
         text=True,
         check=False,
         timeout=timeout,
+        pass_fds=_subprocess_lock_fds(),
     )
 
 
@@ -256,6 +280,7 @@ def _run_reindex(repo_root: str, timeout: int) -> bool:
             text=True,
             check=False,
             timeout=timeout,
+            pass_fds=_subprocess_lock_fds(),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("Auto-update: reindex subprocess error: %s", e)
@@ -311,6 +336,31 @@ def _write_state(status: str, old_sha: str, new_sha: str) -> None:
         os.replace(tmp, STATE_FILE)
     except OSError as e:
         logger.debug("Auto-update: could not write state file: %s", e)
+
+
+def _begin_update(repo_root: str, old_sha: str, target_sha: str) -> None:
+    """Persist recovery evidence before touching the live tree or store files."""
+    data_dir = os.path.join(repo_root, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    journal = os.path.join(data_dir, UPDATE_JOURNAL)
+    # Exclusive creation never overwrites evidence of an earlier failed update.
+    # A partial/unreadable journal also blocks startup, so writing in place is safe.
+    with open(journal, "x", encoding="utf-8") as stream:
+        json.dump({"old_sha": old_sha, "target_sha": target_sha}, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if os.name != "posix":
+        return  # automatic updates are disabled; direct helpers remain portable
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _finish_update(repo_root: str) -> None:
+    """Clear the guard only after activation or verified rollback succeeds."""
+    _unlink_if_present(os.path.join(repo_root, "data", UPDATE_JOURNAL))
 
 
 def log_last_update() -> None:
@@ -546,6 +596,7 @@ def check_and_apply_update(
     if target_sha is None:
         return status  # terminal: skip / up-to-date / pre-merge failure
 
+    _begin_update(repo_root, old_sha, target_sha)
     try:
         # Step 6 — fast-forward only.
         merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
@@ -580,6 +631,7 @@ def check_and_apply_update(
             old_sha[:9], new_sha[:9],
         )
         _write_state(UpdateStatus.UPDATED, old_sha, new_sha)
+        _finish_update(repo_root)
         return UpdateStatus.UPDATED
     except (subprocess.TimeoutExpired, FileNotFoundError):
         # A git op should not time out (or git vanish) under the budget. The merge
@@ -711,6 +763,7 @@ def _run_reindex_at(staging_dir: str, timeout: int) -> bool:
             check=False,
             timeout=timeout,
             env=env,
+            pass_fds=_subprocess_lock_fds(),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("Auto-update: prepare reindex subprocess error: %s", e)
@@ -848,6 +901,14 @@ def _same_filesystem(path_a: str, path_b: str) -> bool:
         return os.stat(path_a).st_dev == os.stat(path_b).st_dev
     except OSError:
         return False
+
+
+def _unlink_if_present(path: str) -> None:
+    """Remove a consistency barrier; only an already absent file is harmless."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 def _discard_staging(repo_root: str, git_timeout: int) -> None:
@@ -1002,15 +1063,15 @@ def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
         dst_json = os.path.join(dst_data, f"{name}.json")
         dst_hash = os.path.join(dst_data, hash_file)
 
-        _silent_unlink(dst_hash)
+        _unlink_if_present(dst_hash)
         if os.path.exists(src_npz) and os.path.exists(src_json):
             os.replace(src_npz, dst_npz)
             os.replace(src_json, dst_json)
         else:
             # Staged store is valid-empty (save() removed both files): clear the
             # live store too so the moved hash matches an empty store.
-            _silent_unlink(dst_npz)
-            _silent_unlink(dst_json)
+            _unlink_if_present(dst_npz)
+            _unlink_if_present(dst_json)
         os.replace(src_hash, dst_hash)
 
 
@@ -1068,21 +1129,26 @@ def activate_prepared_update(
                 logger.error("Auto-update: cannot resolve pre-merge HEAD; discarding.")
                 _discard_staging(repo_root, git_timeout)
                 return ActivationStatus.ACTIVATE_MERGE_FAILED
+            _begin_update(repo_root, pre_merge_sha, target_sha)
             merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             logger.error("Auto-update: activation merge error: %s; discarding.", e)
             # A timeout can occur in post-merge, after HEAD has advanced.
             restored = not pre_merge_sha or _rollback_activation(repo_root, pre_merge_sha, git_timeout)
-            _discard_staging(repo_root, git_timeout)
+            if restored:
+                _discard_staging(repo_root, git_timeout)
             return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
                     else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         if merge.returncode != 0:
             logger.error("Auto-update: activation ff-merge failed; discarding. %s", merge.stderr.strip())
             restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout)
-            _discard_staging(repo_root, git_timeout)
+            if restored:
+                _discard_staging(repo_root, git_timeout)
             return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
                     else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         merged_now = True
+    else:
+        _begin_update(repo_root, target_sha, target_sha)
 
     try:
         _activate_staged_stores(staging_dir, repo_root, stores)
@@ -1098,12 +1164,17 @@ def activate_prepared_update(
             # case the merge was a prior run's fait accompli — completing or
             # discarding is all that can be done there.
             restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout)
-        _discard_staging(repo_root, git_timeout)
+        else:
+            # No code mutation in this run; missing hashes repair partial moves.
+            _finish_update(repo_root)
+        if restored:
+            _discard_staging(repo_root, git_timeout)
         return (ActivationStatus.ACTIVATE_MOVE_FAILED if restored
                 else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
 
     _discard_staging(repo_root, git_timeout)
     _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha)
+    _finish_update(repo_root)
     logger.info("Auto-update: activated prepared update %s -> %s.", (old_sha or "")[:9], target_sha[:9])
     return ActivationStatus.ACTIVATED
 
@@ -1118,12 +1189,23 @@ def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int) -> bool
     if result.returncode != 0:
         logger.error("Auto-update: activation rollback failed: %s", result.stderr.strip())
         return False
+    try:
+        _finish_update(repo_root)
+    except OSError:
+        logger.error("Auto-update: restored tree but could not clear recovery journal.", exc_info=True)
+        return False
     return True
 
 
 # --- Background orchestration -------------------------------------------------
 
-def run_activation_safely() -> None:
+def run_activation_safely(session_fd=None) -> None:
+    """Retain the exclusive installation lease in activation's child processes."""
+    with _inherit_lock(session_fd):
+        _activate_at_startup()
+
+
+def _activate_at_startup() -> None:
     """Phase A entry, called with startup's exclusive installation lease held.
 
     Called by ``startup.py`` under an exclusive installation lease (before the

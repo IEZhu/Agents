@@ -596,6 +596,7 @@ def test_activate_happy_path(repos, phase_a_env):
     # marker + staging cleaned up
     assert self_update._read_prepared_marker() is None
     assert not (Path(phase_a_env.parent) / target).exists()
+    assert not (live / self_update.UPDATE_JOURNAL).exists()
 
 
 def test_activate_no_marker_is_noop(repos, phase_a_env):
@@ -1090,7 +1091,7 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from src.startup import server_session
 root = Path(sys.argv[2])
-with server_session(root, lambda: None):
+with server_session(root, lambda fd: None):
     print((root / "file.txt").read_text().strip(), flush=True)
     sys.stdin.readline()
     print((root / "file.txt").read_text().strip(), flush=True)
@@ -1099,7 +1100,7 @@ with server_session(root, lambda: None):
         [self_update.sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]), str(repos.local)],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
-    def activate():
+    def activate(fd):
         return self_update.activate_prepared_update(str(repos.local), "main")
     try:
         assert process.stdout.readline().strip() == "v1"
@@ -1173,6 +1174,7 @@ def test_merge_timeout_after_head_advanced_rolls_back(repos, phase_a_env, staged
         assert status == UpdateStatus.FETCH_FAILED
     assert _head(repos.local) == original
     assert (repos.local / "file.txt").read_text() == "v1\n"
+    assert not (repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
 
 
 def test_activation_rollback_failure_is_distinct(repos, phase_a_env, monkeypatch):
@@ -1279,6 +1281,25 @@ def test_rollback_launch_failure_stops_startup(repos, phase_a_env, monkeypatch, 
     monkeypatch.setattr(self_update, "_run_git", permission_denied_during_rollback)
     with pytest.raises(SystemExit, match="could not restore"):
         self_update.run_activation_safely()
+    journal = repos.local / "data" / self_update.UPDATE_JOURNAL
+    assert journal.exists()
+    if staged:
+        assert self_update._read_prepared_marker() is not None  # retain recovery artifacts
+    code = '''
+import sys
+sys.path.insert(0, sys.argv[1])
+from src.startup import server_session
+with server_session(sys.argv[2], lambda fd: print("ACTIVATION_REACHED")):
+    print("IMPORTS_REACHED")
+'''
+    restarted = subprocess.run(
+        [self_update.sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]), str(repos.local)],
+        env=dict(os.environ, AGENTS_AUTO_UPDATE="0"), capture_output=True, text=True, timeout=5,
+    )
+    assert restarted.returncode != 0
+    assert "Unfinished auto-update" in restarted.stderr
+    assert not restarted.stdout  # blocked before imports, even with updates disabled
+    assert journal.exists()
 
 
 @pytest.mark.parametrize("staged", [True, False])
@@ -1297,3 +1318,69 @@ def test_unexpected_startup_update_exception_cannot_serve_mixed_tree(tmp_path, m
     monkeypatch.setattr(self_update, "activate_prepared_update" if staged else "check_and_apply_update", unexpected_failure)
     with pytest.raises(SystemExit, match="startup failed"):
         self_update.run_activation_safely()
+
+
+def test_hash_invalidation_failure_aborts_before_store_moves(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    (live / "skills_store.npz").write_bytes(b"old store")
+    old_metadata = (live / "skills_store.json").read_bytes()
+    real_remove = self_update.os.remove
+
+    def denied(path, *args, **kwargs):
+        if str(path) == str(live / ".skills_hash"):
+            raise PermissionError("cannot invalidate hash")
+        return real_remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == original
+    assert (live / "skills_store.npz").read_bytes() == b"old store"
+    assert (live / "skills_store.json").read_bytes() == old_metadata
+    assert (live / ".skills_hash").read_text() == "hash-0"
+
+
+@pytest.mark.parametrize("blocked_file", ["skills_store.npz", "skills_store.json"])
+def test_empty_store_deletion_failure_does_not_publish_hash(repos, phase_a_env, monkeypatch, blocked_file):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    staged = Path(phase_a_env.parent) / self_update._read_prepared_marker()["target_sha"] / "data"
+    (staged / "skills_store.npz").unlink()
+    (staged / "skills_store.json").unlink()
+    (staged / ".skills_hash").write_text("empty-source-hash")
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    real_remove = self_update.os.remove
+
+    def denied(path, *args, **kwargs):
+        if str(path) == str(live / blocked_file):
+            raise PermissionError("cannot clear stale store")
+        return real_remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == original
+    assert not (live / ".skills_hash").exists()  # next load must rebuild
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_recovery_journal_must_be_written_before_mutation(repos, phase_a_env, monkeypatch, staged):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+    def denied(*args):
+        raise PermissionError("cannot persist recovery evidence")
+
+    monkeypatch.setattr(self_update, "_begin_update", denied)
+    with pytest.raises(PermissionError):
+        if staged:
+            self_update.activate_prepared_update(str(repos.local), "main")
+        else:
+            check_and_apply_update(str(repos.local), "origin", "main")
+    assert _head(repos.local) == original
+    assert (repos.local / "file.txt").read_text() == "v1\n"
