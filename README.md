@@ -92,6 +92,8 @@ It is **safe by default**:
   or switch branches);
 - a failed staged build discards the worktree and leaves the install as-is; crash
   recovery also uses the store's torn-pair detection and content-hash re-embed;
+- staging roots, worktree paths, and store artifacts must not contain symlinks;
+  redirected paths are rejected before reading, moving, or pruning their targets;
 - store activation invalidates all hashes before moving files and publishes new
   hashes only after all pairs have moved. Any batch failure invalidates all hashes
   again; if that cannot be completed, the recovery journal keeps startup blocked;

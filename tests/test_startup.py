@@ -303,6 +303,7 @@ with server_session(root, run_worker):
         assert (root / "returned").read_text() == str(outcome == "success")
         if outcome != "timeout":
             assert (root / "late_write").exists()
+            assert errors.count("waiting for descendants of PID") == 1
         with self_update._process_lock(str(root / "data/.update.lock")) as acquired:
             assert acquired
     finally:
