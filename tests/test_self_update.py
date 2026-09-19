@@ -1384,3 +1384,51 @@ def test_recovery_journal_must_be_written_before_mutation(repos, phase_a_env, mo
             check_and_apply_update(str(repos.local), "origin", "main")
     assert _head(repos.local) == original
     assert (repos.local / "file.txt").read_text() == "v1\n"
+
+
+@pytest.mark.parametrize("blocked_file,deny_cleanup", [
+    ("implants_store.npz", False), (".implants_hash", False), (".implants_hash", True),
+])
+def test_partial_batch_failure_invalidates_all_stores_or_keeps_journal(
+    repos, phase_a_env, monkeypatch, blocked_file, deny_cleanup,
+):
+    # A code-only update can produce a new store while retaining the old source
+    # digest. The earlier store must not remain trusted after a later one fails.
+    _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    live = repos.local / "data"
+    _write_fake_store_set(live)  # same hashes as the staged sources
+    (live / "skills_store.npz").write_bytes(b"old indexing output")
+    replace, remove = self_update.os.replace, self_update.os.remove
+    published = []
+
+    def fail_later_store(src, dst):
+        if str(dst) == str(live / blocked_file):
+            raise OSError("later store failed")
+        result = replace(src, dst)
+        if str(dst) == str(live / ".skills_hash"):
+            published.append(True)
+        return result
+
+    def fail_invalidation(path, *args, **kwargs):
+        if deny_cleanup and published and str(path) == str(live / ".skills_hash"):
+            raise PermissionError("cannot invalidate published hash")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "replace", fail_later_store)
+    monkeypatch.setattr(self_update.os, "remove", fail_invalidation)
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+    assert _head(repos.local) == original
+    journal = live / self_update.UPDATE_JOURNAL
+    if deny_cleanup:
+        assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+        assert journal.exists()
+        from src.startup import assert_installation_safe
+        with pytest.raises(SystemExit, match="Unfinished auto-update"):
+            assert_installation_safe(repos.local)
+    else:
+        assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+        assert not journal.exists()
+        assert not (live / ".skills_hash").exists()
+        assert not (live / ".implants_hash").exists()

@@ -50,6 +50,9 @@ def _stop(process):
 @pytest.mark.parametrize("launch", ["script", "module"])
 def test_contending_start_rereads_server_after_activation(leased_install, launch):
     root, server, prefix = leased_install
+    bootstrap = root / "src/startup.py"
+    bootstrap_source = bootstrap.read_text(encoding="utf-8")
+    bootstrap.write_text(bootstrap_source + '\nOBSOLETE_API = True\n', encoding="utf-8")
     # Another process owns the writer lease while changing the server file.
     with open(root / "data/.sessions.lock", "a+b") as lease:
         startup.fcntl.flock(lease, startup.fcntl.LOCK_EX)
@@ -66,7 +69,9 @@ else:
             assert process.stdout.readline().strip() == "STARTING"
             with pytest.raises(subprocess.TimeoutExpired):
                 process.communicate(timeout=0.3)
-            server.write_text(prefix + 'print("NEW_SERVER", flush=True)\n')
+            # A new server can depend on APIs added to startup.py by the writer.
+            bootstrap.write_text(bootstrap_source + '\nNEW_API = "NEW_SERVER"\n', encoding="utf-8")
+            server.write_text(prefix + 'from src import startup\nassert not hasattr(startup, "OBSOLETE_API")\nprint(startup.NEW_API, flush=True)\n')
             startup.fcntl.flock(lease, startup.fcntl.LOCK_UN)
             output, errors = process.communicate(timeout=5)
             assert process.returncode == 0, errors
