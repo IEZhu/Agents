@@ -46,6 +46,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -204,21 +205,10 @@ try:  # pragma: no cover - platform-specific
         except OSError:
             return False
 
-    def _unlock(fh) -> None:
-        """Release the lock held on *fh* (best effort)."""
-        try:
-            _fcntl.flock(fh.fileno(), _fcntl.LOCK_UN)
-        except OSError:
-            pass
-
 except ImportError:  # pragma: no cover - Windows
     def _try_lock(fh) -> bool:
         """No-op lock on platforms without fcntl; always reports success."""
         return True
-
-    def _unlock(fh) -> None:
-        """No-op unlock on platforms without fcntl."""
-        return None
 
 
 @contextmanager
@@ -231,12 +221,55 @@ def _process_lock(path: str):
         with _inherit_lock(fh.fileno() if acquired else None):
             yield acquired
     finally:
-        if acquired:
-            _unlock(fh)
+        # Closing releases only our reference. LOCK_UN would also revoke the
+        # lease of any worker still holding the inherited file description.
         fh.close()
 
 
 # --- git / reindex helpers ---------------------------------------------------
+
+def _run_command(args, cwd: str, timeout: int, *, env=None) -> subprocess.CompletedProcess:
+    """Wait for a command and all descendants retaining its inherited leases.
+
+    A timeout kills the command's process group, including hooks/grandchildren.
+    An inherited pipe tracks completion independently of captured stdout: even a
+    detached descendant must close its inherited descriptors before rollback or
+    lease release can proceed. Such a descendant can extend the timeout, but we
+    must not mutate or expose files while it still owns a writer lease.
+    """
+    if os.name != "posix":
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                              timeout=timeout, env=env, check=False)
+    completed_read, completed_write = os.pipe()
+    try:
+        with subprocess.Popen(
+            args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=env, start_new_session=True,
+            pass_fds=(*_subprocess_lock_fds(), completed_write),
+        ) as process:
+            os.close(completed_write)
+            completed_write = None
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except BaseException:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                finally:
+                    process.wait()
+                raise
+            finally:
+                # The leader may be gone while a descendant still holds the
+                # same flock description. Never unlock/downgrade it early.
+                while os.read(completed_read, 4096):
+                    pass
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    finally:
+        if completed_write is not None:
+            os.close(completed_write)
+        os.close(completed_read)
+
 
 def _is_safe_arg(value: str) -> bool:
     """True if *value* is a non-empty token git won't mistake for an option.
@@ -254,14 +287,10 @@ def _run_git(args, cwd: str, timeout: int) -> subprocess.CompletedProcess:
     May raise ``FileNotFoundError`` (git missing) or ``subprocess.TimeoutExpired``;
     callers handle those where the distinction matters.
     """
-    return subprocess.run(
+    return _run_command(
         ["git", *args],
         cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
         timeout=timeout,
-        pass_fds=_subprocess_lock_fds(),
     )
 
 
@@ -273,14 +302,10 @@ def _run_reindex(repo_root: str, timeout: int) -> bool:
     Returns True on success.
     """
     try:
-        result = subprocess.run(
+        result = _run_command(
             [sys.executable, "-m", "src.reindex"],
             cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
             timeout=timeout,
-            pass_fds=_subprocess_lock_fds(),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("Auto-update: reindex subprocess error: %s", e)
@@ -769,15 +794,11 @@ def _run_reindex_at(staging_dir: str, timeout: int) -> bool:
     env = dict(os.environ)
     env["EMBEDDING_MODEL"] = EMBEDDING_MODEL
     try:
-        result = subprocess.run(
+        result = _run_command(
             [sys.executable, "-m", "src.reindex"],
             cwd=staging_dir,
-            capture_output=True,
-            text=True,
-            check=False,
             timeout=timeout,
             env=env,
-            pass_fds=_subprocess_lock_fds(),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("Auto-update: prepare reindex subprocess error: %s", e)

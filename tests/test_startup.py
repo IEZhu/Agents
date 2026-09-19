@@ -220,3 +220,119 @@ with server_session(root, run_worker):
                 os.kill(worker_pid, 15)
             except ProcessLookupError:
                 pass
+
+
+@pytest.mark.parametrize("staged", [True, False])
+@pytest.mark.parametrize("outcome", ["success", "timeout", "detached_timeout"])
+def test_reindex_descendant_finishes_before_leases_are_released(tmp_path, staged, outcome):
+    pytest.importorskip("fcntl")
+    root = tmp_path / "install"
+    source = root / "src"
+    source.mkdir(parents=True)
+    (source / "__init__.py").touch()
+    descendant = '''
+import os, time
+from pathlib import Path
+Path("descendant.pid").write_text(str(os.getpid()))
+deadline = time.monotonic() + 15
+while not Path("finish").exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+Path("late_write").touch()
+'''
+    (source / "reindex.py").write_text(
+        "import subprocess, sys, time\n"
+        f"subprocess.Popen([sys.executable, '-c', {descendant!r}], close_fds=False, "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, "
+        f"start_new_session={outcome == 'detached_timeout'!r})\n"
+        + ("time.sleep(15)\n" if outcome != "success" else ""),
+        encoding="utf-8",
+    )
+    code = '''
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from src import self_update as su
+from src.startup import server_session
+root, staged = Path(sys.argv[2]), sys.argv[3] == "True"
+def run_worker(session_fd):
+    with su._inherit_lock(None if staged else session_fd):
+        with su._process_lock(str(root / "data/.update.lock")) as acquired:
+            assert acquired
+            worker = su._run_reindex_at if staged else su._run_reindex
+            result = worker(str(root), 0.5)
+            (root / "returned").write_text(str(result))
+with server_session(root, run_worker):
+    print("READY", flush=True)
+'''
+    parent = _child(code, ROOT, root, staged, cwd=tmp_path)
+    descendant_pid = None
+
+    def wait_for(predicate):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.02)
+        pytest.fail("descendant/runner transition timed out")
+
+    try:
+        pid_file = root / "descendant.pid"
+        wait_for(lambda: pid_file.exists() and bool(pid_file.read_text()))
+        descendant_pid = int(pid_file.read_text())
+        if outcome == "timeout":
+            # Killing the process group must stop the grandchild before return.
+            wait_for(lambda: (root / "returned").exists())
+            (root / "finish").touch()
+            time.sleep(0.2)
+            assert not (root / "late_write").exists()
+        else:
+            # A successful leader, or an escaped timeout descendant, may leave
+            # inherited leases alive: do not roll back or unlock underneath it.
+            with pytest.raises(subprocess.TimeoutExpired):
+                parent.communicate(timeout=0.8)
+            assert not (root / "returned").exists()
+            with self_update._process_lock(str(root / "data/.update.lock")) as acquired:
+                assert not acquired
+            if not staged:
+                with self_update._process_lock(str(root / "data/.sessions.lock")) as acquired:
+                    assert not acquired
+            (root / "finish").touch()
+        output, errors = parent.communicate(timeout=5)
+        assert parent.returncode == 0, errors
+        assert output.strip() == "READY"
+        assert (root / "returned").read_text() == str(outcome == "success")
+        if outcome != "timeout":
+            assert (root / "late_write").exists()
+        with self_update._process_lock(str(root / "data/.update.lock")) as acquired:
+            assert acquired
+    finally:
+        (root / "finish").touch()
+        _stop(parent)
+        if descendant_pid is not None:
+            try:
+                os.kill(descendant_pid, 15)
+            except ProcessLookupError:
+                pass
+
+
+def test_process_lock_close_does_not_unlock_inherited_descriptor(tmp_path):
+    pytest.importorskip("fcntl")
+    lock = str(tmp_path / "update.lock")
+    process = None
+    try:
+        with self_update._process_lock(lock) as acquired:
+            assert acquired
+            process = subprocess.Popen(
+                [sys.executable, "-c", "import sys; print('READY', flush=True); sys.stdin.read()"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, pass_fds=self_update._subprocess_lock_fds(),
+            )
+            assert process.stdout.readline().strip() == "READY"
+        with self_update._process_lock(lock) as acquired:
+            assert not acquired
+        process.communicate(timeout=5)
+        with self_update._process_lock(lock) as acquired:
+            assert acquired
+    finally:
+        if process is not None:
+            _stop(process)

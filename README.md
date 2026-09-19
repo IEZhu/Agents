@@ -79,6 +79,10 @@ mid-session:
    Background preparation uses a separate lock and does not delay startup.
    Git/reindex children inherit the relevant leases, so an orphan worker remains
    protected until it exits even if its server process has already stopped.
+   Timed-out commands have their process group terminated. A separate inherited
+   completion pipe keeps rollback and lease release waiting for any remaining
+   descriptor holders, including detached descendants; this safety wait can
+   exceed the command timeout.
 
 It is **safe by default**:
 
