@@ -1230,7 +1230,8 @@ with server_session(root, lambda fd: None):
         process.communicate(timeout=5)
 
 
-def test_moved_prebuilt_stores_load_without_embedding(repos, phase_a_env, monkeypatch):
+@pytest.mark.parametrize("old_location", [False, True])
+def test_moved_prebuilt_stores_load_without_embedding(repos, phase_a_env, monkeypatch, old_location):
     import numpy as np
     from src.engine import skills, implants
 
@@ -1249,11 +1250,20 @@ def test_moved_prebuilt_stores_load_without_embedding(repos, phase_a_env, monkey
             patch.setattr(cls, "HASH_FILE", str(root / "data" / sidecar))
             patch.setattr(module, "embed_texts", embed)
 
+    saved_stores = {}
+
     def builder(root):
         with monkeypatch.context() as patch:
             configure(patch, Path(root), lambda docs: np.ones((len(docs), 3), dtype=np.float32))
-            for _, cls, _, _, _ in specs:
+            for _, cls, folder, _, _ in specs:
                 assert cls().store.count() == 1
+                data = Path(root) / "data"
+                metadata_path = data / f"{folder}_store.json"
+                payload = json.loads(metadata_path.read_text())
+                if old_location:
+                    payload["metadatas"][0]["path"] = f"/old/installation/{folder}/demo.mdc"
+                    metadata_path.write_text(json.dumps(payload))
+                saved_stores[folder] = ((data / f"{folder}_store.npz").read_bytes(), payload["save_version"])
         return True
 
     assert self_update.prepare_update(str(repos.local), "origin", "main", reindex_fn=builder,
@@ -1261,10 +1271,43 @@ def test_moved_prebuilt_stores_load_without_embedding(repos, phase_a_env, monkey
     assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATED
     configure(monkeypatch, repos.local, lambda docs: pytest.fail("activation re-embedded prepared stores"))
     for module, cls, folder, _, _ in specs:
-        assert cls().store.count() == 1
+        retriever = cls()
+        assert retriever.store.count() == 1
+        metadata = retriever.store.get(ids=["demo.mdc"]).metadatas[0]
+        assert metadata["path"] == str(repos.local / folder / "demo.mdc")
+        assert Path(metadata["path"]).is_file()
+        data = repos.local / "data"
+        assert (data / f"{folder}_store.npz").read_bytes() == saved_stores[folder][0]
+        assert json.loads((data / f"{folder}_store.json").read_text())["save_version"] == saved_stores[folder][1]
         # Relocation is ignored, but actual content changes still invalidate.
         (repos.local / folder / "demo.mdc").write_text("changed\n")
         assert cls.__new__(cls)._needs_reindex()[0]
+
+
+def test_metadata_relocation_write_failure_rolls_back(repos, phase_a_env, monkeypatch):
+    import builtins
+
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    metadata = Path(phase_a_env.parent) / _head(repos.upstream) / "data/skills_store.json"
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    old_store = (live / "skills_store.npz").read_bytes()
+    real_open = builtins.open
+
+    def denied(path, mode="r", *args, **kwargs):
+        if str(path) == str(metadata) and mode == "w":
+            raise PermissionError("cannot rewrite staged metadata")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", denied)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == original
+    assert (live / "skills_store.npz").read_bytes() == old_store
+    assert not (live / ".skills_hash").exists()
+    assert not (live / ".implants_hash").exists()
+    assert not (live / self_update.UPDATE_JOURNAL).exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX git hook")

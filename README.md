@@ -97,6 +97,8 @@ It is **safe by default**:
 - store activation invalidates all hashes before moving files and publishes new
   hashes only after all pairs have moved. Any batch failure invalidates all hashes
   again; if that cannot be completed, the recovery journal keeps startup blocked;
+- source paths in staged metadata are rebased to the live checkout before
+  publication, while the vector files and their matching save versions are retained;
 - offline/fetch/build failures leave the current version available. A failed
   activation merge (including a timeout after HEAD moved) restores the old tree.
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's
