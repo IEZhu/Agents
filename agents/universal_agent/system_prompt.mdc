@@ -20,6 +20,7 @@ preferred_skills:
 - skill-reasoning-logic
 - skill-dense-summarization
 capable_skills:
+- skill-web-search
 - skill-consultative-intake
 - skill-fact-verification
 - skill-temporal-validation

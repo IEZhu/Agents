@@ -38,6 +38,7 @@ core_skills:
 - skill-fact-verification
 - skill-source-trust-tiers
 preferred_skills:
+- skill-web-search
 - skill-report-formats
 - skill-dense-summarization
 - skill-analysis-critical

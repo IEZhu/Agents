@@ -24,6 +24,7 @@ core_skills:
 - skill-content-structure
 - skill-product-frameworks
 preferred_skills:
+- skill-web-search
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-dense-summarization

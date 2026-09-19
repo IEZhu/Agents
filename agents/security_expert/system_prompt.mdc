@@ -26,6 +26,7 @@ core_skills:
 - skill-dev-security
 - skill-confidence-markers
 preferred_skills:
+- skill-web-search
 - skill-dev-clean-code
 - skill-analysis-critical
 - skill-reasoning-logic

@@ -23,6 +23,7 @@ preferred_skills:
 - skill-dev-clean-code
 - skill-dev-debugging
 capable_skills:
+- skill-web-search
 - skill-react-pattern
 - skill-agentic-loops
 - skill-agent-handoff

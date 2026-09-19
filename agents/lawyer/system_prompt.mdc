@@ -167,6 +167,7 @@ core_skills:
 - skill-content-structure
 - skill-legal-citation
 preferred_skills:
+- skill-web-search
 - skill-decision-frameworks
 - skill-analysis-critical
 - skill-consultative-intake
