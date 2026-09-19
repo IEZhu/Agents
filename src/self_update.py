@@ -739,8 +739,11 @@ def _add_worktree(staging_parent: str, target_sha: str, repo_root: str, git_time
         logger.warning("Auto-update: could not create staging parent %s: %s", staging_parent, e)
         return None
     staging_dir = os.path.join(staging_parent, target_sha)
-    if os.path.exists(staging_dir):
-        shutil.rmtree(staging_dir, ignore_errors=True)
+    if os.path.lexists(staging_dir):
+        # Pruning only removes validated registered worktrees. Anything left
+        # belongs to the user or could not be removed safely.
+        logger.warning("Auto-update: staging destination already exists: %s", staging_dir)
+        return None
     try:
         r = _run_git(["worktree", "add", "--detach", staging_dir, target_sha], repo_root, git_timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -1182,10 +1185,19 @@ def activate_prepared_update(
     try:
         _activate_staged_stores(staging_dir, repo_root, stores)
     except OSError as e:
-        logger.error(
-            "Auto-update: activation move failed (%s); discarding. Stores re-embed on load.", e,
-        )
+        logger.error("Auto-update: activation store move failed (%s).", e)
         stores_invalidated = not isinstance(e, StoreInvalidationError)
+        if not merged_now:
+            # The first invalidation can fail before any move. With target code
+            # already installed, even untouched old stores must be invalidated
+            # before startup is safe; a plain OSError is not proof of that.
+            try:
+                _invalidate_store_hashes(os.path.join(repo_root, "data"))
+            except OSError:
+                stores_invalidated = False
+                logger.error("Auto-update: cannot invalidate stores while resuming activation.", exc_info=True)
+            else:
+                stores_invalidated = True
         restored = stores_invalidated
         if merged_now:
             # This run performed the merge: restore the pre-merge tree so the

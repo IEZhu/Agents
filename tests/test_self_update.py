@@ -556,6 +556,47 @@ def test_prepare_worktree_add_failure(repos, staging, tmp_path, monkeypatch):
     assert self_update._read_prepared_marker() is None
 
 
+@pytest.mark.parametrize("existing_kind", ["directory", "empty_directory", "file", "dangling_symlink"])
+def test_prepare_preserves_unregistered_destination(repos, phase_a_env, existing_kind):
+    if existing_kind == "dangling_symlink" and os.name == "nt":
+        pytest.skip("POSIX symlink staging path")
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    destination = repos.local / _head(repos.upstream)
+    if existing_kind in {"directory", "empty_directory"}:
+        destination.mkdir()
+        if existing_kind == "directory":
+            (destination / "keep.txt").write_text("user data\n")
+    elif existing_kind == "file":
+        destination.write_text("user data\n")
+    else:
+        destination.symlink_to(repos.local / "missing", target_is_directory=True)
+    builds = []
+
+    def builder(path):
+        builds.append(path)
+        return phase_a_env.builder(path)
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=builder, staging_parent=str(repos.local),
+    )
+
+    assert status == PreparedStatus.PREPARE_WORKTREE_FAILED
+    assert builds == []
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == original
+    if existing_kind == "directory":
+        assert (destination / "keep.txt").read_text() == "user data\n"
+    elif existing_kind == "empty_directory":
+        assert list(destination.iterdir()) == []
+    elif existing_kind == "file":
+        assert destination.read_text() == "user data\n"
+    else:
+        assert destination.is_symlink()
+        assert destination.readlink() == repos.local / "missing"
+
+
 # --- Phase A: activate_prepared_update ---------------------------------------
 
 @pytest.fixture
@@ -1341,6 +1382,47 @@ def test_hash_invalidation_failure_aborts_before_store_moves(repos, phase_a_env,
     assert (live / "skills_store.npz").read_bytes() == b"old store"
     assert (live / "skills_store.json").read_bytes() == old_metadata
     assert (live / ".skills_hash").read_text() == "hash-0"
+
+
+@pytest.mark.parametrize("transient", [False, True])
+def test_resume_verifies_hash_invalidation_before_clearing_journal(repos, phase_a_env, monkeypatch, transient):
+    _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    _git(repos.local, "merge", "--ff-only", target)
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    (live / "skills_store.npz").write_bytes(b"old index format")
+    remove = self_update.os.remove
+    attempts = []
+
+    def denied(path, *args, **kwargs):
+        if str(path) == str(live / ".skills_hash"):
+            attempts.append(path)
+            if not transient or len(attempts) == 1:
+                raise PermissionError("cannot invalidate old index")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+
+    assert _head(repos.local) == target
+    assert (live / "skills_store.npz").read_bytes() == b"old index format"
+    assert not (live / ".implants_hash").exists()
+    journal = live / self_update.UPDATE_JOURNAL
+    if transient:
+        assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+        assert not (live / ".skills_hash").exists()
+        assert not journal.exists()
+    else:
+        assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+        assert journal.exists()
+        assert (live / ".skills_hash").exists()
+        assert self_update._read_prepared_marker() is not None
+        assert (Path(phase_a_env.parent) / target).is_dir()
+        from src.startup import assert_installation_safe
+        with pytest.raises(SystemExit, match="Unfinished auto-update"):
+            assert_installation_safe(repos.local)
 
 
 @pytest.mark.parametrize("blocked_file", ["skills_store.npz", "skills_store.json"])
