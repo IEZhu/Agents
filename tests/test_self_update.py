@@ -1432,3 +1432,41 @@ def test_partial_batch_failure_invalidates_all_stores_or_keeps_journal(
         assert not journal.exists()
         assert not (live / ".skills_hash").exists()
         assert not (live / ".implants_hash").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink install alias")
+def test_staging_cleanup_excludes_live_repo_through_symlink(tmp_path):
+    live = _init_repo(tmp_path / ("a" * 40))
+    _commit(live, "file.txt", "live installation\n", "init")
+    alias = tmp_path / "install-alias"
+    alias.symlink_to(live, target_is_directory=True)
+    assert self_update._staging_worktrees(str(alias), str(tmp_path), 30) == []
+
+
+@pytest.mark.parametrize("deny_cleanup", [False, True])
+def test_legacy_reindex_failure_invalidates_new_store_hashes(repos, monkeypatch, deny_cleanup):
+    _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")
+    original = _head(repos.local)
+    live = repos.local / "data"
+    remove = self_update.os.remove
+
+    def failed_reindex(root):
+        _write_fake_store_set(live)  # partial reindex may have published hashes
+        return False
+
+    def fail_invalidation(path, *args, **kwargs):
+        if deny_cleanup and str(path) == str(live / ".skills_hash"):
+            raise PermissionError("cannot invalidate new index")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", fail_invalidation)
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=failed_reindex)
+    assert _head(repos.local) == original
+    if deny_cleanup:
+        assert status == UpdateStatus.ROLLBACK_FAILED
+        assert (live / self_update.UPDATE_JOURNAL).exists()
+    else:
+        assert status == UpdateStatus.REINDEX_FAILED
+        assert not (live / ".skills_hash").exists()
+        assert not (live / ".implants_hash").exists()
+        assert not (live / self_update.UPDATE_JOURNAL).exists()

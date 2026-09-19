@@ -620,7 +620,15 @@ def check_and_apply_update(
             reindex_ok = False
         if not reindex_ok:
             logger.error("Auto-update: reindex failed; rolling back to %s.", old_sha[:9])
-            if not _rollback_activation(repo_root, old_sha, git_timeout):
+            stores_invalidated = True
+            try:
+                _invalidate_store_hashes(os.path.join(repo_root, "data"))
+            except OSError:
+                stores_invalidated = False
+                logger.error("Auto-update: cannot invalidate partial reindex results.", exc_info=True)
+            tree_restored = _rollback_activation(repo_root, old_sha, git_timeout,
+                                                clear_journal=stores_invalidated)
+            if not (tree_restored and stores_invalidated):
                 return UpdateStatus.ROLLBACK_FAILED
             _write_state(UpdateStatus.REINDEX_FAILED, old_sha, new_sha)
             return UpdateStatus.REINDEX_FAILED
@@ -670,13 +678,13 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
         return []
     if r.returncode != 0:
         return []
-    parent = os.path.abspath(staging_parent)
-    root = os.path.abspath(repo_root)
+    parent = os.path.realpath(staging_parent)
+    root = os.path.realpath(repo_root)
     out = []
     for line in r.stdout.splitlines():
         if line.startswith("worktree "):
             path = line[len("worktree "):].strip()
-            ap = os.path.abspath(path)
+            ap = os.path.realpath(path)
             if (
                 ap.startswith(parent + os.sep)
                 and ap != root
@@ -1045,6 +1053,18 @@ class StoreInvalidationError(OSError):
     """A partially published store batch could not be marked for rebuilding."""
 
 
+def _invalidate_store_hashes(data_dir: str, stores=_STAGED_STORES) -> None:
+    """Invalidate all selected stores, reporting any failure after trying each."""
+    error = None
+    for _, hash_file in stores:
+        try:
+            _unlink_if_present(os.path.join(data_dir, hash_file))
+        except OSError as exc:
+            error = exc
+    if error is not None:
+        raise error
+
+
 def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
     """Move the staged store set into the live ``<repo_root>/data`` atomically per file.
 
@@ -1058,8 +1078,7 @@ def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
     os.makedirs(dst_data, exist_ok=True)
     selected = [(name, hash_file) for name, hash_file in _STAGED_STORES if name in stores]
     # Failure here is harmless to old stores: no data file has moved yet.
-    for _, hash_file in selected:
-        _unlink_if_present(os.path.join(dst_data, hash_file))
+    _invalidate_store_hashes(dst_data, selected)
     try:
         for name, _ in selected:
             src_npz = os.path.join(src_data, f"{name}.npz")
@@ -1075,14 +1094,10 @@ def _activate_staged_stores(staging_dir: str, repo_root: str, stores) -> None:
         for _, hash_file in selected:
             os.replace(os.path.join(src_data, hash_file), os.path.join(dst_data, hash_file))
     except OSError:
-        invalidation_error = None
-        for _, hash_file in selected:
-            try:
-                _unlink_if_present(os.path.join(dst_data, hash_file))
-            except OSError as exc:
-                invalidation_error = exc
-        if invalidation_error is not None:
-            raise StoreInvalidationError("Cannot invalidate the partial store batch") from invalidation_error
+        try:
+            _invalidate_store_hashes(dst_data, selected)
+        except OSError as exc:
+            raise StoreInvalidationError("Cannot invalidate the partial store batch") from exc
         raise
 
 
