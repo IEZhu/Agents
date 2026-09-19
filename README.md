@@ -87,7 +87,8 @@ It is **safe by default**:
   windows self-heal via the store's torn-pair detection and content-hash re-embed;
 - offline/fetch/build failures leave the current version available. A failed
   activation merge (including a timeout after HEAD moved) restores the old tree.
-  If rollback or re-exec fails, startup stops instead of serving mixed versions.
+  If rollback or re-exec fails, or an unexpected activation error leaves the tree's
+  state unknown, startup stops instead of serving mixed versions.
   Dependencies are **not** auto-installed.
 
 Lifetime locks require POSIX `flock` (Linux/macOS). On platforms without it the

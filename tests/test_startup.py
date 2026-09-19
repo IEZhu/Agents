@@ -22,7 +22,7 @@ def leased_install(tmp_path):
     shutil.copy(ROOT / "src/startup.py", source / "startup.py")
     # Execute the actual production entry guard, with a tiny server body that
     # avoids loading embeddings. No .env/network work in the activation stub.
-    prefix = (ROOT / "src/server.py").read_text().split("import atexit", 1)[0]
+    prefix = (ROOT / "src/server.py").read_text(encoding="utf-8").split("import atexit", 1)[0]
     server = source / "server.py"
     server.write_text(prefix + 'print("OLD_SERVER", flush=True)\n')
     (source / "self_update.py").write_text('def run_activation_safely(): pass\n')
@@ -118,5 +118,7 @@ def test_background_prepare_lock_does_not_block_startup(leased_install, monkeypa
 
 def test_unsupported_locking_disables_updates_but_serves(tmp_path, monkeypatch):
     monkeypatch.setattr(startup, "fcntl", None)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
     with startup.server_session(tmp_path, lambda: pytest.fail("unsafe activation")):
         assert self_update.start_background_update() is None
