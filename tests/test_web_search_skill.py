@@ -43,6 +43,7 @@ ALL_TIERS = ("core_skills", "preferred_skills", "capable_skills")
 
 
 def _frontmatter(path: Path) -> dict:
+    """Read UTF-8 skill metadata with the production frontmatter parser."""
     frontmatter, _ = split_frontmatter(path.read_text(encoding="utf-8"))
     assert frontmatter is not None, f"{path} has no frontmatter"
     return yaml.safe_load(frontmatter)
@@ -51,6 +52,7 @@ def _frontmatter(path: Path) -> dict:
 # --- Skill artifact ------------------------------------------------------------
 
 def test_skill_file_exists_and_parses():
+    """The web-search artifact must provide all metadata used by retrieval."""
     assert SKILL_FILE.is_file(), f"{SKILL_FILE} missing"
     fm = _frontmatter(SKILL_FILE)
     for key in ("description", "compiled", "keywords"):
@@ -78,6 +80,7 @@ def test_keywords_are_atomic_for_keyword_boost():
     [(a, t) for t, agents in WIRING.items() for a in agents],
 )
 def test_skill_wired_to_correct_tier(agent, tier):
+    """Each opted-in agent must declare web search in exactly its intended tier."""
     fm = _frontmatter(REPO_ROOT / f"agents/{agent}/system_prompt.mdc")
     assert SKILL_ID in (fm.get(tier) or []), f"{agent}: {SKILL_ID} not in {tier}"
     for other in ALL_TIERS:
@@ -87,6 +90,7 @@ def test_skill_wired_to_correct_tier(agent, tier):
 
 @pytest.mark.parametrize("agent", EXCLUDED)
 def test_skill_not_wired_to_excluded_agents(agent):
+    """Self-contained agents must keep web search outside their retrieval pool."""
     fm = _frontmatter(REPO_ROOT / f"agents/{agent}/system_prompt.mdc")
     for tier in ALL_TIERS:
         assert SKILL_ID not in (fm.get(tier) or []), f"{agent} should not have {SKILL_ID}"
@@ -97,7 +101,8 @@ def test_skill_not_wired_to_excluded_agents(agent):
 def test_no_fabrication_rule_carries_search_trigger():
     """The decision to search must live in the always-on rule layer so it fires
     even in lite tier where preferred/capable skills do not load."""
-    body = RULE_FILE.read_text(encoding="utf-8").lower()
+    _, body = split_frontmatter(RULE_FILE.read_text(encoding="utf-8"))
+    body = body.lower()
     assert "search" in body and "fetch the web" in body
 
 
@@ -110,6 +115,7 @@ def test_core_skill_loads_in_lite_tier(tmp_path, monkeypatch):
     from src.engine.vector_store import NumpyVectorStore
 
     def unexpected_embedding(*args, **kwargs):
+        """Fail if mandatory-only retrieval attempts to embed documents or queries."""
         pytest.fail("Mandatory-only retrieval must not use embeddings")
 
     monkeypatch.setattr(skills, "embed_texts", unexpected_embedding)
