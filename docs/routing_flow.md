@@ -54,7 +54,12 @@ See the [measured results and remaining validation gaps](persona-switch-eval-res
 
 Pass a relevant `chat_history` excerpt when a routed request depends on earlier
 facts. The server does not need the whole conversation. Agent slash prompts load
-explicit roles; `/ask` requests routing. Both accept an optional `current_persona`.
+explicit roles; `/ask` requests routing. Both default to `protocol_version=1`,
+preserving their legacy prompt format and selection behavior. To request a v2
+bundle, pass `protocol_version=2` explicitly and optionally `current_persona` as
+descriptor JSON. MCP prompt arguments are transported as strings, for example
+`{"query": "Explain a dictionary", "protocol_version": "2"}`. Supplying only
+`current_persona` does not opt into v2.
 
 `SUCCESS` contains `protocol_version`, `request_id`, `persona`,
 `replaces_activation_id`, `footer`, an application instruction, and separate

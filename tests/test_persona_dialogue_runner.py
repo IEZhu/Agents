@@ -8,7 +8,8 @@ from evals.runners.run_persona_dialogues import assess_turn, client_output, payl
 
 
 def activation(agent="software_engineer", activation_id="a", replaces=None):
-    persona = {"agent": agent, "activation_id": activation_id, "bundle_revision": "revision"}
+    persona = {"agent": agent, "activation_id": activation_id, "bundle_revision": "a" * 64,
+               "scope": "Engineering", "skills_loaded": [], "implants_loaded": [], "rules_loaded": []}
     return {"tool": "get_agent_context", "arguments": {"agent_name": agent, "protocol_version": 2},
             "result": {"status": "SUCCESS", "protocol_version": 2, "persona": persona,
                        "replaces_activation_id": replaces, "persona_block": "persona", "rules_block": "rules",
@@ -75,8 +76,104 @@ def test_catalog_or_denied_routing_invalidates_keep():
 
 def test_stale_activation_fails_even_when_correct_agent():
     active = activation()["result"]["persona"]
-    result, _ = assess_turn({"expected": "switch", "agent": "lawyer"}, [activation("lawyer", "b", "stale")], output("lawyer"), active, 2)
+    result, retained = assess_turn({"expected": "switch", "agent": "lawyer"}, [activation("lawyer", "b", "stale")], output("lawyer"), active, 2)
     assert "activation_chain_mismatch" in result["failures"]
+    assert "missing_successful_load" in result["failures"]
+    assert retained is active
+    assert not result["observed_switch"]
+
+
+@pytest.mark.parametrize("field", ["persona_block", "rules_block", "skills_block", "implants_block", "footer"])
+@pytest.mark.parametrize("invalid", ["missing", None, 7])
+def test_incomplete_bundle_preserves_previous_activation(field, invalid):
+    previous = activation()["result"]
+    active = {**previous["persona"], "footer": previous["footer"]}
+    call = activation("lawyer", "b", "a")
+    if invalid == "missing":
+        del call["result"][field]
+    else:
+        call["result"][field] = invalid
+    result, retained = assess_turn({"expected": "switch", "agent": "lawyer"}, [call], output("lawyer"), active, 2)
+    assert "incomplete_bundle" in result["failures"]
+    assert "missing_successful_load" in result["failures"]
+    assert not result["observed_switch"]
+    assert retained is active
+    kept, same = assess_turn({"expected": "keep", "agent": "software_engineer"}, [logged("keep")], output(), retained, 2)
+    assert kept["passed"]
+    assert same is active
+
+
+@pytest.mark.parametrize("field", ["persona_block", "footer"])
+@pytest.mark.parametrize("blank", ["", " \n\t"])
+def test_empty_persona_or_footer_cannot_activate_initial_persona(field, blank):
+    call = activation()
+    call["result"][field] = blank
+    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    assert "incomplete_bundle" in verdict["failures"]
+    assert "missing_successful_load" in verdict["failures"]
+    assert active is None
+
+
+@pytest.mark.parametrize("field", list(activation()["result"]["persona"]))
+def test_incomplete_descriptor_cannot_activate(field):
+    call = activation()
+    del call["result"]["persona"][field]
+    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    assert "incomplete_descriptor" in verdict["failures"]
+    assert "missing_successful_load" in verdict["failures"]
+    assert active is None
+
+
+@pytest.mark.parametrize("field,value", [
+    ("agent", "invalid agent"), ("activation_id", ""), ("bundle_revision", "not-a-revision"),
+    ("scope", ""), ("skills_loaded", None), ("implants_loaded", "implant"), ("rules_loaded", [7]),
+])
+def test_malformed_descriptor_cannot_activate(field, value):
+    call = activation()
+    call["result"]["persona"][field] = value
+    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    assert "incomplete_descriptor" in verdict["failures"]
+    assert "missing_successful_load" in verdict["failures"]
+    assert active is None
+
+
+def test_rejected_success_does_not_break_following_valid_activation_chain():
+    active = activation()["result"]["persona"]
+    rejected = activation("lawyer", "rejected", "stale")
+    accepted = activation("lawyer", "accepted", "a")
+    verdict, result = assess_turn({"expected": "switch", "agent": "lawyer"}, [rejected, accepted], output("lawyer"), active, 2)
+    assert not verdict["passed"]  # The rejected response still fails this turn.
+    assert "activation_chain_mismatch" in verdict["failures"]
+    assert "missing_successful_load" not in verdict["failures"]
+    assert result["activation_id"] == "accepted"
+    assert verdict["observed_switch"]
+
+
+def test_invalid_refresh_success_preserves_activation():
+    active = activation()["result"]["persona"]
+    call = activation(activation_id="b", replaces="a")
+    call["tool"] = "refresh_persona_context"
+    del call["result"]["footer"]
+    verdict, retained = assess_turn({"expected": "refresh", "agent": "software_engineer"}, [call], output(), active, 2)
+    assert "missing_successful_refresh" in verdict["failures"]
+    assert "incomplete_bundle" in verdict["failures"]
+    assert retained is active
+
+
+def test_tool_error_cannot_install_success_payload():
+    call = activation()
+    call["error"] = "Transport failed"
+    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    assert "server_tool_error" in verdict["failures"]
+    assert "missing_successful_load" in verdict["failures"]
+    assert active is None
+
+
+def test_duplicate_history_write_counts_as_recorded():
+    duplicate = logged()
+    duplicate["result"]["history"]["status"] = "duplicate"
+    verdict, _ = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [activation(), logged(), duplicate], output(), None, 2)
+    assert verdict["passed"]
 
 
 def test_no_change_cannot_count_as_switch():
@@ -188,6 +285,7 @@ def test_project_interpreter_selects_platform_virtualenv(monkeypatch, tmp_path, 
 
 
 def test_missing_project_interpreter_fails_before_client_or_case_setup(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(runner.sys, "platform", "linux")
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     monkeypatch.setattr(runner.sys, "argv", [
         "run_persona_dialogues", "--client", "claude", "--out", str(tmp_path / "out"),

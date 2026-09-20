@@ -7,6 +7,11 @@ These measurements describe the frozen runtime and protocol identified by the
 recorded hashes. Later review fixes to activation and fallback guidance, metadata
 handling, and runner setup are not included in these model runs.
 
+After the evaluator review fixes, all six archived reports were reassessed from
+their retained traces: 437 attempted turns, with no changes to verdicts, active
+personas, observed switches, or summary metrics. This was a deterministic scoring
+check; no new model runs were performed.
+
 The server implementation and migration are ready. Version 2 remains an explicit
 opt-in through `AGENTS_PERSONA_PROTOCOL=2`; the installer defaults to version 1.
 These results apply to the recorded CLIs and models, not to every MCP client.
@@ -182,13 +187,16 @@ rewritten automatically.
 
 To reproduce the evaluation, use
 [run_persona_dialogues.py](../evals/runners/run_persona_dialogues.py). Freeze two
-source trees, one index seed, and an identical request suite combining
+source trees on Linux or macOS, one index seed, and an identical request suite combining
 persona_dialogues.jsonl and persona_compaction.jsonl. Specify `--repeats 3`, a
 separate `--out` for each run, `--source-root`, `--seed-data`, `--dataset`,
 `--protocol`, and `--protocol-version`. For Codex on macOS, add
 `--codex-isolate-global-instructions`. Run the supplemental
 persona_implicit_switch.jsonl suite separately against both protocol versions.
 The runner does not overwrite an existing output directory.
+Windows evaluation runs are rejected before setup or client launch because the
+runner requires POSIX process groups to terminate clients and MCP children on
+timeout. This restriction applies to the evaluation runner, not the installer.
 
 Raw local reports and traces are retained in the ignored
 `.reports/persona-switch/` directory; only synthetic scenarios and compact results

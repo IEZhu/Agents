@@ -63,9 +63,11 @@ delete previous messages from the client's context. Do not clear history, memory
 or any server cache to switch roles. A tool result is not a system message.
 
 Explicit agent slash commands load that agent directly; `/ask` explicitly requests
-routing. Pass `current_persona` when available and apply their v2 bundles with the
-same replacement rules. Without it, the command sets the role sequentially for the
-current conversation; do not run competing activations in the background.
+routing. These existing MCP prompts default to version 1. Request their v2 bundles
+by passing `protocol_version=2` explicitly, plus `current_persona` as descriptor
+JSON when available, and apply the same replacement rules. In version 2, omitting
+the descriptor lets the explicit command set the role sequentially for the current
+conversation; do not run competing activations in the background.
 
 ## Finish each answer
 

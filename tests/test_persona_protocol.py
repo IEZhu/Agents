@@ -212,8 +212,12 @@ async def test_v1_sampling_requires_advertised_capability(monkeypatch, supported
 async def test_slash_alias_uses_v2_direct_load_with_retrieval_hint(bundle, monkeypatch):
     lookup = AsyncMock(side_effect=AssertionError("explicit role must not route"))
     monkeypatch.setattr(server.router, "lookup_cache", lookup)
-    result = await server.mcp.get_prompt("co_lawyer", {"query": "fictional contract"})
+    result = await server.mcp.get_prompt("co_lawyer", {
+        "query": "fictional contract", "protocol_version": "2",
+        "current_persona": descriptor().model_dump_json(),
+    })
     assert '"protocol_version": 2' in result.messages[0].content.text
+    assert '"replaces_activation_id": "old"' in result.messages[0].content.text
     assert bundle.call_args.args[0] == "lawyer"
     assert bundle.call_args.args[1] == "/co_lawyer fictional contract"
     lookup.assert_not_awaited()
@@ -222,7 +226,10 @@ async def test_slash_alias_uses_v2_direct_load_with_retrieval_hint(bundle, monke
 @pytest.mark.asyncio
 async def test_ask_is_explicit_routing_and_passes_descriptor(bundle, monkeypatch):
     monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
-    result = await server.mcp.get_prompt("ask", {"query": "SQL?", "current_persona": descriptor().model_dump_json()})
+    result = await server.mcp.get_prompt("ask", {
+        "query": "SQL?", "protocol_version": "2",
+        "current_persona": descriptor().model_dump_json(),
+    })
     assert '"status": "ROUTE_REQUIRED"' in result.messages[0].content.text
     assert '"replaces_activation_id": "old"' in result.messages[0].content.text
 
@@ -235,3 +242,102 @@ async def test_tool_schema_exposes_v2_descriptor_and_optional_defaults():
     assert "current_persona" in schemas["get_agent_context"]["properties"]
     assert "force_reload" in schemas["get_agent_context"]["properties"]
     assert schemas["refresh_persona_context"]["required"] == ["query", "current_persona"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command,retrieval_query", [
+    ("lawyer", "fictional contract"),
+    ("co_lawyer", "/co_lawyer fictional contract"),
+])
+async def test_agent_prompts_default_to_legacy_loading(command, retrieval_query, monkeypatch):
+    legacy = AsyncMock(return_value=("Legacy role text", "hash", [], [], [], "standard"))
+    v2 = AsyncMock()
+    route = AsyncMock()
+    monkeypatch.setattr(server, "_load_and_enrich", legacy)
+    monkeypatch.setattr(server, "load_persona", v2)
+    monkeypatch.setattr(server.router, "lookup_cache", route)
+
+    result = await server.mcp.get_prompt(command, {"query": "fictional contract"})
+
+    legacy.assert_awaited_once_with("lawyer", retrieval_query, [])
+    v2.assert_not_awaited()
+    route.assert_not_awaited()
+    assert result.messages[0].content.text == (
+        "SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
+        "Legacy role text\n\n---\nUSER QUERY: fictional contract"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query,cached_agent,selected_agent", [
+    ("Explain a Python dictionary", "software_engineer", "software_engineer"),
+    ("hi", None, "universal_agent"),
+])
+async def test_ask_defaults_to_legacy_cached_or_meta_prompt(query, cached_agent, selected_agent, monkeypatch):
+    cached = SimpleNamespace(target_agent=cached_agent) if cached_agent else None
+    lookup = AsyncMock(return_value=cached)
+    legacy = AsyncMock(return_value=("Legacy role text", "hash", [], [], [], "standard"))
+    v2 = AsyncMock()
+    monkeypatch.setattr(server.router, "lookup_cache", lookup)
+    monkeypatch.setattr(server, "_load_and_enrich", legacy)
+    monkeypatch.setattr(server, "route_persona", v2)
+
+    # Supplying v2-only state cannot implicitly opt an existing prompt into v2.
+    result = await server.mcp.get_prompt("ask", {"query": query, "current_persona": "unused in v1"})
+
+    lookup.assert_awaited_once_with(query, {"history_text": ""})
+    legacy.assert_awaited_once_with(selected_agent, query, [])
+    v2.assert_not_awaited()
+    text = result.messages[0].content.text
+    assert text.startswith("SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\nLegacy role text")
+    assert text.endswith(f"USER QUERY: {query}")
+    assert "protocol 2" not in text
+
+
+@pytest.mark.asyncio
+async def test_ask_default_cache_miss_keeps_legacy_selection_request(monkeypatch):
+    monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
+    monkeypatch.setattr(server.router, "get_agent_catalog", Mock(return_value=[
+        {"name": "software_engineer", "role": "Software implementation"},
+    ]))
+    legacy, v2 = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(server, "_load_and_enrich", legacy)
+    monkeypatch.setattr(server, "route_persona", v2)
+
+    result = await server.mcp.get_prompt("ask", {"query": "Explain a Python dictionary"})
+
+    text = result.messages[0].content.text
+    assert "get_agent_context(agent_name, query)" in text
+    assert "**software_engineer**: Software implementation" in text
+    assert "protocol_version" not in text
+    legacy.assert_not_awaited()
+    v2.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["ask", "lawyer", "co_lawyer"])
+async def test_prompt_version_is_optional_and_discoverable(command):
+    prompts = {prompt.name: prompt for prompt in await server.mcp.list_prompts()}
+    prompt = prompts[command]
+    arguments = {argument.name: argument for argument in prompt.arguments}
+    assert arguments["query"].required
+    assert not arguments["protocol_version"].required
+    assert not arguments["current_persona"].required
+    assert "Protocol 1 is the default" in prompt.description
+    assert "protocol_version=2" in prompt.description
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["ask", "co_lawyer"])
+async def test_prompt_rejects_unsupported_version_before_loading(command, monkeypatch):
+    legacy, v2_load, v2_route, lookup = (AsyncMock() for _ in range(4))
+    monkeypatch.setattr(server, "_load_and_enrich", legacy)
+    monkeypatch.setattr(server, "load_persona", v2_load)
+    monkeypatch.setattr(server, "route_persona", v2_route)
+    monkeypatch.setattr(server.router, "lookup_cache", lookup)
+
+    result = await server.mcp.get_prompt(command, {"query": "fictional contract", "protocol_version": "3"})
+
+    assert "protocol_version must be 1 or 2" in result.messages[0].content.text
+    for dependency in (legacy, v2_load, v2_route, lookup):
+        dependency.assert_not_awaited()

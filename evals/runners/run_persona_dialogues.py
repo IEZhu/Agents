@@ -18,6 +18,10 @@ import subprocess
 import sys
 import time
 
+from pydantic import ValidationError
+
+from src.schemas.protocol import PersonaDescriptor
+
 ROOT = Path(__file__).resolve().parents[2]
 SELECTION_TOOLS = {"route_and_load", "get_agent_context", "refresh_persona_context", "list_agents", "load_implants"}
 ALLOWED_TOOLS = sorted(SELECTION_TOOLS | {"log_interaction", "read_history"})
@@ -104,6 +108,7 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
     for call in trace:
         if call.get("error"):
             failures.append("server_tool_error")
+            continue
         payload = payload_from(call.get("result"))
         if payload.get("status") == "ERROR":
             failures.append("server_error_result")
@@ -124,12 +129,18 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
                 expected_replaced = (active or {}).get("activation_id")
                 if payload.get("replaces_activation_id") != expected_replaced:
                     failures.append("activation_chain_mismatch")
-                if not all(key in payload for key in ("persona_block", "rules_block", "skills_block", "implants_block")):
+                if (not all(isinstance(payload.get(key), str) for key in
+                            ("persona_block", "rules_block", "skills_block", "implants_block"))
+                        or not payload["persona_block"].strip()
+                        or not isinstance(payload.get("footer"), str) or not payload["footer"].strip()):
                     failures.append("incomplete_bundle")
-                if not all(persona.get(key) for key in ("agent", "activation_id", "bundle_revision")):
+                try:
+                    PersonaDescriptor.model_validate(persona, strict=True)
+                except ValidationError:
                     failures.append("incomplete_descriptor")
-                active = {**persona, "footer": payload.get("footer")}
-                successful_loads.append(call)
+                if len(failures) == failures_before_payload:
+                    active = {**persona, "footer": payload["footer"]}
+                    successful_loads.append(call)
             elif payload["status"] == "NO_CHANGE":
                 descriptor = {key: value for key, value in (active or {}).items() if key != "footer"}
                 if persona != descriptor:
@@ -192,7 +203,7 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
                 failures.append("log_descriptor_mismatch")
             if logged.get("persona_action") != expected_action:
                 failures.append("log_action_mismatch")
-            if payload_from(call.get("result")).get("history", {}).get("status") not in {"recorded", "deduplicated"}:
+            if payload_from(call.get("result")).get("history", {}).get("status") not in {"recorded", "duplicate"}:
                 failures.append("log_not_recorded")
             if logged.get("response_content", "").strip() != answer.strip():
                 failures.append("log_response_differs_from_final")
@@ -204,8 +215,18 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
             "tool_result_bytes": sum(call.get("result_bytes", 0) for call in trace)}, active
 
 
+def require_process_group_support() -> None:
+    """Reject Windows until the evaluator supports and tests process-tree cleanup."""
+    if sys.platform == "win32":
+        raise NotImplementedError(
+            "Persona dialogue evaluations do not support Windows process-tree cleanup. "
+            "Run the evaluator on Linux or macOS."
+        )
+
+
 def run_process(cmd: list[str], query: str, workspace: Path, timeout: int) -> tuple[int, str, str, bool]:
     """Kill the entire evaluation process group on timeout, including its MCP."""
+    require_process_group_support()
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, encoding="utf-8", cwd=workspace, start_new_session=True) as process:
         try:
@@ -283,6 +304,7 @@ def project_interpreter(root: Path) -> str:
 
 def run_case(client: str, case: dict, workspace: Path, protocol: str, timeout: int,
              source_root: Path = ROOT, protocol_version: int = 2, seed_data: Path = ROOT / "data", isolate_codex: bool = False) -> dict:
+    require_process_group_support()
     python = project_interpreter(ROOT)
     workspace.mkdir(parents=True)  # Do not silently overwrite a prior experiment.
     for name in ("AGENTS.md", "CLAUDE.md"):
@@ -416,8 +438,9 @@ def main():
     if min(args.repeats, args.jobs, args.timeout) < 1:
         p.error("repeats, jobs and timeout must be positive")
     try:
+        require_process_group_support()
         project_interpreter(ROOT)
-    except OSError as error:
+    except (OSError, NotImplementedError) as error:
         p.error(str(error))
     cases = [json.loads(line) for line in args.dataset.read_text(encoding="utf-8").splitlines() if line.strip()]
     cases = [case for case in cases if not args.case or args.case == case["id"]]

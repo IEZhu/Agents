@@ -173,11 +173,13 @@ documentation consistently. Specify `protocol_version=2`, block application
 rules, and the action rubric in the managed instruction section.
 
 Explicit slash commands load the named agent without routing. `/ask` remains
-an explicit request to select an agent. Add an optional `current_persona`
-argument to both paths and use it to construct the same version 2 bundle.
-If it is absent, the issued command sets the role for the current conversation;
-commands are applied sequentially, without background switching. Restore and
-refresh do not require selecting an agent again.
+an explicit request to select an agent. Both prompts retain version 1 by default;
+add optional `protocol_version=1` and `current_persona` arguments. Explicit
+`protocol_version=2` requests the same version 2 bundle, with `current_persona`
+passed as descriptor JSON. If the descriptor is absent in version 2, the issued
+command sets the role for the current conversation. Commands are applied
+sequentially, without background switching. Restore and refresh do not require
+selecting an agent again.
 
 Update the sh/bat installers. Replace managed sections by their markers and
 preserve all other text. Replace installer-generated memory reminders only when
