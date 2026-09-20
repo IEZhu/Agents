@@ -7,13 +7,14 @@ These measurements describe the frozen runtime and protocol identified by the
 recorded hashes. Later review fixes to activation and fallback guidance, metadata
 handling, and runner setup are not included in these model runs.
 
-After the evaluator review fixes, all six archived reports were reassessed from
-their retained traces: 437 attempted turns, with no changes to verdicts, active
-personas, observed switches, or summary metrics. This was a deterministic scoring
-check; no new model runs were performed.
+After adding exact query-attribution validation, all six archived reports were
+reassessed from their retained traces: 437 attempted turns. The corrected results
+below include the newly detected logging failures and preserve prior verdicts in
+the JSON audit. No new model runs were performed.
 
-The server implementation and migration are ready. Version 2 remains an explicit
-opt-in through `AGENTS_PERSONA_PROTOCOL=2`; the installer defaults to version 1.
+Version 2 remains an explicit opt-in through `AGENTS_PERSONA_PROTOCOL=2`; the
+installer defaults to version 1. Claude v2 does not pass the full attribution
+rubric on these traces: some logs paraphrase the current request.
 These results apply to the recorded CLIs and models, not to every MCP client.
 Codex has not completed acceptance testing: the account usage limit interrupted
 the third repeat.
@@ -69,7 +70,9 @@ Machine-readable results and checksums:
 
 The scorer checks actual calls and results, the activation_id chain, descriptor
 stability on keep, the correct role, the exact footer, attribution, and storage of
-the final answer in history. Failed call attempts also count as unnecessary calls.
+the final answer in history. In both protocol versions, each recorded log's
+`query` must equal the current turn's request verbatim. Failed call attempts also
+count as unnecessary calls.
 The answer is scored from the final message, not from a concatenation of progress
 comments. Byte and latency comparisons use only matched completed turns with the
 same case ID, repeat, and turn number.
@@ -84,27 +87,40 @@ hashes as well as the corrected label hash. This correction eliminated three
 false negatives for Claude; client errors were not reclassified as successful
 answers.
 
+The later query-attribution correction detects 113 turns with a mismatched log
+query: 47 in Claude v1 and 66 in Claude v2. It changes 67 previously passing turns
+to failures; the remaining 46 already failed other checks. These mismatches are
+not differences in whitespace or the simulated-compaction wrapper. The scorer
+now rejects missing or changed query text. Original run verdicts and the verdicts
+before this correction are retained in the JSON. Activation state, observed
+switches, tool counts, bytes, and timings are unchanged.
+
 ## Dialogue results
 
-"Passed" means compliance with the target v2 rubric, including the final footer
-and recording the answer in history. Baseline v1 is deliberately measured against
-the same rubric: a failure here is not a regression in the compatible API. In
+"Passed" means compliance with the shared role, continuation, final-answer, and
+query-attribution checks. Version 2 additionally checks bundle descriptors, the
+exact returned footer, action attribution, and successful history storage.
+Baseline v1 failures here are not regressions in the compatible API. In
 particular, Claude v1 often placed the substantive answer and footer in an
 intermediate message, then ended with an "answer above" acknowledgement. The
 strict final-answer check does not accept that behavior.
 
 | Suite | Client | Protocol | Planned turns | Completed | Passed | Selection calls on keep / completed keep turns |
 |---|---|---|---:|---:|---:|---:|
-| Main | Claude | v1 | 108 | 108 | 1 | 54 / 30 |
-| Main | Claude | v2 | 108 | 108 | 108 | 0 / 30 |
+| Main | Claude | v1 | 108 | 108 | 0 | 54 / 30 |
+| Main | Claude | v2 | 108 | 108 | 48 | 0 / 30 |
 | Main | Codex | v1 | 108 | 85 | 47 | 52 / 26 |
 | Main | Codex | v2 | 108 | 80 | 80 | 0 / 25 |
 | Implicit switching | Claude | v1 | 18 | 18 | 0 | 8 / 6 |
-| Implicit switching | Claude | v2 | 18 | 18 | 18 | 0 / 6 |
+| Implicit switching | Claude | v2 | 18 | 18 | 12 | 0 / 6 |
 
-Claude v2 completed all three repeats of both suites: 126/126 turns. For Codex v2,
-all 80 completed turns passed the rubric, 11 attempts were interrupted by the
-usage limit, and 17 subsequent turns were not attempted. In the Codex baseline,
+Claude v2 completed all three repeats of both suites: 126/126 turns. With exact
+query-attribution validation, 60 main-suite turns and 6 supplemental turns fail
+only `log_query_mismatch`; 60/126 turns pass the full rubric. No complete Claude
+v2 dialogue passes every check. The current client instructions explicitly
+require a verbatim query, but that guidance has not been evaluated in new model
+runs. For Codex v2, all 80 completed turns passed the rubric, 11 attempts were
+interrupted by the usage limit, and 17 subsequent turns were not attempted. In the Codex baseline,
 the limit interrupted 9 attempts and another 14 turns were not attempted. The
 implicit-switching suite was not run for Codex after the limit was confirmed;
 18 planned turns remain for each of v1 and v2. Incomplete answers count as neither
@@ -160,7 +176,7 @@ In some Claude answers, an additional constraint statement or list exceeds the
 evidence of lost facts or carryover of the revoked role. These checks do not
 establish full compliance with every stylistic requirement.
 
-## Deterministic checks
+## Recorded pre-review deterministic checks
 
 - Full suite, including slow tests: **736 passed** (`pytest tests/ -m '' -q`).
 - After final label corrections: **18 passed** for the dialogue runner tests.

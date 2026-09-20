@@ -1,17 +1,18 @@
 {
   "schema_version": 1,
   "evaluation_date": "2026-09-20",
-  "status": "partial_acceptance_codex_usage_limit",
+  "status": "acceptance_not_met_claude_log_query_mismatches_codex_usage_limit",
   "notes": [
     "Client/model behavior is specific to the recorded versions and isolated instruction fixtures; this is not approval to enable v2 for every client.",
     "Completed model turns are separate from account-usage-limit interruptions and unattempted turns. The latter two do not prove either behavioral success or failure.",
-    "Version 1 is graded against the target version 2 acceptance rubric for baseline measurement. Claude v1 often put its footer in commentary and ended with a short acknowledgement; strict final-answer failures are preserved and are not a newly introduced v1 regression.",
+    "Both versions are graded against shared role selection, continuation, final-answer, and exact logged-query checks. Version 2 additionally checks bundle/descriptor validity, the exact bundle footer, action attribution, and recorded history. Claude v1 often placed its footer in commentary and ended with a short acknowledgement; the resulting final-answer failures are preserved and are not a newly introduced v1 regression.",
     "Tool-result byte counts are measured serialized MCP results. They are not tokenizer counts. Paired comparisons use only matching completed model turns.",
     "Latency is wall time per CLI turn, including startup and tool execution. Median and nearest-rank p95 are descriptive measurements, not a controlled causal speed estimate.",
-    "Original runs did not capture a scorer hash. The recorded scorer hash identifies the archived regrading implementation; original verdicts remain preserved.",
+    "Original runs did not capture a scorer hash. Frozen archives retain the previous reassessment; scoring_audit records its hash and the current strict-query reassessment hash. Original verdicts remain preserved.",
     "Client-reported numeric usage snapshots are retained per turn. Counters may be cumulative across resumed sessions; snapshots are not summed or presented as token savings.",
     "Raw report, response and tool trace text is kept only in the local ignored archive. This compact artifact excludes raw text, session IDs, home paths and credentials.",
-    "Simulated compaction starts a fresh CLI session with an explicitly retained factual summary; it is not a measurement of a client-native compaction algorithm."
+    "Simulated compaction starts a fresh CLI session with an explicitly retained factual summary; it is not a measurement of a client-native compaction algorithm.",
+    "Strict query attribution now compares log_interaction.query with the exact current scenario query in both protocol versions. Reassessment adds log_query_mismatch to 113 completed Claude turns, including 67 previously passing turns. These logging mismatches are distinct from persona-routing or fact-retention failures; no model was rerun. Simulated-compaction wrapper text is not the scenario query."
   ],
   "scoring_audit": {
     "query_bytes_unchanged": true,
@@ -38,10 +39,877 @@
         "reason": "The initial task did not request repeating the project name; later recall checks are unchanged."
       }
     ],
-    "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+    "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
     "label_files": {
       "persona_dialogues.jsonl": "6d82b1fcc656b294c3ebb35e60abe7aacca6cebd07072ab34907a367a59f65f2",
       "persona_compaction.jsonl": "4b6ff701d59e8d75dfe97d3f08a616a91bcf5b99b66e158582a31bcf14a3d376"
+    },
+    "strict_query_validation": {
+      "previous_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
+      "protocol_versions": [
+        1,
+        2
+      ],
+      "comparison": "Exact equality of log_interaction.query and the current scenario turn.query; no trimming, paraphrase acceptance, or compaction-wrapper substitution.",
+      "failure_code": "log_query_mismatch",
+      "reassessed_archives": 6,
+      "reassessed_attempted_turns": 437,
+      "changed_turn_verdicts": 113,
+      "newly_failed_completed_turns": 67,
+      "previously_failing_turns_with_added_failure": 46,
+      "query_bytes_unchanged": true,
+      "model_reruns": 0,
+      "runs": [
+        {
+          "run_id": "acceptance-v1-claude",
+          "changed_turn_verdicts": 46,
+          "newly_failed_completed_turns": 1,
+          "previous_passed_completed_turns": 1,
+          "passed_completed_turns": 0,
+          "previous_passed_cases": 0,
+          "passed_cases": 0
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "changed_turn_verdicts": 60,
+          "newly_failed_completed_turns": 60,
+          "previous_passed_completed_turns": 108,
+          "passed_completed_turns": 48,
+          "previous_passed_cases": 36,
+          "passed_cases": 0
+        },
+        {
+          "run_id": "acceptance-v1-codex",
+          "changed_turn_verdicts": 0,
+          "newly_failed_completed_turns": 0,
+          "previous_passed_completed_turns": 47,
+          "passed_completed_turns": 47,
+          "previous_passed_cases": 5,
+          "passed_cases": 5
+        },
+        {
+          "run_id": "acceptance-v2-codex",
+          "changed_turn_verdicts": 0,
+          "newly_failed_completed_turns": 0,
+          "previous_passed_completed_turns": 80,
+          "passed_completed_turns": 80,
+          "previous_passed_cases": 25,
+          "passed_cases": 25
+        },
+        {
+          "run_id": "implicit-v1-claude",
+          "changed_turn_verdicts": 1,
+          "newly_failed_completed_turns": 0,
+          "previous_passed_completed_turns": 0,
+          "passed_completed_turns": 0,
+          "previous_passed_cases": 0,
+          "passed_cases": 0
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "changed_turn_verdicts": 6,
+          "newly_failed_completed_turns": 6,
+          "previous_passed_completed_turns": 18,
+          "passed_completed_turns": 12,
+          "previous_passed_cases": 6,
+          "passed_cases": 0
+        }
+      ],
+      "changed_turns": [
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-continuation",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-initial-implicit",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 0,
+          "turn": 2,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-specialization",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-specialization",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-switch",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-continuation",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-continuation",
+          "repeat": 0,
+          "turn": 3,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-initial-implicit",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 0,
+          "turn": 2,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-simulated-compaction",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-specialization",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-specialization",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-switch",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-continuation",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-initial-implicit",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-specialization",
+          "repeat": 1,
+          "turn": 1,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-switch",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-continuation",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-continuation",
+          "repeat": 1,
+          "turn": 3,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-initial-implicit",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-simulated-compaction",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-specialization",
+          "repeat": 1,
+          "turn": 1,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-switch",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-continuation",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-initial-implicit",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-specialization",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-specialization",
+          "repeat": 2,
+          "turn": 1,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "en-switch",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-continuation",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-initial-implicit",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-simulated-compaction",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-specialization",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-specialization",
+          "repeat": 2,
+          "turn": 1,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v1-claude",
+          "case_id": "ru-switch",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-continuation",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-initial-implicit",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 0,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-specialization",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-specialization",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 0,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-continuation",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-continuation",
+          "repeat": 0,
+          "turn": 3,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-initial-implicit",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 0,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-simulated-compaction",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-specialization",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-specialization",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 0,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-continuation",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-initial-implicit",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 1,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-specialization",
+          "repeat": 1,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 1,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-continuation",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-continuation",
+          "repeat": 1,
+          "turn": 3,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-initial-implicit",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 1,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-simulated-compaction",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 1,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 1,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-continuation",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-initial-implicit",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-restore-refresh",
+          "repeat": 2,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-simulated-compaction",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-specialization",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-specialization",
+          "repeat": 2,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 2,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "en-switch",
+          "repeat": 2,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-continuation",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-continuation",
+          "repeat": 2,
+          "turn": 3,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-initial-implicit",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-restore-refresh",
+          "repeat": 2,
+          "turn": 2,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-simulated-compaction",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-specialization",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-specialization",
+          "repeat": 2,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "acceptance-v2-claude",
+          "case_id": "ru-switch",
+          "repeat": 2,
+          "turn": 1,
+          "newly_failed": true
+        },
+        {
+          "run_id": "implicit-v1-claude",
+          "case_id": "en-implicit-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": false
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "case_id": "en-implicit-specialization",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "case_id": "ru-implicit-specialization",
+          "repeat": 0,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "case_id": "en-implicit-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "case_id": "ru-implicit-specialization",
+          "repeat": 1,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "case_id": "en-implicit-specialization",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        },
+        {
+          "run_id": "implicit-v2-claude",
+          "case_id": "ru-implicit-specialization",
+          "repeat": 2,
+          "turn": 0,
+          "newly_failed": true
+        }
+      ],
+      "previous_compact_result_sha256": "599e58d3a968ec81c732b64b06a4a8959f39bb416d8230597c6940c64a157802"
     }
   },
   "manual_role_revocation_review": {
@@ -112,7 +980,7 @@
       "report_original_sha256": "9a5ed6b60efcea129aae13f715e9b4b9f77648e7da7afbe59c9c53affe4aa07f",
       "original_scorer_sha256": null,
       "scoring_labels_sha256": "2d4ac1ee8d62ad3165b7b5fec9eda68362f08c7d9a6f516187b7fd73bb9c0e37",
-      "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
       "original_summary": {
         "switch_precision": 1.0,
         "switch_recall": 1.0,
@@ -138,10 +1006,11 @@
           "completed_model_turn": 108
         },
         "completed_model_turns": 108,
-        "passed_completed_turns": 1,
-        "failed_completed_turns": 107,
+        "passed_completed_turns": 0,
+        "failed_completed_turns": 108,
         "completed_failure_counts": {
           "keep_without_same_active_persona": 22,
+          "log_query_mismatch": 46,
           "missing_conversation_fact": 37,
           "refresh_used_selection": 6,
           "restore_used_selection": 12,
@@ -195,10 +1064,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -221,7 +1092,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -362,6 +1237,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -386,7 +1262,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -454,6 +1336,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -478,7 +1361,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -584,6 +1473,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -608,7 +1498,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -661,6 +1557,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "missing_conversation_fact",
                 "wrong_footer_agent"
               ],
@@ -686,7 +1583,14 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "missing_conversation_fact",
+                  "wrong_footer_agent"
+                ]
+              }
             }
           ]
         },
@@ -712,6 +1616,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "universal_agent",
@@ -736,7 +1641,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -748,6 +1659,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "database_admin",
@@ -772,7 +1684,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 2,
@@ -838,6 +1756,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -862,7 +1781,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -964,6 +1889,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -988,7 +1914,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1083,6 +2015,7 @@
               ],
               "failures": [
                 "keep_without_same_active_persona",
+                "log_query_mismatch",
                 "unnecessary_selection_or_enrichment",
                 "wrong_footer_agent"
               ],
@@ -1108,7 +2041,15 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "keep_without_same_active_persona",
+                  "unnecessary_selection_or_enrichment",
+                  "wrong_footer_agent"
+                ]
+              }
             }
           ]
         },
@@ -1135,6 +2076,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -1159,7 +2101,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1227,6 +2175,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -1251,7 +2200,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1305,6 +2260,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "missing_conversation_fact",
                 "refresh_used_selection",
                 "wrong_footer_agent"
@@ -1331,7 +2287,15 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "missing_conversation_fact",
+                  "refresh_used_selection",
+                  "wrong_footer_agent"
+                ]
+              }
             }
           ]
         },
@@ -1357,6 +2321,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -1381,7 +2346,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1485,6 +2456,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "universal_agent",
@@ -1509,7 +2481,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1521,6 +2499,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "database_admin",
@@ -1545,7 +2524,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 2,
@@ -1611,6 +2596,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -1635,7 +2621,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1737,6 +2729,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -1761,7 +2754,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1905,6 +2904,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -1929,7 +2929,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -1995,6 +3001,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2019,7 +3026,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2125,6 +3138,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2149,7 +3163,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2251,6 +3271,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "universal_agent",
@@ -2275,7 +3296,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2287,6 +3314,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "database_admin",
@@ -2311,7 +3339,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 2,
@@ -2377,6 +3411,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2401,7 +3436,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2499,6 +3540,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2523,7 +3565,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2623,6 +3671,7 @@
               ],
               "failures": [
                 "keep_without_same_active_persona",
+                "log_query_mismatch",
                 "missing_conversation_fact",
                 "unnecessary_selection_or_enrichment",
                 "wrong_footer_agent"
@@ -2649,7 +3698,16 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "keep_without_same_active_persona",
+                  "missing_conversation_fact",
+                  "unnecessary_selection_or_enrichment",
+                  "wrong_footer_agent"
+                ]
+              }
             }
           ]
         },
@@ -2676,6 +3734,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2700,7 +3759,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2768,6 +3833,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2792,7 +3858,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -2898,6 +3970,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -2922,7 +3995,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3024,6 +4103,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "universal_agent",
@@ -3048,7 +4128,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3060,6 +4146,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "database_admin",
@@ -3084,7 +4171,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 2,
@@ -3150,6 +4243,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -3174,7 +4268,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3272,6 +4372,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -3296,7 +4397,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3441,6 +4548,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -3465,7 +4573,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3531,6 +4645,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -3555,7 +4670,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3659,6 +4780,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -3683,7 +4805,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3783,6 +4911,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "universal_agent",
@@ -3807,7 +4936,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -3819,6 +4954,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "database_admin",
@@ -3843,7 +4979,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 2,
@@ -3909,6 +5051,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -3933,7 +5076,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4033,6 +5182,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -4057,7 +5207,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4206,6 +5362,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -4230,7 +5387,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4298,6 +5461,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -4322,7 +5486,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4428,6 +5598,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -4452,7 +5623,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4554,6 +5731,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "universal_agent",
@@ -4578,7 +5756,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4590,6 +5774,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "database_admin",
@@ -4614,7 +5799,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 2,
@@ -4678,6 +5869,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "wrong_footer_agent"
               ],
               "active_agent": "software_engineer",
@@ -4702,7 +5894,13 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -4780,7 +5978,8 @@
             }
           ]
         }
-      ]
+      ],
+      "prior_query_validation_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7"
     },
     {
       "run_id": "acceptance-v2-claude",
@@ -4802,7 +6001,7 @@
       "report_original_sha256": "9a5e35229e9ec154581be9cacfe453f54cf2f693dbab4d2aa62b362213284a90",
       "original_scorer_sha256": null,
       "scoring_labels_sha256": "2d4ac1ee8d62ad3165b7b5fec9eda68362f08c7d9a6f516187b7fd73bb9c0e37",
-      "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
       "original_summary": {
         "switch_precision": 1.0,
         "switch_recall": 1.0,
@@ -4820,7 +6019,7 @@
       "case_counts": {
         "planned": 36,
         "all_model_turns_completed": 36,
-        "passed": 36
+        "passed": 0
       },
       "metrics": {
         "planned_turns": 108,
@@ -4828,9 +6027,11 @@
           "completed_model_turn": 108
         },
         "completed_model_turns": 108,
-        "passed_completed_turns": 108,
-        "failed_completed_turns": 0,
-        "completed_failure_counts": {},
+        "passed_completed_turns": 48,
+        "failed_completed_turns": 60,
+        "completed_failure_counts": {
+          "log_query_mismatch": 60
+        },
         "keep": {
           "completed_turns": 30,
           "turns_with_selection_attempts": 0,
@@ -4870,7 +6071,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -4878,10 +6079,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -4904,7 +6107,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5012,7 +6219,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5020,10 +6227,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -5046,7 +6255,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5090,7 +6303,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5098,10 +6311,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5124,16 +6339,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "restore",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5156,16 +6377,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
               "expected": "refresh",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5188,7 +6415,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -5200,7 +6431,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5208,10 +6439,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5234,7 +6467,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5310,7 +6547,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5318,10 +6555,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5344,16 +6583,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "database_admin",
               "observed_switch": true,
               "selection_calls": 2,
@@ -5376,7 +6621,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -5420,7 +6669,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5428,10 +6677,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5454,16 +6705,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "lawyer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -5486,16 +6743,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -5518,7 +6781,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -5530,7 +6797,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5538,10 +6805,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5564,7 +6833,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5634,10 +6907,12 @@
               "turn": 3,
               "expected": "keep",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 0,
@@ -5660,7 +6935,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -5672,7 +6951,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5680,10 +6959,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -5706,7 +6987,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5750,7 +7035,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5758,10 +7043,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5784,7 +7071,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5822,10 +7113,12 @@
               "turn": 2,
               "expected": "refresh",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5848,7 +7141,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -5860,7 +7157,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5868,10 +7165,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -5894,7 +7193,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -5970,7 +7273,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -5978,10 +7281,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6004,16 +7309,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "database_admin",
               "observed_switch": true,
               "selection_calls": 2,
@@ -6036,7 +7347,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -6080,7 +7395,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6088,10 +7403,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6114,16 +7431,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "lawyer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -6146,7 +7469,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -6190,7 +7517,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6198,10 +7525,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6224,7 +7553,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -6332,7 +7665,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6340,10 +7673,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -6366,7 +7701,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -6410,7 +7749,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6418,10 +7757,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6444,7 +7785,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -6482,10 +7827,12 @@
               "turn": 2,
               "expected": "refresh",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6508,7 +7855,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -6520,7 +7871,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6528,10 +7879,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6554,7 +7907,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -6630,7 +7987,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6638,10 +7995,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6664,16 +8023,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "database_admin",
               "observed_switch": true,
               "selection_calls": 2,
@@ -6696,7 +8061,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -6740,7 +8109,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6748,10 +8117,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6774,16 +8145,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "lawyer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -6806,7 +8183,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -6850,7 +8231,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -6858,10 +8239,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -6884,7 +8267,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -6954,10 +8341,12 @@
               "turn": 3,
               "expected": "keep",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 0,
@@ -6980,7 +8369,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -6992,7 +8385,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": false,
           "turns": [
@@ -7000,12 +8393,14 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": false,
               "original_failures": [
                 "missing_conversation_fact"
               ],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -7028,7 +8423,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7072,7 +8471,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7080,10 +8479,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7106,7 +8507,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7144,10 +8549,12 @@
               "turn": 2,
               "expected": "refresh",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7170,7 +8577,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -7182,7 +8593,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7190,10 +8601,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7216,7 +8629,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7292,7 +8709,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7300,10 +8717,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7326,7 +8745,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7402,7 +8825,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7410,10 +8833,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7436,16 +8861,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "lawyer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -7468,16 +8899,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -7500,7 +8937,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -7512,7 +8953,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7520,10 +8961,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7546,7 +8989,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7654,7 +9101,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": false,
           "turns": [
@@ -7662,12 +9109,14 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": false,
               "original_failures": [
                 "missing_conversation_fact"
               ],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -7690,7 +9139,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7734,7 +9187,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7742,10 +9195,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7768,7 +9223,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7806,10 +9265,12 @@
               "turn": 2,
               "expected": "refresh",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7832,7 +9293,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -7844,7 +9309,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7852,10 +9317,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7878,7 +9345,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -7954,7 +9425,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -7962,10 +9433,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -7988,16 +9461,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "database_admin",
               "observed_switch": true,
               "selection_calls": 2,
@@ -8020,7 +9499,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -8064,7 +9547,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -8072,10 +9555,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8098,16 +9583,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "lawyer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -8130,16 +9621,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -8162,7 +9659,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -8174,7 +9675,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -8182,10 +9683,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8208,7 +9711,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -8278,10 +9785,12 @@
               "turn": 3,
               "expected": "keep",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 0,
@@ -8304,7 +9813,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -8316,7 +9829,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": false,
           "turns": [
@@ -8324,12 +9837,14 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": false,
               "original_failures": [
                 "missing_conversation_fact"
               ],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 2,
@@ -8352,7 +9867,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -8396,7 +9915,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -8404,10 +9923,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8430,7 +9951,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -8468,10 +9993,12 @@
               "turn": 2,
               "expected": "refresh",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8494,7 +10021,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             }
           ]
         },
@@ -8506,7 +10037,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -8514,10 +10045,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8540,7 +10073,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -8616,7 +10153,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -8624,10 +10161,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8650,16 +10189,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "database_admin",
               "observed_switch": true,
               "selection_calls": 2,
@@ -8682,7 +10227,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -8726,7 +10275,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -8734,10 +10283,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "software_engineer",
               "observed_switch": false,
               "selection_calls": 1,
@@ -8760,16 +10311,22 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
               "expected": "switch",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "lawyer",
               "observed_switch": true,
               "selection_calls": 1,
@@ -8792,7 +10349,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 2,
@@ -8828,7 +10389,8 @@
             }
           ]
         }
-      ]
+      ],
+      "prior_query_validation_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7"
     },
     {
       "run_id": "acceptance-v1-codex",
@@ -8849,7 +10411,7 @@
       "report_original_sha256": "1c046ceae3481e9b13f48dab8e8fb7b4efcf39e249de78d87c464ac2508a8508",
       "original_scorer_sha256": null,
       "scoring_labels_sha256": "2d4ac1ee8d62ad3165b7b5fec9eda68362f08c7d9a6f516187b7fd73bb9c0e37",
-      "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
       "original_summary": {
         "switch_precision": 1.0,
         "switch_recall": 0.9375,
@@ -12206,7 +13768,8 @@
             }
           ]
         }
-      ]
+      ],
+      "prior_query_validation_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7"
     },
     {
       "run_id": "acceptance-v2-codex",
@@ -12227,7 +13790,7 @@
       "report_original_sha256": "9324bc94cbd4bf2268b6ece349bb8605406d76a7c497b5fa7a8ac435830ed06c",
       "original_scorer_sha256": null,
       "scoring_labels_sha256": "2d4ac1ee8d62ad3165b7b5fec9eda68362f08c7d9a6f516187b7fd73bb9c0e37",
-      "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
       "original_summary": {
         "switch_precision": 1.0,
         "switch_recall": 1.0,
@@ -15362,7 +16925,8 @@
             }
           ]
         }
-      ]
+      ],
+      "prior_query_validation_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7"
     },
     {
       "run_id": "implicit-v1-claude",
@@ -15384,7 +16948,7 @@
       "report_original_sha256": "fe20827dd418dd7a60d85d24fb72d8c92e397533b687b08262d2a90441892d25",
       "original_scorer_sha256": null,
       "scoring_labels_sha256": "09cc03ad445e0b7a8dce716c99e119b75035468baea2e8d06d72d7d90bcfdba1",
-      "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
       "original_summary": {
         "switch_precision": 1.0,
         "switch_recall": 1.0,
@@ -15414,6 +16978,7 @@
         "failed_completed_turns": 18,
         "completed_failure_counts": {
           "keep_without_same_active_persona": 6,
+          "log_query_mismatch": 1,
           "missing_conversation_fact": 7,
           "unnecessary_selection_or_enrichment": 6,
           "wrong_footer_agent": 18
@@ -15730,6 +17295,7 @@
                 "wrong_footer_agent"
               ],
               "failures": [
+                "log_query_mismatch",
                 "missing_conversation_fact",
                 "wrong_footer_agent"
               ],
@@ -15755,7 +17321,14 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": false,
+                "failures": [
+                  "missing_conversation_fact",
+                  "wrong_footer_agent"
+                ]
+              }
             },
             {
               "turn": 1,
@@ -16219,7 +17792,8 @@
             }
           ]
         }
-      ]
+      ],
+      "prior_query_validation_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7"
     },
     {
       "run_id": "implicit-v2-claude",
@@ -16241,7 +17815,7 @@
       "report_original_sha256": "8062eed83106eaa03bb3de7ae74cb69c9531fb3145f7ea3bdd9808945cd2e8cf",
       "original_scorer_sha256": null,
       "scoring_labels_sha256": "09cc03ad445e0b7a8dce716c99e119b75035468baea2e8d06d72d7d90bcfdba1",
-      "scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7",
+      "scorer_sha256": "2467c751f16313ddbf4b9a8793ac10fceb75bc7f621aa9def752b646ef92fa07",
       "original_summary": {
         "switch_precision": 1.0,
         "switch_recall": 1.0,
@@ -16259,7 +17833,7 @@
       "case_counts": {
         "planned": 6,
         "all_model_turns_completed": 6,
-        "passed": 6
+        "passed": 0
       },
       "metrics": {
         "planned_turns": 18,
@@ -16267,9 +17841,11 @@
           "completed_model_turn": 18
         },
         "completed_model_turns": 18,
-        "passed_completed_turns": 18,
-        "failed_completed_turns": 0,
-        "completed_failure_counts": {},
+        "passed_completed_turns": 12,
+        "failed_completed_turns": 6,
+        "completed_failure_counts": {
+          "log_query_mismatch": 6
+        },
         "keep": {
           "completed_turns": 6,
           "turns_with_selection_attempts": 0,
@@ -16309,7 +17885,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -16317,10 +17893,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -16343,7 +17921,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -16419,7 +18001,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -16427,10 +18009,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -16453,7 +18037,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -16529,7 +18117,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -16537,10 +18125,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -16563,7 +18153,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -16639,7 +18233,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -16647,10 +18241,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -16673,7 +18269,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -16749,7 +18349,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -16757,10 +18357,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -16783,7 +18385,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -16859,7 +18465,7 @@
             "claude-opus-5[1m]"
           ],
           "all_model_turns_completed": true,
-          "passed": true,
+          "passed": false,
           "original_complete": true,
           "original_passed": true,
           "turns": [
@@ -16867,10 +18473,12 @@
               "turn": 0,
               "expected": "load",
               "execution": "completed_model_turn",
-              "passed": true,
+              "passed": false,
               "original_passed": true,
               "original_failures": [],
-              "failures": [],
+              "failures": [
+                "log_query_mismatch"
+              ],
               "active_agent": "universal_agent",
               "observed_switch": false,
               "selection_calls": 1,
@@ -16893,7 +18501,11 @@
                     "ephemeral_5m_input_tokens": 0
                   }
                 }
-              ]
+              ],
+              "prior_query_validation_verdict": {
+                "passed": true,
+                "failures": []
+              }
             },
             {
               "turn": 1,
@@ -16961,7 +18573,8 @@
             }
           ]
         }
-      ]
+      ],
+      "prior_query_validation_scorer_sha256": "cacc2d0bccec8d896051feae8c0b755969623985faa0106d12d5fd025c1ce7c7"
     }
   ],
   "paired_comparisons": [

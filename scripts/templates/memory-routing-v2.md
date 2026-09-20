@@ -19,7 +19,8 @@ Keep the applied descriptor and returned footer; never clear history or caches t
 switch. If the server lacks version 2, follow the one-time v1 fallback in CLAUDE.md.
 
 Compose the answer and saved footer, call log_interaction with that exact text
-before the final answer, then deliver it; the final answer may end the tool loop.
+and the current user request verbatim as query before the final answer, then
+deliver it; the final answer may end the tool loop.
 
 When MCP is unavailable, follow the explicit fallback in CLAUDE.md: keep valid
 retained attribution when available, skip unavailable logging, and label manual

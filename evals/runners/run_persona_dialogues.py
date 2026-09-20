@@ -191,8 +191,11 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
         failures.append("wrong_footer_agent")
     if protocol_version == 2 and active and active.get("footer") and active["footer"] not in answer:
         failures.append("footer_differs_from_bundle")
+    logs = [call for call in trace if call["tool"] == "log_interaction" and not call.get("error")]
+    for call in logs:
+        if call["arguments"].get("query") != turn["query"]:
+            failures.append("log_query_mismatch")
     if protocol_version == 2:
-        logs = [call for call in trace if call["tool"] == "log_interaction" and not call.get("error")]
         expected_action = "switch" if expected == "load" else expected
         if not logs:
             failures.append("missing_attribution_log")
