@@ -59,11 +59,30 @@ AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
 
 ### Background Auto-Update
 
-The server can keep itself current. On startup a daemon thread (non-blocking, so it
-never delays serving) fast-forwards the install's own git repo and rebuilds the vector
-stores; the pulled code takes effect on the **next** start (for per-session stdio
-servers, the next spawn). The heavy reindex runs in the background of the current
-session so the next one starts fast.
+The server can keep itself current. Updates are **two-phase** — prepared in the
+background, activated on the next idle start — so the live install is never mutated
+mid-session:
+
+1. **Prepare** (background): a daemon thread (non-blocking, so it never delays
+   serving) fetches the target branch and, if the install is fast-forwardable,
+   builds the new version's vector stores in an isolated git worktree under
+   `data/.prepared/<sha>`, then writes a marker. The live tree and stores are
+   untouched.
+2. **Activate** (next idle start): if a valid prepared update exists and no other
+   server session is using this installation, the server
+   fast-forwards the live tree (local, no network) and atomically moves the
+   pre-built stores into `data/` — the expensive embedding already happened in
+   phase 1. Existing sessions hold a shared installation lock for their lifetime;
+   overlapping starts keep serving the current version and leave the update
+   pending. A start during activation waits before importing application code.
+   After waiting, it reloads both the bootstrap and server code under the lease.
+   Background preparation uses a separate lock and does not delay startup.
+   Git/reindex children inherit the relevant leases, so an orphan worker remains
+   protected until it exits even if its server process has already stopped.
+   Timed-out commands have their process group terminated. A separate inherited
+   completion pipe keeps rollback and lease release waiting for any remaining
+   descriptor holders, including detached descendants; this safety wait can
+   exceed the command timeout.
 
 It is **safe by default**:
 
@@ -71,9 +90,35 @@ It is **safe by default**:
   `main`) — a **no-op on feature branches**, so local development is never touched;
 - only when the working tree is clean, and only **fast-forward** (never merge, rebase,
   or switch branches);
-- a failed reindex (e.g. broken new code) is **rolled back** to the previous commit;
-- any error (offline, lock held by another process, timeout) is logged and the server
-  keeps serving the current code. Dependencies are **not** auto-installed.
+- a failed staged build discards the worktree and leaves the install as-is; crash
+  recovery also uses the store's torn-pair detection and content-hash re-embed;
+- staging roots, worktree paths, and store artifacts must not contain symlinks;
+  redirected paths are rejected before reading, moving, or pruning their targets;
+- store activation invalidates all hashes before moving files and publishes new
+  hashes only after all pairs have moved. Any batch failure invalidates all hashes
+  again; if that cannot be completed, the recovery journal keeps startup blocked;
+- source paths in staged metadata are rebased to the live checkout before
+  publication, while the vector files and their matching save versions are retained;
+- offline/fetch/build failures leave the current version available. A failed
+  activation merge (including a timeout after HEAD moved) restores the old tree.
+  If rollback or re-exec fails, or an unexpected activation error leaves the tree's
+  state unknown, startup stops instead of serving mixed versions.
+  Dependencies are **not** auto-installed.
+
+Lifetime locks require POSIX `flock` (Linux/macOS). On platforms without it the
+server runs with automatic updates disabled. When upgrading from a version that
+does not hold these locks, restart all existing server sessions once. Manual Git
+operations and rebuilds must also be done with those sessions stopped.
+
+Before changing the live tree, the updater flushes a recovery journal to
+`data/.update_in_progress.json`. It removes this guard only after successful
+activation or rollback. An interrupted mutation or failed rollback keeps the
+journal (and available staging artifacts); subsequent starts stop before importing
+the application, even with auto-update disabled. To recover, stop the sessions,
+inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
+chosen revision, and successfully run `python -m src.reindex` there. Remove the
+journal only after verifying the restored checkout and rebuilt stores, then
+restart the server. An unreadable journal also requires this explicit recovery.
 
 ```env
 AGENTS_AUTO_UPDATE=1                     # 0 to disable
@@ -81,8 +126,16 @@ AGENTS_AUTO_UPDATE_REMOTE=origin
 AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
-AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600
+AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds allowed for the staged index build
+AGENTS_AUTO_UPDATE_STAGING=1             # 0 = synchronous in-place update at an idle start
+# AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
+
+With `AGENTS_AUTO_UPDATE_STAGING=0` the updater falls back to the legacy in-place
+path at an idle start under the same exclusive installation lock: fast-forward
+the live tree and rebuild the stores right there, rolling back to the previous
+commit if the rebuild fails. This mode can delay startup for fetch and reindex;
+it no longer mutates files in a background thread while sessions are serving.
 
 Run a manual rebuild any time with `python -m src.reindex`.
 

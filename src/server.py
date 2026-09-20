@@ -1,9 +1,19 @@
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# Acquire the installation lease before loading application/configuration code.
+# The bootstrap re-reads this file under the lease and holds it until server exit.
+if __name__ == "__main__" and not globals().get("_agents_bootstrapped"):
+    from src.startup import run_server
+    run_server(__file__)
+    raise SystemExit(0)
+
 import atexit
 import hashlib
 import logging
 import uuid
-import os
-import sys
 import re
 import json
 import asyncio
@@ -13,8 +23,6 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent
 from typing import Optional, List
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -1126,11 +1134,13 @@ def _warmup_rules():
 if __name__ == "__main__":
     _warmup_embedding_model()
     _warmup_rules()
-    # Background self-update: fast-forwards the install's git repo and rebuilds
-    # the vector stores in a daemon thread WITHOUT blocking startup; the pulled
-    # code takes effect on the next start. No-op unless on the target branch.
-    # See src/self_update.py. Started after warmup so the hot path is already
-    # imported and the reindex subprocess doesn't contend for the model load.
+    # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
+    # prepare the next update — fetch + build the new version's indexes in an
+    # isolated git worktree and write a marker — so the next idle start activates
+    # it via a fast move under startup.py's exclusive lease. Legacy mode already
+    # ran synchronously there and starts no background thread. No-op unless on
+    # the target branch. Started after warmup so reindex doesn't contend
+    # for the model load. See src/self_update.py.
     from src.self_update import log_last_update, start_background_update
     log_last_update()
     start_background_update()

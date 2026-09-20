@@ -4,6 +4,7 @@ Fast by design: real temporary git repos (git is quick) but the reindex step is
 injected as a recorder, so no embedding model is ever loaded. Not marked slow.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ import pytest
 
 from src import self_update
 from src.self_update import UpdateStatus, check_and_apply_update
+from src.self_update import PreparedStatus, ActivationStatus
 
 # These tests shell out to the real `git` CLI; skip cleanly where it's absent
 # (minimal CI sandboxes, some Windows runners) instead of erroring the suite.
@@ -73,6 +75,41 @@ def recorder():
 
     fn.calls = calls
     return fn
+
+
+# --- staged-store helpers (Phase A/B) ----------------------------------------
+
+# (store_name, hash_file) — mirrors self_update._STAGED_STORES.
+_FAKE_STORES = [("skills_store", ".skills_hash"), ("implants_store", ".implants_hash")]
+
+
+def _write_fake_store_set(data_dir: Path):
+    """Write plausible (but tiny, numpy-free) store files into *data_dir*.
+
+    Mirrors what a real reindex produces: a `<name>.npz`, a `<name>.json` with a
+    `save_version`, and the `.<name>_hash` marker — enough to exercise the move
+    and validation paths without loading the embedding model.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    for i, (name, hash_file) in enumerate(_FAKE_STORES):
+        (data_dir / f"{name}.npz").write_bytes(b"fake-npz-" + name.encode())
+        (data_dir / f"{name}.json").write_text(
+            json.dumps({"save_version": f"ver-{i}", "ids": [], "documents": [], "metadatas": []})
+        )
+        (data_dir / hash_file).write_text(f"hash-{i}")
+
+
+@pytest.fixture
+def staging(tmp_path):
+    """A staging-parent dir + a fake reindex builder that writes store files into
+    <staging>/<sha>/data/ (no embedding model loaded)."""
+    parent = tmp_path / "staging"
+
+    def builder(staging_dir):
+        _write_fake_store_set(Path(staging_dir) / "data")
+        return True
+
+    return SimpleNamespace(parent=str(parent), builder=builder)
 
 
 # --- check_and_apply_update: the state machine -------------------------------
@@ -213,12 +250,15 @@ def test_disabled_spawns_no_thread(monkeypatch):
 
 
 def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
+    pytest.importorskip("fcntl")
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "missing.json"))
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
     calls = []
-    monkeypatch.setattr(self_update, "check_and_apply_update",
+    monkeypatch.setattr(self_update, "prepare_update",
                         lambda: calls.append(1) or UpdateStatus.UP_TO_DATE)
 
     thread = self_update.start_background_update()
@@ -229,6 +269,7 @@ def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
 
 
 def test_throttle_skips_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 9999)
@@ -244,6 +285,7 @@ def test_throttle_skips_check(tmp_path, monkeypatch):
 def test_lock_contention_skips_check(tmp_path, monkeypatch):
     fcntl = pytest.importorskip("fcntl")
     lock = str(tmp_path / ".update.lock")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", lock)
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
     monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
@@ -265,6 +307,7 @@ def test_lock_contention_skips_check(tmp_path, monkeypatch):
 def test_wrong_branch_does_not_write_throttle_stamp(repos, tmp_path, monkeypatch):
     # A pre-network skip must not stamp the throttle, so a later on-branch check
     # is never delayed.
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     stamp = tmp_path / ".check"
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(stamp))
@@ -278,6 +321,7 @@ def test_wrong_branch_does_not_write_throttle_stamp(repos, tmp_path, monkeypatch
 
 def test_network_reached_failure_writes_throttle_stamp(tmp_path, monkeypatch):
     # A post-network outcome (e.g. FETCH_FAILED) must write the throttle stamp.
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     stamp = tmp_path / ".check"
     monkeypatch.setattr(self_update, "CHECK_STAMP", str(stamp))
@@ -359,3 +403,1330 @@ def test_state_roundtrip(tmp_path, monkeypatch):
 def test_log_last_update_missing_file_is_silent(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / "does-not-exist.json"))
     self_update.log_last_update()  # no exception
+
+
+# --- prepared-update marker I/O (Phase A/B) ----------------------------------
+
+def test_prepared_marker_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    self_update._write_prepared_marker(
+        target_sha="a" * 40,
+        base_sha="b" * 40,
+        branch="main",
+        embedding_model="some-model",
+        staging_dir=str(tmp_path / ".prepared" / ("a" * 40)),
+        stores=["skills_store", "implants_store"],
+    )
+    m = self_update._read_prepared_marker()
+    assert m is not None
+    assert m["schema"] == 1
+    assert m["target_sha"] == "a" * 40
+    assert m["base_sha"] == "b" * 40
+    assert m["branch"] == "main"
+    assert m["embedding_model"] == "some-model"
+    assert m["stores"] == ["skills_store", "implants_store"]
+    assert "built_at" in m
+
+
+def test_read_prepared_marker_missing_is_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    assert self_update._read_prepared_marker() is None
+
+
+def test_read_prepared_marker_garbage_is_none(tmp_path, monkeypatch):
+    p = tmp_path / ".prepared_update.json"
+    p.write_text("{not valid json")
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(p))
+    assert self_update._read_prepared_marker() is None
+
+
+# --- Phase B: prepare_update -------------------------------------------------
+
+def test_prepare_happy_path_writes_marker_and_leaves_live_untouched(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+
+    assert status == PreparedStatus.PREPARED
+    assert _head(repos.local) == old  # live tree NOT mutated by prepare
+    m = self_update._read_prepared_marker()
+    assert m is not None
+    assert m["target_sha"] == _head(repos.upstream)
+    assert m["base_sha"] == old
+    assert m["embedding_model"] == self_update.EMBEDDING_MODEL
+    assert m["stores"] == ["skills_store", "implants_store"]
+    # staged stores live in the worktree, not the live install
+    wt_data = Path(staging.parent) / m["target_sha"] / "data"
+    assert (wt_data / "skills_store.npz").exists()
+    assert (wt_data / ".skills_hash").exists()
+
+
+def test_prepare_up_to_date_no_worktree(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+    assert status == PreparedStatus.UP_TO_DATE
+    assert self_update._read_prepared_marker() is None
+    assert not Path(staging.parent).exists() or not any(Path(staging.parent).iterdir())
+
+
+def test_prepare_diverged_skips(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "remote\n", "remote")
+    _commit(repos.local, "other.txt", "local\n", "local")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+    assert status == PreparedStatus.SKIPPED_DIVERGED
+    assert self_update._read_prepared_marker() is None
+
+
+def test_prepare_reindex_failure_aborts_clean(repos, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    parent = str(tmp_path / "staging")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=lambda sd: False, staging_parent=parent,
+    )
+
+    assert status == PreparedStatus.PREPARE_REINDEX_FAILED
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == old
+    # no lingering worktree registered under the staging parent
+    wt_list = _git(repos.local, "worktree", "list", "--porcelain").stdout
+    assert os.path.abspath(parent) not in wt_list
+
+
+def test_prepare_reindex_raises_aborts_clean(repos, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+
+    def boom(staging_dir):
+        raise RuntimeError("reindex crashed")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=boom, staging_parent=str(tmp_path / "staging"),
+    )
+    assert status == PreparedStatus.PREPARE_REINDEX_FAILED
+    assert self_update._read_prepared_marker() is None
+
+
+def test_prepare_stage_inconsistent_when_no_stores_written(repos, tmp_path, monkeypatch):
+    # Builder returns True but writes no store files -> validation fails -> no marker.
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=lambda sd: True, staging_parent=str(tmp_path / "staging"),
+    )
+    assert status == PreparedStatus.PREPARE_STAGE_INCONSISTENT
+    assert self_update._read_prepared_marker() is None
+
+
+def test_prepare_worktree_add_failure(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    real = self_update._run_git
+
+    def fake(args, cwd, timeout):
+        if args[:2] == ["worktree", "add"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="boom")
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+    )
+    assert status == PreparedStatus.PREPARE_WORKTREE_FAILED
+    assert self_update._read_prepared_marker() is None
+
+
+@pytest.mark.parametrize("existing_kind", ["directory", "empty_directory", "file", "dangling_symlink"])
+def test_prepare_preserves_unregistered_destination(repos, phase_a_env, existing_kind):
+    if existing_kind == "dangling_symlink" and os.name == "nt":
+        pytest.skip("POSIX symlink staging path")
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    destination = repos.local / _head(repos.upstream)
+    if existing_kind in {"directory", "empty_directory"}:
+        destination.mkdir()
+        if existing_kind == "directory":
+            (destination / "keep.txt").write_text("user data\n")
+    elif existing_kind == "file":
+        destination.write_text("user data\n")
+    else:
+        destination.symlink_to(repos.local / "missing", target_is_directory=True)
+    builds = []
+
+    def builder(path):
+        builds.append(path)
+        return phase_a_env.builder(path)
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=builder, staging_parent=str(repos.local),
+    )
+
+    assert status == PreparedStatus.PREPARE_WORKTREE_FAILED
+    assert builds == []
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == original
+    if existing_kind == "directory":
+        assert (destination / "keep.txt").read_text() == "user data\n"
+    elif existing_kind == "empty_directory":
+        assert list(destination.iterdir()) == []
+    elif existing_kind == "file":
+        assert destination.read_text() == "user data\n"
+    else:
+        assert destination.is_symlink()
+        assert destination.readlink() == repos.local / "missing"
+
+
+# --- Phase A: activate_prepared_update ---------------------------------------
+
+@pytest.fixture
+def phase_a_env(tmp_path, monkeypatch, staging):
+    """Redirect marker / staging-root / state paths to temp; STAGING_ROOT is the
+    staging parent so activation derives staging dirs there."""
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", staging.parent)
+    monkeypatch.setattr(self_update, "STATE_FILE", str(tmp_path / ".last_update.json"))
+    return staging
+
+
+def _prepare(repos, env):
+    return self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=env.builder, staging_parent=env.parent,
+    )
+
+
+def test_activate_happy_path(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+
+    assert status == ActivationStatus.ACTIVATED
+    assert _head(repos.local) == target  # ff-merged to the prepared target
+    assert _head(repos.local) != old
+    live = repos.local / "data"
+    assert (live / "skills_store.npz").exists()
+    assert (live / "skills_store.json").exists()
+    assert (live / ".skills_hash").exists()
+    assert (live / "implants_store.npz").exists()
+    # marker + staging cleaned up
+    assert self_update._read_prepared_marker() is None
+    assert not (Path(phase_a_env.parent) / target).exists()
+    assert not (live / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_activate_no_marker_is_noop(repos, phase_a_env):
+    old = _head(repos.local)
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.NO_MARKER
+    assert _head(repos.local) == old
+
+
+def test_activate_model_mismatch_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model="a-different-model"
+    )
+    assert status == ActivationStatus.INVALID_MODEL_MISMATCH
+    assert _head(repos.local) == old  # not merged
+    assert self_update._read_prepared_marker() is None  # discarded
+
+
+def test_activate_sha_missing_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Corrupt the marker's target to a non-existent commit.
+    m = self_update._read_prepared_marker()
+    m["target_sha"] = "f" * 40
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_SHA_MISSING
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_not_ff_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Advance local on a divergent line so target is no longer an ancestor path.
+    _commit(repos.local, "local-only.txt", "x\n", "diverge")
+    diverged = _head(repos.local)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_NOT_FF
+    assert _head(repos.local) == diverged
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_dirty_tree_skips(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    (repos.local / "file.txt").write_text("dirty\n")  # uncommitted change
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_DIRTY
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_staging_missing_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    # Remove the staged worktree files out from under the marker.
+    shutil.rmtree(Path(phase_a_env.parent) / target, ignore_errors=True)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_STAGING_MISSING
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_non_list_stores_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Corrupt the marker: `stores` is truthy but not a list. Gate 1 must reject
+    # it — raising mid-validation/move would strand the marker on disk and make
+    # Phase B skip preparing forever.
+    m = self_update._read_prepared_marker()
+    m["stores"] = 5
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_MARKER
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_unknown_stores_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Unknown store names would validate and move NOTHING while still
+    # ff-merging — new code would activate without its pre-built stores.
+    m = self_update._read_prepared_marker()
+    m["stores"] = ["unknown_store"]
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_MARKER
+    assert _head(repos.local) == old  # merge never ran
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_marker_branch_mismatch_discards(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Marker recorded for a different branch than the one we'd activate on.
+    m = self_update._read_prepared_marker()
+    m["branch"] = "some-other-branch"
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(m))
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_WRONG_BRANCH
+    assert _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_unreadable_marker_discards(repos, phase_a_env):
+    # A marker FILE that exists but cannot be parsed must be discarded (not
+    # treated as NO_MARKER): its mere existence gates run_activation_safely's
+    # fast path, so leaving it would cost a lock + git forks on every start.
+    old = _head(repos.local)
+    Path(self_update.PREPARED_MARKER).write_text("{not-json", encoding="utf-8")
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_MARKER
+    assert not os.path.exists(self_update.PREPARED_MARKER)  # discarded
+    assert _head(repos.local) == old
+
+
+def test_activate_cross_device_staging_discards(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    # Staging on a different mount: os.replace would fail with EXDEV after the
+    # ff-merge commit point, so the gate must discard BEFORE merging.
+    monkeypatch.setattr(self_update, "_same_filesystem", lambda a, b: False)
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.INVALID_CROSS_DEVICE
+    assert _head(repos.local) == old  # merge never ran
+    assert self_update._read_prepared_marker() is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX staging symlinks")
+@pytest.mark.parametrize("redirect_root", [False, True])
+def test_activation_rejects_redirected_staging_without_touching_target(repos, phase_a_env, tmp_path, redirect_root):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target_sha = _head(repos.upstream)
+    parent = Path(phase_a_env.parent)
+    staged = parent / target_sha
+    protected_parent = tmp_path / "protected"
+    protected_parent.mkdir()
+    protected = protected_parent / target_sha
+    # Keep the target registered: cleanup must not accept it merely because the
+    # redirected STAGING_ROOT resolves to its otherwise valid canonical parent.
+    _git(repos.local, "worktree", "move", str(staged), str(protected))
+    if redirect_root:
+        parent.rmdir()
+        parent.symlink_to(protected_parent, target_is_directory=True)
+    else:
+        staged.symlink_to(protected, target_is_directory=True)
+    saved = {p.name: p.read_bytes() for p in (protected / "data").iterdir()}
+
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+
+    assert status == ActivationStatus.INVALID_STAGING_INCONSISTENT
+    assert _head(repos.local) == original
+    assert {p.name: p.read_bytes() for p in (protected / "data").iterdir()} == saved
+    assert (protected / "file.txt").read_text() == "v2\n"
+    assert not (repos.local / "data/skills_store.npz").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX staging symlinks")
+def test_prepare_rejects_redirected_staging_root(repos, phase_a_env, tmp_path):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    parent = Path(phase_a_env.parent)
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    (protected / "keep.txt").write_text("user data\n")
+    parent.symlink_to(protected, target_is_directory=True)
+
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARE_WORKTREE_FAILED
+    assert list(protected.iterdir()) == [protected / "keep.txt"]
+    assert (protected / "keep.txt").read_text() == "user data\n"
+    assert self_update._read_prepared_marker() is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX staging symlinks")
+@pytest.mark.parametrize("redirect", ["data", "skills_store.npz"])
+def test_activation_rejects_redirected_store_contents(repos, phase_a_env, tmp_path, redirect):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    staged = Path(phase_a_env.parent) / _head(repos.upstream)
+    path = staged / "data" if redirect == "data" else staged / "data" / redirect
+    protected = tmp_path / "protected-content"
+    path.rename(protected)
+    saved = ({p.name: p.read_bytes() for p in protected.iterdir()}
+             if protected.is_dir() else protected.read_bytes())
+    path.symlink_to(protected, target_is_directory=protected.is_dir())
+
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+
+    assert status == ActivationStatus.INVALID_STAGING_INCONSISTENT
+    assert _head(repos.local) == original
+    current = ({p.name: p.read_bytes() for p in protected.iterdir()}
+               if protected.is_dir() else protected.read_bytes())
+    assert current == saved
+    assert not (repos.local / "data/skills_store.npz").exists()
+
+
+def test_staging_worktrees_returns_validated_absolute_paths(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+
+    paths = self_update._staging_worktrees(str(repos.local), phase_a_env.parent, 30)
+    assert len(paths) == 1
+    # The returned value is the validated absolute path, not git's raw string.
+    assert paths[0] == os.path.abspath(paths[0])
+    assert os.path.basename(paths[0]) == target
+
+
+def test_activate_already_at_target_completes_move(repos, phase_a_env):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    # Simulate "crashed after merge, before move": HEAD already == target.
+    _git(repos.local, "merge", "--ff-only", target)
+    assert _head(repos.local) == target
+
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATED
+    assert _head(repos.local) == target  # unchanged (no second merge)
+    assert (repos.local / "data" / "skills_store.npz").exists()  # move completed
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_merge_fails_keeps_old(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    real = self_update._run_git
+
+    def fake(args, cwd, timeout):
+        if args[:2] == ["merge", "--ff-only"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="merge boom")
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", fake)
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATE_MERGE_FAILED
+    assert _head(repos.local) == old  # not moved
+    assert not (repos.local / "data" / "skills_store.npz").exists()  # stores untouched
+    assert self_update._read_prepared_marker() is None
+
+
+def test_activate_move_failure_unlinks_hash_first(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    live = repos.local / "data"
+    live.mkdir(exist_ok=True)
+    (live / ".skills_hash").write_text("OLD-HASH")  # must be unlinked before the npz move
+
+    real_replace = os.replace
+
+    def boom(src, dst, *a, **k):
+        if str(dst).endswith(".npz"):
+            raise OSError("disk full")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(self_update.os, "replace", boom)
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+    # delete-hash-first ordering: the live hash is gone, so the retriever will be
+    # forced to re-embed rather than trust a stale hash over a half-moved store.
+    assert not (live / ".skills_hash").exists()
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == old  # merge rolled back — old code keeps serving
+
+
+def test_activate_move_failure_rolls_back_merge(repos, phase_a_env, monkeypatch):
+    # A failed store move after a successful ff-merge must restore the pre-merge
+    # tree: otherwise the process serves old imported code over a new on-disk
+    # tree, and the next start runs new code without its pre-built stores.
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+    monkeypatch.setattr(
+        self_update, "_activate_staged_stores",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    status = self_update.activate_prepared_update(
+        str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL
+    )
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == old
+    assert (repos.local / "file.txt").read_text(encoding="utf-8") == "v1\n"  # worktree content restored
+
+
+def test_prune_never_touches_live_install_when_staging_dir_is_repo_root(repos):
+    # Misconfiguration: AGENTS_AUTO_UPDATE_STAGING_DIR set to the repo root.
+    # `git worktree list` reports the main worktree (the live install); it must
+    # never be returned for rmtree.
+    assert self_update._staging_worktrees(str(repos.local), str(repos.local), 30) == []
+    self_update._prune_staging_worktrees(str(repos.local), str(repos.local), 30)
+    assert (repos.local / ".git").exists()
+    assert (repos.local / "file.txt").exists()
+
+
+def test_prune_never_touches_live_install_when_staging_dir_is_repo_ancestor(repos, tmp_path):
+    # Misconfiguration: staging dir set to an ancestor of the repo. The main
+    # worktree lies "under the parent" but is not a <sha>-named staging
+    # checkout, so it must be filtered out.
+    assert self_update._staging_worktrees(str(repos.local), str(tmp_path), 30) == []
+    self_update._prune_staging_worktrees(str(repos.local), str(tmp_path), 30)
+    assert (repos.local / ".git").exists()
+    assert (repos.local / "file.txt").exists()
+    assert (repos.upstream / "file.txt").exists()  # sibling repo untouched too
+
+
+def test_prune_removes_empty_staging_parent(repos, tmp_path):
+    # An empty leftover parent would defeat the lock-free startup fast path
+    # (run_activation_safely stats STAGING_ROOT) on every subsequent start.
+    parent = tmp_path / "staging-parent"
+    parent.mkdir()
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+    assert not parent.exists()
+
+
+def test_prune_keeps_non_empty_staging_parent(repos, tmp_path):
+    # Foreign content under the parent must never be deleted by the reaper.
+    parent = tmp_path / "staging-parent"
+    parent.mkdir()
+    (parent / "stray.txt").write_text("x")
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+    assert parent.exists()
+    assert (parent / "stray.txt").read_text() == "x"
+
+
+# --- orchestration: staged dispatch + startup activation ---------------------
+
+def test_run_activation_safely_noop_when_master_switch_off(monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", False)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    calls = []
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda *a, **k: calls.append(1) or "X")
+    self_update.run_activation_safely()
+    assert calls == []
+
+
+def test_run_activation_safely_lock_free_when_nothing_staged(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "no-staging"))
+    git_calls = []
+    monkeypatch.setattr(self_update, "_run_git",
+                        lambda *a, **k: git_calls.append(a) or SimpleNamespace(returncode=0, stdout="", stderr=""))
+    act_calls = []
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda *a, **k: act_calls.append(1) or "X")
+    self_update.run_activation_safely()
+    assert git_calls == []  # never forked git
+    assert act_calls == []  # never even took the lock / called activate
+
+
+def test_run_activation_safely_activates_when_marker_present(tmp_path, monkeypatch):
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    execs = []
+    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    calls = []
+    monkeypatch.setattr(self_update, "activate_prepared_update",
+                        lambda *a, **k: calls.append(1) or ActivationStatus.ACTIVATED)
+    self_update.run_activation_safely()
+    assert calls == [1]
+
+
+def test_run_activation_safely_reexecs_after_activation(tmp_path, monkeypatch):
+    # A successful activation must re-exec the process so the activation start
+    # serves the new code end-to-end (this module was compiled pre-merge).
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "activate_prepared_update",
+                        lambda *a, **k: ActivationStatus.ACTIVATED)
+    execs = []
+    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    self_update.run_activation_safely()
+    assert len(execs) == 1
+    exe, argv = execs[0]
+    assert exe == self_update.sys.executable
+    assert argv[0] == self_update.sys.executable
+
+
+def test_run_activation_safely_no_reexec_when_discarded(tmp_path, monkeypatch):
+    # Non-ACTIVATED outcomes (discards, failures) must NOT re-exec.
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "activate_prepared_update",
+                        lambda *a, **k: ActivationStatus.INVALID_MARKER)
+    execs = []
+    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    self_update.run_activation_safely()
+    assert execs == []
+
+
+def test_run_update_safely_skips_prepare_when_marker_pending(tmp_path, monkeypatch):
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    prep = []
+    monkeypatch.setattr(self_update, "prepare_update", lambda *a, **k: prep.append(1) or PreparedStatus.PREPARED)
+    self_update._run_update_safely()
+    assert prep == []  # a prepared update is pending -> do not prepare again
+
+
+def test_run_update_safely_staging_dispatches_to_prepare(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    calls = {"prepare": 0, "legacy": 0}
+    monkeypatch.setattr(self_update, "prepare_update",
+                        lambda *a, **k: calls.__setitem__("prepare", calls["prepare"] + 1) or PreparedStatus.UP_TO_DATE)
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda *a, **k: calls.__setitem__("legacy", calls["legacy"] + 1) or UpdateStatus.UP_TO_DATE)
+    self_update._run_update_safely()
+    assert calls == {"prepare": 1, "legacy": 0}
+
+
+def test_run_update_safely_legacy_dispatches_to_check_and_apply(tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(tmp_path / ".check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    calls = {"prepare": 0, "legacy": 0}
+    monkeypatch.setattr(self_update, "prepare_update",
+                        lambda *a, **k: calls.__setitem__("prepare", calls["prepare"] + 1) or PreparedStatus.UP_TO_DATE)
+    monkeypatch.setattr(self_update, "check_and_apply_update",
+                        lambda *a, **k: calls.__setitem__("legacy", calls["legacy"] + 1) or UpdateStatus.UP_TO_DATE)
+    self_update._run_update_safely()
+    assert calls == {"prepare": 0, "legacy": 1}
+
+
+def test_server_activates_before_engine_imports():
+    # Phase A must run before server.py's `from src.engine...` imports, which
+    # eagerly load the vector stores into memory at module scope. Guard the
+    # ordering invariant statically (numpy-free) so a future reorder is caught.
+    # Match real code lines, not comments/docstrings that mention the strings.
+    server_py = Path(__file__).resolve().parents[1] / "src" / "server.py"
+    lines = server_py.read_text(encoding="utf-8").splitlines()
+    act_line = next(
+        (i for i, line in enumerate(lines)
+         if "run_server(__file__)" in line and not line.lstrip().startswith("#")),
+        None,
+    )
+    eng_line = next((i for i, line in enumerate(lines) if line.startswith("from src.engine")), None)
+    assert act_line is not None, "server.py must enter the leased bootstrap"
+    assert eng_line is not None, "server.py must import from src.engine"
+    assert act_line < eng_line, "leased bootstrap must precede the engine imports"
+
+
+@pytest.mark.parametrize("metadata", [5, None, [], "save_version", {"save_version": 5}])
+def test_malformed_store_metadata_is_discarded(repos, phase_a_env, metadata):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    meta = Path(phase_a_env.parent) / marker["target_sha"] / "data/skills_store.json"
+    meta.write_text(json.dumps(metadata))
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.INVALID_STAGING_INCONSISTENT
+    assert self_update._read_prepared_marker() is None
+    assert _head(repos.local) == original
+    # A bad marker must not strand the background updater forever.
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+
+@pytest.mark.parametrize("field,value", [
+    ("base_sha", 5), ("base_sha", None), ("base_sha", ""),
+    ("stores", ["skills_store"]),
+])
+def test_incomplete_marker_is_rejected_before_merge(repos, phase_a_env, field, value):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    marker[field] = value
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(marker))
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.INVALID_MARKER
+    assert _head(repos.local) == original
+    assert self_update._read_prepared_marker() is None
+
+
+def test_live_reader_keeps_prepared_update_pending(repos, phase_a_env):
+    from src.startup import server_session
+    pytest.importorskip("fcntl")
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    code = '''
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from src.startup import server_session
+root = Path(sys.argv[2])
+with server_session(root, lambda fd: None):
+    print((root / "file.txt").read_text().strip(), flush=True)
+    sys.stdin.readline()
+    print((root / "file.txt").read_text().strip(), flush=True)
+'''
+    process = subprocess.Popen(
+        [self_update.sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]), str(repos.local)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    def activate(fd):
+        return self_update.activate_prepared_update(str(repos.local), "main")
+    try:
+        assert process.stdout.readline().strip() == "v1"
+        with server_session(repos.local, activate):
+            assert _head(repos.local) == original
+            assert self_update._read_prepared_marker() is not None
+        output, errors = process.communicate(input="next request\n", timeout=5)
+        assert process.returncode == 0, errors
+        assert output.strip() == "v1"
+        with server_session(repos.local, activate):
+            assert _head(repos.local) == _head(repos.upstream)
+            assert self_update._read_prepared_marker() is None
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        process.communicate(timeout=5)
+
+
+@pytest.mark.parametrize("old_location", [False, True])
+def test_moved_prebuilt_stores_load_without_embedding(repos, phase_a_env, monkeypatch, old_location):
+    import numpy as np
+    from src.engine import skills, implants
+
+    specs = (
+        (skills, skills.SkillRetriever, "skills", "SKILLS_DIR", ".skills_hash"),
+        (implants, implants.ImplantRetriever, "implants", "IMPLANTS_DIR", ".implants_hash"),
+    )
+    for _, _, folder, _, _ in specs:
+        (repos.upstream / folder).mkdir()
+        _commit(repos.upstream, f"{folder}/demo.mdc", "---\ndescription: Demo\n---\nBody\n", folder)
+
+    def configure(patch, root, embed):
+        for module, cls, folder, setting, sidecar in specs:
+            patch.setattr(module, setting, str(root / folder))
+            patch.setattr(module, "DATA_DIR", str(root / "data"))
+            patch.setattr(cls, "HASH_FILE", str(root / "data" / sidecar))
+            patch.setattr(module, "embed_texts", embed)
+
+    saved_stores = {}
+
+    def builder(root):
+        with monkeypatch.context() as patch:
+            configure(patch, Path(root), lambda docs: np.ones((len(docs), 3), dtype=np.float32))
+            for _, cls, folder, _, _ in specs:
+                assert cls().store.count() == 1
+                data = Path(root) / "data"
+                metadata_path = data / f"{folder}_store.json"
+                payload = json.loads(metadata_path.read_text())
+                if old_location:
+                    payload["metadatas"][0]["path"] = f"/old/installation/{folder}/demo.mdc"
+                    metadata_path.write_text(json.dumps(payload))
+                saved_stores[folder] = ((data / f"{folder}_store.npz").read_bytes(), payload["save_version"])
+        return True
+
+    assert self_update.prepare_update(str(repos.local), "origin", "main", reindex_fn=builder,
+                                     staging_parent=phase_a_env.parent) == PreparedStatus.PREPARED
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATED
+    configure(monkeypatch, repos.local, lambda docs: pytest.fail("activation re-embedded prepared stores"))
+    for module, cls, folder, _, _ in specs:
+        retriever = cls()
+        assert retriever.store.count() == 1
+        metadata = retriever.store.get(ids=["demo.mdc"]).metadatas[0]
+        assert metadata["path"] == str(repos.local / folder / "demo.mdc")
+        assert Path(metadata["path"]).is_file()
+        data = repos.local / "data"
+        assert (data / f"{folder}_store.npz").read_bytes() == saved_stores[folder][0]
+        assert json.loads((data / f"{folder}_store.json").read_text())["save_version"] == saved_stores[folder][1]
+        # Relocation is ignored, but actual content changes still invalidate.
+        (repos.local / folder / "demo.mdc").write_text("changed\n")
+        assert cls.__new__(cls)._needs_reindex()[0]
+
+
+def test_metadata_relocation_write_failure_rolls_back(repos, phase_a_env, monkeypatch):
+    import builtins
+
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    metadata = Path(phase_a_env.parent) / _head(repos.upstream) / "data/skills_store.json"
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    old_store = (live / "skills_store.npz").read_bytes()
+    real_open = builtins.open
+
+    def denied(path, mode="r", *args, **kwargs):
+        if str(path) == str(metadata) and mode == "w":
+            raise PermissionError("cannot rewrite staged metadata")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", denied)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == original
+    assert (live / "skills_store.npz").read_bytes() == old_store
+    assert not (live / ".skills_hash").exists()
+    assert not (live / ".implants_hash").exists()
+    assert not (live / self_update.UPDATE_JOURNAL).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX git hook")
+@pytest.mark.parametrize("staged", [True, False])
+def test_merge_timeout_after_head_advanced_rolls_back(repos, phase_a_env, staged):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    hook = repos.local / ".git/hooks/post-merge"
+    hook.write_text("#!/bin/sh\nsleep 2\n")
+    hook.chmod(0o755)
+    if staged:
+        status = self_update.activate_prepared_update(str(repos.local), "main", git_timeout=1)
+        assert status == ActivationStatus.ACTIVATE_MERGE_FAILED
+        assert self_update._read_prepared_marker() is None
+    else:
+        status = check_and_apply_update(str(repos.local), "origin", "main", git_timeout=1)
+        assert status == UpdateStatus.FETCH_FAILED
+    assert _head(repos.local) == original
+    assert (repos.local / "file.txt").read_text() == "v1\n"
+    assert not (repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_activation_rollback_failure_is_distinct(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    real_git = self_update._run_git
+
+    def failing_git(args, cwd, timeout):
+        if args[0] == "merge":
+            real_git(args, cwd, timeout)
+            raise subprocess.TimeoutExpired("git merge", timeout)
+        if args[0] == "reset":
+            return SimpleNamespace(returncode=1, stdout="", stderr="reset failed")
+        return real_git(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", failing_git)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+
+
+@pytest.mark.parametrize("failure", ["rollback", "exec"])
+def test_unsafe_activation_failure_does_not_fall_through(tmp_path, monkeypatch, failure):
+    marker = tmp_path / "marker.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / "update.lock"))
+    status = ActivationStatus.ACTIVATE_ROLLBACK_FAILED if failure == "rollback" else ActivationStatus.ACTIVATED
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda: status)
+
+    def fail_exec(*args):
+        raise OSError("exec failed")
+
+    monkeypatch.setattr(self_update.os, "execv", fail_exec)
+    with pytest.raises(SystemExit, match="restart required"):
+        self_update.run_activation_safely()
+
+
+@pytest.mark.parametrize("status", [UpdateStatus.UPDATED, UpdateStatus.ROLLBACK_FAILED])
+def test_legacy_updates_only_at_quiet_startup(monkeypatch, status):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
+    calls = []
+    monkeypatch.setattr(self_update, "_run_update_safely", lambda: calls.append("update") or status)
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: calls.append("exec"))
+    assert self_update.start_background_update() is None
+    if status == UpdateStatus.ROLLBACK_FAILED:
+        with pytest.raises(SystemExit, match="restart required"):
+            self_update.run_activation_safely()
+        assert calls == ["update"]
+    else:
+        self_update.run_activation_safely()
+        assert calls == ["update", "exec"]
+
+
+def _configure_startup_activation(monkeypatch, repos):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(repos.local / "data/.update.lock"))
+    activate = self_update.activate_prepared_update
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda: activate(str(repos.local), "main"))
+
+
+def test_post_commit_cleanup_launch_failure_still_reexecs(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    _configure_startup_activation(monkeypatch, repos)
+    real_git = self_update._run_git
+
+    def permission_denied_during_cleanup(args, cwd, timeout):
+        if args[0] == "worktree":
+            raise PermissionError("cannot launch cleanup git")
+        return real_git(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", permission_denied_during_cleanup)
+    execs = []
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: execs.append(True))
+    self_update.run_activation_safely()
+    assert _head(repos.local) == _head(repos.upstream)
+    assert self_update._read_prepared_marker() is None
+    assert json.loads(Path(self_update.STATE_FILE).read_text())["status"] == ActivationStatus.ACTIVATED
+    assert execs == [True]
+
+
+@pytest.mark.parametrize("invalid_marker", [False, True])
+def test_marker_removal_failure_stops_startup_and_preserves_staging(repos, phase_a_env, monkeypatch, invalid_marker):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    if invalid_marker:
+        marker = self_update._read_prepared_marker()
+        marker["branch"] = "another-branch"
+        Path(self_update.PREPARED_MARKER).write_text(json.dumps(marker))
+    _configure_startup_activation(monkeypatch, repos)
+    remove = self_update.os.remove
+
+    def denied(path, *args, **kwargs):
+        if str(path) == self_update.PREPARED_MARKER:
+            raise PermissionError("cannot remove prepared marker")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    execs = []
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: execs.append(True))
+    with pytest.raises(SystemExit, match="startup failed") as failure:
+        self_update.run_activation_safely()
+
+    assert isinstance(failure.value.__cause__, PermissionError)
+    assert self_update._read_prepared_marker() is not None
+    assert (Path(phase_a_env.parent) / target).is_dir()
+    assert execs == []
+    assert _head(repos.local) == (original if invalid_marker else target)
+    if not invalid_marker:
+        assert (repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_rollback_launch_failure_stops_startup(repos, phase_a_env, monkeypatch, staged):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    _configure_startup_activation(monkeypatch, repos)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", staged)
+    monkeypatch.setattr(self_update, "CHECK_STAMP", str(repos.local / "data/.check"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+    monkeypatch.setattr(self_update, "check_and_apply_update", lambda: check_and_apply_update(str(repos.local), "origin", "main"))
+    real_git = self_update._run_git
+
+    def permission_denied_during_rollback(args, cwd, timeout):
+        if args[0] == "merge":
+            real_git(args, cwd, timeout)
+            raise subprocess.TimeoutExpired("git merge", timeout)
+        if args[0] == "reset":
+            raise PermissionError("cannot launch rollback git")
+        return real_git(args, cwd, timeout)
+
+    monkeypatch.setattr(self_update, "_run_git", permission_denied_during_rollback)
+    with pytest.raises(SystemExit, match="could not restore"):
+        self_update.run_activation_safely()
+    journal = repos.local / "data" / self_update.UPDATE_JOURNAL
+    assert journal.exists()
+    if staged:
+        assert self_update._read_prepared_marker() is not None  # retain recovery artifacts
+    code = '''
+import sys
+sys.path.insert(0, sys.argv[1])
+from src.startup import server_session
+with server_session(sys.argv[2], lambda fd: print("ACTIVATION_REACHED")):
+    print("IMPORTS_REACHED")
+'''
+    restarted = subprocess.run(
+        [self_update.sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]), str(repos.local)],
+        env=dict(os.environ, AGENTS_AUTO_UPDATE="0"), capture_output=True, text=True, timeout=5,
+    )
+    assert restarted.returncode != 0
+    assert "Unfinished auto-update" in restarted.stderr
+    assert not restarted.stdout  # blocked before imports, even with updates disabled
+    assert journal.exists()
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_unexpected_startup_update_exception_cannot_serve_mixed_tree(tmp_path, monkeypatch, staged):
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", staged)
+    marker = tmp_path / "marker.json"
+    marker.write_text("{}")
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(marker))
+    monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / "update.lock"))
+    monkeypatch.setattr(self_update, "AUTO_UPDATE_MIN_INTERVAL", 0)
+
+    def unexpected_failure():
+        raise RuntimeError("unexpected failure after mutation")
+
+    monkeypatch.setattr(self_update, "activate_prepared_update" if staged else "check_and_apply_update", unexpected_failure)
+    with pytest.raises(SystemExit, match="startup failed"):
+        self_update.run_activation_safely()
+
+
+def test_hash_invalidation_failure_aborts_before_store_moves(repos, phase_a_env, monkeypatch):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    (live / "skills_store.npz").write_bytes(b"old store")
+    old_metadata = (live / "skills_store.json").read_bytes()
+    real_remove = self_update.os.remove
+
+    def denied(path, *args, **kwargs):
+        if str(path) == str(live / ".skills_hash"):
+            raise PermissionError("cannot invalidate hash")
+        return real_remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == original
+    assert (live / "skills_store.npz").read_bytes() == b"old store"
+    assert (live / "skills_store.json").read_bytes() == old_metadata
+    assert (live / ".skills_hash").read_text() == "hash-0"
+
+
+@pytest.mark.parametrize("transient", [False, True])
+def test_resume_verifies_hash_invalidation_before_clearing_journal(repos, phase_a_env, monkeypatch, transient):
+    _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    target = _head(repos.upstream)
+    _git(repos.local, "merge", "--ff-only", target)
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    (live / "skills_store.npz").write_bytes(b"old index format")
+    remove = self_update.os.remove
+    attempts = []
+
+    def denied(path, *args, **kwargs):
+        if str(path) == str(live / ".skills_hash"):
+            attempts.append(path)
+            if not transient or len(attempts) == 1:
+                raise PermissionError("cannot invalidate old index")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+
+    assert _head(repos.local) == target
+    assert (live / "skills_store.npz").read_bytes() == b"old index format"
+    assert not (live / ".implants_hash").exists()
+    journal = live / self_update.UPDATE_JOURNAL
+    if transient:
+        assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+        assert not (live / ".skills_hash").exists()
+        assert not journal.exists()
+    else:
+        assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+        assert journal.exists()
+        assert (live / ".skills_hash").exists()
+        assert self_update._read_prepared_marker() is not None
+        assert (Path(phase_a_env.parent) / target).is_dir()
+        from src.startup import assert_installation_safe
+        with pytest.raises(SystemExit, match="Unfinished auto-update"):
+            assert_installation_safe(repos.local)
+
+
+@pytest.mark.parametrize("blocked_file", ["skills_store.npz", "skills_store.json"])
+def test_empty_store_deletion_failure_does_not_publish_hash(repos, phase_a_env, monkeypatch, blocked_file):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    staged = Path(phase_a_env.parent) / self_update._read_prepared_marker()["target_sha"] / "data"
+    (staged / "skills_store.npz").unlink()
+    (staged / "skills_store.json").unlink()
+    (staged / ".skills_hash").write_text("empty-source-hash")
+    live = repos.local / "data"
+    _write_fake_store_set(live)
+    real_remove = self_update.os.remove
+
+    def denied(path, *args, **kwargs):
+        if str(path) == str(live / blocked_file):
+            raise PermissionError("cannot clear stale store")
+        return real_remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", denied)
+    assert self_update.activate_prepared_update(str(repos.local), "main") == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _head(repos.local) == original
+    assert not (live / ".skills_hash").exists()  # next load must rebuild
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_recovery_journal_must_be_written_before_mutation(repos, phase_a_env, monkeypatch, staged):
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+
+    def denied(*args):
+        raise PermissionError("cannot persist recovery evidence")
+
+    monkeypatch.setattr(self_update, "_begin_update", denied)
+    with pytest.raises(PermissionError):
+        if staged:
+            self_update.activate_prepared_update(str(repos.local), "main")
+        else:
+            check_and_apply_update(str(repos.local), "origin", "main")
+    assert _head(repos.local) == original
+    assert (repos.local / "file.txt").read_text() == "v1\n"
+
+
+@pytest.mark.parametrize("blocked_file,deny_cleanup", [
+    ("implants_store.npz", False), (".implants_hash", False), (".implants_hash", True),
+])
+def test_partial_batch_failure_invalidates_all_stores_or_keeps_journal(
+    repos, phase_a_env, monkeypatch, blocked_file, deny_cleanup,
+):
+    # A code-only update can produce a new store while retaining the old source
+    # digest. The earlier store must not remain trusted after a later one fails.
+    _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")
+    original = _head(repos.local)
+    assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
+    live = repos.local / "data"
+    _write_fake_store_set(live)  # same hashes as the staged sources
+    (live / "skills_store.npz").write_bytes(b"old indexing output")
+    replace, remove = self_update.os.replace, self_update.os.remove
+    published = []
+
+    def fail_later_store(src, dst):
+        if str(dst) == str(live / blocked_file):
+            raise OSError("later store failed")
+        result = replace(src, dst)
+        if str(dst) == str(live / ".skills_hash"):
+            published.append(True)
+        return result
+
+    def fail_invalidation(path, *args, **kwargs):
+        if deny_cleanup and published and str(path) == str(live / ".skills_hash"):
+            raise PermissionError("cannot invalidate published hash")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "replace", fail_later_store)
+    monkeypatch.setattr(self_update.os, "remove", fail_invalidation)
+    status = self_update.activate_prepared_update(str(repos.local), "main")
+    assert _head(repos.local) == original
+    journal = live / self_update.UPDATE_JOURNAL
+    if deny_cleanup:
+        assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+        assert journal.exists()
+        from src.startup import assert_installation_safe
+        with pytest.raises(SystemExit, match="Unfinished auto-update"):
+            assert_installation_safe(repos.local)
+    else:
+        assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+        assert not journal.exists()
+        assert not (live / ".skills_hash").exists()
+        assert not (live / ".implants_hash").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink install alias")
+def test_staging_cleanup_excludes_live_repo_through_symlink(tmp_path):
+    live = _init_repo(tmp_path / ("a" * 40))
+    _commit(live, "file.txt", "live installation\n", "init")
+    alias = tmp_path / "install-alias"
+    alias.symlink_to(live, target_is_directory=True)
+    assert self_update._staging_worktrees(str(alias), str(tmp_path), 30) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink staging paths")
+@pytest.mark.parametrize("symlink_parent", [False, True])
+def test_staging_cleanup_does_not_follow_replaced_worktree_paths(repos, tmp_path, symlink_parent):
+    parent = tmp_path / "staging"
+    registered = parent / ("a" * 40)
+    _git(repos.local, "worktree", "add", "--detach", str(registered), "HEAD")
+    moved_path = parent if symlink_parent else registered
+    protected = tmp_path / "protected" if symlink_parent else parent / ("b" * 40)
+    moved_path.rename(protected)
+    moved_path.symlink_to(protected, target_is_directory=True)
+    target = protected / registered.name if symlink_parent else protected
+    sentinel = target / "keep.txt"
+    sentinel.write_text("unrelated contents must survive cleanup\n")
+
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+
+    assert sentinel.read_text() == "unrelated contents must survive cleanup\n"
+    assert moved_path.is_symlink()
+    assert (repos.local / "file.txt").exists()
+
+
+def test_staging_cleanup_preserves_nested_user_worktree(repos, tmp_path):
+    parent = tmp_path / "staging"
+    nested = parent / "user" / ("a" * 40)
+    _git(repos.local, "worktree", "add", "--detach", str(nested), "HEAD")
+
+    self_update._prune_staging_worktrees(str(repos.local), str(parent), 30)
+
+    assert (nested / "file.txt").read_text() == "v1\n"
+    assert _head(nested) == _head(repos.local)
+
+
+@pytest.mark.parametrize("deny_cleanup", [False, True])
+def test_legacy_reindex_failure_invalidates_new_store_hashes(repos, monkeypatch, deny_cleanup):
+    _commit(repos.upstream, "file.txt", "new indexing code\n", "code-only update")
+    original = _head(repos.local)
+    live = repos.local / "data"
+    remove = self_update.os.remove
+
+    def failed_reindex(root):
+        _write_fake_store_set(live)  # partial reindex may have published hashes
+        return False
+
+    def fail_invalidation(path, *args, **kwargs):
+        if deny_cleanup and str(path) == str(live / ".skills_hash"):
+            raise PermissionError("cannot invalidate new index")
+        return remove(path, *args, **kwargs)
+
+    monkeypatch.setattr(self_update.os, "remove", fail_invalidation)
+    status = check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=failed_reindex)
+    assert _head(repos.local) == original
+    if deny_cleanup:
+        assert status == UpdateStatus.ROLLBACK_FAILED
+        assert (live / self_update.UPDATE_JOURNAL).exists()
+    else:
+        assert status == UpdateStatus.REINDEX_FAILED
+        assert not (live / ".skills_hash").exists()
+        assert not (live / ".implants_hash").exists()
+        assert not (live / self_update.UPDATE_JOURNAL).exists()
