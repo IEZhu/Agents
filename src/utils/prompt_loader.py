@@ -72,7 +72,28 @@ def resolve_path(path_ref: str) -> str:
 
     return abs_path
 
-def load_file_content(path: str) -> str:
+def read_mdc(path: str, *, require_frontmatter: bool = False) -> tuple[dict, str]:
+    """Read and validate a fresh MDC file, without substituting error text.
+
+    Version 2 uses this strict path so broken components cannot become part of
+    an apparently successful activation. Version 1 keeps its tolerant loaders.
+    """
+    with open(path, "r", encoding="utf-8") as stream:
+        content = stream.read()
+    fm_str, body = split_frontmatter(content)
+    if fm_str is None and (require_frontmatter or content.startswith("---")):
+        raise ValueError(f"Missing or incomplete frontmatter in {path}")
+    metadata = yaml.safe_load(fm_str) if fm_str is not None else {}
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Frontmatter must be a mapping in {path}")
+    if not body.strip():
+        raise ValueError(f"Empty prompt body in {path}")
+    return metadata, body
+
+
+def load_file_content(path: str, *, strict: bool = False) -> str:
+    if strict:
+        return read_mdc(path)[1]
     try:
         # Double check existence to avoid race conditions or errors
         if not os.path.exists(path):
@@ -106,10 +127,15 @@ def _should_skip_inline(abs_path: str) -> bool:
     return result
 
 def _compute_skip_inline(norm: str) -> bool:
-    if norm.startswith(os.path.normpath(SKILLS_DIR)):
-        return True
-    if norm.startswith(os.path.normpath(IMPLANTS_DIR)):
-        return True
+    norm = os.path.realpath(norm)
+    for directory in (SKILLS_DIR, IMPLANTS_DIR):
+        boundary = os.path.realpath(directory)
+        try:
+            if os.path.commonpath([norm, boundary]) == boundary:
+                return True
+        except ValueError:
+            # Paths on different Windows drives are not contained.
+            continue
 
     if os.path.exists(norm):
         try:
@@ -124,7 +150,7 @@ def _compute_skip_inline(norm: str) -> bool:
             pass
     return False
 
-def process_imports(content: str, seen_files: Set[str] = None) -> str:
+def process_imports(content: str, seen_files: Set[str] = None, *, strict: bool = False) -> str:
     if seen_files is None:
         seen_files = set()
 
@@ -133,21 +159,34 @@ def process_imports(content: str, seen_files: Set[str] = None) -> str:
         try:
             abs_path = resolve_path(ref)
         except ValueError as e:
+            if strict:
+                raise
             return f"[SECURITY BLOCK: {str(e)}]"
 
         if abs_path in seen_files:
+            if strict:
+                raise ValueError(f"Circular prompt import: {ref}")
             return f"[CIRCULAR REFERENCE: {ref}]"
 
-        if _should_skip_inline(abs_path):
+        if strict:
+            # Validate even separately loaded references, and bypass the v1
+            # path-only cache: frontmatter can change between refreshes.
+            read_mdc(abs_path)
+        if (_compute_skip_inline(abs_path) if strict else _should_skip_inline(abs_path)):
             return f"[Loaded separately: {os.path.basename(abs_path)}]"
 
+        if strict:
+            return process_imports(
+                load_file_content(abs_path, strict=True),
+                seen_files | {abs_path}, strict=True,
+            )
         seen_files.add(abs_path)
         sub_content = load_file_content(abs_path)
         return process_imports(sub_content, seen_files.copy())
 
     return re.sub(r'@[\w\./-]+\.mdc', replacer, content)
 
-def get_agent_metadata(agent_name: str) -> dict:
+def get_agent_metadata(agent_name: str, *, strict: bool = False) -> dict:
     """
     Reads the frontmatter metadata from the agent's system prompt.
     """
@@ -158,9 +197,16 @@ def get_agent_metadata(agent_name: str) -> dict:
     agents_dir_real = os.path.realpath(AGENTS_DIR)
     try:
         if os.path.commonpath([agents_dir_real, abs_path]) != agents_dir_real:
+            if strict:
+                raise ValueError(f"Invalid agent name: {agent_name}")
             return {}
     except ValueError:
+        if strict:
+            raise
         return {}
+
+    if strict:
+        return read_mdc(abs_path, require_frontmatter=True)[0]
 
     if not os.path.exists(base_path):
         return {}
@@ -176,7 +222,7 @@ def get_agent_metadata(agent_name: str) -> dict:
 
     return {}
 
-def load_agent_prompt(agent_name: str) -> str:
+def load_agent_prompt(agent_name: str, *, strict: bool = False) -> str:
     """
     Loads the system prompt for a specific agent, resolving imports.
     """
@@ -195,7 +241,9 @@ def load_agent_prompt(agent_name: str) -> str:
         # Maybe it's just in the folder
         raise FileNotFoundError(f"Agent prompt not found for '{agent_name}' at {base_path}")
 
-    raw_content = load_file_content(base_path)
-    processed_content = process_imports(raw_content)
+    raw_content = load_file_content(base_path, strict=strict)
+    processed_content = process_imports(
+        raw_content, {abs_path} if strict else None, strict=strict,
+    )
 
     return processed_content

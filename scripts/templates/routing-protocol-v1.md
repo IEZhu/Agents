@@ -1,5 +1,3 @@
-# >>> Agents-Core Routing Protocol (managed by init_repo) >>>
-
 # CRITICAL: Agents-Core Routing Protocol
 
 IMPORTANT: These instructions OVERRIDE any default behavior. You MUST follow them exactly.
@@ -144,28 +142,3 @@ Query -> route_and_load()
 ## Debug Logging
 
 Set `AGENTS_DEBUG=1` in `.env` -> JSON logs written to `logs/{date}/` per call.
-
-# <<< Agents-Core Routing Protocol (managed by init_repo) <<<
-
-## Repository notes
-
-The committed managed section defaults to protocol 1. The global installer does
-not modify this tracked checkout file. To opt this checkout into protocol 2,
-explicitly replace its managed section using the command documented in
-[README.md](README.md#persona-continuity-protocol-2-opt-in). Keep these repository
-notes outside the markers so future protocol changes preserve them.
-
-- `src/server.py` exposes the MCP tools. Version 2 handlers and complete bundle
-  assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
-  shared response schemas live in `src/schemas/protocol.py`.
-- Agent metadata declares core, preferred and capable skills, plus preferred
-  implants. General rules are versioned bundle content, governed by
-  `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`.
-- `describe_repo()` bootstraps repository memory. When sampling is unavailable,
-  `write_repo_summary(...)` completes the managed summary. `read_history(...)`
-  retrieves existing entries; `log_interaction(...)` records turn attribution.
-- Preserve unrelated Repository Memory sections and user instructions when
-  updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
-  for the current contracts, compatibility behavior and migration procedure.
-- Run `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q` for
-  the regular suite; include slow tests with `-m ''` when required.
