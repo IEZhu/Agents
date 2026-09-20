@@ -172,8 +172,10 @@ results. This is logical replacement: MCP cannot physically delete old messages.
 No history or cache clearing is required. Calls without `protocol_version=2`
 retain the version 1 API and `context_hash` behavior. V2 never uses sampling.
 
-The installer defaults to version 1 while client/model dialogue validation is
-pending. Opt in explicitly for evaluation:
+The installer defaults to version 1. The [dialogue evaluation report](docs/persona-switch-eval-results.md)
+records results and remaining gaps for each tested client/model; they do not
+establish support for other applications or native context compaction. Opt in
+explicitly:
 
 ```bash
 AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh
