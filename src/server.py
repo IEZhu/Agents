@@ -60,13 +60,16 @@ mcp = FastMCP(
         "do not route, enumerate agents, or enrich. Route only for initial selection or a needed "
         "specialization change, with protocol_version=2 and current_persona. Load an explicitly "
         "named role directly. Restore lost instructions with force_reload=True; refresh skills "
-        "with refresh_persona_context. Apply a successful complete bundle as a replacement of "
-        "the old role and its skills/implants, preserving the conversation and user constraints. "
+        "with refresh_persona_context. Apply a successful complete bundle by replacing all "
+        "four persona/rules/skills/implants blocks, preserving higher-priority instructions, "
+        "the conversation and user constraints. "
         "Require matching replaces_activation_id; ignore stale or replayed activations. "
         "Keep the previous activation on error. Never clear caches to switch personas. "
         "Compose the answer with the returned footer, call log_interaction with that answer "
         "and the active descriptor/action, then send the final answer.\n"
-        "Version 1 (default API): route before each query, passing the previous context_hash.\n\n"
+        "Version 1 (default API): route before each query, passing the previous context_hash. "
+        "The ask and agent slash prompts also default to version 1; pass protocol_version=2 "
+        "explicitly to request their version 2 bundles.\n\n"
         "Response statuses:\n"
         "- SUCCESS_SAMPLED → display `response` as-is (ready-made agent answer).\n"
         "- SUCCESS → use `system_prompt` as context for your answer.\n"
@@ -1061,10 +1064,43 @@ async def read_history(
 
 from mcp.server.fastmcp.prompts.base import UserMessage
 
+
+def _legacy_prompt_message(prompt: str, query: str) -> list:
+    """Preserve the version 1 slash-prompt message format."""
+    return [UserMessage(
+        f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
+        f"{prompt}\n\n"
+        f"---\n"
+        f"USER QUERY: {query}"
+    )]
+
+
 @mcp.prompt()
-async def ask(query: str, current_persona: Optional[str] = None) -> list:
-    """Explicitly select a specialist using protocol 2. current_persona is descriptor JSON."""
+async def ask(
+    query: str, current_persona: Optional[str] = None, protocol_version: int = 1,
+) -> list:
+    """Select a specialist. Protocol 1 is the default; pass protocol_version=2 for
+    persona bundles. In version 2, current_persona is the retained descriptor JSON.
+    """
     try:
+        if protocol_version not in (1, 2):
+            raise ValueError("protocol_version must be 1 or 2")
+        if protocol_version == 1:
+            cached = await router.lookup_cache(query, {"history_text": ""})
+            if cached:
+                agent_name = cached.target_agent
+            elif _is_meta_query(query):
+                agent_name = "universal_agent"
+            else:
+                candidates = router.get_agent_catalog()
+                lines = [f"- **{c['name']}**: {c.get('role', '')}" for c in candidates]
+                return [UserMessage(
+                    "Pick the best agent for my query and call `get_agent_context(agent_name, query)`.\n"
+                    "Agents:\n" + "\n".join(lines) + f"\n\nQuery: {query}"
+                )]
+            prompt, _, _, _, _, _ = await _load_and_enrich(agent_name, query, [])
+            return _legacy_prompt_message(prompt, query)
+
         current = parse_persona(json.loads(current_persona)) if current_persona else None
         result = await route_persona(router, query, [], current, _is_meta_query)
         return [UserMessage(
@@ -1129,9 +1165,16 @@ def _register_agent_prompts():
         role = meta.get("identity", {}).get("role", "")
 
         def make_prompt(a_name, d_name, r, p_name, invoked_cmd, primary_trigger):
-            async def agent_prompt(query: str, current_persona: Optional[str] = None) -> list:
+            async def agent_prompt(
+                query: str, current_persona: Optional[str] = None, protocol_version: int = 1,
+            ) -> list:
                 retrieval_query = _build_retrieval_query(invoked_cmd, primary_trigger, query)
                 try:
+                    if protocol_version not in (1, 2):
+                        raise ValueError("protocol_version must be 1 or 2")
+                    if protocol_version == 1:
+                        prompt, _, _, _, _, _ = await _load_and_enrich(a_name, retrieval_query, [])
+                        return _legacy_prompt_message(prompt, query)
                     current = parse_persona(json.loads(current_persona)) if current_persona else None
                     result = await load_persona(router, a_name, retrieval_query, [], current)
                     return [UserMessage(
@@ -1143,7 +1186,10 @@ def _register_agent_prompts():
                 except Exception as e:
                     return [UserMessage(f"{query}\n\n(Error loading {d_name}: {e})")]
             agent_prompt.__name__ = p_name
-            agent_prompt.__doc__ = f"{d_name} — {r}"
+            agent_prompt.__doc__ = (
+                f"{d_name} — {r}. Protocol 1 is the default; pass protocol_version=2 "
+                "for a persona bundle and current_persona as retained descriptor JSON."
+            )
             return agent_prompt
 
         for cmd in commands:
