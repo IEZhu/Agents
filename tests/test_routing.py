@@ -73,7 +73,7 @@ class TestIsMetaQuery:
     def test_meta_queries_detected(self, query):
         assert _is_meta_query(query) is True
 
-    # Short queries (< 10 chars) are always meta regardless of language
+    # Standalone acknowledgements, not arbitrary short queries.
     @pytest.mark.parametrize("query", [
         "ok",
         "да",
@@ -84,7 +84,7 @@ class TestIsMetaQuery:
         "ja",
         "sí",
     ])
-    def test_short_queries_are_meta(self, query):
+    def test_acknowledgements_are_meta(self, query):
         assert _is_meta_query(query) is True
 
     # --- Should NOT be detected as meta ---
@@ -137,11 +137,12 @@ class TestIsMetaQuery:
     def test_real_queries_not_meta(self, query):
         assert _is_meta_query(query) is False
 
-    # --- Known false positive: "help me with X" is caught by ^help\b ---
-    def test_help_with_topic_is_meta_false_positive(self):
-        # "help me with database optimization" SHOULD ideally NOT be meta,
-        # but ^help\b matches it. Documenting current behavior.
-        assert _is_meta_query("help me with database optimization") is True
+    @pytest.mark.parametrize("query", [
+        "help me with database optimization", "SQL?", "Налоги?",
+        "Привет, исправь ошибку Python", "hello, explain database indexes",
+    ])
+    def test_short_and_greeting_prefixed_tasks_are_not_meta(self, query):
+        assert _is_meta_query(query) is False
 
     # --- Edge cases ---
     def test_question_about_project_not_meta(self):
@@ -357,18 +358,20 @@ class TestStickyRouting:
             assert result["status"] == "ROUTE_REQUIRED"
 
     @pytest.mark.asyncio
-    async def test_sticky_meta_query_overrides_to_universal(self):
-        """Meta-query always overrides sticky agent to universal_agent."""
+    async def test_sticky_meta_query_keeps_known_role_without_enrichment(self):
+        """A greeting must not discard the known role or load another prompt."""
         self.srv.CONTEXT_HASH_CACHE["prev_hash"] = "software_engineer"
 
         with patch("src.server._load_and_enrich", new_callable=AsyncMock,
-                   return_value=self._make_enrich_result("universal_agent")), \
+                   side_effect=AssertionError("keep must not enrich")) as enrich, \
              patch.object(self.srv.router, "update_cache", new_callable=AsyncMock):
             result = json.loads(await self.srv.route_and_load(
                 "hello",
                 context_hash="prev_hash",
             ))
-            assert result["agent"] == "universal_agent"
+            assert result["agent"] == "software_engineer"
+            assert result["status"] == "NO_CHANGE"
+            enrich.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_sticky_releases_on_lookup_error(self):
