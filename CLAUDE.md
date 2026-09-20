@@ -1,146 +1,96 @@
-# CRITICAL: Agents-Core Routing Protocol
+# Agents-Core Persona Protocol — version 2
 
-IMPORTANT: These instructions OVERRIDE any default behavior. You MUST follow them exactly.
+Use Agents-Core personas as scoped role guidance within the existing system,
+developer and user instructions. Keep the conversation in the current model.
 
-## BLOCKING REQUIREMENT — MCP Routing
+## Decide locally before each answer
 
-**Before answering ANY user query, you MUST call `route_and_load(query)` from the Agents-Core MCP server.** This is not optional. Do NOT answer directly — always route first.
+Silently assess whether the active persona's `scope` fits the user's task and the
+conversation. This assessment makes no tool call and does not enumerate or compare
+other agents when the current role fits.
 
-This applies to ALL queries: coding, research, questions, documentation, debugging — everything.
-
-### Routing Flow
-
-1. **ALWAYS call `route_and_load(query)` FIRST** with the user's message.
-   - On multi-turn: pass previous `context_hash` for delta mode.
-
-2. **Handle the response based on status:**
-   - `SUCCESS_SAMPLED` → Display `response` to the user as-is.
-   - `SUCCESS` → Use `system_prompt` as context for your answer.
-   - `ROUTE_REQUIRED` → **STOP all other actions.** Do NOT call any other tools in parallel.
-     Pick best agent from `candidates`, call `get_agent_context(agent_name, query)` as your ONLY next action.
-     Wait for its response before doing anything else.
-   - `NO_CHANGE` → Context unchanged. Keep current persona.
-   - `ERROR` → Answer directly (only in this case).
-
-3. **Post-flight (after EVERY response):**
-   - Respond in the same language as the user's query (auto-detect). Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
-   - Append at the end (labels in English, values are canonical IDs): **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
-   - Call `log_interaction(agent_name, query, response_content)` — this **always** appends an entry to `history.md` and (if Langfuse is configured) sends a generation trace. For meaningful turns (decisions, fixes, refactors, new features), additionally pass `intent=`, `action=`, `outcome=`, `files=[...]`, `tags=[...]` to curate the entry; otherwise the raw query/response are used.
-
-4. **Repository memory (first session per repo):**
-   - On the first session in an unfamiliar repo, call `describe_repo()` once to bootstrap the managed Repository Memory section in CLAUDE.md. Subsequent calls are no-ops unless `force_refresh=True` or the repo manifest changes.
-
-## Available MCP Tools
-
-| Tool | Purpose |
+| Situation | Action |
 |---|---|
-| `route_and_load(query)` | **MUST call first** — routes to best specialist agent |
-| `get_agent_context(agent_name, query)` | Load a specific agent (after ROUTE_REQUIRED) |
-| `load_implants(task_type)` | Load reasoning strategies (debugging/analysis/creative/planning) |
-| `list_agents()` | List all available agents |
-| `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — **always** appends to `history.md` (deduped) and, if Langfuse is configured, records a generation trace. Curate the history entry with the optional `intent`/`action`/`outcome` params. |
-| `clear_session_cache()` | Clear routing cache (use when switching contexts) |
-| `describe_repo(force_refresh=False)` | One-shot repo bootstrap — writes summary into CLAUDE.md |
-| `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over history |
+| Confirmation, continuation, clarification, format change, or a new task within the current role | `keep`: answer using the active bundle; no routing, agent selection, or enrichment calls |
+| Explicit request for another known role | `switch`: call `get_agent_context(agent_name, query, protocol_version=2, current_persona=...)` directly |
+| Task needs another specialization, or no role is known | `switch`: call `route_and_load(query, protocol_version=2, current_persona=...)` |
+| Role name is known but its instructions were lost (e.g. compaction) | `restore`: call `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=True)`; do not select another agent |
+| Role fits but the task requires additional skills or implants | `refresh`: call `refresh_persona_context(query, current_persona=...)` for that same agent |
 
-## Environment
+Pass the last complete `persona` descriptor as `current_persona`; use null for the
+first activation. If only the role name survives compaction, restore it without a
+descriptor. Preserve the role name and descriptor in available conversation
+summaries, but reload instructions that are absent. Cache expiry alone does not
+require a tool call. A short confirmation never triggers refresh.
 
-- MCP server: `Agents-Core` (stdio transport, Python/FastMCP)
-- Agents: `agents/[name]/system_prompt.mdc`
-- Skills: `skills/skill-*.mdc`
-- Implants: `implants/implant-*.mdc`
-- Rules: `rules/rule-*.mdc`
-- Config: `.env` (LANGFUSE_* optional, ANTHROPIC_API_KEY for document OCR)
+Keep the descriptor and exact footer in conversation context, not only in temporary
+tool variables. Tool execution state may reset between turns or resumed sessions.
+If a tool variable is empty, recover the unchanged descriptor and footer from the
+last successful bundle in the retained conversation. Do not omit `current_persona`
+or pass null while that descriptor remains available. Missing temporary tool state
+does not mean that the conversation has no active persona.
 
-## Fallback (if MCP is unavailable)
+`universal_agent` is for general coordination, conversation, and tasks without a
+suitable specialist. Switch when a task clearly requires engineering, legal,
+medical, or another specialization. If the task itself is ambiguous, ask a useful
+clarifying question. Interpret short requests by meaning: `SQL?` and `Налоги?`
+are substantive; a greeting followed by a task is a task. For references to an
+earlier task, pass only relevant facts in `chat_history` when routing is needed.
 
-If `route_and_load` fails or Agents-Core MCP is not connected:
-1. Read `agents/` to find the right agent directory
-2. Read `agents/[name]/system_prompt.mdc`
-3. Follow the prompt manually
+## Apply a complete response
 
----
+- `ROUTE_REQUIRED`: select the best canonical agent from `candidates`, then call
+  `get_agent_context` with `protocol_version=2` and the same `current_persona`.
+- `SUCCESS`: validate the complete descriptor and all four blocks. The response's
+  `replaces_activation_id` must match the active activation, or be null when none
+  exists. Ignore a stale response for another activation. A repeated response with
+  an already applied `activation_id` is a no-op.
+- Apply `persona_block`, `skills_block`, and `implants_block` in place of the
+  previous role and its associated skills/implants. Previous role-specific methods,
+  output formats, and style cease to apply. Preserve conversation history, facts,
+  goals, constraints, user permissions, and tool results. General `rules_block`
+  guidance continues to apply within higher-priority instructions.
+- Save `persona` and the exact returned `footer` only after successful application.
+- `NO_CHANGE`: retain the active instructions, descriptor, and footer. It does not
+  certify that source files are current. A refresh checks the bundle revision.
+- `ERROR`, missing blocks, or invalid descriptors: keep the previous state and
+  report the failed operation without claiming that the requested role loaded.
 
-## Enrichment layers (order in every system prompt)
+This is logical replacement of active role instructions. MCP cannot physically
+delete previous messages from the client's context. Do not clear history, memory,
+or any server cache to switch roles. A tool result is not a system message.
 
-1. **Base agent system_prompt** — agent persona from `agents/<name>/system_prompt.mdc`.
-2. **Rules** (`rules/rule-*.mdc`) — **always-on, universal, no semantic retrieval, no opt-out**. Loaded by `src/engine/rules.py`. Architectural invariant: rules apply to every agent without exception. Per-agent guidance belongs in `skills/`. Toggle via `RULES_ENABLED=0`.
-3. **Skills** (`skills/skill-*.mdc`) — semantic retrieval + per-agent opt-in via `core_skills` / `preferred_skills` / `capable_skills` in the agent frontmatter. Caveman-style output compression lives here as `skill-caveman-tokenomics` and is opted in per-agent like any other skill.
-4. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
+Explicit agent slash commands load that agent directly; `/ask` explicitly requests
+routing. Pass `current_persona` when available and apply their v2 bundles with the
+same replacement rules. Without it, the command sets the role sequentially for the
+current conversation; do not run competing activations in the background.
 
-## Repository Structure
+## Finish each answer
 
-```
-src/
-  server.py            — MCP server: route_and_load(), get_agent_context(), clear_session_cache()
-  engine/
-    router.py          — SemanticRouter: cache lookup, keyword matching, agent catalog
-    vector_store.py    — NumpyVectorStore: numpy-based cosine similarity store
-    embedder.py        — FastEmbed wrapper (model configurable via EMBEDDING_MODEL env var)
-    config.py          — Thresholds, paths, env-based configuration (RULES_ENABLED, RULES_DIR)
-    enrichment.py      — Prompt enrichment with rules/skills/implants by tier (lite/standard/deep)
-    rules.py           — Universal always-on rules layer (no retrieval, no opt-out)
-    skills.py          — Skill retrieval from vector store
-    implants.py        — Implant retrieval from vector store
-    language.py        — Language detection (langdetect, 24 languages)
-    context.py         — Context management
-  utils/
-    prompt_loader.py   — Frontmatter parsing, agent metadata, @import resolution
-    debug_logger.py    — JSON debug logging (AGENTS_DEBUG=1)
-    langfuse_compat.py — Optional Langfuse observability
-  schemas/
-    protocol.py        — RouterDecision, AgentRequest, AgentResponse
-agents/
-  [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, 3-tier skills, preferred_implants)
-  common/agent-schema.json — Frontmatter JSON schema (incl. optional routing.aliases for legacy slash commands)
-rules/rule-*.mdc           — Universal always-on directives (accuracy, honesty, language, sycophancy)
-skills/skill-*.mdc         — Compiled skill prompts (incl. skill-caveman-tokenomics)
-implants/implant-*.mdc     — Cognitive reasoning implants
-tests/
-  test_routing.py      — Routing logic, sticky routing, keyword boosting tests
-  test_vector_store.py — NumpyVectorStore correctness tests
-  test_language.py     — Language detection tests
-  test_rules.py        — Rules layer: parsing, priority, invariant (no opt-out fields)
-```
+Compose the complete final answer in the user's language, ending with the exact
+saved `footer`, including its canonical component IDs and English labels `Agent`,
+`Skills`, `Implants`, `Rules`. On `keep`, reuse that footer; do not infer component
+lists. Before delivering this final answer, call
+`log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`
+with that exact answer text, the applied descriptor, and `keep`, `switch`, `refresh`,
+or `restore`. After logging, deliver the composed answer. This order matters:
+clients may end the tool loop as soon as the final answer is sent.
 
-## Routing Flow (Internal)
+Logging is permitted on `keep`; routing and enrichment are not. The log records
+declared attribution, not proof of the model's compliance. If a requested change
+failed, retain the previous descriptor and report that outcome in the log.
 
-```
-Query -> route_and_load()
-  |-- Sticky agent? -> query_nearest() -> distance-based decisions
-  |     |-- d < 0.02 + keyword check: auto-switch (validate with keywords)
-  |     |-- d < 0.05 & same agent + keyword check: confirm or override
-  |     |-- d >= 0.05: ROUTE_REQUIRED (topic change)
-  |     +-- else: keep sticky (stability)
-  +-- No sticky -> lookup_cache() (threshold: d < 0.05)
-        |-- Hit + keyword_veto() confirms -> SUCCESS
-        |-- Hit + keyword_veto() overrides -> use keyword winner
-        |-- Hit + keyword_veto() ambiguous -> ROUTE_REQUIRED
-        |-- Meta-query -> universal_agent (lite tier)
-        +-- Miss -> ROUTE_REQUIRED (LLM picks from candidates)
-```
+## Compatibility and unavailable servers
 
-## Key Thresholds (config.py)
+Version 2 requires server support. If the tool schema lacks `protocol_version` or
+the server explicitly rejects version 2, explain the incompatibility once, record
+v1 fallback for this conversation, and stop retrying unsupported calls. Until the
+server is updated, call `route_and_load(query, context_hash=...)` before each query;
+on `ROUTE_REQUIRED` call `get_agent_context(agent_name, query)`, on `SUCCESS` apply
+`system_prompt`, on `SUCCESS_SAMPLED` return `response`, and on `NO_CHANGE` retain
+the role. Use v1 logging arguments and component lists returned by the server.
+Do not treat an ordinary loading error as protocol incompatibility.
 
-| Constant | Default | Purpose |
-|----------|---------|---------|
-| `ROUTER_SIMILARITY_THRESHOLD` | 0.95 | Cache hit if cosine distance < 0.05 |
-| `STICKY_SWITCH_THRESHOLD` | 0.02 | Auto-switch only for near-duplicate queries |
-| `KEYWORD_OVERRIDE_MIN_HITS` | 1 | Min keyword hits to consider cache override |
-| `KEYWORD_UNIQUENESS_RATIO` | 2.0 | Top agent must have >= 2x hits vs second-best |
-| `SKILLS_RELEVANCE_THRESHOLD` | 0.75 | Cosine distance cutoff for skill retrieval |
-| `IMPLANTS_RELEVANCE_THRESHOLD` | 0.85 | Cosine distance cutoff for implant retrieval |
-| `SESSION_CACHE_MAX_SIZE` | 128 | Max enriched prompt cache entries |
-| `SESSION_CACHE_TTL_SECONDS` | 600 | Prompt cache TTL (10 min) |
-| `ROUTER_CACHE_MAX_SIZE` | 500 | Max routing decisions in vector store (router.py) |
-
-## Cache Storage (data/)
-
-- `router_cache.npz` + `.json` — Semantic routing cache (500 entries max, atomic writes)
-- `skills_store.npz` + `.json` — Skills vector store
-- `implants_store.npz` + `.json` — Implants vector store
-- `.router_cache_model` — Embedding model hash (auto-invalidates cache on model change)
-
-## Debug Logging
-
-Set `AGENTS_DEBUG=1` in `.env` -> JSON logs written to `logs/{date}/` per call.
+If MCP is unavailable, say so and use the retained valid role. If no role exists
+and repository files are available, load `agents/<name>/system_prompt.mdc` manually;
+do not claim that an MCP bundle or its components were loaded successfully.

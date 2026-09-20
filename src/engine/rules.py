@@ -19,13 +19,13 @@ import glob
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional
 
 import yaml
 
 from src.engine.config import RULES_DIR, RULES_ENABLED
-from src.utils.prompt_loader import split_frontmatter
+from src.utils.prompt_loader import process_imports, resolve_path, split_frontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class Rule:
 _cache: Optional[List[Rule]] = None
 
 
-def _parse_rule_file(path: str) -> Optional[Rule]:
+def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -80,6 +80,15 @@ def _parse_rule_file(path: str) -> Optional[Rule]:
     if not isinstance(fm, dict):
         logger.error("Frontmatter in %s is not a mapping — skipped", path)
         return None
+
+    if strict:
+        for key in ("name", "description", "category"):
+            if key in fm and not isinstance(fm[key], str):
+                raise ValueError(f"Rule {key} must be text in {path}")
+        if "priority" in fm and (
+            not isinstance(fm["priority"], int) or isinstance(fm["priority"], bool)
+        ):
+            raise ValueError(f"Rule priority must be an integer in {path}")
 
     forbidden = [k for k in _FORBIDDEN_FIELDS if k in fm]
     if forbidden:
@@ -118,7 +127,7 @@ def _parse_rule_file(path: str) -> Optional[Rule]:
     )
 
 
-def load_all_rules() -> List[Rule]:
+def load_all_rules(*, strict: bool = False) -> List[Rule]:
     """Read every ``rules/rule-*.mdc`` and return a list sorted by priority.
 
     Reload-safe: call ``invalidate_cache()`` after editing files on disk.
@@ -128,20 +137,38 @@ def load_all_rules() -> List[Rule]:
     rules: List[Rule] = []
 
     if not os.path.isdir(RULES_DIR):
+        if strict:
+            raise FileNotFoundError(f"Rules directory not found: {RULES_DIR}")
         logger.info("Rules directory not found at %s — no rules loaded", RULES_DIR)
         return rules
 
     for path in sorted(glob.glob(os.path.join(RULES_DIR, "rule-*.mdc"))):
-        rule = _parse_rule_file(path)
+        if strict:
+            path = resolve_path(path)
+        rule = _parse_rule_file(path, strict=True) if strict else _parse_rule_file(path)
+        if strict:
+            if rule is None or not rule.body or not re.fullmatch(r"[A-Za-z0-9_-]+", rule.name):
+                raise ValueError(f"Invalid mandatory rule: {path}")
+            if any(existing.name == rule.name for existing in rules):
+                raise ValueError(f"Duplicate rule ID: {rule.name}")
+            rule = replace(
+                rule,
+                body=process_imports(rule.body, {os.path.realpath(path)}, strict=True),
+                description=process_imports(
+                    rule.description, {os.path.realpath(path)}, strict=True,
+                ),
+            )
         if rule is not None:
             rules.append(rule)
 
+    if strict and not rules:
+        raise ValueError(f"No mandatory rules found in {RULES_DIR}")
     rules.sort(key=lambda r: (r.priority, r.name))
     logger.info("Loaded %d rules from %s", len(rules), RULES_DIR)
     return rules
 
 
-def get_rules() -> List[Rule]:
+def get_rules(*, fresh: bool = False, strict: bool = False) -> List[Rule]:
     """Cached entry point used by the enrichment pipeline.
 
     Returns an empty list when ``RULES_ENABLED=0`` so the layer can be
@@ -150,6 +177,8 @@ def get_rules() -> List[Rule]:
     global _cache
     if not RULES_ENABLED:
         return []
+    if fresh or strict:
+        return load_all_rules(strict=strict)
     if _cache is None:
         _cache = load_all_rules()
     return _cache
