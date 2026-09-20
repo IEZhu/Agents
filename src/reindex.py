@@ -1,9 +1,15 @@
 """Rebuild the skills/implants vector stores from the .mdc source files.
 
 Run manually with ``python -m src.reindex`` after editing skills/implants, or
-automatically by the background auto-updater (``src/self_update.py``) right
-after a ``git pull`` so the *next* server start finds the indexes already built
-and starts fast.
+automatically by the background auto-updater (``src/self_update.py``):
+
+  * Phase B (staged, the default) runs it with ``cwd`` set to a fresh git
+    worktree of the target commit, so ``config.INSTALL_DATA_DIR`` resolves inside
+    that worktree (``-m`` puts cwd on ``sys.path``) and the stores are built there,
+    isolated from the live install. ``EMBEDDING_MODEL`` is passed through the
+    subprocess env so the staged vectors match the live process.
+  * The legacy in-place path runs it with ``cwd=repo_root`` right after a
+    fast-forward, so the *next* server start finds the indexes already built.
 
 Constructing ``SkillRetriever`` / ``ImplantRetriever`` is all that's needed:
 their ``__init__`` compares a content hash (EMBEDDING_MODEL + every ``.mdc``
