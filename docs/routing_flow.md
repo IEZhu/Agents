@@ -1,154 +1,141 @@
-# Request Routing Flow
+# Persona and request routing
 
-This document describes the routing and enrichment pipeline for the Agents-Core MCP server.
-
-## Architecture Overview
-
-```mermaid
-graph TD
-    Start([User Query]) --> Normalize[Normalize chat_history<br/>Generate request_id]
-    Normalize --> InferTier[Infer tier from query]
-    InferTier --> CacheLookup{ChromaDB<br/>Semantic Cache<br/>Similarity > 0.95?}
-
-    CacheLookup -->|Hit| AgentFound[Agent identified<br/>from cache]
-    CacheLookup -->|Miss| MetaCheck{Meta-query?<br/>greeting / len < 10}
-
-    MetaCheck -->|Yes| Universal[Route to universal_agent<br/>Force tier = lite]
-    MetaCheck -->|No| RouteRequired[/"ROUTE_REQUIRED<br/>Return candidates list"/]
-
-    RouteRequired --> ClientPicks([Client LLM picks agent])
-    ClientPicks --> GetAgent[get_agent_context<br/>agent_name, query]
-
-    AgentFound --> LoadEnrich
-    Universal --> LoadEnrich
-    GetAgent --> LoadEnrich
-
-    LoadEnrich[_load_and_enrich] --> SessionCache{Session TTLCache<br/>128 items / 600s TTL}
-
-    SessionCache -->|Hit| CachedPrompt[Return cached<br/>enriched prompt]
-    SessionCache -->|Miss| LoadMeta[Load agent metadata<br/>preferred_skills, capabilities]
-
-    LoadMeta --> TierExplicit{Tier set<br/>explicitly?}
-    TierExplicit -->|Yes| KeepTier[Keep explicit tier<br/>e.g. meta-query lite]
-    TierExplicit -->|No| TierPromo{Inferred lite AND<br/>agent has skills<br/>or capabilities?}
-    TierPromo -->|Yes| Promote[Promote to standard]
-    TierPromo -->|No| KeepTier
-
-    Promote --> Enrich
-    KeepTier --> Enrich
-
-    Enrich{Enrichment<br/>by Tier}
-
-    Enrich -->|lite| Lite[Base prompt only<br/>No skills / No implants]
-    Enrich -->|standard| Standard[Base prompt<br/>+ up to 2 skills via RAG OR all declared by ID<br/>+ up to 2 implants via RAG]
-    Enrich -->|deep| Deep[Base prompt<br/>+ up to 4 skills via RAG OR all declared by ID<br/>+ up to 3 implants via RAG]
-
-    Lite --> ResolveCaps
-    Standard --> ResolveCaps
-    Deep --> ResolveCaps
-
-    ResolveCaps[Resolve capabilities<br/>registry.yaml → skill bundles + directives]
-
-    ResolveCaps --> ComputeHash[Compute context_hash<br/>SHA-256 truncated to 16 hex chars]
-    CachedPrompt --> ComputeHash
-
-    ComputeHash --> HashCompare{context_hash<br/>matches previous?}
-
-    HashCompare -->|Yes| NoChange[/"NO_CHANGE<br/>Reuse prior context"/]
-    HashCompare -->|No| UpdateCache[Update ChromaDB<br/>router cache]
-
-    UpdateCache --> Sampling{MCP Sampling<br/>supported?}
-
-    Sampling -->|Yes| Sampled[/"SUCCESS_SAMPLED<br/>Ready-made response"/]
-    Sampling -->|No / Error| Success[/"SUCCESS<br/>Return system_prompt"/]
-
-    style Start fill:#4A90D9,color:#fff
-    style RouteRequired fill:#E6A23C,color:#fff
-    style NoChange fill:#909399,color:#fff
-    style Sampled fill:#67C23A,color:#fff
-    style Success fill:#67C23A,color:#fff
-    style Enrich fill:#F56C6C,color:#fff
-    style CacheLookup fill:#B37FEB,color:#fff
-    style SessionCache fill:#B37FEB,color:#fff
-    style HashCompare fill:#B37FEB,color:#fff
-```
-
-## Tier Inference Rules
-
-| Signal | Tier | Enrichment |
-|--------|------|------------|
-| Query < 50 chars, no complex keywords | **lite** | Base prompt only |
-| Default / moderate complexity | **standard** | Up to 2 skills + 2 implants (RAG, filtered by relevance threshold). If agent declares preferred skills or capabilities — all loaded by exact ID instead, no count limit. |
-| Query > 300 chars OR complex keywords (`debug`, `investigate`, `compare`, `design`, `review`, `audit`, `deep dive`, plus Russian equivalents) | **deep** | Up to max(4, len(declared)) skills + 3 implants (RAG, filtered by threshold). If agent declares preferred skills or capabilities — all loaded by exact ID instead. |
-
-> **Tier Promotion**: If the inferred tier is `lite` but the target agent declares `preferred_skills` or `capabilities`, the tier is automatically promoted to `standard` to ensure skills are loaded.
-
-## Routing Sequence (Detailed)
+Protocol 2 keeps the active persona in the client conversation. The model assesses
+whether its current scope fits each new request. A fitting role continues without
+routing, catalog lookup, enrichment, or a server-side suitability check.
 
 ```mermaid
-sequenceDiagram
-    participant User
-    participant RAL as route_and_load()
-    participant Cache as Semantic Cache
-    participant Meta as Meta-Query Detector
-    participant Session as TTLCache (128, 600s)
-    participant Enrich as Enrichment Pipeline
-    participant Tier as Tier Inference
-
-    User->>RAL: query + context_hash?
-
-    alt context_hash matches
-        RAL-->>User: NO_CHANGE (reuse prior context)
-    end
-
-    RAL->>Meta: Check Query Type
-    alt Meta-Query (greeting / < 10 chars)
-        Meta-->>RAL: Auto-route to universal_agent
-    else Standard Query
-        RAL->>Cache: Lookup Query (ChromaDB)
-        alt Cache Hit (Distance < 0.05)
-            Cache-->>RAL: Agent Found
-        else Cache Miss
-            Cache-->>RAL: No Match
-            RAL-->>User: ROUTE_REQUIRED + candidates list
-            Note over User: Client selects agent,<br/>calls get_agent_context()
-        end
-    end
-
-    RAL->>Session: Check Session Cache
-    alt Session Hit
-        Session-->>RAL: Return Cached Prompt
-        RAL-->>User: SUCCESS (system_prompt + context_hash)
-    else Session Miss
-        RAL->>Tier: Infer tier from query
-        Tier-->>Enrich: lite / standard / deep
-
-        alt lite (short, simple)
-            Enrich->>Enrich: Load Base Prompt only
-        else standard (default)
-            Enrich->>Enrich: Load Base Prompt
-            Enrich->>Enrich: Retrieve 2 Skills + 2 Implants
-        else deep (complex / architecture)
-            Enrich->>Enrich: Load Base Prompt
-            Enrich->>Enrich: Retrieve 4+ Skills + 3 Implants
-        end
-
-        Enrich->>Enrich: Resolve Capabilities (registry.yaml)
-        Enrich->>Session: Store Enriched Prompt
-        Enrich-->>RAL: Enriched System Prompt
-        RAL-->>User: SUCCESS / SUCCESS_SAMPLED
-    end
+flowchart TD
+    Q[User request] --> Known{Role and instructions available?}
+    Known -->|Role name only| Restore[Direct load with force_reload]
+    Known -->|No role| Route[Semantic route with keyword check]
+    Known -->|Yes| Fit{Current specialization fits?}
+    Fit -->|Yes| Skills{Additional skills needed?}
+    Skills -->|No| Keep[Keep role locally]
+    Skills -->|Yes| Refresh[Refresh same role]
+    Fit -->|No, known requested role| Direct[Direct agent load]
+    Fit -->|No, implicit change| Route
+    Route --> Choice{Confident cached decision?}
+    Choice -->|No| Pick[ROUTE_REQUIRED: client selects candidate]
+    Choice -->|Yes| Bundle[Assemble and validate full bundle]
+    Pick --> Direct
+    Direct --> Bundle
+    Restore --> Bundle
+    Refresh --> Bundle
+    Bundle --> Apply[Apply scoped replacement, preserve conversation]
+    Keep --> Answer[Answer and log attribution]
+    Apply --> Answer
 ```
 
-## Key Components
+## Client decisions
 
-1. **Semantic Cache**: Uses ChromaDB with `BAAI/bge-m3` embeddings to store and retrieve previous routing decisions. A match occurs if the cosine similarity exceeds 0.95 (distance < 0.05).
-2. **Meta-Query Detection**: Regex-based detection of greetings and short queries (English + Russian) for auto-routing to `universal_agent`.
-3. **ROUTE_REQUIRED**: On cache miss, the system returns a list of agent candidates with metadata (`display_name`, `role`, `trigger_command`), allowing the client LLM to select the best match via `get_agent_context()`.
-4. **Tier Inference**: Determines enrichment depth based on query complexity signals (length, keywords). Automatic promotion from `lite` to `standard` when agents declare skills or capabilities.
-5. **Enrichment Pipeline**:
-    * **Skills**: Domain-specific knowledge modules. When an agent declares `preferred_skills` or `capabilities`, those skills are loaded by exact ID (no vector search, no count limit). Otherwise, skills are retrieved via ChromaDB semantic search (threshold: 0.55 distance).
-    * **Implants**: Cognitive reasoning strategies retrieved via semantic search (threshold: 0.73 distance). Agents can request more at runtime via `load_implants()`.
-    * **Capabilities**: High-level compositions from `registry.yaml` mapping to skill bundles + behavioral directives.
-6. **Session Cache**: TTLCache (max 128 entries, 600s TTL) storing enriched prompts keyed by `{agent_name}:{query_hash}:{tier}`. Supports `context_hash` for multi-turn delta optimization.
-7. **MCP Sampling**: When the client supports MCP sampling, the server generates a response directly (`SUCCESS_SAMPLED`). Otherwise, it returns the enriched system prompt for the client to use (`SUCCESS`).
+`keep` includes confirmations, continuations, formatting requests, and new tasks
+within the current persona's scope. It does not compare candidates. A specialist
+change triggers routing; an explicit known role loads directly. `universal_agent`
+does not retain clearly specialized work merely because its description is broad.
+A justified refresh acquires skills for the same role. Restore reloads lost
+instructions for a known role without selecting another one. Cache expiry has no
+bearing on the client's retained instructions.
+
+See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
+The default installer still uses the [v1 compatibility template](../scripts/templates/routing-protocol-v1.md).
+Version 2 is an explicit opt-in until the required dialogue evaluations pass for a
+specific client and model; server contract tests alone do not establish support.
+
+## Version 2 API
+
+| Call | Behavior |
+|---|---|
+| `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no v1 sticky binding or sampling |
+| `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
+| `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
+| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency and records declared attribution |
+
+Pass a relevant `chat_history` excerpt when a routed request depends on earlier
+facts. The server does not need the whole conversation. Agent slash prompts load
+explicit roles; `/ask` requests routing. Both accept an optional `current_persona`.
+
+`SUCCESS` contains `protocol_version`, `request_id`, `persona`,
+`replaces_activation_id`, `footer`, an application instruction, and separate
+`persona_block`, `rules_block`, `skills_block`, `implants_block`. The descriptor
+contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revision`,
+metadata `scope`, and canonical `skills_loaded`, `implants_loaded`, `rules_loaded`.
+The revision reflects the issued texts, resolved imports, component IDs and order,
+plus the agent identity and scope used by the local suitability assessment.
+It is neither a conversation identifier nor an authentication token.
+
+The client applies a response only if `replaces_activation_id` matches its active
+activation (null for first load). Replayed activations are no-ops; stale responses
+are ignored. Missing mandatory components produce `ERROR` with no partial
+activation. A failed request leaves the previous state available. These application
+rules belong to the client: the server cannot enforce the state of another app.
+
+Replace prior persona methods, style, skills and implants while preserving facts,
+goals, constraints, permissions, conversation history and tool results. General
+rules remain separate. This is logical revocation; MCP cannot erase earlier client
+messages. No cache clearing, shared active-agent variable or conversation reset is
+involved. Use the last successful footer on `keep`; logs record self-reported
+activation and revision rather than proving behavioral compliance.
+
+## Enrichment and storage
+
+Agent metadata declares core, preferred and capable skills, plus preferred
+implants. Tier inference selects lite, standard or deep depth; an inferred lite
+request can be promoted for declared enrichment. Explicit lite remains lite.
+Mandatory rules and core skills are distinct from extra retrieved components.
+Standard and deep tiers select relevant extras under the agent's declared skill
+constraints. Refresh reads current source content before calculating its revision.
+
+The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
+bounded persistent routing cache. The embedding model and thresholds come from
+`src/engine/config.py`; no external model is called to decide `keep`. The existing
+v1 enriched-prompt TTL cache remains separate from v2 client persona state.
+
+## Compatibility
+
+| Client | Server | Result |
+|---|---|---|
+| v1 | Supports v2 | Existing v1 signatures, prompt/hash results and sticky routing |
+| v2 | Supports v2 | Conditional routing, structured bundles, no sampling |
+| v2 | v1 only | One incompatibility notice, then v1 for that conversation until upgrade |
+
+The API defaults to `protocol_version=1`. V1 sampling is attempted only when the
+client advertises sampling capability; otherwise the server returns the prompt.
+V1 meta detection recognizes standalone greetings/acknowledgements, not arbitrary
+short strings or greeting prefixes. `SQL?`, `Налоги?`, and greetings followed by a
+task remain substantive. A known role survives standalone acknowledgements;
+without one, the server cannot return `NO_CHANGE`.
+
+## Installation, migration and rollback
+
+Use `AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh` to opt in. On Windows set
+`AGENTS_PERSONA_PROTOCOL=2` before `scripts\init_repo.bat`. Omit the variable (or set
+it to 1) to install v1. Use the same setting on subsequent installer runs.
+
+Both installers replace only the marked routing section and back up changed
+files. They migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its
+bytes exactly match a known generated v1/v2 template. A changed reminder or index
+entry is preserved with a warning naming the file and manual correction. Windows
+migrates an existing reminder but never creates one when absent. Other project
+memory is untouched.
+
+Before enabling v2, search the instructions and memory you maintain for
+`always route_and_load`, `Before answering ANY user query`, and equivalent
+unconditional routing rules. Replace those conflicts with local suitability
+assessment. The server cannot scan a remote client's home directory or override
+user instructions through tool output.
+
+For rollback, restore the routing managed section and generated reminder from
+installer backups (or reinstall with `AGENTS_PERSONA_PROTOCOL=1`). Preserve all
+unrelated user content and conversation history. Restoring a whole backup over
+subsequent user edits requires merging those edits first.
+
+## Validation
+
+Run deterministic contract and migration tests with `pytest tests/`. The dialogue
+runner in `evals/runners/run_persona_dialogues.py` drives real Codex/Claude sessions,
+retains protocol instructions and records actual MCP traces. Evaluate Russian and
+English continuations, role switches, retained facts, recovery and failures with
+three independent repeats for each claimed client/model combination. Report
+unnecessary routing/refresh calls, missed switches, tool-result sizes and latency;
+never infer successful behavior solely from the server returning valid JSON.

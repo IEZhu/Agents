@@ -149,6 +149,7 @@ The server exposes MCP tools that any compatible client can call:
 |------|---------|
 | `route_and_load(query)` | Semantic routing — finds the best agent, enriches its prompt with relevant skills & implants |
 | `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
+| `refresh_persona_context(query, current_persona)` | Protocol 2: refresh skills/implants for the active role |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
@@ -156,14 +157,45 @@ The server exposes MCP tools that any compatible client can call:
 | `describe_repo(force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
 
-### Routing Flow
+### Persona continuity (protocol 2, opt-in)
 
-1. **`route_and_load(query)`** → Single-hop routing via semantic cache
-2. **Meta Detection** → Greetings/short queries auto-route to `universal_agent`
-3. **Cache Hit** → Returns enriched prompt (SUCCESS) or sampled response (SUCCESS_SAMPLED)
-4. **Cache Miss** → Returns ROUTE_REQUIRED with agent candidates for client selection
-5. **Tier-Based Enrichment** → lite (no extras) / standard (2 skills + 2 implants) / deep (4+ skills + 3 implants)
-6. **Multi-Turn** → `context_hash` enables delta optimization on follow-up queries
+Before each request, the model silently checks whether its active role fits the
+task. If it does, it keeps that role without routing, candidate selection or
+enrichment calls. A needed specialization change triggers routing; a known
+requested role loads directly. Lost instructions restore the known role; a
+justified refresh adds skills without reselecting it.
+
+Version 2 returns separate persona, rules, skills and implants blocks, an
+activation descriptor and an exact footer. A successful switch replaces prior
+role guidance while preserving conversation facts, goals, permissions and tool
+results. This is logical replacement: MCP cannot physically delete old messages.
+No history or cache clearing is required. Calls without `protocol_version=2`
+retain the version 1 API and `context_hash` behavior. V2 never uses sampling.
+
+The installer defaults to version 1 while client/model dialogue validation is
+pending. Opt in explicitly for evaluation:
+
+```bash
+AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh
+```
+
+On Windows, set `AGENTS_PERSONA_PROTOCOL=2` before running `scripts\init_repo.bat`.
+Use the same setting on reruns. Managed instruction sections are backed up and
+replaced by markers. Only exact known installer-generated routing memory is
+migrated; edited reminders are preserved with a path-specific warning. Windows
+does not create an absent memory reminder. Review your own project instructions
+and memory for conflicting unconditional `route_and_load` requirements; these
+are not automatically rewritten.
+
+To roll back, restore the managed section and reminder from backups, preserving
+later user edits, or rerun with `AGENTS_PERSONA_PROTOCOL=1`. Do not clear dialogue
+history. A v2 client encountering an old server reports the mismatch once and
+uses v1 until the server is updated.
+
+See [routing, compatibility and migration](docs/routing_flow.md) and the
+[client protocol](scripts/templates/routing-protocol-core.md) for the complete
+contract. Behavioral support must be established for each client/model pair;
+passing server tests alone does not establish it.
 
 ---
 

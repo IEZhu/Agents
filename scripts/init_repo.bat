@@ -47,6 +47,7 @@ set "SKIP_MCP=false"
 
 :parse_args
 if "%~1"=="" goto :args_done
+
 if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"    & shift & goto :parse_args
 if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"   & shift & goto :parse_args
 if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"     & shift & goto :parse_args
@@ -66,9 +67,20 @@ echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
 echo   --skip-mcp     Skip MCP environment detection and configuration
 echo   --help         Show this help message
+echo   Set AGENTS_PERSONA_PROTOCOL=2 to opt into the experimental persona protocol.
 exit /b 0
 
 :args_done
+
+REM Version 2 is an explicit opt-in pending client/model behavior validation.
+set "PERSONA_PROTOCOL=1"
+if defined AGENTS_PERSONA_PROTOCOL set "PERSONA_PROTOCOL=%AGENTS_PERSONA_PROTOCOL%"
+if not "%PERSONA_PROTOCOL%"=="1" if not "%PERSONA_PROTOCOL%"=="2" (
+    echo AGENTS_PERSONA_PROTOCOL must be 1 or 2
+    exit /b 1
+)
+set "ROUTING_TEMPLATE=%REPO_ROOT%\scripts\templates\routing-protocol-v1.md"
+if "%PERSONA_PROTOCOL%"=="2" set "ROUTING_TEMPLATE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
 
 REM ============== Pre-flight Checks & Python Selection ==============
 
@@ -506,7 +518,7 @@ if !errorlevel! equ 0 (
 
 REM 2. Global CLAUDE.md with routing instructions
 set "CLAUDE_CODE_MD=%CLAUDE_CODE_DIR%\CLAUDE.md"
-set "CLAUDE_MD_SRC=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+set "CLAUDE_MD_SRC=%ROUTING_TEMPLATE%"
 
 echo(
 echo   %CYAN%Agents-Core wants to add routing instructions to:%NC%
@@ -527,18 +539,19 @@ if not exist "%CLAUDE_MD_SRC%" (
     goto :skip_claude_code
 )
 
-REM Backup CLAUDE.md before modifying (if it exists)
-if exist "%CLAUDE_CODE_MD%" (
-    copy /Y "%CLAUDE_CODE_MD%" "%CLAUDE_CODE_MD%.backup.%BACKUP_TS%" >nul 2>&1
-    echo   %GREEN%^>%NC% Backup created: %CLAUDE_CODE_MD%.backup.%BACKUP_TS%
-)
-
 "%PYTHON_ABS%" "%HELPERS%\inject_claude_md.py" "%CLAUDE_CODE_MD%" "%CLAUDE_MD_SRC%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Global CLAUDE.md configured
     set "CLAUDE_MD_CONFIGURED=true"
 ) else (
     echo   %RED%x%NC% Failed to configure CLAUDE.md
+)
+REM Windows never created routing memory. Migrate an existing known file only.
+if "!CLAUDE_MD_CONFIGURED!"=="true" (
+    "%PYTHON_ABS%" "%HELPERS%\migrate_routing_memory.py" "%CLAUDE_CODE_DIR%\memory" --protocol "%PERSONA_PROTOCOL%" --existing-only
+    if !errorlevel! neq 0 echo   %RED%x%NC% Memory migration failed; inspect %CLAUDE_CODE_DIR%\memory manually
+    echo   Check project instructions and memory for conflicting unconditional route_and_load requirements.
+    echo   User-edited reminders and unrelated project memory are preserved.
 )
 :skip_claude_code
 
@@ -607,7 +620,7 @@ REM Printed only as a fallback — when the routing section could not be injecte
 REM into Claude Code's global CLAUDE.md (Claude Code not detected, consent denied,
 REM template missing, or injection failed). When injection succeeded, the user
 REM already has these instructions in place and does not need to paste them manually.
-set "TEMPLATE_FILE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+set "TEMPLATE_FILE=%ROUTING_TEMPLATE%"
 if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
     echo %CYAN%=========================================%NC%
     echo(
