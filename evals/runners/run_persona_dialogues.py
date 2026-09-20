@@ -207,7 +207,7 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
 def run_process(cmd: list[str], query: str, workspace: Path, timeout: int) -> tuple[int, str, str, bool]:
     """Kill the entire evaluation process group on timeout, including its MCP."""
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, cwd=workspace, start_new_session=True) as process:
+                          text=True, encoding="utf-8", cwd=workspace, start_new_session=True) as process:
         try:
             stdout, stderr = process.communicate(query, timeout=timeout)
             return process.returncode, stdout, stderr, False
@@ -224,7 +224,7 @@ def codex_session_models(session: str | None) -> list[str]:
     codex_dir = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     models = set()
     for path in (codex_dir / "sessions").rglob(f"*{session}*.jsonl"):
-        for event in events_from(path.read_text()):
+        for event in events_from(path.read_text(encoding="utf-8")):
             if event.get("type") == "turn_context" and event.get("payload", {}).get("model"):
                 models.add(event["payload"]["model"])
     return sorted(models)
@@ -267,12 +267,26 @@ def isolate_codex_global_instructions(command: list[str]) -> list[str]:
     return ["sandbox-exec", "-p", "(version 1)(allow default)(deny file-read* " + rules + ")", *command]
 
 
+def project_interpreter(root: Path) -> str:
+    """Require the project's virtualenv instead of guessing a dependency runtime."""
+    relative = "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+    python = root / ".venv" / relative
+    if not python.is_file():
+        raise FileNotFoundError(
+            f"Project virtualenv interpreter not found: {python}. "
+            "Create the project virtualenv and install its dependencies before running evaluations."
+        )
+    if sys.platform != "win32" and not os.access(python, os.X_OK):
+        raise PermissionError(f"Project virtualenv interpreter is not executable: {python}")
+    return str(python)
+
+
 def run_case(client: str, case: dict, workspace: Path, protocol: str, timeout: int,
              source_root: Path = ROOT, protocol_version: int = 2, seed_data: Path = ROOT / "data", isolate_codex: bool = False) -> dict:
+    python = project_interpreter(ROOT)
     workspace.mkdir(parents=True)  # Do not silently overwrite a prior experiment.
     for name in ("AGENTS.md", "CLAUDE.md"):
         (workspace / name).write_text(protocol, encoding="utf-8")
-    python = str(ROOT / ".venv/bin/python")
     server_args = [str(ROOT / "evals/runners/persona_server.py"), "--workspace", str(workspace),
                    "--source-root", str(source_root), "--seed-data", str(seed_data)]
     config = {"mcpServers": {"Agents_Core": {"command": python, "args": server_args}}}
@@ -284,7 +298,7 @@ def run_case(client: str, case: dict, workspace: Path, protocol: str, timeout: i
         if reset:
             session = None
         trace_path = workspace / "trace.jsonl"
-        before = len(trace_path.read_text().splitlines()) if trace_path.exists() else 0
+        before = len(trace_path.read_text(encoding="utf-8").splitlines()) if trace_path.exists() else 0
         if client == "codex":
             cmd = ["codex", "exec", "--ignore-user-config", "--json", "--skip-git-repo-check",
                    "-c", 'sandbox_mode="read-only"', "-c", "agents.enabled=false",
@@ -314,7 +328,7 @@ def run_case(client: str, case: dict, workspace: Path, protocol: str, timeout: i
         if client == "codex":
             models.update(codex_session_models(session))
         models.update(output.pop("models"))
-        trace = events_from("\n".join(trace_path.read_text().splitlines()[before:])) if trace_path.exists() else []
+        trace = events_from("\n".join(trace_path.read_text(encoding="utf-8").splitlines()[before:])) if trace_path.exists() else []
         verdict, active = assess_turn(turn, trace, output, active, protocol_version)
         if timeout_hit or code:
             verdict["passed"] = False
@@ -401,7 +415,11 @@ def main():
     args = p.parse_args()
     if min(args.repeats, args.jobs, args.timeout) < 1:
         p.error("repeats, jobs and timeout must be positive")
-    cases = [json.loads(line) for line in args.dataset.read_text().splitlines() if line.strip()]
+    try:
+        project_interpreter(ROOT)
+    except OSError as error:
+        p.error(str(error))
+    cases = [json.loads(line) for line in args.dataset.read_text(encoding="utf-8").splitlines() if line.strip()]
     cases = [case for case in cases if not args.case or args.case == case["id"]]
     if not cases:
         p.error("no matching scenarios")
@@ -409,8 +427,8 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     if (args.out / "report.json").exists():
         p.error("output already contains a report; use a new directory")
-    version = subprocess.run([args.client, "--version"], capture_output=True, text=True, timeout=10).stdout.strip()
-    protocol = args.protocol.read_text()
+    version = subprocess.run([args.client, "--version"], capture_output=True, text=True, encoding="utf-8", timeout=10).stdout.strip()
+    protocol = args.protocol.read_text(encoding="utf-8")
     report = {"client_version": version, "protocol_version": args.protocol_version,
               "protocol_sha256": hashlib.sha256(protocol.encode()).hexdigest(),
               "dataset_sha256": hashlib.sha256(args.dataset.read_bytes()).hexdigest(),

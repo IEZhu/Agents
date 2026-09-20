@@ -1,6 +1,9 @@
 """The dialogue evaluator must fail closed; these do not simulate model quality."""
 import json
 
+import pytest
+
+from evals.runners import run_persona_dialogues as runner
 from evals.runners.run_persona_dialogues import assess_turn, client_output, payload_from, turn_input
 
 
@@ -171,3 +174,43 @@ def test_unknown_initial_role_requires_routing():
     routed["tool"] = "route_and_load"
     result, _ = assess_turn({"expected": "load", "agent": "software_engineer"}, [routed, logged()], output(), None, 2)
     assert result["passed"]
+
+
+@pytest.mark.parametrize("platform,relative", [
+    ("win32", "Scripts/python.exe"), ("linux", "bin/python"), ("darwin", "bin/python"),
+])
+def test_project_interpreter_selects_platform_virtualenv(monkeypatch, tmp_path, platform, relative):
+    monkeypatch.setattr(runner.sys, "platform", platform)
+    executable = tmp_path / ".venv" / relative
+    executable.parent.mkdir(parents=True)
+    executable.touch(mode=0o700)
+    assert runner.project_interpreter(tmp_path) == str(executable)
+
+
+def test_missing_project_interpreter_fails_before_client_or_case_setup(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner.sys, "argv", [
+        "run_persona_dialogues", "--client", "claude", "--out", str(tmp_path / "out"),
+        "--seed-data", str(tmp_path / "seed"),
+    ])
+
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("A missing virtualenv must fail before starting clients or workers")
+
+    monkeypatch.setattr(runner.subprocess, "run", unexpected_start)
+    monkeypatch.setattr(runner, "ThreadPoolExecutor", unexpected_start)
+    with pytest.raises(SystemExit) as error:
+        runner.main()
+    assert error.value.code == 2
+    assert "Project virtualenv interpreter not found" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_nonexecutable_project_interpreter_is_a_setup_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.sys, "platform", "linux")
+    executable = tmp_path / ".venv/bin/python"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(runner.os, "access", lambda path, mode: False)
+    with pytest.raises(PermissionError, match="not executable"):
+        runner.project_interpreter(tmp_path)

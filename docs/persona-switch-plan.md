@@ -115,14 +115,17 @@ text; a revision change alone does not imply a change of specialization.
 The client protocol permits persona blocks to be applied as scoped role
 instructions within the existing system and user instructions. Use this wording:
 
-> Apply the new persona in place of the previous role's instructions and its
-> associated skills/implants. Preserve the conversation history, facts, goals,
-> constraints, and user permissions. General rules remain in effect.
+> On each successful activation, replace all four persona, rules, skills, and
+> implants blocks with the returned blocks, including empty blocks. Preserve
+> higher-priority instructions, conversation history, facts, goals, constraints,
+> and user permissions.
 
-General rules are in a separate block. Delivering them again does not revoke
-user requirements. Text order is not presented as a way to elevate instruction
-priority. Do not instruct the model to forget the conversation, ignore everything
-before it, or treat a tool result as a system message.
+General rules are in a separate versioned block. Switch, restore, and refresh
+replace changed or removed rules; old rules do not remain active alongside the
+new block. Delivering rules again does not revoke user requirements. Text order
+is not presented as a way to elevate instruction priority. Do not instruct the
+model to forget the conversation, ignore everything before it, or treat a tool
+result as a system message.
 
 Assemble and validate the entire bundle before activating it. An unavailable
 agent, a mandatory component failure, or an invalid result yields `ERROR`;

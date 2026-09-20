@@ -8,7 +8,7 @@ import yaml
 
 from src.engine import enrichment, rules
 from src.engine.implants import ImplantRetriever
-from src.engine.persona_bundle import build_persona_bundle
+from src.engine.persona_bundle import _declared_ids, build_persona_bundle
 from src.engine.skills import SkillRetriever
 from src.utils import prompt_loader
 
@@ -45,6 +45,50 @@ def bundle_tree(tmp_path, monkeypatch):
     write_mdc(tmp_path / "implants/implant-focus.mdc", {"description": "Focus", "short_name": "Focus"}, "Focus body")
     write_mdc(tmp_path / "rules/rule-truth.mdc", {"name": "truth", "priority": 1}, "Use evidence")
     return tmp_path, agent
+
+
+OPTIONAL_COMPONENT_KEYS = (
+    "core_skills", "preferred_skills", "capable_skills", "preferred_implants",
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", OPTIONAL_COMPONENT_KEYS)
+async def test_null_component_list_matches_empty_and_omitted(bundle_tree, monkeypatch, key):
+    tree, agent = bundle_tree
+    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", lambda *args, **kwargs: [])
+    monkeypatch.setattr(enrichment.implant_retriever, "retrieve", lambda *args, **kwargs: [])
+    path = tree / "agents/engineer/system_prompt.mdc"
+    agent[key] = []
+    write_mdc(path, agent, "Engineer persona")
+    empty = await build_persona_bundle("engineer", "A", tier="deep")
+
+    agent[key] = None
+    write_mdc(path, agent, "Engineer persona")
+    null = await build_persona_bundle("engineer", "A", tier="deep")
+
+    del agent[key]
+    write_mdc(path, agent, "Engineer persona")
+    omitted = await build_persona_bundle("engineer", "A", tier="deep")
+    assert asdict(null) == asdict(empty) == asdict(omitted)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", OPTIONAL_COMPONENT_KEYS)
+@pytest.mark.parametrize("value", [False, 0, "", {}, {"skill-core": True}, "skill-core", [None], ["skill-core", 1]])
+async def test_invalid_optional_component_list_still_fails_bundle(bundle_tree, key, value):
+    tree, agent = bundle_tree
+    agent[key] = value
+    write_mdc(tree / "agents/engineer/system_prompt.mdc", agent, "Engineer persona")
+    with pytest.raises(ValueError, match=f"Agent {key} must be a list of component IDs"):
+        await build_persona_bundle("engineer", "A", tier="deep")
+
+
+@pytest.mark.parametrize("key", OPTIONAL_COMPONENT_KEYS)
+def test_declared_component_ids_preserve_first_occurrence_order(key):
+    prefix = "implant" if key == "preferred_implants" else "skill"
+    values = [f"{prefix}-second.mdc", f"{prefix}-first", f"{prefix}-second"]
+    assert _declared_ids({key: values}, key) == [f"{prefix}-second", f"{prefix}-first"]
 
 
 @pytest.mark.asyncio

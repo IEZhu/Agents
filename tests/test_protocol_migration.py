@@ -37,10 +37,10 @@ def test_managed_replacement_preserves_outside_bytes_and_backup(tmp_path, helper
 def test_legacy_markers_migrate_without_duplicate_section(tmp_path, helpers):
     injector, _ = helpers
     target, source = tmp_path / "CLAUDE.md", tmp_path / "protocol.md"
-    target.write_text(f"Before\n{injector.LEGACY_MARKER_BEGIN}\nold\n{injector.LEGACY_MARKER_END}\nAfter")
-    source.write_text("protocol 2")
+    target.write_text(f"Before\n{injector.LEGACY_MARKER_BEGIN}\nold\n{injector.LEGACY_MARKER_END}\nAfter", encoding="utf-8")
+    source.write_text("protocol 2", encoding="utf-8")
     injector.inject(target, source)
-    result = target.read_text()
+    result = target.read_text(encoding="utf-8")
     assert result.count(injector.MARKER_BEGIN) == 1
     assert injector.LEGACY_MARKER_BEGIN not in result
     assert result.startswith("Before\n") and result.endswith("\nAfter")
@@ -56,21 +56,21 @@ def test_invalid_markers_leave_entire_file_untouched(tmp_path, helpers, shape):
         "mixed": begin + "\n" + end + "\n" + injector.LEGACY_MARKER_BEGIN,
     }[shape]
     target, source = tmp_path / "CLAUDE.md", tmp_path / "protocol.md"
-    target.write_text(contents)
-    source.write_text("protocol 2")
+    target.write_text(contents, encoding="utf-8")
+    source.write_text("protocol 2", encoding="utf-8")
     with pytest.raises(ValueError, match="marker"):
         injector.inject(target, source)
-    assert target.read_text() == contents
+    assert target.read_text(encoding="utf-8") == contents
     assert not list(tmp_path.glob("*.backup.*"))
 
 
 def test_append_preserves_user_instructions_without_final_newline(tmp_path, helpers):
     injector, _ = helpers
     target, source = tmp_path / "CLAUDE.md", tmp_path / "protocol.md"
-    target.write_text("User instructions")
-    source.write_text("protocol 2\n")
+    target.write_text("User instructions", encoding="utf-8")
+    source.write_text("protocol 2\n", encoding="utf-8")
     injector.inject(target, source)
-    assert target.read_text().startswith("User instructions\n" + injector.MARKER_BEGIN)
+    assert target.read_text(encoding="utf-8").startswith("User instructions\n" + injector.MARKER_BEGIN)
 
 
 def test_known_memory_and_index_migrate_with_backups(tmp_path, helpers):
@@ -95,10 +95,10 @@ def test_user_edited_memory_is_preserved_with_actionable_warning(tmp_path, helpe
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
     custom = (memory.TEMPLATES / "memory-routing-v1.md").read_bytes() + b"\nMy exception\n"
     reminder.write_bytes(custom)
-    index.write_text(memory.INDEX_ENTRIES[1] + "\n")
+    index.write_text(memory.INDEX_ENTRIES[1] + "\n", encoding="utf-8")
     assert not memory.migrate(tmp_path, 2)
     assert reminder.read_bytes() == custom
-    assert index.read_text() == memory.INDEX_ENTRIES[1] + "\n"
+    assert index.read_text(encoding="utf-8") == memory.INDEX_ENTRIES[1] + "\n"
     warning = capsys.readouterr().err
     assert str(reminder) in warning and "Manually" in warning and "keep/switch" in warning
     assert not list(tmp_path.glob("*.backup.*"))
@@ -110,9 +110,9 @@ def test_user_edited_or_duplicate_index_entry_is_preserved(tmp_path, helpers, ca
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
     reminder.write_bytes((memory.TEMPLATES / "memory-routing-v1.md").read_bytes())
     custom_index = memory.INDEX_ENTRIES[1] + suffix + "\n"
-    index.write_text(custom_index)
+    index.write_text(custom_index, encoding="utf-8")
     assert memory.migrate(tmp_path, 2)
-    assert index.read_text() == custom_index
+    assert index.read_text(encoding="utf-8") == custom_index
     assert str(index) in capsys.readouterr().err
     assert not list(tmp_path.glob("MEMORY.md.backup.*"))
 
@@ -129,7 +129,7 @@ def test_unix_first_install_creates_memory_and_preserves_existing_index(tmp_path
     index = tmp_path / "MEMORY.md"
     index.write_bytes(b"[My note](my-note.md)")
     assert memory.migrate(tmp_path, 2)
-    assert index.read_text() == "[My note](my-note.md)\n" + memory.INDEX_ENTRIES[2] + "\n"
+    assert index.read_text(encoding="utf-8") == "[My note](my-note.md)\n" + memory.INDEX_ENTRIES[2] + "\n"
     assert (tmp_path / memory.FILENAME).exists()
 
 
@@ -138,16 +138,44 @@ def test_known_v2_reminder_can_roll_back_to_v1(tmp_path, helpers):
     memory.migrate(tmp_path, 2)
     assert memory.migrate(tmp_path, 1)
     assert (tmp_path / memory.FILENAME).read_bytes() == (memory.TEMPLATES / "memory-routing-v1.md").read_bytes()
-    assert (tmp_path / "MEMORY.md").read_text() == memory.INDEX_ENTRIES[1] + "\n"
+    assert (tmp_path / "MEMORY.md").read_text(encoding="utf-8") == memory.INDEX_ENTRIES[1] + "\n"
 
 
 def test_symlink_target_is_not_replaced(tmp_path, helpers):
     injector, _ = helpers
     original, link, source = tmp_path / "personal.md", tmp_path / "CLAUDE.md", tmp_path / "protocol.md"
-    original.write_text("My instructions")
+    original.write_text("My instructions", encoding="utf-8")
     link.symlink_to(original)
-    source.write_text("protocol 2")
+    source.write_text("protocol 2", encoding="utf-8")
     with pytest.raises(ValueError, match="symlink"):
         injector.inject(link, source)
-    assert original.read_text() == "My instructions"
+    assert original.read_text(encoding="utf-8") == "My instructions"
     assert link.is_symlink()
+
+
+def test_checkout_defaults_to_v1_and_explicit_opt_in_is_reversible(tmp_path, helpers):
+    injector, _ = helpers
+    root = Path(__file__).resolve().parents[1]
+    templates = root / "scripts" / "templates"
+    original = (root / "CLAUDE.md").read_bytes()
+    begin, end = injector.MARKER_BEGIN.encode(), injector.MARKER_END.encode()
+    assert original.count(begin) == original.count(end) == 1
+    before, managed = original.split(begin, 1)
+    section, after = managed.split(end, 1)
+    assert section.strip() == (templates / "routing-protocol-v1.md").read_bytes().strip()
+    assert b"## Repository notes" in after
+
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(original)
+    assert injector.inject(target, templates / "routing-protocol-core.md")
+    opted_in = target.read_bytes()
+    assert opted_in.startswith(before + begin) and opted_in.endswith(end + after)
+    assert opted_in.count(begin) == opted_in.count(end) == 1
+    assert b"Before answering ANY user query" not in opted_in
+    assert not injector.inject(target, templates / "routing-protocol-core.md")
+
+    assert injector.inject(target, templates / "routing-protocol-v1.md")
+    assert target.read_bytes() == original
+    backups = list(tmp_path.glob("CLAUDE.md.backup.*"))
+    assert len(backups) == 2
+    assert {path.read_bytes() for path in backups} == {original, opted_in}

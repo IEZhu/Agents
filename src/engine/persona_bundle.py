@@ -44,6 +44,8 @@ def _component_id(value: str) -> str:
 
 def _declared_ids(metadata: dict, key: str) -> list[str]:
     values = metadata.get(key, [])
+    if values is None:
+        values = []
     if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
         raise ValueError(f"Agent {key} must be a list of component IDs")
     return list(dict.fromkeys(_component_id(value) for value in values))
