@@ -43,26 +43,26 @@ def test_nested_fastmcp_result_is_unwrapped():
 
 
 def test_role_name_in_answer_does_not_prove_activation():
-    result, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [], output(), None, 2)
+    result, active = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [], output(), None, 2)
     assert not result["passed"]
     assert active is None
     assert "missing_successful_load" in result["failures"]
 
 
-def logged(action="switch"):
-    return {"tool": "log_interaction", "arguments": {"agent_name": "software_engineer", "persona": activation()["result"]["persona"], "persona_action": action, "response_content": "Cedar **Agent**: software_engineer"}, "result": {"request_id": "request", "history": {"status": "recorded"}}}
+def logged(action="switch", query="Explain a dictionary"):
+    return {"tool": "log_interaction", "arguments": {"query": query, "agent_name": "software_engineer", "persona": activation()["result"]["persona"], "persona_action": action, "response_content": "Cedar **Agent**: software_engineer"}, "result": {"request_id": "request", "history": {"status": "recorded"}}}
 
 
 def test_successful_activation_and_keep():
-    loaded, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [activation(), logged()], output(), None, 2)
+    loaded, active = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [activation(), logged()], output(), None, 2)
     assert loaded["passed"]
-    kept, same = assess_turn({"expected": "keep", "agent": "software_engineer", "facts": ["Cedar"]}, [logged("keep")], output(), active, 2)
+    kept, same = assess_turn({"query": "Explain a dictionary", "expected": "keep", "agent": "software_engineer", "facts": ["Cedar"]}, [logged("keep")], output(), active, 2)
     assert kept["passed"]
     assert same == active
 
 
 def test_keep_cannot_pass_after_failed_initial_load():
-    result, _ = assess_turn({"expected": "keep", "agent": "software_engineer"}, [], output(), None, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "keep", "agent": "software_engineer"}, [], output(), None, 2)
     assert not result["passed"]
     assert "keep_without_same_active_persona" in result["failures"]
 
@@ -70,13 +70,13 @@ def test_keep_cannot_pass_after_failed_initial_load():
 def test_catalog_or_denied_routing_invalidates_keep():
     active = activation()["result"]["persona"]
     for tool in ["list_agents", "load_implants", "route_and_load", "refresh_persona_context"]:
-        result, _ = assess_turn({"expected": "keep", "agent": "software_engineer"}, [], output(calls=[tool]), active, 2)
+        result, _ = assess_turn({"query": "Explain a dictionary", "expected": "keep", "agent": "software_engineer"}, [], output(calls=[tool]), active, 2)
         assert "unnecessary_selection_or_enrichment" in result["failures"]
 
 
 def test_stale_activation_fails_even_when_correct_agent():
     active = activation()["result"]["persona"]
-    result, retained = assess_turn({"expected": "switch", "agent": "lawyer"}, [activation("lawyer", "b", "stale")], output("lawyer"), active, 2)
+    result, retained = assess_turn({"query": "Explain a dictionary", "expected": "switch", "agent": "lawyer"}, [activation("lawyer", "b", "stale")], output("lawyer"), active, 2)
     assert "activation_chain_mismatch" in result["failures"]
     assert "missing_successful_load" in result["failures"]
     assert retained is active
@@ -93,12 +93,12 @@ def test_incomplete_bundle_preserves_previous_activation(field, invalid):
         del call["result"][field]
     else:
         call["result"][field] = invalid
-    result, retained = assess_turn({"expected": "switch", "agent": "lawyer"}, [call], output("lawyer"), active, 2)
+    result, retained = assess_turn({"query": "Explain a dictionary", "expected": "switch", "agent": "lawyer"}, [call], output("lawyer"), active, 2)
     assert "incomplete_bundle" in result["failures"]
     assert "missing_successful_load" in result["failures"]
     assert not result["observed_switch"]
     assert retained is active
-    kept, same = assess_turn({"expected": "keep", "agent": "software_engineer"}, [logged("keep")], output(), retained, 2)
+    kept, same = assess_turn({"query": "Explain a dictionary", "expected": "keep", "agent": "software_engineer"}, [logged("keep")], output(), retained, 2)
     assert kept["passed"]
     assert same is active
 
@@ -108,7 +108,7 @@ def test_incomplete_bundle_preserves_previous_activation(field, invalid):
 def test_empty_persona_or_footer_cannot_activate_initial_persona(field, blank):
     call = activation()
     call["result"][field] = blank
-    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    verdict, active = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
     assert "incomplete_bundle" in verdict["failures"]
     assert "missing_successful_load" in verdict["failures"]
     assert active is None
@@ -118,7 +118,7 @@ def test_empty_persona_or_footer_cannot_activate_initial_persona(field, blank):
 def test_incomplete_descriptor_cannot_activate(field):
     call = activation()
     del call["result"]["persona"][field]
-    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    verdict, active = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
     assert "incomplete_descriptor" in verdict["failures"]
     assert "missing_successful_load" in verdict["failures"]
     assert active is None
@@ -131,7 +131,7 @@ def test_incomplete_descriptor_cannot_activate(field):
 def test_malformed_descriptor_cannot_activate(field, value):
     call = activation()
     call["result"]["persona"][field] = value
-    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    verdict, active = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
     assert "incomplete_descriptor" in verdict["failures"]
     assert "missing_successful_load" in verdict["failures"]
     assert active is None
@@ -141,7 +141,7 @@ def test_rejected_success_does_not_break_following_valid_activation_chain():
     active = activation()["result"]["persona"]
     rejected = activation("lawyer", "rejected", "stale")
     accepted = activation("lawyer", "accepted", "a")
-    verdict, result = assess_turn({"expected": "switch", "agent": "lawyer"}, [rejected, accepted], output("lawyer"), active, 2)
+    verdict, result = assess_turn({"query": "Explain a dictionary", "expected": "switch", "agent": "lawyer"}, [rejected, accepted], output("lawyer"), active, 2)
     assert not verdict["passed"]  # The rejected response still fails this turn.
     assert "activation_chain_mismatch" in verdict["failures"]
     assert "missing_successful_load" not in verdict["failures"]
@@ -154,7 +154,7 @@ def test_invalid_refresh_success_preserves_activation():
     call = activation(activation_id="b", replaces="a")
     call["tool"] = "refresh_persona_context"
     del call["result"]["footer"]
-    verdict, retained = assess_turn({"expected": "refresh", "agent": "software_engineer"}, [call], output(), active, 2)
+    verdict, retained = assess_turn({"query": "Explain a dictionary", "expected": "refresh", "agent": "software_engineer"}, [call], output(), active, 2)
     assert "missing_successful_refresh" in verdict["failures"]
     assert "incomplete_bundle" in verdict["failures"]
     assert retained is active
@@ -163,7 +163,7 @@ def test_invalid_refresh_success_preserves_activation():
 def test_tool_error_cannot_install_success_payload():
     call = activation()
     call["error"] = "Transport failed"
-    verdict, active = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
+    verdict, active = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [call], output(), None, 2)
     assert "server_tool_error" in verdict["failures"]
     assert "missing_successful_load" in verdict["failures"]
     assert active is None
@@ -172,15 +172,54 @@ def test_tool_error_cannot_install_success_payload():
 def test_duplicate_history_write_counts_as_recorded():
     duplicate = logged()
     duplicate["result"]["history"]["status"] = "duplicate"
-    verdict, _ = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [activation(), logged(), duplicate], output(), None, 2)
+    verdict, _ = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [activation(), logged(), duplicate], output(), None, 2)
     assert verdict["passed"]
+
+
+@pytest.mark.parametrize("query", [None, "", "A previous request", "Explain a dictionary "])
+def test_log_for_another_query_fails(query):
+    call = logged(query=query)
+    turn = {"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}
+    verdict, _ = assess_turn(turn, [activation(), call], output(), None, 2)
+    assert verdict["failures"] == ["log_query_mismatch"]
+
+
+def test_log_without_query_fails():
+    call = logged()
+    del call["arguments"]["query"]
+    turn = {"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}
+    verdict, _ = assess_turn(turn, [activation(), call], output(), None, 2)
+    assert verdict["failures"] == ["log_query_mismatch"]
+
+
+def test_each_log_must_match_the_current_query():
+    turn = {"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}
+    verdict, _ = assess_turn(turn, [activation(), logged(query="Previous request"), logged()], output(), None, 2)
+    assert verdict["failures"] == ["log_query_mismatch"]
+
+
+def test_query_is_matched_verbatim_without_normalization():
+    query = "Explain a dictionary.\nKeep the example named 'Cedar'."
+    turn = {"query": query, "expected": "load", "agent": "software_engineer", "direct": True}
+    verdict, _ = assess_turn(turn, [activation(), logged(query=query)], output(), None, 2)
+    assert verdict["passed"]
+
+
+@pytest.mark.parametrize("query,passed", [("Explain a dictionary", True), ("Previous request", False), (None, False)])
+def test_legacy_log_query_uses_the_same_matching_rule(query, passed):
+    turn = {"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer"}
+    load = {"tool": "get_agent_context", "arguments": {},
+            "result": {"status": "SUCCESS", "agent": "software_engineer", "context_hash": "hash"}}
+    verdict, _ = assess_turn(turn, [load, logged(query=query)], output(), None, 1)
+    assert verdict["passed"] == passed
+    assert verdict["failures"] == ([] if passed else ["log_query_mismatch"])
 
 
 def test_no_change_cannot_count_as_switch():
     active = activation()["result"]["persona"]
     call = activation()
     call["result"]["status"] = "NO_CHANGE"
-    result, _ = assess_turn({"expected": "switch", "agent": "lawyer"}, [call], output("lawyer"), active, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "switch", "agent": "lawyer"}, [call], output("lawyer"), active, 2)
     assert "missing_successful_load" in result["failures"]
 
 
@@ -189,13 +228,13 @@ def test_changed_footer_or_lost_fact_fails():
     actual["answer"] = "**Agent**: software_engineer"
     call = activation()
     call["result"]["footer"] += " · **Skills**: real-skill"
-    result, _ = assess_turn({"expected": "load", "agent": "software_engineer", "facts": ["Cedar"]}, [call], actual, None, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "facts": ["Cedar"]}, [call], actual, None, 2)
     assert "missing_conversation_fact" in result["failures"]
     assert "footer_differs_from_bundle" in result["failures"]
 
 
 def test_missing_or_wrong_attribution_fails():
-    turn = {"expected": "load", "agent": "software_engineer", "direct": True}
+    turn = {"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}
     result, _ = assess_turn(turn, [activation()], output(), None, 2)
     assert "missing_attribution_log" in result["failures"]
     wrong = logged("keep")
@@ -207,7 +246,7 @@ def test_missing_or_wrong_attribution_fails():
 
 def test_refresh_requires_valid_success_or_no_change():
     active = activation()["result"]["persona"]
-    turn = {"expected": "refresh", "agent": "software_engineer"}
+    turn = {"query": "Explain a dictionary", "expected": "refresh", "agent": "software_engineer"}
     for payload in ({}, {"status": "ROUTE_REQUIRED"}, {"status": "SUCCESS", "protocol_version": 1}):
         call = {"tool": "refresh_persona_context", "arguments": {}, "result": payload}
         result, _ = assess_turn(turn, [call, logged("refresh")], output(), active, 2)
@@ -220,7 +259,7 @@ def test_no_change_must_preserve_entire_descriptor():
     call["tool"] = "refresh_persona_context"
     call["result"]["status"] = "NO_CHANGE"
     call["result"]["persona"]["bundle_revision"] = "silently-changed"
-    result, _ = assess_turn({"expected": "refresh", "agent": "software_engineer"}, [call], output(), active, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "refresh", "agent": "software_engineer"}, [call], output(), active, 2)
     assert "no_change_changed_activation" in result["failures"]
 
 
@@ -229,7 +268,7 @@ def test_codex_final_does_not_inherit_footer_from_progress():
         {"type": "item.completed", "item": {"type": "agent_message", "text": "Cedar **Agent**: software_engineer"}},
         {"type": "item.completed", "item": {"type": "agent_message", "text": "I forgot the name."}},
     ])
-    verdict, _ = assess_turn({"expected": "load", "agent": "software_engineer", "facts": ["Cedar"]}, [activation(), logged()], actual, None, 2)
+    verdict, _ = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "facts": ["Cedar"]}, [activation(), logged()], actual, None, 2)
     assert "missing_conversation_fact" in verdict["failures"]
     assert "wrong_footer_agent" in verdict["failures"]
 
@@ -250,7 +289,7 @@ def test_failed_history_sink_and_unlogged_final_fail():
     call = logged()
     call["result"]["history"]["status"] = "error"
     call["arguments"]["response_content"] = "A different response."
-    result, _ = assess_turn({"expected": "load", "agent": "software_engineer", "direct": True}, [activation(), call], output(), None, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer", "direct": True}, [activation(), call], output(), None, 2)
     assert "log_not_recorded" in result["failures"]
     assert "log_response_differs_from_final" in result["failures"]
 
@@ -259,17 +298,17 @@ def test_sampled_v2_response_never_counts_as_refresh():
     call = activation()
     call["tool"] = "refresh_persona_context"
     call["result"]["status"] = "SUCCESS_SAMPLED"
-    result, _ = assess_turn({"expected": "refresh", "agent": "software_engineer"}, [call, logged("refresh")], output(), activation()["result"]["persona"], 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "refresh", "agent": "software_engineer"}, [call, logged("refresh")], output(), activation()["result"]["persona"], 2)
     assert "sampling_in_v2" in result["failures"]
     assert "missing_successful_refresh" in result["failures"]
 
 
 def test_unknown_initial_role_requires_routing():
-    result, _ = assess_turn({"expected": "load", "agent": "software_engineer"}, [activation(), logged()], output(), None, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer"}, [activation(), logged()], output(), None, 2)
     assert "initial_selection_skipped_routing" in result["failures"]
     routed = activation()
     routed["tool"] = "route_and_load"
-    result, _ = assess_turn({"expected": "load", "agent": "software_engineer"}, [routed, logged()], output(), None, 2)
+    result, _ = assess_turn({"query": "Explain a dictionary", "expected": "load", "agent": "software_engineer"}, [routed, logged()], output(), None, 2)
     assert result["passed"]
 
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -341,3 +342,34 @@ async def test_prompt_rejects_unsupported_version_before_loading(command, monkey
     assert "protocol_version must be 1 or 2" in result.messages[0].content.text
     for dependency in (legacy, v2_load, v2_route, lookup):
         dependency.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initialization_guidance_matches_each_version_success_payload(bundle, monkeypatch):
+    monkeypatch.setattr(server, "_load_and_enrich", AsyncMock(
+        return_value=("Legacy role text", "hash", [], [], [], "standard"),
+    ))
+    legacy = json.loads(await server.get_agent_context("lawyer", "fictional contract"))
+    current = json.loads(await server.get_agent_context(
+        "lawyer", "fictional contract", protocol_version=2,
+    ))
+    instructions = server.mcp._mcp_server.create_initialization_options().instructions
+    v2_section = instructions.split("Version 2 response statuses:\n", 1)[1].split(
+        "Version 1 (default API):", 1,
+    )[0]
+    v1_section = instructions.split("Version 1 response statuses:\n", 1)[1]
+
+    # Check the field references delivered during MCP initialization against the
+    # actual wire payloads: v2 clients must not be told to read v1's system_prompt.
+    advertised = []
+    for section, response in ((v1_section, legacy), (v2_section, current)):
+        success = next(line for line in section.splitlines() if line.startswith("- SUCCESS →"))
+        fields = set(re.findall(r"`(\w+)`", success))
+        assert fields <= response.keys()
+        advertised.append(fields)
+    assert advertised[0] == {"system_prompt"}
+    assert advertised[1] == {
+        "persona", "persona_block", "rules_block", "skills_block", "implants_block",
+        "replaces_activation_id", "footer",
+    }
+    assert "`system_prompt`" not in v2_section

@@ -60,17 +60,27 @@ mcp = FastMCP(
         "do not route, enumerate agents, or enrich. Route only for initial selection or a needed "
         "specialization change, with protocol_version=2 and current_persona. Load an explicitly "
         "named role directly. Restore lost instructions with force_reload=True; refresh skills "
-        "with refresh_persona_context. Apply a successful complete bundle by replacing all "
-        "four persona/rules/skills/implants blocks, preserving higher-priority instructions, "
-        "the conversation and user constraints. "
-        "Require matching replaces_activation_id; ignore stale or replayed activations. "
-        "Keep the previous activation on error. Never clear caches to switch personas. "
-        "Compose the answer with the returned footer, call log_interaction with that answer "
-        "and the active descriptor/action, then send the final answer.\n"
+        "with refresh_persona_context. Preserve higher-priority instructions, the conversation "
+        "and user constraints. Ignore stale or replayed activations. Never clear caches to "
+        "switch personas. Compose the answer with the returned footer, call log_interaction "
+        "with that answer, the current user request verbatim as query, and the active "
+        "descriptor/action, then send the final answer.\n\n"
+        "Version 2 response statuses:\n"
+        "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
+        "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
+        "matches the current activation (null for initial load), replacing all four blocks, "
+        "including empty blocks. Then save `persona` and `footer`.\n"
+        "- ROUTE_REQUIRED → select from `candidates`, then call "
+        "`get_agent_context(agent_name, query, protocol_version=2, current_persona=...)`; "
+        "retain the previous activation until SUCCESS.\n"
+        "- NO_CHANGE → keep the current blocks, descriptor and footer unchanged.\n"
+        "- ERROR → keep the previous activation; report that the requested bundle was not "
+        "applied. Do not partially activate returned content.\n"
+        "Version 2 never samples an answer.\n\n"
         "Version 1 (default API): route before each query, passing the previous context_hash. "
         "The ask and agent slash prompts also default to version 1; pass protocol_version=2 "
         "explicitly to request their version 2 bundles.\n\n"
-        "Response statuses:\n"
+        "Version 1 response statuses:\n"
         "- SUCCESS_SAMPLED → display `response` as-is (ready-made agent answer).\n"
         "- SUCCESS → use `system_prompt` as context for your answer.\n"
         "- ROUTE_REQUIRED → pick best agent from `candidates`, call `get_agent_context(agent_name, query)`.\n"
@@ -741,6 +751,8 @@ async def log_interaction(
     """End-of-turn logger. Compose the answer including its footer, call this tool
     with that exact response_content, then deliver the final answer. In protocol 2,
     pass the active persona descriptor and persona_action (keep/switch/refresh/restore).
+    Pass the current user request verbatim as query, without paraphrasing or
+    substituting a conversation summary.
     These are client-reported attribution, not proof of instruction compliance.
 
     Two sinks, independent of each other:

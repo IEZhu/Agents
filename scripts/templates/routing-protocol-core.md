@@ -77,8 +77,10 @@ canonical component IDs and English labels `Agent`, `Skills`, `Implants`, `Rules
 On `keep`, reuse that footer; do not infer component lists. Before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`
 with that exact answer text, the applied descriptor, and `keep`, `switch`, `refresh`,
-or `restore`. After logging, deliver the composed answer. This order matters:
-clients may end the tool loop as soon as the final answer is sent.
+or `restore`. Pass the current user request verbatim as `query`; do not paraphrase
+it or substitute a conversation summary. After logging, deliver the composed
+answer. This order matters: clients may end the tool loop as soon as the final
+answer is sent.
 
 Logging is permitted on `keep`; routing and enrichment are not. The log records
 declared attribution, not proof of the model's compliance. If a requested change
