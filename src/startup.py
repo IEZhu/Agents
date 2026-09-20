@@ -81,7 +81,25 @@ def _activate(repo_root, session_fd):
 
 def run_server(server_path):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(server_path)))
-    with server_session(repo_root, lambda fd: _activate(repo_root, fd)):
+    import tempfile
+    # Bootstrap stays stdlib-only even while another process changes src/.
+    import json
+    marker_path = os.path.join(repo_root, "data/.shared-service.json")
+    def check_service():
+        try:
+            with open(marker_path) as stream: marker = json.load(stream)
+        except FileNotFoundError:
+            return
+        directory = marker["directory"]
+        if any(os.path.lexists(os.path.join(directory, name)) for name in
+               ("maintenance.json", "transaction.json")):
+            raise SystemExit("Shared service is in maintenance; use the controller to recover")
+        os.environ["AGENTS_AUTO_UPDATE"] = "0"
+    check_service()
+    with tempfile.TemporaryDirectory(prefix="agents-stdio-") as derived, server_session(repo_root, lambda fd: _activate(repo_root, fd)):
+        check_service()
+        os.environ["AGENTS_DERIVED_DIR"] = derived
+        os.environ["AGENTS_ROUTER_DATA_DIR"] = os.path.join(derived, "router")
         # A contender imported this bootstrap before waiting for the writer.
         # Refresh its module too: updated application code may use new symbols.
         # Use a fresh namespace: reload() would retain names removed by the update.

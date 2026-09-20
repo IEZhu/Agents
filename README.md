@@ -262,6 +262,23 @@ Agents/
 
 ## 🔌 MCP Client Configuration
 
+On macOS, use one shared daemon for Codex, Claude Code, Cursor and Claude Desktop:
+
+```bash
+.venv/bin/python -m src.daemon install
+.venv/bin/python -m src.daemon start
+.venv/bin/python -m src.daemon migrate --workspace /absolute/path/to/project
+.venv/bin/python -m src.daemon migrate --clients desktop
+```
+
+The cached model is `intfloat/multilingual-e5-large`. Global registrations provide
+routing; project memory requires a registered workspace. The installer manages
+private bearer headers and backups. See [service operations](docs/shared-mcp-daemon.md)
+for the initial maintenance window, scope audit, updates, token rotation and rollback.
+
+The configurations below are for explicit standalone stdio use (including platforms
+without the macOS service). Stop the shared daemon before a full stdio rollback.
+
 ### Claude Code (`.mcp.json` in project root)
 
 ```json

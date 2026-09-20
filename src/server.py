@@ -18,7 +18,8 @@ import re
 import json
 import asyncio
 import dotenv
-from cachetools import TTLCache
+from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
+from src.engine.fingerprint import configuration_revision
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability
@@ -44,13 +45,14 @@ from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS,
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
-from src.memory.history import HistoryReader, HistoryStore, HistoryWriter
+from src.memory.history import HistoryReader, HistoryWriter
+from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import load_persona, route_persona, parse_persona, error_response
 
 # Cached instance — avoids reloading .npz from disk on every read_history call.
 # HistoryStore.ensure_index() handles mtime-based staleness internally.
-_history_store = HistoryStore()
+_history_stores = HistoryStores()
 
 mcp = FastMCP(
     "Agents-Core",
@@ -93,6 +95,10 @@ mcp = FastMCP(
         "Version 1: append at the end (labels in English, values are canonical IDs): "
         "**Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]\n"
         "Version 2: append the exact footer returned with the active bundle.\n"
+        "HTTP memory tools require X-Agents-Workspace. On workspace_required or workspace_invalid, "
+        "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
+        "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
+        "Never replay an ambiguous write automatically; read the result first.\n"
         "MCP-unavailable fallback: reuse a valid retained v2 bundle's descriptor and exact "
         "footer, or retained v1 context with its legacy footer format. If neither is "
         "retained, disclose manual fallback and omit the MCP footer and descriptor "
@@ -220,7 +226,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         tier = "standard"
         logger.info(f"Tier promoted to 'standard' for {agent_name} (preferred implants declared)")
 
-    query_hash = hash(query)
+    query_hash = hash((query, configuration_revision()))
     cache_key = f"{agent_name}:{query_hash}:{tier}"
     if cache_key in SESSION_CACHE:
         cached = SESSION_CACHE[cache_key]
@@ -308,7 +314,7 @@ async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> st
 
 
 def _supports_sampling(ctx: Context | None) -> bool:
-    if ctx is None:
+    if ctx is None or os.environ.get("AGENTS_TRANSPORT") == "http":
         return False
     try:
         return ctx.session.check_client_capability(
@@ -753,6 +759,7 @@ async def log_interaction(
     tags: Optional[List[str]] = None,
     persona: PersonaDescriptor | None = None,
     persona_action: PersonaAction | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
     with that exact response_content, then deliver the final answer. In protocol 2,
@@ -777,6 +784,8 @@ async def log_interaction(
     not prevent the other.
     """
     try:
+        client = client_context(ctx)
+        root = client.require_root()
         active = parse_persona(persona)
         if active is not None and active.agent != agent_name:
             raise ValueError("agent_name does not match persona.agent")
@@ -835,7 +844,7 @@ async def log_interaction(
     # --- History append (always; defaults to raw query/response) ---
     def _send_history() -> dict:
         try:
-            writer = HistoryWriter()
+            writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
             if active:
@@ -857,7 +866,7 @@ async def log_interaction(
     langfuse_future = loop.run_in_executor(None, _send_langfuse)
     history_future = loop.run_in_executor(None, _send_history)
     try:
-        langfuse_payload = await asyncio.wait_for(langfuse_future, timeout=10.0)
+        langfuse_payload = await asyncio.wait_for(asyncio.shield(langfuse_future), timeout=10.0)
     except asyncio.TimeoutError:
         langfuse_payload = {"status": "error", "error": "timeout (10s)"}
     # History is the critical sink — no timeout, so we never report a false
@@ -894,29 +903,8 @@ async def describe_repo(
     status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
     """
     try:
-        # Restrict repo_path to the client repo root so the sandbox tracks
-        # the per-session memory boundary (issue #36). Relative paths resolve
-        # against the client root for stable behavior across sessions.
-        client_root = get_client_repo_root()
-        if repo_path is not None:
-            if not os.path.isabs(repo_path):
-                repo_path = os.path.join(client_root, repo_path)
-            resolved = os.path.realpath(repo_path)
-            if not _is_within(resolved, client_root):
-                payload = {
-                    "status": "error",
-                    "error": f"repo_path must be within {client_root}",
-                }
-                return json.dumps(payload, ensure_ascii=False)
-            if not os.path.isdir(resolved):
-                payload = {
-                    "status": "error",
-                    "error": f"repo_path is not an existing directory: {repo_path}",
-                }
-                return json.dumps(payload, ensure_ascii=False)
-            # Use the canonicalized path for all downstream work so symlink
-            # TOCTOU can't bypass the sandbox after validation.
-            repo_path = resolved
+        client = client_context(ctx)
+        repo_path = str(client.target(repo_path))
 
         debug_log("describe_repo", "req", {
             "repo_path": repo_path,
@@ -934,7 +922,7 @@ async def describe_repo(
         prompt = await loop.run_in_executor(None, describer.build_prompt)
 
         # Try MCP sampling if context is available.
-        if ctx is not None:
+        if _supports_sampling(ctx):
             try:
                 summary = await _sample_with_agent(ctx, prompt, "Generate the repository overview.")
                 payload = await loop.run_in_executor(
@@ -949,13 +937,15 @@ async def describe_repo(
         # Fallback: return the prompt for the calling model to process.
         payload = {
             "status": "needs_summary",
+            "workspace_id": client.workspace_id,
             "repo_hash": decision.current_hash,
             "repo_path": describer.repo_path,
             "prompt": prompt,
             "instruction": (
                 "Sampling is not available. Generate the repository overview by "
                 "following the prompt above, then call write_repo_summary("
-                f'summary=<your output>, repo_hash="{decision.current_hash}"'
+                f'summary=<your output>, repo_hash="{decision.current_hash}", '
+                f'repo_path={json.dumps(repo_path)}, workspace_id={json.dumps(client.workspace_id)}'
                 ") to persist it."
             ),
         }
@@ -974,6 +964,8 @@ async def write_repo_summary(
     summary: str,
     repo_hash: str,
     repo_path: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    ctx: Context | None = None,
 ) -> str:
     """Persist a repository summary after describe_repo returned status='needs_summary'.
 
@@ -984,24 +976,11 @@ async def write_repo_summary(
     status ∈ {"refreshed", "rejected", "error"}.
     """
     try:
-        client_root = get_client_repo_root()
-        if repo_path is not None:
-            if not os.path.isabs(repo_path):
-                repo_path = os.path.join(client_root, repo_path)
-            resolved = os.path.realpath(repo_path)
-            if not _is_within(resolved, client_root):
-                payload = {
-                    "status": "error",
-                    "error": f"repo_path must be within {client_root}",
-                }
-                return json.dumps(payload, ensure_ascii=False)
-            if not os.path.isdir(resolved):
-                payload = {
-                    "status": "error",
-                    "error": f"repo_path is not an existing directory: {repo_path}",
-                }
-                return json.dumps(payload, ensure_ascii=False)
-            repo_path = resolved
+        client = client_context(ctx)
+        client.require_root()
+        if client.transport == "http" and (workspace_id != client.workspace_id or repo_path is None):
+            raise WorkspaceError("workspace_invalid: pass the original workspace_id and repo_path from describe_repo")
+        repo_path = str(client.target(repo_path))
 
         debug_log("write_repo_summary", "req", {
             "repo_path": repo_path,
@@ -1028,6 +1007,7 @@ async def read_history(
     limit: int = 20,
     since: Optional[str] = None,
     query: Optional[str] = None,
+    ctx: Context | None = None,
 ) -> str:
     """Read recent history entries or run a lazy semantic search.
 
@@ -1047,19 +1027,21 @@ async def read_history(
     - semantic: {id, distance, document, timestamp, intent, tags}.
     """
     try:
+        client = client_context(ctx)
+        root = client.require_root()
         limit = max(1, min(limit, 500))
         query = (query or "").strip() or None
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
         loop = asyncio.get_running_loop()
 
         if query:
-            results = await loop.run_in_executor(
-                None,
-                lambda: _history_store.search(query, limit=limit),
-            )
+            def search():
+                with _history_stores.acquire(client) as store:
+                    return store.search(query, limit=limit)
+            results = await loop.run_in_executor(None, search)
             payload = {"mode": "semantic", "total": len(results), "entries": results}
         else:
-            reader = HistoryReader()
+            reader = HistoryReader(str(root / "history.md"))
             entries = await loop.run_in_executor(
                 None,
                 lambda: reader.read_recent(limit=limit, since=since),
