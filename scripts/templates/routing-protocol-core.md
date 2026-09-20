@@ -33,7 +33,7 @@ does not mean that the conversation has no active persona.
 `universal_agent` is for general coordination, conversation, and tasks without a
 suitable specialist. Switch when a task clearly requires engineering, legal,
 medical, or another specialization. If the task itself is ambiguous, ask a useful
-clarifying question. Interpret short requests by meaning: `SQL?` and `Налоги?`
+clarifying question. Interpret short requests by meaning: `SQL?` and `Taxes?`
 are substantive; a greeting followed by a task is a task. For references to an
 earlier task, pass only relevant facts in `chat_history` when routing is needed.
 

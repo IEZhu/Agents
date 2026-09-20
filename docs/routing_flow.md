@@ -41,6 +41,7 @@ See the complete [client protocol](../scripts/templates/routing-protocol-core.md
 The default installer still uses the [v1 compatibility template](../scripts/templates/routing-protocol-v1.md).
 Version 2 is an explicit opt-in until the required dialogue evaluations pass for a
 specific client and model; server contract tests alone do not establish support.
+See the [measured results and remaining validation gaps](persona-switch-eval-results.md).
 
 ## Version 2 API
 
@@ -102,7 +103,7 @@ v1 enriched-prompt TTL cache remains separate from v2 client persona state.
 The API defaults to `protocol_version=1`. V1 sampling is attempted only when the
 client advertises sampling capability; otherwise the server returns the prompt.
 V1 meta detection recognizes standalone greetings/acknowledgements, not arbitrary
-short strings or greeting prefixes. `SQL?`, `Налоги?`, and greetings followed by a
+short strings or greeting prefixes. `SQL?`, `Taxes?`, and greetings followed by a
 task remain substantive. A known role survives standalone acknowledgements;
 without one, the server cannot return `NO_CHANGE`.
 

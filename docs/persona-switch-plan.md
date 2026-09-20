@@ -1,266 +1,274 @@
-# План: смена персоны с сохранением контекста
+# Plan: switch personas while preserving context
 
-Статус: реализация и проверка клиентского поведения.
-Ветка: `codex/persona-switch-gate`.
+Status: implementation complete; client validation results and limitations are
+[in the report](persona-switch-eval-results.md). Version 2 requires explicit opt-in.
+Branch: `codex/persona-switch-gate`.
 
-## 1. Цель и поведение
+## 1. Goal and behavior
 
-Перед ответом на каждый пользовательский запрос модель проверяет, подходит ли
-текущая персона для задачи с учётом беседы. Проверка выполняется самой моделью,
-без обращения к MCP, каталогу агентов или отдельной модели-классификатору.
+Before answering each user request, the model checks whether its current persona
+fits the task in the context of the conversation. The model performs this check
+itself, without calling MCP, consulting the agent catalog, or invoking a separate
+classifier model.
 
-Если персона подходит, ответ продолжается сразу. Если требуется другая
-специализация, выполняются маршрутизация и замена инструкций роли. История,
-факты, цели, ограничения, разрешения пользователя и результаты инструментов
-сохраняются в текущем диалоге.
+If the persona fits, the model continues with its answer immediately. If another
+specialization is needed, it routes the request and replaces the role instructions.
+History, facts, goals, constraints, user permissions, and tool results remain in
+the current conversation.
 
-| Ситуация | Действие |
+| Situation | Action |
 |---|---|
-| Уточнение, подтверждение, просьба продолжить или изменить формат | `keep`: продолжить без routing/enrichment-вызовов |
-| Новая задача в компетенции текущей персоны | `keep`; не сравнивать её с другими агентами |
-| Явная просьба использовать другую роль | `switch`; известную роль загрузить напрямую |
-| Задача требует другой специализации | `switch`; вызвать маршрутизацию |
-| Персона ещё не задана и её имя неизвестно | Первичная маршрутизация |
-| Имя персоны известно, но её инструкции потеряны при компакции | Повторно загрузить эту роль без выбора нового агента |
-| Роль подходит, но для задачи нужны дополнительные skills/implants | Явный `refresh` контекста этой роли без маршрутизации |
+| Clarification, confirmation, request to continue, or format change | `keep`: continue without routing/enrichment calls |
+| New task within the current persona's competence | `keep`; do not compare it with other agents |
+| Explicit request to use another role | `switch`; load a known role directly |
+| Task requires another specialization | `switch`; call routing |
+| No persona has been set and its name is unknown | Initial routing |
+| The persona's name is known, but its instructions were lost during compaction | Reload that role without selecting another agent |
+| The role fits, but the task needs additional skills/implants | Explicitly `refresh` that role's context without routing |
 
-`universal_agent` удерживается для общей координации, общения и задач без
-подходящего специалиста. Его широкое описание не является основанием удерживать
-юридическую, медицинскую, инженерную или другую явно специализированную задачу.
+Keep `universal_agent` for general coordination, conversation, and tasks without
+a suitable specialist. Its broad description is not a reason to retain it for
+legal, medical, engineering, or other clearly specialized tasks.
 
-При сомнении модель сопоставляет запрос с заявленной компетенцией активной роли.
-Если задача выходит за её пределы, выполняется маршрутизация. Если неясна сама
-задача пользователя, задаётся содержательный уточняющий вопрос. Отдельного
-серверного `check` на каждом ходе нет.
+When uncertain, the model compares the request with the active role's stated
+competence. If the task falls outside that scope, route it. If the user's task
+itself is unclear, ask a meaningful clarifying question. There is no separate
+server-side `check` on every turn.
 
 ```mermaid
 flowchart TD
-    Q[Новый запрос] --> P{Роль и инструкции известны?}
-    P -->|Нет| R[Выбрать или восстановить роль]
-    P -->|Да| F{Специализация подходит?}
-    F -->|Нет| R
-    F -->|Да| K[Продолжить с текущей ролью]
-    K --> N{Нужна догрузка навыков?}
-    N -->|Нет| A[Ответить в том же диалоге]
-    N -->|Да| E[Обновить контекст той же роли]
-    R --> L[Загрузить блоки]
+    Q[New request] --> P{Role and instructions known?}
+    P -->|No| R[Select or restore a role]
+    P -->|Yes| F{Specialization fits?}
+    F -->|No| R
+    F -->|Yes| K[Continue with the current role]
+    K --> N{Additional skills needed?}
+    N -->|No| A[Answer in the same conversation]
+    N -->|Yes| E[Refresh the same role's context]
+    R --> L[Load the blocks]
     E --> L
-    L --> V{Загрузка успешна?}
-    V -->|Да| S[Применить замену инструкций]
+    L --> V{Loading successful?}
+    V -->|Yes| S[Apply replacement instructions]
     S --> A
-    V -->|Нет| X[Сохранить состояние и сообщить о сбое]
+    V -->|No| X[Preserve state and report the failure]
 ```
 
-## 2. Контракт MCP
+## 2. MCP contract
 
-Ввести протокол версии 2. Сохранить имена существующих инструментов и вынести
-логику новой версии в отдельные обработчики, чтобы не смешивать её со sticky
-routing и sampling. В `src/schemas/protocol.py` определить общие типы дескриптора
-и ответа; сборку блоков разделить в enrichment-пайплайне.
+Introduce protocol version 2. Keep existing tool names and place the new version's
+logic in separate handlers so it is not mixed with sticky routing and sampling.
+Define shared descriptor and response types in `src/schemas/protocol.py`; separate
+block assembly in the enrichment pipeline.
 
-### Инструменты
+### Tools
 
-| Интерфейс | Назначение |
+| Interface | Purpose |
 |---|---|
-| `route_and_load(query, ..., protocol_version=1, current_persona=None)` | При версии 2 выбирает роль только для первичной загрузки или необходимой смены; не использует прежнюю sticky-привязку как запрет на смену |
-| `get_agent_context(agent_name, query, ..., protocol_version=1, current_persona=None, force_reload=False)` | При версии 2 загружает явно выбранную роль; `force_reload=True` восстанавливает потерянные инструкции |
-| `refresh_persona_context(query, current_persona)` | Новый инструмент версии 2: обновляет skills/implants для того же агента и возвращает согласованный комплект блоков |
-| `log_interaction(..., persona=None, persona_action=None)` | Принимает дескриптор и действие `keep`, `switch`, `refresh` или `restore` для атрибуции |
+| `route_and_load(query, ..., protocol_version=1, current_persona=None)` | In version 2, selects a role only for initial loading or a necessary switch; does not use the previous sticky binding to prevent a switch |
+| `get_agent_context(agent_name, query, ..., protocol_version=1, current_persona=None, force_reload=False)` | In version 2, loads an explicitly selected role; `force_reload=True` restores lost instructions |
+| `refresh_persona_context(query, current_persona)` | New version 2 tool: refreshes skills/implants for the same agent and returns a consistent bundle of blocks |
+| `log_interaction(..., persona=None, persona_action=None)` | Accepts a descriptor and a `keep`, `switch`, `refresh`, or `restore` action for attribution |
 
-Добавляемые параметры существующих инструментов — необязательные. При отсутствии
-`protocol_version=2` сохраняются совместимые сигнатуры, статусы и формат ответа.
-Новый режим возвращает контекст текущей модели и не запускает sampling.
+New parameters on existing tools are optional. Without `protocol_version=2`,
+retain compatible signatures, statuses, and response formats. The new mode
+returns context to the current model and does not invoke sampling.
 
-Для неявной смены использовать имеющийся semantic cache с keyword-проверкой.
-Если уверенного результата нет, вернуть `ROUTE_REQUIRED` с кандидатами; модель
-выбирает агента и вызывает `get_agent_context` с версией 2. Для короткого запроса,
-ссылающегося на предыдущую задачу, передавать релевантный фрагмент через существующий
-`chat_history`. Отправка всей истории на сервер не требуется.
+For implicit switches, use the existing semantic cache with keyword validation.
+If there is no confident result, return `ROUTE_REQUIRED` with candidates; the
+model selects an agent and calls `get_agent_context` with version 2. For a short
+request referring to an earlier task, pass a relevant excerpt through the
+existing `chat_history` parameter. Sending the entire history to the server is
+not required.
 
-### Дескриптор и ответ
+### Descriptor and response
 
-Дескриптор активной персоны содержит:
+The active persona descriptor contains:
 
-- `agent`: каноническое имя агента;
-- `activation_id`: идентификатор конкретной активации;
-- `bundle_revision`: SHA-256 фактически собранных блоков, списков загруженных компонентов, имени агента и его компетенции;
-- `scope`: краткое описание компетенции из метаданных агента;
-- `skills_loaded`, `implants_loaded`, `rules_loaded`: выданные канонические ID.
+- `agent`: the canonical agent name;
+- `activation_id`: the identifier of a specific activation;
+- `bundle_revision`: SHA-256 of the blocks actually assembled, loaded component lists, agent name, and its scope;
+- `scope`: a concise description of competence from the agent's metadata;
+- `skills_loaded`, `implants_loaded`, `rules_loaded`: the canonical IDs delivered.
 
-Успешный ответ версии 2 содержит `protocol_version`, `request_id`, `persona`,
-`replaces_activation_id`, готовую строку `footer`, короткую инструкцию применения
-и отдельные поля `persona_block`, `rules_block`, `skills_block`, `implants_block`.
+A successful version 2 response contains `protocol_version`, `request_id`,
+`persona`, `replaces_activation_id`, a ready-to-use `footer` string, a short
+application instruction, and separate `persona_block`, `rules_block`,
+`skills_block`, and `implants_block` fields.
 
-Использовать статусы `SUCCESS`, `NO_CHANGE`, `ROUTE_REQUIRED`, `ERROR`.
-`SUCCESS_SAMPLED` относится только к совместимому режиму версии 1.
+Use the statuses `SUCCESS`, `NO_CHANGE`, `ROUTE_REQUIRED`, and `ERROR`.
+`SUCCESS_SAMPLED` belongs only to the compatible version 1 mode.
 
-Если выбран уже активный агент и не запрошены восстановление или refresh,
-вернуть `NO_CHANGE` с тем же дескриптором без повторного enrichment и промпта.
-Это означает сохранение уже загруженной роли, а не проверку актуальности файлов.
-При refresh собрать комплект заново: одинаковая `bundle_revision` даёт
-`NO_CHANGE`, изменившаяся — `SUCCESS` с полным комплектом и новой активацией.
+If the selected agent is already active and neither restore nor refresh was
+requested, return `NO_CHANGE` with the same descriptor, without repeating
+enrichment or returning a prompt. This means retaining the role already loaded,
+not checking whether its source files are current. On refresh, rebuild the
+bundle: an identical `bundle_revision` yields `NO_CHANGE`; a changed revision
+yields `SUCCESS` with the complete bundle and a new activation.
 
-Ревизия описывает выданное содержимое, включая разрешённые импорты и фактические
-тексты skills/implants/rules. Она не подменяет идентичность агента и не служит
-идентификатором беседы. Порядок компонентов учитывается как часть выданного текста;
-изменение ревизии само по себе не означает смену специализации.
+The revision describes the delivered content, including resolved imports and
+the actual text of skills/implants/rules. It does not replace the agent's identity
+or serve as a conversation identifier. Component order is part of the delivered
+text; a revision change alone does not imply a change of specialization.
 
-## 3. Применение персоны и сохранение контекста
+## 3. Applying a persona and preserving context
 
-Клиентский протокол разрешает применять блоки персоны как ограниченные инструкции
-роли в рамках действующих системных и пользовательских указаний. Формулировка:
+The client protocol permits persona blocks to be applied as scoped role
+instructions within the existing system and user instructions. Use this wording:
 
-> Применяй новую персону вместо инструкций предыдущей роли и связанных с ней
-> skills/implants. Сохрани историю разговора, факты, цели, ограничения и разрешения
-> пользователя. Общие правила продолжают действовать.
+> Apply the new persona in place of the previous role's instructions and its
+> associated skills/implants. Preserve the conversation history, facts, goals,
+> constraints, and user permissions. General rules remain in effect.
 
-Общие правила находятся в отдельном блоке. Их повторная выдача не отменяет
-пользовательские требования. Порядок текста не объявляется механизмом повышения
-приоритета инструкций. Не использовать требования забыть диалог, игнорировать
-всё предыдущее или считать результат инструмента системным сообщением.
+General rules are in a separate block. Delivering them again does not revoke
+user requirements. Text order is not presented as a way to elevate instruction
+priority. Do not instruct the model to forget the conversation, ignore everything
+before it, or treat a tool result as a system message.
 
-Сначала полностью собрать и проверить комплект, затем активировать его.
-Недоступный агент, ошибка обязательного компонента или некорректный результат
-дают `ERROR`; частичная активация не допускается. Старое состояние остаётся
-доступным, но модель не сообщает, что новая роль успешно загружена.
+Assemble and validate the entire bundle before activating it. An unavailable
+agent, a mandatory component failure, or an invalid result yields `ERROR`;
+partial activation is not allowed. The previous state remains available, but
+the model must not claim that the new role loaded successfully.
 
-`replaces_activation_id` должен совпадать с текущей активацией. Повтор того же
-успешного результата не применяется второй раз; запоздалый результат для другой
-активации игнорируется. Это правило клиентского протокола, а не обещание, что
-MCP-сервер контролирует историю стороннего приложения.
+`replaces_activation_id` must match the current activation. A repeated successful
+result is not applied twice; a late result for another activation is ignored.
+This is a client protocol rule, not a promise that the MCP server controls a
+third-party application's history.
 
-Активное состояние принадлежит конкретному диалогу. На сервере не вводится
-общая переменная «текущий агент». Смена роли не очищает `SESSION_CACHE`,
-`CONTEXT_HASH_CACHE`, router cache, историю или долговременную память.
-Истечение серверного кеша не отменяет известную клиенту активную персону.
+Active state belongs to a specific conversation. Do not introduce a shared
+"current agent" variable on the server. Switching roles does not clear
+`SESSION_CACHE`, `CONTEXT_HASH_CACHE`, the router cache, history, or long-term
+memory. Server cache expiry does not revoke the active persona known to the
+client.
 
-Если после компакции сохранилось имя роли, но нет её инструкций, выполнить
-`get_agent_context(..., force_reload=True)`. Если имя потеряно, сделать первичный
-выбор по текущей задаче и сохранившемуся контексту. Не угадывать утраченные факты.
-В доступных клиенту сводках сохранять имя и дескриптор роли; это не заменяет
-повторную загрузку отсутствующего блока инструкций.
+If the role name survives compaction but its instructions do not, call
+`get_agent_context(..., force_reload=True)`. If the name is lost, make an initial
+selection based on the current task and retained context. Do not guess lost
+facts. Preserve the role name and descriptor in summaries available to the
+client; this does not replace reloading a missing instruction block.
 
-Для версии 2 догрузка навыков выполняется через `refresh_persona_context`:
-сохраняется агент, применяются его core/preferred/capable-ограничения и политика
-implants. Обычные подтверждения и продолжения не запускают refresh.
-Списки компонентов и footer обновляются только по успешному ответу инструмента.
+In version 2, load additional skills through `refresh_persona_context`: retain
+the agent and apply its core/preferred/capable restrictions and implant policy.
+Ordinary confirmations and continuations do not trigger refresh. Update component
+lists and the footer only after a successful tool response.
 
-`log_interaction` проверяет согласованность `agent_name` и переданного дескриптора.
-Журнал фиксирует заявленную активную роль и её ревизию; это не доказательство
-фактического следования модели инструкциям. На `keep` использовать последний
-полученный footer, не восстанавливать списки skills по догадке.
+`log_interaction` checks that `agent_name` agrees with the supplied descriptor.
+The log records the reported active role and its revision; it is not proof that
+the model actually followed the instructions. On `keep`, reuse the last returned
+footer rather than guessing skill lists.
 
-Физическое удаление старых промптов из контекстного окна не входит в возможности
-этого MCP-сервера. Результат функции — логическая замена действующих инструкций
-с сохранением диалога. Отсутствие влияния отменённой роли проверяется поведением
-целевых моделей, а не только корректностью JSON.
+Physically removing old prompts from the context window is beyond this MCP
+server's capabilities. The function provides a logical replacement of active
+instructions while preserving the conversation. The absence of influence from
+a revoked role must be checked through the target models' behavior, not just
+JSON validity.
 
-## 4. Клиентские инструкции и совместимость
+## 4. Client instructions and compatibility
 
-Согласованно обновить MCP instructions и описания инструментов, репозиторный
-CLAUDE.md, шаблон `scripts/templates/routing-protocol-core.md`, README,
-документацию маршрутизации и архитектуры. В управляемой секции инструкции указать
-`protocol_version=2`, правила применения блоков и рубрику действий.
+Update MCP instructions and tool descriptions, the repository's CLAUDE.md,
+`scripts/templates/routing-protocol-core.md`, README, and routing and architecture
+documentation consistently. Specify `protocol_version=2`, block application
+rules, and the action rubric in the managed instruction section.
 
-Явные slash-команды загружают указанного агента без маршрутизации. `/ask` остаётся
-явной просьбой выполнить выбор. Для обоих путей добавить необязательный аргумент
-`current_persona`, используемый при формировании того же комплекта версии 2.
-Если он не передан, выданная команда задаёт роль для текущего диалога; применение
-команды последовательно, без фонового переключения. Восстановление и refresh
-не требуют повторного выбора агента.
+Explicit slash commands load the named agent without routing. `/ask` remains
+an explicit request to select an agent. Add an optional `current_persona`
+argument to both paths and use it to construct the same version 2 bundle.
+If it is absent, the issued command sets the role for the current conversation;
+commands are applied sequentially, without background switching. Restore and
+refresh do not require selecting an agent again.
 
-Обновить установщики sh/bat. Управляемые секции менять по маркерам, остальной
-текст сохранять. Сгенерированное установщиком memory-напоминание заменять только
-при совпадении с известной версией содержимого; перед заменой создавать резервную
-копию. При пользовательских правках сохранять файл и показывать конкретный путь
-с требуемым ручным изменением. На Windows не создавать мигрируемый memory-файл,
-если установка ранее его не создавала.
+Update the sh/bat installers. Replace managed sections by their markers and
+preserve all other text. Replace installer-generated memory reminders only when
+their content matches a known version, and create a backup before replacement.
+If a file contains user edits, preserve it and show its exact path and the manual
+change required. On Windows, do not create a memory file for migration if the
+installer did not previously create it.
 
-Произвольную project memory клиента автоматически не переписывать. Установщик
-и релиз-заметка должны сообщать, как найти конфликтующее требование обязательного
-роутинга в доступных пользователю инструкциях. Сервер не сканирует домашние
-каталоги удалённого клиента и не пытается отменять его правила текстом tool-result.
+Do not automatically rewrite arbitrary client project memory. The installer and
+release note must explain how to find conflicting mandatory-routing requirements
+in instructions available to the user. The server does not scan remote clients'
+home directories or attempt to revoke their rules through tool-result text.
 
-| Сочетание | Поведение |
+| Combination | Behavior |
 |---|---|
-| Клиентский протокол 1 + сервер с поддержкой 2 | Работает совместимый путь версии 1 |
-| Клиентский протокол 2 + сервер с поддержкой 2 | Условная маршрутизация и контекстные ответы версии 2 |
-| Клиентский протокол 2 + сервер без поддержки 2 | Один раз сообщить о несовместимости и использовать протокол 1 до обновления сервера; не повторять неподдерживаемые вызовы |
+| Client protocol 1 + server supporting 2 | The compatible version 1 path works |
+| Client protocol 2 + server supporting 2 | Conditional routing and version 2 context responses |
+| Client protocol 2 + server without support for 2 | Report the incompatibility once and use protocol 1 until the server is updated; do not repeat unsupported calls |
 
-Sampling сохраняется в версии 1 и вызывается только при объявленной клиентом
-поддержке этой возможности. Версия 2 не зависит от sampling.
+Sampling remains in version 1 and is invoked only when the client advertises
+support for it. Version 2 does not depend on sampling.
 
-Исправить обработку meta-query также для совместимого пути: отказаться от
-классификации по одной длине сообщения и приветственному префиксу. Самостоятельное
-подтверждение при известной роли сохраняет её; содержательный текст после
-приветствия обрабатывается как запрос. «Налоги?» и «SQL?» не считаются
-подтверждениями. Без известной роли нельзя возвращать `NO_CHANGE`.
+Also fix meta-query handling in the compatible path: do not classify a message
+solely by its length or a greeting prefix. A standalone confirmation preserves
+a known role; substantive text after a greeting is treated as a task. "Taxes?"
+and "SQL?" are not confirmations. Do not return `NO_CHANGE` without a known role.
 
-## 5. Проверки и критерии приёмки
+## 5. Validation and acceptance criteria
 
-Создать отдельный многоходовой runner, управляющий реальным диалогом модели и
-MCP tool loop. Не подменять решение модели заранее вычисленным `keep/switch`.
-Сохранять сообщения, результаты инструментов, выбранную роль и счётчики вызовов
-на каждом ходе. Routing-инструкции в этих прогонах не удалять.
+Create a dedicated multi-turn runner that manages a real model conversation and
+MCP tool loop. Do not substitute a precomputed `keep/switch` decision for the
+model's own decision. Save messages, tool results, the selected role, and call
+counts for every turn. Do not remove routing instructions from these runs.
 
-Первичная проверка клиентского поведения — Codex и Claude Code. Результаты
-фиксировать для конкретной модели и версии клиента, не переносить автоматически
-на остальные приложения. Тесты серверного контракта остаются независимыми от
-клиента. Для однотурового бенча сохранить отдельное назначение; менять очистку
-инструкций только при реальном изменении его входного промпта.
+Validate client behavior first in Codex and Claude Code. Record results for a
+specific model and client version; do not automatically generalize them to other
+applications. Server contract tests remain independent of the client. Preserve
+the separate purpose of the single-turn benchmark; change instruction stripping
+only when its actual input prompt changes.
 
-Обязательные сценарии на русском и английском:
+Required scenarios in Russian and English:
 
-- Подтверждение, продолжение, уточнение и смена формата: ноль вызовов маршрутизации,
-  выбора агента и refresh; роль сохраняется.
-- Новая задача внутри компетенции: роль сохраняется. Нехватка конкретного навыка
-  вызывает только обоснованный refresh того же агента.
-- Первый запрос, явная смена роли и новая специализация: нужная роль загружается;
-  universal_agent не удерживает явно специализированную задачу.
-- Инженер → юрист → инженер: сохраняются заданные факты и пользовательские
-  ограничения; отменённые форматы и методы роли не навязываются следующему ответу.
-- Короткие содержательные запросы, приветствие с задачей и неоднозначное продолжение
-  обрабатываются по смыслу, а не по длине.
-- Компакция с известным именем роли вызывает восстановление, без имени — выбор;
-  истечение кеша само по себе не требует MCP-вызова на `keep`.
-- Ошибка загрузки, отсутствующий или удалённый агент, повторный и запоздалый ответ
-  не приводят к частичной активации или возврату к отменённой персоне.
-- Два дескриптора в одном серверном процессе не переключают друг друга;
-  очистка/вытеснение кеша и общий router cache проверяются отдельно.
-- Изменения импортов, skills/implants и rules отражаются в ревизии при следующей
-  загрузке или refresh. Изменение порядка skills не считается сменой агента.
-- Footer и журнал соответствуют выданному комплекту, а явные команды и все
-  сочетания версий протокола проходят проверки совместимости.
-- Миграция заменяет известный управляемый текст, сохраняет пользовательские правки,
-  корректно работает при отсутствии memory-файлов и при повторном запуске.
+- Confirmation, continuation, clarification, and format changes: zero routing,
+  agent selection, and refresh calls; the role is retained.
+- A new task within the role's competence: the role is retained. A missing
+  specific skill triggers only a justified refresh of the same agent.
+- Initial request, explicit role change, and new specialization: the required
+  role is loaded; universal_agent does not retain a clearly specialized task.
+- Engineer → lawyer → engineer: the supplied facts and user constraints are
+  preserved; revoked role formats and methods are not imposed on the next answer.
+- Short substantive requests, greetings followed by tasks, and ambiguous
+  continuations are interpreted by meaning, not length.
+- Compaction with a known role name triggers restore; without a name, it triggers
+  selection. Cache expiry alone does not require an MCP call on `keep`.
+- Loading failures, missing or deleted agents, repeated responses, and late
+  responses do not cause partial activation or a return to a revoked persona.
+- Two descriptors in the same server process do not switch each other's roles;
+  cache clearing/eviction and the shared router cache are checked separately.
+- Changes to imports, skills/implants, and rules appear in the revision on the
+  next load or refresh. Reordering skills is not considered an agent switch.
+- The footer and log match the delivered bundle; explicit commands and every
+  combination of protocol versions pass compatibility checks.
+- Migration replaces known managed text, preserves user edits, and works correctly
+  with absent memory files and repeated installer runs.
 
-Сначала снять baseline на тех же сценариях. Для каждой модели выполнить три
-независимых повтора фиксированного набора. В обязательных сценариях требуются
-нулевые лишние вызовы на продолжениях, все явно запрошенные смены и отсутствие
-потери заданных фактов. Сбои не усреднять в общий успешный результат: исправить
-сценарий/протокол либо не объявлять эту комбинацию клиента и модели поддержанной.
+First capture a baseline on the same scenarios. Run three independent repetitions
+of the fixed suite for each model. Required scenarios must have zero unnecessary
+calls on continuations, every explicitly requested switch, and no loss of supplied
+facts. Do not average failures into an overall passing result: fix the
+scenario/protocol or do not declare that client/model combination supported.
 
-Дополнительно публиковать precision/recall смен, необоснованные refresh, размеры
-фактических tool-result, токены при доступной токенизации и задержки. Поведенческие
-оценки роли проверять по заранее заданной рубрике с ручной проверкой спорных случаев.
-Число допустимых смен на сессию не ограничивать: оно определяется задачами.
-Экономию оценивать по измерениям, отдельно от качества и сохранения контекста.
+Also publish switch precision/recall, unjustified refreshes, actual tool-result
+sizes, token counts where tokenization is available, and latency. Assess role
+behavior against a predefined rubric, with manual review of ambiguous cases.
+Do not cap the number of switches per session: tasks determine that number.
+Estimate savings from measurements, separately from quality and context retention.
 
-Детерминированные тесты контрактов, регрессии meta-query, тесты миграции и полный
-существующий набор должны проходить. Проверки поведения модели дополняют их.
+Deterministic contract tests, meta-query regressions, migration tests, and the
+full existing suite must pass. Model behavior checks supplement these tests.
 
-## 6. Порядок выполнения
+## 6. Implementation sequence
 
-1. Подготовить многоходовые сценарии и runner, зафиксировать baseline.
-2. Реализовать дескриптор, раздельные блоки, обработчики версии 2, refresh и атрибуцию;
-   покрыть контракт и изоляцию тестами. Клиенты версии 1 продолжают работать.
-3. Исправить meta-query и проверку sampling capability; добавить регрессии.
-4. Подключить протокол версии 2 в инструкциях и явных командах, реализовать миграцию
-   установщиков и обновить документацию.
-5. Прогнать наборы совместимости и клиентские сценарии, опубликовать результаты.
-   Включать версию 2 через установленные клиентские инструкции только для проверенных
-   комбинаций. Для отката восстановить управляемую инструкцию версии 1 из резервной
-   копии; историю и память диалога не очищать.
+1. Prepare multi-turn scenarios and the runner; capture the baseline.
+2. Implement the descriptor, separate blocks, version 2 handlers, refresh, and
+   attribution; cover the contract and isolation with tests. Version 1 clients
+   continue to work.
+3. Fix meta-query handling and the sampling capability check; add regressions.
+4. Connect protocol version 2 to instructions and explicit commands, implement
+   installer migration, and update documentation.
+5. Run compatibility suites and client scenarios, then publish the results.
+   Enable version 2 through installed client instructions only for validated
+   combinations. To roll back, restore the managed version 1 instruction from
+   its backup; do not clear conversation history or memory.
 
-Результат: модель сохраняет подходящую персону без повторного выбора, меняет роль
-только при необходимости и продолжает работу с накопленным контекстом диалога.
+Result: the model retains a suitable persona without selecting it again, switches
+roles only when needed, and continues working with the accumulated conversation
+context.
