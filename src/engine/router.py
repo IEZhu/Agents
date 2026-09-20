@@ -11,6 +11,7 @@ from src.engine.config import (
     KEYWORD_OVERRIDE_MIN_HITS, KEYWORD_UNIQUENESS_RATIO,
 )
 from src.engine.embedder import embed_query
+from src.engine.fingerprint import fingerprint
 from src.engine.vector_store import NumpyVectorStore
 from src.schemas.protocol import RouterDecision, AgentRequest
 from src.utils.langfuse_compat import observe
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 ROUTER_CACHE_MAX_SIZE = 500
 KEYWORD_VETO_ROUTE_REQUIRED = "__ROUTE_REQUIRED__"
+DATA_DIR = os.environ.get("AGENTS_ROUTER_DATA_DIR", DATA_DIR)
 _ROUTER_MODEL_HASH_FILE = os.path.join(DATA_DIR, ".router_cache_model")
 # Substring in the ValueError raised by NumpyVectorStore.query() when the
 # query vector and stored vectors disagree on dimensionality. Matched in
@@ -36,6 +38,17 @@ class SemanticRouter:
         # but doesn't span the marker write — this lock bridges that gap.
         self._marker_lock = threading.RLock()
         self.store = NumpyVectorStore(name="router_cache", data_dir=DATA_DIR)
+        fingerprint_path = os.path.join(DATA_DIR, ".router_fingerprint")
+        current = fingerprint(EMBEDDING_MODEL)
+        try:
+            with open(fingerprint_path) as stream: saved = stream.read()
+        except FileNotFoundError:
+            saved = None
+        if current != saved:
+            self.store.clear()
+            self.store.save()
+            from src.daemon.state import atomic_private
+            atomic_private(fingerprint_path, current)
         self._invalidate_on_model_change()
 
         self.available_agents = self._scan_agents()

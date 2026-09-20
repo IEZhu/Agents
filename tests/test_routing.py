@@ -1006,6 +1006,8 @@ class TestCacheInvalidation:
             "src.engine.router._ROUTER_MODEL_HASH_FILE",
             str(tmp_path / ".router_cache_model"),
         )
+        from src.engine.fingerprint import fingerprint
+        (tmp_path / ".router_fingerprint").write_text(fingerprint())
         return tmp_path
 
     def _seed_cache(self, data_dir, dim):

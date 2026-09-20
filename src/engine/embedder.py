@@ -36,7 +36,7 @@ def clear_model_cache(model_name: str) -> None:
         shutil.rmtree(d, ignore_errors=True)
 
 
-_MAX_LOAD_RETRIES = 2
+_MAX_LOAD_RETRIES = 1 if os.environ.get("AGENTS_TRANSPORT") == "http" else 2
 
 
 def _get_model():
@@ -59,7 +59,11 @@ def _get_model():
                         logger.info("Loading embedding model: %s (attempt %d)", EMBEDDING_MODEL, attempt + 1)
                         with warnings.catch_warnings():
                             warnings.filterwarnings("ignore", message=".*now uses mean pooling.*")
-                            _model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR)
+                            options = {}
+                            if os.environ.get("AGENTS_MODEL_PATH"):
+                                options["specific_model_path"] = os.environ["AGENTS_MODEL_PATH"]
+                                options["local_files_only"] = True
+                            _model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR, **options)
                         logger.info("Embedding model loaded")
                         break
                     except Exception:
@@ -81,13 +85,13 @@ def reset_model():
         _model = None
 
 
-def embed_texts(texts: List[str]) -> np.ndarray:
+def _embed_texts(texts: List[str]) -> np.ndarray:
     """Embed documents/passages. Returns (N, D) numpy array."""
     model = _get_model()
     return np.array(list(model.passage_embed(texts)))
 
 
-def embed_query(text: str) -> np.ndarray:
+def _embed_query(text: str) -> np.ndarray:
     """Embed a single query. Returns (D,) numpy array.
 
     Uses query_embed() which adds model-specific query prefixes
@@ -95,3 +99,18 @@ def embed_query(text: str) -> np.ndarray:
     """
     model = _get_model()
     return np.array(list(model.query_embed([text])))[0]
+
+
+# One inference worker for every embedding entry point in the shared runtime.
+_inference = None
+if os.environ.get("AGENTS_TRANSPORT") == "http":
+    from src.daemon.execution import InferenceExecutor
+    _inference = InferenceExecutor()
+
+
+def embed_texts(texts: List[str]) -> np.ndarray:
+    return _inference.run(_embed_texts, texts) if _inference else _embed_texts(texts)
+
+
+def embed_query(text: str) -> np.ndarray:
+    return _inference.run(_embed_query, text) if _inference else _embed_query(text)

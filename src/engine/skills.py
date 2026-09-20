@@ -47,7 +47,8 @@ class SkillRetriever:
     def _compute_dir_hash() -> str:
         from src.engine.config import EMBEDDING_MODEL
         h = hashlib.md5()
-        h.update(EMBEDDING_MODEL.encode())
+        from src.engine.fingerprint import fingerprint
+        h.update(fingerprint(EMBEDDING_MODEL).encode())
         for path in sorted(glob.glob(os.path.join(SKILLS_DIR, "*.mdc"))):
             # Prepared stores move from a worktree into the live install.
             h.update(os.path.basename(path).encode())

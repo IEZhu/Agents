@@ -349,6 +349,13 @@ class RepoDescriber:
     _HEADING_MARKERS = ("## ", "### ")
 
     def write_summary(self, summary: str, repo_hash: str) -> dict:
+        from src.file_lock import file_lock
+        with file_lock(os.path.join(self.repo_path, ".agents-description.lock")):
+            if self.compute_repo_hash() != repo_hash:
+                return {"status": "rejected", "reason": "repo_hash changed; call describe_repo again"}
+            return self._write_summary_locked(summary, repo_hash)
+
+    def _write_summary_locked(self, summary: str, repo_hash: str) -> dict:
         """Persist a finished summary to CLAUDE.md and update the hash file.
 
         Refuses to persist summaries shorter than ``MIN_PERSIST_WORD_COUNT``
