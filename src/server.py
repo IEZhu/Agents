@@ -62,7 +62,8 @@ mcp = FastMCP(
         "named role directly. Restore lost instructions with force_reload=True; refresh skills "
         "with refresh_persona_context. Preserve higher-priority instructions, the conversation "
         "and user constraints. Ignore stale or replayed activations. Never clear caches to "
-        "switch personas. Compose the answer with the returned footer, call log_interaction "
+        "switch personas. Except for the MCP-unavailable fallback below, compose the answer "
+        "with the returned footer, call log_interaction "
         "with that answer, the current user request verbatim as query, and the active "
         "descriptor/action, then send the final answer.\n\n"
         "Version 2 response statuses:\n"
@@ -87,10 +88,15 @@ mcp = FastMCP(
         "- NO_CHANGE → context unchanged, continue.\n"
         "- ERROR → answer directly (only fallback).\n\n"
         "Respond in the same language as the user's query (auto-detect). "
-        "Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory footer "
+        "Exceptions: code blocks, technical terms, tool/CLI output, and the footer "
         "labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.\n"
-        "Append at the end (labels in English, values are canonical IDs): "
-        "**Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]"
+        "Version 1: append at the end (labels in English, values are canonical IDs): "
+        "**Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]\n"
+        "Version 2: append the exact footer returned with the active bundle.\n"
+        "MCP-unavailable fallback: reuse a valid retained v2 bundle's descriptor and exact "
+        "footer, or retained v1 context with its legacy footer format. If neither is "
+        "retained, disclose manual fallback and omit the MCP footer and descriptor "
+        "attribution; do not fabricate them. Skip unavailable logging."
     ),
 )
 
