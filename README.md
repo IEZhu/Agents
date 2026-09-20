@@ -166,10 +166,11 @@ requested role loads directly. Lost instructions restore the known role; a
 justified refresh adds skills without reselecting it.
 
 Version 2 returns separate persona, rules, skills and implants blocks, an
-activation descriptor and an exact footer. A successful switch replaces prior
-role guidance while preserving conversation facts, goals, permissions and tool
-results. This is logical replacement: MCP cannot physically delete old messages.
-No history or cache clearing is required. Calls without `protocol_version=2`
+activation descriptor and an exact footer. Every successful switch, restore or
+refresh replaces all four blocks, including changed or removed rules, while
+preserving higher-priority instructions, conversation facts, goals, permissions
+and tool results. This is logical replacement: MCP cannot physically delete old
+messages. No history or cache clearing is required. Calls without `protocol_version=2`
 retain the version 1 API and `context_hash` behavior. V2 never uses sampling.
 
 The installer defaults to version 1. The [dialogue evaluation report](docs/persona-switch-eval-results.md)
@@ -182,9 +183,19 @@ AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh
 ```
 
 On Windows, set `AGENTS_PERSONA_PROTOCOL=2` before running `scripts\init_repo.bat`.
-Use the same setting on reruns. Managed instruction sections are backed up and
-replaced by markers. Only exact known installer-generated routing memory is
-migrated; edited reminders are preserved with a path-specific warning. Windows
+Use the same setting on reruns. The checked-in `CLAUDE.md` also defaults to v1;
+the global installer does not change this tracked file. To opt this checkout into
+v2, explicitly replace its managed section:
+
+```bash
+.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
+```
+
+On Windows, use `.venv\Scripts\python.exe` for the same command. To restore this
+checkout to v1, use `scripts/templates/routing-protocol-v1.md` as the source.
+Repository notes outside the markers are preserved. Managed instruction sections
+are backed up and replaced by markers. Only exact known installer-generated
+routing memory is migrated; edited reminders are preserved with a path-specific warning. Windows
 does not create an absent memory reminder. Review your own project instructions
 and memory for conflicting unconditional `route_and_load` requirements; these
 are not automatically rewritten.

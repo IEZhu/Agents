@@ -3,6 +3,10 @@
 Date: September 20, 2026. Implementation: `c063f4a`, branch `codex/persona-switch-gate`.
 Baseline: `92c55a1` (main after PR #69).
 
+These measurements describe the frozen runtime and protocol identified by the
+recorded hashes. Later review fixes to activation and fallback guidance, metadata
+handling, and runner setup are not included in these model runs.
+
 The server implementation and migration are ready. Version 2 remains an explicit
 opt-in through `AGENTS_PERSONA_PROTOCOL=2`; the installer defaults to version 1.
 These results apply to the recorded CLIs and models, not to every MCP client.

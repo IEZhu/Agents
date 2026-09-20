@@ -71,9 +71,11 @@ are ignored. Missing mandatory components produce `ERROR` with no partial
 activation. A failed request leaves the previous state available. These application
 rules belong to the client: the server cannot enforce the state of another app.
 
-Replace prior persona methods, style, skills and implants while preserving facts,
-goals, constraints, permissions, conversation history and tool results. General
-rules remain separate. This is logical revocation; MCP cannot erase earlier client
+On every `SUCCESS`, replace `persona_block`, `rules_block`, `skills_block`, and
+`implants_block`, including empty blocks. This replaces changed or removed rules
+on switches, restores and refreshes instead of retaining stale instructions.
+Preserve higher-priority instructions, facts, goals, constraints, permissions,
+conversation history and tool results. This is logical revocation; MCP cannot erase earlier client
 messages. No cache clearing, shared active-agent variable or conversation reset is
 involved. Use the last successful footer on `keep`; logs record self-reported
 activation and revision rather than proving behavioral compliance.
@@ -107,11 +109,29 @@ short strings or greeting prefixes. `SQL?`, `Taxes?`, and greetings followed by 
 task remain substantive. A known role survives standalone acknowledgements;
 without one, the server cannot return `NO_CHANGE`.
 
+When MCP is unavailable, its footer and logging requirements have an explicit
+fallback. A retained valid bundle keeps its descriptor and exact footer when
+available; unavailable logging is skipped. A manually loaded prompt is attributed
+as a manual role, without a fabricated v2 descriptor, footer or component list.
+Once MCP returns, reload a manually loaded role or a retained role missing its
+descriptor or exact footer through `get_agent_context` with version 2 and
+`force_reload=True`, using the last real descriptor if retained or null if none
+exists. Resume normal attribution after that successful activation. A retained
+MCP bundle with its descriptor and exact footer needs no reactivation solely
+because connectivity returns.
+
 ## Installation, migration and rollback
 
 Use `AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh` to opt in. On Windows set
 `AGENTS_PERSONA_PROTOCOL=2` before `scripts\init_repo.bat`. Omit the variable (or set
 it to 1) to install v1. Use the same setting on subsequent installer runs.
+
+The checked-in `CLAUDE.md` uses a managed v1 section. Global installation does not
+modify this tracked file. To opt the checkout itself into v2, run
+`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md`
+(or use `.venv\Scripts\python.exe` on Windows). Use
+`scripts/templates/routing-protocol-v1.md` as the source to switch it back to v1.
+Only the managed section is replaced; repository notes outside it remain intact.
 
 Both installers replace only the marked routing section and back up changed
 files. They migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its

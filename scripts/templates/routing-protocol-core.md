@@ -45,11 +45,13 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
   `replaces_activation_id` must match the active activation, or be null when none
   exists. Ignore a stale response for another activation. A repeated response with
   an already applied `activation_id` is a no-op.
-- Apply `persona_block`, `skills_block`, and `implants_block` in place of the
-  previous role and its associated skills/implants. Previous role-specific methods,
-  output formats, and style cease to apply. Preserve conversation history, facts,
-  goals, constraints, user permissions, and tool results. General `rules_block`
-  guidance continues to apply within higher-priority instructions.
+- On every `SUCCESS`, replace all four previously applied blocks with the returned
+  `persona_block`, `rules_block`, `skills_block`, and `implants_block`, including
+  any empty blocks. This applies to switches, restores, and refreshes: changed or
+  removed rules supersede the previous rules instead of accumulating alongside
+  them. Previous role-specific methods, output formats, and style cease to apply.
+  Preserve higher-priority instructions, conversation history, facts, goals,
+  constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
 - `NO_CHANGE`: retain the active instructions, descriptor, and footer. It does not
   certify that source files are current. A refresh checks the bundle revision.
@@ -67,10 +69,10 @@ current conversation; do not run competing activations in the background.
 
 ## Finish each answer
 
-Compose the complete final answer in the user's language, ending with the exact
-saved `footer`, including its canonical component IDs and English labels `Agent`,
-`Skills`, `Implants`, `Rules`. On `keep`, reuse that footer; do not infer component
-lists. Before delivering this final answer, call
+Except for the explicit unavailable-MCP fallback below, compose the complete final
+answer in the user's language, ending with the exact saved `footer`, including its
+canonical component IDs and English labels `Agent`, `Skills`, `Implants`, `Rules`.
+On `keep`, reuse that footer; do not infer component lists. Before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`
 with that exact answer text, the applied descriptor, and `keep`, `switch`, `refresh`,
 or `restore`. After logging, deliver the composed answer. This order matters:
@@ -91,6 +93,24 @@ on `ROUTE_REQUIRED` call `get_agent_context(agent_name, query)`, on `SUCCESS` ap
 the role. Use v1 logging arguments and component lists returned by the server.
 Do not treat an ordinary loading error as protocol incompatibility.
 
-If MCP is unavailable, say so and use the retained valid role. If no role exists
-and repository files are available, load `agents/<name>/system_prompt.mdc` manually;
-do not claim that an MCP bundle or its components were loaded successfully.
+When MCP is unavailable, this fallback overrides the footer and logging steps
+above only where their required state or tool is unavailable:
+
+- If a valid MCP bundle is retained, keep its role and descriptor. Reuse its exact
+  footer when available, state that MCP is unavailable, and skip logging while
+  `log_interaction` is unavailable. Do not invent a lost footer or component list.
+- If no valid bundle is retained and repository files are available, load the
+  known or appropriate `agents/<name>/system_prompt.mdc` manually. Attribute the
+  answer to that role as a manual fallback, with MCP attribution unavailable.
+  Omit the MCP footer and descriptor-based logging; do not fabricate a v2
+  descriptor, activation ID, revision, footer, or loaded-component list. If no
+  prompt is accessible either, answer without claiming an activated persona.
+- When MCP becomes available again, a retained bundle with its descriptor and
+  exact footer follows the normal local keep/switch assessment. A manually loaded
+  role, or a retained role missing its descriptor or exact footer, requires a real
+  activation: call `get_agent_context` for its known name with `protocol_version=2`
+  and `force_reload=True`, passing the last real descriptor if retained, otherwise
+  null. If no role name is known, perform initial routing. Resume normal footer
+  and logging requirements only after a successful MCP activation; never turn
+  the manual fallback into a synthetic past activation or log it retroactively
+  as though MCP had supplied it.

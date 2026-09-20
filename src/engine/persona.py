@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 APPLY_INSTRUCTION = (
     "Apply this complete persona bundle only if replaces_activation_id matches your "
     "current activation (null for initial load). Ignore replayed or stale activations. "
-    "Replace the previous role's instructions and its skills/implants; preserve the "
-    "conversation, facts, goals, constraints, user permissions, and tool results. "
-    "General rules remain applicable within system and user instructions. "
+    "On SUCCESS, replace all four previous blocks with persona_block, rules_block, "
+    "skills_block, and implants_block, including empty blocks. Changed or removed "
+    "rules supersede previous rules on switches, restores, and refreshes. Preserve "
+    "higher-priority instructions, conversation, facts, goals, constraints, user "
+    "permissions, and tool results. "
     "This is a logical replacement, not deletion of transcript messages."
 )
 
