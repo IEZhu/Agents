@@ -4,10 +4,11 @@ Date: 2026-09-20. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.27.1.
 
 ## Automated checks
 
-- `scripts/run_tests.sh -q`: 846 passed, 16 deselected in 47.29 seconds.
-- A subsequently added configuration concurrency regression test passed;
-  the final targeted daemon, migration, token rotation, and update run passed
-  all 19 tests.
+- Initial `scripts/run_tests.sh -q` run: 846 passed, 16 deselected in 47.29 seconds.
+- Follow-up regression checks on 2026-09-21: all 25 daemon, audit, controller,
+  migration, token rotation, and update tests passed. Coverage includes repeated
+  token rotation, unreadable Claude configurations, missing model cache
+  references, and configuration changes between preparation and migration.
 - Opt-in routing tests: 16 passed.
 - Node bridge: real loopback HTTP, concurrent request IDs, notifications,
   absence of upstream callbacks, and no replay after HTTP 503 passed.
