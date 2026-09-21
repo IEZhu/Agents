@@ -3,9 +3,11 @@
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 
 def snapshot(installation):
@@ -54,6 +56,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     result = snapshot(args.installation.resolve())
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2) + "\n")
-    args.output.chmod(0o600)
+    fd, temporary = tempfile.mkstemp(prefix="." + args.output.name, dir=args.output.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(json.dumps(result, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, args.output)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     print(json.dumps({k: v for k, v in result.items() if k != "processes"}, indent=2))

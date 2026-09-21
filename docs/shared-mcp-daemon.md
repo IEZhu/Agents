@@ -3,7 +3,7 @@
 A macOS LaunchAgent serves local MCP clients at `http://127.0.0.1:8765/mcp`.
 One Python process holds `intfloat/multilingual-e5-large`, the router, and shared
 indexes. Desktop Chat connects through `bridge/stdio.mjs` (Node 22+, no npm
-dependencies). MCP SDK 1.27.1 is pinned in `pyproject.toml`, `requirements.txt`,
+dependencies). MCP SDK 1.28.1 is pinned in `pyproject.toml`, `requirements.txt`,
 and `uv.lock`.
 
 ## Installation and client migration
@@ -97,9 +97,14 @@ lock. If the write is rejected, obtain a fresh description. After an ambiguous
 network result, read the output before retrying.
 
 Stable sidecar locks protect `history.md` and managed sections. The daemon's
-derived router and history indexes live in private service state; stdio uses a
-temporary namespace. The HistoryStore LRU holds at most eight stores and retains
-active entries. Cache resets and rollback retain source history.
+derived router and history indexes live in private service state. On platforms
+with process locking, stdio reuses persistent slots under `data/stdio` in the
+installation, holding an exclusive slot lease for the process lifetime. Concurrent
+stdio servers use separate slots, and history indexes within each slot are keyed
+by workspace. A restart reuses an available slot and its compatible indexes.
+Without process locking, stdio uses temporary state. The HistoryStore LRU holds
+at most eight stores and retains active entries. Cache resets and rollback
+retain source history.
 
 ## Updates and recovery
 

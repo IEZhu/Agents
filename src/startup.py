@@ -79,9 +79,46 @@ def _activate(repo_root, session_fd):
     run_activation_safely(session_fd)
 
 
+@contextmanager
+def stdio_derived_state(repo_root):
+    """Reuse persistent indexes without sharing mutable stores between processes.
+
+    Each running stdio server leases one slot for its lifetime. The first free
+    slot is reused after exit (including a crash), while concurrent processes
+    get distinct stores. History stores additionally namespace by workspace.
+    Call only inside the installation reader lease.
+    """
+    if fcntl is None:
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="agents-stdio-") as derived:
+            yield derived
+        return
+
+    base = os.path.join(repo_root, "data", "stdio")
+    os.makedirs(base, mode=0o700, exist_ok=True)
+    slot = 0
+    while True:
+        derived = os.path.join(base, str(slot))
+        os.makedirs(derived, mode=0o700, exist_ok=True)
+        fd = os.open(os.path.join(derived, ".lease"), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            slot += 1
+            continue
+        except BaseException:
+            os.close(fd)
+            raise
+        try:
+            yield derived
+        finally:
+            os.close(fd)
+        return
+
+
 def run_server(server_path):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(server_path)))
-    import tempfile
     # Bootstrap stays stdlib-only even while another process changes src/.
     import json
     marker_path = os.path.join(repo_root, "data/.shared-service.json")
@@ -96,7 +133,7 @@ def run_server(server_path):
             raise SystemExit("Shared service is in maintenance; use the controller to recover")
         os.environ["AGENTS_AUTO_UPDATE"] = "0"
     check_service()
-    with tempfile.TemporaryDirectory(prefix="agents-stdio-") as derived, server_session(repo_root, lambda fd: _activate(repo_root, fd)):
+    with server_session(repo_root, lambda fd: _activate(repo_root, fd)), stdio_derived_state(repo_root) as derived:
         check_service()
         os.environ["AGENTS_DERIVED_DIR"] = derived
         os.environ["AGENTS_ROUTER_DATA_DIR"] = os.path.join(derived, "router")

@@ -1,14 +1,14 @@
 # Shared MCP daemon validation
 
-Date: 2026-09-20. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.27.1.
+Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
 ## Automated checks
 
-- Initial `scripts/run_tests.sh -q` run: 846 passed, 16 deselected in 47.29 seconds.
-- Follow-up regression checks on 2026-09-21: all 25 daemon, audit, controller,
-  migration, token rotation, and update tests passed. Coverage includes repeated
-  token rotation, unreadable Claude configurations, missing model cache
-  references, and configuration changes between preparation and migration.
+- Full Python suite with MCP SDK 1.28.1: 862 passed, 16 deselected in 74.09 seconds.
+- Regression coverage includes repeated token rotation, unreadable Claude
+  configurations, missing model cache references, concurrent migration guards,
+  failed rollback recovery barriers, byte-preserving restoration, safe baseline
+  output replacement, and persistent, isolated stdio indexes across restarts.
 - Opt-in routing tests: 16 passed.
 - Node bridge: real loopback HTTP, concurrent request IDs, notifications,
   absence of upstream callbacks, and no replay after HTTP 503 passed.
@@ -26,6 +26,8 @@ Date: 2026-09-20. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.27.1.
 Tests used a temporary daemon and temporary workspaces without changing user
 project history. Measurements were recorded locally; use the scripts in the
 [operations guide](shared-mcp-daemon.md#validation) to repeat them on another host.
+The following initial smoke and soak measurements were collected on 2026-09-20
+with MCP SDK 1.27.1.
 
 | Metric | Observed result |
 |---|---:|
@@ -49,6 +51,23 @@ checks the memory budget; it does not prove the absence of small leaks. Cold
 startup caused event-loop lag of up to 414 ms, measured separately from request
 handling in the ready runtime. The 100 ms loop-lag target was met for the measured
 client workload after readiness, but not during model initialization.
+
+The SDK upgrade was additionally checked with sequential 20-client smoke runs
+on 2026-09-21 using the same prepared indexes:
+
+| SDK | Time to readiness | Concurrent initialization and routing p95 | Physical footprint |
+|---|---:|---:|---:|
+| 1.27.1 | 1.52 s | 708 ms | 1.6 GiB |
+| 1.28.1 | 1.23 s | 673 ms | 1.6 GiB |
+
+The 1.28.1 run passed workspace isolation, summary integrity, authentication,
+stateless transport, and graceful shutdown checks. Its printed health metrics
+omit the installation path. An earlier run immediately after the full suite,
+overlapping the opt-in routing tests, took 30.43 seconds and measured 8.3 GiB.
+That result was not reproduced in the sequential comparison; it is not a valid
+isolated steady-state measurement. The five-minute soak was not repeated after
+the SDK upgrade, and rebuild-time memory remains distinct from the warm-runtime
+figures above.
 
 ## Host rollout verification
 
