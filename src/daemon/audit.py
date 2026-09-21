@@ -10,14 +10,19 @@ def inventory(home=None, workspace=None):
     claude = home / ".claude.json"
     result = []
     if claude.exists():
-        data = json.loads(claude.read_text())
-        scopes = [("claude:user", data.get("mcpServers", {}))]
-        for root, entry in data.get("projects", {}).items():
-            path = Path(root)
-            if path.is_dir(): roots.add(path.resolve())
-            scopes.append(("claude:local:" + root, entry.get("mcpServers", {})))
-        for scope, servers in scopes:
-            result.extend(describe(claude, scope, servers))
+        try:
+            data = json.loads(claude.read_text())
+        except (ValueError, OSError):
+            result.append({"path": str(claude), "scope": "claude:user", "error": "unreadable configuration"})
+        else:
+            scopes = [("claude:user", data.get("mcpServers", {}))]
+            for root, entry in data.get("projects", {}).items():
+                path = Path(root)
+                if path.is_dir():
+                    roots.add(path.resolve())
+                scopes.append(("claude:local:" + root, entry.get("mcpServers", {})))
+            for scope, servers in scopes:
+                result.extend(describe(claude, scope, servers))
     paths = [(home / ".codex/config.toml", "codex:user"),
              (home / ".cursor/mcp.json", "cursor:user"),
              (home / "Library/Application Support/Claude/claude_desktop_config.json", "desktop")]

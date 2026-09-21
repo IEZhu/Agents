@@ -83,9 +83,13 @@ class Controller:
                       "model_cache": str(Path(os.environ.get("FASTEMBED_CACHE_DIR", "~/.cache/fastembed")).expanduser()),
                       "path": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), "autostart": True}
             cache = Path(config["model_cache"]) / "models--qdrant--multilingual-e5-large-onnx"
-            revision = (cache / "refs/main").read_text().strip()
+            reference = cache / "refs/main"
+            if not reference.is_file():
+                raise RuntimeError("The e5-large model must be cached before service installation")
+            revision = reference.read_text().strip()
             model_path = cache / "snapshots" / revision
-            if not model_path.is_dir(): raise RuntimeError("The e5-large model must be cached before service installation")
+            if not model_path.is_dir():
+                raise RuntimeError("The e5-large model must be cached before service installation")
             config.update(model_artifact=cache.name + ":" + revision, model_path=str(model_path))
             write_json(self.directory / "service.json", config)
             atomic_private(self.directory / "token", secrets.token_urlsafe(48) + "\n")
