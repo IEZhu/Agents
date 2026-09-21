@@ -87,3 +87,16 @@ def test_changed_configuration_is_rejected_before_migration(migration, tmp_path)
     with pytest.raises(ValueError, match="changed after preparation"):
         migration.apply([change])
     assert json.loads(path.read_text()) == {"userChanged": True}
+
+
+def test_restore_preserves_original_bytes_and_restores_remaining_files(migration, tmp_path):
+    first = tmp_path / "non-utf8.json"
+    second = tmp_path / "second.json"
+    first.write_bytes(b"\xfforiginal bytes")
+    second.write_bytes(b"second original")
+    backup = migration.apply([(first, "{}", False), (second, "{}", False)])
+
+    migration.restore(backup)
+
+    assert first.read_bytes() == b"\xfforiginal bytes"
+    assert second.read_bytes() == b"second original"

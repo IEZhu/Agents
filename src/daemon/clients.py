@@ -227,4 +227,4 @@ class ClientMigration:
             if record["before"] is None:
                 path.unlink(missing_ok=True)
             else:
-                atomic_private(path, base64.b64decode(record["before"]).decode())
+                atomic_private(path, base64.b64decode(record["before"]))

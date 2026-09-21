@@ -5,7 +5,7 @@ langfuse>=3.0
 python-dotenv
 PyYAML>=6.0
 cachetools>=5.3
-mcp==1.27.1
+mcp==1.28.1
 uvicorn==0.48.0
 # Test dependencies
 pytest>=7.0.0

@@ -241,8 +241,9 @@ marker = installation / 'data/.shared-service.json'
 if sys.platform == 'darwin' and marker.exists():
     sys.path.insert(0, str(installation))
     from src.daemon.clients import ClientMigration
+    from src.daemon.bootstrap import assert_service_safe
+    from src.file_lock import file_lock
     directory = json.loads(marker.read_text())['directory']
-    migration = ClientMigration(directory)
     destination = Path(config_path)
     if destination.name == 'claude_desktop_config.json':
         clients = ['desktop', 'claude-deny-desktop']
@@ -250,8 +251,11 @@ if sys.platform == 'darwin' and marker.exists():
         clients = ['cursor']
     else:
         clients = ['claude']
-    changes = [migration.prepare(client) for client in clients]
-    migration.apply(changes)
+    with file_lock(Path(directory) / 'control.lock', blocking=False):
+        assert_service_safe(directory)
+        migration = ClientMigration(directory)
+        changes = [migration.prepare(client) for client in clients]
+        migration.apply(changes)
     print('OK: shared daemon')
     sys.exit(0)
 

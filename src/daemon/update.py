@@ -82,6 +82,7 @@ def offline_update(controller):
         write_json(controller.directory / "maintenance.json", {"operation": "update"})
         phase(controller, journal, "draining")
         mutated = False
+        rollback_attempted = False
         try:
             controller._stop()
             with ExitStack() as locks:
@@ -124,6 +125,7 @@ def offline_update(controller):
             try:
                 ready = probation(controller, journal)
             except BaseException:
+                rollback_attempted = True
                 return rollback(controller, journal)
             phase(controller, journal, "committed")
             cleanup(controller)
@@ -131,7 +133,8 @@ def offline_update(controller):
         except BaseException:
             if mutated:
                 # Retain journal on recovery failure; no normal start can pass.
-                rollback(controller, journal)
+                if not rollback_attempted:
+                    rollback(controller, journal)
             else:
                 if journal["was_running"]:
                     probation(controller, journal)

@@ -203,14 +203,14 @@ def main(argv=None):
         else: result = read_json(registry.path, {})
     elif args.command == "migrate":
         from .clients import ClientMigration
-        migration = ClientMigration(controller.directory)
         clients = args.clients.split(",")
         if "desktop" in clients: clients.append("claude-deny-desktop")
         if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
-        changes = [migration.prepare(client, args.workspace) for client in dict.fromkeys(clients)]
         with file_lock(controller.directory / "control.lock", blocking=False):
             from .bootstrap import assert_service_safe
             assert_service_safe(controller.directory)
+            migration = ClientMigration(controller.directory)
+            changes = [migration.prepare(client, args.workspace) for client in dict.fromkeys(clients)]
             result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
     elif args.command == "restore-clients":
         from .clients import ClientMigration

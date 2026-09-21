@@ -101,6 +101,28 @@ def test_failed_ready_restores_code_and_indexes(installation):
     assert controller.probes == 2
 
 
+def test_failed_rollback_is_not_retried_and_keeps_recovery_barriers(installation, monkeypatch):
+    from src.daemon import update
+    controller, _, _, _ = installation
+    controller.fail_ready = 1
+    failure = RuntimeError("Code rollback failed; maintenance retained")
+    attempts = []
+
+    def fail_restore(*args):
+        attempts.append(1)
+        raise failure
+
+    monkeypatch.setattr(update, "restore_files", fail_restore)
+    with pytest.raises(RuntimeError) as caught:
+        offline_update(controller)
+
+    assert caught.value is failure
+    assert len(attempts) == 1
+    assert (controller.directory / "transaction.json").exists()
+    assert (controller.directory / "maintenance.json").exists()
+    assert not controller.running
+
+
 def test_stdio_reader_defers_update_and_restores_runtime(installation):
     controller, root, old, target = installation
     with file_lock(root / "data/.sessions.lock", shared=True):

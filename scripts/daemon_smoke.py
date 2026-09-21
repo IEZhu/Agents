@@ -108,10 +108,12 @@ async def smoke(port=18765, soak=False):
                 sequential = [await connected(i) for i in range(20)]
                 concurrent = await asyncio.gather(*(connected(i) for i in range(20)))
                 p95 = lambda values: sorted(values)[int(len(values) * .95) - 1]
+                health_metrics = (await http.get("/health")).json()
+                health_metrics.pop("install_root", None)
                 result = {"startup_seconds": startup, "pid": process.pid, "clients": 20,
                           "sequential_init_route_p95_seconds": p95(sequential),
                           "concurrent_init_route_p95_seconds": p95(concurrent),
-                          "health": (await http.get("/health")).json()}
+                          "health": health_metrics}
                 if soak:
                     from daemon_baseline import snapshot
                     before = snapshot(root)
