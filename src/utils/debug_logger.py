@@ -10,6 +10,7 @@ When disabled — pure no-op, zero overhead.
 import json
 import os
 import re
+from pathlib import Path
 from datetime import datetime, timezone
 
 from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
@@ -34,8 +35,10 @@ def _write_debug(tool: str, direction: str, data: dict, directory=None) -> None:
         safe_dir = re.sub(r'[^\w\-.]', '_', direction)
         filename = f"{ts_prefix}_{__import__('uuid').uuid4().hex}_{safe_tool}_{safe_dir}.json"
 
-        target_dir = os.path.join(directory or get_debug_log_dir(), date_dir)
-        os.makedirs(target_dir, exist_ok=True)
+        target_dir = Path(directory or get_debug_log_dir()).absolute() / date_dir
+        if any(path.is_symlink() for path in (target_dir, *target_dir.parents)):
+            return
+        target_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         payload = {
             "ts": now.isoformat(),
@@ -44,8 +47,9 @@ def _write_debug(tool: str, direction: str, data: dict, directory=None) -> None:
             "data": data,
         }
 
-        filepath = os.path.join(target_dir, filename)
-        with open(filepath, "w", encoding="utf-8") as f:
+        filepath = target_dir / filename
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(filepath, flags, 0o600), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
     except Exception:
         pass

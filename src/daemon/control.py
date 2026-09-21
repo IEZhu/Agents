@@ -78,7 +78,8 @@ class Controller:
             python = os.path.abspath(python or sys.executable)
             git = shutil.which("git")
             if not git: raise RuntimeError("An absolute Git executable is required")
-            config = {"installation": str(root), "python": python, "node": node or shutil.which("node"),
+            node = node or shutil.which("node")
+            config = {"installation": str(root), "python": python, "node": os.path.abspath(node) if node else None,
                       "git": git, "port": port, "model": "intfloat/multilingual-e5-large",
                       "model_cache": str(Path(os.environ.get("FASTEMBED_CACHE_DIR", "~/.cache/fastembed")).expanduser()),
                       "path": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), "autostart": True}

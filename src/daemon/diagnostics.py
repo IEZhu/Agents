@@ -4,18 +4,25 @@ import time
 
 
 def prune_debug(directory, *, days=7, max_bytes=100 * 1024**2):
-    directory = Path(directory)
+    directory = Path(directory).absolute()
+    if any(path.is_symlink() for path in (directory, *directory.parents)):
+        return
     cutoff = time.time() - days * 86400
     retained = []
-    for path in directory.glob("*/*.json"):
-        try:
-            stat = path.stat()
-            if stat.st_mtime < cutoff:
-                path.unlink()
-            else:
-                retained.append((stat.st_mtime, stat.st_size, path))
-        except FileNotFoundError:
+    for date_dir in directory.glob("*"):
+        if date_dir.is_symlink() or not date_dir.is_dir():
             continue
+        for path in date_dir.glob("*.json"):
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                stat = path.stat()
+                if stat.st_mtime < cutoff:
+                    path.unlink()
+                else:
+                    retained.append((stat.st_mtime, stat.st_size, path))
+            except FileNotFoundError:
+                continue
     size = sum(item[1] for item in retained)
     for _, amount, path in sorted(retained):
         if size <= max_bytes: break
