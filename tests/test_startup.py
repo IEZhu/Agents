@@ -1,6 +1,7 @@
 """Process-level regression tests for the installation lifetime lease."""
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,43 @@ def _stop(process):
     if process.poll() is None:
         process.terminate()
     process.communicate(timeout=5)
+
+
+def test_stdio_indexes_survive_restart_and_concurrent_servers_are_isolated(leased_install):
+    root, server, prefix = leased_install
+    server.write_text(prefix + '''
+import json, os
+from pathlib import Path
+derived = Path(os.environ["AGENTS_DERIVED_DIR"])
+router = Path(os.environ["AGENTS_ROUTER_DATA_DIR"])
+router.mkdir(parents=True, exist_ok=True)
+marker = router / "cached-entry"
+print(json.dumps({"derived": str(derived), "router": str(router), "cached": marker.exists()}), flush=True)
+marker.write_text("cached routing decision")
+input()
+''')
+    code = 'import runpy, sys; runpy.run_path(sys.argv[1], run_name="__main__")'
+    first = _child(code, server, cwd=root)
+    second = None
+    restarted = None
+    try:
+        first_state = json.loads(first.stdout.readline())
+        second = _child(code, server, cwd=root)
+        second_state = json.loads(second.stdout.readline())
+        assert first_state["derived"] != second_state["derived"]
+        assert first_state["router"] != second_state["router"]
+        assert not first_state["cached"] and not second_state["cached"]
+        first.communicate(input="exit\n", timeout=5)
+        assert first.returncode == 0
+        restarted = _child(code, server, cwd=root)
+        restarted_state = json.loads(restarted.stdout.readline())
+        assert restarted_state["derived"] == first_state["derived"]
+        assert restarted_state["router"] == first_state["router"]
+        assert restarted_state["cached"]
+    finally:
+        for process in (first, second, restarted):
+            if process is not None:
+                _stop(process)
 
 
 @pytest.mark.parametrize("launch", ["script", "module"])

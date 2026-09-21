@@ -233,6 +233,32 @@ server_abs  = os.environ['MCP_SERVER']
 is_nixos    = os.environ.get('MCP_IS_NIXOS', 'false') == 'true'
 nix_ld_path = os.environ.get('MCP_NIX_LD_LIB_PATH', '')
 
+# Installed macOS shared services remain HTTP/bridge on subsequent setup runs.
+import sys
+from pathlib import Path
+installation = Path(server_abs).resolve().parents[1]
+marker = installation / 'data/.shared-service.json'
+if sys.platform == 'darwin' and marker.exists():
+    sys.path.insert(0, str(installation))
+    from src.daemon.clients import ClientMigration
+    from src.daemon.bootstrap import assert_service_safe
+    from src.file_lock import file_lock
+    directory = json.loads(marker.read_text())['directory']
+    destination = Path(config_path)
+    if destination.name == 'claude_desktop_config.json':
+        clients = ['desktop', 'claude-deny-desktop']
+    elif destination.parent.name == '.cursor':
+        clients = ['cursor']
+    else:
+        clients = ['claude']
+    with file_lock(Path(directory) / 'control.lock', blocking=False):
+        assert_service_safe(directory)
+        migration = ClientMigration(directory)
+        changes = [migration.prepare(client) for client in clients]
+        migration.apply(changes)
+    print('OK: shared daemon')
+    sys.exit(0)
+
 try:
     with open(config_path) as f:
         config = json.load(f)

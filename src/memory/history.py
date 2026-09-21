@@ -18,6 +18,8 @@ Three classes:
 
 from __future__ import annotations
 
+from src.file_lock import file_lock
+
 import datetime as _dt
 import hashlib
 import json
@@ -134,7 +136,7 @@ class HistoryWriter:
         # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
         # attached to the same repo) cannot interleave and corrupt the file.
         rotated_to: Optional[str] = None
-        with _WRITE_LOCK, open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+        with _WRITE_LOCK, file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")), open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
             try:
                 _lock_exclusive(fh)
 
@@ -402,7 +404,7 @@ class HistoryStore:
         self.data_dir = data_dir or _memory_config.MEMORY_DATA_DIR
         self.store_name = store_name
         self._store = None  # lazy
-        self._index_lock = threading.Lock()
+        self._index_lock = threading.RLock()
 
     # ------------------------------------------------------------------ public
     def search(
@@ -418,27 +420,28 @@ class HistoryStore:
         deterministic fakes; production callers leave them None and the
         FastEmbed-backed defaults are loaded lazily.
         """
-        store = self.ensure_index(embed_texts=embed_texts)
-        if store.count() == 0:
-            return []
-        if embed_query is None:
-            from src.engine.embedder import embed_query as _eq
-            embed_query = _eq
+        with self._index_lock:
+            store = self.ensure_index(embed_texts=embed_texts)
+            if store.count() == 0:
+                return []
+            if embed_query is None:
+                from src.engine.embedder import embed_query as _eq
+                embed_query = _eq
 
-        vec = embed_query(query)
-        result = store.query(vec, n_results=limit)
-        out: List[Dict[str, Any]] = []
-        for i, eid in enumerate(result.ids):
-            meta = result.metadatas[i] or {}
-            out.append({
-                "id": eid,
-                "distance": float(result.distances[i]),
-                "document": result.documents[i],
-                "timestamp": meta.get("timestamp", ""),
-                "intent": meta.get("intent", ""),
-                "tags": meta.get("tags", []),
-            })
-        return out
+            vec = embed_query(query)
+            result = store.query(vec, n_results=limit)
+            out: List[Dict[str, Any]] = []
+            for i, eid in enumerate(result.ids):
+                meta = result.metadatas[i] or {}
+                out.append({
+                    "id": eid,
+                    "distance": float(result.distances[i]),
+                    "document": result.documents[i],
+                    "timestamp": meta.get("timestamp", ""),
+                    "intent": meta.get("intent", ""),
+                    "tags": meta.get("tags", []),
+                })
+            return out
 
     def ensure_index(self, embed_texts=None):
         """Build / refresh the vector index if the markdown file is newer.
@@ -461,17 +464,20 @@ class HistoryStore:
                     self._store.save()
                 return self._store
 
-            # Refresh if file is newer than the store's npz.
-            # Use npz existence + mtime as the staleness signal (not count),
-            # so a legitimately empty store doesn't trigger redundant rebuilds.
-            npz_path = os.path.join(self.data_dir, f"{self.store_name}.npz")
-            history_mtime = os.path.getmtime(self.history_path)
-            if os.path.exists(npz_path):
-                store_mtime = os.path.getmtime(npz_path)
-                if history_mtime < store_mtime:
-                    return self._store
-
-            self._rebuild(embed_texts=embed_texts)
+            from src.engine.fingerprint import fingerprint
+            from src.daemon.state import atomic_private
+            with file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")):
+                # Content-based invalidation catches edits that preserve mtimes.
+                with open(self.history_path, "rb") as source:
+                    digest = hashlib.sha256(source.read()).hexdigest() + ":" + fingerprint()
+                marker = os.path.join(self.data_dir, ".history_fingerprint")
+                try:
+                    with open(marker) as stream: saved = stream.read()
+                except FileNotFoundError:
+                    saved = None
+                if saved != digest or not os.path.exists(os.path.join(self.data_dir, f"{self.store_name}.npz")):
+                    self._rebuild(embed_texts=embed_texts)
+                    atomic_private(marker, digest)
             return self._store
 
     # ------------------------------------------------------------------ helpers

@@ -616,6 +616,7 @@ def check_and_apply_update(
     git_timeout: int = AUTO_UPDATE_GIT_TIMEOUT,
     reindex_timeout: int = AUTO_UPDATE_REINDEX_TIMEOUT,
     reindex_fn=None,
+    validate_target=None,
 ) -> str:
     """Legacy in-place path: fast-forward *repo_root* and rebuild stores in place.
 
@@ -629,6 +630,9 @@ def check_and_apply_update(
     status, old_sha, target_sha = _resolve_ff_target(repo_root, remote, branch, git_timeout)
     if target_sha is None:
         return status  # terminal: skip / up-to-date / pre-merge failure
+
+    if validate_target is not None:
+        validate_target(old_sha, target_sha)
 
     _begin_update(repo_root, old_sha, target_sha)
     try:

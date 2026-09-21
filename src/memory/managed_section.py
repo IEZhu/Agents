@@ -222,3 +222,18 @@ def remove_section(
     new_content = original[:leading] + original[trailing:]
     atomic_write(file_path, new_content)
     return True
+
+
+# All writers use a sidecar because atomic replacement changes the target inode.
+from functools import wraps as _wraps
+from src.file_lock import file_lock as _file_lock
+
+def _locked_write(function):
+    @_wraps(function)
+    def locked(file_path, *args, **kwargs):
+        with _file_lock(os.path.join(os.path.dirname(file_path), "." + os.path.basename(file_path) + ".lock")):
+            return function(file_path, *args, **kwargs)
+    return locked
+
+upsert_section = _locked_write(upsert_section)
+remove_section = _locked_write(remove_section)

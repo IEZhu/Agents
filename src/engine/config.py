@@ -106,6 +106,9 @@ def get_client_data_dir() -> str:
 
 def get_debug_log_dir() -> str:
     """`{client_repo_root}/logs` — per-call JSON debug logs (when `AGENTS_DEBUG=1`)."""
+    if os.environ.get("AGENTS_TRANSPORT") == "http":
+        from src.daemon.state import state_dir
+        return str(state_dir() / "debug")
     return os.path.join(get_client_repo_root(), "logs")
 
 
