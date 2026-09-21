@@ -214,8 +214,11 @@ def main(argv=None):
             result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
     elif args.command == "restore-clients":
         from .clients import ClientMigration
-        controller.stop()
-        ClientMigration(controller.directory).restore(args.backup)
+        from .bootstrap import assert_service_safe
+        with file_lock(controller.directory / "control.lock", blocking=False):
+            assert_service_safe(controller.directory)
+            controller._stop()
+            ClientMigration(controller.directory).restore(args.backup)
         result = {"state": "restored"}
     elif args.command in ("update", "recover"):
         from .update import offline_update, recover

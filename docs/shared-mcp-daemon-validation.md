@@ -4,7 +4,14 @@ Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
 ## Automated checks
 
-- Full Python suite with MCP SDK 1.28.1: 862 passed, 16 deselected in 74.09 seconds.
+- Full Python suite at `66dd0cc` with MCP SDK 1.28.1: 862 passed, 16 deselected
+  in 74.09 seconds.
+- Subsequent lifecycle and portability fixes passed 34 focused tests and 90
+  related memory, startup, transport, controller, migration, and update tests.
+  These cover restoration admission and lock ownership, rotation during warmup
+  or drain, malformed configuration structures, and module-invoked stdio
+  processes in baseline totals. Missing `fcntl` was simulated for history import,
+  writing, and thread exclusion; a native Windows run has not been performed.
 - Regression coverage includes repeated token rotation, unreadable Claude
   configurations, missing model cache references, concurrent migration guards,
   failed rollback recovery barriers, byte-preserving restoration, safe baseline

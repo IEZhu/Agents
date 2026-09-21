@@ -6,6 +6,8 @@ import sys
 
 import pytest
 
+from scripts.daemon_baseline import snapshot
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/daemon_baseline.py"
 
@@ -43,3 +45,21 @@ def test_failed_baseline_replace_preserves_output_and_cleans_temporary(tmp_path,
 
     assert output.read_text() == "previous snapshot"
     assert set(tmp_path.iterdir()) == {output}
+
+
+def test_baseline_counts_script_and_module_servers_without_recording_arguments(tmp_path, monkeypatch):
+    processes = f'''10 1 100 00:01 /usr/bin/python {tmp_path}/src/server.py
+11 1 200 00:02 /usr/bin/python -u -m src.server --private=redacted-test-value
+12 1 300 00:03 /usr/bin/python -m src.server_helper
+13 1 400 00:04 /usr/bin/node {tmp_path}/bridge/stdio.mjs private-config.json
+14 1 500 00:05 /usr/bin/python -m src.daemon serve
+'''
+    monkeypatch.setattr(subprocess, "check_output", lambda args, **kwargs: processes if args[0] == "/bin/ps" else "swap")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "Physical footprint: 1.0M"))
+
+    result = snapshot(tmp_path)
+
+    assert result["model_processes"] == 3
+    assert {row["pid"]: row["kind"] for row in result["processes"]} == {10: "stdio", 11: "stdio", 13: "bridge", 14: "daemon"}
+    assert result["total_physical_footprint_bytes"] == 4 * 1024**2
+    assert "redacted-test-value" not in str(result)

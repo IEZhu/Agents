@@ -4,6 +4,10 @@ import json
 import tomllib
 
 
+def _unreadable(path, scope):
+    return {"path": str(path), "scope": scope, "error": "unreadable configuration"}
+
+
 def inventory(home=None, workspace=None):
     home = Path(home or Path.home())
     roots = {Path(workspace).resolve()} if workspace else set()
@@ -12,11 +16,16 @@ def inventory(home=None, workspace=None):
     if claude.exists():
         try:
             data = json.loads(claude.read_text())
+            if not isinstance(data, dict) or not isinstance(data.get("projects", {}), dict):
+                raise ValueError("Configuration tables must be mappings")
         except (ValueError, OSError):
-            result.append({"path": str(claude), "scope": "claude:user", "error": "unreadable configuration"})
+            result.append(_unreadable(claude, "claude:user"))
         else:
             scopes = [("claude:user", data.get("mcpServers", {}))]
             for root, entry in data.get("projects", {}).items():
+                if not isinstance(entry, dict):
+                    result.append(_unreadable(claude, "claude:local:" + root))
+                    continue
                 path = Path(root)
                 if path.is_dir():
                     roots.add(path.resolve())
@@ -39,18 +48,28 @@ def inventory(home=None, workspace=None):
         if not path.exists(): continue
         try:
             data = tomllib.loads(path.read_text()) if path.suffix == ".toml" else json.loads(path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("Configuration must be a mapping")
             servers = data.get("mcp_servers", data.get("mcpServers", {}))
             result.extend(describe(path, scope, servers))
         except (ValueError, OSError):
-            result.append({"path": str(path), "scope": scope, "error": "unreadable configuration"})
+            result.append(_unreadable(path, scope))
     return result
 
 
 def describe(path, scope, servers):
+    if not isinstance(servers, dict):
+        yield _unreadable(path, scope)
+        return
     for name, entry in servers.items():
         if not isinstance(entry, dict): continue
+        headers = entry.get("http_headers", entry.get("headers", {}))
+        command = entry.get("command", "")
+        if not isinstance(headers, dict) or not isinstance(command, str):
+            yield _unreadable(path, scope)
+            continue
         yield {"path": str(path), "scope": scope, "server": name,
                "transport": "http" if entry.get("url") else "stdio",
-               "header_names": sorted(entry.get("http_headers", entry.get("headers", {}))),
-               "command_name": Path(entry.get("command", "")).name,
+               "header_names": sorted(headers),
+               "command_name": Path(command).name,
                "agents_core": "agents" in name.lower() and "core" in name.lower()}
