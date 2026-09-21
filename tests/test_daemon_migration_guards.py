@@ -40,3 +40,45 @@ def test_migration_checks_admission_before_reading_token_or_preparing_files(tmp_
             exec(compile(injection, "init_repo.sh:inject_mcp_config", "exec"), {})
         else:
             control.main(["--state", str(state), "migrate", "--clients", "desktop"])
+
+
+@pytest.mark.parametrize("barrier", ["control_lock", "maintenance.json", "transaction.json"])
+def test_restore_checks_admission_before_stopping_or_restoring(tmp_path, monkeypatch, barrier):
+    state = tmp_path / "state"
+    write_json(state / "service.json", {"installation": str(tmp_path)})
+    if barrier != "control_lock":
+        write_json(state / barrier, {"operation": "update"})
+
+    monkeypatch.setattr(control.Controller, "_stop", lambda self: pytest.fail("Stopped before admission"))
+    monkeypatch.setattr(clients, "ClientMigration", lambda *args: pytest.fail("Restored before admission"))
+    lease = file_lock(state / "control.lock", blocking=False) if barrier == "control_lock" else nullcontext()
+
+    with lease, pytest.raises(BlockingIOError if barrier == "control_lock" else RuntimeError):
+        control.main(["--state", str(state), "restore-clients", str(tmp_path / "backup")])
+
+
+def test_restore_holds_control_lock_through_stop_and_file_restoration(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    write_json(state / "service.json", {"installation": str(tmp_path)})
+    operations = []
+
+    def check_lock(operation):
+        with pytest.raises(BlockingIOError):
+            with file_lock(state / "control.lock", blocking=False):
+                pass
+        operations.append(operation)
+
+    class Migration:
+        def __init__(self, directory):
+            check_lock("read_state")
+        def restore(self, backup):
+            check_lock("restore")
+
+    monkeypatch.setattr(control.Controller, "_stop", lambda self: check_lock("stop"))
+    monkeypatch.setattr(clients, "ClientMigration", Migration)
+
+    control.main(["--state", str(state), "restore-clients", str(tmp_path / "backup")])
+
+    assert operations == ["stop", "read_state", "restore"]
+    with file_lock(state / "control.lock", blocking=False):
+        pass

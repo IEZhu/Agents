@@ -54,6 +54,9 @@ process does not automatically become an HTTP client. `audit` reports scopes,
 names, transports, and header names without values. Inspect user, local, project,
 and plugin scopes, then repeat the baseline: the acceptance criterion is one
 process holding the model.
+Module-invoked `python -m src.server` processes are counted across the host because
+their command lines do not identify an installation. Check the reported PIDs
+when multiple installations are present.
 
 ## Service control
 
@@ -102,7 +105,8 @@ with process locking, stdio reuses persistent slots under `data/stdio` in the
 installation, holding an exclusive slot lease for the process lifetime. Concurrent
 stdio servers use separate slots, and history indexes within each slot are keyed
 by workspace. A restart reuses an available slot and its compatible indexes.
-Without process locking, stdio uses temporary state. The HistoryStore LRU holds
+Without process locking, stdio uses temporary state and file locks serialize
+threads within that process only. The HistoryStore LRU holds
 at most eight stores and retains active entries. Cache resets and rollback
 retain source history.
 
@@ -137,9 +141,10 @@ credentials and SSH must work with the LaunchAgent's PATH and environment.
 .venv/bin/python -m src.daemon uninstall
 ```
 
-Restoration stops the daemon and checks that configurations have not been edited
-since migration. Restore multiple migration backups in reverse order. Uninstall
-retains backups, the registry, and history.
+Restoration checks the maintenance barriers and holds the controller lock across
+daemon shutdown and configuration writes. It also checks that configurations
+have not been edited since migration. Restore multiple migration backups in
+reverse order. Uninstall retains backups, the registry, and history.
 
 ## Validation
 

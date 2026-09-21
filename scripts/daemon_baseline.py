@@ -20,7 +20,8 @@ def snapshot(installation):
         processes[int(pid)] = (int(parent), int(rss), age, command)
     targets = []
     for pid, (parent, rss, age, command) in processes.items():
-        direct = str(installation / "src/server.py") in command and "python" in command.lower()
+        module_server = re.search(r"(?:^|\s)-m\s+src\.server(?:\s|$)", command)
+        direct = "python" in command.lower() and (str(installation / "src/server.py") in command or module_server)
         daemon = "-m src.daemon" in command and "serve" in command
         bridge = str(installation / "bridge/stdio.mjs") in command
         if not (direct or daemon or bridge): continue

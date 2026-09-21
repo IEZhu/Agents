@@ -27,7 +27,8 @@ def rotate_token(controller):
                 original = migration.read_config(path, as_json=False)
                 if old in original: changes.append((path, original.replace(old, new), True))
         changes.append((token_path, new + "\n", True))
-        journal = {"operation": "token_rotate", "was_running": controller.status().get("state") == "ready"}
+        journal = {"operation": "token_rotate",
+                   "was_running": controller.status().get("state") in ("ready", "starting", "draining")}
         from .update import phase, probation, cleanup
         write_json(controller.directory / "maintenance.json", {"operation": "token_rotate"})
         phase(controller, journal, "draining")
