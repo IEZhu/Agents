@@ -4,6 +4,12 @@ Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
 ## Automated checks
 
+- The latest path and process-detection fixes passed 20 focused tests and 25
+  related transport, client-migration, and client-root tests. Coverage includes
+  relative Node paths across working directories, shell-wrapper exclusion from
+  process and footprint totals, symlinked debug paths, exclusive private JSON
+  creation, and age/size retention of ordinary debug files. The executable-name
+  lookup was also checked against running Python MCP processes on macOS.
 - Full Python suite at `66dd0cc` with MCP SDK 1.28.1: 862 passed, 16 deselected
   in 74.09 seconds.
 - Subsequent lifecycle and portability fixes passed 34 focused tests and 90

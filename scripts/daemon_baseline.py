@@ -18,12 +18,22 @@ def snapshot(installation):
         if len(parts) != 5: continue
         pid, parent, rss, age, command = parts
         processes[int(pid)] = (int(parent), int(rss), age, command)
+    # Read executable paths separately: command strings may contain shell
+    # wrappers, and executable paths themselves can contain spaces.
+    executables = {}
+    raw = subprocess.check_output(["/bin/ps", "-axo", "pid=,comm="], text=True)
+    for line in raw.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2:
+            executables[int(parts[0])] = Path(parts[1]).name
     targets = []
     for pid, (parent, rss, age, command) in processes.items():
+        executable = executables.get(pid, "")
+        python_process = re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", executable, re.IGNORECASE)
         module_server = re.search(r"(?:^|\s)-m\s+src\.server(?:\s|$)", command)
-        direct = "python" in command.lower() and (str(installation / "src/server.py") in command or module_server)
-        daemon = "-m src.daemon" in command and "serve" in command
-        bridge = str(installation / "bridge/stdio.mjs") in command
+        direct = python_process and (str(installation / "src/server.py") in command or module_server)
+        daemon = python_process and "-m src.daemon" in command and "serve" in command
+        bridge = executable.lower() in ("node", "nodejs") and str(installation / "bridge/stdio.mjs") in command
         if not (direct or daemon or bridge): continue
         ancestors, cursor = [], parent
         for _ in range(12):

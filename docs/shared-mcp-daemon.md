@@ -77,7 +77,9 @@ permissions are 0700; token, configuration, and backup permissions are 0600.
 Place `--state /absolute/private/dir` before the subcommand to use isolated state.
 The LaunchAgent is named `local.agents-core.<installation-hash>` and uses
 ProcessType Interactive. Service logs are limited to six 10 MiB files; debug
-logs are limited to seven days and 100 MiB.
+logs are limited to seven days and 100 MiB. Debug writes skip symlinked path
+components and create mode-0600 JSON files exclusively. Debug pruning leaves
+symlinked directories and JSON entries untouched.
 
 `status` reports ready, starting, draining, or failed state, PID, boot ID, request
 counts, and running jobs. `/health` requires a bearer token. Readiness means the
