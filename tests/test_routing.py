@@ -451,11 +451,51 @@ class TestPreferredImplants:
         with patch("src.server.get_agent_metadata", return_value=metadata), \
              patch("src.server.load_agent_prompt", return_value="base prompt"), \
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
-                   return_value=self._fake_enrichment()) as mock_enrich:
-            # Short query → would infer "lite", but preferred_implants promotes to "standard"
+                   return_value=self._fake_enrichment()) as mock_enrich, \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", False):
+            # Short query → would infer "lite", but preferred_implants promotes to "standard".
+            # Pinned to the legacy path: with the intent classifier on, a positively
+            # identified greeting waives this promotion (see src/server.py).
             _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [])
             assert effective_tier == "standard"
+
+    @pytest.mark.asyncio
+    async def test_classifier_waives_the_promotion_for_a_greeting(self):
+        """With the classifier on, a greeting keeps `lite` despite declared implants.
+
+        Without this, `lite` is unreachable in production: 43 of 43 agents declare
+        `preferred_implants`, so every lite decision was re-pinned to standard and
+        the lite half of the classifier had no effect beyond format suppression.
+        """
+        metadata = {
+            "core_skills": [], "preferred_skills": [], "capable_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+        }
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "math_scientist", "hi", [])
+            assert effective_tier == "lite"
+
+    @pytest.mark.asyncio
+    async def test_classifier_still_promotes_a_substantive_short_query(self):
+        """The waiver is tied to the mode, not to brevity."""
+        metadata = {
+            "core_skills": [], "preferred_skills": [], "capable_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+        }
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "math_scientist", "Solve for x: 3x + 2 = 11", [])
+            assert effective_tier == "deep"
 
     @pytest.mark.asyncio
     async def test_tier_not_promoted_when_explicit(self):
@@ -1498,3 +1538,56 @@ class TestBuildRetrievalQuery:
             alias = f"/{cc}_lawyer"
             retrieval = _build_retrieval_query(alias, "/lawyer", "tax question")
             assert alias in retrieval, f"alias {alias!r} not in retrieval query {retrieval!r}"
+
+
+class TestWaiverIsGatedOnMode:
+    """Round-4 regression: the waiver keyed on `implant_budget == 0`.
+
+    `retrieve` also has a zero budget, and it is where `_detect_mode`'s
+    no-lexicon fallback lands every short query it cannot read — at confidence
+    0.4. Waiving there stripped genuine engineering requests to zero skills and
+    zero implants on a guess.
+    """
+
+    def _meta(self):
+        return {
+            "core_skills": [], "preferred_skills": [], "capable_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+        }
+
+    @pytest.mark.asyncio
+    # "Design a fault-tolerant event pipeline …" used to belong here; the design
+    # collocations added to _ANALYZE_LEX now classify it `analyze`/`deep`, which
+    # is the point of that fix. These three still reach the no-lexicon fallback.
+    @pytest.mark.parametrize("query", [
+        "Сделай ревью этого кода",
+        "List every dependency that needs upgrading before the release",
+        "What did the vendor say about the renewal?",
+    ])
+    async def test_low_confidence_fallback_still_gets_promoted(self, query):
+        from src.engine.intent import classify_intent
+        import src.server as server_module
+
+        srv = server_module
+        assert classify_intent(query).implant_budget == 0, "guard: budget really is zero"
+        with patch("src.server.get_agent_metadata", return_value=self._meta()), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=TestPreferredImplants._fake_enrichment(None)), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await srv._load_and_enrich(
+                "math_scientist", query, [])
+            assert effective_tier == "standard", f"{query!r} was left at lite"
+
+    @pytest.mark.asyncio
+    async def test_a_real_greeting_still_waives(self):
+        import src.server as server_module
+
+        with patch("src.server.get_agent_metadata", return_value=self._meta()), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=TestPreferredImplants._fake_enrichment(None)), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await server_module._load_and_enrich(
+                "math_scientist", "hi", [])
+            assert effective_tier == "lite"

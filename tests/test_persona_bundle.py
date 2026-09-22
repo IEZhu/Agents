@@ -304,3 +304,54 @@ async def test_independent_results_do_not_mutate_previous_bundle(bundle_tree):
     second = await build_persona_bundle("engineer", "B", tier="deep")
     assert asdict(first) == before
     assert first.bundle_revision != second.bundle_revision
+
+
+@pytest.mark.asyncio
+async def test_greeting_does_not_strip_output_format_from_a_session_bundle(
+    bundle_tree, monkeypatch,
+):
+    """A per-query suppression must never be baked into a session-scoped bundle.
+
+    `persona.load_persona` returns NO_CHANGE while the same agent stays active,
+    so a v2 bundle is built once and reused for every later turn. If the
+    activating turn happened to be a greeting, applying
+    `profile.suppress_persona_format` here would leave the persona's
+    `## Output Format` removed for the rest of the conversation — for
+    code_reviewer or medical_expert that is the whole response contract. The v1
+    path re-derives per query because SESSION_CACHE is keyed on the query hash.
+    """
+    from src.engine.intent import classify_intent
+
+    tree, agent = bundle_tree
+    write_mdc(
+        tree / "agents/engineer/system_prompt.mdc", agent,
+        "Engineer persona\n\n## Output Format\n\nAnswer with Analysis, then Code.\n",
+    )
+    monkeypatch.setattr(enrichment, "INTENT_CLASSIFIER_ENABLED", True)
+
+    # The mode really does request suppression — this is not a vacuous test.
+    assert classify_intent("hi").suppress_persona_format is True
+
+    bundle = await build_persona_bundle("engineer", "hi")
+    assert "## Output Format" in bundle.persona_block
+    assert "Answer with Analysis, then Code." in bundle.persona_block
+
+
+@pytest.mark.asyncio
+async def test_unbalanced_fence_in_output_format_leaves_the_persona_intact(bundle_tree):
+    """An unclosed fence used to make the strip delete the persona to EOF.
+
+    Once `in_fence` is set and never cleared the scan swallows every later line,
+    so the terminating-heading branch never runs and the tail — Rules,
+    Constraints, Safety — is dropped silently. Refusing to edit a malformed
+    persona is the safe failure.
+    """
+    from src.engine.enrichment import strip_output_format
+
+    prompt = (
+        "# Persona\n\nRole text.\n\n## Output Format\n\n```\n### A\n\n"
+        "## Rules & Constraints\n\nNever do X.\n\n## Safety\n\nRed flags.\n"
+    )
+    out = strip_output_format(prompt)
+    assert out == prompt
+    assert "## Rules & Constraints" in out and "## Safety" in out

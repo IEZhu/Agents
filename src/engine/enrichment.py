@@ -27,10 +27,11 @@ import os
 import re
 import traceback
 from dataclasses import dataclass, field
-from typing import List, Literal, Optional
+from typing import List, Optional
 
-from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
+from src.engine.config import AGENTS_DEBUG, INTENT_CLASSIFIER_ENABLED, get_debug_log_dir
 from src.engine.implants import ImplantRetriever
+from src.engine.intent import TaskProfile, Tier, classify_intent
 from src.engine.rules import format_rules_for_prompt, get_rules
 from src.engine.skills import SkillRetriever
 
@@ -48,7 +49,9 @@ class EnrichmentResult:
 skill_retriever = SkillRetriever()
 implant_retriever = ImplantRetriever()
 
-Tier = Literal["lite", "standard", "deep"]
+# ``Tier`` now lives in src.engine.intent (single definition, imported above) and
+# is re-exported here because server.py, persona_bundle.py and the eval runners
+# import it from this module.
 
 _COMPLEX_SIGNALS = re.compile(
     r"(```|```\w|архитектур|рефактор|оптимиз|debug|анализ|исследу|investigate"
@@ -57,13 +60,54 @@ _COMPLEX_SIGNALS = re.compile(
 )
 
 
-def infer_tier(query: str) -> Tier:
+def _legacy_infer_tier(query: str) -> Tier:
+    """The original length+regex rule, kept verbatim and callable.
+
+    Retained for two reasons: it is the control arm of the A/B, and it is the
+    fallback when ``INTENT_CLASSIFIER_ENABLED`` is off (the default). Measured on
+    evals/datasets/routing.jsonl it scores 67/110 = 60.9%.
+    """
     stripped = query.strip()
     if len(stripped) < 50 and not _COMPLEX_SIGNALS.search(stripped):
         return "lite"
     if _COMPLEX_SIGNALS.search(stripped) or len(stripped) > 300:
         return "deep"
     return "standard"
+
+
+def infer_tier(query: str) -> Tier:
+    """Resolve the enrichment tier for *query*.
+
+    Signature, name, module and sync-ness are unchanged so every existing caller
+    (server.py:212/372, persona_bundle.py:108, evals/runners/run_tier.py) keeps
+    working. When the intent classifier is enabled this is the tier projection of
+    :func:`~src.engine.intent.classify_intent`; otherwise it is the legacy rule.
+
+    Callers that also want the mode and the budget should call ``classify_intent``
+    directly — this projection deliberately discards everything but the tier.
+    """
+    if INTENT_CLASSIFIER_ENABLED:
+        return classify_intent(query).tier
+    return _legacy_infer_tier(query)
+
+
+def resolve_profile(query: str, *, tier: Optional[Tier] = None) -> Optional[TaskProfile]:
+    """Return the :class:`TaskProfile` for *query*, or ``None`` when disabled.
+
+    ``None`` is the signal to every downstream layer that it must keep deriving
+    the budget from the tier string exactly as before, which is what keeps the
+    flag-off path byte-identical to the previous release.
+
+    *tier* pins the result when an authority outside the classifier has already
+    decided the budget (the meta-query ``explicit_tier`` override, or the
+    ``preferred_implants`` promotion).
+    """
+    if not INTENT_CLASSIFIER_ENABLED:
+        return None
+    profile = classify_intent(query)
+    if tier is not None and tier != profile.tier:
+        profile = profile.with_tier(tier)
+    return profile
 
 
 def _n_results_for_tier(tier: Tier) -> int:
@@ -88,8 +132,15 @@ async def get_dynamic_context_string(
     capable_skills: Optional[List[str]] = None,
     tier: Tier = "standard",
     preferred_implants: Optional[List[str]] = None,
+    profile: Optional[TaskProfile] = None,
 ) -> EnrichmentResult:
-    """Assemble the dynamic context block (rules + skills + implants)."""
+    """Assemble the dynamic context block (rules + skills + implants).
+
+    When *profile* is given it is the source of truth for the enrichment budget
+    (pool size, skill render mode, implant count) and *tier* is only carried for
+    logging and the wire. When it is ``None`` the budget is derived from *tier*
+    exactly as before, so the classifier-off path is unchanged.
+    """
     if chat_history is None:
         chat_history = []
     loop = asyncio.get_running_loop()
@@ -114,7 +165,7 @@ async def get_dynamic_context_string(
     # mandatory baseline. Preferred + capable participate in semantic search
     # only when tier permits (n_results > 0).
     try:
-        n_results = _n_results_for_tier(tier)
+        n_results = profile.skill_pool_size if profile else _n_results_for_tier(tier)
         skills = await loop.run_in_executor(
             None,
             lambda: skill_retriever.retrieve(
@@ -126,7 +177,17 @@ async def get_dynamic_context_string(
             ),
         )
         if skills:
-            use_compiled = tier == "standard"
+            # Render density is a separate axis from pool size, so the profile
+            # carries it explicitly. Its values still reproduce the legacy
+            # mapping (compiled only at standard): making lite render compiled
+            # was tried and reverted, because lite is the one tier where the
+            # mandatory core_skills ARE the whole skill payload (n_results == 0)
+            # and compiling them cut universal_agent's two core skills from
+            # 5,498 to 583 chars. The remaining lever is compiled-at-deep, which
+            # needs its own flag and its own quality A/B.
+            use_compiled = (
+                profile.skill_render == "compiled" if profile else tier == "standard"
+            )
             context_parts.append(
                 skill_retriever.format_skills_for_prompt(skills, compiled=use_compiled)
             )
@@ -136,8 +197,12 @@ async def get_dynamic_context_string(
     except Exception as e:
         logger.error("Failed to retrieve skills: %s", e, exc_info=True)
 
-    # --- Implants layer (standard/deep only) ------------------------------
-    if tier in ("standard", "deep"):
+    # --- Implants layer ---------------------------------------------------
+    # Legacy gate is `tier in ("standard", "deep")`; with a profile the gate is
+    # the budget itself, so a mode that earns no implants (converse, retrieve)
+    # skips the layer the way lite always did.
+    implants_enabled = profile.implant_budget > 0 if profile else tier in ("standard", "deep")
+    if implants_enabled:
         try:
             from src.engine.config import (
                 IMPLANTS_DEEP_TIER_DEFAULT,
@@ -145,17 +210,14 @@ async def get_dynamic_context_string(
             )
 
             _n_preferred = len(preferred_implants or [])
-            if tier == "standard":
-                n_implants = (
-                    min(max(2, _n_preferred), MAX_PREFERRED_IMPLANTS)
-                    if _n_preferred
-                    else 2
-                )
+            if profile is not None:
+                base_implants = profile.implant_budget
             else:
-                n_implants = min(
-                    max(IMPLANTS_DEEP_TIER_DEFAULT, _n_preferred),
-                    MAX_PREFERRED_IMPLANTS,
-                )
+                base_implants = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
+            # The agent's declared preferred_implants are a FLOOR, not a
+            # suggestion: 43 of 43 agents declare some, so dropping this term
+            # would silently starve every persona. The cap stays authoritative.
+            n_implants = min(max(base_implants, _n_preferred), MAX_PREFERRED_IMPLANTS)
             logger.debug(
                 "Retrieving implants: tier=%s, n_implants=%d, preferred=%s",
                 tier, n_implants, preferred_implants,
@@ -201,6 +263,84 @@ async def get_dynamic_context_string(
     )
 
 
+_FENCE_RE = re.compile(r"^[ \t]*(```+|~~~+)")
+_H2_RE = re.compile(r"^##[ \t]+(.*?)[ \t]*$")
+
+
+def strip_output_format(prompt: str) -> str:
+    """Remove the persona's ``## Output Format`` section.
+
+    Some task modes are actively harmed by a persona's response template: a
+    greeting answered with an "### Analysis / ### Implementation / ###
+    Confidence" scaffold. The ``serve-the-request`` rule already says the request
+    outranks the persona's Output Format; removing the block gives that rule
+    teeth instead of asking the model to disregard text still in its context.
+
+    This is a line scanner rather than a regex because personas put **fenced
+    code blocks containing level-2 headings** inside their Output Format section
+    (10 of 23 do), and one persona teaches a prompt skeleton that literally
+    contains the line ``## Output Format`` inside a fence. A regex that stopped
+    at the next ``^## `` therefore cut the section in half, deleting a fence
+    opener while leaving its closer — flipping backtick parity and swallowing
+    the rest of the persona into a code block — or deleted the taught skeleton's
+    line instead of the real section.
+
+    Rules: only the FIRST ``## Output Format`` heading that is not inside a fence
+    is matched; the section ends at the next level-2 heading that is not inside a
+    fence, or at end of input. Because both boundaries are outside fences, any
+    fence opened inside the removed span is also closed inside it, so parity is
+    preserved by construction. A persona with no such section — or with an
+    unbalanced fence, where that construction does not hold — is returned
+    unchanged.
+    """
+    lines = prompt.splitlines(keepends=True)
+    in_fence = False
+    fence_marker = None
+    start = None
+    end = len(lines)
+
+    for index, line in enumerate(lines):
+        fence = _FENCE_RE.match(line)
+        if fence:
+            marker = fence.group(1)
+            if not in_fence:
+                in_fence, fence_marker = True, marker
+            elif marker[0] == fence_marker[0] and len(marker) >= len(fence_marker):
+                # CommonMark: a closer must be at least as long as its opener, and
+                # of the same character. Truncating to three characters let a
+                # nested ``` line close an outer ````markdown block — which
+                # `agents/code_reviewer/system_prompt.mdc:110` actually contains.
+                in_fence, fence_marker = False, None
+            continue
+        if in_fence:
+            continue
+        heading = _H2_RE.match(line)
+        if not heading:
+            continue
+        if start is None:
+            if heading.group(1).strip().lower() == "output format":
+                start = index
+        else:
+            end = index
+            break
+
+    if start is None:
+        return prompt
+    if in_fence:
+        # The section opened a fence and never closed it, so the scan swallowed
+        # every following line: `end` stayed at EOF and the terminating-heading
+        # branch never ran. Cutting here would silently delete the rest of the
+        # persona — its Rules, Constraints and Safety sections. Refusing to edit a
+        # malformed persona is the safe failure: worst case the response template
+        # survives a greeting.
+        logger.warning(
+            "Unbalanced code fence inside '## Output Format'; leaving the prompt intact."
+        )
+        return prompt
+    remainder = "".join(lines[:start] + lines[end:])
+    return remainder.rstrip() + "\n" if remainder.strip() else ""
+
+
 async def enrich_agent_prompt(
     agent_name: str,
     base_prompt: str,
@@ -212,6 +352,7 @@ async def enrich_agent_prompt(
     capable_skills: Optional[List[str]] = None,
     tier: Optional[Tier] = None,
     preferred_implants: Optional[List[str]] = None,
+    profile: Optional[TaskProfile] = None,
 ) -> EnrichmentResult:
     """Append the dynamic context block (rules, skills, implants) to the
     agent's base system prompt and return the combined prompt.
@@ -224,6 +365,11 @@ async def enrich_agent_prompt(
         chat_history = []
     if tier is None:
         tier = infer_tier(query)
+    if profile is None:
+        profile = resolve_profile(query, tier=tier)
+
+    if profile is not None and profile.suppress_persona_format:
+        base_prompt = strip_output_format(base_prompt)
 
     enrichment = await get_dynamic_context_string(
         agent_name,
@@ -234,6 +380,7 @@ async def enrich_agent_prompt(
         capable_skills=capable_skills,
         tier=tier,
         preferred_implants=preferred_implants,
+        profile=profile,
     )
     if enrichment.prompt:
         base_prompt += f"\n\n{enrichment.prompt}"

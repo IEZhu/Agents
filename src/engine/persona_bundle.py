@@ -104,14 +104,46 @@ async def build_persona_bundle(
     preferred = _declared_ids(metadata, "preferred_skills")
     capable = _declared_ids(metadata, "capable_skills")
     preferred_implants = _declared_ids(metadata, "preferred_implants")
+    profile = enrichment.resolve_profile(query)
     if tier is None:
-        tier = enrichment.infer_tier(query)
+        tier = profile.tier if profile is not None else enrichment.infer_tier(query)
+        # The promotion is NEVER waived here, unlike src/server.py. The waiver is
+        # a per-query decision and this bundle is session-scoped:
+        # `persona.load_persona` returns NO_CHANGE for the same agent, so a
+        # conversation that opens with "hi" would otherwise run its whole
+        # remaining length on a `lite` bundle — no semantic skills, no implants.
+        # The v1 path can waive safely because SESSION_CACHE re-derives per query.
         if tier == "lite" and preferred_implants:
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")
+    # Everything below derives from `tier` alone. The profile contributed the tier
+    # above and is deliberately not consulted again.
+    #
+    # A v2 bundle is a SESSION-scoped artifact: `persona.load_persona` returns
+    # NO_CHANGE for the same agent on every later turn, so it is built once and
+    # reused. A per-query budget here would let the activating turn fix the skill
+    # pool, render mode and implant count for the whole conversation — a turn that
+    # happened to be a lookup would leave every later turn with zero semantic
+    # skills and zero implants. The same reasoning keeps
+    # `suppress_persona_format` out of this bundle.
+    #
+    # The tier-derived expressions below are written WITHOUT a
+    # `profile.X if profile else ...` fallback on purpose. Carrying live-looking
+    # branches that are always dead is a trap: relocating one line would silently
+    # re-enable per-query budgets in a session-scoped artifact.
 
     persona_block = await asyncio.to_thread(process_imports, body, {path}, strict=True)
+    # NOTE: `profile.suppress_persona_format` is deliberately NOT applied here.
+    # A v2 bundle is a SESSION-scoped artifact: `persona.load_persona` returns
+    # NO_CHANGE while the same agent stays active, so this block is built once and
+    # reused for every later turn. Baking a per-query decision into it means that
+    # if the activating turn happens to be a greeting, the persona keeps its
+    # `## Output Format` stripped for the rest of the conversation — for
+    # code_reviewer or medical_expert that is the whole response contract.
+    # The v1 path is safe because SESSION_CACHE is keyed on the query hash, so it
+    # re-derives per query; suppression therefore lives only in
+    # `enrichment.enrich_agent_prompt`.
     rules = await asyncio.to_thread(get_rules, fresh=True, strict=True)
     rules_block = format_rules_for_prompt(rules)
 
@@ -129,7 +161,8 @@ async def build_persona_bundle(
         skill_ids.append(component_id)
     skills = await asyncio.to_thread(_fresh_components, "skills", skill_ids)
     skills_block = enrichment.skill_retriever.format_skills_for_prompt(
-        skills, compiled=tier == "standard",
+        skills,
+        compiled=tier == "standard",
     )
 
     implants = []

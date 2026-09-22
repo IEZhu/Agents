@@ -1,0 +1,804 @@
+"""Tests for the intent classifier (src/engine/intent.py) and its wiring.
+
+The classifier itself is a pure function, so everything in `TestClassify*` runs
+with no vector store, no embedder and no network. The wiring tests import
+`src.engine.enrichment`, which builds `SkillRetriever()` at module scope against
+the live `data/` directory — see issue #68. That is pre-existing and not
+introduced here.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.engine.config import (
+    IMPLANTS_DEEP_TIER_DEFAULT,
+    INTENT_CONVERSE_MAX_CHARS,
+    MAX_PREFERRED_IMPLANTS,
+)
+from src.engine.intent import _MODE_POLICY, _TIER_BUDGET, TaskProfile, classify_intent
+
+TIERS = ("lite", "standard", "deep")
+
+
+class TestClassifyMode:
+    """Mode detection is lexical and ordered most-specific-first."""
+
+    @pytest.mark.parametrize("query,expected", [
+        ("hi", "converse"),
+        ("Привет", "converse"),
+        ("thanks!", "converse"),
+        ("Calculate the derivative of x^2 at x = 3", "compute"),
+        ("Докажи, что сумма углов треугольника равна 180", "compute"),
+        ("Compare Postgres and MySQL for a write-heavy workload", "analyze"),
+        ("Please discuss the climate movement, be extremely complex", "analyze"),
+        ("Provide an overview of the FDA pilot programs", "analyze"),
+        ("Install nginx and configure a reverse proxy", "operate"),
+        ("Write a short story about a lighthouse", "create"),
+        ("Explain University level Introductory Statistics to me like I'm a child", "explain"),
+        ("who is the current mayor of Lisbon", "retrieve"),
+    ])
+    def test_mode(self, query, expected):
+        assert classify_intent(query).mode == expected
+
+    def test_greeting_prefix_on_a_long_spec_is_not_converse(self):
+        """The `_is_meta_query` false positive must not come back.
+
+        A substantive request that merely opens with a greeting used to be
+        classified as a capability question and answered at the lite tier with
+        zero skills and no implants.
+        """
+        query = "Hi, " + "please refactor this authentication module and explain the tradeoffs. " * 4
+        assert len(query) > INTENT_CONVERSE_MAX_CHARS
+        profile = classify_intent(query)
+        assert profile.mode != "converse"
+        assert profile.tier != "lite"
+
+    def test_weak_compute_phrase_without_math_is_a_lookup(self):
+        """A weak compute phrase alone is not a computation.
+
+        Regression: "how many books are in piers anthony virtual mode series"
+        was classified `compute`, whose default budget is the deep tier.
+        """
+        profile = classify_intent("how many books are in piers anthony virtual mode series")
+        assert profile.mode == "retrieve"
+        assert profile.tier == "lite"
+
+    def test_weak_compute_phrase_with_math_is_compute(self):
+        profile = classify_intent("how much interest accrues on $1200 at 5% over 3 years")
+        assert profile.mode == "compute"
+
+
+class TestClassifyTier:
+    def test_length_alone_never_reaches_deep(self):
+        """The core defect being fixed: `len > 300` used to force the deep tier.
+
+        A long prompt with no analytic, computational or structural signal must
+        not buy the heaviest budget on size alone.
+        """
+        query = "I would like a pleasant description of a quiet meadow. " * 120
+        assert len(query) > 5000
+        assert classify_intent(query).tier != "deep"
+
+    def test_mode_default_is_a_floor_not_a_midpoint(self):
+        """A low structural score must not demote below the mode's default.
+
+        Regression: an `explain` request with no structure was demoted to lite,
+        stripping the skills the request needs.
+        """
+        profile = classify_intent("Explain University level Introductory Statistics to me like I'm a child")
+        assert profile.depth_score == 0
+        assert profile.tier == "standard"
+
+    @pytest.mark.parametrize("query", [
+        "", "   ", "\n\t ",
+    ])
+    def test_blank_query_is_converse_lite(self, query):
+        profile = classify_intent(query)
+        assert (profile.mode, profile.tier) == ("converse", "lite")
+
+    def test_tier_is_always_a_legacy_literal(self):
+        for query in ("hi", "x" * 4000, "Compare A and B", "```python\npass\n```"):
+            assert classify_intent(query).tier in TIERS
+
+    def test_budget_matches_the_resolved_tier_policy(self):
+        """Budget fields must agree with the tier they were derived from.
+
+        Reads `_TIER_BUDGET` directly rather than reproducing a lookup over
+        `_MODE_POLICY`: the previous version mirrored the production
+        `next(... if p["tier"] == tier)` scan, so it could not have caught the
+        dead-config bug that scan caused.
+        """
+        for query in ("hi", "Compare A and B in depth", "Write me a haiku", "Solve for x: 2x = 8"):
+            profile = classify_intent(query)
+            budget = _TIER_BUDGET[profile.tier]
+            assert profile.skill_pool_size == budget["skills"]
+            assert profile.skill_render == budget["render"]
+            assert profile.implant_budget == budget["implants"]
+
+    def test_budget_matches_legacy_n_results(self):
+        """lite/standard/deep must still mean 0/2/4 skills, as before."""
+        assert {t: b["skills"] for t, b in _TIER_BUDGET.items()} == {
+            "lite": 0, "standard": 2, "deep": 4,
+        }
+
+    def test_render_matches_legacy_use_compiled(self):
+        """Legacy was `use_compiled = tier == "standard"`; lite and deep render full.
+
+        Reverted after review: making lite render compiled cut universal_agent's
+        two mandatory core skills from 5,498 to 583 chars (-89%), and lite is the
+        one tier where core skills are the entire skill payload (n_results == 0).
+        """
+        assert {t: b["render"] for t, b in _TIER_BUDGET.items()} == {
+            "lite": "full", "standard": "compiled", "deep": "full",
+        }
+
+    def test_deep_implant_budget_matches_legacy_constant(self):
+        assert _TIER_BUDGET["deep"]["implants"] == IMPLANTS_DEEP_TIER_DEFAULT
+
+    def test_mode_policy_carries_no_budget_fields(self):
+        """Budget belongs to the tier table; a stray per-mode budget key would be
+        silently ignored, which is what made the old layout a trap."""
+        for mode, policy in _MODE_POLICY.items():
+            assert set(policy) == {"tier", "suppress_format"}, mode
+
+
+class TestTaskProfile:
+    def test_is_frozen(self):
+        profile = classify_intent("hi")
+        with pytest.raises(Exception):
+            profile.mode = "analyze"  # type: ignore[misc]
+
+    def test_with_tier_rederives_budget_and_keeps_mode(self):
+        profile = classify_intent("hi")
+        assert profile.tier == "lite"
+        promoted = profile.with_tier("standard")
+        assert promoted.mode == "converse"          # method follows the mode
+        assert promoted.tier == "standard"
+        assert promoted.skill_pool_size == 2        # budget follows the tier
+        assert promoted.implant_budget == 2
+        assert promoted.suppress_persona_format is True
+
+    def test_with_tier_is_identity_for_the_same_tier(self):
+        profile = classify_intent("hi")
+        assert profile.with_tier("lite") is profile
+
+    def test_with_tier_rejects_an_unknown_tier(self):
+        with pytest.raises(ValueError, match="Unknown tier"):
+            classify_intent("hi").with_tier("gigantic")  # type: ignore[arg-type]
+
+    def test_cache_token_is_colon_free_and_deterministic(self):
+        """server._load_and_enrich interpolates this into `agent:hash:X`."""
+        token = classify_intent("Compare A and B").cache_token
+        assert ":" not in token
+        assert token == classify_intent("Compare A and B").cache_token
+
+    def test_cache_token_separates_equal_tiers_with_different_budgets(self):
+        base = classify_intent("hi")
+        other = TaskProfile(
+            mode=base.mode, tier=base.tier, depth_score=base.depth_score,
+            skill_pool_size=base.skill_pool_size,
+            skill_render="compiled" if base.skill_render == "full" else "full",
+            implant_budget=base.implant_budget,
+            suppress_persona_format=base.suppress_persona_format,
+            confidence=base.confidence,
+        )
+        assert base.tier == other.tier
+        assert base.cache_token != other.cache_token
+
+    def test_cache_token_ignores_confidence(self):
+        """Confidence is diagnostic; it must not fragment the prompt cache."""
+        base = classify_intent("hi")
+        shifted = TaskProfile(
+            mode=base.mode, tier=base.tier, depth_score=base.depth_score,
+            skill_pool_size=base.skill_pool_size, skill_render=base.skill_render,
+            implant_budget=base.implant_budget,
+            suppress_persona_format=base.suppress_persona_format,
+            confidence=base.confidence / 2,
+        )
+        assert base.cache_token == shifted.cache_token
+
+
+class TestInferTierProjection:
+    """`infer_tier` keeps its name, module, signature and sync-ness."""
+
+    CORPUS = [
+        "hi", "Привет", "how are you?",
+        "Write me a Python quicksort",
+        "Compare Postgres and MySQL",
+        "Explain closures to me",
+        "```python\nprint(1)\n```",
+        "Please review this architecture and plan a refactor",
+        "x" * 400, "y" * 40,
+        "Solve for x: 3x + 2 = 11",
+    ]
+
+    def test_flag_off_is_byte_identical_to_the_legacy_rule(self, monkeypatch):
+        from src.engine import enrichment
+
+        monkeypatch.setattr(enrichment, "INTENT_CLASSIFIER_ENABLED", False)
+        for query in self.CORPUS:
+            assert enrichment.infer_tier(query) == enrichment._legacy_infer_tier(query)
+
+    def test_flag_on_projects_the_classifier(self, monkeypatch):
+        from src.engine import enrichment
+
+        monkeypatch.setattr(enrichment, "INTENT_CLASSIFIER_ENABLED", True)
+        for query in self.CORPUS:
+            assert enrichment.infer_tier(query) == classify_intent(query).tier
+
+    def test_resolve_profile_is_none_when_disabled(self, monkeypatch):
+        from src.engine import enrichment
+
+        monkeypatch.setattr(enrichment, "INTENT_CLASSIFIER_ENABLED", False)
+        assert enrichment.resolve_profile("Compare A and B") is None
+
+    def test_resolve_profile_honours_a_pinned_tier(self, monkeypatch):
+        from src.engine import enrichment
+
+        monkeypatch.setattr(enrichment, "INTENT_CLASSIFIER_ENABLED", True)
+        profile = enrichment.resolve_profile("hi", tier="standard")
+        assert profile is not None
+        assert profile.tier == "standard"
+        assert profile.mode == "converse"
+
+
+class TestStripOutputFormat:
+    def test_removes_the_section_and_keeps_the_next_one(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "# P\n\nintro\n\n## Output Format\n\ntemplate\n\n## Rules\n\nkeep\n"
+        out = strip_output_format(prompt)
+        assert "template" not in out
+        assert "## Output Format" not in out
+        assert "## Rules" in out and "keep" in out
+        assert "intro" in out
+
+    def test_nested_subsections_travel_with_the_parent(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "## Output Format\n\nA\n\n### Confidence\n\nB\n\n## Rules\n\nkeep\n"
+        out = strip_output_format(prompt)
+        assert "### Confidence" not in out and "B" not in out
+        assert "keep" in out
+
+    def test_is_a_noop_without_the_section(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "# P\n\nonly body\n"
+        assert strip_output_format(prompt).strip() == prompt.strip()
+
+    def test_trailing_section_is_removed_cleanly(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "# P\n\nbody\n\n## Output Format\n\ntemplate\n"
+        out = strip_output_format(prompt)
+        assert out.endswith("\n")
+        assert "template" not in out and "body" in out
+
+
+class TestImplantBudgetParity:
+    """The unified implant formula must equal the legacy per-tier branches.
+
+    Judges flagged this as the likeliest silent regression: 43 of 43 agents
+    declare `preferred_implants`, so dropping that floor would starve every
+    persona while every test still passed.
+    """
+
+    @staticmethod
+    def _legacy(tier: str, n_preferred: int) -> int:
+        if tier == "standard":
+            return (
+                min(max(2, n_preferred), MAX_PREFERRED_IMPLANTS)
+                if n_preferred
+                else 2
+            )
+        return min(max(IMPLANTS_DEEP_TIER_DEFAULT, n_preferred), MAX_PREFERRED_IMPLANTS)
+
+    @staticmethod
+    def _unified(tier: str, n_preferred: int) -> int:
+        base = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
+        return min(max(base, n_preferred), MAX_PREFERRED_IMPLANTS)
+
+    @pytest.mark.parametrize("tier", ["standard", "deep"])
+    @pytest.mark.parametrize("n_preferred", list(range(0, MAX_PREFERRED_IMPLANTS + 3)))
+    def test_formulas_agree(self, tier, n_preferred):
+        assert self._unified(tier, n_preferred) == self._legacy(tier, n_preferred)
+
+    @pytest.mark.parametrize("n_preferred", [1, 3, 7])
+    def test_preferred_is_a_floor_capped_by_the_max(self, n_preferred):
+        for tier in ("standard", "deep"):
+            got = self._unified(tier, n_preferred)
+            assert got >= min(n_preferred, MAX_PREFERRED_IMPLANTS)
+            assert got <= MAX_PREFERRED_IMPLANTS
+
+
+class TestLexiconBoundaries:
+    """Regressions from review: a left-only anchor let short words hijack a mode.
+
+    `_lex` used to emit `(?<![\\w])(hi|hello|...)` with no trailing boundary, so
+    `hi` matched "his"/"history"/"highest" and `post` matched "postgres". Every
+    query below was verified to misclassify before the fix.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Fix his broken nginx config",
+        "Summarize his report",
+        "What did he hit?",
+        "What is the history of the Roman Empire?",
+        "Find the highest value in this list",
+        "Give me a high-level overview",
+        "Whose hierarchy is this?",
+        "Hide the debug banner",
+        "Give me a hint about the failing test",
+    ])
+    def test_converse_lexicon_does_not_match_inside_a_word(self, query):
+        profile = classify_intent(query)
+        assert profile.mode != "converse", f"{query!r} -> {profile.signals}"
+
+    @pytest.mark.parametrize("query,forbidden_signal", [
+        ("Explain postgres indexes", "create_lex"),      # `post` in _CREATE_LEX
+        ("Listen to the log stream", "retrieve_lex"),    # `list` in _RETRIEVE_LEX
+        ("Book the auditorium for Friday", "analyze_lex"),  # `audit` in _ANALYZE_LEX
+        ("She had an audition yesterday", "analyze_lex"),
+        ("Postgres is slow", "create_lex"),
+    ])
+    def test_stems_do_not_swallow_unrelated_words(self, query, forbidden_signal):
+        """Assert on the SIGNAL, not the mode.
+
+        A query may still land on a mode through the no-lexicon fallback; what
+        must not happen is a lexicon claiming it on a substring match.
+        """
+        profile = classify_intent(query)
+        assert forbidden_signal not in profile.signals, f"{query!r} -> {profile.signals}"
+
+    def test_explain_wins_over_a_substring_create_match(self):
+        assert classify_intent("Explain postgres indexes").mode == "explain"
+
+    def test_a_real_create_word_still_wins(self):
+        assert classify_intent("Write a postmortem of the outage").mode == "create"
+
+    def test_real_greetings_still_classify_as_converse(self):
+        for query in ("hi", "hello there", "hey", "thanks!", "Привет", "hola", "gracias"):
+            assert classify_intent(query).mode == "converse", query
+
+    def test_genuine_stems_still_match_inflections(self):
+        """Open-ended stems are deliberate and must keep working."""
+        assert classify_intent("Analyzing this trace").mode == "analyze"
+        assert classify_intent("Configuring nginx").mode == "operate"
+        assert classify_intent("Реализуй кэш").mode == "operate"
+        assert classify_intent("Compute the integrals").mode == "compute"
+
+
+class TestSuppressFormatPolicy:
+    def test_only_converse_suppresses_the_persona_format(self):
+        """Narrowed after review: a persona's Output Format is not always a
+        mere template — for medical_expert it carries the mandated Safety
+        section, and `create` fires on summarize/draft/write."""
+        suppressing = {m for m, p in _MODE_POLICY.items() if p["suppress_format"]}
+        assert suppressing == {"converse"}
+
+    def test_a_draft_request_keeps_the_persona_format(self):
+        profile = classify_intent("Draft a note summarizing these labs")
+        assert profile.mode == "create"
+        assert profile.suppress_persona_format is False
+
+
+class TestStripOutputFormatFenceAware:
+    """Regressions from review, all measured on the repo's real personas."""
+
+    @staticmethod
+    def _personas():
+        import glob
+        return sorted(glob.glob("agents/*/system_prompt.mdc"))
+
+    def test_backtick_parity_is_preserved_for_every_persona(self):
+        """10 of 23 personas used to end up with an unbalanced fence.
+
+        Their Output Format contains a fenced template whose inner headings are
+        level-2, so a regex stopping at the next `^## ` deleted the fence opener
+        and left its closer — turning the rest of the persona into a code block.
+        """
+        from src.engine.enrichment import strip_output_format
+
+        personas = self._personas()
+        if not personas:
+            pytest.skip("no agents/ in this checkout")
+        for path in personas:
+            source = open(path, encoding="utf-8").read()
+            if "## Output Format" not in source:
+                continue
+            if source.count("```") % 2 != 0:
+                continue  # persona is already unbalanced; not ours to assert on
+            out = strip_output_format(source)
+            assert out.count("```") % 2 == 0, f"{path} left an unbalanced fence"
+
+    def test_the_whole_section_is_removed_not_just_the_heading(self):
+        """8 of 23 personas used to lose only the heading plus a line or two,
+        promoting the surviving template to apparent top-level sections."""
+        from src.engine.enrichment import strip_output_format
+
+        personas = self._personas()
+        if not personas:
+            pytest.skip("no agents/ in this checkout")
+        for path in personas:
+            source = open(path, encoding="utf-8").read()
+            if "## Output Format" not in source:
+                continue
+            removed = len(source) - len(strip_output_format(source))
+            assert removed >= 200, f"{path} only lost {removed} bytes — section survived"
+
+    def test_a_fenced_output_format_line_is_not_matched(self):
+        """prompt_engineer teaches a skeleton containing the literal line
+        `## Output Format` inside a fence; deleting that taught it to design
+        prompts with no output-format section at all."""
+        from src.engine.enrichment import strip_output_format
+
+        prompt = (
+            "# Persona\n\nintro\n\n"
+            "```markdown\n## Output Format\n[show an example]\n```\n\n"
+            "## Output Format\n\nthe real template\n\n"
+            "## Rules\n\nkeep\n"
+        )
+        out = strip_output_format(prompt)
+        assert "[show an example]" in out          # taught skeleton survives
+        assert out.count("## Output Format") == 1  # only the fenced one remains
+        assert "the real template" not in out
+        assert "keep" in out
+        assert out.count("```") % 2 == 0
+
+    def test_level_two_headings_inside_a_fence_do_not_end_the_section(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = (
+            "## Output Format\n\n"
+            "```markdown\n## Executive Summary\n...\n## Findings\n...\n```\n\n"
+            "## Rules\n\nkeep\n"
+        )
+        out = strip_output_format(prompt)
+        assert "Executive Summary" not in out
+        assert "Findings" not in out
+        assert "keep" in out
+        assert "```" not in out
+
+    def test_tilde_fences_are_honoured(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "## Output Format\n\n~~~\n## Inner\n~~~\n\n## Rules\n\nkeep\n"
+        out = strip_output_format(prompt)
+        assert "## Inner" not in out and "keep" in out
+
+    def test_everything_after_the_section_is_kept(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "## Output Format\n\nT\n\n## A\n\na\n\n## B\n\nb\n"
+        out = strip_output_format(prompt)
+        assert "## A" in out and "## B" in out and "T" not in out
+
+
+class TestRunTierRankGuard:
+    def test_unknown_expected_tier_does_not_crash(self):
+        """`iter_valid` filters on fetch_error/drift, not label completeness, so
+        a row with a missing or misspelled expected_tier must score as wrong."""
+        from evals.runners.run_tier import _arm_stats
+
+        rows = [
+            {"expected": "deep", "intent": "deep"},
+            {"expected": None, "intent": "lite"},
+            {"expected": "dep", "intent": "standard"},
+        ]
+        stats = _arm_stats(rows, "intent")
+        assert stats["total"] == 3
+        assert stats["correct"] == 1
+
+
+class TestConverseIsTheWholeMessage:
+    """Round-2 regression: a greeting *token* is not a greeting *message*.
+
+    The gate used to accept any query under INTENT_CONVERSE_MAX_CHARS that merely
+    contained a greeting, so a short real request was answered at the lite tier
+    with zero skills, zero implants and the persona format stripped.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Hi, compare Postgres vs MySQL",
+        "hey, debug this stack trace",
+        "thanks, now optimize this query",
+        "привет, сравни postgres и mysql",
+        "Hi! Fix the null deref in auth.py",
+        "hello, write me a quicksort",
+    ])
+    def test_greeting_plus_a_request_is_not_converse(self, query):
+        profile = classify_intent(query)
+        assert len(query) <= INTENT_CONVERSE_MAX_CHARS, "guard: must exercise the short path"
+        assert profile.mode != "converse", f"{query!r} -> {profile.signals}"
+        assert profile.suppress_persona_format is False
+
+    @pytest.mark.parametrize("query", [
+        "hi", "Hello!", "hey there", "thanks", "thank you all", "good morning everyone",
+        "Привет", "спасибо большое", "hola", "gracias",
+    ])
+    def test_a_bare_greeting_is_still_converse(self, query):
+        assert classify_intent(query).mode == "converse", query
+
+    def test_suppression_survives_promotion_only_for_a_real_greeting(self):
+        """suppress_persona_format follows the mode, so it outlives the
+        lite->standard promotion in server._load_and_enrich. That is correct for
+        a greeting and would have been a bug for a disguised request."""
+        assert classify_intent("hi").with_tier("standard").suppress_persona_format is True
+        assert (
+            classify_intent("Hi! Fix the null deref in auth.py")
+            .with_tier("standard").suppress_persona_format is False
+        )
+
+
+class TestCodeDetection:
+    """Round-2 regression: `_CODE_ISH` used re.DOTALL with unanchored `.+`."""
+
+    @pytest.mark.parametrize("query", [
+        "Select the best framework from this list",
+        "the import duties from China rose",
+        "Update me on where we landed",
+    ])
+    def test_prose_is_not_mistaken_for_code(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False, query
+        assert "code_ish" not in classify_intent(query).signals
+
+    @pytest.mark.parametrize("query", [
+        "def handler(req):",
+        "import os",
+        "from pathlib import Path",
+    ])
+    def test_real_code_is_detected(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is True, query
+
+    @pytest.mark.parametrize("query", [
+        "SELECT Name FROM News_Editor ne JOIN orders o ON o.uid = ne.id",
+        "UPDATE t SET a = b.c FROM x",
+    ])
+    def test_unfenced_sql_is_deliberately_not_detected(self, query):
+        """Accepted trade-off, third revision of this detector.
+
+        SQL's vocabulary is ordinary English, so every keyword-counting variant
+        classified prose as a systems operation. Raw SQL pasted without a fence
+        now falls to retrieve/create and is merely mis-budgeted; a fenced block
+        is still scored by `_structural_score` as `code_fence`.
+        """
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False
+        assert "```sql\n" + query + "\n```" and "code_fence" in classify_intent(
+            "```sql\n" + query + "\n```"
+        ).signals
+
+
+class TestCodeDetectionIsNarrow:
+    """Round-3 regression: SQL keyword counting read English as code.
+
+    `on`, `set`, `from`, `values`, `update`, `having` are ordinary English, and
+    `;`, `*` and `word.word` occur in prose, so no keyword threshold separates
+    them. Keyword-counted SQL detection was removed rather than retuned — the
+    third attempt at the same class of bug.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Import duties from China rose 12% last year; summarize the impact.",
+        "Find the update on the values from the vendor we set on Friday; thanks",
+        "Who is on the roster from the values we set in the update; anyone new?",
+        "Set the meeting on Monday and update the values from the deck; it's urgent.",
+        "Select the best framework from this list",
+        "Update me on where we landed",
+    ])
+    def test_prose_is_never_code(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False, query
+        assert "code_ish" not in classify_intent(query).signals
+
+    @pytest.mark.parametrize("query", [
+        "def handler(req):",
+        "import os",
+        "from pathlib import Path",
+        "class Foo:",
+        "#include <stdio.h>",
+        "function render(props) {",
+    ])
+    def test_declarations_are_still_detected(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is True, query
+
+    def test_detection_is_case_sensitive_on_purpose(self):
+        """"Import duties..." begins a sentence; "import os" is a statement."""
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code("import os") is True
+        assert _looks_like_code("Import duties from China") is False
+
+
+class TestGreetingPlusMath:
+    """Round-3 regression: the remainder check ignored digits and operators."""
+
+    @pytest.mark.parametrize("query", [
+        "hi, 1234567 * 89 = ?",
+        "hey, 2+2?",
+        "hi -- 3^12",
+        "hello, $500 at 4%?",
+    ])
+    def test_a_greeting_with_an_expression_is_not_converse(self, query):
+        profile = classify_intent(query)
+        assert profile.mode != "converse", f"{query!r} -> {profile.signals}"
+        assert profile.suppress_persona_format is False
+
+
+class TestClassifyCache:
+    def test_repeated_classification_is_memoized(self):
+        """route_and_load classifies the same string up to three times per
+        request, synchronously on the event loop; the scan is linear in length."""
+        from src.engine.intent import _classify_cached
+
+        _classify_cached.cache_clear()
+        query = "Please analyze this trace. " + "x" * 5000
+        first = classify_intent(query)
+        info_after_first = _classify_cached.cache_info()
+        second = classify_intent(query)
+        info_after_second = _classify_cached.cache_info()
+        assert first == second
+        assert info_after_second.hits == info_after_first.hits + 1
+
+    def test_cache_does_not_change_results(self):
+        from src.engine.intent import _classify_cached
+
+        queries = ["hi", "Compare A and B", "import os", "Write a poem"]
+        _classify_cached.cache_clear()
+        cold = [classify_intent(q) for q in queries]
+        warm = [classify_intent(q) for q in queries]
+        assert cold == warm
+
+
+class TestLexiconStemsAreSafe:
+    """Round-4 regression: stems that broke the rule `_lex` itself documents."""
+
+    @pytest.mark.parametrize("query,forbidden", [
+        ("Buy a new computer for the office", "compute"),      # comput[ae]
+        ("Is my computer infected?", "compute"),
+        ("Trust is an integral part of the team", "compute"),  # integral
+        ("the derivative of brand equity", "compute"),         # deriv
+        ("Let's discuss lunch", "analyze"),                    # discuss
+        ("For your reference, the deadline moved", "analyze"), # referenc
+    ])
+    def test_prose_is_not_over_provisioned(self, query, forbidden):
+        profile = classify_intent(query)
+        assert profile.mode != forbidden, f"{query!r} -> {profile.signals}"
+        assert profile.tier != "deep"
+
+    @pytest.mark.parametrize("query", [
+        "Calculate the derivative of x^2",
+        "Solve for x: 3x+2=11",
+        "Prove the theorem",
+        "Compute the eigenvalues",
+        "Вычисли интеграл",
+        "Рассчитай вероятность",
+    ])
+    def test_real_computation_is_still_detected(self, query):
+        assert classify_intent(query).mode == "compute", query
+
+    @pytest.mark.parametrize("query", [
+        "Discuss the implications of the ruling",
+        "Provide an overview of the FDA pilot programs",
+    ])
+    def test_academic_register_still_reaches_analyze(self, query):
+        assert classify_intent(query).mode == "analyze", query
+
+
+class TestDeclarationsNeedCodeContext:
+    """Round-4 regression: `class X:` and `function f(` matched prose.
+
+    Legal, medical and regulatory phrasing is exactly the traffic that reaches
+    `lawyer` and `medical_expert`.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Is this device a class 2(b) under the regulation?",
+        "is this a class A: violation",
+        "the function f(x) is convex",
+    ])
+    def test_prose_is_not_a_declaration(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False, query
+
+    @pytest.mark.parametrize("query", [
+        "class Foo:",
+        "def handler(req):",
+        "    async def run(self):",
+        "function render(props) {",
+    ])
+    def test_line_anchored_declarations_are_detected(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is True, repr(query)
+
+
+class TestFencedBlockSelectsOperate:
+    """Round-4 regression: the trade-off for dropping SQL detection was that a
+    fenced block is "already covered". It was not — `code_fence` scored one
+    point and could not affect the mode, so a fenced traceback landed on
+    retrieve/lite where the legacy rule gave deep."""
+
+    def test_a_fenced_traceback_is_operate(self):
+        query = "help\n```python\nTraceback (most recent call last):\nValueError: bad\n```"
+        profile = classify_intent(query)
+        assert profile.mode == "operate"
+        assert profile.tier != "lite"
+
+    def test_fenced_sql_is_covered_even_though_bare_sql_is_not(self):
+        from src.engine.intent import _looks_like_code
+
+        bare = "SELECT a FROM t JOIN u ON u.id = t.id"
+        assert _looks_like_code(bare) is False
+        assert classify_intent("```sql\n" + bare + "\n```").mode == "operate"
+
+
+class TestRoundFiveRegressions:
+    """Findings from the fifth review round."""
+
+    def test_fenced_analysis_is_not_demoted_to_operate(self):
+        """The costlier method must win. Ranking the fence above compute/analyze
+        turned a fenced code review into `operate`/`standard` — 2 skills and 2
+        implants where the legacy rule gave 4 and 3."""
+        query = (
+            "```python\ndef f(): pass\n```\n"
+            "Review this code for security issues and compare against the old design"
+        )
+        profile = classify_intent(query)
+        assert profile.mode == "analyze"
+        assert profile.tier == "deep"
+
+    def test_a_fence_still_rescues_an_otherwise_unreadable_query(self):
+        assert classify_intent("help\n```python\npass\n```").mode == "operate"
+
+    @pytest.mark.parametrize("query", [
+        "Write a proof of concept for the new cache layer",
+        "Integrate the Stripe API into our checkout flow",
+        "Please integrate this library",
+    ])
+    def test_software_english_is_not_a_computation(self, query):
+        """`proof` and `integrate` are ordinary software English, and `compute`
+        defaults straight to deep with no structural corroboration."""
+        profile = classify_intent(query)
+        assert profile.mode != "compute", f"{query!r} -> {profile.signals}"
+        assert profile.tier != "deep"
+
+    @pytest.mark.parametrize("query", [
+        "Design a fault-tolerant event pipeline for 1M events per second",
+        "Plan the migration to Postgres 17",
+        "Спроектируй схему хранения",
+    ])
+    def test_the_design_family_reaches_analyze(self, query):
+        """No mode lexicon covered design/planning, so `system_architect`'s core
+        traffic landed on `retrieve`/`lite` — the cheapest budget."""
+        assert classify_intent(query).mode == "analyze", query
+
+    def test_a_passing_mention_of_design_does_not_promote(self):
+        """Collocations, not bare words: `design` as a word is what made the
+        legacy regex fire `deep` on any passing mention."""
+        assert classify_intent("the design is ugly").tier != "deep"
+
+    @pytest.mark.parametrize("query,forbidden", [
+        ("у меня плохое настроение, что делать?", "operate"),   # настро -> настроение
+        ("Как замотивировать команду?", "operate"),             # команд -> команда
+        ("The monthly installment is too high", "operate"),     # install -> installment
+    ])
+    def test_operate_stems_do_not_swallow_unrelated_words(self, query, forbidden):
+        assert classify_intent(query).mode != forbidden, query
+
+    @pytest.mark.parametrize("query", [
+        "Запусти скрипт деплоя", "Настрой прокси", "Установи nginx", "Install nginx",
+    ])
+    def test_real_operate_requests_still_match(self, query):
+        assert classify_intent(query).mode == "operate", query
