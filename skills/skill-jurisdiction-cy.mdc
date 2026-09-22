@@ -1,6 +1,6 @@
 ---
-description: "Cypriot legal jurisdiction: company, tax, immigration, property, banking, EU regulations. Cap. 113 Companies Law, IP Box 2.5%, non-dom 17yr, DTT network 65+. Role: Cyprus legal advisor."
-compiled: "CY: Common law + EU. Corp tax 12.5%. IP Box ~2.5%. Non-dom 17yr SDC exemption. 65+ DTTs. NID. 50% employment exemption (>€55k). Cap. 113 companies."
+description: "Cypriot legal jurisdiction: company, tax, immigration, property, banking, EU regulations. Cap. 113 Companies Law, IP Box ~3%, non-dom 17yr, DTT network 65+. Role: Cyprus legal advisor."
+compiled: "CY: Common law + EU. Corp tax 15% (since 2026). IP Box ~3%. Non-dom 17yr SDC exemption. 65+ DTTs. NID. 50% employment exemption (>€55k, 15y prior non-residence). Cap. 113 companies."
 keywords:
   - /cy_lawyer
   - cy_lawyer
@@ -16,9 +16,18 @@ keywords:
   - notional interest deduction
   - Pink Slip
   - double tax treaty Cyprus
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://taxsummaries.pwc.com/cyprus/corporate/taxes-on-corporate-income
+  - https://taxsummaries.pwc.com/cyprus/individual/taxes-on-personal-income
+  - https://taxsummaries.pwc.com/cyprus/corporate/withholding-taxes
+  - https://taxsummaries.pwc.com/cyprus/individual/income-determination
 ---
 ## Role
 Cyprus legal advisor: common law heritage + EU member state since 2004, holding/IP hub.
+
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
 
 ## Primary Sources
 - **Constitution of the Republic of Cyprus (1960)** — supreme law.
@@ -41,13 +50,13 @@ Cyprus legal advisor: common law heritage + EU member state since 2004, holding/
 - **Supreme Court / District Courts** — judiciary.
 
 ## Tax System (as of 2026)
-- Corporate income tax: **12.5%** (among lowest in EU).
-- **IP Box** regime: effective rate as low as **2.5%** on qualifying IP income (OECD nexus-compliant).
-- **Non-dom** regime: exemption from SDC on dividends/interest/rental for **17 years**.
-- **No withholding tax** on dividends paid to non-residents (subject to anti-abuse conditions).
-- **DTT network: 65+** countries.
+- Corporate income tax: **15%** from 01.01.2026 (was 12.5%; aligned with the OECD global minimum).
+- **IP Box** regime: effective rate about **3%** on qualifying IP income (80% deduction × 15%) (OECD nexus-compliant).
+- **Non-dom** regime: exemption from SDC on dividends/interest for **17 years** (SDC on rent abolished from 2026). Domiciled residents: SDC on dividends 5% (was 17%), interest 17%. A paid extension of non-dom status was introduced in 2026 — terms unverified, check before advising.
+- **No withholding tax** on dividends paid to non-residents, except 17% to EU-blacklisted jurisdictions and (from 2026) 5% to related companies in low-tax jurisdictions.
+- **DTT network: 65+** countries (exact count — check the current treaty list).
 - **NID** (Notional Interest Deduction) — deduction on new equity, capped at 80% of taxable profit.
-- **50% employment exemption** for new tax residents with salary > €55,000 (must not have been resident 10y prior).
+- **50% employment exemption** for new tax residents with salary > €55,000 (must not have been resident for 15 consecutive years prior; employment starting from 2022; lasts 17 years).
 - **No inheritance tax, no estate tax**, no wealth tax.
 
 ## Corporate Forms
@@ -58,13 +67,13 @@ Cyprus legal advisor: common law heritage + EU member state since 2004, holding/
 
 ## Immigration / Residence
 - **Temporary residence permit** — based on employment, study, investment.
-- **Permanent residence** under **Regulation 6(2)** — fast-track via real estate purchase (€300,000+).
+- **Permanent residence** under **Regulation 6(2)** — fast-track via real estate purchase (€300,000+ — threshold not re-verified 2026).
 - **Pink Slip** — short-term work visa.
 - **EU Blue Card** — for highly-skilled non-EU professionals.
 - **Digital Nomad Visa** — separate scheme.
 
 ## Country-Specific Mechanisms
-- **IP Box (nexus-based)** — qualifying IP (patents, software) gets 80% deduction → effective ~2.5%. Substance + R&D required.
+- **IP Box (nexus-based)** — qualifying IP (patents, software) gets 80% deduction → effective ~3% at the 15% rate. Substance + R&D required.
 - **Non-dom regime** — resident-but-non-domiciled individuals avoid SDC for 17y on passive income.
 - **Substance requirements** post-BEPS/ATAD — directors, office, decisions in Cyprus; mailbox companies are flagged.
 - **EU dimension** — GDPR, AML 4/5/6, MiFID II, AIFMD, ATAD3/Unshell apply directly.

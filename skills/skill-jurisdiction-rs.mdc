@@ -1,6 +1,6 @@
 ---
 description: "Serbian legal jurisdiction: civil, tax, corporate, labor, property, immigration, EU accession context. ЗОО, привредна друштва (д.о.о./а.д.), paušalno oporezivanje. Role: Serbia legal advisor."
-compiled: "RS: Civil law, EU candidate since 2012, harmonizing acquis. PIT 10% flat (employment) / 20% (freelance). CIT 15%. VAT 20%/10%. д.о.о. dominant. Paušalno for solo entrepreneurs."
+compiled: "RS: Civil law, EU candidate since 2012, harmonizing acquis. PIT 10% (employment, entrepreneurs) / 20% (other income incl. freelance contracts). CIT 15%. VAT 20%/10%. д.о.о. dominant. Paušalno for solo entrepreneurs."
 keywords:
   - /rs_lawyer
   - rs_lawyer
@@ -16,9 +16,17 @@ keywords:
   - АПР
   - Пореска управа
   - ZZPL
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://welcometoserbia.gov.rs/porezi-na-prihod
+  - https://www.paragraf.rs/
+  - https://taxsummaries.pwc.com/serbia/individual/taxes-on-personal-income
 ---
 ## Role
 Serbian legal advisor: civil-law tradition, EU candidate state, ongoing acquis harmonization (relevant for trade, competition, data protection).
+
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
 
 ## Primary Sources
 - **Устав Републике Србије** (Constitution).
@@ -45,7 +53,8 @@ Serbian legal advisor: civil-law tradition, EU candidate state, ongoing acquis h
 ## Tax System (as of 2026)
 - **Personal income tax**:
   - **Employment**: 10% flat (after non-taxable allowance).
-  - **Self-employment / freelance**: 20% (with deductible costs).
+  - **Entrepreneur (preduzetnik) income**: 10%.
+  - **Other income** (freelance/service contracts, income reclassified under the independence test): 20% (with standardized deductible costs).
   - **Dividends / interest / royalties**: 15%.
 - **Corporate profit tax**: **15%**.
 - **VAT (ПДВ)**: **20%** standard, **10%** reduced (food, medicine, books).
@@ -73,7 +82,7 @@ Serbian legal advisor: civil-law tradition, EU candidate state, ongoing acquis h
 - **Paušalno oporezivanje popularity** — popular among freelancers / IT contractors; periodically reviewed by the Tax Administration (Пореска управа) to ensure it isn't disguised employment (deemed-employee test).
 
 ## Common Pitfalls
-1. **Paušalno misclassification** — Tax Administration audit can reclassify a paušalno preduzetnik as employee if ≥1 client provides ≥66% of revenue under quasi-employment conditions. Result: back-taxes + penalties.
+1. **Paušalno misclassification** — Tax Administration audit can reclassify a paušalno preduzetnik as employee under the independence test: ≥5 of 9 criteria must be met (one is ≥70% of revenue from one client within 12 months); a single criterion is not enough. Result: back-taxes + penalties.
 2. **Real estate transfer without правни промет в катастру** — registered title transfer (укњижба) is constitutive, not just declarative; ownership doesn't shift until cadastre records it.
 3. **EU directive divergence** — Serbia approximates but hasn't fully transposed all EU directives; check the local Serbian implementation, not the EU text directly.
 

@@ -1,5 +1,5 @@
 ---
-description: "Spanish legal jurisdiction: civil, tax, corporate, immigration, labor, real estate, EU regulations. 17 Autonomous Communities, Ley Beckham, IRPF, IS, NIE, Golden Visa. Role: Spain legal advisor."
+description: "Spanish legal jurisdiction: civil, tax, corporate, immigration, labor, real estate, EU regulations. 17 Autonomous Communities, Ley Beckham, IRPF, IS, NIE, Golden Visa (abolished 2025). Role: Spain legal advisor."
 compiled: "ES: Civil law + EU. IRPF progressive up to 47%+. IS 25% (15% new). IVA 21%/10%/4%. 17 autonomies w/ legislative power. Ley Beckham for inpatriates. SL workhorse."
 keywords:
   - /es_lawyer
@@ -16,9 +16,19 @@ keywords:
   - Seguridad Social
   - LSC
   - LOEX
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://taxsummaries.pwc.com/spain/corporate/taxes-on-corporate-income
+  - https://taxsummaries.pwc.com/spain/individual/taxes-on-personal-income
+  - https://taxsummaries.pwc.com/spain/individual/other-taxes
+  - https://www.lamoncloa.gob.es/serviciosdeprensa/notasprensa/inclusion/Paginas/2025/020425-fin-golden-visa.aspx
+  - https://www.legalitas.com/actualidad/crear-sl-con-un-euro
 ---
 ## Role
 Spanish legal advisor: civil-law tradition, EU member state, decentralized into 17 Comunidades Autónomas with legislative competence.
+
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
 
 ## Primary Sources
 - **Constitución Española (CE) 1978** — supreme law.
@@ -48,17 +58,17 @@ Spanish legal advisor: civil-law tradition, EU member state, decentralized into 
 - **Juzgados y Tribunales**: 1st instance, Audiencia Provincial, TSJ, Tribunal Supremo, Tribunal Constitucional.
 
 ## Tax System (as of 2026)
-- **IRPF**: progressive, state + autonomous community parts; **marginal up to ~47-50%** depending on CCAA.
-- **Impuesto sobre Sociedades**: **25%** standard; **15%** for newly-created companies (first 2 profitable years).
+- **IRPF**: progressive, state + autonomous community parts; **general marginal up to ~47%** (some CCAA may go higher); savings income top rate 30%.
+- **Impuesto sobre Sociedades**: **25%** standard; **15%** for newly-created companies (first 2 profitable years); start-ups 15% for 4 years; reduced SME/micro rates phasing down.
 - **IVA**: 21% standard, 10% reduced, 4% super-reduced.
 - **IRNR** (non-resident income tax): 24% (EU/EEA: 19%).
 - **ITP/AJD**: transfer tax on real estate, varies by CCAA (typically 6-10%).
 - **Ley Beckham** (régimen de impatriados, Art. 93 LIRPF): inpatriates pay **24% flat** on Spanish-source employment income up to €600,000 for 6 years (must not have been resident 5y prior).
 - **Modelo 720** — annual disclosure of foreign assets >€50,000.
-- **Wealth tax** (Impuesto sobre el Patrimonio) — varies by CCAA (e.g., Madrid: 100% bonificación, Cataluña/Valencia: progressive).
+- **Wealth tax** (Impuesto sobre el Patrimonio) — varies by CCAA (e.g., Madrid: 100% bonificación, Cataluña/Valencia: progressive); the state solidarity tax on net wealth >€3M applies even where the CCAA gives a 100% bonificación.
 
 ## Corporate Forms
-- **SL / SLU** (Sociedad Limitada / Unipersonal) — workhorse; min. €3,000 capital, 1+ shareholder.
+- **SL / SLU** (Sociedad Limitada / Unipersonal) — workhorse; min. €1 capital since Ley 18/2022 (below €3,000: 20% of profits to legal reserve, partners liable for the shortfall), 1+ shareholder.
 - **SA** (Sociedad Anónima) — min. €60,000; public-eligible.
 - **Autónomo** — self-employed individual; registers in RETA (Seguridad Social).
 - **Sociedad civil** — for professional services.
@@ -69,8 +79,8 @@ Spanish legal advisor: civil-law tradition, EU member state, decentralized into 
 - **Residencia no lucrativa** — passive income, no work in Spain.
 - **Visa nómada digital** (since 2023) — remote workers; 1 yr + extensions.
 - **Visa de emprendedor** — entrepreneur with innovative business plan.
-- **Golden Visa** — €500k real estate investment (under reform/restriction debate).
-- **Arraigo** — long-stay path after 2-3y irregular residence (laboral, social, familiar, formativo).
+- **Golden Visa** — abolished by LO 1/2025 effective 03.04.2025 (existing holders can renew).
+- **Arraigo** — regularization path after irregular residence; reformed by RD 1155/2024 (in force 20.05.2025; likely 2 years, new types incl. sociolaboral / socioformativo / segunda oportunidad — unverified, check current Reglamento).
 - **Reagrupación familiar** — family reunification.
 - **EU Blue Card** — for highly-qualified non-EU professionals.
 

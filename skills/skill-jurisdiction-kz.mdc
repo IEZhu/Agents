@@ -1,6 +1,6 @@
 ---
 description: "Kazakhstan legal jurisdiction: civil, tax, corporate, labor, migration, land. AIFC common law zone, Astana Hub IT-park. ТОО, ИП, AIFC Company Regulations. Role: Kazakhstan legal advisor."
-compiled: "KZ: Civil law + AIFC common law zone. ИПН 10% flat, КПН 20% (3% SME). НДС 12%. AIFC = English-language Court, own Regulations. Astana Hub = full tax exemption for IT."
+compiled: "KZ: Civil law + AIFC common law zone. ИПН 10% / 15% above 8,500 МРП (Tax Code 2026). КПН 20% (simplified 4%). НДС 16% (2026). AIFC = English-language Court, own Regulations. Astana Hub = IT tax exemptions (2026 terms — verify)."
 keywords:
   - /kz_lawyer
   - kz_lawyer
@@ -16,14 +16,23 @@ keywords:
   - Kazakh law
   - КГД
   - common law zone Kazakhstan
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://taxsummaries.pwc.com/kazakhstan/individual/taxes-on-personal-income
+  - https://taxsummaries.pwc.com/kazakhstan/corporate/taxes-on-corporate-income
+  - https://taxsummaries.pwc.com/kazakhstan/corporate/other-taxes
+  - https://kazakhstan.moore-global.com/new-tax-code-key-changes/
 ---
 ## Role
 Kazakhstan legal advisor: civil-law tradition with unique AIFC common-law enclave + Astana Hub IT regime.
 
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
+
 ## Primary Sources
 - **Конституция Республики Казахстан** — supreme law.
 - **ГК РК** (Civil Code, General + Special parts) — obligations, contracts, property.
-- **НК РК** (Tax Code) — "Кодекс РК о налогах и других обязательных платежах".
+- **НК РК** (Tax Code) — new "Кодекс РК о налогах и других обязательных платежах в бюджет" adopted 2025, in force 01.01.2026.
 - **ТК РК** (Labor Code).
 - **Предпринимательский кодекс РК** — business activity, licensing, inspections.
 - **Земельный кодекс РК** — land use, restrictions for foreigners on agricultural land.
@@ -42,12 +51,12 @@ Kazakhstan legal advisor: civil-law tradition with unique AIFC common-law enclav
 - **Courts** — district, city, regional, Supreme Court of RK.
 
 ## Tax System (as of 2026)
-- **ИПН** (Personal Income Tax): **10% flat**.
-- **КПН** (Corporate Income Tax): **20%** standard; **3%** under SNR (simplified regime) for small businesses.
-- **НДС** (VAT): **12%**.
-- **Social tax**: 9.5%.
+- **ИПН** (Personal Income Tax): **10%** up to 8,500 МРП/year, **15%** above (from 2026).
+- **КПН** (Corporate Income Tax): **20%** standard (banks 25%); simplified declaration **4%** of income (maslikhats may adjust ±50%, i.e. 2–6%), limit 600,000 МРП.
+- **НДС** (VAT): **16%** from 2026 (was 12%); reduced 5% and 10%; registration threshold 10,000 МРП.
+- **Social tax**: 6% from 2026 (was 9.5%), plus a new 3.5% employer pension contribution.
 - **СНР** (Special Tax Regimes): simplified declaration, patent, retail tax — various thresholds.
-- **Astana Hub participants** — exempt from КПН, ИПН (employees), НДС, social tax (subject to participant status).
+- **Astana Hub participants** — historically exempt from КПН, ИПН (employees), НДС, social tax; terms changed with the 2026 Tax Code (reportedly to 2029 with a 90% priority-income condition — unverified, check before advising).
 - **AIFC participants** — taxed under AIFC tax provisions, generally favourable.
 
 ## Corporate Forms
@@ -65,7 +74,7 @@ Kazakhstan legal advisor: civil-law tradition with unique AIFC common-law enclav
 
 ## Country-Specific Mechanisms
 - **AIFC (МФЦА)** — common law jurisdiction inside Kazakhstan, established by Constitutional Statute. AIFC entities are NOT subject to ГК РК; they are subject to AIFC Acts and Regulations. Disputes go to **AIFC Court** (or AIFC IAC arbitration). Investor protections + English-language proceedings.
-- **Astana Hub** — IT/startup park with **near-zero tax** burden for participants; simplified visa for foreign IT specialists.
+- **Astana Hub** — IT/startup park with preferential tax treatment for participants (2026 conditions — verify); simplified visa for foreign IT specialists.
 - **Bilingual law** — laws issued in Kazakh and Russian; both are official.
 
 ## Common Pitfalls
