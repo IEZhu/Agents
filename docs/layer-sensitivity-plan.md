@@ -42,9 +42,12 @@ none of them is calibrated against its own labels.
    is the only knob that moves MRR (0.70 → 0.525, 0.85 → 0.518).
 5. **Vocabularies overlap across layers.** 76 terms appear verbatim in both
    routing `domain_keywords` and skill `keywords`, and 83 more pairs contain each
-   other ("sql injection" / "sql"). One word can move two layers at once, so they
-   can't be tuned independently. Routing keywords hit the correct agent in 33/90
-   English queries and 0/20 Russian/Spanish ones.
+   other ("sql injection" / "sql"). *Correction (2026-09-23):* this is not
+   cross-talk. Skills are ranked only inside the chosen agent's pool, so "cyprus
+   law" legitimately picks `lawyer` at the routing layer and then the Cyprus skill
+   among nine jurisdictions. Shared terms only couple layers that rank over the
+   same candidates. Routing keywords hit the correct agent in 33/90 English queries
+   and 0/20 Russian/Spanish ones.
 6. The retrieval eval runner called the skill retriever without the agent's
    pool, so skill metrics were stuck at 0.00; fixed on this branch (skills now:
    MRR 0.59, recall@5 0.71 including core skills).
@@ -60,8 +63,8 @@ multilingual numbers as a signal, not an estimate.
 - Implants get a new `triggers:` field: task-shape cues in ru/en/es ("сравни",
   "что выбрать", "почему", "проверь факты", "риски", "пошагово", "compare",
   "root cause", "fact-check"), plus optional `anti_triggers`.
-- A lint test fails when a term belongs to two layers, unless it is on an
-  explicit allow-list. Start by resolving the 76 exact overlaps.
+- No disjointness lint between routing and skills (see the correction to finding 5).
+  Each implant must declare `triggers` (`tests/test_implant_gating.py`).
 
 ### 2. Per-layer index text
 Implants embed `triggers` + "When to Use" only, not the technique body. This removes
@@ -115,3 +118,53 @@ Put one feature flag per layer (`IMPLANT_GATING=legacy|margin|head`,
 - `evals/scripts/calibrate_layers.py` sweeps each layer's knobs separately
   against its own labels (no API calls).
 - `evals/runners/run_retrieval.py` now forwards the agent's skill pools.
+
+## Results: implant layer before/after (2026-09-23)
+
+Setup:
+- **Labels:** `evals/datasets/implant_labels.jsonl`, 110 samples, 56 labelled
+  "needs none". They were written by a separate agent that saw the queries and the
+  implant catalogue but not the retrieval changes.
+- **Triggers:** 648 phrases across 57 implants, written by another agent that never
+  saw the queries.
+- **Split:** by id hash, dev 52 / test 58. `IMPLANT_GATE_Z` was chosen on dev.
+- **Measurement:** the semantic layer only, n=3, with no `preferred_implants`.
+- **Command:** `python -m evals.scripts.measure_implant_layer`.
+
+Test split:
+
+| config | index | gating | z | P@1 | hit@3 | MRR | none-acc | utility | loaded | chars |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A (before) | legacy | legacy | — | 0.07 | 0.14 | 0.095 | 0.00 | 0.071 | 3.00 | 4358 |
+| B | legacy | zscore | 3.0 | 0.04 | 0.04 | 0.036 | 0.90 | 0.468 | 0.28 | 351 |
+| C | triggers | legacy | — | 0.04 | 0.18 | 0.107 | 0.00 | 0.089 | 3.00 | 4152 |
+| D | triggers | zscore | 3.0 | 0.00 | 0.00 | 0.000 | 0.97 | 0.483 | 0.09 | 108 |
+| reference: load nothing | — | — | — | 0 | 0 | 0 | 1.00 | 0.500 | 0 | 0 |
+| reference: agent `preferred_implants` | — | — | — | — | 0.25 | — | 0.00 | 0.125 | 2.81 | — |
+
+`utility` = 0.5·hit@3 + 0.5·none-acc, so loading nothing anywhere scores 0.5.
+A literal trigger-only gate (load an implant only when one of its triggers occurs
+in the query) scored 0.5 on dev: 3 of 26 needed implants hit, 3 of 26 false fires.
+
+What this shows:
+- **Today the semantic implant layer is net negative on these labels.** It
+  injects 3 implants (~4.4k chars) on every query, including the 52% that need
+  none, and a labelled implant makes the top 3 only 14% of the time.
+- **Triggers help ranking a little** (hit@3 0.14 → 0.18, MRR 0.095 → 0.107). With
+  28 positive test samples, one sample moves hit@3 by 0.036, so this is within noise.
+- **No gate beats "load nothing"** (best: D at 0.483 vs 0.5). On this embedder,
+  similarity can't separate "needs this method" from "doesn't". The z-score gate
+  mostly learns to abstain.
+- **The per-agent static list is the strongest single signal** (hit@3 0.25), but
+  it has no way to abstain either.
+
+Decision: defaults stay `IMPLANT_INDEX_MODE=legacy` and `IMPLANT_GATING=legacy`,
+so production behaviour is unchanged. The measured `chars` column would favour
+abstaining, but retrieval labels are a proxy: whether fewer implants lowers answer
+quality needs the end-to-end A/B (blocked: the API proxy was down). Next steps, in
+order:
+1. Run an answer-quality A/B of A vs D on the no-fabrication and routing sets.
+2. Build a "needs any implant?" classifier: per-layer logistic head over [top-1 z,
+   trigger hit, query length, tier].
+3. Only when (2) says yes, pick the implant from the agent's `preferred_implants`,
+   re-ranked by trigger index distance.
