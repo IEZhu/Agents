@@ -34,7 +34,6 @@ class TestClassifyMode:
         ("Please discuss the climate movement, be extremely complex", "analyze"),
         ("Provide an overview of the FDA pilot programs", "analyze"),
         ("Install nginx and configure a reverse proxy", "operate"),
-        ("SELECT name FROM users u JOIN orders o ON o.uid = u.id", "operate"),
         ("Write a short story about a lighthouse", "create"),
         ("Explain University level Introductory Statistics to me like I'm a child", "explain"),
         ("who is the current mayor of Lisbon", "retrieve"),
@@ -548,8 +547,6 @@ class TestCodeDetection:
         assert "code_ish" not in classify_intent(query).signals
 
     @pytest.mark.parametrize("query", [
-        "SELECT Name FROM News_Editor ne JOIN orders o ON o.uid = ne.id",
-        "UPDATE t SET a = b.c FROM x",
         "def handler(req):",
         "import os",
         "from pathlib import Path",
@@ -558,3 +555,106 @@ class TestCodeDetection:
         from src.engine.intent import _looks_like_code
 
         assert _looks_like_code(query) is True, query
+
+    @pytest.mark.parametrize("query", [
+        "SELECT Name FROM News_Editor ne JOIN orders o ON o.uid = ne.id",
+        "UPDATE t SET a = b.c FROM x",
+    ])
+    def test_unfenced_sql_is_deliberately_not_detected(self, query):
+        """Accepted trade-off, third revision of this detector.
+
+        SQL's vocabulary is ordinary English, so every keyword-counting variant
+        classified prose as a systems operation. Raw SQL pasted without a fence
+        now falls to retrieve/create and is merely mis-budgeted; a fenced block
+        is still scored by `_structural_score` as `code_fence`.
+        """
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False
+        assert "```sql\n" + query + "\n```" and "code_fence" in classify_intent(
+            "```sql\n" + query + "\n```"
+        ).signals
+
+
+class TestCodeDetectionIsNarrow:
+    """Round-3 regression: SQL keyword counting read English as code.
+
+    `on`, `set`, `from`, `values`, `update`, `having` are ordinary English, and
+    `;`, `*` and `word.word` occur in prose, so no keyword threshold separates
+    them. Keyword-counted SQL detection was removed rather than retuned — the
+    third attempt at the same class of bug.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Import duties from China rose 12% last year; summarize the impact.",
+        "Find the update on the values from the vendor we set on Friday; thanks",
+        "Who is on the roster from the values we set in the update; anyone new?",
+        "Set the meeting on Monday and update the values from the deck; it's urgent.",
+        "Select the best framework from this list",
+        "Update me on where we landed",
+    ])
+    def test_prose_is_never_code(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False, query
+        assert "code_ish" not in classify_intent(query).signals
+
+    @pytest.mark.parametrize("query", [
+        "def handler(req):",
+        "import os",
+        "from pathlib import Path",
+        "class Foo:",
+        "#include <stdio.h>",
+        "function render(props) {",
+    ])
+    def test_declarations_are_still_detected(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is True, query
+
+    def test_detection_is_case_sensitive_on_purpose(self):
+        """"Import duties..." begins a sentence; "import os" is a statement."""
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code("import os") is True
+        assert _looks_like_code("Import duties from China") is False
+
+
+class TestGreetingPlusMath:
+    """Round-3 regression: the remainder check ignored digits and operators."""
+
+    @pytest.mark.parametrize("query", [
+        "hi, 1234567 * 89 = ?",
+        "hey, 2+2?",
+        "hi -- 3^12",
+        "hello, $500 at 4%?",
+    ])
+    def test_a_greeting_with_an_expression_is_not_converse(self, query):
+        profile = classify_intent(query)
+        assert profile.mode != "converse", f"{query!r} -> {profile.signals}"
+        assert profile.suppress_persona_format is False
+
+
+class TestClassifyCache:
+    def test_repeated_classification_is_memoized(self):
+        """route_and_load classifies the same string up to three times per
+        request, synchronously on the event loop; the scan is linear in length."""
+        from src.engine.intent import _classify_cached
+
+        _classify_cached.cache_clear()
+        query = "Please analyze this trace. " + "x" * 5000
+        first = classify_intent(query)
+        info_after_first = _classify_cached.cache_info()
+        second = classify_intent(query)
+        info_after_second = _classify_cached.cache_info()
+        assert first == second
+        assert info_after_second.hits == info_after_first.hits + 1
+
+    def test_cache_does_not_change_results(self):
+        from src.engine.intent import _classify_cached
+
+        queries = ["hi", "Compare A and B", "import os", "Write a poem"]
+        _classify_cached.cache_clear()
+        cold = [classify_intent(q) for q in queries]
+        warm = [classify_intent(q) for q in queries]
+        assert cold == warm

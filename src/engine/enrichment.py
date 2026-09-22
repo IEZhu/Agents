@@ -289,7 +289,8 @@ def strip_output_format(prompt: str) -> str:
     is matched; the section ends at the next level-2 heading that is not inside a
     fence, or at end of input. Because both boundaries are outside fences, any
     fence opened inside the removed span is also closed inside it, so parity is
-    preserved by construction. A persona with no such section is returned
+    preserved by construction. A persona with no such section — or with an
+    unbalanced fence, where that construction does not hold — is returned
     unchanged.
     """
     lines = prompt.splitlines(keepends=True)
@@ -320,6 +321,17 @@ def strip_output_format(prompt: str) -> str:
             break
 
     if start is None:
+        return prompt
+    if in_fence:
+        # The section opened a fence and never closed it, so the scan swallowed
+        # every following line: `end` stayed at EOF and the terminating-heading
+        # branch never ran. Cutting here would silently delete the rest of the
+        # persona — its Rules, Constraints and Safety sections. Refusing to edit a
+        # malformed persona is the safe failure: worst case the response template
+        # survives a greeting.
+        logger.warning(
+            "Unbalanced code fence inside '## Output Format'; leaving the prompt intact."
+        )
         return prompt
     remainder = "".join(lines[:start] + lines[end:])
     return remainder.rstrip() + "\n" if remainder.strip() else ""

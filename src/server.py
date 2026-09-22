@@ -219,18 +219,36 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     capable_skills = metadata.get("capable_skills", []) or []
     preferred_implants = metadata.get("preferred_implants", []) or []
 
+    # The classifier's own verdict, before any promotion. `None` when disabled,
+    # which keeps every downstream layer on its legacy tier-derived budget.
+    profile = resolve_profile(query)
+
     # Promote inferred tier to "standard" only when implants are declared.
     # `lite` keeps mandatory `core_skills` (loaded unconditionally below) but
     # skips the semantic skill pool and implants — exactly what short queries
     # benefit from. Implants always need the semantic pipeline, so promote.
+    #
+    # The promotion is SKIPPED when the intent classifier decided the task needs
+    # no implants at all (converse/retrieve). Its rationale was that `lite` came
+    # from a crude length rule which could not tell a greeting from a task, so any
+    # agent declaring implants had to be rescued. A classifier that positively
+    # identifies small talk supersedes that. Without this, `lite` is unreachable
+    # in production — 43 of 43 agents declare `preferred_implants`, so every
+    # lite decision was re-pinned to standard and the only surviving effect of
+    # the whole lite half of the change was `suppress_persona_format`.
+    classifier_waives_implants = profile is not None and profile.implant_budget == 0
     if not tier_explicit and tier == "lite" and preferred_implants:
-        tier = "standard"
-        logger.info(f"Tier promoted to 'standard' for {agent_name} (preferred implants declared)")
+        if classifier_waives_implants:
+            logger.info(
+                "Tier kept at 'lite' for %s (intent=%s needs no implants)",
+                agent_name, profile.mode,
+            )
+        else:
+            tier = "standard"
+            logger.info(f"Tier promoted to 'standard' for {agent_name} (preferred implants declared)")
 
-    # Resolve the task profile AFTER the promotion above, so the profile and the
-    # tier can never disagree. `None` when the classifier is disabled, which
-    # keeps every downstream layer on its legacy tier-derived budget.
-    profile = resolve_profile(query, tier=tier)
+    if profile is not None and profile.tier != tier:
+        profile = profile.with_tier(tier)
 
     query_hash = hash((query, configuration_revision()))
     # The cache key must carry the whole budget, not just the tier: once render

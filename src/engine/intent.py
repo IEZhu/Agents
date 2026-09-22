@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal, Optional, Sequence
 
 from src.engine.config import (
@@ -121,6 +122,9 @@ _MODE_POLICY: dict[str, dict] = {
 }
 
 _TIER_ORDER: tuple[Tier, ...] = ("lite", "standard", "deep")
+
+#: Keys are whole query strings, so keep the memo small.
+_CLASSIFY_CACHE_SIZE = 8
 
 
 @dataclass(frozen=True)
@@ -285,38 +289,41 @@ _OPERATE_LEX = _lex(
         "скрипт", "команд", "почин", "implementar", "instalar", "configurar",
     ),
 )
-#: Source code or SQL pasted into the query: an operate task even with no verb.
+#: Pasted source code. Deliberately narrow.
 #:
-#: Reworked after review. The first version was
-#: ``\bselect\b.+\bfrom\b`` under ``re.DOTALL``, which matched ordinary prose —
-#: "Select the best framework from this list", "Please update me on the results,
-#: we set up the meeting", "the import duties from China rose" — and, being
-#: checked before create/explain/retrieve, won the mode. It reintroduced exactly
-#: the substring-match failure the ``_lex`` docstring warns about.
+#: Third revision. The first used ``\bselect\b.+\bfrom\b`` under ``re.DOTALL``;
+#: the second counted three distinct SQL keywords plus a "structural" token. Both
+#: read ordinary English as code, because the SQL vocabulary IS ordinary English —
+#: ``on``, ``set``, ``from``, ``values``, ``update``, ``having`` — and ``;``, ``*``
+#: and ``word.word`` appear in normal prose. No keyword threshold fixes that, so
+#: keyword-counted SQL detection is gone rather than tuned again.
 #:
-#: Now a declaration match is decisive on its own, while SQL needs THREE distinct
-#: keywords *and* a structural token (a terminator, a star, or a dotted or
-#: snake_case identifier) that prose does not carry.
+#: What remains matches only forms that prose does not produce: a declaration with
+#: code punctuation, or an import statement occupying a whole line. A fenced block
+#: is already covered — ``_structural_score`` scores ``code_fence`` separately.
+#:
+#: Trade-off, accepted knowingly: raw SQL pasted without a fence no longer forces
+#: ``operate``; it falls to ``retrieve``/``create`` and is merely mis-budgeted.
+#: That is strictly better than classifying "Set the meeting on Monday and update
+#: the values from the deck" as a systems operation.
 _CODE_DECLARATION = re.compile(
-    r"(\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\(|\bclass\s+\w+\s*[:({]"
-    r"|^\s*#include\b|^\s*import\s+\w+|\bfrom\s+[\w.]+\s+import\b)",
-    re.IGNORECASE | re.MULTILINE,
+    r"(\bdef\s+\w+\s*\("
+    r"|\bfunction\s+\w+\s*\("
+    r"|\bclass\s+\w+\s*[:({]"
+    r"|^[ \t]*#include\b"
+    r"|^[ \t]*import\s+[a-z_][\w.]*[ \t]*$"          # a whole line, lowercase module
+    r"|^[ \t]*from\s+[a-z_][\w.]*\s+import\s+\w)",  # from x import y
+    re.MULTILINE,
 )
-_SQL_KEYWORD = re.compile(
-    r"(?<![\w])(select|from|where|join|on|group\s+by|order\s+by|insert\s+into"
-    r"|update|set|values|having|distinct)(?![\w])",
-    re.IGNORECASE,
-)
-_CODE_STRUCTURE = re.compile(r"(;|\*|(?<![\w])\w+\.\w+(?![\w])|(?<![\w])\w+_\w+(?![\w]))")
-_SQL_MIN_KEYWORDS = 3
 
 
 def _looks_like_code(text: str) -> bool:
-    """Whether the query contains pasted code or SQL rather than prose about it."""
-    if _CODE_DECLARATION.search(text):
-        return True
-    keywords = {m.group(0).lower() for m in _SQL_KEYWORD.finditer(text)}
-    return len(keywords) >= _SQL_MIN_KEYWORDS and bool(_CODE_STRUCTURE.search(text))
+    """Whether the query contains a pasted code declaration.
+
+    Case-sensitive on purpose: ``Import duties from China rose`` starts a sentence,
+    ``import os`` does not. Lower-casing was what let prose through.
+    """
+    return bool(_CODE_DECLARATION.search(text))
 
 
 _CREATE_LEX = _lex(
@@ -456,7 +463,12 @@ def _is_pure_greeting(text: str) -> bool:
         return False
     remainder = _CONVERSE_LEX.sub(" ", text)
     remainder = _GREETING_FILLER.sub(" ", remainder)
-    return not any(ch.isalpha() for ch in remainder)
+    # Alphanumeric, not merely alphabetic: checking only letters let "hi, 2+2?"
+    # and "hi, 1234567 * 89 = ?" through as small talk, stripping the persona
+    # format and the implants off what is plainly a `compute` task.
+    if any(ch.isalnum() for ch in remainder):
+        return False
+    return not _MATHY.search(remainder)
 
 
 def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
@@ -525,6 +537,36 @@ def _resolve_tier(mode: TaskMode, score: int) -> Tier:
     return _TIER_ORDER[min(len(_TIER_ORDER) - 1, idx)]
 
 
+@lru_cache(maxsize=_CLASSIFY_CACHE_SIZE)
+def _classify_cached(text: str) -> TaskProfile:
+    """Memoized core. Safe to cache: the function is pure and TaskProfile frozen.
+
+    ``route_and_load`` classifies the same string up to three times per request
+    (the ROUTE_REQUIRED payload, ``_load_and_enrich``'s tier, then the profile),
+    synchronously on the event loop, and the scan is linear in query length: on
+    this checkout a 100 KB query costs ~12 ms per pass. A query carrying a pasted
+    file is an ordinary MCP payload, so the repeats are the problem, not the scan.
+    The cache is small because the keys are whole queries.
+    """
+    signals: list[str] = []
+    mode, confidence = _detect_mode(text, signals)
+    score = _structural_score(text, signals)
+    tier = _resolve_tier(mode, score)
+    budget = _TIER_BUDGET[tier]
+    return TaskProfile(
+        mode=mode,
+        tier=tier,
+        depth_score=score,
+        # Budget follows the resolved tier, method follows the mode.
+        skill_pool_size=budget["skills"],
+        skill_render=budget["render"],
+        implant_budget=budget["implants"],
+        suppress_persona_format=_MODE_POLICY[mode]["suppress_format"],
+        confidence=confidence,
+        signals=tuple(signals),
+    )
+
+
 def classify_intent(
     query: str,
     *,
@@ -538,28 +580,10 @@ def classify_intent(
     key in ``server._load_and_enrich`` does not model.
     """
     text = (query or "").strip()
-    signals: list[str] = []
     if not text:
         return TaskProfile(
             mode="converse", tier="lite", depth_score=0, skill_pool_size=0,
             skill_render=_TIER_BUDGET["lite"]["render"], implant_budget=0,
             suppress_persona_format=True, confidence=1.0, signals=("empty",),
         )
-
-    mode, confidence = _detect_mode(text, signals)
-    score = _structural_score(text, signals)
-    tier = _resolve_tier(mode, score)
-    budget = _TIER_BUDGET[tier]
-
-    return TaskProfile(
-        mode=mode,
-        tier=tier,
-        depth_score=score,
-        # Budget follows the resolved tier, method follows the mode.
-        skill_pool_size=budget["skills"],
-        skill_render=budget["render"],
-        implant_budget=budget["implants"],
-        suppress_persona_format=_MODE_POLICY[mode]["suppress_format"],
-        confidence=confidence,
-        signals=tuple(signals),
-    )
+    return _classify_cached(text)

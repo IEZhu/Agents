@@ -86,24 +86,45 @@ That is a deterministic property of the assignment, not a statistical estimate,
 and the token saving follows from it directly, because `deep` renders full skill
 bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).
 
-Built end to end — a real prompt per golden query, using each label's
-`expected_agent` — the injected prompt shrinks **6.5%**: 1,988,214 → 1,859,078
-chars, mean 18,075 → 16,901 per query, with 25 queries smaller, 23 larger and 62
-unchanged. The ones that grow are queries the classifier correctly promotes to
-`deep`; the net is mix-dependent, so re-measure before quoting this on other
-traffic.
+Built end to end and **production-faithful** — a real prompt per golden query
+using each label's `expected_agent`, mirroring `server._load_and_enrich`
+including the `lite → standard` promotion — the injected prompt shrinks **4.5%**:
+1,946,542 → 1,859,078 chars, mean 17,696 → 16,901 per query. Per query: 21
+smaller, **52 larger**, 37 unchanged.
 
-This number was 18.6% in an earlier revision, when the `lite` tier rendered
-compiled skill one-liners. Review showed that was the wrong place to save: `lite`
-is the only tier where the mandatory `core_skills` are the *entire* skill payload
-(`n_results == 0`), and compiling them cut `universal_agent`'s two core skills
-from 5,498 to 583 chars — a 90% content drop on always-on guidance. Render mode
-now reproduces the legacy mapping exactly, so the only variable this A/B changes
-is the tier assignment. The consequence is honest and unflattering: **on its own,
-better tier assignment buys ~6.5% of the injected prompt, not the order of
-magnitude #64 is chasing.** The large lever is still compiled-at-`deep` (four
-full bodies ≈ 2450 tokens against ≈ 40 compiled), which is deliberately out of
-scope here because its quality effect is unmeasured.
+Effective tier distribution, which is not the same as the classifier's raw output:
+
+| | `lite` | `standard` | `deep` |
+|---|---|---|---|
+| legacy | 0 | 67 | 43 |
+| classifier | 48 | 31 | 31 |
+
+Three things in that table matter more than the headline.
+
+**`lite` was unreachable in production, in both arms.** 43 of 43 agents declare
+`preferred_implants`, and the `lite → standard` promotion fired on every inferred
+`lite`. Under the legacy rule that was invisible; under the classifier it would
+have reduced the whole `lite` half of the change to nothing but format
+suppression. The promotion is now waived when the classifier positively decides a
+task needs no implants (`converse`/`retrieve`), which is what makes `lite`
+reachable at all. `run_tier --compare` scores raw `infer_tier(query)` with no
+agent metadata, so its tier distribution is the classifier's opinion, **not** the
+tier the server applies — read it as classifier quality, not as production effect.
+
+**52 of 110 prompts got larger, not smaller.** A query moving `standard → lite`
+loses two semantic skills and its implants but gains *full* core-skill bodies
+where `standard` rendered one-liners, because the legacy render mapping ties
+`compiled` to `standard` alone. For `universal_agent` that is +4,915 chars against
+roughly −300. The legacy mapping is internally incoherent: the cheapest tier is
+the most verbose per skill.
+
+**So the cost lever is gated behind the render decision, which is out of scope
+here.** Reverting `compiled`-at-`lite` (correctly, on quality grounds) also
+removed most of the saving. The honest summary: this change buys a **better tier
+signal** and the groundwork for #64's method bundles; it does **not** buy the
+order-of-magnitude token reduction #64 is chasing. That needs the render
+question — `compiled` at `deep`, or a render mode chosen per mode rather than per
+tier — settled by a quality A/B.
 
 Honest limitations:
 
@@ -180,6 +201,34 @@ all reproduced before fixing:
   tier→budget table and `_MODE_POLICY` keeps only what a mode owns (`tier`,
   `suppress_format`); a test pins that separation.
 
+## Third review round
+
+Six more findings; two were the same class of defect surviving a second fix.
+
+- **Code detection read prose as code, for the third time.** `re.DOTALL` with
+  unanchored `.+` (round 1), then three-SQL-keyword counting plus a "structural"
+  token (round 2), both classified ordinary English as a systems operation —
+  "Set the meeting on Monday and update the values from the deck" and
+  "Import duties from China rose 12%". The cause is not a threshold: SQL's
+  vocabulary *is* ordinary English (`on`, `set`, `from`, `values`, `update`) and
+  `;`, `*`, `word.word` occur in prose. Keyword-counted SQL detection was
+  **removed** rather than retuned a third time. What remains matches only
+  declarations (`def x(`, `class X:`, a whole-line `import x`, `from x import y`),
+  case-sensitively — "Import duties" begins a sentence, `import os` does not.
+  Accepted trade-off: unfenced SQL is no longer detected and merely gets
+  mis-budgeted; a fenced block is still scored as `code_fence`.
+- **`_is_pure_greeting` ignored digits and operators**, so "hi, 2+2?" and
+  "hi, 1234567 * 89 = ?" were small talk — lite tier, no implants, persona format
+  stripped. The remainder check now rejects surviving alphanumerics and `_MATHY`.
+- **`classify_intent` ran up to three times per request**, synchronously on the
+  event loop, linear in query length (~12 ms per pass at 100 KB on this
+  checkout). Memoized via `lru_cache(maxsize=8)`; repeats now cost nothing.
+- **An unbalanced fence made `strip_output_format` delete the persona to EOF** —
+  `in_fence` never cleared, so the terminating-heading branch never ran and Rules,
+  Constraints and Safety were dropped silently. A malformed persona is now
+  returned unchanged.
+- **The promotion ran before the profile** (see Results).
+
 ## Back-compat
 
 `tier` never stops being the string it was:
@@ -189,7 +238,7 @@ all reproduced before fixing:
   `_legacy_infer_tier` (kept verbatim and callable, as the A/B's control arm).
 - `resolve_profile()` returns `None` when the flag is off, which is the signal to
   every downstream layer to keep deriving the budget from the tier exactly as
-  before. Both `pytest tests/` runs — flag off and flag on — pass 1013 tests.
+  before. Both `pytest tests/` runs — flag off and flag on — pass 1034 tests.
 - The session cache key carries `profile.cache_token` instead of the bare tier,
   because once render mode and pool size are decoupled from the tier, two
   profiles can share a tier and build different prompts. The token is colon-free,

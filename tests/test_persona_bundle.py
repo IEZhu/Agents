@@ -335,3 +335,23 @@ async def test_greeting_does_not_strip_output_format_from_a_session_bundle(
     bundle = await build_persona_bundle("engineer", "hi")
     assert "## Output Format" in bundle.persona_block
     assert "Answer with Analysis, then Code." in bundle.persona_block
+
+
+@pytest.mark.asyncio
+async def test_unbalanced_fence_in_output_format_leaves_the_persona_intact(bundle_tree):
+    """An unclosed fence used to make the strip delete the persona to EOF.
+
+    Once `in_fence` is set and never cleared the scan swallows every later line,
+    so the terminating-heading branch never runs and the tail — Rules,
+    Constraints, Safety — is dropped silently. Refusing to edit a malformed
+    persona is the safe failure.
+    """
+    from src.engine.enrichment import strip_output_format
+
+    prompt = (
+        "# Persona\n\nRole text.\n\n## Output Format\n\n```\n### A\n\n"
+        "## Rules & Constraints\n\nNever do X.\n\n## Safety\n\nRed flags.\n"
+    )
+    out = strip_output_format(prompt)
+    assert out == prompt
+    assert "## Rules & Constraints" in out and "## Safety" in out

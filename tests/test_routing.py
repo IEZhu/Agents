@@ -451,11 +451,51 @@ class TestPreferredImplants:
         with patch("src.server.get_agent_metadata", return_value=metadata), \
              patch("src.server.load_agent_prompt", return_value="base prompt"), \
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
-                   return_value=self._fake_enrichment()) as mock_enrich:
-            # Short query → would infer "lite", but preferred_implants promotes to "standard"
+                   return_value=self._fake_enrichment()) as mock_enrich, \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", False):
+            # Short query → would infer "lite", but preferred_implants promotes to "standard".
+            # Pinned to the legacy path: with the intent classifier on, a positively
+            # identified greeting waives this promotion (see src/server.py).
             _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [])
             assert effective_tier == "standard"
+
+    @pytest.mark.asyncio
+    async def test_classifier_waives_the_promotion_for_a_greeting(self):
+        """With the classifier on, a greeting keeps `lite` despite declared implants.
+
+        Without this, `lite` is unreachable in production: 43 of 43 agents declare
+        `preferred_implants`, so every lite decision was re-pinned to standard and
+        the lite half of the classifier had no effect beyond format suppression.
+        """
+        metadata = {
+            "core_skills": [], "preferred_skills": [], "capable_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+        }
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "math_scientist", "hi", [])
+            assert effective_tier == "lite"
+
+    @pytest.mark.asyncio
+    async def test_classifier_still_promotes_a_substantive_short_query(self):
+        """The waiver is tied to the mode, not to brevity."""
+        metadata = {
+            "core_skills": [], "preferred_skills": [], "capable_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+        }
+        with patch("src.server.get_agent_metadata", return_value=metadata), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=self._fake_enrichment()), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+                "math_scientist", "Solve for x: 3x + 2 = 11", [])
+            assert effective_tier == "deep"
 
     @pytest.mark.asyncio
     async def test_tier_not_promoted_when_explicit(self):
