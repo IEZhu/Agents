@@ -108,6 +108,26 @@ def _agent_preferred_implants(agent_name: str | None) -> tuple[str, ...]:
     return tuple(Path(x).stem for x in raw if isinstance(x, str))
 
 
+@lru_cache(maxsize=128)
+def _agent_skill_pools(agent_name: str | None) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Return the agent's (core, preferred, capable) skill lists as stems.
+
+    ``SkillRetriever.retrieve`` only ranks skills from the agent's declared pool
+    (the per-agent 3-tier model); called without one it returns nothing, which
+    left every skill metric pinned at 0.00. Mirror production by forwarding the
+    expected agent's pools.
+    """
+    meta = get_agent_metadata(agent_name) if agent_name else {}
+    if not isinstance(meta, dict):
+        return (), (), ()
+
+    def _stems(key: str) -> tuple[str, ...]:
+        raw = meta.get(key) or []
+        return tuple(Path(x).stem for x in raw if isinstance(x, str)) if isinstance(raw, list) else ()
+
+    return _stems("core_skills"), _stems("preferred_skills"), _stems("capable_skills")
+
+
 def run(
     preloaded: tuple[list[EvalSample], LoaderStats] | None = None,
     use_preferred_implants: bool = False,
@@ -130,7 +150,14 @@ def run(
             expected_implants = list(_agent_preferred_implants(expected_agent))
 
         try:
-            retrieved_skills_raw = skills_retriever.retrieve(sample.query, n_results=N_RESULTS)
+            core, preferred, capable = _agent_skill_pools(expected_agent)
+            retrieved_skills_raw = skills_retriever.retrieve(
+                sample.query,
+                mandatory=list(core) or None,
+                preferred=list(preferred) or None,
+                capable=list(capable) or None,
+                n_results=N_RESULTS,
+            )
             retrieved_skills = [
                 Path(d.get("filename", "")).stem or d.get("metadata", {}).get("name", "")
                 for d in retrieved_skills_raw
