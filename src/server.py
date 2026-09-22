@@ -39,6 +39,7 @@ from src.engine.router import SemanticRouter, KEYWORD_VETO_ROUTE_REQUIRED
 from src.engine.enrichment import (
     enrich_agent_prompt,
     infer_tier,
+    resolve_profile,
     implant_retriever,
 )
 from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD, get_client_repo_root
@@ -226,8 +227,17 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         tier = "standard"
         logger.info(f"Tier promoted to 'standard' for {agent_name} (preferred implants declared)")
 
+    # Resolve the task profile AFTER the promotion above, so the profile and the
+    # tier can never disagree. `None` when the classifier is disabled, which
+    # keeps every downstream layer on its legacy tier-derived budget.
+    profile = resolve_profile(query, tier=tier)
+
     query_hash = hash((query, configuration_revision()))
-    cache_key = f"{agent_name}:{query_hash}:{tier}"
+    # The cache key must carry the whole budget, not just the tier: once render
+    # mode and pool size are decoupled from the tier, two profiles can share a
+    # tier and still build different prompts. `cache_token` is colon-free so the
+    # documented three-segment `agent:query_hash:X` shape survives.
+    cache_key = f"{agent_name}:{query_hash}:{profile.cache_token if profile else tier}"
     if cache_key in SESSION_CACHE:
         cached = SESSION_CACHE[cache_key]
         cache_used = False
@@ -265,6 +275,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         capable_skills=capable_skills,
         tier=tier,
         preferred_implants=preferred_implants,
+        profile=profile,
     )
     final_prompt = enrichment.prompt
     SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded)
@@ -272,6 +283,9 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     CONTEXT_HASH_CACHE[ctx_hash] = agent_name
     debug_log("_load_and_enrich", "res", {
         "agent": agent_name, "tier": tier, "cache": "miss",
+        "task_mode": profile.mode if profile else None,
+        "depth_score": profile.depth_score if profile else None,
+        "intent_signals": list(profile.signals) if profile else None,
         "prompt_len": len(final_prompt),
         "core_skills": core_skills,
         "preferred_skills": preferred_skills,

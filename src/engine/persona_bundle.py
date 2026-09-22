@@ -110,15 +110,20 @@ async def build_persona_bundle(
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")
+    # None when the classifier is disabled → every budget below stays on its
+    # legacy tier-derived value, so v2 bundles are unchanged by default.
+    profile = enrichment.resolve_profile(query, tier=tier)
 
     persona_block = await asyncio.to_thread(process_imports, body, {path}, strict=True)
+    if profile is not None and profile.suppress_persona_format:
+        persona_block = enrichment.strip_output_format(persona_block)
     rules = await asyncio.to_thread(get_rules, fresh=True, strict=True)
     rules_block = format_rules_for_prompt(rules)
 
     selected_skills = await asyncio.to_thread(
         enrichment.skill_retriever.retrieve, query,
         mandatory=core or None, preferred=preferred or None, capable=capable or None,
-        n_results=enrichment._n_results_for_tier(tier),
+        n_results=profile.skill_pool_size if profile else enrichment._n_results_for_tier(tier),
     )
     allowed = set(core + preferred + capable)
     skill_ids = list(core)
@@ -129,12 +134,19 @@ async def build_persona_bundle(
         skill_ids.append(component_id)
     skills = await asyncio.to_thread(_fresh_components, "skills", skill_ids)
     skills_block = enrichment.skill_retriever.format_skills_for_prompt(
-        skills, compiled=tier == "standard",
+        skills,
+        compiled=profile.skill_render == "compiled" if profile else tier == "standard",
     )
 
     implants = []
-    if tier in ("standard", "deep"):
-        default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
+    implants_enabled = (
+        profile.implant_budget > 0 if profile else tier in ("standard", "deep")
+    )
+    if implants_enabled:
+        if profile is not None:
+            default_count = profile.implant_budget
+        else:
+            default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
         count = min(max(default_count, len(preferred_implants)), MAX_PREFERRED_IMPLANTS)
         selected_implants = await asyncio.to_thread(
             enrichment.implant_retriever.retrieve, query,
