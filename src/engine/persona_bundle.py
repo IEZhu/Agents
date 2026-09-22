@@ -107,18 +107,27 @@ async def build_persona_bundle(
     profile = enrichment.resolve_profile(query)
     if tier is None:
         tier = profile.tier if profile is not None else enrichment.infer_tier(query)
-        # See src/server.py: the promotion is waived when the classifier itself
-        # decided the task needs no implants, otherwise `lite` is unreachable
-        # because every agent declares `preferred_implants`.
+        # See src/server.py. Only a positively identified greeting waives the
+        # promotion; `retrieve` is where the no-lexicon fallback lands, so waiving
+        # on the budget would strip real work on a low-confidence guess.
         if tier == "lite" and preferred_implants and not (
-            profile is not None and profile.implant_budget == 0
+            profile is not None and profile.mode == "converse"
         ):
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")
-    # Keep the profile and the tier in agreement after any pinning above.
-    if profile is not None and profile.tier != tier:
-        profile = profile.with_tier(tier)
+    # From here the profile is used for NOTHING but the tier it produced above.
+    #
+    # A v2 bundle is a SESSION-scoped artifact: `persona.load_persona` returns
+    # NO_CHANGE for the same agent on every later turn, so it is built once and
+    # reused. Feeding it a per-query budget means the activating turn decides the
+    # skill pool, render mode and implant count for the whole conversation — a
+    # turn that happened to be a lookup would leave every later turn with zero
+    # semantic skills and zero implants. That was impossible before the
+    # classifier, because the promotion always fired. The same reasoning already
+    # keeps `suppress_persona_format` out of this bundle; the budget belongs to
+    # the same class and is likewise derived from the tier alone.
+    profile = None
 
     persona_block = await asyncio.to_thread(process_imports, body, {path}, strict=True)
     # NOTE: `profile.suppress_persona_format` is deliberately NOT applied here.

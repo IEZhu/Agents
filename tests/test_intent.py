@@ -658,3 +658,87 @@ class TestClassifyCache:
         cold = [classify_intent(q) for q in queries]
         warm = [classify_intent(q) for q in queries]
         assert cold == warm
+
+
+class TestLexiconStemsAreSafe:
+    """Round-4 regression: stems that broke the rule `_lex` itself documents."""
+
+    @pytest.mark.parametrize("query,forbidden", [
+        ("Buy a new computer for the office", "compute"),      # comput[ae]
+        ("Is my computer infected?", "compute"),
+        ("Trust is an integral part of the team", "compute"),  # integral
+        ("the derivative of brand equity", "compute"),         # deriv
+        ("Let's discuss lunch", "analyze"),                    # discuss
+        ("For your reference, the deadline moved", "analyze"), # referenc
+    ])
+    def test_prose_is_not_over_provisioned(self, query, forbidden):
+        profile = classify_intent(query)
+        assert profile.mode != forbidden, f"{query!r} -> {profile.signals}"
+        assert profile.tier != "deep"
+
+    @pytest.mark.parametrize("query", [
+        "Calculate the derivative of x^2",
+        "Solve for x: 3x+2=11",
+        "Prove the theorem",
+        "Compute the eigenvalues",
+        "Вычисли интеграл",
+        "Рассчитай вероятность",
+    ])
+    def test_real_computation_is_still_detected(self, query):
+        assert classify_intent(query).mode == "compute", query
+
+    @pytest.mark.parametrize("query", [
+        "Discuss the implications of the ruling",
+        "Provide an overview of the FDA pilot programs",
+    ])
+    def test_academic_register_still_reaches_analyze(self, query):
+        assert classify_intent(query).mode == "analyze", query
+
+
+class TestDeclarationsNeedCodeContext:
+    """Round-4 regression: `class X:` and `function f(` matched prose.
+
+    Legal, medical and regulatory phrasing is exactly the traffic that reaches
+    `lawyer` and `medical_expert`.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Is this device a class 2(b) under the regulation?",
+        "is this a class A: violation",
+        "the function f(x) is convex",
+    ])
+    def test_prose_is_not_a_declaration(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False, query
+
+    @pytest.mark.parametrize("query", [
+        "class Foo:",
+        "def handler(req):",
+        "    async def run(self):",
+        "function render(props) {",
+    ])
+    def test_line_anchored_declarations_are_detected(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is True, repr(query)
+
+
+class TestFencedBlockSelectsOperate:
+    """Round-4 regression: the trade-off for dropping SQL detection was that a
+    fenced block is "already covered". It was not — `code_fence` scored one
+    point and could not affect the mode, so a fenced traceback landed on
+    retrieve/lite where the legacy rule gave deep."""
+
+    def test_a_fenced_traceback_is_operate(self):
+        query = "help\n```python\nTraceback (most recent call last):\nValueError: bad\n```"
+        profile = classify_intent(query)
+        assert profile.mode == "operate"
+        assert profile.tier != "lite"
+
+    def test_fenced_sql_is_covered_even_though_bare_sql_is_not(self):
+        from src.engine.intent import _looks_like_code
+
+        bare = "SELECT a FROM t JOIN u ON u.id = t.id"
+        assert _looks_like_code(bare) is False
+        assert classify_intent("```sql\n" + bare + "\n```").mode == "operate"

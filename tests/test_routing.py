@@ -1538,3 +1538,53 @@ class TestBuildRetrievalQuery:
             alias = f"/{cc}_lawyer"
             retrieval = _build_retrieval_query(alias, "/lawyer", "tax question")
             assert alias in retrieval, f"alias {alias!r} not in retrieval query {retrieval!r}"
+
+
+class TestWaiverIsGatedOnMode:
+    """Round-4 regression: the waiver keyed on `implant_budget == 0`.
+
+    `retrieve` also has a zero budget, and it is where `_detect_mode`'s
+    no-lexicon fallback lands every short query it cannot read — at confidence
+    0.4. Waiving there stripped genuine engineering requests to zero skills and
+    zero implants on a guess.
+    """
+
+    def _meta(self):
+        return {
+            "core_skills": [], "preferred_skills": [], "capable_skills": [],
+            "preferred_implants": ["implant-chain-of-code"],
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("query", [
+        "Design a fault-tolerant event pipeline for 1M events per second",
+        "Сделай ревью этого кода",
+        "List every dependency that needs upgrading before the release",
+    ])
+    async def test_low_confidence_fallback_still_gets_promoted(self, query):
+        from src.engine.intent import classify_intent
+        import src.server as server_module
+
+        srv = server_module
+        assert classify_intent(query).implant_budget == 0, "guard: budget really is zero"
+        with patch("src.server.get_agent_metadata", return_value=self._meta()), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=TestPreferredImplants._fake_enrichment(None)), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await srv._load_and_enrich(
+                "math_scientist", query, [])
+            assert effective_tier == "standard", f"{query!r} was left at lite"
+
+    @pytest.mark.asyncio
+    async def test_a_real_greeting_still_waives(self):
+        import src.server as server_module
+
+        with patch("src.server.get_agent_metadata", return_value=self._meta()), \
+             patch("src.server.load_agent_prompt", return_value="base prompt"), \
+             patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
+                   return_value=TestPreferredImplants._fake_enrichment(None)), \
+             patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
+            _, _, _, _, _, effective_tier = await server_module._load_and_enrich(
+                "math_scientist", "hi", [])
+            assert effective_tier == "lite"

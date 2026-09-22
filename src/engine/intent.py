@@ -132,7 +132,8 @@ class TaskProfile:
     """The task's reasoning mode and the enrichment budget it earns.
 
     Frozen so a downstream layer cannot quietly retune the budget mid-request.
-    Every field has exactly one named consumer; nothing here is speculative.
+    Every field has a named consumer, except ``confidence`` and ``signals``,
+    which are diagnostics for the debug log and eval triage.
     """
 
     mode: TaskMode
@@ -142,6 +143,10 @@ class TaskProfile:
     skill_render: SkillRender
     implant_budget: int
     suppress_persona_format: bool
+    # Diagnostic only, deliberately: it is emitted in the debug log so a bad
+    # classification can be triaged, and nothing branches on it. An earlier
+    # docstring implied a caller would fall back on low confidence; no caller
+    # does, and inventing one would add an untested path.
     confidence: float
     signals: tuple[str, ...] = ()
 
@@ -226,14 +231,24 @@ def _lex(words: Sequence[str] = (), stems: Sequence[str] = ()) -> re.Pattern[str
 
 
 #: Unambiguous quantitative intent — enough on its own.
+#: Every entry here is a whole word or phrase. The stems this list used to carry
+#: broke the safety rule ``_lex`` documents: ``comput[ae]`` matched "computer",
+#: ``integral`` matched "integral part", ``deriv`` matched "the derivative of
+#: brand equity", ``equation`` matched "equations". Each of those classified plain
+#: prose as ``compute``, whose default tier is ``deep`` — four skills, three
+#: implants, full bodies. That is the over-provisioning this module exists to
+#: remove, so the inflections are spelled out instead.
 _COMPUTE_STRONG_LEX = _lex(
     words=(
         "prove", "proves", "proven", "proof", "proofs", "solve for",
         "show your work", "докажи",
-    ),
-    stems=(
-        "calculat", "comput[ae]", "deriv", "theorem", "equation", "integral",
-        "рассчита", "вычисл", "уравнени", "интеграл", "calcul", "demuestr",
+        "compute", "computes", "computing", "computation", "computations",
+        "calculate", "calculates", "calculating", "calculation", "calculations",
+        "derive", "derives", "deriving", "derivation",
+        "theorem", "theorems", "equation", "equations",
+        "integrate", "integral of", "definite integral", "indefinite integral",
+        "рассчитай", "рассчитать", "вычисли", "вычислить", "уравнение",
+        "уравнения", "интеграл", "интеграла", "calcula", "calcular", "demuestra",
     ),
 )
 #: Ambiguous quantitative phrasing: "how many books are in the series" is a
@@ -266,15 +281,20 @@ _ANALYZE_LEX = _lex(
 #: Academic / synthesis register. These queries read as ordinary prose requests
 #: but the labels call them deep research. Deliberately EXCLUDES "implications",
 #: which on the train half marked a standard-tier question, not a deep one.
+_RESEARCH_WORDS = (
+    "overview of", "with reference to", "academic paper", "academic-grade",
+    "extremely complex", "in-depth", "in depth", "state of the art",
+    "critically", "significance of", "подробно разбер",
+    "discuss the", "discuss how", "discuss whether", "discussion of",
+    "references", "bibliography",
+)
 _RESEARCH_LEX = _lex(
-    words=(
-        "overview of", "with reference to", "academic paper", "academic-grade",
-        "extremely complex", "in-depth", "in depth", "state of the art",
-        "critically", "significance of", "подробно разбер",
-    ),
-    stems=(
-        "discuss", "literatur", "referenc", "synthes", "обзор", "литератур",
-    ),
+    # `discuss` and `referenc` were stems and fired `analyze`/`deep` on
+    # "Let's discuss lunch" and "For your reference, the deadline moved" — the
+    # most common NON-academic uses of both words. Only the academic collocations
+    # survive.
+    words=_RESEARCH_WORDS,
+    stems=("literatur", "synthes", "обзор", "литератур"),
 )
 _OPERATE_LEX = _lex(
     words=(
@@ -307,9 +327,13 @@ _OPERATE_LEX = _lex(
 #: That is strictly better than classifying "Set the meeting on Monday and update
 #: the values from the deck" as a systems operation.
 _CODE_DECLARATION = re.compile(
-    r"(\bdef\s+\w+\s*\("
-    r"|\bfunction\s+\w+\s*\("
-    r"|\bclass\s+\w+\s*[:({]"
+    r"(^[ \t]*(?:async\s+)?def\s+\w+\s*\("
+    r"|^[ \t]*function\s+\w+\s*\("
+    # `class X:` and `function f(` match ordinary English — "Is this device a
+    # class 2(b) under the regulation?", "the function f(x) is convex" — which is
+    # exactly the traffic that reaches `lawyer` and `medical_expert`. Both now
+    # require a line start, where prose does not put them.
+    r"|^[ \t]*class\s+\w+\s*[:({]"
     r"|^[ \t]*#include\b"
     r"|^[ \t]*import\s+[a-z_][\w.]*[ \t]*$"          # a whole line, lowercase module
     r"|^[ \t]*from\s+[a-z_][\w.]*\s+import\s+\w)",  # from x import y
@@ -464,11 +488,9 @@ def _is_pure_greeting(text: str) -> bool:
     remainder = _CONVERSE_LEX.sub(" ", text)
     remainder = _GREETING_FILLER.sub(" ", remainder)
     # Alphanumeric, not merely alphabetic: checking only letters let "hi, 2+2?"
-    # and "hi, 1234567 * 89 = ?" through as small talk, stripping the persona
-    # format and the implants off what is plainly a `compute` task.
-    if any(ch.isalnum() for ch in remainder):
-        return False
-    return not _MATHY.search(remainder)
+    # and "hi, 1234567 * 89 = ?" through as small talk. This subsumes a _MATHY
+    # check — every _MATHY alternative requires a digit — so no second guard.
+    return not any(ch.isalnum() for ch in remainder)
 
 
 def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
@@ -486,6 +508,15 @@ def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
     if _is_pure_greeting(stripped):
         signals.append("converse_only")
         return "converse", 0.9
+
+    # A fenced block selects `operate`. The accepted trade-off for dropping SQL
+    # keyword detection was "a fenced block is already covered", and that was not
+    # true: `code_fence` contributes 1 of INTENT_DEEP_AT points and cannot affect
+    # the mode, so a fenced traceback plus "help" landed on `retrieve`/`lite` with
+    # zero skills where the legacy rule gave `deep`. Now it pays for the trade-off.
+    if _CODE_FENCE.search(stripped):
+        signals.append("code_fence_mode")
+        return "operate", 0.8
 
     mathy = bool(_MATHY.search(stripped))
     if _COMPUTE_STRONG_LEX.search(stripped):

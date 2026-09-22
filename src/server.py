@@ -236,12 +236,19 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     # in production — 43 of 43 agents declare `preferred_implants`, so every
     # lite decision was re-pinned to standard and the only surviving effect of
     # the whole lite half of the change was `suppress_persona_format`.
-    classifier_waives_implants = profile is not None and profile.implant_budget == 0
+    # Gated on the MODE, not on `implant_budget == 0`. The budget is also zero for
+    # `retrieve`, which is where `_detect_mode`'s no-lexicon fallback lands every
+    # short query it cannot read — "Design a fault-tolerant event pipeline for 1M
+    # events per second" and "Сделай ревью этого кода" both arrive there at
+    # confidence 0.4. Waiving on the budget therefore stripped real work to zero
+    # skills and zero implants on a guess. Only `converse`, which is positively
+    # identified by `_is_pure_greeting`, may waive the promotion.
+    classifier_waives_implants = profile is not None and profile.mode == "converse"
     if not tier_explicit and tier == "lite" and preferred_implants:
         if classifier_waives_implants:
             logger.info(
-                "Tier kept at 'lite' for %s (intent=%s needs no implants)",
-                agent_name, profile.mode,
+                "Tier kept at 'lite' for %s (intent=%s, confidence=%.2f)",
+                agent_name, profile.mode, profile.confidence,
             )
         else:
             tier = "standard"
@@ -302,6 +309,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     debug_log("_load_and_enrich", "res", {
         "agent": agent_name, "tier": tier, "cache": "miss",
         "task_mode": profile.mode if profile else None,
+        "task_confidence": profile.confidence if profile else None,
         "depth_score": profile.depth_score if profile else None,
         "intent_signals": list(profile.signals) if profile else None,
         "prompt_len": len(final_prompt),

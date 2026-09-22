@@ -302,10 +302,14 @@ def strip_output_format(prompt: str) -> str:
     for index, line in enumerate(lines):
         fence = _FENCE_RE.match(line)
         if fence:
-            marker = fence.group(1)[:3]
+            marker = fence.group(1)
             if not in_fence:
                 in_fence, fence_marker = True, marker
-            elif marker == fence_marker:
+            elif marker[0] == fence_marker[0] and len(marker) >= len(fence_marker):
+                # CommonMark: a closer must be at least as long as its opener, and
+                # of the same character. Truncating to three characters let a
+                # nested ``` line close an outer ````markdown block — which
+                # `agents/code_reviewer/system_prompt.mdc:110` actually contains.
                 in_fence, fence_marker = False, None
             continue
         if in_fence:

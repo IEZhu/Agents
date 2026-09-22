@@ -73,12 +73,12 @@ adds a persisted centroid artifact that can drift out of sync with
 | set | arm | accuracy | deep-share | under | over |
 |---|---|---|---|---|---|
 | full (110) | legacy | 67/110 = 60.9% | 39.1% | 5 | 38 |
-| full (110) | classifier | **77/110 = 70.0%** | **28.2%** | 11 | 22 |
+| full (110) | classifier | **78/110 = 70.9%** | **27.3%** | 11 | 21 |
 | held-out (47) | legacy | 27/47 = 57.4% | 44.7% | 1 | 19 |
 | held-out (47) | classifier | 29/47 = 61.7% | 29.8% | 5 | 13 |
 
 **The accuracy gain is not statistically significant.** Paired exact McNemar:
-p=0.17 on the full set, p=0.80 on the held-out half. Treat +9.1 pp as directional
+p=0.14 on the full set, p=0.80 on the held-out half. Treat +9.1 pp as directional
 only.
 
 What *is* solid is the deep-tier share: 39.1% → 28.2% (held-out 44.7% → 29.8%).
@@ -88,43 +88,37 @@ bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).
 
 Built end to end and **production-faithful** — a real prompt per golden query
 using each label's `expected_agent`, mirroring `server._load_and_enrich`
-including the `lite → standard` promotion — the injected prompt shrinks **4.5%**:
-1,946,542 → 1,859,078 chars, mean 17,696 → 16,901 per query. Per query: 21
-smaller, **52 larger**, 37 unchanged.
+including the `lite → standard` promotion and its waiver — the injected prompt
+shrinks **7.8%**: 1,946,542 → 1,793,971 chars, mean 17,696 → 16,309 per query.
+Per query: 19 smaller, 6 larger, 85 unchanged.
 
-Effective tier distribution, which is not the same as the classifier's raw output:
+Effective tier distribution, which is not the classifier's raw output:
 
 | | `lite` | `standard` | `deep` |
 |---|---|---|---|
 | legacy | 0 | 67 | 43 |
-| classifier | 48 | 31 | 31 |
+| classifier | 0 | 80 | 30 |
 
-Three things in that table matter more than the headline.
+Two things there matter more than the headline.
 
-**`lite` was unreachable in production, in both arms.** 43 of 43 agents declare
-`preferred_implants`, and the `lite → standard` promotion fired on every inferred
-`lite`. Under the legacy rule that was invisible; under the classifier it would
-have reduced the whole `lite` half of the change to nothing but format
-suppression. The promotion is now waived when the classifier positively decides a
-task needs no implants (`converse`/`retrieve`), which is what makes `lite`
-reachable at all. `run_tier --compare` scores raw `infer_tier(query)` with no
-agent metadata, so its tier distribution is the classifier's opinion, **not** the
-tier the server applies — read it as classifier quality, not as production effect.
+**`lite` is effectively unreachable, and that is now deliberate.** 43 of 43 agents
+declare `preferred_implants`, so the `lite → standard` promotion fires on every
+inferred `lite`. The promotion is waived only for a positively identified
+greeting (`mode == "converse"`, decided by `_is_pure_greeting`). An earlier
+revision waived it whenever `implant_budget == 0`, which also covers `retrieve` —
+where `_detect_mode`'s no-lexicon fallback lands every short query it cannot read,
+at confidence 0.4. That stripped "Design a fault-tolerant event pipeline for 1M
+events per second" to zero skills and zero implants on a guess. The golden set
+contains no greetings, so it shows zero `lite`; real traffic does contain them.
 
-**52 of 110 prompts got larger, not smaller.** A query moving `standard → lite`
-loses two semantic skills and its implants but gains *full* core-skill bodies
-where `standard` rendered one-liners, because the legacy render mapping ties
-`compiled` to `standard` alone. For `universal_agent` that is +4,915 chars against
-roughly −300. The legacy mapping is internally incoherent: the cheapest tier is
-the most verbose per skill.
+**The whole production effect is therefore `deep` 43 → 30.** That is where the
+7.8% comes from. `run_tier --compare` scores raw `infer_tier(query)` with no agent
+metadata, so read its tier distribution as classifier quality, **not** as
+production effect.
 
-**So the cost lever is gated behind the render decision, which is out of scope
-here.** Reverting `compiled`-at-`lite` (correctly, on quality grounds) also
-removed most of the saving. The honest summary: this change buys a **better tier
-signal** and the groundwork for #64's method bundles; it does **not** buy the
-order-of-magnitude token reduction #64 is chasing. That needs the render
-question — `compiled` at `deep`, or a render mode chosen per mode rather than per
-tier — settled by a quality A/B. Tracked in
+The cost lever beyond this is render density, which stays out of scope: `deep`
+renders four full skill bodies (~2450 tokens) where `compiled` would be ~40, and
+the legacy mapping ties `compiled` to `standard` alone. Tracked in
 [#73](https://github.com/IEZhu/Agents/issues/73).
 
 Honest limitations:
@@ -230,6 +224,39 @@ Six more findings; two were the same class of defect surviving a second fix.
   returned unchanged.
 - **The promotion ran before the profile** (see Results).
 
+## Fourth review round
+
+Eleven findings, four high. Three recurred from earlier rounds in new places.
+
+- **Lexicon stems broke the safety rule `_lex` documents.** `comput[ae]` matched
+  "computer", `integral` matched "integral part", `deriv` matched "the derivative
+  of brand equity", `discuss` matched "Let's discuss lunch", `referenc` matched
+  "For your reference". Each sent plain prose to `deep`. The inflections are now
+  spelled out as whole words.
+- **The promotion waiver keyed on `implant_budget == 0`** (see Results) — my own
+  third-round fix, which introduced this.
+- **The session-scoped v2 bundle took its budget from a per-query profile**, the
+  same defect class the adjacent comment refuses for `suppress_persona_format`.
+  An activating turn that was a lookup left every later turn of the conversation
+  with zero semantic skills and zero implants. The bundle now derives everything
+  from the tier alone.
+- **`class X:` and `function f(` matched prose** — "Is this device a class 2(b)
+  under the regulation?" is exactly the traffic `lawyer` receives. Both now
+  require a line start.
+- **A fenced block did not actually select a mode.** The accepted trade-off for
+  dropping SQL detection was that fences were "already covered"; they scored one
+  structural point and could not affect the mode, so a fenced traceback landed on
+  `retrieve`/`lite`. A fence now selects `operate`.
+- Plus: a 4-backtick fence was closed by an inner 3-backtick line; a dead
+  `_MATHY` guard; `confidence` documented as diagnostic rather than claiming a
+  consumer; and `run_tier`'s bad-label guard no longer inflates `over`.
+
+**Format suppression reaches about half of production traffic.** Only 23 of 43
+personas title the section `## Output Format`; the rest use `### 2. Output
+Format`, `### 4. OUTPUT FORMAT` or `**Output Format** (Phase 1):`. The feature is
+a no-op for those agents. Not fixed here: matching looser headings raises the risk
+of deleting the wrong section, which is the failure this scanner already had once.
+
 ## Back-compat
 
 `tier` never stops being the string it was:
@@ -239,7 +266,7 @@ Six more findings; two were the same class of defect surviving a second fix.
   `_legacy_infer_tier` (kept verbatim and callable, as the A/B's control arm).
 - `resolve_profile()` returns `None` when the flag is off, which is the signal to
   every downstream layer to keep deriving the budget from the tier exactly as
-  before. Both `pytest tests/` runs — flag off and flag on — pass 1034 tests.
+  before. Both `pytest tests/` runs — flag off and flag on — pass 1061 tests.
 - The session cache key carries `profile.cache_token` instead of the bare tier,
   because once render mode and pool size are decoupled from the tier, two
   profiles can share a tier and build different prompts. The token is colon-free,
