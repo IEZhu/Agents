@@ -240,21 +240,26 @@ def _lex(words: Sequence[str] = (), stems: Sequence[str] = ()) -> re.Pattern[str
 #: remove, so the inflections are spelled out instead.
 _COMPUTE_STRONG_LEX = _lex(
     words=(
-        "prove", "proves", "proven", "proof", "proofs", "solve for",
+        "prove", "proves", "proven", "solve for",
         "show your work", "докажи",
         "compute", "computes", "computing", "computation", "computations",
         "calculate", "calculates", "calculating", "calculation", "calculations",
         "derive", "derives", "deriving", "derivation",
         "theorem", "theorems", "equation", "equations",
-        "integrate", "integral of", "definite integral", "indefinite integral",
+        "integral of", "definite integral", "indefinite integral",
         "рассчитай", "рассчитать", "вычисли", "вычислить", "уравнение",
         "уравнения", "интеграл", "интеграла", "calcula", "calcular", "demuestra",
     ),
 )
 #: Ambiguous quantitative phrasing: "how many books are in the series" is a
 #: lookup, not a computation. Requires _MATHY corroboration.
+# `proof` and `integrate` live here, not in the strong list: "a proof of concept
+# for the new cache layer" and "integrate the Stripe API" are ordinary software
+# English, and `compute` defaults straight to `deep`. With _MATHY required they
+# only fire on an actual quantity.
 _COMPUTE_WEAK_LEX = _lex(
-    words=("how many", "how much", "percentage", "percentages", "сколько"),
+    words=("how many", "how much", "percentage", "percentages", "сколько",
+           "proof", "proofs", "integrate", "integrates", "integrating"),
     stems=("probabilit", "вероятност"),
 )
 #: Numbers used as quantities: an assignment, an operator between digits, or a
@@ -270,6 +275,15 @@ _ANALYZE_LEX = _lex(
         "comparisons", "compara", "comparar", "audit", "audits", "audited",
         "auditing", "trade-?offs?", "root cause", "why does", "why is",
         "pros and cons", "почему", "сравни",
+        # Phrases, not bare words. "design" and "план" as words are what made the
+        # legacy regex fire `deep` on any passing mention; as collocations they
+        # identify an actual design task. Without them "Design a fault-tolerant
+        # event pipeline for 1M events per second" fell to `retrieve`/`lite` —
+        # the cheapest budget — and this repo ships a `system_architect` agent
+        # whose traffic is phrased exactly that way.
+        "design a", "design an", "design the", "redesign", "architecture for",
+        "plan a", "plan an", "plan the", "roadmap for",
+        "спроектируй", "спланируй", "продумай", "план миграции",
     ),
     stems=(
         "analy[sz]", "architect", "refactor", "investigat", "critique",
@@ -302,11 +316,22 @@ _OPERATE_LEX = _lex(
         "commands", "run the", "set up", "setup", "patch", "patches",
         "upgrade", "upgrades", "rollback", "write a function", "write a class",
         "запусти",
+        # Moved off stems: `install` matched "installment", `настро` matched
+        # "настроение" (mood), `команд` matched "команда" (team) — which would
+        # hand a psychologist's or a lawyer's query systems-operation implants
+        # once #64's per-mode bundles land.
+        "install", "installs", "installed", "installing", "installation",
+        "настрой", "настроить", "настройки", "настройку",
+        # Russian "команда" is both a shell command and a team, and no word-level
+        # form separates them — "замотивировать команду" is a management question.
+        # Dropped entirely rather than guessed; "запусти", "скрипт", "настрой" and
+        # "установ" already cover the operate sense, and mislabelling a
+        # psychologist's query is the costlier error.
     ),
     stems=(
-        "implement", "install", "configur", "deploy", "migrat",
-        "реализу", "исправ", "установ", "настро", "разверн", "миграц",
-        "скрипт", "команд", "почин", "implementar", "instalar", "configurar",
+        "implement", "configur", "deploy", "migrat",
+        "реализу", "исправ", "установ", "разверн", "миграц",
+        "скрипт", "почин", "implementar", "instalar", "configurar",
     ),
 )
 #: Pasted source code. Deliberately narrow.
@@ -512,15 +537,6 @@ def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
         signals.append("converse_only")
         return "converse", 0.9
 
-    # A fenced block selects `operate`. The accepted trade-off for dropping SQL
-    # keyword detection was "a fenced block is already covered", and that was not
-    # true: `code_fence` contributes 1 of INTENT_DEEP_AT points and cannot affect
-    # the mode, so a fenced traceback plus "help" landed on `retrieve`/`lite` with
-    # zero skills where the legacy rule gave `deep`. Now it pays for the trade-off.
-    if _CODE_FENCE.search(stripped):
-        signals.append("code_fence_mode")
-        return "operate", 0.8
-
     mathy = bool(_MATHY.search(stripped))
     if _COMPUTE_STRONG_LEX.search(stripped):
         signals.append("compute_strong")
@@ -534,7 +550,13 @@ def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
     if _RESEARCH_LEX.search(stripped):
         signals.append("research_lex")
         return "analyze", 0.7
-    if _looks_like_code(stripped):
+    # Both code tests sit BELOW compute/analyze/research, because the costlier
+    # method must win: a fenced block accompanied by "review this and compare
+    # against the old design" is an analysis that happens to contain code, and
+    # ranking the fence first demoted it from 4 skills + 3 implants to 2 + 2.
+    # They still sit above create/explain/retrieve, which is what stops a fenced
+    # traceback plus "help" from landing on `retrieve`/`lite`.
+    if _looks_like_code(stripped) or _CODE_FENCE.search(stripped):
         signals.append("code_ish")
         return "operate", 0.8
     for mode, lex in (

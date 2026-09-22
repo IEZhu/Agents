@@ -117,18 +117,21 @@ async def build_persona_bundle(
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")
-    # From here the profile is used for NOTHING but the tier it produced above.
+    # Everything below derives from `tier` alone. The profile contributed the tier
+    # above and is deliberately not consulted again.
     #
     # A v2 bundle is a SESSION-scoped artifact: `persona.load_persona` returns
     # NO_CHANGE for the same agent on every later turn, so it is built once and
-    # reused. Feeding it a per-query budget means the activating turn decides the
-    # skill pool, render mode and implant count for the whole conversation — a
-    # turn that happened to be a lookup would leave every later turn with zero
-    # semantic skills and zero implants. That was impossible before the
-    # classifier, because the promotion always fired. The same reasoning already
-    # keeps `suppress_persona_format` out of this bundle; the budget belongs to
-    # the same class and is likewise derived from the tier alone.
-    profile = None
+    # reused. A per-query budget here would let the activating turn fix the skill
+    # pool, render mode and implant count for the whole conversation — a turn that
+    # happened to be a lookup would leave every later turn with zero semantic
+    # skills and zero implants. The same reasoning keeps
+    # `suppress_persona_format` out of this bundle.
+    #
+    # The tier-derived expressions below are written WITHOUT a
+    # `profile.X if profile else ...` fallback on purpose. Carrying live-looking
+    # branches that are always dead is a trap: relocating one line would silently
+    # re-enable per-query budgets in a session-scoped artifact.
 
     persona_block = await asyncio.to_thread(process_imports, body, {path}, strict=True)
     # NOTE: `profile.suppress_persona_format` is deliberately NOT applied here.
@@ -147,7 +150,7 @@ async def build_persona_bundle(
     selected_skills = await asyncio.to_thread(
         enrichment.skill_retriever.retrieve, query,
         mandatory=core or None, preferred=preferred or None, capable=capable or None,
-        n_results=profile.skill_pool_size if profile else enrichment._n_results_for_tier(tier),
+        n_results=enrichment._n_results_for_tier(tier),
     )
     allowed = set(core + preferred + capable)
     skill_ids = list(core)
@@ -159,18 +162,12 @@ async def build_persona_bundle(
     skills = await asyncio.to_thread(_fresh_components, "skills", skill_ids)
     skills_block = enrichment.skill_retriever.format_skills_for_prompt(
         skills,
-        compiled=profile.skill_render == "compiled" if profile else tier == "standard",
+        compiled=tier == "standard",
     )
 
     implants = []
-    implants_enabled = (
-        profile.implant_budget > 0 if profile else tier in ("standard", "deep")
-    )
-    if implants_enabled:
-        if profile is not None:
-            default_count = profile.implant_budget
-        else:
-            default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
+    if tier in ("standard", "deep"):
+        default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
         count = min(max(default_count, len(preferred_implants)), MAX_PREFERRED_IMPLANTS)
         selected_implants = await asyncio.to_thread(
             enrichment.implant_retriever.retrieve, query,

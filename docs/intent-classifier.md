@@ -73,15 +73,15 @@ adds a persisted centroid artifact that can drift out of sync with
 | set | arm | accuracy | deep-share | under | over |
 |---|---|---|---|---|---|
 | full (110) | legacy | 67/110 = 60.9% | 39.1% | 5 | 38 |
-| full (110) | classifier | **78/110 = 70.9%** | **27.3%** | 11 | 21 |
+| full (110) | classifier | **77/110 = 70.0%** | **26.4%** | 12 | 21 |
 | held-out (47) | legacy | 27/47 = 57.4% | 44.7% | 1 | 19 |
 | held-out (47) | classifier | 29/47 = 61.7% | 29.8% | 5 | 13 |
 
 **The accuracy gain is not statistically significant.** Paired exact McNemar:
-p=0.14 on the full set, p=0.80 on the held-out half. Treat +9.1 pp as directional
+p=0.17 on the full set, p=0.80 on the held-out half. Treat +9.1 pp as directional
 only.
 
-What *is* solid is the deep-tier share: 39.1% → 27.3% (held-out 44.7% → 29.8%).
+What *is* solid is the deep-tier share: 39.1% → 26.4% (held-out 44.7% → 29.8%).
 That is a deterministic property of the assignment, not a statistical estimate,
 and the token saving follows from it directly, because `deep` renders full skill
 bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).
@@ -89,15 +89,15 @@ bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).
 Built end to end and **production-faithful** — a real prompt per golden query
 using each label's `expected_agent`, mirroring `server._load_and_enrich`
 including the `lite → standard` promotion and its waiver — the injected prompt
-shrinks **7.8%**: 1,946,542 → 1,793,971 chars, mean 17,696 → 16,309 per query.
-Per query: 19 smaller, 6 larger, 85 unchanged.
+shrinks **8.4%**: 1,946,542 → 1,782,087 chars, mean 17,696 → 16,201 per query.
+Per query: 19 smaller, 5 larger, 86 unchanged.
 
 Effective tier distribution, which is not the classifier's raw output:
 
 | | `lite` | `standard` | `deep` |
 |---|---|---|---|
 | legacy | 0 | 67 | 43 |
-| classifier | 0 | 80 | 30 |
+| classifier | 0 | 81 | 29 |
 
 Two things there matter more than the headline.
 
@@ -111,8 +111,8 @@ at confidence 0.4. That stripped "Design a fault-tolerant event pipeline for 1M
 events per second" to zero skills and zero implants on a guess. The golden set
 contains no greetings, so it shows zero `lite`; real traffic does contain them.
 
-**The whole production effect is therefore `deep` 43 → 30.** That is where the
-7.8% comes from. `run_tier --compare` scores raw `infer_tier(query)` with no agent
+**The whole production effect is therefore `deep` 43 → 29.** That is where the
+8.4% comes from. `run_tier --compare` scores raw `infer_tier(query)` with no agent
 metadata, so read its tier distribution as classifier quality, **not** as
 production effect.
 
@@ -257,6 +257,42 @@ Format`, `### 4. OUTPUT FORMAT` or `**Output Format** (Phase 1):`. The feature i
 a no-op for those agents. Not fixed here: matching looser headings raises the risk
 of deleting the wrong section, which is the failure this scanner already had once.
 
+## Fifth review round
+
+Five findings, none high — the first round where severity dropped. Two were the
+familiar lexical class, now at medium and low rather than high.
+
+- **A code fence outranked `compute`/`analyze`.** The previous round made a fence
+  select `operate`, which demoted a fenced code review ("review this and compare
+  against the old design") from 4 skills + 3 implants to 2 + 2 — the
+  under-provisioning direction. Both code tests now sit below
+  compute/analyze/research and above create/explain/retrieve, which keeps the fix
+  that motivated them.
+- **`proof` and `integrate` are ordinary software English.** "a proof of concept
+  for the new cache layer" and "integrate the Stripe API" reached `compute`, which
+  defaults straight to `deep`. Moved to the weak list, where `_MATHY` is required.
+- **The design and planning family had no mode lexicon at all.** `design`, `plan`
+  and `план` existed only in `_LEGACY_COMPLEX_SIGNALS`, worth one structural
+  point, so "Design a fault-tolerant event pipeline for 1M events per second"
+  landed on `retrieve`/`lite` — the cheapest budget — even though this repo ships
+  a `system_architect` agent whose traffic reads exactly that way. Added as
+  **collocations** ("design a", "plan the", "спроектируй"), not bare words:
+  `design` as a word is precisely what made the legacy regex fire `deep` on any
+  passing mention, and "the design is ugly" must not promote.
+- **`настро` matched "настроение" (mood), `команд` matched "команда" (team),
+  `install` matched "installment".** Moved to whole words; the Russian
+  `команд*` family was dropped entirely, because no word form separates a shell
+  command from a team and mislabelling a psychologist's query is the costlier
+  error. Tier impact is nil today, but #64's per-mode bundles would hand those
+  queries systems-operation implants.
+- **Dead per-query branches in the v2 bundle.** `profile` was set to `None` and
+  four `profile.X if profile else …` expressions below it were unreachable. They
+  are removed rather than left as live-looking branches, because relocating one
+  line would silently re-enable per-query budgets in a session-scoped artifact.
+
+Accuracy moves 78/110 → 77/110 — one golden-set hit traded for those fixes — while
+deep-share improves to 26.4% and the prompt shrink to 8.4%.
+
 ## Back-compat
 
 `tier` never stops being the string it was:
@@ -266,7 +302,7 @@ of deleting the wrong section, which is the failure this scanner already had onc
   `_legacy_infer_tier` (kept verbatim and callable, as the A/B's control arm).
 - `resolve_profile()` returns `None` when the flag is off, which is the signal to
   every downstream layer to keep deriving the budget from the tier exactly as
-  before. Both `pytest tests/` runs — flag off and flag on — pass 1061 tests.
+  before. Both `pytest tests/` runs — flag off and flag on — pass 1077 tests.
 - The session cache key carries `profile.cache_token` instead of the bare tier,
   because once render mode and pool size are decoupled from the tier, two
   profiles can share a tier and build different prompts. The token is colon-free,

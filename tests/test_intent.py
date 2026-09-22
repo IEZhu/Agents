@@ -742,3 +742,63 @@ class TestFencedBlockSelectsOperate:
         bare = "SELECT a FROM t JOIN u ON u.id = t.id"
         assert _looks_like_code(bare) is False
         assert classify_intent("```sql\n" + bare + "\n```").mode == "operate"
+
+
+class TestRoundFiveRegressions:
+    """Findings from the fifth review round."""
+
+    def test_fenced_analysis_is_not_demoted_to_operate(self):
+        """The costlier method must win. Ranking the fence above compute/analyze
+        turned a fenced code review into `operate`/`standard` — 2 skills and 2
+        implants where the legacy rule gave 4 and 3."""
+        query = (
+            "```python\ndef f(): pass\n```\n"
+            "Review this code for security issues and compare against the old design"
+        )
+        profile = classify_intent(query)
+        assert profile.mode == "analyze"
+        assert profile.tier == "deep"
+
+    def test_a_fence_still_rescues_an_otherwise_unreadable_query(self):
+        assert classify_intent("help\n```python\npass\n```").mode == "operate"
+
+    @pytest.mark.parametrize("query", [
+        "Write a proof of concept for the new cache layer",
+        "Integrate the Stripe API into our checkout flow",
+        "Please integrate this library",
+    ])
+    def test_software_english_is_not_a_computation(self, query):
+        """`proof` and `integrate` are ordinary software English, and `compute`
+        defaults straight to deep with no structural corroboration."""
+        profile = classify_intent(query)
+        assert profile.mode != "compute", f"{query!r} -> {profile.signals}"
+        assert profile.tier != "deep"
+
+    @pytest.mark.parametrize("query", [
+        "Design a fault-tolerant event pipeline for 1M events per second",
+        "Plan the migration to Postgres 17",
+        "Спроектируй схему хранения",
+    ])
+    def test_the_design_family_reaches_analyze(self, query):
+        """No mode lexicon covered design/planning, so `system_architect`'s core
+        traffic landed on `retrieve`/`lite` — the cheapest budget."""
+        assert classify_intent(query).mode == "analyze", query
+
+    def test_a_passing_mention_of_design_does_not_promote(self):
+        """Collocations, not bare words: `design` as a word is what made the
+        legacy regex fire `deep` on any passing mention."""
+        assert classify_intent("the design is ugly").tier != "deep"
+
+    @pytest.mark.parametrize("query,forbidden", [
+        ("у меня плохое настроение, что делать?", "operate"),   # настро -> настроение
+        ("Как замотивировать команду?", "operate"),             # команд -> команда
+        ("The monthly installment is too high", "operate"),     # install -> installment
+    ])
+    def test_operate_stems_do_not_swallow_unrelated_words(self, query, forbidden):
+        assert classify_intent(query).mode != forbidden, query
+
+    @pytest.mark.parametrize("query", [
+        "Запусти скрипт деплоя", "Настрой прокси", "Установи nginx", "Install nginx",
+    ])
+    def test_real_operate_requests_still_match(self, query):
+        assert classify_intent(query).mode == "operate", query

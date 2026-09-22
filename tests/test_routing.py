@@ -1556,10 +1556,13 @@ class TestWaiverIsGatedOnMode:
         }
 
     @pytest.mark.asyncio
+    # "Design a fault-tolerant event pipeline …" used to belong here; the design
+    # collocations added to _ANALYZE_LEX now classify it `analyze`/`deep`, which
+    # is the point of that fix. These three still reach the no-lexicon fallback.
     @pytest.mark.parametrize("query", [
-        "Design a fault-tolerant event pipeline for 1M events per second",
         "Сделай ревью этого кода",
         "List every dependency that needs upgrading before the release",
+        "What did the vendor say about the renewal?",
     ])
     async def test_low_confidence_fallback_still_gets_promoted(self, query):
         from src.engine.intent import classify_intent
