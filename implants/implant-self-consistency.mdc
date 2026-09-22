@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: SelfConsistency
 one_liner: select answer by majority vote across multiple runs
+triggers:
+  - "only one correct answer"
+  - "what is the answer"
+  - "solve this"
+  - "riddle"
+  - "brain teaser"
+  - "загадка"
+  - "реши задачу"
+  - "какой ответ"
+  - "головоломка"
+  - "acertijo"
+  - "resuelve"
 ---
 ## Pattern
 1. **Set Diversity**: Use temperature 0.7-1.0 to ensure diverse reasoning paths.

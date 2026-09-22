@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: BoT
 one_liner: extract meta-template for repetitive task types
+triggers:
+  - "same for each"
+  - "all of these"
+  - "for every file"
+  - "same template"
+  - "review these 10"
+  - "consistent across"
+  - "для каждого"
+  - "по одному шаблону"
+  - "единообразно"
+  - "все эти"
+  - "para cada uno"
+  - "de forma uniforme"
 ---
 ## Pattern
 When encountering a task similar to ones solved before:

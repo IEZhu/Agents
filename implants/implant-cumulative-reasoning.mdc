@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: CumulReason
 one_liner: build conclusions by incrementally accumulating verified evidence
+triggers:
+  - "build a case"
+  - "piece by piece"
+  - "from the evidence"
+  - "facts point to"
+  - "based on evidence"
+  - "по фактам"
+  - "собрать доказательства"
+  - "улики"
+  - "шаг за шагом доказать"
+  - "con las pruebas"
+  - "según la evidencia"
 ---
 ## Pattern
 1. **Seed**: State the initial known fact or observation.

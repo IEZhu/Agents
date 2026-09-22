@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: PlanSolvePlus
 one_liner: atomic planning before execution
+triggers:
+  - "refactor"
+  - "migration plan"
+  - "plan first"
+  - "step-by-step plan"
+  - "sequence the steps"
+  - "roadmap"
+  - "план действий"
+  - "рефакторинг"
+  - "план миграции"
+  - "по шагам"
+  - "plan de acción"
+  - "paso a paso"
 ---
 ## Pattern
 1. **Plan**: Decompose into atomic, sequential steps. Each step should have a clear input/output.

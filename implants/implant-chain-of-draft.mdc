@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: ChainOfDraft
 one_liner: use thesis points instead of full CoT for tokens
+triggers:
+  - "keep it brief"
+  - "short answer"
+  - "tl;dr"
+  - "concise"
+  - "in a nutshell"
+  - "коротко"
+  - "кратко"
+  - "без воды"
+  - "в двух словах"
+  - "brevemente"
+  - "respuesta corta"
 ---
 ## Pattern
 1. **Compress Reasoning**: Think in thesis points — use mini-steps of 3-5 words instead of full sentences.

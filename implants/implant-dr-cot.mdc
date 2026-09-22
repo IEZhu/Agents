@@ -4,6 +4,16 @@ globs: []
 alwaysApply: false
 short_name: DRCoT
 one_liner: recurse deeper only when needed during reasoning
+triggers:
+  - "nested conditions"
+  - "some parts are trivial"
+  - "how deep to go"
+  - "deep dive where needed"
+  - "nested logic"
+  - "вложенные условия"
+  - "где-то сложно"
+  - "углубись где нужно"
+  - "lógica anidada"
 ---
 ## Pattern
 1. **Initial Reasoning**: Begin solving the problem with standard Chain-of-Thought.

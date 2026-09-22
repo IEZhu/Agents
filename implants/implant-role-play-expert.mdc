@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: RolePlayExpert
 one_liner: apply expert persona for domain analysis
+triggers:
+  - "as a security engineer"
+  - "from the perspective of"
+  - "as an expert"
+  - "ux review"
+  - "swot"
+  - "act as"
+  - "с точки зрения"
+  - "как эксперт"
+  - "представь что ты"
+  - "в роли"
+  - "como experto"
+  - "desde la perspectiva"
 ---
 ## Warning
 Expert personas do not make answers more factually accurate: "Playing Pretend: Expert Personas Don't Improve Factual Accuracy" (Basil et al., arXiv 2512.05858, Dec 2025) found no significant accuracy effect from expert personas, and mismatched or low-knowledge personas sometimes hurt. Use a persona to shape **method and vocabulary**; get facts from sources.

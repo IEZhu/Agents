@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: GeneratedKnowledge
 one_liner: surface background concepts before answering (no specifics)
+triggers:
+  - "how does it work"
+  - "what should i know"
+  - "background first"
+  - "basics of"
+  - "for a beginner"
+  - "основы"
+  - "что нужно знать"
+  - "как это устроено"
+  - "с чего начать изучать"
+  - "conceptos básicos"
+  - "qué debo saber"
 ---
 ## Pattern
 1. **Identify the Gap**: "What background concepts does answering [Question] depend on?"

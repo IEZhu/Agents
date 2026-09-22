@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: SelfRefine
 one_liner: iterative self-improvement via internal critique
+triggers:
+  - "improve this"
+  - "polish"
+  - "make it better"
+  - "rewrite"
+  - "clean up"
+  - "edit my text"
+  - "улучши"
+  - "доработай"
+  - "отполируй"
+  - "перепиши лучше"
+  - "mejora"
+  - "pulir"
 ---
 ## Pattern
 1. **Generate**: Produce initial solution.

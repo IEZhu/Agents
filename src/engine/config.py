@@ -179,6 +179,23 @@ IMPLANTS_RELEVANCE_THRESHOLD = _float_env("IMPLANTS_RELEVANCE_THRESHOLD", 0.85)
 MAX_PREFERRED_IMPLANTS = 5
 IMPLANTS_DEEP_TIER_DEFAULT = 3
 
+# Implant layer sensitivity, tuned separately from skills
+# (docs/layer-sensitivity-plan.md). Measured 2026-09 on the current embedder,
+# query-to-implant distances sit in ~0.12-0.24, far below the absolute threshold
+# above, so that threshold never gates; the z-score gate compares each implant
+# with this query's own distance distribution instead.
+#   IMPLANT_INDEX_MODE: "legacy" embeds description + body (the technique text,
+#     which matches queries by topic); "triggers" embeds description + user-side
+#     `triggers` + "When to Use" (matches by task shape).
+#   IMPLANT_GATING: "legacy" = top-N under the absolute threshold; "zscore" =
+#     keep only implants at least IMPLANT_GATE_Z standard deviations closer than
+#     the query's mean distance, so a query may load none.
+IMPLANT_INDEX_MODE = os.getenv("IMPLANT_INDEX_MODE", "legacy").strip().lower()
+IMPLANT_GATING = os.getenv("IMPLANT_GATING", "legacy").strip().lower()
+IMPLANT_GATE_Z = _float_env("IMPLANT_GATE_Z", 1.5, lo=0.0, hi=5.0)
+# Distance multiplier when one of the implant's `triggers` occurs in the query.
+IMPLANT_TRIGGER_BOOST = _float_env("IMPLANT_TRIGGER_BOOST", 0.85)
+
 # --- Intent classifier (src/engine/intent.py) --------------------------------
 # Replaces the length+regex `infer_tier` heuristic with a two-axis TaskProfile.
 # Default OFF: the legacy rule stays authoritative until an A/B on

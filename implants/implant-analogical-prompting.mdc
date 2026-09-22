@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: AnalogicalPrompting
 one_liner: invent similar tasks as few-shot examples
+triggers:
+  - "like in nature"
+  - "similar problem elsewhere"
+  - "think outside the box"
+  - "usual approach failed"
+  - "borrow an idea from"
+  - "по аналогии"
+  - "как в другой области"
+  - "нестандартный подход"
+  - "свежий взгляд"
+  - "por analogía"
+  - "idea de otro campo"
 ---
 ## Pattern
 1. **Identify Problem Type**: Classify the structural type of the problem (optimization, classification, debugging, design, etc.).

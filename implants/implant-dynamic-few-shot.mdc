@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: DynamicFewShot
 one_liner: select relevant examples per task from a pool
+triggers:
+  - "classify these"
+  - "many categories"
+  - "label each"
+  - "choose examples"
+  - "which category"
+  - "классифицируй"
+  - "к какой категории"
+  - "разметить"
+  - "подбери примеры"
+  - "clasifica"
+  - "qué categoría"
 ---
 ## Pattern
 1. **Maintain Example Pool**: Curate a diverse set of labeled input/output examples covering different task variations.

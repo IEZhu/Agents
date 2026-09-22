@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: RoT
 one_liner: handle nested recursive structures via sub-calls
+triggers:
+  - "nested json"
+  - "tree"
+  - "traverse"
+  - "hierarchy"
+  - "nested lists"
+  - "dependency tree"
+  - "вложенная структура"
+  - "дерево"
+  - "иерархия"
+  - "рекурсивно"
+  - "estructura anidada"
+  - "árbol"
 ---
 ## Pattern
 1. **Identify Recursion**: Detect the recursive/nested structure in the problem (nested lists, trees, recursive definitions).

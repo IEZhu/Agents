@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: CoV
 one_liner: fact-check claims via draft-verify-correct cycle
+triggers:
+  - "exact figure"
+  - "when exactly"
+  - "is it true that"
+  - "fact-check"
+  - "precise date"
+  - "exact version"
+  - "точная цифра"
+  - "правда ли что"
+  - "когда именно"
+  - "проверь факты"
+  - "¿es cierto que"
+  - "fecha exacta"
 ---
 ## Pattern
 1. **Draft**: Generate the initial answer.

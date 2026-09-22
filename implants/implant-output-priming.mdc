@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: OutputPriming
 one_liner: start the answer to steer model completion
+triggers:
+  - "return json"
+  - "in this format"
+  - "exact format"
+  - "csv output"
+  - "fill the template"
+  - "schema"
+  - "в формате json"
+  - "строго по шаблону"
+  - "в таком формате"
+  - "заполни шаблон"
+  - "formato json"
+  - "según la plantilla"
 ---
 ## Pattern
 1. **Define Target Format**: Decide the exact structure of the desired output (JSON, table, bullet list, specific template).

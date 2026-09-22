@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: MultiDebate
 one_liner: generate distinct perspectives and synthesize through debate
+triggers:
+  - "all perspectives"
+  - "thorough analysis"
+  - "different viewpoints"
+  - "hard decision"
+  - "no right answer"
+  - "am i biased"
+  - "разные точки зрения"
+  - "всесторонний анализ"
+  - "трудное решение"
+  - "со всех сторон"
+  - "diferentes puntos de vista"
+  - "decisión difícil"
 ---
 ## Pattern
 1. **Spawn Perspectives** (3 distinct viewpoints):

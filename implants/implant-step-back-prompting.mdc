@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: StepBack
 one_liner: abstract principle first for complex problems
+triggers:
+  - "big picture"
+  - "general principle"
+  - "zoom out"
+  - "first principles"
+  - "what principle applies"
+  - "общий принцип"
+  - "шире посмотреть"
+  - "с высоты"
+  - "фундаментально"
+  - "principio general"
+  - "visión general"
 ---
 ## Pattern
 1. **Step Back**: "What is the underlying principle, concept, or category this problem belongs to?"

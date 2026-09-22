@@ -4,6 +4,15 @@ globs: []
 alwaysApply: false
 short_name: ActivePrompting
 one_liner: trigger full CoT when confidence is low
+triggers:
+  - "mixed difficulty"
+  - "some are easy"
+  - "batch of questions"
+  - "not sure if tricky"
+  - "простые и сложные"
+  - "разной сложности"
+  - "пачка вопросов"
+  - "de distinta dificultad"
 ---
 ## Pattern
 1. **Quick Assessment**: Generate a rapid initial response with a confidence estimate (high/medium/low).

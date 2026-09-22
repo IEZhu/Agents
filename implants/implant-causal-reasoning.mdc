@@ -4,6 +4,20 @@ globs: []
 alwaysApply: false
 short_name: CausalReasoning
 one_liner: distinguish correlation from causation with systematic checks
+triggers:
+  - "did this cause"
+  - "caused by"
+  - "correlation"
+  - "is it the reason"
+  - "a/b test results"
+  - "why did it drop"
+  - "это из-за"
+  - "причина или совпадение"
+  - "корреляция"
+  - "повлияло ли"
+  - "что вызвало"
+  - "es la causa"
+  - "correlación"
 ---
 ## Pattern
 1. **Temporal Precedence**: Does the cause precede the effect? (Necessary but not sufficient.)

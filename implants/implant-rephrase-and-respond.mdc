@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: RephraseAndRespond
 one_liner: clarify ambiguous requests before answering
+triggers:
+  - "you get me"
+  - "something like"
+  - "kind of"
+  - "hard to phrase"
+  - "roughly"
+  - "ну типа"
+  - "как бы"
+  - "что-то вроде"
+  - "короче"
+  - "no sé cómo explicarlo"
+  - "algo así"
 ---
 ## Pattern
 1. **Rephrase**: "Rephrase and expand the request to be maximally precise. State implicit assumptions explicitly."

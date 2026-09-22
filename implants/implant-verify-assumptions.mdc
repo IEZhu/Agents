@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: VerifyAssumptions
 one_liner: list and verify 1-3 load-bearing facts before architectural decisions
+triggers:
+  - "we should use"
+  - "should we switch to"
+  - "migrate to"
+  - "which library"
+  - "rewrite in"
+  - "it will work because"
+  - "давай использовать"
+  - "переписать на"
+  - "какую библиотеку"
+  - "это сработает потому что"
+  - "deberíamos usar"
+  - "qué librería"
 ---
 ## Pattern
 1. **Detect the signal**: You're about to propose a design, refactor, integration, library choice, or "we should X" recommendation.

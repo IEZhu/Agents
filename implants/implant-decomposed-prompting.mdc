@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: DecompPrompt
 one_liner: break complex tasks into simpler sub-prompts and combine
+triggers:
+  - "several aspects"
+  - "technical and legal"
+  - "multiple angles"
+  - "break it down"
+  - "split into parts"
+  - "each part separately"
+  - "разбей на части"
+  - "по отдельности"
+  - "по каждому аспекту"
+  - "технически и юридически"
+  - "divide en partes"
+  - "por separado"
 ---
 ## Pattern
 1. **Decompose**: Split the complex task into 2-5 independent sub-tasks.

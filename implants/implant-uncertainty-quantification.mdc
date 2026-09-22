@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: UncertaintyQ
 one_liner: answer at a stakes-set confidence threshold; separate checked, recalled and inferred
+triggers:
+  - "should i"
+  - "is it safe to"
+  - "forecast"
+  - "estimate"
+  - "what are the odds"
+  - "how likely"
+  - "прогноз"
+  - "оцени вероятность"
+  - "стоит ли"
+  - "насколько вероятно"
+  - "pronóstico"
+  - "probabilidad"
 ---
 ## Pattern
 1. **Set the bar from the stakes**: the costlier a wrong answer (money, health, legal exposure, production), the more confident you must be before stating something flatly. Below the bar you still answer — with the best partial answer and what is unknown — rather than guessing or refusing.

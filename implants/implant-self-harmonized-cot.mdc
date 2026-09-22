@@ -4,6 +4,17 @@ globs: []
 alwaysApply: false
 short_name: SHCoT
 one_liner: merge multiple solutions into best combined answer
+triggers:
+  - "best of both"
+  - "merge drafts"
+  - "combine the best"
+  - "merge these versions"
+  - "blend approaches"
+  - "лучшее из вариантов"
+  - "совмести варианты"
+  - "объединить черновики"
+  - "lo mejor de ambos"
+  - "fusionar versiones"
 ---
 ## Pattern
 1. **Generate**: Produce 3 independent solutions using different reasoning approaches.

@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: MaieuticPrompting
 one_liner: find contradictions via Socratic explanation tree
+triggers:
+  - "true or false"
+  - "yes or no"
+  - "myth or fact"
+  - "is the claim correct"
+  - "controversial claim"
+  - "верно или нет"
+  - "да или нет"
+  - "миф или правда"
+  - "спорное утверждение"
+  - "verdadero o falso"
+  - "mito o realidad"
 ---
 ## Pattern
 1. **Generate Both Sides**: Produce explanations for why the answer is True AND why it is False.

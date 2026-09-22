@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: OutputAutomata
 one_liner: structure dialogue or process as state machine
+triggers:
+  - "state machine"
+  - "conversation flow"
+  - "chatbot flow"
+  - "workflow with branches"
+  - "states and transitions"
+  - "order status"
+  - "сценарий диалога"
+  - "состояния"
+  - "переходы"
+  - "воронка бота"
+  - "flujo de conversación"
+  - "estados"
 ---
 ## Pattern
 1. **Define States**: List all possible states of the process/dialogue.

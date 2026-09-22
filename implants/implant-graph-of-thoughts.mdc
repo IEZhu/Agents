@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: GoT
 one_liner: network reasoning with branching, merging, and synthesis
+triggers:
+  - "integrate the parts"
+  - "design the whole system"
+  - "system design"
+  - "multiple subsystems"
+  - "combine components"
+  - "спроектируй систему"
+  - "собрать из частей"
+  - "подсистемы"
+  - "объедини компоненты"
+  - "diseño del sistema"
+  - "combinar componentes"
 ---
 ## Pattern
 1. **Decompose**: Break the problem into sub-problems, each becoming a node in the graph.

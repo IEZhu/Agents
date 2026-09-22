@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ContrastiveCoT
 one_liner: prevent mistakes via correct and incorrect examples
+triggers:
+  - "common mistakes"
+  - "typical errors"
+  - "pitfalls"
+  - "gotchas"
+  - "what not to do"
+  - "where people go wrong"
+  - "типичные ошибки"
+  - "частые ошибки"
+  - "подводные камни"
+  - "как не надо"
+  - "errores comunes"
+  - "trampas"
 ---
 ## Pattern
 1. **Identify Error Type**: Determine the common mistake for this type of problem (e.g., off-by-one, sign error, logical fallacy).

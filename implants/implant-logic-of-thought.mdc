@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: LoT
 one_liner: formal logical reasoning with propositions
+triggers:
+  - "logically follows"
+  - "valid argument"
+  - "if then"
+  - "deduce"
+  - "does it follow"
+  - "lsat"
+  - "следует ли"
+  - "логически"
+  - "если то"
+  - "выведи"
+  - "¿se deduce"
+  - "lógicamente"
 ---
 ## Pattern
 1. **Propositions**: Extract explicit premises from context as formal statements (P, Q, R...).

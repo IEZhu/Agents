@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: ChainOfNote
 one_liner: answer from annotated relevant notes only
+triggers:
+  - "based on these sources"
+  - "from these documents"
+  - "according to the docs"
+  - "which sources are relevant"
+  - "retrieved passages"
+  - "по этим источникам"
+  - "из этих документов"
+  - "на основе статей"
+  - "только по тексту"
+  - "según estos documentos"
+  - "según las fuentes"
 ---
 ## Pattern
 1. **Read**: Process each retrieved document/fragment.

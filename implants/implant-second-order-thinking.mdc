@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: SecondOrder
 one_liner: ask and then what for each effect to map cascading consequences
+triggers:
+  - "long-term consequences"
+  - "side effects"
+  - "what happens next"
+  - "ripple effects"
+  - "downstream impact"
+  - "in the long run"
+  - "долгосрочные последствия"
+  - "к чему приведёт"
+  - "побочные эффекты"
+  - "в долгосрочной перспективе"
+  - "consecuencias a largo plazo"
+  - "efectos secundarios"
 ---
 ## Pattern
 1. **First-Order Effects**: What happens immediately as a direct result?

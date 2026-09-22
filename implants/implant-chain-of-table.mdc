@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: ChainOfTable
 one_liner: structure data in table for comparisons
+triggers:
+  - "compare"
+  - "which is better"
+  - "pros and cons"
+  - "side by side"
+  - "comparison table"
+  - "сравни"
+  - "плюсы и минусы"
+  - "что лучше"
+  - "таблицу сравнения"
+  - "compara"
+  - "ventajas y desventajas"
 ---
 ## Pattern
 1. **Design Table**: Create structure: Rows = [Objects/Options], Columns = [Characteristics/Criteria].
