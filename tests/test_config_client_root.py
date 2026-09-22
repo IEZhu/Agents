@@ -6,6 +6,7 @@ dynamically so one global install can serve many client repos.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 
 import pytest
@@ -107,6 +108,7 @@ class TestInstallRootUnchanged:
     """Install-scoped constants must not drift with the client root."""
 
     def test_install_paths_are_stable(self, tmp_path, monkeypatch):
+        install_data_dir = engine_config.INSTALL_DATA_DIR
         monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(tmp_path))
         # Client-scoped values shift...
         engine_config._reset_client_repo_root_cache()
@@ -118,7 +120,18 @@ class TestInstallRootUnchanged:
         assert os.path.realpath(engine_config.AGENTS_DIR) == os.path.join(install_root, "agents")
         assert os.path.realpath(engine_config.SKILLS_DIR) == os.path.join(install_root, "skills")
         assert os.path.realpath(engine_config.IMPLANTS_DIR) == os.path.join(install_root, "implants")
-        assert os.path.realpath(engine_config.INSTALL_DATA_DIR) == os.path.join(install_root, "data")
+        # tests/conftest.py points INSTALL_DATA_DIR at a temporary copy (issue
+        # #68); it must still not follow the client root.
+        assert engine_config.INSTALL_DATA_DIR == install_data_dir
+
+    def test_install_data_dir_defaults_under_install_root(self):
+        # The suite's config has INSTALL_DATA_DIR redirected, so check the
+        # default on a separate, unpatched load of the module.
+        spec = importlib.util.spec_from_file_location("_unpatched_config", engine_config.__file__)
+        unpatched = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(unpatched)
+        install_root = os.path.realpath(unpatched.INSTALL_ROOT)
+        assert os.path.realpath(unpatched.INSTALL_DATA_DIR) == os.path.join(install_root, "data")
 
 
 class TestDeprecatedAliases:
