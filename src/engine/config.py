@@ -187,7 +187,10 @@ INTENT_CLASSIFIER_ENABLED = os.getenv("INTENT_CLASSIFIER_ENABLED", "0").lower() 
 # Structural points needed to promote a mode's default tier by one step. A mode's
 # default tier is a floor and is never lowered; read from env so the A/B can
 # sweep the promotion threshold without a code change.
-INTENT_DEEP_AT = _int_env("INTENT_DEEP_AT", 5, lo=1)
+# lo=3 is an invariant, not a taste: length contributes at most 2 points, so any
+# threshold below 3 would let size alone promote a tier — the exact defect this
+# module replaces.
+INTENT_DEEP_AT = _int_env("INTENT_DEEP_AT", 5, lo=3)
 # Length buckets. Length contributes at most 2 points, never a tier on its own —
 # `len > 300` alone is what drove 35 of 40 bench queries into the deep tier.
 INTENT_LONG_CHARS = _int_env("INTENT_LONG_CHARS", 150, lo=1)

@@ -107,12 +107,13 @@ async def build_persona_bundle(
     profile = enrichment.resolve_profile(query)
     if tier is None:
         tier = profile.tier if profile is not None else enrichment.infer_tier(query)
-        # See src/server.py. Only a positively identified greeting waives the
-        # promotion; `retrieve` is where the no-lexicon fallback lands, so waiving
-        # on the budget would strip real work on a low-confidence guess.
-        if tier == "lite" and preferred_implants and not (
-            profile is not None and profile.mode == "converse"
-        ):
+        # The promotion is NEVER waived here, unlike src/server.py. The waiver is
+        # a per-query decision and this bundle is session-scoped:
+        # `persona.load_persona` returns NO_CHANGE for the same agent, so a
+        # conversation that opens with "hi" would otherwise run its whole
+        # remaining length on a `lite` bundle — no semantic skills, no implants.
+        # The v1 path can waive safely because SESSION_CACHE re-derives per query.
+        if tier == "lite" and preferred_implants:
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")

@@ -81,7 +81,7 @@ adds a persisted centroid artifact that can drift out of sync with
 p=0.14 on the full set, p=0.80 on the held-out half. Treat +9.1 pp as directional
 only.
 
-What *is* solid is the deep-tier share: 39.1% → 28.2% (held-out 44.7% → 29.8%).
+What *is* solid is the deep-tier share: 39.1% → 27.3% (held-out 44.7% → 29.8%).
 That is a deterministic property of the assignment, not a statistical estimate,
 and the token saving follows from it directly, because `deep` renders full skill
 bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).

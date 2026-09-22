@@ -392,7 +392,10 @@ _CONVERSE_LEX = _lex(
     ),
 )
 
-_CODE_FENCE = re.compile(r"```")
+#: Line-anchored. A bare ``` matched inline backticks in prose, and once a fence
+#: began selecting the mode that let "Use ```code``` formatting in your reply"
+#: classify as `operate`. Only a fence that opens a line counts.
+_CODE_FENCE = re.compile(r"^[ \t]*(?:```|~~~)", re.MULTILINE)
 #: Accepts sub-numbered items ("11.1.", "2.3)") as well as flat ones. The flat-only
 #: form missed a multi-part exam paper whose items were numbered 11.1 .. 11.7.
 _LIST_LINE = re.compile(r"^\s*(\d+(\.\d+)*[.)]|[-*•])\s+\S")

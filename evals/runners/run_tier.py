@@ -8,7 +8,8 @@ For every labeled sample, call `infer_tier(query)` and compare against
 against the intent classifier — and reports a paired exact McNemar test plus the
 deep-tier share, which is the cost-relevant quantity. Because the classifier's
 lexicons were written while looking at one half of this set, the run also reports
-a held-out half (stratified by a stable hash of the sample id), which is the only
+a held-out half (partitioned by the parity of a hash of the sample id — a plain
+split, not a stratified one), which is the only
 number that is evidence of generalisation.
 
 Usage:
@@ -198,18 +199,27 @@ def main(argv: list[str] | None = None) -> int:
     if args.compare:
         rows, loader_meta = run_compare()
         if args.json:
-            print(json.dumps({
-                "loader": loader_meta,
-                "rows": rows,
-                "full": {
-                    "legacy": _arm_stats(rows, "legacy"),
-                    "intent": _arm_stats(rows, "intent"),
-                },
-                "heldout": {
-                    "legacy": _arm_stats([r for r in rows if r["heldout"]], "legacy"),
-                    "intent": _arm_stats([r for r in rows if r["heldout"]], "intent"),
-                },
-            }, indent=2))
+            # Every subset and every McNemar result the text report shows, so an
+            # automated consumer can reproduce the documented comparison.
+            subsets = {
+                "full": rows,
+                "heldout": [r for r in rows if r["heldout"]],
+                "tuning": [r for r in rows if not r["heldout"]],
+            }
+            payload = {"loader": loader_meta, "rows": rows}
+            for name, subset in subsets.items():
+                b, c, pvalue = _exact_mcnemar([
+                    (r["legacy"] == r["expected"], r["intent"] == r["expected"])
+                    for r in subset
+                ])
+                payload[name] = {
+                    "legacy": _arm_stats(subset, "legacy"),
+                    "intent": _arm_stats(subset, "intent"),
+                    "mcnemar": {
+                        "legacy_only_right": b, "intent_only_right": c, "p_value": pvalue,
+                    },
+                }
+            print(json.dumps(payload, indent=2))
             return 0
         report = _render_compare(rows, loader_meta)
         if args.out:

@@ -55,7 +55,7 @@ class TestClassifyMode:
         assert profile.tier != "lite"
 
     def test_weak_compute_phrase_without_math_is_a_lookup(self):
-        """"how many" alone is not a computation.
+        """A weak compute phrase alone is not a computation.
 
         Regression: "how many books are in piers anthony virtual mode series"
         was classified `compute`, whose default budget is the deep tier.
