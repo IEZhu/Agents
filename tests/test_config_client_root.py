@@ -118,7 +118,9 @@ class TestInstallRootUnchanged:
         assert os.path.realpath(engine_config.AGENTS_DIR) == os.path.join(install_root, "agents")
         assert os.path.realpath(engine_config.SKILLS_DIR) == os.path.join(install_root, "skills")
         assert os.path.realpath(engine_config.IMPLANTS_DIR) == os.path.join(install_root, "implants")
-        assert os.path.realpath(engine_config.INSTALL_DATA_DIR) == os.path.join(install_root, "data")
+        # tests/conftest.py moves INSTALL_DATA_DIR off the live install (issue
+        # #68), so assert it is still a "data" directory, not where it lives.
+        assert os.path.basename(engine_config.INSTALL_DATA_DIR) == "data"
 
 
 class TestDeprecatedAliases:

@@ -88,6 +88,32 @@ with eight I/O workers and one inference worker. Capacity exhaustion returns
 busy. Cancelling an HTTP waiter retains the quota for its running job and does
 not replay a mutation.
 
+### Drain blocks while any client is connected
+
+`stop`, `restart`, `uninstall`, `restore-clients`, `update`, `recover`, and
+`token rotate` first drain the service: they wait up to 60 seconds for
+`inflight` to reach zero. Each connected MCP client holds a long-lived GET
+stream that counts as in flight, so the drain never completes while any client
+is attached ([#76](https://github.com/IEZhu/Agents/issues/76)). The service
+answers 503 for that minute, then resumes and the command fails with
+`TimeoutError: Drain timed out; runtime resumed without killing active work`.
+`status` shows a constant non-zero `inflight` with `io_pending: 0`.
+
+To restart the same code, for example to load rules or skills after a pull,
+let launchd restart the process. This skips the drain and aborts any request in
+progress:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/local.agents-core.<installation-hash>"
+```
+
+The installation hash is the name of the private state directory. `status`
+should report `ready` again after warmup. Do not use `kickstart` during an
+update, recovery, or other maintenance. The commands that change files,
+`update`, `recover`, `restore-clients`, `uninstall`, and `token rotate`, have no
+such bypass: disable Agents-Core in every client first, confirm that `status`
+reports `inflight: 0`, then run the command.
+
 ## Memory and errors
 
 HTTP never selects a project from cwd, environment variables, or client roots.
@@ -120,7 +146,10 @@ retain source history.
 ```
 
 Updates require a clean target branch, a fast-forward, and unchanged dependency
-manifests. The controller enters maintenance, waits up to 60 seconds for drain,
+manifests. Disconnect every MCP client first: the drain cannot finish while a
+client stream is open (see [Drain blocks while any client is
+connected](#drain-blocks-while-any-client-is-connected)). The controller enters
+maintenance, waits up to 60 seconds for drain,
 stops the service, and acquires the exclusive installation lease and updater
 lock. A remaining stdio reader blocks the update. Reindexing runs in a separate
 process only while the daemon is stopped. Git and reindex subprocesses retain
@@ -143,6 +172,10 @@ credentials and SSH must work with the LaunchAgent's PATH and environment.
 .venv/bin/python -m src.daemon uninstall
 ```
 
+Both commands drain the service first and fail while any client is connected
+(see [Drain blocks while any client is
+connected](#drain-blocks-while-any-client-is-connected)); disable Agents-Core in
+every client before running them.
 Restoration checks the maintenance barriers and holds the controller lock across
 daemon shutdown and configuration writes. It also checks that configurations
 have not been edited since migration. Restore multiple migration backups in
@@ -150,7 +183,15 @@ reverse order. Uninstall retains backups, the registry, and history.
 
 ## Validation
 
+`tests/conftest.py` runs the suite against a temporary copy of the vector
+stores, so tests never write the live `data/`. Checkouts without that file
+rebuild the live stores whenever `EMBEDDING_MODEL` differs from the installed
+model, which is the MiniLM default when the variable is unset. Export the
+installed model before running tests in such a checkout; it is harmless with
+the conftest too:
+
 ```bash
+export EMBEDDING_MODEL="$(sed -n 's/^EMBEDDING_MODEL=//p' .env)"
 scripts/run_tests.sh
 .venv/bin/python -m pytest -m slow tests/test_routing.py
 node --test bridge/test.mjs

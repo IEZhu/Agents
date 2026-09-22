@@ -53,8 +53,11 @@ def _head(path) -> str:
 
 
 @pytest.fixture
-def repos(tmp_path):
+def repos(tmp_path, monkeypatch):
     """An 'upstream' repo on main with one commit, plus a 'local' clone of it."""
+    # Update bookkeeping goes to tmp_path, never the live data/ (issue #68).
+    for name, filename in [("STATE_FILE", ".last_update.json"), ("CHECK_STAMP", ".last_update_check")]:
+        monkeypatch.setattr(self_update, name, str(tmp_path / filename))
     upstream = _init_repo(tmp_path / "upstream")
     _commit(upstream, "file.txt", "v1\n", "init")
     local = tmp_path / "local"
