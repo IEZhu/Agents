@@ -8,7 +8,7 @@ one_liner: answer from annotated relevant notes only
 ## Pattern
 1. **Read**: Process each retrieved document/fragment.
 2. **Annotate**: For each paragraph, assess relevance (Relevant/Not Relevant). Extract key fact from relevant ones.
-3. **Synthesize**: Answer using ONLY facts from relevant notes. If no notes are relevant, say "insufficient information."
+3. **Synthesize**: Build the answer from facts in relevant notes. Where the notes don't cover part of the question, say which part is uncovered; if you add general knowledge there, label it as not from the sources. Answer what the notes support rather than returning a bare "insufficient information."
 
 ## When to Use
 - RAG pipelines where retrieved documents may contain irrelevant content
@@ -19,5 +19,4 @@ one_liner: answer from annotated relevant notes only
 ## Limitations
 - Adds annotation overhead before answer generation
 - Relevance assessment can be wrong — may discard useful information
-- "Insufficient information" response may frustrate users when a partial answer would help
 - Not useful for tasks without source documents
