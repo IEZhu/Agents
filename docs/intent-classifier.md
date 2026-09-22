@@ -124,7 +124,8 @@ removed most of the saving. The honest summary: this change buys a **better tier
 signal** and the groundwork for #64's method bundles; it does **not** buy the
 order-of-magnitude token reduction #64 is chasing. That needs the render
 question — `compiled` at `deep`, or a render mode chosen per mode rather than per
-tier — settled by a quality A/B.
+tier — settled by a quality A/B. Tracked in
+[#73](https://github.com/IEZhu/Agents/issues/73).
 
 Honest limitations:
 
@@ -257,7 +258,9 @@ Six more findings; two were the same class of defect surviving a second fix.
 - Rendering `compiled` at the `deep` tier. This is the single largest remaining
   token lever (4 full bodies ≈ 2450 tokens vs ≈ 40 compiled) but it changes what
   `tier="deep"` means for `tests/test_persona_bundle.py`, and its quality effect
-  is unmeasured. It belongs behind its own flag and its own A/B.
+  is unmeasured. It belongs behind its own flag and its own A/B — see
+  [#73](https://github.com/IEZhu/Agents/issues/73), which carries the measurements
+  and the experiment design.
 - The generation-side A/B (`run_mcp_vs_vanilla`) that #64's acceptance criteria
   require: `intent_fit` must not regress and the deep share must drop. This PR
   only establishes the classifier and its offline accuracy.
