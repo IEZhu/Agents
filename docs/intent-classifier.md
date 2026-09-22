@@ -48,6 +48,7 @@ class TaskProfile:
     skill_render: SkillRender         # -> format_skills_for_prompt(compiled=...)
     implant_budget: int               # base count, before the preferred_implants floor
     suppress_persona_format: bool     # -> strip the persona's "## Output Format"
+                                      #    (converse only — see below)
     confidence: float
     signals: tuple[str, ...]          # why this profile — for debug logs and eval triage
 ```
@@ -85,6 +86,13 @@ That is a deterministic property of the assignment, not a statistical estimate,
 and the token saving follows from it directly, because `deep` renders full skill
 bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).
 
+Built end to end — a real prompt per golden query, using each label's
+`expected_agent` — the injected prompt shrinks **18.6%**: 1,988,214 → 1,618,262
+chars, mean 18,075 → 14,711 per query, with 71 queries smaller, 7 larger and 32
+unchanged. The 7 that grow are queries the classifier correctly promotes to
+`deep`; the net is mix-dependent, so re-measure before quoting this on other
+traffic.
+
 Honest limitations:
 
 - **The lexicons were written against one half of the golden set.** The 76.2%
@@ -104,6 +112,32 @@ Honest limitations:
   An asymmetric-loss retune was tried and made held-out accuracy *worse*
   (59.6%), so this is not fixable by moving thresholds.
 
+## Format suppression is narrower than #64 proposes
+
+#64's table suppresses the persona's `## Output Format` for `converse`, `create`
+and `retrieve`. Only `converse` does so here. Two reasons, both found by review
+against the real personas:
+
+- A persona's Output Format is not always a response template. For
+  `medical_expert` it is where the mandated `### Safety` section lives — red
+  flags requiring emergency care, contraindications, analysis limits. `create`
+  fires on `summarize`/`draft`/`write`, so "draft a note summarizing these labs"
+  would have removed it.
+- Widening this needs a per-section allowlist, not a per-mode boolean. Nothing in
+  a mode tells you which sections of a given persona are safe to drop.
+
+`strip_output_format` is a line scanner, not a regex, because 10 of 23 personas
+put a fenced template with **level-2 inner headings** inside that section, and
+`prompt_engineer` teaches a prompt skeleton containing the literal line
+`## Output Format` inside a fence. A regex stopping at the next `^## ` deleted a
+fence opener while leaving its closer — flipping backtick parity and swallowing
+the rest of the persona into a code block — and on 8 personas removed only the
+heading, promoting the surviving template to apparent top-level sections. The
+scanner matches only the first non-fenced `## Output Format` and ends the section
+at the next non-fenced level-2 heading, so fence parity is preserved by
+construction. `tests/test_intent.py::TestStripOutputFormatFenceAware` asserts
+both properties across every persona in `agents/`.
+
 ## Back-compat
 
 `tier` never stops being the string it was:
@@ -113,7 +147,7 @@ Honest limitations:
   `_legacy_infer_tier` (kept verbatim and callable, as the A/B's control arm).
 - `resolve_profile()` returns `None` when the flag is off, which is the signal to
   every downstream layer to keep deriving the budget from the tier exactly as
-  before. Both `pytest tests/` runs — flag off and flag on — pass 958 tests.
+  before. Both `pytest tests/` runs — flag off and flag on — pass 985 tests.
 - The session cache key carries `profile.cache_token` instead of the bare tier,
   because once render mode and pool size are decoupled from the tier, two
   profiles can share a tier and build different prompts. The token is colon-free,

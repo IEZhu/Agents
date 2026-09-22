@@ -76,10 +76,17 @@ SkillRender = Literal["compiled", "full"]
 #: (standard 2 / deep ``IMPLANTS_DEEP_TIER_DEFAULT``); the ``preferred_implants``
 #: floor and the ``MAX_PREFERRED_IMPLANTS`` cap are applied by the caller, not
 #: here, because they are per-agent facts this module deliberately does not know.
+#:
+#: ``suppress_format`` is deliberately limited to ``converse``. #64's table also
+#: suppresses it for ``create`` and ``retrieve``, but a persona's Output Format
+#: is not always a mere response template: for ``medical_expert`` it is where the
+#: mandated ``### Safety`` section lives (red flags, contraindications), and
+#: ``create`` fires on "summarize"/"draft"/"write", a large share of real
+#: traffic. Widening this needs a per-section allowlist, not a per-mode flag.
 _MODE_POLICY: dict[str, dict] = {
     "converse": {"tier": "lite",     "skills": 0, "implants": 0, "render": "compiled", "suppress_format": True},
-    "retrieve": {"tier": "lite",     "skills": 0, "implants": 0, "render": "compiled", "suppress_format": True},
-    "create":   {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": True},
+    "retrieve": {"tier": "lite",     "skills": 0, "implants": 0, "render": "compiled", "suppress_format": False},
+    "create":   {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": False},
     "explain":  {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": False},
     "operate":  {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": False},
     "analyze":  {"tier": "deep",     "skills": 4, "implants": 3, "render": "full",     "suppress_format": False},
@@ -165,20 +172,45 @@ class TaskProfile:
 # while writing them.
 
 
-def _lex(*stems: str) -> re.Pattern[str]:
-    return re.compile(r"(?<![\w])(" + "|".join(stems) + r")", re.IGNORECASE)
+def _lex(words: Sequence[str] = (), stems: Sequence[str] = ()) -> re.Pattern[str]:
+    """Build a boundary-anchored alternation.
+
+    *words* are complete words or phrases and get a trailing boundary as well as
+    a leading one. *stems* are deliberate prefixes and stay open-ended.
+
+    The distinction is load-bearing, not stylistic. An earlier revision anchored
+    only the left side, so `hi` matched "history"/"his"/"highest" and `post`
+    matched "postgres" — short queries containing an ordinary word were
+    classified `converse` and answered at the lite tier with no skills. A stem is
+    only safe when no unrelated longer word shares its prefix: `analy[sz]` and
+    `configur` qualify, `compar` (compartment) and `script` (scripture) do not.
+    """
+    if not words and not stems:
+        raise ValueError("_lex needs at least one word or stem")
+    parts = []
+    if words:
+        parts.append(r"(?:" + "|".join(words) + r")(?![\w])")
+    if stems:
+        parts.append(r"(?:" + "|".join(stems) + r")")
+    return re.compile(r"(?<![\w])(?:" + "|".join(parts) + r")", re.IGNORECASE)
 
 
 #: Unambiguous quantitative intent — enough on its own.
 _COMPUTE_STRONG_LEX = _lex(
-    "calculat", "comput[ae]", "derive", "prove", "proof", "theorem", "equation",
-    "integral", "derivative", "solve for", "show your work", "рассчита",
-    "вычисл", "докажи", "уравнени", "интеграл", "calcul", "demuestr",
+    words=(
+        "prove", "proves", "proven", "proof", "proofs", "solve for",
+        "show your work", "докажи",
+    ),
+    stems=(
+        "calculat", "comput[ae]", "deriv", "theorem", "equation", "integral",
+        "рассчита", "вычисл", "уравнени", "интеграл", "calcul", "demuestr",
+    ),
 )
 #: Ambiguous quantitative phrasing: "how many books are in the series" is a
 #: lookup, not a computation. Requires _MATHY corroboration.
 _COMPUTE_WEAK_LEX = _lex(
-    "how many", "how much", "percentage", "probabilit", "вероятност", "сколько",
+    words=("how many", "how much", "percentage", "percentages", "сколько"),
+    stems=("probabilit", "вероятност"),
 )
 #: Numbers used as quantities: an assignment, an operator between digits, or a
 #: unit suffix. Distinguishes a real calculation from a number in prose.
@@ -188,28 +220,44 @@ _MATHY = re.compile(
     re.IGNORECASE,
 )
 _ANALYZE_LEX = _lex(
-    "analy[sz]", "compare", "comparison", "trade-?off", "architect", "refactor",
-    "audit", "investigat", "root cause", "critique", "evaluate", "assess",
-    "diagnos", "debug", "optimi[sz]", "why does", "why is", "pros and cons",
-    "анализ", "сравни", "архитектур", "рефактор", "аудит", "исследу",
-    "первопричин", "диагност", "оптимиз", "почему", "analiz", "compar",
-    "arquitectur", "investigar",
+    words=(
+        "compare", "compares", "compared", "comparing", "comparison",
+        "comparisons", "compara", "comparar", "audit", "audits", "audited",
+        "auditing", "trade-?offs?", "root cause", "why does", "why is",
+        "pros and cons", "почему", "сравни",
+    ),
+    stems=(
+        "analy[sz]", "architect", "refactor", "investigat", "critique",
+        "diagnos", "optimi[sz]", "evaluat", "assess", "debug",
+        "анализ", "архитектур", "рефактор", "аудит", "исследу", "первопричин",
+        "диагност", "оптимиз", "analiz", "arquitectur", "investigar",
+    ),
 )
 #: Academic / synthesis register. These queries read as ordinary prose requests
 #: but the labels call them deep research. Deliberately EXCLUDES "implications",
 #: which on the train half marked a standard-tier question, not a deep one.
 _RESEARCH_LEX = _lex(
-    "discuss", "overview of", "with reference to", "academic paper",
-    "academic-grade", "literature", "references", "extremely complex",
-    "in-depth", "in depth", "synthes", "critically", "significance of",
-    "state of the art", "обзор", "литератур", "подробно разбер",
+    words=(
+        "overview of", "with reference to", "academic paper", "academic-grade",
+        "extremely complex", "in-depth", "in depth", "state of the art",
+        "critically", "significance of", "подробно разбер",
+    ),
+    stems=(
+        "discuss", "literatur", "referenc", "synthes", "обзор", "литератур",
+    ),
 )
 _OPERATE_LEX = _lex(
-    "implement", "fix", "install", "configur", "deploy", "migrat", "script",
-    "command", "run the", "set up", "setup", "patch", "upgrade", "rollback",
-    "write a function", "write a class", "реализу", "исправ", "установ",
-    "настро", "разверн", "миграц", "скрипт", "команд", "запусти", "почин",
-    "implementar", "instalar", "configurar",
+    words=(
+        "fix", "fixes", "fixed", "script", "scripts", "scripting", "command",
+        "commands", "run the", "set up", "setup", "patch", "patches",
+        "upgrade", "upgrades", "rollback", "write a function", "write a class",
+        "запусти",
+    ),
+    stems=(
+        "implement", "install", "configur", "deploy", "migrat",
+        "реализу", "исправ", "установ", "настро", "разверн", "миграц",
+        "скрипт", "команд", "почин", "implementar", "instalar", "configurar",
+    ),
 )
 #: Source code or SQL pasted into the query: an operate task even with no verb.
 _CODE_ISH = re.compile(
@@ -219,26 +267,45 @@ _CODE_ISH = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _CREATE_LEX = _lex(
-    "write", "compose", "draft", "generate", "rewrite", "translate", "summari[sz]e",
-    "story", "poem", "essay", "letter", "email", "article", "post", "outline",
-    "напиши", "составь", "сочини", "перевед", "перепиш", "письмо", "статья",
-    "рассказ", "escrib", "redact", "traduc", "resumir",
+    words=(
+        "write", "writes", "wrote", "writing", "compose", "composes",
+        "composing", "draft", "drafts", "generate", "generates", "rewrite",
+        "translate", "translates", "story", "stories", "poem", "poems",
+        "essay", "essays", "letter", "letters", "email", "emails", "article",
+        "articles", "post", "posts", "outline", "outlines",
+        "напиши", "составь", "сочини", "перевед", "перепиш",
+    ),
+    stems=(
+        "summari", "письмо", "статья", "рассказ", "escrib", "redact", "traduc",
+        "resumir",
+    ),
 )
 _EXPLAIN_LEX = _lex(
-    "explain", "describe", "how does", "how do", "what is", "what are", "teach",
-    "tell me about", "difference between", "объясни", "опиши", "расскажи",
-    "что такое", "чем отличается", "explica", "describ",
+    words=(
+        "how does", "how do", "what is", "what are", "teach", "teaches",
+        "tell me about", "difference between",
+        "объясни", "опиши", "расскажи", "что такое", "чем отличается",
+    ),
+    stems=("explain", "describ", "explica"),
 )
 _RETRIEVE_LEX = _lex(
-    "list", "find", "look ?up", "define", "when did", "who is", "who was",
-    "where is", "which of", "give me the", "покажи", "найди", "перечисли",
-    "когда", "кто такой", "где", "lista", "encuentra",
+    words=(
+        "list", "lists", "find", "finds", "look ?up", "define", "defines",
+        "definition", "when did", "who is", "who was", "where is", "which of",
+        "give me the",
+        "покажи", "найди", "перечисли", "когда", "кто такой", "где",
+        "lista", "encuentra",
+    ),
 )
 _CONVERSE_LEX = _lex(
-    "hi", "hello", "hey", "thanks", "thank you", "good morning", "good evening",
-    "how are you", "who are you", "what can you do", "your name", "nice to meet",
-    "привет", "здравству", "спасибо", "добрый день", "добрый вечер", "как дела",
-    "кто ты", "что ты умеешь", "hola", "gracias", "quién eres",
+    words=(
+        "hi", "hello", "hey", "thanks", "thank you", "good morning",
+        "good evening", "how are you", "who are you", "what can you do",
+        "your name", "nice to meet",
+        "привет", "здравствуй", "здравствуйте", "спасибо", "добрый день",
+        "добрый вечер", "как дела", "кто ты", "что ты умеешь",
+        "hola", "gracias", "quién eres",
+    ),
 )
 
 _CODE_FENCE = re.compile(r"```")

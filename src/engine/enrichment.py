@@ -259,10 +259,8 @@ async def get_dynamic_context_string(
     )
 
 
-_OUTPUT_FORMAT_HEADING = re.compile(
-    r"^##[ \t]+Output Format[ \t]*$.*?(?=^##[ \t]+|\Z)",
-    re.IGNORECASE | re.MULTILINE | re.DOTALL,
-)
+_FENCE_RE = re.compile(r"^[ \t]*(```+|~~~+)")
+_H2_RE = re.compile(r"^##[ \t]+(.*?)[ \t]*$")
 
 
 def strip_output_format(prompt: str) -> str:
@@ -270,16 +268,57 @@ def strip_output_format(prompt: str) -> str:
 
     Some task modes are actively harmed by a persona's response template: a
     greeting answered with an "### Analysis / ### Implementation / ###
-    Confidence" scaffold, or a piece of prose wrapped in a report skeleton. The
-    ``serve-the-request`` rule already says the request outranks the persona's
-    Output Format; removing the block gives that rule teeth instead of asking
-    the model to disregard text that is still in its context.
+    Confidence" scaffold. The ``serve-the-request`` rule already says the request
+    outranks the persona's Output Format; removing the block gives that rule
+    teeth instead of asking the model to disregard text still in its context.
 
-    Only a level-2 heading is matched, and only up to the next level-2 heading,
-    so nested subsections travel with their parent and the rest of the persona is
-    untouched. A persona with no such section is returned unchanged.
+    This is a line scanner rather than a regex because personas put **fenced
+    code blocks containing level-2 headings** inside their Output Format section
+    (10 of 23 do), and one persona teaches a prompt skeleton that literally
+    contains the line ``## Output Format`` inside a fence. A regex that stopped
+    at the next ``^## `` therefore cut the section in half, deleting a fence
+    opener while leaving its closer — flipping backtick parity and swallowing
+    the rest of the persona into a code block — or deleted the taught skeleton's
+    line instead of the real section.
+
+    Rules: only the FIRST ``## Output Format`` heading that is not inside a fence
+    is matched; the section ends at the next level-2 heading that is not inside a
+    fence, or at end of input. Because both boundaries are outside fences, any
+    fence opened inside the removed span is also closed inside it, so parity is
+    preserved by construction. A persona with no such section is returned
+    unchanged.
     """
-    return _OUTPUT_FORMAT_HEADING.sub("", prompt).rstrip() + "\n"
+    lines = prompt.splitlines(keepends=True)
+    in_fence = False
+    fence_marker = None
+    start = None
+    end = len(lines)
+
+    for index, line in enumerate(lines):
+        fence = _FENCE_RE.match(line)
+        if fence:
+            marker = fence.group(1)[:3]
+            if not in_fence:
+                in_fence, fence_marker = True, marker
+            elif marker == fence_marker:
+                in_fence, fence_marker = False, None
+            continue
+        if in_fence:
+            continue
+        heading = _H2_RE.match(line)
+        if not heading:
+            continue
+        if start is None:
+            if heading.group(1).strip().lower() == "output format":
+                start = index
+        else:
+            end = index
+            break
+
+    if start is None:
+        return prompt
+    remainder = "".join(lines[:start] + lines[end:])
+    return remainder.rstrip() + "\n" if remainder.strip() else ""
 
 
 async def enrich_agent_prompt(

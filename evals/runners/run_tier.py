@@ -39,6 +39,11 @@ TIERS = ("lite", "standard", "deep")
 _TIER_RANK = {tier: index for index, tier in enumerate(TIERS)}
 
 
+def _rank(tier: str | None) -> int:
+    """Order a tier for under/over-provisioning counts; -1 for anything unknown."""
+    return _TIER_RANK.get(tier, -1)
+
+
 def _is_heldout(sample_id: str) -> bool:
     """Stable, seed-free half of the set, stratification-free but deterministic.
 
@@ -71,8 +76,11 @@ def _arm_stats(rows: list[dict], key: str) -> dict:
         "correct": correct,
         "accuracy": correct / total if total else 0.0,
         "deep_share": (sum(1 for r in rows if r[key] == "deep") / total) if total else 0.0,
-        "under": sum(1 for r in rows if _TIER_RANK[r[key]] < _TIER_RANK[r["expected"]]),
-        "over": sum(1 for r in rows if _TIER_RANK[r[key]] > _TIER_RANK[r["expected"]]),
+        # `.get` guards a row whose expected_tier is missing or misspelled:
+        # iter_valid filters on fetch_error/drift, not on label completeness, so
+        # a bad label must score as wrong rather than crash the whole run.
+        "under": sum(1 for r in rows if _rank(r[key]) < _rank(r["expected"])),
+        "over": sum(1 for r in rows if _rank(r[key]) > _rank(r["expected"])),
         "per_expected": {
             tier: [
                 sum(1 for r in rows if r["expected"] == tier and r[key] == tier),

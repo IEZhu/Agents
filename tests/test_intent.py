@@ -290,3 +290,182 @@ class TestImplantBudgetParity:
             got = self._unified(tier, n_preferred)
             assert got >= min(n_preferred, MAX_PREFERRED_IMPLANTS)
             assert got <= MAX_PREFERRED_IMPLANTS
+
+
+class TestLexiconBoundaries:
+    """Regressions from review: a left-only anchor let short words hijack a mode.
+
+    `_lex` used to emit `(?<![\\w])(hi|hello|...)` with no trailing boundary, so
+    `hi` matched "his"/"history"/"highest" and `post` matched "postgres". Every
+    query below was verified to misclassify before the fix.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Fix his broken nginx config",
+        "Summarize his report",
+        "What did he hit?",
+        "What is the history of the Roman Empire?",
+        "Find the highest value in this list",
+        "Give me a high-level overview",
+        "Whose hierarchy is this?",
+        "Hide the debug banner",
+        "Give me a hint about the failing test",
+    ])
+    def test_converse_lexicon_does_not_match_inside_a_word(self, query):
+        profile = classify_intent(query)
+        assert profile.mode != "converse", f"{query!r} -> {profile.signals}"
+
+    @pytest.mark.parametrize("query,forbidden_signal", [
+        ("Explain postgres indexes", "create_lex"),      # `post` in _CREATE_LEX
+        ("Listen to the log stream", "retrieve_lex"),    # `list` in _RETRIEVE_LEX
+        ("Book the auditorium for Friday", "analyze_lex"),  # `audit` in _ANALYZE_LEX
+        ("She had an audition yesterday", "analyze_lex"),
+        ("Postgres is slow", "create_lex"),
+    ])
+    def test_stems_do_not_swallow_unrelated_words(self, query, forbidden_signal):
+        """Assert on the SIGNAL, not the mode.
+
+        A query may still land on a mode through the no-lexicon fallback; what
+        must not happen is a lexicon claiming it on a substring match.
+        """
+        profile = classify_intent(query)
+        assert forbidden_signal not in profile.signals, f"{query!r} -> {profile.signals}"
+
+    def test_explain_wins_over_a_substring_create_match(self):
+        assert classify_intent("Explain postgres indexes").mode == "explain"
+
+    def test_a_real_create_word_still_wins(self):
+        assert classify_intent("Write a postmortem of the outage").mode == "create"
+
+    def test_real_greetings_still_classify_as_converse(self):
+        for query in ("hi", "hello there", "hey", "thanks!", "Привет", "hola", "gracias"):
+            assert classify_intent(query).mode == "converse", query
+
+    def test_genuine_stems_still_match_inflections(self):
+        """Open-ended stems are deliberate and must keep working."""
+        assert classify_intent("Analyzing this trace").mode == "analyze"
+        assert classify_intent("Configuring nginx").mode == "operate"
+        assert classify_intent("Реализуй кэш").mode == "operate"
+        assert classify_intent("Compute the integrals").mode == "compute"
+
+
+class TestSuppressFormatPolicy:
+    def test_only_converse_suppresses_the_persona_format(self):
+        """Narrowed after review: a persona's Output Format is not always a
+        mere template — for medical_expert it carries the mandated Safety
+        section, and `create` fires on summarize/draft/write."""
+        suppressing = {m for m, p in _MODE_POLICY.items() if p["suppress_format"]}
+        assert suppressing == {"converse"}
+
+    def test_a_draft_request_keeps_the_persona_format(self):
+        profile = classify_intent("Draft a note summarizing these labs")
+        assert profile.mode == "create"
+        assert profile.suppress_persona_format is False
+
+
+class TestStripOutputFormatFenceAware:
+    """Regressions from review, all measured on the repo's real personas."""
+
+    @staticmethod
+    def _personas():
+        import glob
+        return sorted(glob.glob("agents/*/system_prompt.mdc"))
+
+    def test_backtick_parity_is_preserved_for_every_persona(self):
+        """10 of 23 personas used to end up with an unbalanced fence.
+
+        Their Output Format contains a fenced template whose inner headings are
+        level-2, so a regex stopping at the next `^## ` deleted the fence opener
+        and left its closer — turning the rest of the persona into a code block.
+        """
+        from src.engine.enrichment import strip_output_format
+
+        personas = self._personas()
+        if not personas:
+            pytest.skip("no agents/ in this checkout")
+        for path in personas:
+            source = open(path, encoding="utf-8").read()
+            if "## Output Format" not in source:
+                continue
+            if source.count("```") % 2 != 0:
+                continue  # persona is already unbalanced; not ours to assert on
+            out = strip_output_format(source)
+            assert out.count("```") % 2 == 0, f"{path} left an unbalanced fence"
+
+    def test_the_whole_section_is_removed_not_just_the_heading(self):
+        """8 of 23 personas used to lose only the heading plus a line or two,
+        promoting the surviving template to apparent top-level sections."""
+        from src.engine.enrichment import strip_output_format
+
+        personas = self._personas()
+        if not personas:
+            pytest.skip("no agents/ in this checkout")
+        for path in personas:
+            source = open(path, encoding="utf-8").read()
+            if "## Output Format" not in source:
+                continue
+            removed = len(source) - len(strip_output_format(source))
+            assert removed >= 200, f"{path} only lost {removed} bytes — section survived"
+
+    def test_a_fenced_output_format_line_is_not_matched(self):
+        """prompt_engineer teaches a skeleton containing the literal line
+        `## Output Format` inside a fence; deleting that taught it to design
+        prompts with no output-format section at all."""
+        from src.engine.enrichment import strip_output_format
+
+        prompt = (
+            "# Persona\n\nintro\n\n"
+            "```markdown\n## Output Format\n[show an example]\n```\n\n"
+            "## Output Format\n\nthe real template\n\n"
+            "## Rules\n\nkeep\n"
+        )
+        out = strip_output_format(prompt)
+        assert "[show an example]" in out          # taught skeleton survives
+        assert out.count("## Output Format") == 1  # only the fenced one remains
+        assert "the real template" not in out
+        assert "keep" in out
+        assert out.count("```") % 2 == 0
+
+    def test_level_two_headings_inside_a_fence_do_not_end_the_section(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = (
+            "## Output Format\n\n"
+            "```markdown\n## Executive Summary\n...\n## Findings\n...\n```\n\n"
+            "## Rules\n\nkeep\n"
+        )
+        out = strip_output_format(prompt)
+        assert "Executive Summary" not in out
+        assert "Findings" not in out
+        assert "keep" in out
+        assert "```" not in out
+
+    def test_tilde_fences_are_honoured(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "## Output Format\n\n~~~\n## Inner\n~~~\n\n## Rules\n\nkeep\n"
+        out = strip_output_format(prompt)
+        assert "## Inner" not in out and "keep" in out
+
+    def test_everything_after_the_section_is_kept(self):
+        from src.engine.enrichment import strip_output_format
+
+        prompt = "## Output Format\n\nT\n\n## A\n\na\n\n## B\n\nb\n"
+        out = strip_output_format(prompt)
+        assert "## A" in out and "## B" in out and "T" not in out
+
+
+class TestRunTierRankGuard:
+    def test_unknown_expected_tier_does_not_crash(self):
+        """`iter_valid` filters on fetch_error/drift, not label completeness, so
+        a row with a missing or misspelled expected_tier must score as wrong."""
+        from evals.runners.run_tier import _arm_stats
+
+        rows = [
+            {"expected": "deep", "intent": "deep"},
+            {"expected": None, "intent": "lite"},
+            {"expected": "dep", "intent": "standard"},
+        ]
+        stats = _arm_stats(rows, "intent")
+        assert stats["total"] == 3
+        assert stats["correct"] == 1
