@@ -87,11 +87,23 @@ and the token saving follows from it directly, because `deep` renders full skill
 bodies (~2.4 KB median each) where `standard` renders one-liners (~153 chars).
 
 Built end to end — a real prompt per golden query, using each label's
-`expected_agent` — the injected prompt shrinks **18.6%**: 1,988,214 → 1,618,262
-chars, mean 18,075 → 14,711 per query, with 71 queries smaller, 7 larger and 32
-unchanged. The 7 that grow are queries the classifier correctly promotes to
+`expected_agent` — the injected prompt shrinks **6.5%**: 1,988,214 → 1,859,078
+chars, mean 18,075 → 16,901 per query, with 25 queries smaller, 23 larger and 62
+unchanged. The ones that grow are queries the classifier correctly promotes to
 `deep`; the net is mix-dependent, so re-measure before quoting this on other
 traffic.
+
+This number was 18.6% in an earlier revision, when the `lite` tier rendered
+compiled skill one-liners. Review showed that was the wrong place to save: `lite`
+is the only tier where the mandatory `core_skills` are the *entire* skill payload
+(`n_results == 0`), and compiling them cut `universal_agent`'s two core skills
+from 5,498 to 583 chars — a 90% content drop on always-on guidance. Render mode
+now reproduces the legacy mapping exactly, so the only variable this A/B changes
+is the tier assignment. The consequence is honest and unflattering: **on its own,
+better tier assignment buys ~6.5% of the injected prompt, not the order of
+magnitude #64 is chasing.** The large lever is still compiled-at-`deep` (four
+full bodies ≈ 2450 tokens against ≈ 40 compiled), which is deliberately out of
+scope here because its quality effect is unmeasured.
 
 Honest limitations:
 
@@ -138,6 +150,36 @@ at the next non-fenced level-2 heading, so fence parity is preserved by
 construction. `tests/test_intent.py::TestStripOutputFormatFenceAware` asserts
 both properties across every persona in `agents/`.
 
+## Second review round
+
+A second high-effort review of the first two commits produced five more findings,
+all reproduced before fixing:
+
+- **The `converse` gate checked only total length**, so any request under
+  `INTENT_CONVERSE_MAX_CHARS` that merely *contained* a greeting was classified
+  `converse`: "Hi, compare Postgres vs MySQL" and "hey, debug this stack trace"
+  got the lite tier, zero skills, zero implants and a stripped persona format.
+  This is the same false positive the module exists to remove — it had only been
+  fixed for long queries. The gate is now subtractive: remove every greeting
+  token and permitted filler, and require that no alphabetic content survives.
+- **A per-query suppression was baked into a session-scoped artifact.**
+  `persona.load_persona` returns `NO_CHANGE` while the same agent stays active, so
+  a v2 bundle is built once and reused. If the activating turn was a greeting,
+  the persona kept its `## Output Format` stripped for the whole conversation.
+  Suppression now lives only in the v1 per-query path, where `SESSION_CACHE` is
+  keyed on the query hash.
+- **`_CODE_ISH` used `re.DOTALL` with unanchored `.+`**, so "Select the best
+  framework from this list" and "the import duties from China rose" were read as
+  pasted code and won the mode. Replaced by `_looks_like_code`: a declaration
+  match is decisive, while SQL needs three distinct keywords plus a structural
+  token.
+- **`lite` render reverted to full bodies** (see above).
+- **Per-mode budget was dead configuration.** The budget was read with
+  `next(p for p in _MODE_POLICY.values() if p["tier"] == tier)`, which only ever
+  sees the first mode declaring a tier. `_TIER_BUDGET` is now an explicit
+  tier→budget table and `_MODE_POLICY` keeps only what a mode owns (`tier`,
+  `suppress_format`); a test pins that separation.
+
 ## Back-compat
 
 `tier` never stops being the string it was:
@@ -147,7 +189,7 @@ both properties across every persona in `agents/`.
   `_legacy_infer_tier` (kept verbatim and callable, as the A/B's control arm).
 - `resolve_profile()` returns `None` when the flag is off, which is the signal to
   every downstream layer to keep deriving the budget from the tier exactly as
-  before. Both `pytest tests/` runs — flag off and flag on — pass 985 tests.
+  before. Both `pytest tests/` runs — flag off and flag on — pass 1013 tests.
 - The session cache key carries `profile.cache_token` instead of the bare tier,
   because once render mode and pool size are decoupled from the tier, two
   profiles can share a tier and build different prompts. The token is colon-free,

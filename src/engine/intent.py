@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from typing import Literal, Optional, Sequence
 
 from src.engine.config import (
+    IMPLANTS_DEEP_TIER_DEFAULT,
     INTENT_CONVERSE_MAX_CHARS,
     INTENT_DEEP_AT,
     INTENT_LONG_CHARS,
@@ -83,14 +84,40 @@ SkillRender = Literal["compiled", "full"]
 #: mandated ``### Safety`` section lives (red flags, contraindications), and
 #: ``create`` fires on "summarize"/"draft"/"write", a large share of real
 #: traffic. Widening this needs a per-section allowlist, not a per-mode flag.
+#: Budget per TIER. Split out of ``_MODE_POLICY`` after review: the budget was
+#: previously read with ``next(p for p in _MODE_POLICY.values() if p["tier"] == t)``,
+#: which only ever reads the FIRST mode declaring a tier. That made the per-mode
+#: ``skills``/``implants``/``render`` entries dead configuration — giving
+#: ``operate`` its own pool size would have silently kept ``create``'s.
+#:
+#: The values reproduce the legacy derivation exactly: skills 0/2/4 from
+#: ``_n_results_for_tier``, implants 2 at standard and IMPLANTS_DEEP_TIER_DEFAULT
+#: at deep, and ``compiled`` only at standard (``use_compiled = tier == "standard"``).
+#: The ``preferred_implants`` floor and the MAX_PREFERRED_IMPLANTS cap are applied
+#: by the caller, not here: they are per-agent facts this module does not know.
+_TIER_BUDGET: dict[Tier, dict] = {
+    "lite":     {"skills": 0, "implants": 0, "render": "full"},
+    "standard": {"skills": 2, "implants": 2, "render": "compiled"},
+    "deep":     {"skills": 4, "implants": IMPLANTS_DEEP_TIER_DEFAULT, "render": "full"},
+}
+
+#: Per-MODE policy. Only fields the mode genuinely owns live here: the tier it
+#: defaults to, and whether the persona's response template should be silenced.
+#:
+#: ``suppress_format`` is deliberately limited to ``converse``. #64's table also
+#: suppresses it for ``create`` and ``retrieve``, but a persona's Output Format is
+#: not always a mere response template: for ``medical_expert`` it is where the
+#: mandated ``### Safety`` section lives, and ``create`` fires on
+#: "summarize"/"draft"/"write", a large share of real traffic. Widening this needs
+#: a per-section allowlist, not a per-mode flag.
 _MODE_POLICY: dict[str, dict] = {
-    "converse": {"tier": "lite",     "skills": 0, "implants": 0, "render": "compiled", "suppress_format": True},
-    "retrieve": {"tier": "lite",     "skills": 0, "implants": 0, "render": "compiled", "suppress_format": False},
-    "create":   {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": False},
-    "explain":  {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": False},
-    "operate":  {"tier": "standard", "skills": 2, "implants": 2, "render": "compiled", "suppress_format": False},
-    "analyze":  {"tier": "deep",     "skills": 4, "implants": 3, "render": "full",     "suppress_format": False},
-    "compute":  {"tier": "deep",     "skills": 4, "implants": 3, "render": "full",     "suppress_format": False},
+    "converse": {"tier": "lite",     "suppress_format": True},
+    "retrieve": {"tier": "lite",     "suppress_format": False},
+    "create":   {"tier": "standard", "suppress_format": False},
+    "explain":  {"tier": "standard", "suppress_format": False},
+    "operate":  {"tier": "standard", "suppress_format": False},
+    "analyze":  {"tier": "deep",     "suppress_format": False},
+    "compute":  {"tier": "deep",     "suppress_format": False},
 }
 
 _TIER_ORDER: tuple[Tier, ...] = ("lite", "standard", "deep")
@@ -141,23 +168,22 @@ class TaskProfile:
         """
         if tier == self.tier:
             return self
-        for mode, policy in _MODE_POLICY.items():
-            if policy["tier"] == tier:
-                base = _MODE_POLICY[self.mode]
-                return TaskProfile(
-                    mode=self.mode,
-                    tier=tier,
-                    depth_score=self.depth_score,
-                    skill_pool_size=policy["skills"],
-                    skill_render=policy["render"],
-                    implant_budget=policy["implants"],
-                    # Format suppression follows the mode, not the budget: a
-                    # greeting promoted to standard is still a greeting.
-                    suppress_persona_format=base["suppress_format"],
-                    confidence=self.confidence,
-                    signals=self.signals + (f"tier_pinned:{tier}",),
-                )
-        raise ValueError(f"Unknown tier: {tier!r}")
+        budget = _TIER_BUDGET.get(tier)
+        if budget is None:
+            raise ValueError(f"Unknown tier: {tier!r}")
+        return TaskProfile(
+            mode=self.mode,
+            tier=tier,
+            depth_score=self.depth_score,
+            skill_pool_size=budget["skills"],
+            skill_render=budget["render"],
+            implant_budget=budget["implants"],
+            # Format suppression follows the mode, not the budget: a greeting
+            # promoted to standard is still a greeting.
+            suppress_persona_format=_MODE_POLICY[self.mode]["suppress_format"],
+            confidence=self.confidence,
+            signals=self.signals + (f"tier_pinned:{tier}",),
+        )
 
 
 # --- Lexicons ---------------------------------------------------------------
@@ -260,12 +286,39 @@ _OPERATE_LEX = _lex(
     ),
 )
 #: Source code or SQL pasted into the query: an operate task even with no verb.
-_CODE_ISH = re.compile(
-    r"(\bselect\b.+\bfrom\b|\bupdate\b.+\bset\b|\binsert\s+into\b"
-    r"|\bjoin\b.+\bon\b|\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\("
-    r"|\bclass\s+\w+\s*[:({]|#include\b|\bimport\s+\w+)",
-    re.IGNORECASE | re.DOTALL,
+#:
+#: Reworked after review. The first version was
+#: ``\bselect\b.+\bfrom\b`` under ``re.DOTALL``, which matched ordinary prose —
+#: "Select the best framework from this list", "Please update me on the results,
+#: we set up the meeting", "the import duties from China rose" — and, being
+#: checked before create/explain/retrieve, won the mode. It reintroduced exactly
+#: the substring-match failure the ``_lex`` docstring warns about.
+#:
+#: Now a declaration match is decisive on its own, while SQL needs THREE distinct
+#: keywords *and* a structural token (a terminator, a star, or a dotted or
+#: snake_case identifier) that prose does not carry.
+_CODE_DECLARATION = re.compile(
+    r"(\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\(|\bclass\s+\w+\s*[:({]"
+    r"|^\s*#include\b|^\s*import\s+\w+|\bfrom\s+[\w.]+\s+import\b)",
+    re.IGNORECASE | re.MULTILINE,
 )
+_SQL_KEYWORD = re.compile(
+    r"(?<![\w])(select|from|where|join|on|group\s+by|order\s+by|insert\s+into"
+    r"|update|set|values|having|distinct)(?![\w])",
+    re.IGNORECASE,
+)
+_CODE_STRUCTURE = re.compile(r"(;|\*|(?<![\w])\w+\.\w+(?![\w])|(?<![\w])\w+_\w+(?![\w]))")
+_SQL_MIN_KEYWORDS = 3
+
+
+def _looks_like_code(text: str) -> bool:
+    """Whether the query contains pasted code or SQL rather than prose about it."""
+    if _CODE_DECLARATION.search(text):
+        return True
+    keywords = {m.group(0).lower() for m in _SQL_KEYWORD.finditer(text)}
+    return len(keywords) >= _SQL_MIN_KEYWORDS and bool(_CODE_STRUCTURE.search(text))
+
+
 _CREATE_LEX = _lex(
     words=(
         "write", "writes", "wrote", "writing", "compose", "composes",
@@ -375,6 +428,37 @@ def _structural_score(text: str, signals: list[str]) -> int:
     return score
 
 
+#: Words that may accompany a greeting without making it a request.
+_GREETING_FILLER = re.compile(
+    r"(?<![\w])(there|again|all|everyone|folks|team|guys|please|so much|a lot|"
+    r"всем|ещё раз|большое|пожалуйста)(?![\w])",
+    re.IGNORECASE,
+)
+
+
+def _is_pure_greeting(text: str) -> bool:
+    """True only when the message is a greeting and nothing else.
+
+    A length check alone is not enough, and that was a real defect: the earlier
+    version accepted any query under ``INTENT_CONVERSE_MAX_CHARS`` that merely
+    *contained* a greeting token, so "Hi, compare Postgres vs MySQL" and
+    "hey, debug this stack trace" were classified ``converse`` — lite tier, zero
+    skills, zero implants, persona output format stripped. That is precisely the
+    ``_is_meta_query`` false positive this module exists to remove; it had only
+    been fixed for long queries.
+
+    The test is subtractive: delete every greeting token and permitted filler,
+    and require that no alphabetic content survives.
+    """
+    if not text or len(text) > INTENT_CONVERSE_MAX_CHARS:
+        return False
+    if not _CONVERSE_LEX.search(text):
+        return False
+    remainder = _CONVERSE_LEX.sub(" ", text)
+    remainder = _GREETING_FILLER.sub(" ", remainder)
+    return not any(ch.isalpha() for ch in remainder)
+
+
 def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
     """Pick the reasoning mode by lexicon, most-specific first.
 
@@ -387,8 +471,8 @@ def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
     ``_is_meta_query`` used to produce.
     """
     stripped = text.strip()
-    if len(stripped) <= INTENT_CONVERSE_MAX_CHARS and _CONVERSE_LEX.search(stripped):
-        signals.append("converse_lex")
+    if _is_pure_greeting(stripped):
+        signals.append("converse_only")
         return "converse", 0.9
 
     mathy = bool(_MATHY.search(stripped))
@@ -404,7 +488,7 @@ def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
     if _RESEARCH_LEX.search(stripped):
         signals.append("research_lex")
         return "analyze", 0.7
-    if _CODE_ISH.search(stripped):
+    if _looks_like_code(stripped):
         signals.append("code_ish")
         return "operate", 0.8
     for mode, lex in (
@@ -458,25 +542,24 @@ def classify_intent(
     if not text:
         return TaskProfile(
             mode="converse", tier="lite", depth_score=0, skill_pool_size=0,
-            skill_render="compiled", implant_budget=0,
+            skill_render=_TIER_BUDGET["lite"]["render"], implant_budget=0,
             suppress_persona_format=True, confidence=1.0, signals=("empty",),
         )
 
     mode, confidence = _detect_mode(text, signals)
     score = _structural_score(text, signals)
     tier = _resolve_tier(mode, score)
-    policy = _MODE_POLICY[mode]
-    tier_policy = next(p for p in _MODE_POLICY.values() if p["tier"] == tier)
+    budget = _TIER_BUDGET[tier]
 
     return TaskProfile(
         mode=mode,
         tier=tier,
         depth_score=score,
         # Budget follows the resolved tier, method follows the mode.
-        skill_pool_size=tier_policy["skills"],
-        skill_render=tier_policy["render"],
-        implant_budget=tier_policy["implants"],
-        suppress_persona_format=policy["suppress_format"],
+        skill_pool_size=budget["skills"],
+        skill_render=budget["render"],
+        implant_budget=budget["implants"],
+        suppress_persona_format=_MODE_POLICY[mode]["suppress_format"],
         confidence=confidence,
         signals=tuple(signals),
     )

@@ -115,8 +115,16 @@ async def build_persona_bundle(
     profile = enrichment.resolve_profile(query, tier=tier)
 
     persona_block = await asyncio.to_thread(process_imports, body, {path}, strict=True)
-    if profile is not None and profile.suppress_persona_format:
-        persona_block = enrichment.strip_output_format(persona_block)
+    # NOTE: `profile.suppress_persona_format` is deliberately NOT applied here.
+    # A v2 bundle is a SESSION-scoped artifact: `persona.load_persona` returns
+    # NO_CHANGE while the same agent stays active, so this block is built once and
+    # reused for every later turn. Baking a per-query decision into it means that
+    # if the activating turn happens to be a greeting, the persona keeps its
+    # `## Output Format` stripped for the rest of the conversation — for
+    # code_reviewer or medical_expert that is the whole response contract.
+    # The v1 path is safe because SESSION_CACHE is keyed on the query hash, so it
+    # re-derives per query; suppression therefore lives only in
+    # `enrichment.enrich_agent_prompt`.
     rules = await asyncio.to_thread(get_rules, fresh=True, strict=True)
     rules_block = format_rules_for_prompt(rules)
 

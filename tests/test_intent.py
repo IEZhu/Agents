@@ -16,7 +16,7 @@ from src.engine.config import (
     INTENT_CONVERSE_MAX_CHARS,
     MAX_PREFERRED_IMPLANTS,
 )
-from src.engine.intent import _MODE_POLICY, TaskProfile, classify_intent
+from src.engine.intent import _MODE_POLICY, _TIER_BUDGET, TaskProfile, classify_intent
 
 TIERS = ("lite", "standard", "deep")
 
@@ -103,24 +103,45 @@ class TestClassifyTier:
             assert classify_intent(query).tier in TIERS
 
     def test_budget_matches_the_resolved_tier_policy(self):
-        """Budget fields must agree with the tier they were derived from."""
+        """Budget fields must agree with the tier they were derived from.
+
+        Reads `_TIER_BUDGET` directly rather than reproducing a lookup over
+        `_MODE_POLICY`: the previous version mirrored the production
+        `next(... if p["tier"] == tier)` scan, so it could not have caught the
+        dead-config bug that scan caused.
+        """
         for query in ("hi", "Compare A and B in depth", "Write me a haiku", "Solve for x: 2x = 8"):
             profile = classify_intent(query)
-            policy = next(p for p in _MODE_POLICY.values() if p["tier"] == profile.tier)
-            assert profile.skill_pool_size == policy["skills"]
-            assert profile.skill_render == policy["render"]
-            assert profile.implant_budget == policy["implants"]
+            budget = _TIER_BUDGET[profile.tier]
+            assert profile.skill_pool_size == budget["skills"]
+            assert profile.skill_render == budget["render"]
+            assert profile.implant_budget == budget["implants"]
 
-    def test_lite_budget_matches_legacy_n_results(self):
+    def test_budget_matches_legacy_n_results(self):
         """lite/standard/deep must still mean 0/2/4 skills, as before."""
-        expected = {"lite": 0, "standard": 2, "deep": 4}
-        for tier, n in expected.items():
-            policy = next(p for p in _MODE_POLICY.values() if p["tier"] == tier)
-            assert policy["skills"] == n
+        assert {t: b["skills"] for t, b in _TIER_BUDGET.items()} == {
+            "lite": 0, "standard": 2, "deep": 4,
+        }
+
+    def test_render_matches_legacy_use_compiled(self):
+        """Legacy was `use_compiled = tier == "standard"`; lite and deep render full.
+
+        Reverted after review: making lite render compiled cut universal_agent's
+        two mandatory core skills from 5,498 to 583 chars (-89%), and lite is the
+        one tier where core skills are the entire skill payload (n_results == 0).
+        """
+        assert {t: b["render"] for t, b in _TIER_BUDGET.items()} == {
+            "lite": "full", "standard": "compiled", "deep": "full",
+        }
 
     def test_deep_implant_budget_matches_legacy_constant(self):
-        policy = next(p for p in _MODE_POLICY.values() if p["tier"] == "deep")
-        assert policy["implants"] == IMPLANTS_DEEP_TIER_DEFAULT
+        assert _TIER_BUDGET["deep"]["implants"] == IMPLANTS_DEEP_TIER_DEFAULT
+
+    def test_mode_policy_carries_no_budget_fields(self):
+        """Budget belongs to the tier table; a stray per-mode budget key would be
+        silently ignored, which is what made the old layout a trap."""
+        for mode, policy in _MODE_POLICY.items():
+            assert set(policy) == {"tier", "suppress_format"}, mode
 
 
 class TestTaskProfile:
@@ -157,7 +178,8 @@ class TestTaskProfile:
         base = classify_intent("hi")
         other = TaskProfile(
             mode=base.mode, tier=base.tier, depth_score=base.depth_score,
-            skill_pool_size=base.skill_pool_size, skill_render="full",
+            skill_pool_size=base.skill_pool_size,
+            skill_render="compiled" if base.skill_render == "full" else "full",
             implant_budget=base.implant_budget,
             suppress_persona_format=base.suppress_persona_format,
             confidence=base.confidence,
@@ -469,3 +491,70 @@ class TestRunTierRankGuard:
         stats = _arm_stats(rows, "intent")
         assert stats["total"] == 3
         assert stats["correct"] == 1
+
+
+class TestConverseIsTheWholeMessage:
+    """Round-2 regression: a greeting *token* is not a greeting *message*.
+
+    The gate used to accept any query under INTENT_CONVERSE_MAX_CHARS that merely
+    contained a greeting, so a short real request was answered at the lite tier
+    with zero skills, zero implants and the persona format stripped.
+    """
+
+    @pytest.mark.parametrize("query", [
+        "Hi, compare Postgres vs MySQL",
+        "hey, debug this stack trace",
+        "thanks, now optimize this query",
+        "привет, сравни postgres и mysql",
+        "Hi! Fix the null deref in auth.py",
+        "hello, write me a quicksort",
+    ])
+    def test_greeting_plus_a_request_is_not_converse(self, query):
+        profile = classify_intent(query)
+        assert len(query) <= INTENT_CONVERSE_MAX_CHARS, "guard: must exercise the short path"
+        assert profile.mode != "converse", f"{query!r} -> {profile.signals}"
+        assert profile.suppress_persona_format is False
+
+    @pytest.mark.parametrize("query", [
+        "hi", "Hello!", "hey there", "thanks", "thank you all", "good morning everyone",
+        "Привет", "спасибо большое", "hola", "gracias",
+    ])
+    def test_a_bare_greeting_is_still_converse(self, query):
+        assert classify_intent(query).mode == "converse", query
+
+    def test_suppression_survives_promotion_only_for_a_real_greeting(self):
+        """suppress_persona_format follows the mode, so it outlives the
+        lite->standard promotion in server._load_and_enrich. That is correct for
+        a greeting and would have been a bug for a disguised request."""
+        assert classify_intent("hi").with_tier("standard").suppress_persona_format is True
+        assert (
+            classify_intent("Hi! Fix the null deref in auth.py")
+            .with_tier("standard").suppress_persona_format is False
+        )
+
+
+class TestCodeDetection:
+    """Round-2 regression: `_CODE_ISH` used re.DOTALL with unanchored `.+`."""
+
+    @pytest.mark.parametrize("query", [
+        "Select the best framework from this list",
+        "the import duties from China rose",
+        "Update me on where we landed",
+    ])
+    def test_prose_is_not_mistaken_for_code(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is False, query
+        assert "code_ish" not in classify_intent(query).signals
+
+    @pytest.mark.parametrize("query", [
+        "SELECT Name FROM News_Editor ne JOIN orders o ON o.uid = ne.id",
+        "UPDATE t SET a = b.c FROM x",
+        "def handler(req):",
+        "import os",
+        "from pathlib import Path",
+    ])
+    def test_real_code_is_detected(self, query):
+        from src.engine.intent import _looks_like_code
+
+        assert _looks_like_code(query) is True, query

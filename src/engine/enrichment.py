@@ -177,10 +177,14 @@ async def get_dynamic_context_string(
             ),
         )
         if skills:
-            # Render density is a separate axis from pool size. Legacy behaviour
-            # ties it to tier == "standard", which means the lite tier injects
-            # FULL skill bodies (median ~2.4 KB each) while standard injects
-            # one-liners — the cheapest tier costing more than the middle one.
+            # Render density is a separate axis from pool size, so the profile
+            # carries it explicitly. Its values still reproduce the legacy
+            # mapping (compiled only at standard): making lite render compiled
+            # was tried and reverted, because lite is the one tier where the
+            # mandatory core_skills ARE the whole skill payload (n_results == 0)
+            # and compiling them cut universal_agent's two core skills from
+            # 5,498 to 583 chars. The remaining lever is compiled-at-deep, which
+            # needs its own flag and its own quality A/B.
             use_compiled = (
                 profile.skill_render == "compiled" if profile else tier == "standard"
             )
