@@ -31,6 +31,15 @@ Usage:
     # mechanics only, no API calls, no spend:
     python -m evals.scripts.compare_rules --dry-run
 
+    # compression A/B (the pair for PR #74): the rule text that was live before
+    # the compression vs the compressed text that ships. The defaults below are
+    # the ORIGINAL experiment (older baseline vs the rule that introduced the
+    # web-search trigger) and are kept so that run stays reproducible.
+    python -m evals.scripts.compare_rules --provider anthropic \
+        --baseline-rule evals/fixtures/rule-no-fabrication.pre-compression.mdc \
+        --candidate-rule evals/fixtures/rule-no-fabrication.compressed.mdc \
+        --samples-per-case 3 --out evals/reports/no_fabrication_compressed_ab.md
+
     # full A/B (needs the provider's API key in env):
     python -m evals.scripts.compare_rules \
         --provider anthropic --model claude-sonnet-4-6 --judge-model claude-opus-4-8 \

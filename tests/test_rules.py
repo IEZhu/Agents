@@ -299,3 +299,49 @@ def test_loader_skips_rule_with_non_integer_priority(tmp_path, monkeypatch, capl
 
     assert [r.name for r in loaded] == ["good"], "Malformed rule must be skipped, not crash"
     assert any("non-integer 'priority'" in rec.message for rec in caplog.records)
+
+
+# --- Content contract: phrases the rest of the system depends on -----------------
+
+_NO_FABRICATION_LOAD_BEARING_PHRASES = (
+    # scope qualifier: without it the rule applies to every incidental number/path
+    "load-bearing",
+    # the settled-knowledge carve-out must keep its object
+    "in-scope specific",
+    # the confirmation requirement and its non-negotiable clarification
+    "confirmed this turn",
+    "memory is not confirmation",
+    # the decision to search must live here, where it fires at the lite tier
+    "search",
+    "fetch the web",
+    # the inline marker that evals/scripts/compare_rules.py's checks look for
+    "recalled, not verified",
+    # the best-effort carve-out
+    "never omit or refuse",
+    # generating vs asserting
+    "generating ≠ asserting",
+)
+
+
+def test_no_fabrication_keeps_its_load_bearing_phrases():
+    """A compression must not quietly weaken the quality-bearing rule.
+
+    The first compression pass lost "search / fetch the web" and was caught by a
+    single-phrase test; this widens that net to every phrase another part of the
+    system (tests, the A/B harness, the lite-tier behaviour) relies on. Wording
+    around them is free to change; the phrases themselves are not.
+    """
+    path = Path(RULES_DIR) / "rule-no-fabrication.mdc"
+    _, body = split_frontmatter(path.read_text(encoding="utf-8"))
+    body = body.lower()
+    missing = [p for p in _NO_FABRICATION_LOAD_BEARING_PHRASES if p not in body]
+    assert not missing, f"no-fabrication lost load-bearing phrase(s): {missing}"
+
+
+def test_compressed_fixture_matches_live_no_fabrication_rule():
+    """The A/B candidate fixture must be the rule that actually ships."""
+    live = Path(RULES_DIR) / "rule-no-fabrication.mdc"
+    fixture = Path(RULES_DIR).parent / "evals" / "fixtures" / "rule-no-fabrication.compressed.mdc"
+    if not fixture.exists():
+        pytest.skip("compressed fixture not present in this checkout")
+    assert fixture.read_bytes() == live.read_bytes()
