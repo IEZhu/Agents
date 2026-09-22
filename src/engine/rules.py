@@ -201,8 +201,10 @@ def format_rules_for_prompt(rules: List[Rule]) -> str:
         return ""
 
     lines = [
-        "## Rules (always-on, MUST follow)",
-        "These directives apply to every response. They are not negotiable per turn.",
+        "## Rules (always-on)",
+        "These apply to every response. Where persona, skill or implant text conflicts "
+        "with a rule, the rule wins: those layers are defaults for a domain, the rules "
+        "are the floor for honesty and fit.",
         "",
     ]
     for rule in rules:
