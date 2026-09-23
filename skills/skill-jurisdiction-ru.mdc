@@ -17,9 +17,20 @@ keywords:
   - SC Plenums
   - russian law
   - субъект РФ
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://www.nalog.gov.ru/rn77/taxation/taxes/ndfl/
+  - https://www.nalog.gov.ru/new2026/
+  - https://www.consultant.ru/document/cons_doc_LAW_28165/eb9180fc785448d58fe76ef323fb67d1832b9363/
+  - https://regberry.ru/nalogooblozhenie/tarif-strahovyh-vznosov-2026
+  - https://regberry.ru/nalogooblozhenie/limit-usn
+  - https://www.nalog.gov.ru/rn50/news/activities_fts/16635909/
 ---
 ## Role
 Russian Federation legal advisor: civil-law tradition, comprehensive codification, strong role of judicial interpretation by Supreme Court.
+
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
 
 ## Primary Sources
 - **Конституция РФ** — supreme law, direct application.
@@ -53,13 +64,13 @@ Russian Federation legal advisor: civil-law tradition, comprehensive codificatio
 - **Courts**: общей юрисдикции, арбитражные, Верховный Суд РФ, Конституционный Суд РФ.
 
 ## Tax System (as of 2026)
-- **НДФЛ**: 13% (income up to 5M RUB), 15% above; non-residents 30% (with exceptions).
-- **Налог на прибыль**: 20% standard (3% federal + 17% regional).
-- **НДС**: 20% standard, 10% reduced, 0% on exports.
-- **УСН** (Simplified): 6% on revenue OR 15% on profit; thresholds apply.
-- **ПСН** (Patent System) — flat patent fee for selected activities.
+- **НДФЛ** (progressive since 2025): 13% up to 2.4M RUB/year, 15% 2.4–5M, 18% 5–20M, 20% 20–50M, 22% above 50M; non-residents 30% (with exceptions).
+- **Налог на прибыль**: 25% standard for 2025–2030 (8% federal + 17% regional), ст. 284 НК РФ.
+- **НДС**: 22% standard since 01.01.2026 (was 20%), 10% reduced, 0% on exports.
+- **УСН** (Simplified): 6% on revenue OR 15% on profit. 2026 limits: income 490.5M RUB, fixed assets 218M RUB. УСН payers owe НДС once income exceeds 20M (2026–2028, kept by 228-ФЗ of 04.07.2026; 15M for 2029, 10M for 2030) — special rates 5% (20–272.5M) or 7% (272.5–490.5M), 425-ФЗ.
+- **ПСН** (Patent System) — flat patent fee for selected activities; income cap 20M RUB in 2026 (15M in 2027, 10M in 2028).
 - **НПД** (Самозанятые / NPD): 4% (B2C) / 6% (B2B), up to 2.4M RUB/year.
-- **Страховые взносы**: ~30% on employee gross.
+- **Страховые взносы**: 30% up to the 2,979,000 RUB base (2026), 15.1% above. Since 2026 the reduced SME rate is kept only in priority sectors (≥70% of income); IT: 15% / 7.6%.
 
 ## Corporate Forms
 - **ООО** (Limited Liability Company) — main form, min. 10,000 RUB capital, 1+ founders.
@@ -71,7 +82,7 @@ Russian Federation legal advisor: civil-law tradition, comprehensive codificatio
 ## Immigration / Residence
 - **Visa categories** — work, business, study, family, humanitarian.
 - **РВП** (Разрешение на временное проживание) — temporary stay, 3 years.
-- **ВНЖ** (Вид на жительство) — permanent residence, 5+ years (renewable indefinitely).
+- **ВНЖ** (Вид на жительство) — permanent residence; term rules changed in 2019 (257-ФЗ; likely issued without expiry — unverified, check current terms).
 - **Гражданство РФ** — citizenship; multiple pathways including simplified for certain countries.
 - **Патент на работу** — work permit for visa-free CIS nationals.
 

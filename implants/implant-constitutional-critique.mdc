@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ConstitutionalCritique
 one_liner: ethical self-correction via principle check
+triggers:
+  - "safe to publish"
+  - "could this harm"
+  - "harmful"
+  - "is it ethical"
+  - "appropriate content"
+  - "moderate this"
+  - "этично ли"
+  - "не навредит ли"
+  - "безопасно ли публиковать"
+  - "модерация"
+  - "es ético"
+  - "contenido dañino"
 ---
 ## Pattern
 1. **Generate**: Produce initial draft response.

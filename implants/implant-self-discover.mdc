@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: SelfDiscover
 one_liner: select thinking modules for new tasks
+triggers:
+  - "unusual task"
+  - "never seen before"
+  - "no idea where"
+  - "where to even start"
+  - "how to approach"
+  - "не знаю как подступиться"
+  - "как подойти к"
+  - "необычная задача"
+  - "с чего вообще начать"
+  - "cómo abordar"
+  - "tarea nueva"
 ---
 ## Pattern
 1. **Select Modules**: From available reasoning strategies (decomposition, critical thinking, analogical reasoning, causal analysis, etc.), identify which 2-3 are most relevant to this task.

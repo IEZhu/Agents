@@ -1,25 +1,40 @@
 ---
-description: Generated Knowledge. Generate facts before answering. Self-augmented memory for knowledge-intensive tasks.
+description: Generated Knowledge. Surface relevant background (commonsense, concepts, principles) before answering. For framing and reasoning — not a substitute for retrieval of specific facts.
 globs: []
 alwaysApply: false
 short_name: GeneratedKnowledge
-one_liner: augment knowledge by generating facts before answering
+one_liner: surface background concepts before answering (no specifics)
+triggers:
+  - "how does it work"
+  - "what should i know"
+  - "background first"
+  - "basics of"
+  - "for a beginner"
+  - "основы"
+  - "что нужно знать"
+  - "как это устроено"
+  - "с чего начать изучать"
+  - "conceptos básicos"
+  - "qué debo saber"
 ---
 ## Pattern
-1. **Identify Knowledge Gaps**: "What background knowledge is needed to answer [Question] correctly?"
-2. **Generate Facts**: "Write 5 key facts about [Topic] that are most relevant to answering [Question]."
-3. **Verify Plausibility**: Review generated facts — flag any that feel uncertain or potentially fabricated.
-4. **Answer**: "Using these facts as context, answer [Question]."
+1. **Identify the Gap**: "What background concepts does answering [Question] depend on?"
+2. **Surface Concepts, not Specifics**: List 3–5 relevant principles, definitions or commonsense relations. Do not generate API names, versions, numbers, dates, quotes or citations here — those need a real source.
+3. **Treat the List as Recalled**: It is memory, not evidence. Nothing in it may be presented as verified or cited as a source.
+4. **Answer**: Use the concepts to structure the answer; any specific the answer needs goes through `no-fabrication` (check it or mark it).
+
+## Why
+The technique was evaluated on commonsense-reasoning benchmarks (arXiv 2110.08387). Models favour generated context over retrieved context even when the generated text is wrong (arXiv 2401.11911), so self-generated "facts" placed in context get laundered into confident claims.
 
 ## When to Use
-- Questions requiring background knowledge the model might not foreground automatically
-- Commonsense reasoning where making implicit knowledge explicit helps
-- Educational scenarios where building context before answering improves depth
-- Domain-specific tasks where self-generated context is more relevant than retrieved context
-- When external retrieval (RAG) is not available
+- Commonsense or conceptual questions where making implicit knowledge explicit helps
+- Teaching: laying out prerequisites before the explanation
+- Framing an unfamiliar problem before searching (to write better queries)
+
+## Do Not Use
+- When a tool or retrieval can supply the facts — retrieve instead
+- For questions whose answer *is* a specific (a rate, a version, a flag, a citation)
 
 ## Limitations
-- Generated "knowledge" can itself be hallucinated — pair with Chain-of-Verification for critical applications
-- Adds token overhead (knowledge generation + answer generation)
-- Less reliable than actual retrieval from verified sources
-- Model may generate plausible-sounding but factually wrong "facts"
+- Generated background can still be wrong; it shapes the answer's framing, so errors propagate
+- Adds tokens before the answer

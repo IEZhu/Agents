@@ -4,6 +4,20 @@ globs: []
 alwaysApply: false
 short_name: RegressionFirst
 one_liner: localize the regression before proposing any fix
+triggers:
+  - "was working before"
+  - "worked yesterday"
+  - "stopped working after"
+  - "used to work"
+  - "broke after update"
+  - "after upgrade"
+  - "раньше работало"
+  - "вчера работало"
+  - "перестало работать"
+  - "сломалось после"
+  - "после обновления"
+  - "antes funcionaba"
+  - "dejó de funcionar"
 ---
 ## Pattern
 1. **Detect the signal**: User says "worked before", "broke yesterday", "stopped after I changed X", "used to work", "регрессия", "после моих правок перестало" — any reference to a working baseline that no longer works.

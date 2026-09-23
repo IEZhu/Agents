@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ThreadOfThought
 one_liner: hold thread through long chaotic context
+triggers:
+  - "long log"
+  - "transcript"
+  - "long thread"
+  - "this chat history"
+  - "go through all"
+  - "длинный лог"
+  - "стенограмма"
+  - "переписка"
+  - "пройдись по"
+  - "транскрипт"
+  - "hilo largo"
+  - "transcripción"
 ---
 ## Pattern
 1. **Walk Sequentially**: Process the long/chaotic context section by section, in order.

@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ContextualCompression
 one_liner: compress text to key facts and numbers
+triggers:
+  - "summarize"
+  - "key facts"
+  - "condense"
+  - "long document"
+  - "meeting notes"
+  - "extract key numbers"
+  - "сократи"
+  - "выжимка"
+  - "ключевые факты"
+  - "резюмируй"
+  - "resume"
+  - "puntos clave"
 ---
 ## Pattern
 1. **Identify Essentials**: Extract facts, numbers, names, dates, causal relationships, and logical conditions.

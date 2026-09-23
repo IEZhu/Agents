@@ -1,29 +1,45 @@
 ---
-description: Chain of Verification (CoV). Fact-checking via draft-verify-correct cycle. Reduces hallucinations.
+description: Chain of Verification (CoV). Fact-checking via draft → verification questions → answers from tools or a fresh context → revise. Reduces hallucinations in knowledge-heavy answers.
 globs: []
 alwaysApply: false
 short_name: CoV
 one_liner: fact-check claims via draft-verify-correct cycle
+triggers:
+  - "exact figure"
+  - "when exactly"
+  - "is it true that"
+  - "fact-check"
+  - "precise date"
+  - "exact version"
+  - "точная цифра"
+  - "правда ли что"
+  - "когда именно"
+  - "проверь факты"
+  - "¿es cierto que"
+  - "fecha exacta"
 ---
 ## Pattern
-1. **Draft**: Generate initial answer.
-2. **Plan Verification**: Generate specific verification questions for each factual claim. Questions must be answerable independently of the original reasoning (avoid confirmation bias).
-3. **Execute Verification**: Answer each verification question independently — do not reference the draft while answering.
-4. **Correct**: Compare verification answers with the draft. Rewrite the draft fixing any errors or unsupported claims.
-5. **Iterate**: If corrections are major, re-verify the corrected version.
+1. **Draft**: Generate the initial answer.
+2. **Plan Verification**: Write one specific question per load-bearing claim (name, number, date, API, citation). Each question must be answerable without the draft.
+3. **Execute Verification — outside the draft**, strongest option first:
+   - **Tool check**: read the file, run the command, open the source, search. This is the only option that catches a shared misconception.
+   - **Fresh context**: a subagent or separate call that sees only the questions, not the draft.
+   - **Same context (weakest)**: answer the questions yourself; this catches internal inconsistencies but tends to repeat the draft's errors.
+4. **Correct**: Revise the draft. Remove claims that failed and mark removals; claims left unverified keep a `no-fabrication` marker.
+5. **Stop**: Re-verify only if the corrections were major; returns fall off after 2 rounds.
+
+## Why
+In the CoVe paper (arXiv 2309.11495), the "factored" variant — verification questions answered in prompts that contain only the questions — beat the joint single-prompt variant, because a model attending to its own draft tends to repeat its hallucinations.
 
 ## Variant: CoV-RAG
-When applied to RAG-retrieved documents: verify that each claim in the generated answer is actually supported by the retrieved sources. Generate questions like "Does source X actually state Y?"
+On retrieved documents: for each claim ask "Does source X actually state Y?" and keep the supporting quote. No quote → retract the claim.
 
 ## When to Use
-- Factual summaries where hallucination risk is high
-- RAG-generated answers that need grounding verification
-- Knowledge-intensive outputs (dates, numbers, names, specifications)
-- Any output that will be used as a basis for decisions
-- High-stakes content (medical, legal, financial information)
+- Knowledge-heavy outputs (dates, numbers, names, specifications, citations)
+- RAG or deep-research answers that need grounding
+- Outputs the user will base a decision on (medical, legal, financial)
 
 ## Limitations
-- Doubles token cost (draft + verification + correction)
-- Verification questions can themselves contain hallucinations
-- Not useful for creative or opinion-based outputs
-- Diminishing returns after 2 verification iterations
+- Roughly doubles token cost; recent models already verify a lot, so keep this opt-in rather than reflexive
+- Verification questions can themselves be wrong
+- Not useful for creative or opinion outputs

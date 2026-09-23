@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: S2A
 one_liner: remove bias and flattery before answering
+triggers:
+  - "you're so smart"
+  - "obviously"
+  - "clearly the best"
+  - "surely you agree"
+  - "everyone knows"
+  - "ты же умный"
+  - "очевидно же"
+  - "все знают"
+  - "согласись"
+  - "ведь правда"
+  - "obviamente"
+  - "todos saben"
 ---
 ## Pattern
 1. **Analyze**: Check the input for bias, flattery, leading questions, emotional framing, or anchoring.

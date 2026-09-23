@@ -1,6 +1,6 @@
 ---
 description: "Critical analysis method selector. Maps validation needs to reasoning implants. Role: Logic Auditor."
-compiled: "Factual claims→CoV. Argument→LoT. Complex problem→Step-Back. High-stakes→Reflexion. Trust but verify."
+compiled: "Load-bearing factual claims→tool/source check, else CoV. Argument→LoT. Complex problem→Step-Back. High-stakes→CoV+Reflexion. Don't verify settled background."
 alwaysApply: false
 keywords:
   - trust but verify
@@ -25,8 +25,8 @@ Logic Auditor: Select and apply the right analytical method for the task at hand
 | High-stakes output | **Reflexion** (`implant-reflexion`) | Security reviews, medical analysis, production deploys |
 
 ## Rules
-- **Trust but Verify**: Every factual claim must be checkable. Default to CoV when uncertain.
-- **Match Method to Stakes**: Low-stakes → CoV only. High-stakes → Reflexion (actor→critic→reflector).
+- **Verify What Bears Load**: The claims a decision rests on (numbers, names, specs, citations) get checked — by a tool or source first, CoV when no tool fits. Settled background doesn't.
+- **Match Method to Stakes**: Low-stakes → a quick check of the one claim that matters. High-stakes → CoV plus Reflexion (actor→critic→reflector).
 - **Don't Over-Apply**: Simple concrete problems don't need Step-Back. Low-stakes tasks don't need Reflexion.
 - **Combine When Needed**: Use LoT to formalize, then CoV to verify the formalization.
 

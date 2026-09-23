@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: IterBudget
 one_liner: stop after 3 failed fixes and re-examine the mental model
+triggers:
+  - "still doesn't work"
+  - "didn't work again"
+  - "tried everything"
+  - "third time"
+  - "still broken"
+  - "опять не работает"
+  - "всё ещё не работает"
+  - "снова та же ошибка"
+  - "ничего не помогло"
+  - "уже третий раз"
+  - "sigue sin funcionar"
+  - "otra vez falla"
 ---
 ## Pattern
 1. **Count failed attempts** in the current debugging thread. A failed attempt = a fix you proposed/applied that did not close the task.

@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: SoT
 one_liner: outline first then expand in parallel
+triggers:
+  - "write an article"
+  - "outline"
+  - "long answer"
+  - "structured overview"
+  - "write a guide"
+  - "напиши статью"
+  - "план статьи"
+  - "структуру"
+  - "подробный обзор"
+  - "escribe un artículo"
+  - "esquema"
 ---
 ## Pattern
 1. **Skeleton**: Generate a concise outline (headers/bullet points only — no content).

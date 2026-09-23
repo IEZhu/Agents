@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ReverseCoT
 one_liner: verify solution by reconstructing conditions
+triggers:
+  - "check my answer"
+  - "verify the solution"
+  - "does it satisfy"
+  - "meets the requirements"
+  - "work backwards"
+  - "check the constraints"
+  - "проверь решение"
+  - "подставь обратно"
+  - "выполняются ли условия"
+  - "соответствует требованиям"
+  - "comprueba la solución"
+  - "cumple los requisitos"
 ---
 ## Pattern
 1. **Solve**: Solve the task using any appropriate method.

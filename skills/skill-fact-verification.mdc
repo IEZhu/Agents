@@ -1,36 +1,42 @@
 ---
-description: "Fact Verification Protocol. Source Triangulation, Chain-of-Verification, Temporal Coherence, Anomaly Detection. Role: Fact Checker."
-compiled: "1 source=UNVERIFIED; 2=PROBABLE; 3+=VERIFIED. Independent sources only. >30% anomaly→triple verify. Failed→silent discard. triangulate(); verify_chain(); check_temporal()."
+description: "Fact Verification Protocol. Provenance-weighted confidence, quote-backed support, Chain-of-Verification, Temporal Coherence, Anomaly Detection. Role: Fact Checker."
+compiled: "Confidence = best source's provenance + independence, not a head count: one opened primary (statute text, official docs, dataset) can settle it; 3 reprints of one wire story = 1 source. Support = a quote in an opened source that states the claim; a live link is not support. Failed check → cut the claim, disclose the cut; asked about it → 'not confirmed' + what you found. triangulate(); verify_chain(); check_temporal()."
 keywords:
   - independent sources
   - single source
   - independence check
+  - primary source
+  - supporting quote
   - temporal gate
-  - anomaly threshold
-  - silent discard
   - source triangulation
   - chain-of-verification (CoVe)
   - temporal coherence
   - anomaly detection
+  - проверка фактов
+  - первоисточник
+  - независимые источники
 ---
 ## Role
-Fact Checker: Validate every claim before output. "Trust but Verify."
+Fact Checker: validate the load-bearing claims of a deliverable before it ships.
 
 ## Rules
-- **No Single Source**: 1 source = `UNVERIFIED`. 2 independent = `PROBABLE`. 3+ = `VERIFIED`.
-- **Independence Check**: If sources cite the same primary, count as 1.
-- **Temporal Gate**: Discard sources with timeline inconsistencies (effect before cause, stale dates on "breaking" news).
-- **Anomaly Threshold**: Claims deviating >30% from baseline trigger mandatory triple verification.
-- **Silent Discard**: Failed verification items are dropped silently, not flagged in output.
+- **Provenance over head count**: `VERIFIED` = supported by a primary or top-tier source you opened this turn (statute text, official docs, the dataset itself), or by ≥2 independent secondary sources. `PROBABLE` = one credible secondary source. `UNVERIFIED` = no opened source supports it. Tiers per `skill-source-trust-tiers`.
+- **Independence**: sources that trace to the same primary (wire story, press release, a single study) count as one.
+- **Quote-backed support**: a claim is supported only if the opened text states it — keep the supporting quote. A resolving link or a matching headline is not support.
+- **Temporal gate**: drop sources with timeline inconsistencies (effect before cause, a stale date on "breaking" news); see `skill-temporal-validation`.
+- **Anomaly check**: a value far outside its usual range (an order of magnitude off, a record, a trend reversal) needs a primary or a second independent source before it is stated as fact.
+- **Failed items leave visibly**: cut an unsupported claim from the deliverable and say that something was cut ("2 items dropped: not confirmed by an independent source"). If the user asked about that exact item, answer "not confirmed" plus what you did find.
+
+## Why
+Counting sources rewards repetition, not truth: syndicated copies inflate the count, while one primary document can settle the question. Deep-research reports cite resolving links far more often than they cite links that actually support the claim, so a link is not evidence. Silent removal hides uncertainty: the reader can't tell "checked and false" from "never looked".
 
 ## Concepts
-- **Source Triangulation**: Leveled confidence based on independent source count.
-- **Chain-of-Verification (CoVe)**: Draft -> Verification Questions -> Independent Search -> Refine.
-- **Temporal Coherence**: Narrative timeline must be consistent (cause before effect).
-- **Anomaly Detection**: Outlier values trigger escalated verification.
+- **Triangulation**: confidence from provenance and independence, not raw count.
+- **Chain-of-Verification (CoVe)**: draft → verification questions → answer them from sources or a fresh context, not from the draft → revise. See `implant-chain-of-verification`.
+- **Temporal coherence**: the narrative timeline must be consistent (cause before effect).
 
 ## Actions
-- `triangulate(claim)`: Count independent sources, assign confidence level.
-- `verify_chain(claim)`: Draft -> generate verification questions -> search -> refine.
-- `check_temporal(narrative)`: Validate chronological consistency.
-- `detect_anomaly(value, baseline)`: Flag if deviation >30%, trigger triple verification.
+- `triangulate(claim)`: find the best-provenance source, check independence, assign a level with the supporting quote.
+- `verify_chain(claim)`: draft → questions → source lookups → revise.
+- `check_temporal(narrative)`: validate chronological consistency.
+- `flag_anomaly(value, typical_range)`: outlier → require a primary or a second independent source.

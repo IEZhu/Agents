@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: AutoReasoning
 one_liner: alternate reasoning with tool calls
+triggers:
+  - "look it up"
+  - "search the web"
+  - "current price"
+  - "exchange rate"
+  - "google it"
+  - "найди в интернете"
+  - "курс валют"
+  - "актуальная цена"
+  - "поищи"
+  - "busca en internet"
+  - "precio actual"
 ---
 ## Pattern
 1. **Formulate**: Reason about the current state and what information/computation is needed.

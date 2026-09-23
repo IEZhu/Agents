@@ -338,6 +338,28 @@ async def test_greeting_does_not_strip_output_format_from_a_session_bundle(
 
 
 @pytest.mark.asyncio
+async def test_need_gate_does_not_strip_implants_from_session_bundle(bundle_tree, monkeypatch):
+    """IMPLANT_NEED_GATE is per query, so it must not shape a session bundle.
+
+    Like the output-format case above: the v2 bundle is reused for every later
+    turn, so gating it on the activating message would drop the agent's
+    declared implants for the whole conversation after a greeting.
+    """
+    from src.engine import config
+    from src.engine.intent import classify_intent
+
+    monkeypatch.setattr(config, "IMPLANT_NEED_GATE", "intent")
+    # The gate really would say "no implant" for this query.
+    assert classify_intent("hi").implant_budget == 0
+    assert enrichment.implants_needed("hi", "standard") is False
+
+    bundle = await build_persona_bundle("engineer", "hi")
+    assert bundle.tier == "standard"
+    assert bundle.implants_loaded == ["Focus"]
+    assert "Focus body" in bundle.implants_block
+
+
+@pytest.mark.asyncio
 async def test_unbalanced_fence_in_output_format_leaves_the_persona_intact(bundle_tree):
     """An unclosed fence used to make the strip delete the persona to EOF.
 

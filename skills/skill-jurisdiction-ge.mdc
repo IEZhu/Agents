@@ -1,6 +1,6 @@
 ---
-description: "Georgian legal jurisdiction: civil, tax, corporate, labor, immigration, property. Virtual Zone IT (5%), micro-business 0%, small business 1%, Estonian-model 15% profit tax. Role: Georgia legal advisor."
-compiled: "GE: Civil law. Income 20% flat. Profit 15% on distribution (Estonian). VAT 18%. Virtual Zone IT 5% + 0% VAT export. Micro 0% (<30k GEL), Small 1% (<500k)."
+description: "Georgian legal jurisdiction: civil, tax, corporate, labor, immigration, property. Virtual Zone IT (0% on export IT profit), International Company 5%, micro-business 0%, small business 1%, Estonian-model 15% profit tax. Role: Georgia legal advisor."
+compiled: "GE: Civil law. Income 20% flat. Profit 15% on distribution (Estonian). VAT 18%. Virtual Zone IT 0% profit tax on export IT + 0% VAT export. International Company 5%. Micro 0% (<30k GEL), Small 1% (<500k)."
 keywords:
   - /ge_lawyer
   - ge_lawyer
@@ -15,9 +15,17 @@ keywords:
   - NAPR
   - relocation Georgia
   - Estonian profit tax
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://taxsummaries.pwc.com/georgia/corporate/tax-credits-and-incentives
+  - https://taxsummaries.pwc.com/georgia/corporate/taxes-on-corporate-income
+  - https://taxsummaries.pwc.com/georgia/individual/taxes-on-personal-income
 ---
 ## Role
 Georgia legal advisor: civil-law tradition, IT/relocation friendly, simple tax structure.
+
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
 
 ## Primary Sources
 - **კონსტიტუცია (Constitution of Georgia)** — supreme law.
@@ -37,11 +45,11 @@ Georgia legal advisor: civil-law tradition, IT/relocation friendly, simple tax s
 
 ## Tax System (as of 2026)
 - Personal income tax: **20% flat**.
-- Corporate profit tax: **15%** under **Estonian model** — taxed only on **distribution** (not on retained earnings).
+- Corporate profit tax: **15%** under **Estonian model** — taxed only on **distribution** (not on retained earnings); banks 20%.
 - VAT: **18%** standard.
-- **Small business status** (მცირე ბიზნესი) — **1% turnover tax** up to 500,000 GEL/year.
+- **Small business status** (მცირე ბიზნესი) — **1% turnover tax** while annual income stays within 500,000 GEL; once it exceeds 500,000 GEL, **3%** applies to all taxable income from the start of the month of exceedance through year-end (not only to the amount above the threshold).
 - **Micro-business status** — **0%** up to 30,000 GEL/year.
-- **Virtual Zone (IT)** — **5%** profit tax + **0% VAT** on export of IT services.
+- **Virtual Zone (IT)** — **0%** profit tax on IT services supplied outside Georgia + **0% VAT** on their export (the 5% rate belongs to International Company status).
 - **International Company status** (IT/maritime) — **5%** profit tax, **0%** dividend WHT, **5%** salary tax.
 - **Free Industrial Zones** — full tax exemption except payroll-related.
 
@@ -54,12 +62,12 @@ Georgia legal advisor: civil-law tradition, IT/relocation friendly, simple tax s
 
 ## Immigration / Residence
 - **Visa-free regime** — citizens of 90+ countries can stay 1 year without visa.
-- **Temporary residence permit** — work, study, investment (≥100,000 USD real estate), family reunion, IT specialist.
-- **Permanent residence** — after 6 years of continuous temporary residence (or other paths).
+- **Temporary residence permit** — work, study, investment (real estate — threshold reportedly raised from 100,000 to 150,000 USD in 2026, unverified; check), family reunion, IT specialist.
+- **Permanent residence** — after a qualifying period of temporary residence (term unverified — sources differ, e.g. 10y standard / 5y investor; check current law).
 - **Investment residence** (≥300,000 USD) — fast-track.
 
 ## Country-Specific Mechanisms
-- **Virtual Zone IT** (since 2010) — registration via Ministry of Finance; IT companies exporting services pay only 5% profit tax and 0% VAT. Substantial growth driver.
+- **Virtual Zone IT** (since 2010) — registration via Ministry of Finance; IT companies exporting services pay 0% profit tax on that income and 0% VAT. Substantial growth driver.
 - **Estonian profit tax model** — retained earnings are not taxed; only distributions (dividends, deemed distributions, excessive expenses). Encourages reinvestment.
 - **Status-based taxation** — small/micro/IC/VZ statuses are application-based and revocable; conditions monitored continuously.
 

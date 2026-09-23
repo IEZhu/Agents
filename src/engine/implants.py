@@ -2,16 +2,50 @@ import logging
 import os
 import glob
 import hashlib
+import re
+import statistics
 import yaml
 from src.utils.langfuse_compat import observe
 from typing import List, Dict, Any, Optional
 from src.utils.prompt_loader import split_frontmatter
 
+import src.engine.config as _cfg
 from src.engine.config import IMPLANTS_DIR, IMPLANTS_RELEVANCE_THRESHOLD, DATA_DIR
 from src.engine.vector_store import NumpyVectorStore
 from src.engine.embedder import embed_texts, embed_query
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_triggers(raw: Any) -> List[str]:
+    """Coerce a frontmatter ``triggers`` value to a clean lowercase ``list[str]``."""
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    return [t.strip().lower() for t in raw if isinstance(t, str) and t.strip()]
+
+
+def _when_to_use(body: str) -> str:
+    """Return the body's "## When to Use" section (without the heading), or ""."""
+    m = re.search(r"^## When to Use\s*\n(.*?)(?=^## |\Z)", body, re.MULTILINE | re.DOTALL)
+    return m.group(1).strip() if m else ""
+
+
+def _index_text(description: str, body: str, triggers: List[str]) -> str:
+    """Text embedded for an implant, per ``IMPLANT_INDEX_MODE``.
+
+    ``legacy`` embeds the technique body, which describes the method itself and
+    so matches conversations *about* the method. ``triggers`` embeds user-side
+    cues and the "When to Use" list, which describe the task shape instead.
+    """
+    if _cfg.IMPLANT_INDEX_MODE == "triggers":
+        return f"{description}\n{'; '.join(triggers)}\n\n{_when_to_use(body)}"
+    return f"{description}\n\n{body}"
+
+
+def _trigger_hit(triggers: List[str], query_lower: str) -> bool:
+    return any(re.search(rf"(?<!\w){re.escape(t)}(?!\w)", query_lower) for t in triggers)
 
 class ImplantRetriever:
     HASH_FILE = os.path.join(DATA_DIR, ".implants_hash")
@@ -35,6 +69,8 @@ class ImplantRetriever:
         h = hashlib.md5()
         from src.engine.fingerprint import fingerprint
         h.update(fingerprint(EMBEDDING_MODEL).encode())
+        # The index text depends on the mode, so switching it must reindex.
+        h.update(_cfg.IMPLANT_INDEX_MODE.encode())
         for path in sorted(glob.glob(os.path.join(IMPLANTS_DIR, "*.mdc"))):
             # Prepared stores move from a worktree into the live install.
             h.update(os.path.basename(path).encode())
@@ -93,7 +129,8 @@ class ImplantRetriever:
 
                 # Prepare for indexing
                 description = frontmatter.get("description", "")
-                full_text = f"{description}\n\n{body}"
+                triggers = _normalize_triggers(frontmatter.get("triggers"))
+                full_text = _index_text(description, body, triggers)
 
                 filename = os.path.basename(file_path)
 
@@ -108,6 +145,7 @@ class ImplantRetriever:
                     "body": body,
                     "short_name": short_name,
                     "one_liner": one_liner,
+                    "triggers": triggers,
                 })
                 ids.append(filename)
 
@@ -209,13 +247,29 @@ class ImplantRetriever:
         )
 
         query_emb = embed_query(search_query)
+        if _cfg.IMPLANT_GATING == "zscore":
+            semantic_implants = self._zscore_candidates(
+                query, query_emb, n_results, preferred_ids_loaded,
+            )
+        else:
+            semantic_implants = self._legacy_candidates(
+                query_emb, n_results, preferred_ids_loaded,
+            )
+
+        if semantic_implants:
+            names = [(imp["metadata"].get("short_name", imp["filename"]), f"{imp['distance']:.3f}") for imp in semantic_implants]
+            logger.info(f"Selected implants: {names}")
+
+        # Prepend preferred implants (if any) before semantic results
+        return preferred_loaded + semantic_implants
+
+    def _legacy_candidates(self, query_emb, n_results: int, skip: set[str]) -> List[Dict[str, Any]]:
+        """Top-N under the absolute ``IMPLANTS_RELEVANCE_THRESHOLD``."""
         candidates = self.store.query(
             query_embedding=query_emb,
             n_results=min(n_results * 3, self.store.count()),
         )
-
-        semantic_implants = []
-
+        out: List[Dict[str, Any]] = []
         if candidates.ids and candidates.distances:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -224,29 +278,51 @@ class ImplantRetriever:
                     [(cid, f"{d:.4f}") for cid, d in zip(candidates.ids, candidates.distances)],
                 )
             for i, distance in enumerate(candidates.distances):
-                if distance < IMPLANTS_RELEVANCE_THRESHOLD:
-                    cid = candidates.ids[i]
-                    # Skip implants already loaded via preferred path
-                    if cid in preferred_ids_loaded:
-                        continue
+                cid = candidates.ids[i]
+                if distance < IMPLANTS_RELEVANCE_THRESHOLD and cid not in skip:
                     meta = candidates.metadatas[i] or {}
-                    content = meta.get('body', candidates.documents[i])
-                    semantic_implants.append({
+                    out.append({
                         "filename": cid,
-                        "content": content,
+                        "content": meta.get("body", candidates.documents[i]),
                         "metadata": meta,
                         "distance": distance,
                     })
+        out.sort(key=lambda x: x["distance"])
+        return out[:n_results]
 
-        semantic_implants.sort(key=lambda x: x["distance"])
-        semantic_implants = semantic_implants[:n_results]
+    def _zscore_candidates(self, query: str, query_emb, n_results: int, skip: set[str]) -> List[Dict[str, Any]]:
+        """Keep implants that stand out from this query's own distance distribution.
 
-        if semantic_implants:
-            names = [(imp["metadata"].get("short_name", imp["filename"]), f"{imp['distance']:.3f}") for imp in semantic_implants]
-            logger.info(f"Selected implants: {names}")
-
-        # Prepend preferred implants (if any) before semantic results
-        return preferred_loaded + semantic_implants
+        Distances on the current embedder are compressed into a narrow band, so an
+        absolute threshold either keeps everything or nothing. Scoring every
+        implant and keeping only those ``IMPLANT_GATE_Z`` standard deviations
+        closer than the mean lets an ordinary query load no implant at all.
+        A literal ``triggers`` hit in the user's query scales the distance by
+        ``IMPLANT_TRIGGER_BOOST`` before the comparison.
+        """
+        total = self.store.count()
+        results = self.store.query(query_embedding=query_emb, n_results=total)
+        if not results.ids or len(results.distances) < 3:
+            return []
+        query_lower = query.lower()
+        scored = []
+        for i, cid in enumerate(results.ids):
+            meta = results.metadatas[i] or {}
+            d = results.distances[i]
+            if _trigger_hit(meta.get("triggers") or [], query_lower):
+                d *= _cfg.IMPLANT_TRIGGER_BOOST
+            scored.append((d, cid, meta, results.documents[i]))
+        dists = [d for d, *_ in scored]
+        mean, sd = statistics.fmean(dists), statistics.pstdev(dists)
+        if sd == 0:
+            return []
+        cutoff = mean - _cfg.IMPLANT_GATE_Z * sd
+        logger.debug("Implant z-gate: mean=%.4f sd=%.4f cutoff=%.4f", mean, sd, cutoff)
+        kept = sorted((x for x in scored if x[0] <= cutoff and x[1] not in skip), key=lambda x: x[0])
+        return [
+            {"filename": cid, "content": meta.get("body", doc), "metadata": meta, "distance": d}
+            for d, cid, meta, doc in kept[:n_results]
+        ]
 
     def get_catalog(self) -> str:
         """Return a compact catalog of all implants (short_name + one_liner).

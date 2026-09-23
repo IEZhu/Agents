@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: PreMortem
 one_liner: assume failure happened then work backwards to prevent it
+triggers:
+  - "what could go wrong"
+  - "risks of launching"
+  - "before we commit"
+  - "will this fail"
+  - "is the plan solid"
+  - "что пойдёт не так"
+  - "какие риски"
+  - "перед запуском"
+  - "не провалится ли"
+  - "qué puede salir mal"
+  - "riesgos"
 ---
 ## Pattern
 1. **Time Travel**: "It is 6 months from now. This plan has FAILED completely. What went wrong?"

@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: CoC
 one_liner: pseudocode-driven reasoning for logic and math
+triggers:
+  - "track the state"
+  - "simulate"
+  - "trace through"
+  - "what does it print"
+  - "who has how many"
+  - "пошагово посчитай"
+  - "отследи состояние"
+  - "промоделируй"
+  - "сколько останется"
+  - "simula paso a paso"
+  - "cuántos quedan"
 ---
 ## Pattern
 1. **Pseudocode**: Express the problem as pseudocode or algorithm.

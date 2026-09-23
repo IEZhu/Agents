@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: SteelMan
 one_liner: construct the strongest opposing argument before criticizing
+triggers:
+  - "i disagree with"
+  - "strongest argument for"
+  - "defend this"
+  - "opposing view"
+  - "devil's advocate"
+  - "why would anyone"
+  - "лучшие аргументы за"
+  - "защити позицию"
+  - "почему кто-то считает"
+  - "не согласен с"
+  - "argumentos a favor"
+  - "defiende"
 ---
 ## Pattern
 1. **Identify the Position**: State the claim or argument you're about to evaluate.

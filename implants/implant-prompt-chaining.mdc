@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: PromptChaining
 one_liner: break task into sequence of LLM calls
+triggers:
+  - "pipeline"
+  - "first extract then"
+  - "multi-stage"
+  - "then feed into"
+  - "output of one step"
+  - "конвейер"
+  - "сначала извлеки"
+  - "потом на основе"
+  - "в несколько этапов"
+  - "primero extrae"
+  - "por etapas"
 ---
 ## Pattern
 1. **Prompt A**: First LLM call → Result A (e.g., extract data, analyze, summarize).

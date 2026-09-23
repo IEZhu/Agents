@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: ReAct
 one_liner: interleave reasoning with actions and observations
+triggers:
+  - "check the logs"
+  - "run the tests"
+  - "inspect the state"
+  - "investigate"
+  - "look into the repo"
+  - "проверь логи"
+  - "запусти тесты"
+  - "посмотри в коде"
+  - "разберись почему"
+  - "revisa los logs"
+  - "investiga"
 ---
 ## Pattern
 1. **Thought**: Reason about the current state — what do I know? What do I need?

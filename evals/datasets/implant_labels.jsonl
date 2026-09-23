@@ -1,0 +1,110 @@
+{"id": "wildbench-00286", "expected_implants": ["implant-plan-and-solve-plus", "implant-step-back-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00399", "expected_implants": ["implant-self-refine"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00838", "expected_implants": ["implant-steel-man", "implant-multi-agent-debate"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00604", "expected_implants": ["implant-chain-of-table", "implant-premortem"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00094", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00542", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00205", "expected_implants": ["implant-decomposed-prompting", "implant-chain-of-table"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00895", "expected_implants": ["implant-plan-and-solve-plus", "implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00622", "expected_implants": ["implant-chain-of-verification", "implant-skeleton-of-thought"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00224", "expected_implants": ["implant-program-of-thoughts", "implant-plan-and-solve-plus"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00989", "expected_implants": ["implant-program-of-thoughts", "implant-rephrase-and-respond"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00157", "expected_implants": ["implant-skeleton-of-thought", "implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-01855", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-00056", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-01093", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-01579", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-01433", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-01313", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05309", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04741", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04623", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05443", "expected_implants": ["implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00337", "expected_implants": ["implant-program-of-thoughts", "implant-plan-and-solve-plus"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00246", "expected_implants": ["implant-rephrase-and-respond", "implant-step-back-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00095", "expected_implants": ["implant-role-play-expert", "implant-second-order-thinking"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00219", "expected_implants": ["implant-uncertainty-quantification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00252", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00578", "expected_implants": ["implant-least-to-most-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00409", "expected_implants": ["implant-chain-of-verification", "implant-maieutic-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00483", "expected_implants": ["implant-plan-and-solve-plus", "implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00003", "expected_implants": ["implant-chain-of-verification", "implant-buffer-of-thoughts"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00549", "expected_implants": ["implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00041", "expected_implants": ["implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00162", "expected_implants": ["implant-rephrase-and-respond", "implant-layer-of-thoughts"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-00798", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-02655", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-01976", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-00905", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-02390", "expected_implants": ["implant-rephrase-and-respond"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-00691", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04754", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04647", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05253", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05228", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00433", "expected_implants": ["implant-self-refine"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00009", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00349", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00105", "expected_implants": ["implant-uncertainty-quantification", "implant-step-back-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00533", "expected_implants": ["implant-self-refine"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00369", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00880", "expected_implants": ["implant-plan-and-solve-plus", "implant-decomposed-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00260", "expected_implants": ["implant-reverse-cot", "implant-plan-and-solve-plus"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00189", "expected_implants": ["implant-tree-of-thought", "implant-premortem"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00388", "expected_implants": ["implant-system-2-attention", "implant-constitutional-critique"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00949", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00565", "expected_implants": ["implant-program-of-thoughts", "implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-01295", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-01832", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-02824", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-00346", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-00822", "expected_implants": ["implant-program-of-thoughts"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-02386", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04641", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05404", "expected_implants": ["implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05480", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04722", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00061", "expected_implants": ["implant-step-back-prompting", "implant-uncertainty-quantification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00713", "expected_implants": ["implant-chain-of-verification", "implant-chain-of-table"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00609", "expected_implants": ["implant-skeleton-of-thought"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00562", "expected_implants": ["implant-recursion-of-thought", "implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00231", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00179", "expected_implants": ["implant-layer-of-thoughts", "implant-decomposed-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00343", "expected_implants": ["implant-step-back-prompting", "implant-verify-assumptions"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00316", "expected_implants": ["implant-rephrase-and-respond"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00987", "expected_implants": ["implant-generated-knowledge", "implant-second-order-thinking"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00656", "expected_implants": ["implant-skeleton-of-thought", "implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00881", "expected_implants": ["implant-chain-of-verification", "implant-chain-of-table"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00898", "expected_implants": ["implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-02491", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-02739", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-01444", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-00171", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-02219", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-01728", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05164", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05369", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04940", "expected_implants": ["implant-rephrase-and-respond"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04964", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00694", "expected_implants": ["implant-constitutional-critique", "implant-steel-man"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00313", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00291", "expected_implants": ["implant-reverse-cot", "implant-premortem"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00033", "expected_implants": ["implant-skeleton-of-thought", "implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00702", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00314", "expected_implants": ["implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00016", "expected_implants": ["implant-uncertainty-quantification", "implant-step-back-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00688", "expected_implants": ["implant-reverse-cot"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00613", "expected_implants": ["implant-program-of-thoughts", "implant-chain-of-verification"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00515", "expected_implants": ["implant-plan-and-solve-plus", "implant-program-of-thoughts", "implant-step-back-prompting"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00398", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "wildbench-00823", "expected_implants": ["implant-program-of-thoughts", "implant-skeleton-of-thought"], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-01570", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_ru-00662", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-00711", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_en-02529", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-02387", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "massive_es-00844", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04545", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04755", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-04568", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}
+{"id": "clinc_oos-05370", "expected_implants": [], "labeled_by": "claude-opus-5-5@2026-09-23 (blind to retrieval changes)", "human_reviewed": false}

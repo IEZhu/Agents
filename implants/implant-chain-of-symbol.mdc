@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ChainOfSymbol
 one_liner: solve logic via symbolic abstraction
+triggers:
+  - "left of"
+  - "who is taller"
+  - "seating arrangement"
+  - "north of"
+  - "relative position"
+  - "overlap between sets"
+  - "кто выше"
+  - "слева от"
+  - "кто сидит рядом"
+  - "пересечение множеств"
+  - "a la izquierda de"
+  - "quién es más alto"
 ---
 ## Pattern
 1. **Encode**: Replace objects with symbols (A, B, C) and relationships with operators (→, <, ∈).

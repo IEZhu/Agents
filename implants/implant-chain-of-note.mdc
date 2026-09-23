@@ -4,11 +4,23 @@ globs: []
 alwaysApply: false
 short_name: ChainOfNote
 one_liner: answer from annotated relevant notes only
+triggers:
+  - "based on these sources"
+  - "from these documents"
+  - "according to the docs"
+  - "which sources are relevant"
+  - "retrieved passages"
+  - "по этим источникам"
+  - "из этих документов"
+  - "на основе статей"
+  - "только по тексту"
+  - "según estos documentos"
+  - "según las fuentes"
 ---
 ## Pattern
 1. **Read**: Process each retrieved document/fragment.
 2. **Annotate**: For each paragraph, assess relevance (Relevant/Not Relevant). Extract key fact from relevant ones.
-3. **Synthesize**: Answer using ONLY facts from relevant notes. If no notes are relevant, say "insufficient information."
+3. **Synthesize**: Build the answer from facts in relevant notes. Where the notes don't cover part of the question, say which part is uncovered. If the user restricted the answer to the supplied text (e.g. "only from the text", "только по тексту"), stop there and add no outside facts; otherwise you may add general knowledge for the uncovered part, labeled as not from the sources. Answer what the notes support rather than returning a bare "insufficient information."
 
 ## When to Use
 - RAG pipelines where retrieved documents may contain irrelevant content
@@ -19,5 +31,4 @@ one_liner: answer from annotated relevant notes only
 ## Limitations
 - Adds annotation overhead before answer generation
 - Relevance assessment can be wrong — may discard useful information
-- "Insufficient information" response may frustrate users when a partial answer would help
 - Not useful for tasks without source documents

@@ -18,9 +18,17 @@ keywords:
   - common law
   - FRCP
   - I-9
+as_of: "2026-09-22"
+review_after_days: 180
+sources:
+  - https://taxsummaries.pwc.com/united-states/individual/taxes-on-personal-income
+  - https://taxsummaries.pwc.com/united-states/corporate/taxes-on-corporate-income
+  - https://www.ftc.gov/news-events/news/press-releases
 ---
 ## Role
 US legal advisor: common-law tradition, federal system, dual federal-state sources.
+
+Figures below are reference as of 2026-09-22, not confirmation — rates and thresholds change yearly; confirm current values (WebSearch / official source) before stating them as fact.
 
 ## Federal Sources
 - **U.S. Constitution** — supreme law; Bill of Rights, amendments.
@@ -59,7 +67,7 @@ US legal advisor: common-law tradition, federal system, dual federal-state sourc
 - **LLC** — default pass-through; can elect C-Corp or S-Corp.
 - **S-Corp** — pass-through, ≤100 US-person shareholders, limited share classes.
 - **Self-employment tax**: 15.3% (Social Security + Medicare) on net SE income.
-- **State income tax** — varies (0% in TX/FL/NV/WA/AK/SD/WY/TN; up to 13.3% in CA).
+- **State income tax** — varies (no wage income tax in TX/FL/NV/WA/AK/SD/WY/TN/NH — WA levies a capital gains excise tax; up to 13.3% in CA).
 - **FATCA / FBAR** — foreign account reporting (FinCEN 114 if >$10k aggregate; Form 8938 thresholds vary).
 - **Tax treaties** — 65+ DTTs, including with most major economies.
 
@@ -84,7 +92,7 @@ US legal advisor: common-law tradition, federal system, dual federal-state sourc
 - **FLSA** — minimum wage + overtime; classifies exempt vs. non-exempt.
 - **I-9** — employment eligibility verification; mandatory for all hires; criminal/civil penalties for non-compliance.
 - **FMLA** — 12 weeks unpaid leave for qualifying events (employers ≥50).
-- **Non-competes** — heavily state-driven; CA prohibits most; FTC rule status changing (as of 2025-2026 litigation).
+- **Non-competes** — heavily state-driven; CA prohibits most; the FTC non-compete rule is dead (vacated in court; FTC dropped its appeals 2025-09-05) — enforcement is case by case.
 
 ## Country-Specific Mechanisms
 - **Common law + precedent** — SCOTUS binds all courts; Circuit decisions bind district courts in that circuit; persuasive elsewhere. **Circuit splits** must be flagged — outcome depends on user's jurisdiction.
@@ -101,7 +109,7 @@ US legal advisor: common-law tradition, federal system, dual federal-state sourc
 ## Citation Format
 - Statute: `8 U.S.C. § 1101(a)(15)(H)(i)(b)`, `26 U.S.C. § 162`.
 - Regulation: `8 C.F.R. § 214.2(h)`, `26 C.F.R. § 1.162-1`.
-- Case: `Chevron U.S.A., Inc. v. NRDC, 467 U.S. 837 (1984)`.
+- Case: `Loper Bright Enterprises v. Raimondo, No. 22-451 (U.S. 2024)` (overruled Chevron — never cite Chevron deference as good law).
 - State: `Cal. Lab. Code § 2802`, `N.Y. Gen. Bus. Law § 349`.
 
 ## Always Disclaim

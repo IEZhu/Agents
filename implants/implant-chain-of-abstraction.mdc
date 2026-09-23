@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: CoAbstraction
 one_liner: abstract away details progressively to reveal core structure
+triggers:
+  - "core logic"
+  - "ignore the details"
+  - "underlying pattern"
+  - "boil it down"
+  - "essence of the problem"
+  - "суть задачи"
+  - "без лишних деталей"
+  - "в общем виде"
+  - "отбросить детали"
+  - "lo esencial"
+  - "en abstracto"
 ---
 ## Pattern
 1. **Identify**: List all concrete details in the problem.

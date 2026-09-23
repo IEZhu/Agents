@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: ComplexityPrompting
 one_liner: maximize reasoning chain length for complex tasks
+triggers:
+  - "prove that"
+  - "tricky math"
+  - "not the obvious answer"
+  - "trick question"
+  - "hard problem"
+  - "докажи что"
+  - "каверзная задача"
+  - "подвох"
+  - "олимпиадная задача"
+  - "demuestra que"
+  - "problema difícil"
 ---
 ## Pattern
 1. **Generate Multiple Solutions**: Produce 3-5 different reasoning chains for the same problem.

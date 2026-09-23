@@ -4,6 +4,20 @@ globs: []
 alwaysApply: false
 short_name: LayerOfThoughts
 one_liner: hierarchical analysis for rules-based domains
+triggers:
+  - "is this compliant"
+  - "gdpr"
+  - "does the policy allow"
+  - "legally allowed"
+  - "regulation"
+  - "under the law"
+  - "соответствует ли закону"
+  - "по закону"
+  - "требования регулятора"
+  - "комплаенс"
+  - "политика компании"
+  - "cumple la normativa"
+  - "según la ley"
 ---
 ## Pattern
 1. **Layer 1 — Rules**: Identify and process high-level rules, laws, or policies that govern the domain.

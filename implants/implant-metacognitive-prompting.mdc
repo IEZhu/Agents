@@ -4,6 +4,17 @@ globs: []
 alwaysApply: false
 short_name: MetacognitivePrompting
 one_liner: self-evaluate confidence in each reasoning step
+triggers:
+  - "how confident are you"
+  - "hidden assumptions"
+  - "are you sure"
+  - "double check your reasoning"
+  - "where you might err"
+  - "ты уверен"
+  - "насколько уверен"
+  - "где можешь ошибаться"
+  - "скрытые допущения"
+  - "¿estás seguro"
 ---
 ## Pattern
 1. **Reason**: Provide step-by-step reasoning for the problem.

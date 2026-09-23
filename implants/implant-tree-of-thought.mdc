@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: ToT
 one_liner: explore multiple reasoning paths with evaluation and backtracking
+triggers:
+  - "explore options"
+  - "alternative approaches"
+  - "dead end"
+  - "different paths"
+  - "backtrack"
+  - "puzzle"
+  - "варианты решения"
+  - "альтернативы"
+  - "тупик"
+  - "перебери варианты"
+  - "alternativas"
+  - "otras opciones"
 ---
 ## Pattern
 1. **Branch**: Generate 2-3 distinct next-step thoughts from the current state.

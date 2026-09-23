@@ -4,6 +4,19 @@ globs: []
 alwaysApply: false
 short_name: Reflexion
 one_liner: self-critique loop for high-stakes tasks
+triggers:
+  - "tests fail"
+  - "make tests pass"
+  - "try again"
+  - "until it passes"
+  - "production deploy"
+  - "security review"
+  - "пока тесты не пройдут"
+  - "тесты падают"
+  - "попробуй ещё раз"
+  - "перед деплоем"
+  - "hasta que pasen"
+  - "revisión de seguridad"
 ---
 ## Pattern
 1. **Actor**: Generate solution.

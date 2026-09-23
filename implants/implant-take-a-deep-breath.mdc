@@ -4,6 +4,12 @@ globs: []
 alwaysApply: false
 short_name: DeepBreath
 one_liner: trigger step-by-step reasoning with zero-shot
+triggers:
+  - "think carefully"
+  - "don't rush"
+  - "подумай хорошо"
+  - "не торопись"
+  - "piensa bien"
 ---
 ## Pattern
 "Take a deep breath and work on this step by step."

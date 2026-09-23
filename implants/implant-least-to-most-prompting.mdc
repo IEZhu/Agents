@@ -4,6 +4,18 @@ globs: []
 alwaysApply: false
 short_name: LeastToMost
 one_liner: solve simple to complex sequentially
+triggers:
+  - "start simple"
+  - "from easy to hard"
+  - "teach me"
+  - "build up gradually"
+  - "one step further"
+  - "с простого"
+  - "от простого к сложному"
+  - "постепенно"
+  - "научи меня"
+  - "de simple a complejo"
+  - "poco a poco"
 ---
 ## Pattern
 1. **Decompose**: Break the complex task into subtasks ordered from simplest to hardest.

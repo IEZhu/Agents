@@ -4,6 +4,20 @@ globs: []
 alwaysApply: false
 short_name: PoT
 one_liner: write code to compute answer instead of guessing
+triggers:
+  - "calculate"
+  - "compute"
+  - "how much in total"
+  - "percentage"
+  - "average"
+  - "statistics"
+  - "посчитай"
+  - "вычисли"
+  - "сколько всего"
+  - "процент"
+  - "среднее"
+  - "calcula"
+  - "cuánto en total"
 ---
 ## Pattern
 1. **Code**: Write executable code (Python, etc.) that computes the answer from given data.
