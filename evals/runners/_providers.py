@@ -502,6 +502,9 @@ def call_judge_local(
         ],
         max_tokens,
     )
+    # Judges never think, whatever the budget: run_mcp_vs_vanilla's judge budget
+    # defaults to 4096, above LOCAL_THINKING_MIN_TOKENS.
+    kwargs["reasoning_effort"] = "none"
     kwargs["response_format"] = {
         "type": "json_schema",
         "json_schema": {"name": verdict_schema["name"], "schema": verdict_schema["input_schema"]},

@@ -178,15 +178,19 @@ class swap_rule:
         self._original: bytes | None = None
 
     def __enter__(self) -> "swap_rule":
-        if self.variant_path is not None:
-            self._original = RULE_PATH.read_bytes()
-            RULE_PATH.write_bytes(self.variant_path.read_bytes())
         try:
+            if self.variant_path is not None:
+                # Read the fixture first, so a missing one fails before the
+                # live rule is touched.
+                variant = self.variant_path.read_bytes()
+                self._original = RULE_PATH.read_bytes()
+                RULE_PATH.write_bytes(variant)
             _invalidate_all_caches()
         except BaseException:
-            # __exit__ never runs when __enter__ raises, and the cache reset does
-            # a slow first import: a Ctrl+C or SIGTERM landing there would leave
-            # the fixture in the live rule file.
+            # __exit__ never runs when __enter__ raises. write_bytes truncates
+            # before it writes, and the cache reset does a slow first import:
+            # a Ctrl+C, SIGTERM or OSError landing in either would leave a
+            # truncated or fixture rule in the live file.
             self.__exit__(None, None, None)
             raise
         return self
@@ -390,7 +394,10 @@ async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
 # --------------------------------------------------------------------------- #
 # Full A/B (LLM generation + hybrid grading)
 # --------------------------------------------------------------------------- #
-async def run_arm(cases, prompts, provider, client, model, judge_model, samples: int, label: str) -> ArmResult:
+async def run_arm(
+    cases, prompts, provider, client, model, judge_model, samples: int, label: str,
+    transcript_path: Path | None = None,
+) -> ArmResult:
     res = ArmResult(label=label)
     # A local server that holds only one of (model, judge_model) in memory would
     # reload a model on every call if answers and grades alternate, so for the
@@ -416,9 +423,10 @@ async def run_arm(cases, prompts, provider, client, model, judge_model, samples:
                 answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
             det = deterministic_fails(c, answer)
             verdict, why = (("FAIL", "; ".join(det)) if det else await llm_grade(provider, client, judge_model, c, answer))
-            res.transcripts.setdefault(cid, []).append(
-                {"sample": i, "answer": answer, "deterministic": det, "verdict": verdict, "reason": why}
-            )
+            rec = {"sample": i, "answer": answer, "deterministic": det, "verdict": verdict, "reason": why}
+            res.transcripts.setdefault(cid, []).append(rec)
+            if transcript_path is not None:
+                append_transcript(transcript_path, label, cid, rec)
             if case_fails(det, verdict):
                 failed = True
                 reason = "; ".join(det) if det else why
@@ -453,10 +461,10 @@ async def full_ab(cases, args) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     transcript_path = out_path.with_suffix(".answers.jsonl")
     transcript_path.write_text("", encoding="utf-8")
-    baseline = await run_arm(cases, base_prompts, provider, client, model, judge_model, args.samples_per_case, "baseline")
-    write_transcripts(transcript_path, baseline)
-    candidate = await run_arm(cases, cand_prompts, provider, client, model, judge_model, args.samples_per_case, "candidate")
-    write_transcripts(transcript_path, candidate)
+    baseline = await run_arm(cases, base_prompts, provider, client, model, judge_model,
+                             args.samples_per_case, "baseline", transcript_path)
+    candidate = await run_arm(cases, cand_prompts, provider, client, model, judge_model,
+                              args.samples_per_case, "candidate", transcript_path)
 
     report = render_report(cases, baseline, candidate, cfg)
     out_path.write_text(report, encoding="utf-8")
@@ -465,13 +473,11 @@ async def full_ab(cases, args) -> int:
     return 0
 
 
-def write_transcripts(path: Path, arm: ArmResult) -> None:
-    """Append one JSON line per graded sample of *arm*; written per arm so a
-    crash in the second arm keeps the first."""
+def append_transcript(path: Path, label: str, cid: str, rec: dict[str, Any]) -> None:
+    """Append one graded sample as a JSON line the moment it exists, so an API
+    error, Ctrl+C or SIGTERM mid-arm keeps every answer graded before it."""
     with path.open("a", encoding="utf-8") as f:
-        for cid, records in arm.transcripts.items():
-            for rec in records:
-                f.write(json.dumps({"arm": arm.label, "id": cid, **rec}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"arm": label, "id": cid, **rec}, ensure_ascii=False) + "\n")
 
 
 # Snapshot of the live rule file used by dry-run to assert it was restored intact.
@@ -499,10 +505,11 @@ def main() -> int:
     p.add_argument("--samples-per-case", type=int, default=1)
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    # A plain SIGTERM would kill the process mid-swap and leave a fixture in
-    # rules/rule-no-fabrication.mdc; as SystemExit it unwinds through
-    # swap_rule.__exit__, which restores the original first.
-    signal.signal(signal.SIGTERM, lambda signum, _frame: sys.exit(128 + signum))
+    # A plain SIGTERM, or SIGHUP from a closed terminal, would kill the process
+    # mid-swap and leave a fixture in rules/rule-no-fabrication.mdc; as
+    # SystemExit it unwinds through swap_rule.__exit__, which restores it first.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
 
     cases = load_cases(Path(args.dataset))
     if args.dry_run:

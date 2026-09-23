@@ -20,6 +20,9 @@ def test_parses_macos_and_linux_free_memory():
     assert la.parse_macos_free_pct("no such line") is None
     assert la.parse_linux_free_pct(MEMINFO) == 25
     assert la.parse_linux_free_pct("garbage") is None
+    # MemTotal without MemAvailable is "unknown", not 0% free, so the guard stays off
+    assert la.parse_linux_free_pct("MemTotal:       32000000 kB\nMemFree:         1000000 kB\n") is None
+    assert la.parse_linux_free_pct("MemTotal:              0 kB\nMemAvailable:    8000000 kB\n") is None
 
 
 def test_runtime_prefers_installed_ollama_then_nix():
@@ -156,3 +159,46 @@ def test_stop_child_asks_with_sigint_first_so_the_rule_file_is_restored():
     la.stop_child(stubborn, grace_s=0)
     assert stubborn.signals == [la.signal.SIGINT, la.signal.SIGTERM, la.signal.SIGKILL]
 
+
+
+def test_preflight_checks_the_judge_too_and_leaves_the_answer_model_loaded():
+    calls = []
+
+    def check(base, model):
+        calls.append(("check", model))
+        return (model != "bad-judge", "boom")
+
+    def drop(base, model):
+        calls.append(("drop", model))
+
+    assert la.preflight("b", "ans", "judge", check=check, drop=drop) is None
+    assert calls == [("check", "judge"), ("drop", "judge"), ("check", "ans")]
+    assert la.preflight("b", "ans", "bad-judge", check=check, drop=drop) == ("bad-judge", "boom")
+    calls.clear()
+    assert la.preflight("b", "same", "same", check=check, drop=drop) is None
+    assert calls == [("check", "same")]
+
+
+def test_main_runs_the_child_in_its_own_session(monkeypatch, tmp_path):
+    """A terminal's SIGINT/SIGHUP must reach compare_rules only via stop_child."""
+    seen = {}
+
+    class _Child:
+        def __init__(self, cmd, **kwargs):
+            seen.update(kwargs)
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(la, "server_up", lambda base: True)
+    monkeypatch.setattr(la, "installed_models", lambda base: {"a:1", "j:2"})
+    monkeypatch.setattr(la, "preflight", lambda *a, **k: None)
+    monkeypatch.setattr(la, "read_free_pct", lambda: 50)
+    monkeypatch.setattr(la, "unload", lambda base, model: None)
+    monkeypatch.setattr(la.subprocess, "Popen", _Child)
+    monkeypatch.setattr(la.signal, "signal", lambda *a: None)
+    rc = la.main(["--answer-model", "a:1", "--judge-model", "j:2", "--out", str(tmp_path / "r.md")])
+    assert rc == 0 and seen.get("start_new_session") is True

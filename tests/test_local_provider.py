@@ -5,6 +5,7 @@ No network: the SDK clients are replaced by fakes that record the request.
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -207,10 +208,92 @@ def test_rule_ab_records_answers_and_verdicts(tmp_path):
     provider = SimpleNamespace(name="local", complete=complete)
     case = {"id": "c0", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "r",
             "checks": {"must_not_contain": []}}
-    arm = asyncio.run(cr.run_arm([case], {"c0": {"system_prompt": "sp"}}, provider, None, "model", "judge", 1, "baseline"))
     path = tmp_path / "ab.answers.jsonl"
-    cr.write_transcripts(path, arm)
-    import json as _json
-    rows = [_json.loads(line) for line in path.read_text().splitlines()]
+    asyncio.run(cr.run_arm([case], {"c0": {"system_prompt": "sp"}}, provider, None, "model", "judge", 1, "baseline", path))
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
     assert rows == [{"arm": "baseline", "id": "c0", "sample": 0, "answer": "port 6379",
                      "deterministic": [], "verdict": "FAIL", "reason": "invented port"}]
+
+
+def test_transcript_keeps_samples_graded_before_a_mid_arm_failure(tmp_path):
+    """Each graded sample is written as it happens, so a crash later in the arm keeps it."""
+    from evals.scripts import compare_rules as cr
+
+    grades = iter(["VERDICT: PASS\nREASON: ok"])
+
+    async def complete(client, model, query, system_prompt, max_tokens):
+        if model == "judge":
+            try:
+                return next(grades), {}, 0
+            except StopIteration:
+                raise RuntimeError("judge died") from None
+        return f"answer {query}", {}, 0
+
+    provider = SimpleNamespace(name="anthropic", complete=complete)
+    cases = [{"id": f"c{i}", "category": "fabrication-recall", "query": f"q{i}", "reference": "r",
+              "rubric": "r", "checks": {"must_not_contain": []}} for i in range(2)]
+    path = tmp_path / "ab.answers.jsonl"
+    with pytest.raises(RuntimeError, match="judge died"):
+        asyncio.run(cr.run_arm(cases, {c["id"]: {"system_prompt": "sp"} for c in cases}, provider, None,
+                               "model", "judge", 1, "baseline", path))
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert [(r["id"], r["verdict"]) for r in rows] == [("c0", "PASS")]
+
+
+def test_judge_keeps_thinking_off_at_any_budget(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_THINKING", "1")
+    client, calls = _client('{"winner": "left"}')
+    for budget in (prov.LOCAL_THINKING_MIN_TOKENS, 4096):
+        prov.call_judge_local(client, "q", "a", "b", "judge", "sys", budget, SCHEMA)
+        assert calls.kwargs["reasoning_effort"] == "none"
+
+
+_VERDICT = json.dumps({
+    "winner": "right",
+    "reasoning": "ok",
+    "criterion_scores": {f"{s}_{c}": 5 for s in ("left", "right")
+                         for c in ("helpfulness", "correctness", "depth", "structure", "intent_fit")},
+})
+
+
+def test_main_async_runs_end_to_end_on_local_provider(monkeypatch, tmp_path):
+    """`--provider local` through run_mcp_vs_vanilla.main_async with fake clients:
+    no key needed, cloud JUDGE_* env ignored, the judge never thinks, cost is zero."""
+    pytest.importorskip("openai")
+    pytest.importorskip("jinja2")
+    import dataclasses
+
+    from evals.runners import run_mcp_vs_vanilla as rmv
+
+    for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LOCAL_LLM_JUDGE_MODEL", "LOCAL_LLM_TEMPERATURE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("LOCAL_LLM_MODEL", "qwen3:8b")
+    monkeypatch.setenv("LOCAL_LLM_THINKING", "1")
+    monkeypatch.setenv("JUDGE_PROVIDER", "anthropic")
+    monkeypatch.setenv("JUDGE_MODEL", "claude-opus-4-8")
+
+    answers, _ = _client("An answer.", is_async=True)
+    judge, judge_calls = _client(_VERDICT)
+    real = prov.get_provider("local")
+    fake = dataclasses.replace(real, make_async_client=lambda: answers, make_sync_client=lambda: judge)
+    monkeypatch.setattr(rmv, "get_provider", lambda name: fake if name == "local" else prov.get_provider(name))
+    monkeypatch.setattr(rmv, "sample_queries", lambda dataset, n, seed: [(0, "What is 2+2?")])
+    monkeypatch.setattr(rmv, "_get_router", lambda: None)
+
+    async def _no_route(query, pick_agent=None):
+        return "sys", {"agent": "universal_agent", "tier": "lite", "routing_path": "meta_query",
+                       "skills_loaded": [], "implants_loaded": [], "rules_loaded": []}
+
+    monkeypatch.setattr(rmv, "build_mcp_system_prompt", _no_route)
+
+    out = tmp_path / "report.html"
+    args = rmv.parse_args(["--provider", "local", "--n", "1", "--concurrency", "1",
+                           "--judge-max-tokens", "1024", "--out", str(out), "--save-json"])
+    assert asyncio.run(rmv.main_async(args)) == 0
+
+    data = json.loads(out.with_suffix(".json").read_text())
+    assert (data["config"]["judge_provider"], data["config"]["judge_model"]) == ("local", "qwen3:8b")
+    assert data["arm_pricing"] == data["judge_pricing"] == prov.LOCAL_PRICING
+    assert data["runs"][0]["verdict"]["pos1"]["winner"] == "right"
+    kw = judge_calls.kwargs
+    assert kw["max_tokens"] == 1024 and kw["reasoning_effort"] == "none"

@@ -212,3 +212,43 @@ def test_swap_rule_restores_the_file_when_enter_is_interrupted(tmp_path, monkeyp
         with cr.swap_rule(variant):
             pass
     assert live.read_text() == "ORIGINAL"
+
+
+def test_swap_rule_restores_the_file_when_the_copy_is_interrupted(tmp_path, monkeypatch):
+    """An interrupt after write_bytes truncated the live rule, before the fixture
+    bytes land, must still restore the original."""
+    import pathlib
+    from evals.scripts import compare_rules as cr
+
+    live = tmp_path / "rule-no-fabrication.mdc"
+    live.write_text("ORIGINAL")
+    variant = tmp_path / "variant.mdc"
+    variant.write_text("VARIANT")
+    monkeypatch.setattr(cr, "RULE_PATH", live)
+    monkeypatch.setattr(cr, "_invalidate_all_caches", lambda: None)
+    real_write = pathlib.Path.write_bytes
+
+    def write_then_interrupt(self, data):
+        if data == b"VARIANT":
+            real_write(self, b"")  # truncated, fixture not yet written
+            raise KeyboardInterrupt
+        return real_write(self, data)
+
+    monkeypatch.setattr(pathlib.Path, "write_bytes", write_then_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        with cr.swap_rule(variant):
+            pass
+    assert live.read_text() == "ORIGINAL"
+
+
+def test_swap_rule_fails_before_touching_the_rule_when_the_fixture_is_missing(tmp_path, monkeypatch):
+    from evals.scripts import compare_rules as cr
+
+    live = tmp_path / "rule-no-fabrication.mdc"
+    live.write_text("ORIGINAL")
+    monkeypatch.setattr(cr, "RULE_PATH", live)
+    monkeypatch.setattr(cr, "_invalidate_all_caches", lambda: None)
+    with pytest.raises(FileNotFoundError):
+        with cr.swap_rule(tmp_path / "missing.mdc"):
+            pass
+    assert live.read_text() == "ORIGINAL"

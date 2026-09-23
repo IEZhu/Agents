@@ -1,7 +1,7 @@
 """Run the rule A/B on local models with one command.
 
 Starts a memory-lean Ollama server if none is listening, pulls any missing
-model, checks the server can actually run it, runs
+model, checks the server can actually run both models, runs
 ``evals.scripts.compare_rules --provider local`` with the answer and judge
 models while watching free memory, then stops the server it started (or
 unloads the models from a server it reused).
@@ -131,6 +131,31 @@ def can_generate(base: str, model: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def preflight(
+    base: str,
+    answer_model: str,
+    judge_model: str,
+    check: Callable[[str, str], tuple[bool, str]] | None = None,
+    drop: Callable[[str, str], None] | None = None,
+) -> tuple[str, str] | None:
+    """Check that both models generate; return (model, error) for the first that can't.
+
+    The local A/B generates every answer before its first grade, so a judge
+    that can't load would otherwise fail only after the whole answer phase.
+    The judge goes first and is unloaded, leaving the answer model in memory
+    for the run.
+    """
+    check = check or can_generate
+    drop = drop or unload
+    for model in dict.fromkeys([judge_model, answer_model]):
+        ok, why = check(base, model)
+        if not ok:
+            return model, why
+        if model != answer_model:
+            drop(base, model)
+    return None
+
+
 def unload(base: str, model: str) -> None:
     try:
         with _request(f"{base}/api/generate", {"model": model, "keep_alive": 0}, timeout=60):
@@ -187,8 +212,11 @@ def stop_process_group(proc: subprocess.Popen, grace_s: float = 15) -> None:
     """Stop *proc* and everything in its process group (nix wrapper, server, runners)."""
     try:
         os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass  # group gone, or (macOS) only zombies left, where killpg fails with EPERM
+    try:
         proc.wait(timeout=grace_s)
-    except (ProcessLookupError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
         pass
     try:  # the leader can exit before its children; take the rest of the group down
         os.killpg(proc.pid, signal.SIGKILL)
@@ -236,9 +264,10 @@ def parse_linux_free_pct(meminfo: str) -> int | None:
         key, _, rest = line.partition(":")
         if key in ("MemTotal", "MemAvailable") and rest.split():
             values[key] = int(rest.split()[0])
-    if values.get("MemTotal"):
-        return int(100 * values.get("MemAvailable", 0) / values["MemTotal"])
-    return None
+    total, available = values.get("MemTotal"), values.get("MemAvailable")
+    if not total or available is None:
+        return None  # no MemAvailable (old kernels, some containers): unknown, not 0% free
+    return int(100 * available / total)
 
 
 def read_free_pct() -> int | None:
@@ -388,16 +417,22 @@ def main(argv: list[str] | None = None) -> int:
             wait_for_server(server, base, log_path)
         for model in missing_models(models, installed_models(base)):
             pull(base, model)
-        ok, why = can_generate(base, args.answer_model)
-        if not ok:
-            log(f"the server on {base} can't run {args.answer_model}: {why}")
+        failed = preflight(base, args.answer_model, args.judge_model)
+        if failed is not None:
+            model, why = failed
+            log(f"the server on {base} can't run {model}: {why}")
             log("if it is a stale server, stop it or pass --port to start a fresh one")
             return 2
         if read_free_pct() is None:
             log("free memory can't be read on this system; the memory guard is off")
         threading.Thread(target=guard.run, args=(stop,), daemon=True).start()
         log(f"running A/B: answer={args.answer_model} judge={args.judge_model} samples={args.samples}")
-        child = subprocess.Popen(ab_command(args), cwd=REPO_ROOT, env=ab_env(args, base))
+        # Own session: a terminal's SIGINT/SIGHUP must not reach compare_rules
+        # directly (a second interrupt could land during its rule-file restore);
+        # only stop_child's single SIGINT does.
+        child = subprocess.Popen(
+            ab_command(args), cwd=REPO_ROOT, env=ab_env(args, base), start_new_session=True,
+        )
         code = child.wait()
     except KeyboardInterrupt:
         log("interrupted — stopping")
@@ -419,7 +454,9 @@ def main(argv: list[str] | None = None) -> int:
                     unload(base, model)
         finally:
             if server is not None and not args.keep_server:
-                stop_process_group(server)  # idempotent; also covers an interrupt during unload
+                # Safe to repeat; a second Ctrl+C/SIGTERM/SIGHUP during the first
+                # stop's wait lands here and still gets the group killed.
+                stop_process_group(server)
     if guard.lowest is not None:
         log(f"lowest free memory seen: {guard.lowest}%")
     if guard.tripped:
