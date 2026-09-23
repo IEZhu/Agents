@@ -43,8 +43,8 @@ What `local_ab` does:
 4. **Memory guard.** Checks free memory every 10 s (`memory_pressure` on macOS,
    `/proc/meminfo` on Linux). After three low readings in a row, about 20–30 s
    below `--min-free-pct` (default 5%), it stops the run and exits with code 3.
-   It stops `compare_rules` with SIGINT first, so the swapped rule file is put
-   back.
+   It stops `compare_rules` with SIGINT first, so it can clean up. The A/B
+   reads a private copy of `rules/`, so the live rules are never modified.
 5. **Cleanup.** Stops the server it started, or unloads both models from a
    server it reused. This also happens on Ctrl+C, `kill`/SIGTERM and a closed
    terminal (SIGHUP). `--keep-server` leaves a started server running.
@@ -152,6 +152,9 @@ python -m evals.runners.run_mcp_vs_vanilla --provider local --n 10 \
   behind one GPU and can overflow a 16k context.
 - `run_mcp_vs_vanilla` samples queries from Hugging Face datasets, so it needs
   network access or a warm `~/.cache/huggingface`.
+- With a local judge model that differs from the answer model, it answers every
+  query before judging any, so a one-model server swaps models once instead of
+  on every query.
 - When `--provider local` is given without an explicit judge, the cloud
   `JUDGE_PROVIDER` / `JUDGE_MODEL` variables are ignored. The judge comes from
   `LOCAL_LLM_JUDGE_MODEL` or `--judge-model`.

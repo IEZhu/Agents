@@ -543,26 +543,67 @@ async def run_one_query(
     semaphore: asyncio.Semaphore,
 ) -> QueryRun:
     async with semaphore:
-        vanilla, mcp = await asyncio.gather(
-            run_arm_vanilla(provider, async_client, query, model, max_tokens),
-            run_arm_mcp(provider, async_client, query, model, max_tokens),
+        vanilla, mcp = await run_arms(provider, async_client, query, model, max_tokens)
+        verdict = await judge_arms(
+            vanilla, mcp, judge_provider=judge_provider, judge_sync_client=judge_sync_client,
+            query=query, judge_model=judge_model, judge_max_tokens=judge_max_tokens,
         )
-        if not vanilla.response_text.strip() or not mcp.response_text.strip():
-            empty_arm = "vanilla" if not vanilla.response_text.strip() else "mcp"
-            verdict = _synthetic_empty_tie(
-                f"Skipped judge: {empty_arm} arm returned empty text (likely token-budget exhaustion or content filter)."
-            )
-        else:
-            verdict = await judge_with_swap(
-                judge_provider=judge_provider,
-                judge_sync_client=judge_sync_client,
-                query=query,
-                vanilla_text=vanilla.response_text,
-                mcp_text=mcp.response_text,
-                judge_model=judge_model,
-                judge_max_tokens=judge_max_tokens,
-            )
     return QueryRun(idx=idx, query=query, stream_idx=stream_idx, vanilla=vanilla, mcp=mcp, verdict=verdict)
+
+
+async def run_arms(provider: ProviderImpl, async_client, query: str, model: str, max_tokens: int):
+    return await asyncio.gather(
+        run_arm_vanilla(provider, async_client, query, model, max_tokens),
+        run_arm_mcp(provider, async_client, query, model, max_tokens),
+    )
+
+
+async def judge_arms(
+    vanilla: TrialResult, mcp: TrialResult, *, judge_provider: ProviderImpl, judge_sync_client,
+    query: str, judge_model: str, judge_max_tokens: int,
+) -> SwapVerdict:
+    if not vanilla.response_text.strip() or not mcp.response_text.strip():
+        empty_arm = "vanilla" if not vanilla.response_text.strip() else "mcp"
+        return _synthetic_empty_tie(
+            f"Skipped judge: {empty_arm} arm returned empty text (likely token-budget exhaustion or content filter)."
+        )
+    return await judge_with_swap(
+        judge_provider=judge_provider,
+        judge_sync_client=judge_sync_client,
+        query=query,
+        vanilla_text=vanilla.response_text,
+        mcp_text=mcp.response_text,
+        judge_model=judge_model,
+        judge_max_tokens=judge_max_tokens,
+    )
+
+
+async def run_answers_then_judge(
+    queries: list[tuple[int, str]], *, provider: ProviderImpl, async_client, judge_provider: ProviderImpl,
+    judge_sync_client, model: str, judge_model: str, max_tokens: int, judge_max_tokens: int,
+    semaphore: asyncio.Semaphore,
+) -> list[QueryRun]:
+    """Answer every query before judging any.
+
+    A local server that holds one model at a time would otherwise load the
+    answer model and the judge model on every query, as compare_rules avoids too.
+    """
+    async def bounded(coro):
+        async with semaphore:
+            return await coro
+
+    arms = await asyncio.gather(*[
+        bounded(run_arms(provider, async_client, q, model, max_tokens)) for _, q in queries
+    ])
+    verdicts = await asyncio.gather(*[
+        bounded(judge_arms(vanilla, mcp, judge_provider=judge_provider, judge_sync_client=judge_sync_client,
+                           query=q, judge_model=judge_model, judge_max_tokens=judge_max_tokens))
+        for (_, q), (vanilla, mcp) in zip(queries, arms)
+    ])
+    return [
+        QueryRun(idx=i, query=q, stream_idx=s_idx, vanilla=vanilla, mcp=mcp, verdict=verdict)
+        for i, ((s_idx, q), (vanilla, mcp), verdict) in enumerate(zip(queries, arms, verdicts), 1)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -957,23 +998,30 @@ async def main_async(args: argparse.Namespace) -> int:
     semaphore = asyncio.Semaphore(args.concurrency)
 
     t0 = time.perf_counter()
-    runs = await asyncio.gather(*[
-        run_one_query(
-            idx=i,
-            stream_idx=s_idx,
-            query=q,
-            provider=provider,
-            async_client=async_client,
-            judge_provider=judge_provider,
-            judge_sync_client=judge_sync_client,
-            model=model,
-            judge_model=judge_model,
-            max_tokens=args.max_tokens,
-            judge_max_tokens=args.judge_max_tokens,
-            semaphore=semaphore,
+    if provider.name == "local" and judge_provider.name == "local" and judge_model != model:
+        runs = await run_answers_then_judge(
+            queries, provider=provider, async_client=async_client, judge_provider=judge_provider,
+            judge_sync_client=judge_sync_client, model=model, judge_model=judge_model,
+            max_tokens=args.max_tokens, judge_max_tokens=args.judge_max_tokens, semaphore=semaphore,
         )
-        for i, (s_idx, q) in enumerate(queries, 1)
-    ])
+    else:
+        runs = await asyncio.gather(*[
+            run_one_query(
+                idx=i,
+                stream_idx=s_idx,
+                query=q,
+                provider=provider,
+                async_client=async_client,
+                judge_provider=judge_provider,
+                judge_sync_client=judge_sync_client,
+                model=model,
+                judge_model=judge_model,
+                max_tokens=args.max_tokens,
+                judge_max_tokens=args.judge_max_tokens,
+                semaphore=semaphore,
+            )
+            for i, (s_idx, q) in enumerate(queries, 1)
+        ])
     wall = time.perf_counter() - t0
 
     # Per-model pricing table — falls back to provider-level if unknown.

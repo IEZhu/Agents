@@ -324,3 +324,43 @@ def test_main_async_runs_end_to_end_on_local_provider(monkeypatch, tmp_path):
     assert data["runs"][0]["verdict"]["pos1"]["winner"] == "right"
     kw = judge_calls.kwargs
     assert kw["max_tokens"] == 1024 and kw["reasoning_effort"] == "none"
+
+
+def test_main_async_answers_everything_before_judging_with_a_second_local_model(monkeypatch, tmp_path):
+    """With a separate local judge model, a one-model server must not swap models per query."""
+    pytest.importorskip("openai")
+    pytest.importorskip("jinja2")
+    import dataclasses
+
+    from evals.runners import run_mcp_vs_vanilla as rmv
+
+    for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "JUDGE_PROVIDER", "JUDGE_MODEL", "LOCAL_LLM_TEMPERATURE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("LOCAL_LLM_MODEL", "answer:1")
+    monkeypatch.setenv("LOCAL_LLM_JUDGE_MODEL", "judge:1")
+    order: list[str] = []
+
+    class _Recorder(_FakeCompletions):
+        def create(self, **kwargs):
+            order.append(kwargs["model"])
+            return super().create(**kwargs)
+
+    answers = SimpleNamespace(chat=SimpleNamespace(completions=_Recorder("An answer.", is_async=True)))
+    judge = SimpleNamespace(chat=SimpleNamespace(completions=_Recorder(_VERDICT)))
+    real = prov.get_provider("local")
+    fake = dataclasses.replace(real, make_async_client=lambda: answers, make_sync_client=lambda: judge)
+    monkeypatch.setattr(rmv, "get_provider", lambda name: fake)
+    monkeypatch.setattr(rmv, "sample_queries", lambda dataset, n, seed: [(0, "q1"), (1, "q2"), (2, "q3")])
+    monkeypatch.setattr(rmv, "_get_router", lambda: None)
+
+    async def _no_route(query, pick_agent=None):
+        return "sys", {"agent": "universal_agent", "tier": "lite", "routing_path": "meta_query",
+                       "skills_loaded": [], "implants_loaded": [], "rules_loaded": []}
+
+    monkeypatch.setattr(rmv, "build_mcp_system_prompt", _no_route)
+    out = tmp_path / "report.html"
+    args = rmv.parse_args(["--provider", "local", "--n", "3", "--concurrency", "2", "--out", str(out), "--save-json"])
+    assert asyncio.run(rmv.main_async(args)) == 0
+    assert order == ["answer:1"] * 6 + ["judge:1"] * 6  # 2 arms per query, then 2 judge passes per query
+    data = json.loads(out.with_suffix(".json").read_text())
+    assert [run["query"] for run in data["runs"]] == ["q1", "q2", "q3"]

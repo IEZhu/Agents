@@ -43,8 +43,8 @@ DEFAULT_CONTEXT = 12288
 GUARD_EXIT_CODE = 3
 GUARD_INTERVAL_S = 10
 GUARD_STRIKES = 3
-# compare_rules swaps a fixture over the tracked rule file while it builds
-# prompts; it needs a moment after SIGINT to put the original back.
+# compare_rules needs a moment after SIGINT to remove its private rule copy
+# and flush the answers log.
 CHILD_GRACE_S = 30
 
 # One model in memory at a time, one request at a time, and a quantized KV cache:
@@ -225,13 +225,13 @@ def stop_process_group(proc: subprocess.Popen, grace_s: float = 15) -> None:
 
 
 # The memory guard's thread and the main thread's interrupt path can both stop
-# the child. A second SIGINT could interrupt compare_rules while it restores the
-# live rule file, so the stop runs once and a later caller waits for it.
+# the child. A second SIGINT could interrupt compare_rules' cleanup, so the stop
+# runs once and a later caller waits for it.
 _STOP_CHILD_LOCK = threading.Lock()
 
 
 def stop_child(child: subprocess.Popen, grace_s: float = CHILD_GRACE_S) -> None:
-    """Ask compare_rules to stop the way Ctrl+C does, so it restores the rule file first."""
+    """Ask compare_rules to stop the way Ctrl+C does, so it cleans up first."""
     with _STOP_CHILD_LOCK:
         if child.poll() is not None:
             return
@@ -439,7 +439,7 @@ def main(argv: list[str] | None = None) -> int:
         threading.Thread(target=guard.run, args=(stop,), daemon=True).start()
         log(f"running A/B: answer={args.answer_model} judge={args.judge_model} samples={args.samples}")
         # Own session: a terminal's SIGINT/SIGHUP must not reach compare_rules
-        # directly (a second interrupt could land during its rule-file restore);
+        # directly (a second interrupt could land during its cleanup);
         # only stop_child's single SIGINT does.
         child = subprocess.Popen(
             ab_command(args), cwd=REPO_ROOT, env=ab_env(args, base), start_new_session=True,

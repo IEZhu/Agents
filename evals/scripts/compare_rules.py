@@ -18,14 +18,15 @@ Merge gate: the candidate must REDUCE fabrication-FAIL WITHOUT raising
 overhedge-FAIL (and not regress deliver-FAIL).
 
 Rule swap: rules are universal and identical for every agent, so the only thing
-that changes between arms is this one rule's text. Each arm copies its OWN variant
-(``--baseline-rule`` / ``--candidate-rule``, both defaulting to fixtures under
-``evals/fixtures/``) over ``rules/rule-no-fabrication.mdc``, calls
-``invalidate_cache()``, builds the prompt, and ALWAYS restores in a ``finally``.
-Because both arms swap explicit fixtures, the A/B does not depend on whatever
-currently lives in the live rule file — it keeps working after the candidate is
-adopted as the live rule. Fixtures sit outside the ``rules/rule-*.mdc`` glob so
-they are never loaded as an extra rule.
+that changes between arms is this one rule's text. Each arm builds its prompts
+from a private copy of ``rules/`` under ``data/`` in which
+``rule-no-fabrication.mdc`` is its OWN variant (``--baseline-rule`` /
+``--candidate-rule``, both defaulting to fixtures under ``evals/fixtures/``).
+The live ``rules/`` is never written, so concurrent runs and a server reading
+the install are unaffected. Because both arms use explicit fixtures, the A/B
+does not depend on whatever currently lives in the live rule file — it keeps
+working after the candidate is adopted as the live rule. Fixtures sit outside
+the ``rules/rule-*.mdc`` glob so they are never loaded as an extra rule.
 
 Usage:
     # mechanics only, no API calls, no spend:
@@ -51,8 +52,10 @@ import argparse
 import asyncio
 import json
 import re
+import shutil
 import signal
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -61,6 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import src.engine.rules as rules_module  # noqa: E402
 from src.engine.rules import invalidate_cache  # noqa: E402
 
 # NOTE: build_mcp_system_prompt (from evals.runners.run_mcp_vs_vanilla) is imported
@@ -69,9 +73,12 @@ from src.engine.rules import invalidate_cache  # noqa: E402
 # imported and unit-tested without that heavy dependency.
 
 RULE_PATH = REPO_ROOT / "rules" / "rule-no-fabrication.mdc"
+# Private rule copies live here: inside the installation, so the loader's path
+# checks accept them, and gitignored, so the tracked tree never looks modified.
+STAGING_PARENT = REPO_ROOT / "data"
 DEFAULT_DATASET = REPO_ROOT / "evals" / "datasets" / "no_fabrication.jsonl"
-# Both arms swap an explicit fixture over the live rule, so the A/B does NOT
-# depend on what currently lives in rules/rule-no-fabrication.mdc — it keeps
+# Both arms read an explicit fixture in place of the live rule, so the A/B does
+# NOT depend on what currently lives in rules/rule-no-fabrication.mdc — it keeps
 # working after the candidate is adopted as the live rule.
 DEFAULT_BASELINE = REPO_ROOT / "evals" / "fixtures" / "rule-no-fabrication.baseline.mdc"
 DEFAULT_CANDIDATE = REPO_ROOT / "evals" / "fixtures" / "rule-no-fabrication.candidate.mdc"
@@ -149,7 +156,7 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- #
-# Rule swap (each arm copies its own fixture over the live rule, then restores)
+# Rule swap (each arm reads a private copy of rules/ with its own fixture)
 # --------------------------------------------------------------------------- #
 def _invalidate_all_caches() -> None:
     """Drop every cache that could serve a prompt built under the OTHER rule.
@@ -166,38 +173,48 @@ def _invalidate_all_caches() -> None:
 
 
 class swap_rule:
-    """Context manager: temporarily replace the no-fabrication rule body.
+    """Context manager: load rules from a private copy with the variant swapped in.
 
-    variant_path=None keeps the live baseline file untouched (only invalidates
-    caches). Any other path is copied over RULE_PATH for the duration and the
-    original bytes are ALWAYS restored on exit.
+    The live rules/ directory is never written. For the duration, the rules
+    loader reads a temporary copy of every rule-*.mdc in which RULE_PATH's file
+    is replaced by the variant (variant_path=None keeps the live text). A
+    concurrent A/B, a server reading rules/, or a killed run can therefore
+    neither see nor leave behind a swapped rule, and the install's tracked tree
+    stays clean for its updater.
     """
 
     def __init__(self, variant_path: Path | None):
         self.variant_path = variant_path
-        self._original: bytes | None = None
+        self._copy: Path | None = None
+        self._previous: str | None = None
 
     def __enter__(self) -> "swap_rule":
+        # Read the fixture first, so a missing one fails before anything changes.
+        variant = self.variant_path.read_bytes() if self.variant_path is not None else None
         try:
-            if self.variant_path is not None:
-                # Read the fixture first, so a missing one fails before the
-                # live rule is touched.
-                variant = self.variant_path.read_bytes()
-                self._original = RULE_PATH.read_bytes()
-                RULE_PATH.write_bytes(variant)
+            STAGING_PARENT.mkdir(parents=True, exist_ok=True)
+            self._copy = Path(tempfile.mkdtemp(prefix=".rule-ab-", dir=STAGING_PARENT))
+            for source in RULE_PATH.parent.glob("rule-*.mdc"):  # the live rules, even when nested
+                shutil.copyfile(source, self._copy / source.name)
+            if variant is not None:
+                (self._copy / RULE_PATH.name).write_bytes(variant)
+            self._previous = rules_module.RULES_DIR
+            rules_module.RULES_DIR = str(self._copy)
             _invalidate_all_caches()
         except BaseException:
-            # __exit__ never runs when __enter__ raises. write_bytes truncates
-            # before it writes, and the cache reset does a slow first import:
-            # a Ctrl+C, SIGTERM or OSError landing in either would leave a
-            # truncated or fixture rule in the live file.
+            # __exit__ never runs when __enter__ raises; undo the redirect and
+            # drop the copy here instead.
             self.__exit__(None, None, None)
             raise
         return self
 
     def __exit__(self, *exc) -> None:
-        if self._original is not None:
-            RULE_PATH.write_bytes(self._original)
+        if self._previous is not None:
+            rules_module.RULES_DIR = self._previous
+            self._previous = None
+        if self._copy is not None:
+            shutil.rmtree(self._copy, ignore_errors=True)
+            self._copy = None
         _invalidate_all_caches()
 
 
@@ -375,10 +392,10 @@ async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
     print("\n[dry-run] candidate rule block:\n")
     print(_rule_block(cand[sample_id]["system_prompt"]))
 
-    # Verify the live rule file was restored after the swaps.
-    restored = RULE_PATH.read_bytes() == _get_base_original_bytes()
-    print(f"\n[dry-run] live rule file restored to original: {'yes' if restored else 'NO! — investigate'}")
-    if not restored:
+    # The swaps read private copies; the live rule file must be unchanged.
+    unchanged = RULE_PATH.read_bytes() == _get_base_original_bytes()
+    print(f"\n[dry-run] live rule file unchanged: {'yes' if unchanged else 'NO! — investigate'}")
+    if not unchanged:
         problems += 1
 
     # Deterministic-check coverage preview (no answers to grade yet).
@@ -480,7 +497,7 @@ def append_transcript(path: Path, label: str, cid: str, rec: dict[str, Any]) -> 
         f.write(json.dumps({"arm": label, "id": cid, **rec}, ensure_ascii=False) + "\n")
 
 
-# Snapshot of the live rule file used by dry-run to assert it was restored intact.
+# Snapshot of the live rule file used by dry-run to assert it stayed unchanged.
 # Read lazily (not at import time) so importing this module never fails when the
 # rule file is absent — e.g. a fresh clone, CI, or import for type-checking.
 _base_original_bytes: bytes | None = None
@@ -496,9 +513,8 @@ def _get_base_original_bytes() -> bytes:
 def exit_on_termination_signals() -> None:
     """Turn SIGTERM, and SIGHUP where it exists, into SystemExit.
 
-    A plain SIGTERM, or SIGHUP from a closed terminal, would kill the process
-    mid-swap and leave a fixture in rules/rule-no-fabrication.mdc; as
-    SystemExit it unwinds through swap_rule.__exit__, which restores it first.
+    As SystemExit, a plain SIGTERM or a closed terminal's SIGHUP unwinds through
+    swap_rule.__exit__, which removes the private rule copy under data/.
     Windows has no SIGHUP, and a direct run there must still work.
     """
     for name in ("SIGTERM", "SIGHUP"):

@@ -189,17 +189,45 @@ def test_gate_fails_on_regression():
     assert "Merge gate: FAIL" in render_report(_GATE_CASES, base, cand, _CFG)
 
 
-def test_swap_rule_restores_the_file_when_enter_is_interrupted(tmp_path, monkeypatch):
-    """A Ctrl+C/SIGTERM during the cache reset inside __enter__ must not leave
-    the fixture in the live rule file (with-statements skip __exit__ then)."""
-    import pytest
+@pytest.fixture
+def rule_tree(tmp_path, monkeypatch):
     from evals.scripts import compare_rules as cr
 
-    live = tmp_path / "rule-no-fabrication.mdc"
-    live.write_text("ORIGINAL")
+    live = tmp_path / "rules"
+    live.mkdir()
+    (live / "rule-no-fabrication.mdc").write_text("ORIGINAL")
+    (live / "rule-other.mdc").write_text("OTHER")
     variant = tmp_path / "variant.mdc"
     variant.write_text("VARIANT")
-    monkeypatch.setattr(cr, "RULE_PATH", live)
+    staging = tmp_path / "data"
+    monkeypatch.setattr(cr.rules_module, "RULES_DIR", str(live))
+    monkeypatch.setattr(cr, "RULE_PATH", live / "rule-no-fabrication.mdc")
+    monkeypatch.setattr(cr, "STAGING_PARENT", staging)
+    monkeypatch.setattr(cr, "_invalidate_all_caches", lambda: None)
+    return cr, live, variant, staging
+
+
+def test_swap_rule_reads_a_private_copy_and_never_writes_the_live_rule(rule_tree):
+    cr, live, variant, staging = rule_tree
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in live.iterdir()}
+    with cr.swap_rule(variant):
+        copy = Path(cr.rules_module.RULES_DIR)
+        assert copy.parent == staging and copy != live
+        assert (copy / "rule-no-fabrication.mdc").read_text() == "VARIANT"
+        assert (copy / "rule-other.mdc").read_text() == "OTHER"
+        # A concurrent run or the server reading rules/ sees the original.
+        assert (live / "rule-no-fabrication.mdc").read_text() == "ORIGINAL"
+        with cr.swap_rule(None):
+            assert (Path(cr.rules_module.RULES_DIR) / "rule-no-fabrication.mdc").read_text() == "ORIGINAL"
+    assert cr.rules_module.RULES_DIR == str(live)
+    assert not list(staging.iterdir())
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in live.iterdir()} == before
+
+
+def test_swap_rule_undoes_the_redirect_when_enter_is_interrupted(rule_tree, monkeypatch):
+    """A Ctrl+C/SIGTERM during the cache reset inside __enter__ (with-statements
+    skip __exit__ then) must not leave the loader pointed at the copy."""
+    cr, live, variant, staging = rule_tree
     calls = []
 
     def reset():
@@ -211,47 +239,18 @@ def test_swap_rule_restores_the_file_when_enter_is_interrupted(tmp_path, monkeyp
     with pytest.raises(KeyboardInterrupt):
         with cr.swap_rule(variant):
             pass
-    assert live.read_text() == "ORIGINAL"
+    assert cr.rules_module.RULES_DIR == str(live)
+    assert not list(staging.iterdir())
+    assert (live / "rule-no-fabrication.mdc").read_text() == "ORIGINAL"
 
 
-def test_swap_rule_restores_the_file_when_the_copy_is_interrupted(tmp_path, monkeypatch):
-    """An interrupt after write_bytes truncated the live rule, before the fixture
-    bytes land, must still restore the original."""
-    import pathlib
-    from evals.scripts import compare_rules as cr
-
-    live = tmp_path / "rule-no-fabrication.mdc"
-    live.write_text("ORIGINAL")
-    variant = tmp_path / "variant.mdc"
-    variant.write_text("VARIANT")
-    monkeypatch.setattr(cr, "RULE_PATH", live)
-    monkeypatch.setattr(cr, "_invalidate_all_caches", lambda: None)
-    real_write = pathlib.Path.write_bytes
-
-    def write_then_interrupt(self, data):
-        if data == b"VARIANT":
-            real_write(self, b"")  # truncated, fixture not yet written
-            raise KeyboardInterrupt
-        return real_write(self, data)
-
-    monkeypatch.setattr(pathlib.Path, "write_bytes", write_then_interrupt)
-    with pytest.raises(KeyboardInterrupt):
-        with cr.swap_rule(variant):
-            pass
-    assert live.read_text() == "ORIGINAL"
-
-
-def test_swap_rule_fails_before_touching_the_rule_when_the_fixture_is_missing(tmp_path, monkeypatch):
-    from evals.scripts import compare_rules as cr
-
-    live = tmp_path / "rule-no-fabrication.mdc"
-    live.write_text("ORIGINAL")
-    monkeypatch.setattr(cr, "RULE_PATH", live)
-    monkeypatch.setattr(cr, "_invalidate_all_caches", lambda: None)
+def test_swap_rule_fails_before_copying_when_the_fixture_is_missing(rule_tree, tmp_path):
+    cr, live, _, staging = rule_tree
     with pytest.raises(FileNotFoundError):
         with cr.swap_rule(tmp_path / "missing.mdc"):
             pass
-    assert live.read_text() == "ORIGINAL"
+    assert cr.rules_module.RULES_DIR == str(live)
+    assert not staging.exists()
 
 
 def test_termination_handlers_skip_sighup_where_it_does_not_exist(monkeypatch):
