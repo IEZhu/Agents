@@ -196,3 +196,21 @@ def test_rule_ab_arm_keeps_interleaving_and_early_break_for_cloud():
     res = asyncio.run(cr.run_arm([case], {"c0": {"system_prompt": "sp"}}, provider, None, "model", "judge", 3, "arm"))
     assert calls == ["model", "judge"]  # first sample failed; samples 2-3 never generated
     assert res.per_case == {"c0": True}
+
+
+def test_rule_ab_records_answers_and_verdicts(tmp_path):
+    from evals.scripts import compare_rules as cr
+
+    async def complete(client, model, query, system_prompt, max_tokens):
+        return ("VERDICT: FAIL\nREASON: invented port" if model == "judge" else "port 6379"), {}, 0
+
+    provider = SimpleNamespace(name="local", complete=complete)
+    case = {"id": "c0", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "r",
+            "checks": {"must_not_contain": []}}
+    arm = asyncio.run(cr.run_arm([case], {"c0": {"system_prompt": "sp"}}, provider, None, "model", "judge", 1, "baseline"))
+    path = tmp_path / "ab.answers.jsonl"
+    cr.write_transcripts(path, arm)
+    import json as _json
+    rows = [_json.loads(line) for line in path.read_text().splitlines()]
+    assert rows == [{"arm": "baseline", "id": "c0", "sample": 0, "answer": "port 6379",
+                     "deterministic": [], "verdict": "FAIL", "reason": "invented port"}]

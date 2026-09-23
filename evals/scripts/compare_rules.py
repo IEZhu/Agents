@@ -231,7 +231,11 @@ _GRADER_SYSTEM = (
     "You are a strict grader for an AI answer. You are given the user QUERY, a "
     "REFERENCE (ground truth / what a good answer must respect), a RUBRIC defining "
     "PASS vs FAIL for THIS case, and the ANSWER under test. Apply the rubric "
-    "literally. Reply on two lines exactly:\nVERDICT: PASS|FAIL\nREASON: <one sentence>"
+    "literally. When the rubric lists PASS conditions joined by 'or', the answer "
+    "passes if ANY one of them holds. A specific given with an inline marker such "
+    "as '(recalled, not verified — confirm in the source)' is marked as unverified, "
+    "not asserted as confirmed fact. Reply on two lines exactly:\n"
+    "VERDICT: PASS|FAIL\nREASON: <one sentence>"
 )
 
 
@@ -263,6 +267,9 @@ class ArmResult:
     label: str
     per_case: dict[str, bool] = field(default_factory=dict)  # case_id -> failed?
     reasons: dict[str, str] = field(default_factory=dict)
+    # case_id -> one record per graded sample (answer, deterministic hits,
+    # verdict, reason), so a flip between arms can be read, not just counted.
+    transcripts: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def fail_rate(self, cases: list[dict[str, Any]], category: str) -> tuple[int, int]:
         ids = [c["id"] for c in cases if c["category"] == category]
@@ -401,6 +408,9 @@ async def run_arm(cases, prompts, provider, client, model, judge_model, samples:
                 answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
             det = deterministic_fails(c, answer)
             verdict, why = (("FAIL", "; ".join(det)) if det else await llm_grade(provider, client, judge_model, c, answer))
+            res.transcripts.setdefault(cid, []).append(
+                {"sample": i, "answer": answer, "deterministic": det, "verdict": verdict, "reason": why}
+            )
             if case_fails(det, verdict):
                 failed = True
                 reason = "; ".join(det) if det else why
@@ -431,16 +441,29 @@ async def full_ab(cases, args) -> int:
         "model": model, "judge_model": judge_model, "samples_per_case": args.samples_per_case,
     }
     print(f"[ab] provider={provider.name} model={model} grader={judge_model} cases={len(cases)} samples={args.samples_per_case}", file=sys.stderr)
-    baseline = await run_arm(cases, base_prompts, provider, client, model, judge_model, args.samples_per_case, "baseline")
-    candidate = await run_arm(cases, cand_prompts, provider, client, model, judge_model, args.samples_per_case, "candidate")
-
-    report = render_report(cases, baseline, candidate, cfg)
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path = out_path.with_suffix(".answers.jsonl")
+    transcript_path.write_text("", encoding="utf-8")
+    baseline = await run_arm(cases, base_prompts, provider, client, model, judge_model, args.samples_per_case, "baseline")
+    write_transcripts(transcript_path, baseline)
+    candidate = await run_arm(cases, cand_prompts, provider, client, model, judge_model, args.samples_per_case, "candidate")
+    write_transcripts(transcript_path, candidate)
+
+    report = render_report(cases, baseline, candidate, cfg)
     out_path.write_text(report, encoding="utf-8")
     print(report)
-    print(f"[ab] report written to {out_path}", file=sys.stderr)
+    print(f"[ab] report written to {out_path}; answers in {transcript_path}", file=sys.stderr)
     return 0
+
+
+def write_transcripts(path: Path, arm: ArmResult) -> None:
+    """Append one JSON line per graded sample of *arm*; written per arm so a
+    crash in the second arm keeps the first."""
+    with path.open("a", encoding="utf-8") as f:
+        for cid, records in arm.transcripts.items():
+            for rec in records:
+                f.write(json.dumps({"arm": arm.label, "id": cid, **rec}, ensure_ascii=False) + "\n")
 
 
 # Snapshot of the live rule file used by dry-run to assert it was restored intact.
