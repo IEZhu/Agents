@@ -81,6 +81,33 @@ def test_sampling_sends_a_fresh_seed_per_call(monkeypatch):
     assert len(set(seeds)) == 3
 
 
+def test_evaluator_calls_stay_greedy_when_answers_sample(monkeypatch):
+    """Graders, judges and router picks must not inherit answer sampling."""
+    monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0.7")
+    client, calls = _client("VERDICT: PASS", is_async=True)
+    asyncio.run(prov.complete_local(client, "m", "grade this", None, 300, sample=False))
+    assert calls.kwargs["temperature"] == 0 and "seed" not in calls.kwargs
+    judge_client, judge_calls = _client('{"winner": "left"}')
+    prov.call_judge_local(judge_client, "q", "a", "b", "judge", "sys", 300, SCHEMA)
+    assert judge_calls.kwargs["temperature"] == 0 and "seed" not in judge_calls.kwargs
+
+
+def test_rule_ab_grader_asks_for_greedy_decoding():
+    from evals.scripts import compare_rules as cr
+
+    seen: dict[str, bool] = {}
+
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+        seen[model] = sample
+        return ("VERDICT: PASS\nREASON: ok" if model == "judge" else "answer"), {}, 0
+
+    provider = SimpleNamespace(name="local", complete=complete)
+    case = {"id": "c0", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "r",
+            "checks": {"must_not_contain": []}}
+    asyncio.run(cr.run_arm([case], {"c0": {"system_prompt": "sp"}}, provider, None, "model", "judge", 1, "arm"))
+    assert seen == {"model": True, "judge": False}
+
+
 def test_inline_think_block_is_stripped():
     client, _ = _client("<think>let me see</think>\nThe answer is 4.", is_async=True)
     text, _, _ = asyncio.run(prov.complete_local(client, "m", "2+2?", None, 50))
@@ -165,7 +192,7 @@ def test_rule_ab_arm_answers_everything_before_grading(monkeypatch):
 
     calls: list[str] = []
 
-    async def complete(client, model, query, system_prompt, max_tokens):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
         calls.append(model)
         return ("VERDICT: PASS\nREASON: ok" if model == "judge" else f"answer to {query}"), {}, 0
 
@@ -187,7 +214,7 @@ def test_rule_ab_arm_keeps_interleaving_and_early_break_for_cloud():
 
     calls: list[str] = []
 
-    async def complete(client, model, query, system_prompt, max_tokens):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
         calls.append(model)
         return ("VERDICT: FAIL\nREASON: wrong" if model == "judge" else "answer"), {}, 0
 
@@ -202,7 +229,7 @@ def test_rule_ab_arm_keeps_interleaving_and_early_break_for_cloud():
 def test_rule_ab_records_answers_and_verdicts(tmp_path):
     from evals.scripts import compare_rules as cr
 
-    async def complete(client, model, query, system_prompt, max_tokens):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
         return ("VERDICT: FAIL\nREASON: invented port" if model == "judge" else "port 6379"), {}, 0
 
     provider = SimpleNamespace(name="local", complete=complete)
@@ -221,7 +248,7 @@ def test_transcript_keeps_samples_graded_before_a_mid_arm_failure(tmp_path):
 
     grades = iter(["VERDICT: PASS\nREASON: ok"])
 
-    async def complete(client, model, query, system_prompt, max_tokens):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
         if model == "judge":
             try:
                 return next(grades), {}, 0

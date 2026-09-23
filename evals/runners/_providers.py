@@ -233,6 +233,8 @@ async def complete_openai(
     query: str,
     system_prompt: str | None,
     max_tokens: int,
+    *,
+    sample: bool = True,  # no effect: temperature is locked, see below
 ) -> tuple[str, dict[str, int], int]:
     # OpenAI's newer model family (gpt-5.x and reasoning models) requires three
     # mitigations vs the gpt-4 era:
@@ -347,6 +349,8 @@ async def complete_anthropic(
     query: str,
     system_prompt: str | None,
     max_tokens: int,
+    *,
+    sample: bool = True,  # no effect: temperature is 0 or locked, see below
 ) -> tuple[str, dict[str, int], int]:
     # Opus 4.7/4.8 deprecate `temperature` — see _supports_temperature_anthropic.
     # For models that still accept it, we keep `temperature=0` for determinism.
@@ -430,8 +434,13 @@ _THINK_BLOCK = re.compile(r"<think>.*?(?:</think>\s*|\Z)", re.DOTALL | re.IGNORE
 _call_counter = itertools.count()
 
 
-def _local_request(model: str, messages: list[dict[str, Any]], max_tokens: int) -> dict[str, Any]:
-    temperature = float(os.getenv("LOCAL_LLM_TEMPERATURE", "0"))
+def _local_request(
+    model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
+) -> dict[str, Any]:
+    # LOCAL_LLM_TEMPERATURE samples answers only. Graders, judges and router
+    # picks run greedy (sample=False), so an arm difference under sampling comes
+    # from the answers, not from evaluator or routing noise.
+    temperature = float(os.getenv("LOCAL_LLM_TEMPERATURE", "0")) if sample else 0.0
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -467,13 +476,15 @@ async def complete_local(
     query: str,
     system_prompt: str | None,
     max_tokens: int,
+    *,
+    sample: bool = True,
 ) -> tuple[str, dict[str, int], int]:
     t0 = time.perf_counter()
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": query})
-    response = await client.chat.completions.create(**_local_request(model, messages, max_tokens))
+    response = await client.chat.completions.create(**_local_request(model, messages, max_tokens, sample))
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = _local_text(response, "completion")
     if has_harness_artifacts(text):
@@ -501,6 +512,7 @@ def call_judge_local(
             {"role": "user", "content": judge_user_prompt(query, left, right)},
         ],
         max_tokens,
+        sample=False,
     )
     # Judges never think, whatever the budget: run_mcp_vs_vanilla's judge budget
     # defaults to 4096, above LOCAL_THINKING_MIN_TOKENS.
@@ -551,7 +563,7 @@ class ProviderImpl:
     default_judge_model: str
     make_async_client: Callable[[], Any]
     make_sync_client: Callable[[], Any]
-    complete: Callable  # async
+    complete: Callable  # async (client, model, query, system_prompt, max_tokens, *, sample=True)
     call_judge: Callable  # sync
     pricing: dict[str, float]
     env_key: str  # name of the API-key env var; "" when no key is required

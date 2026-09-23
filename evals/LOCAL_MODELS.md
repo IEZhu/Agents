@@ -159,7 +159,7 @@ python -m evals.runners.run_mcp_vs_vanilla --provider local --n 10 \
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint |
 | `LOCAL_LLM_MODEL` | `qwen3:8b` | model under test |
 | `LOCAL_LLM_JUDGE_MODEL` | = `LOCAL_LLM_MODEL` | grader / pairwise judge |
-| `LOCAL_LLM_TEMPERATURE` | `0` | `0` = greedy and repeatable; set e.g. `0.7` to sample |
+| `LOCAL_LLM_TEMPERATURE` | `0` | answers only: `0` = greedy and repeatable; set e.g. `0.7` to sample. Graders, judges and router picks always run at `0` |
 | `LOCAL_LLM_SEED` | `7` | base seed when sampling; each call gets base + call index |
 | `LOCAL_LLM_THINKING` | `0` | `1` turns thinking on for calls of ≥1024 tokens (answers); router picks, graders and judges keep it off |
 | `LOCAL_LLM_TIMEOUT` | `900` | client timeout in seconds |
@@ -171,6 +171,8 @@ No API key is required, and reported cost is zero.
 is greedy: every sample and every retry re-roll returns the same text, so
 `--samples-per-case 3` only triples the run time. With sampling on, each call
 gets its own seed, so samples differ and a whole run stays reproducible.
+Only answers sample. Graders, pairwise judges and router picks stay greedy, so an
+arm difference comes from the answers, not from evaluator or routing noise.
 
 ## Server behaviour the client relies on
 
@@ -239,7 +241,8 @@ vs candidate `rule-no-fabrication.factuality`. The candidate fixture and 9 of
 the 31 cases live on branch `feat/factuality-layer`, not on this branch. The
 server ran with one model loaded at a time, `OLLAMA_KV_CACHE_TYPE=q8_0`, flash attention and a 12k
 context. Lowest free memory seen was 11%, and the memory watchdog never fired.
-Both runs used the grader prompt from before commit 8364f65.
+Both runs used the grader prompt from before commit 8364f65. The t=0.7 run also
+predates answer-only sampling, so its grader sampled at 0.7 as well.
 
 | run | time | fabrication FAIL (base → cand) | over-hedge | deliver |
 |---|---|---|---|---|

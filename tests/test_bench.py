@@ -1253,7 +1253,7 @@ class TestLlmPickAgent:
             return_value=[{"name": n, "role": f"{n} role"} for n in catalog_names]
         )
 
-        async def _complete(_client, _model, _query, _system, _max_tokens):
+        async def _complete(_client, _model, _query, _system, _max_tokens, sample=True):
             return reply_text, {}, 1.0
 
         provider = MagicMock()

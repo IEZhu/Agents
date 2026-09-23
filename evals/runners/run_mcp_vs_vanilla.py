@@ -300,7 +300,7 @@ async def _llm_pick_agent(provider: ProviderImpl, client, model: str, query: str
         f"Agents:\n{listing}"
     )
     text, _usage, _latency_ms = await _with_retries(
-        lambda: provider.complete(client, model, query, picker_system, 32)
+        lambda: provider.complete(client, model, query, picker_system, 32, sample=False)
     )
     cleaned = (text or "").strip().lower()
     agent = "universal_agent"

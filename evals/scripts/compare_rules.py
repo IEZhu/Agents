@@ -257,7 +257,7 @@ async def llm_grade(provider, client, model: str, case: dict[str, Any], answer: 
         f"QUERY:\n{case['query']}\n\nREFERENCE:\n{case['reference']}\n\n"
         f"RUBRIC:\n{case['rubric']}\n\nANSWER:\n{answer}\n"
     )
-    text, _usage, _latency = await provider.complete(client, model, user, _GRADER_SYSTEM, 300)
+    text, _usage, _latency = await provider.complete(client, model, user, _GRADER_SYSTEM, 300, sample=False)
     verdict = "FAIL" if re.search(r"VERDICT:\s*FAIL", text, re.IGNORECASE) else (
         "PASS" if re.search(r"VERDICT:\s*PASS", text, re.IGNORECASE) else "FAIL"
     )

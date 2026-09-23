@@ -160,6 +160,37 @@ def test_stop_child_asks_with_sigint_first_so_the_rule_file_is_restored():
     assert stubborn.signals == [la.signal.SIGINT, la.signal.SIGTERM, la.signal.SIGKILL]
 
 
+def test_concurrent_stops_send_one_sigint():
+    """Guard thread and interrupt path racing must not send a second SIGINT
+    that could land during compare_rules' rule-file restore."""
+    import threading
+
+    both_polling = threading.Barrier(2)
+
+    class _RacyChild(_FakeChild):
+        def poll(self):
+            state = super().poll()
+            try:
+                both_polling.wait(timeout=0.3)  # unserialized callers both see "running"
+            except threading.BrokenBarrierError:
+                pass
+            return state
+
+    child = _RacyChild(exits_on=la.signal.SIGINT)
+    threads = [threading.Thread(target=la.stop_child, args=(child, 0)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert child.signals == [la.signal.SIGINT]
+
+
+def test_main_refuses_windows_before_touching_signals(monkeypatch):
+    monkeypatch.setattr(la.sys, "platform", "win32")
+    monkeypatch.setattr(la, "server_up", lambda base: pytest.fail("must not probe the server"))
+    assert la.main([]) == 2
+
+
 
 def test_preflight_checks_the_judge_too_and_leaves_the_answer_model_loaded():
     calls = []

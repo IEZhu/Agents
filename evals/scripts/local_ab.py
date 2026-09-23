@@ -224,22 +224,29 @@ def stop_process_group(proc: subprocess.Popen, grace_s: float = 15) -> None:
         pass
 
 
+# The memory guard's thread and the main thread's interrupt path can both stop
+# the child. A second SIGINT could interrupt compare_rules while it restores the
+# live rule file, so the stop runs once and a later caller waits for it.
+_STOP_CHILD_LOCK = threading.Lock()
+
+
 def stop_child(child: subprocess.Popen, grace_s: float = CHILD_GRACE_S) -> None:
     """Ask compare_rules to stop the way Ctrl+C does, so it restores the rule file first."""
-    if child.poll() is not None:
-        return
-    child.send_signal(signal.SIGINT)
-    try:
-        child.wait(timeout=grace_s)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    child.terminate()
-    try:
-        child.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        child.kill()
-        child.wait()
+    with _STOP_CHILD_LOCK:
+        if child.poll() is not None:
+            return
+        child.send_signal(signal.SIGINT)
+        try:
+            child.wait(timeout=grace_s)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        child.terminate()
+        try:
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
 
 
 def _raise_interrupt(signum, _frame):
@@ -376,6 +383,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if sys.platform == "win32":
+        # SIGHUP, os.killpg and start_new_session have no Windows equivalent here.
+        log("local_ab needs POSIX signals and process groups; run it on Linux or macOS")
+        return 2
     base = f"http://127.0.0.1:{args.port}"
     models = [args.answer_model, args.judge_model]
     running = server_up(base)
