@@ -20,7 +20,7 @@ triggers:
 ## Pattern
 1. **Read**: Process each retrieved document/fragment.
 2. **Annotate**: For each paragraph, assess relevance (Relevant/Not Relevant). Extract key fact from relevant ones.
-3. **Synthesize**: Build the answer from facts in relevant notes. Where the notes don't cover part of the question, say which part is uncovered; if you add general knowledge there, label it as not from the sources. Answer what the notes support rather than returning a bare "insufficient information."
+3. **Synthesize**: Build the answer from facts in relevant notes. Where the notes don't cover part of the question, say which part is uncovered. If the user restricted the answer to the supplied text (e.g. "only from the text", "только по тексту"), stop there and add no outside facts; otherwise you may add general knowledge for the uncovered part, labeled as not from the sources. Answer what the notes support rather than returning a bare "insufficient information."
 
 ## When to Use
 - RAG pipelines where retrieved documents may contain irrelevant content

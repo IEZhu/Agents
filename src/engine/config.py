@@ -156,6 +156,23 @@ def _int_env(name: str, default: int, lo: int = 0, hi: Optional[int] = None) -> 
     return value
 
 
+def _choice_env(name: str, default: str, choices: tuple[str, ...]) -> str:
+    """Read a lower-cased enum env var, falling back to *default* on unknown values.
+
+    Mirrors :func:`_float_env`: a typo or a not-yet-implemented mode must not
+    silently run the default while the operator believes a gate is on.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value not in choices:
+        logger.warning("Unknown value for %s=%r (expected one of %s), using default %r",
+                       name, raw, "|".join(choices), default)
+        return default
+    return value
+
+
 ROUTER_SIMILARITY_THRESHOLD = _float_env("ROUTER_SIMILARITY_THRESHOLD", 0.95)
 # Sticky agent: auto-switch to a different agent without LLM if cosine distance
 # is below this value. Intentionally tighter than the router's distance cutoff
@@ -190,8 +207,9 @@ IMPLANTS_DEEP_TIER_DEFAULT = 3
 #   IMPLANT_GATING: "legacy" = top-N under the absolute threshold; "zscore" =
 #     keep only implants at least IMPLANT_GATE_Z standard deviations closer than
 #     the query's mean distance, so a query may load none.
-IMPLANT_INDEX_MODE = os.getenv("IMPLANT_INDEX_MODE", "legacy").strip().lower()
-IMPLANT_GATING = os.getenv("IMPLANT_GATING", "legacy").strip().lower()
+# Unknown values warn and fall back to the default (_choice_env).
+IMPLANT_INDEX_MODE = _choice_env("IMPLANT_INDEX_MODE", "legacy", ("legacy", "triggers"))
+IMPLANT_GATING = _choice_env("IMPLANT_GATING", "legacy", ("legacy", "zscore"))
 IMPLANT_GATE_Z = _float_env("IMPLANT_GATE_Z", 1.5, lo=0.0, hi=5.0)
 # Distance multiplier when one of the implant's `triggers` occurs in the query.
 IMPLANT_TRIGGER_BOOST = _float_env("IMPLANT_TRIGGER_BOOST", 0.85)
@@ -200,9 +218,11 @@ IMPLANT_TRIGGER_BOOST = _float_env("IMPLANT_TRIGGER_BOOST", 0.85)
 #   "intent" — also require classify_intent(query).implant_budget > 0, without
 #              letting the classifier change the tier, skills or persona format
 #              (INTENT_CLASSIFIER_ENABLED switches all of those at once).
+# Protocol 1 only: the gate is per query, and the protocol 2 persona bundle is
+# built once per session, so persona_bundle.py does not apply it.
 # Measured on the implant labels (evals/scripts/implant_need_gate.py): utility
 # +0.149 [95% CI +0.056, +0.242] vs production, implants per query 2.07 → 1.36.
-IMPLANT_NEED_GATE = os.getenv("IMPLANT_NEED_GATE", "off").strip().lower()
+IMPLANT_NEED_GATE = _choice_env("IMPLANT_NEED_GATE", "off", ("off", "intent"))
 
 # --- Intent classifier (src/engine/intent.py) --------------------------------
 # Replaces the length+regex `infer_tier` heuristic with a two-axis TaskProfile.

@@ -121,3 +121,15 @@ def test_profile_budget_wins_over_the_need_gate(monkeypatch):
     monkeypatch.setattr(cfg, "IMPLANT_NEED_GATE", "off")
     assert enrichment.implants_needed("x", "deep", SimpleNamespace(implant_budget=0)) is False
     assert enrichment.implants_needed("x", "lite", SimpleNamespace(implant_budget=1)) is True
+
+
+def test_choice_env_rejects_unknown_mode(monkeypatch, caplog):
+    # A planned-but-unshipped mode must warn, not silently run the default.
+    monkeypatch.setenv("IMPLANT_GATING", "margin")
+    with caplog.at_level("WARNING"):
+        assert cfg._choice_env("IMPLANT_GATING", "legacy", ("legacy", "zscore")) == "legacy"
+    assert "IMPLANT_GATING" in caplog.text
+    monkeypatch.setenv("IMPLANT_GATING", " ZScore ")
+    assert cfg._choice_env("IMPLANT_GATING", "legacy", ("legacy", "zscore")) == "zscore"
+    monkeypatch.delenv("IMPLANT_GATING")
+    assert cfg._choice_env("IMPLANT_GATING", "legacy", ("legacy", "zscore")) == "legacy"

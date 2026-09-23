@@ -31,6 +31,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from evals.scripts._isolated_data import isolate_data_dir  # noqa: E402
+
+isolate_data_dir()  # before any engine import: the retrievers must not reindex the live data/
+
 from evals.metrics.retrieval import RetrievalResult, compute_metrics  # noqa: E402
 from evals.runners._loader import iter_valid, load_samples  # noqa: E402
 from evals.runners.run_retrieval import N_RESULTS, _agent_preferred_implants, _agent_skill_pools  # noqa: E402
@@ -78,17 +82,25 @@ def sweep_skills(samples) -> list[tuple[dict, object]]:
 def sweep_implants(samples) -> list[tuple[dict, object]]:
     retriever = implants_mod.ImplantRetriever()
     rows = []
-    for th in IMPLANT_GRID["threshold"]:
-        implants_mod.IMPLANTS_RELEVANCE_THRESHOLD = th
-        results = []
-        for s in samples:
-            agent = s.label.get("expected_agent")
-            expected = s.label.get("expected_implants") or list(_agent_preferred_implants(agent))
-            if not expected:
-                continue
-            got = retriever.retrieve(s.query, n_results=N_RESULTS, role=agent)
-            results.append(RetrievalResult(s.label["id"], expected, [_stem(d) for d in got]))
-        rows.append(({"threshold": th}, compute_metrics(results)))
+    # The threshold only gates the legacy path; zscore ignores it, so every row
+    # would measure the same gate. Force legacy for the sweep, then restore.
+    cfg = implants_mod._cfg
+    prev_gating, prev_threshold = cfg.IMPLANT_GATING, implants_mod.IMPLANTS_RELEVANCE_THRESHOLD
+    cfg.IMPLANT_GATING = "legacy"
+    try:
+        for th in IMPLANT_GRID["threshold"]:
+            implants_mod.IMPLANTS_RELEVANCE_THRESHOLD = th
+            results = []
+            for s in samples:
+                agent = s.label.get("expected_agent")
+                expected = s.label.get("expected_implants") or list(_agent_preferred_implants(agent))
+                if not expected:
+                    continue
+                got = retriever.retrieve(s.query, n_results=N_RESULTS, role=agent)
+                results.append(RetrievalResult(s.label["id"], expected, [_stem(d) for d in got]))
+            rows.append(({"threshold": th}, compute_metrics(results)))
+    finally:
+        cfg.IMPLANT_GATING, implants_mod.IMPLANTS_RELEVANCE_THRESHOLD = prev_gating, prev_threshold
     return rows
 
 
@@ -114,7 +126,7 @@ def main() -> int:
     args = ap.parse_args()
 
     samples = list(iter_valid(load_samples()[0]))
-    out = ["# Layer calibration sweep", ""]
+    out = [f"# Layer calibration sweep ({implants_mod._cfg.EMBEDDING_MODEL})", ""]
     if args.layer in ("skills", "both"):
         out.append(_table("Skills (semantic pool only; core skills excluded)", sweep_skills(samples), args.top))
     if args.layer in ("implants", "both"):

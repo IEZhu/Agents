@@ -166,7 +166,10 @@ async def build_persona_bundle(
     )
 
     implants = []
-    if enrichment.implants_needed(query, tier):
+    # The bundle lives for the whole session, so it must not use the per-query
+    # IMPLANT_NEED_GATE: a first message that needs no implant would strip the
+    # agent's declared implants from every later turn.
+    if tier in ("standard", "deep"):
         default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
         count = min(max(default_count, len(preferred_implants)), MAX_PREFERRED_IMPLANTS)
         selected_implants = await asyncio.to_thread(

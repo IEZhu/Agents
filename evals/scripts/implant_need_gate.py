@@ -13,15 +13,19 @@ Policies compared on test (all use the production implant list unless noted):
   P2  intent gate   — production list, gated by classify_intent's implant budget
   P3  learned gate  — production list, gated by the trained classifier
   P4  learned gate + triggers rerank — gated; the agent's preferred implants
-                      reordered by trigger-index distance, top 2
+                      reordered by trigger-index distance, top 2 (unboosted
+                      unless --trigger-boost is given)
   P5  oracle gate   — production list, gated by the label itself (upper bound)
 
 Metrics: hit@3 on samples that need an implant, none-acc on samples that need
 none, utility = 0.5·hit@3 + 0.5·none-acc, mean implants loaded. The utility
 difference vs P0 carries a 95% bootstrap interval over test samples.
 
+Runs on a temporary copy of data/ (``_isolated_data``): switching the index
+mode reindexes, and that must not touch the install's stores.
+
 Usage:
-    python -m evals.scripts.implant_need_gate [--save-weights PATH]
+    python -m evals.scripts.implant_need_gate [--trigger-boost 1.0] [--save-weights PATH]
 """
 from __future__ import annotations
 
@@ -38,6 +42,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from evals.scripts._isolated_data import isolate_data_dir  # noqa: E402
+
+isolate_data_dir()  # before any engine import: reindexing must not touch the live data/
+
 import src.engine.config as cfg  # noqa: E402
 from evals.runners._loader import iter_valid, load_samples  # noqa: E402
 from evals.runners.run_retrieval import _agent_preferred_implants  # noqa: E402
@@ -51,15 +59,16 @@ FEATURES = ("log_len", "legacy_z1", "trig_z1", "any_trigger", "tier_deep", "tier
 TIER_BUDGET = {"standard": 2, "deep": cfg.IMPLANTS_DEEP_TIER_DEFAULT}
 
 
-def _all_distances(retriever: ImplantRetriever, query: str, agent: str | None, boost: bool):
+def _all_distances(retriever: ImplantRetriever, query: str, agent: str | None, boost: float = 1.0):
+    """Distances to every implant; trigger hits are multiplied by ``boost`` (1.0 = none)."""
     emb = embed_query(f"Query: {query}\nRole: {agent}" if agent else f"Query: {query}")
     res = retriever.store.query(query_embedding=emb, n_results=retriever.store.count())
     q = query.lower()
     out = {}
     for i, cid in enumerate(res.ids):
         d = res.distances[i]
-        if boost and _trigger_hit((res.metadatas[i] or {}).get("triggers") or [], q):
-            d *= cfg.IMPLANT_TRIGGER_BOOST
+        if boost != 1.0 and _trigger_hit((res.metadatas[i] or {}).get("triggers") or [], q):
+            d *= boost
         out[Path(cid).stem] = d
     return out
 
@@ -70,7 +79,7 @@ def _top1_z(dists: dict[str, float]) -> float:
     return (min(vals) - statistics.fmean(vals)) / sd
 
 
-def collect(samples, labels):
+def collect(samples, labels, trigger_boost: float = 1.0):
     """One record per labelled sample: features, candidate lists, label."""
     records = []
     for s in samples:
@@ -84,22 +93,25 @@ def collect(samples, labels):
             "tier": _legacy_infer_tier(s.query),
             "intent_budget": classify_intent(s.query).implant_budget,
         })
-    cfg.IMPLANT_INDEX_MODE = "legacy"
-    legacy = ImplantRetriever()
-    for r in records:
-        d = _all_distances(legacy, r["query"], r["agent"], boost=False)
-        r["legacy_z1"] = _top1_z(d)
-        r["legacy_rank"] = sorted(d, key=d.get)
-    cfg.IMPLANT_INDEX_MODE = "triggers"
-    trig = ImplantRetriever()
-    for r in records:
-        d = _all_distances(trig, r["query"], r["agent"], boost=True)
-        r["trig_z1"] = _top1_z(d)
-        r["trig_dist"] = d
-        q = r["query"].lower()
-        r["any_trigger"] = float(any(_trigger_hit((m or {}).get("triggers") or [], q)
-                                     for m in trig.store.get_all_metadatas()))
-    cfg.IMPLANT_INDEX_MODE = "legacy"
+    saved_mode = cfg.IMPLANT_INDEX_MODE
+    try:
+        cfg.IMPLANT_INDEX_MODE = "legacy"
+        legacy = ImplantRetriever()
+        for r in records:
+            d = _all_distances(legacy, r["query"], r["agent"])
+            r["legacy_z1"] = _top1_z(d)
+            r["legacy_rank"] = sorted(d, key=d.get)
+        cfg.IMPLANT_INDEX_MODE = "triggers"
+        trig = ImplantRetriever()
+        for r in records:
+            d = _all_distances(trig, r["query"], r["agent"], boost=trigger_boost)
+            r["trig_z1"] = _top1_z(d)
+            r["trig_dist"] = d
+            q = r["query"].lower()
+            r["any_trigger"] = float(any(_trigger_hit((m or {}).get("triggers") or [], q)
+                                         for m in trig.store.get_all_metadatas()))
+    finally:
+        cfg.IMPLANT_INDEX_MODE = saved_mode
     for r in records:
         r["x"] = [
             math.log(len(r["query"]) + 1), r["legacy_z1"], r["trig_z1"], r["any_trigger"],
@@ -173,10 +185,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--labels", type=Path, default=DEFAULT_LABELS)
     ap.add_argument("--save-weights", type=Path)
+    ap.add_argument("--trigger-boost", type=float, default=1.0,
+                    help="multiplier on trigger-hit distances for trig_z1 and the P4 rerank; "
+                         "1.0 = no boost, as the research plan asks for evaluations "
+                         "(production default IMPLANT_TRIGGER_BOOST=0.85)")
     args = ap.parse_args()
 
     labels = {r["id"]: r["expected_implants"] for r in map(json.loads, args.labels.read_text().splitlines())}
-    records = collect(list(iter_valid(load_samples()[0])), labels)
+    records = collect(list(iter_valid(load_samples()[0])), labels, trigger_boost=args.trigger_boost)
     dev = [r for r in records if r["split"] == "dev"]
     test = [r for r in records if r["split"] == "test"]
 
@@ -204,7 +220,8 @@ def main() -> int:
     need_acc = statistics.fmean(
         float((predict(model, r["x"]) >= 0.5) == bool(r["expected"])) for r in test
     )
-    print(f"# Implant need gate — test split ({len(test)} samples; trained on dev {len(dev)})\n")
+    print(f"# Implant need gate — test split ({len(test)} samples; trained on dev {len(dev)}; "
+          f"trigger boost {args.trigger_boost}; {cfg.EMBEDDING_MODEL})\n")
     print(f"Learned gate accuracy on 'needs any implant': {need_acc:.2f}\n")
     print("| policy | hit@3 | none-acc | utility | Δ utility vs P0 (95% CI) | loaded |")
     print("|---|---|---|---|---|---|")
