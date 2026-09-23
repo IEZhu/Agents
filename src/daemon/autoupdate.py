@@ -15,7 +15,9 @@ from datetime import datetime, timezone
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+from pathlib import Path
 import plistlib
+import shutil
 import subprocess
 
 from src.file_lock import file_lock
@@ -64,6 +66,8 @@ def _save_settings(controller, **values):
 
 
 def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECONDS):
+    if not controller.config:
+        raise RuntimeError("Service is not installed")
     if interval < 60 or idle_seconds < 0:
         raise ValueError("interval must be at least 60 seconds and idle_seconds not negative")
     with file_lock(controller.directory / "control.lock", blocking=False):
@@ -77,7 +81,10 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
 
 def disable(controller):
     with file_lock(controller.directory / "control.lock", blocking=False):
-        controller.launchctl("bootout", f"gui/{os.getuid()}/{label(controller)}", check=False)
+        target = f"gui/{os.getuid()}/{label(controller)}"
+        result = controller.launchctl("bootout", target, check=False)
+        if result.returncode and controller.launchctl("print", target, check=False).returncode == 0:
+            raise RuntimeError("launchd could not stop the updater; it is still scheduled")
         plist_path(controller).unlink(missing_ok=True)
         if controller.config:
             _save_settings(controller, enabled=False)
@@ -99,7 +106,10 @@ def _git(controller, *args, check=True):
 def check_target(controller, remote=None, branch=None):
     """Fetch and classify the tracked branch without touching the service."""
     from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_REMOTE
+    from src.self_update import _is_safe_arg
     remote, branch = remote or AUTO_UPDATE_REMOTE, branch or AUTO_UPDATE_BRANCH
+    if not (_is_safe_arg(remote) and _is_safe_arg(branch)):
+        return {"state": "skipped", "reason": f"unsafe remote or branch name: {remote!r} {branch!r}"}
     current = _git(controller, "symbolic-ref", "--quiet", "--short", "HEAD", check=False).stdout.strip()
     if current != branch:
         return {"state": "skipped", "reason": f"checked-out branch is {current or 'detached'}, not {branch}"}
@@ -145,12 +155,35 @@ def run(controller):
         handler.close()
 
 
+def other_readers(controller, daemon_pid):
+    """PIDs other than the daemon holding the installation's session lease file.
+
+    `offline_update` stops the service before it can learn that a stdio server
+    holds the lease, then restarts it. Checking first keeps a connected stdio
+    client from costing a restart on every interval. None when unknown.
+    """
+    lsof = shutil.which("lsof", path=controller.config["path"] + ":/usr/sbin")
+    if not lsof:
+        return None
+    lease = Path(controller.config["installation"]) / "data/.sessions.lock"
+    listed = subprocess.run([lsof, "-t", "--", str(lease)], capture_output=True, text=True, timeout=GIT_TIMEOUT)
+    return sorted({int(pid) for pid in listed.stdout.split()} - {daemon_pid, os.getpid()})
+
+
+def _enabled_on_disk(controller):
+    # `disable` may have run while this run was fetching.
+    return bool((read_json(controller.directory / "service.json", {}).get("auto_update") or {}).get("enabled"))
+
+
 def _run(controller):
     if not settings(controller)["enabled"]:
         return {"state": "disabled"}
     if any((controller.directory / name).exists() for name in ("maintenance.json", "transaction.json")):
         return _record(controller, {"state": "blocked", "reason": "maintenance or unfinished transaction; run recover"})
-    found = check_target(controller)
+    try:
+        found = check_target(controller)
+    except (subprocess.SubprocessError, OSError) as error:
+        return _record(controller, {"state": "skipped", "reason": f"git failed: {type(error).__name__}: {error}"})
     if found["state"] != "available":
         if found["state"] == "up_to_date":
             return found  # the common case; no log line every interval
@@ -162,6 +195,14 @@ def _run(controller):
     idle = settings(controller)["idle_seconds"]
     if health.get("inflight") or health.get("io_pending") or health.get("idle_seconds", 0) < idle:
         return _record(controller, {**found, "state": "deferred", "reason": "service is busy"})
+    try:
+        readers = other_readers(controller, health.get("pid"))
+    except (subprocess.SubprocessError, OSError):
+        readers = None  # unknown: offline_update still refuses a held lease, after a restart
+    if readers:
+        return _record(controller, {**found, "state": "deferred", "reason": f"stdio readers hold the installation: {readers}"})
+    if not _enabled_on_disk(controller):
+        return {"state": "disabled"}
     from .update import offline_update
     try:
         result = offline_update(controller)

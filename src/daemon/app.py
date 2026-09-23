@@ -53,7 +53,7 @@ class Service:
         # client (#76); it is counted apart and closed on drain instead.
         self.inflight = 0
         self.streams = 0
-        self.stream_tasks = {}
+        self.stream_closers = set()
         self.last_activity = time.monotonic()
         self.io = None
         self.transport = None
@@ -196,34 +196,50 @@ class Service:
         if self.streams >= MAX_STREAMS:
             return await JSONResponse({"error": "busy"}, 503, headers={"Retry-After": "1"})(scope, receive, send)
         response = {"started": False, "ended": False}
+        closing = asyncio.Event()
+
         async def tracked_send(message):
+            await send(message)
+            # Record only delivered messages: uvicorn may suspend a send for
+            # flow control before it processes the message.
             if message["type"] == "http.response.start":
                 response["started"] = True
             elif message["type"] == "http.response.body" and not message.get("more_body", False):
                 response["ended"] = True
-            await send(message)
-        task = asyncio.create_task(self.dispatch(request, scope, receive, tracked_send))
-        self.stream_tasks[task] = False
+
+        async def closable_receive():
+            # Drain ends a stream by reporting a disconnect, so the SSE response
+            # and the MCP transport (terminate()) shut down through their own
+            # cleanup instead of being cancelled halfway.
+            if closing.is_set():
+                return {"type": "http.disconnect"}
+            message = asyncio.ensure_future(receive())
+            closed = asyncio.ensure_future(closing.wait())
+            done, _ = await asyncio.wait({message, closed}, return_when=asyncio.FIRST_COMPLETED)
+            if message in done:
+                closed.cancel()
+                return message.result()
+            message.cancel()
+            return {"type": "http.disconnect"}
+
+        self.stream_closers.add(closing)
         self.streams += 1
         try:
-            await task
-        except asyncio.CancelledError:
-            if not self.stream_tasks.get(task):
-                raise  # the client went away, not a drain
-            # Closed by drain: end the response cleanly so the client sees a
-            # finished stream, not a reset, and reconnects to the next process.
-            if not response["started"]:
-                await JSONResponse({"error": "draining"}, 503)(scope, receive, send)
-            elif not response["ended"]:
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
+            await self.dispatch(request, scope, closable_receive, tracked_send)
+            if closing.is_set():
+                # The client is still connected: finish the response so it sees
+                # an ended stream, not a reset, and reconnects to the next process.
+                if not response["started"]:
+                    await JSONResponse({"error": "draining"}, 503)(scope, receive, send)
+                elif not response["ended"]:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
         finally:
-            self.stream_tasks.pop(task, None)
+            self.stream_closers.discard(closing)
             self.streams -= 1
 
     def close_streams(self):
-        for task in list(self.stream_tasks):
-            self.stream_tasks[task] = True
-            task.cancel()
+        for closing in list(self.stream_closers):
+            closing.set()
 
 
 def create_app(directory, token, port=8765, runtime_loader=load_runtime):

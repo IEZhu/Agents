@@ -131,7 +131,9 @@ class Controller:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             status = self.request()
-            if not status.get("inflight", 0) and not status.get("io_pending", 0): return
+            # Streams end on drain; waiting for them lets each client receive
+            # its final chunk before launchd stops the process.
+            if not any(status.get(key, 0) for key in ("inflight", "io_pending", "streams")): return
             time.sleep(.1)
         self.request("/admin/resume", method="POST")
         raise TimeoutError("Drain timed out; runtime resumed without killing active work")
@@ -234,7 +236,7 @@ def main(argv=None):
     elif args.command == "auto-update":
         from . import autoupdate
         if args.action == "enable":
-            result = autoupdate.enable(controller, args.interval or autoupdate.DEFAULT_INTERVAL,
+            result = autoupdate.enable(controller, autoupdate.DEFAULT_INTERVAL if args.interval is None else args.interval,
                                        autoupdate.DEFAULT_IDLE_SECONDS if args.idle_seconds is None else args.idle_seconds)
         else:
             result = getattr(autoupdate, args.action)(controller)

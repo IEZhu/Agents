@@ -152,7 +152,8 @@ Git credentials and SSH must work with the LaunchAgent's PATH and environment.
 ### Automatic updates (opt-in)
 
 ```bash
-.venv/bin/python -m src.daemon auto-update enable [--interval 900] [--idle-seconds 120]
+.venv/bin/python -m src.daemon auto-update enable
+.venv/bin/python -m src.daemon auto-update enable --interval 900 --idle-seconds 120
 .venv/bin/python -m src.daemon auto-update status
 .venv/bin/python -m src.daemon auto-update disable
 ```
@@ -165,8 +166,10 @@ the checked-out branch is different, tracked files have local changes, the
 target is not a fast-forward, or dependency manifests changed; each skip is
 logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
-runs the same transaction as `update`. A stopped service is left stopped. An
-unfinished transaction blocks further runs until `recover`.
+runs the same transaction as `update`. It also waits while any stdio server
+holds the installation, since `update` would stop the service only to find it
+busy. A stopped service is left stopped. An unfinished transaction blocks
+further runs until `recover`.
 
 Downtime is the stop, the reindex, and the warmup. The reindex re-embeds only
 when skills or implants changed, and only one model is loaded at a time. The
