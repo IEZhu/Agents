@@ -1,0 +1,198 @@
+"""`local` eval provider: OpenAI-compatible local server (Ollama, LM Studio, llama.cpp, MLX).
+
+No network: the SDK clients are replaced by fakes that record the request.
+"""
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+from evals.judges.pairwise_judge import JudgeValidationError
+from evals.runners import _providers as prov
+
+SCHEMA = {"name": "submit_verdict", "input_schema": {"type": "object", "properties": {"winner": {"type": "string"}}}}
+
+
+def _response(content: str, finish: str = "stop"):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish)],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=3, prompt_tokens_details=None),
+    )
+
+
+class _FakeCompletions:
+    def __init__(self, content: str, finish: str = "stop", is_async: bool = False):
+        self.content, self.finish, self.is_async, self.kwargs = content, finish, is_async, None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        resp = _response(self.content, self.finish)
+        if self.is_async:
+            async def _coro():
+                return resp
+            return _coro()
+        return resp
+
+
+def _client(content: str, finish: str = "stop", is_async: bool = False):
+    completions = _FakeCompletions(content, finish, is_async)
+    return SimpleNamespace(chat=SimpleNamespace(completions=completions)), completions
+
+
+def test_request_uses_max_tokens_and_disables_thinking(monkeypatch):
+    monkeypatch.delenv("LOCAL_LLM_THINKING", raising=False)
+    monkeypatch.delenv("LOCAL_LLM_TEMPERATURE", raising=False)
+    client, calls = _client("OK.", is_async=True)
+    text, usage, _ = asyncio.run(prov.complete_local(client, "qwen3:8b", "hi", "sys", 50))
+    assert text == "OK."
+    kw = calls.kwargs
+    assert kw["max_tokens"] == 50 and "max_completion_tokens" not in kw
+    assert kw["reasoning_effort"] == "none"
+    # Greedy decoding: a seed would change nothing, so none is sent.
+    assert kw["temperature"] == 0 and "seed" not in kw
+    assert kw["messages"][0] == {"role": "system", "content": "sys"}
+    assert usage["input_tokens"] == 10 and usage["output_tokens"] == 3
+
+
+def test_thinking_applies_to_answer_sized_calls_only(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_THINKING", "1")
+    client, calls = _client("OK.", is_async=True)
+    asyncio.run(prov.complete_local(client, "m", "hi", None, prov.LOCAL_THINKING_MIN_TOKENS))
+    assert "reasoning_effort" not in calls.kwargs
+    assert [m["role"] for m in calls.kwargs["messages"]] == ["user"]
+    # A 32-token router pick or a 300-token grade would come back empty with
+    # thinking on, so small budgets keep it off.
+    for budget in (32, 300):
+        asyncio.run(prov.complete_local(client, "m", "hi", None, budget))
+        assert calls.kwargs["reasoning_effort"] == "none"
+
+
+def test_sampling_sends_a_fresh_seed_per_call(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0.7")
+    client, calls = _client("OK.", is_async=True)
+    seeds = []
+    for _ in range(3):
+        asyncio.run(prov.complete_local(client, "m", "hi", None, 50))
+        assert calls.kwargs["temperature"] == 0.7
+        seeds.append(calls.kwargs["seed"])
+    assert len(set(seeds)) == 3
+
+
+def test_inline_think_block_is_stripped():
+    client, _ = _client("<think>let me see</think>\nThe answer is 4.", is_async=True)
+    text, _, _ = asyncio.run(prov.complete_local(client, "m", "2+2?", None, 50))
+    assert text == "The answer is 4."
+
+
+@pytest.mark.parametrize("content", ["<think>long reasoning</think>", "<think>reasoning cut off by the cap"])
+def test_empty_text_at_length_is_an_error_not_an_empty_answer(content):
+    client, _ = _client(content, finish="length", is_async=True)
+    with pytest.raises(RuntimeError, match="max_tokens"):
+        asyncio.run(prov.complete_local(client, "m", "q", None, 20))
+
+
+def test_judge_parses_json_and_sends_schema():
+    client, calls = _client('{"winner": "left"}')
+    payload, _ = prov.call_judge_local(client, "q", "a", "b", "judge", "sys", 300, SCHEMA)
+    assert payload == {"winner": "left"}
+    rf = calls.kwargs["response_format"]
+    assert rf["type"] == "json_schema" and rf["json_schema"]["schema"] == SCHEMA["input_schema"]
+
+
+@pytest.mark.parametrize("content", [
+    'Sure! Here is my verdict:\n{"winner": "right"}\nThanks.',
+    'Placeholders like {x} aside, the verdict is {"winner": "right"} and {done}.',
+])
+def test_judge_tolerates_prose_around_json(content):
+    client, _ = _client(content)
+    payload, _ = prov.call_judge_local(client, "q", "a", "b", "judge", "sys", 300, SCHEMA)
+    assert payload == {"winner": "right"}
+
+
+@pytest.mark.parametrize("content, finish", [("no json here", "stop"), ("", "length"), ("[1, 2]", "stop")])
+def test_judge_failures_raise_the_retryable_error(content, finish):
+    client, _ = _client(content, finish)
+    with pytest.raises(JudgeValidationError):
+        prov.call_judge_local(client, "q", "a", "b", "judge", "sys", 300, SCHEMA)
+
+
+def test_provider_reads_endpoint_and_models_from_env(monkeypatch):
+    pytest.importorskip("openai")
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11435/v1")
+    monkeypatch.setenv("LOCAL_LLM_MODEL", "gemma3:27b")
+    monkeypatch.setenv("LOCAL_LLM_JUDGE_MODEL", "qwen3:32b")
+    p = prov.get_provider("local")
+    assert (p.default_model, p.default_judge_model) == ("gemma3:27b", "qwen3:32b")
+    assert str(p.make_sync_client().base_url).rstrip("/") == "http://127.0.0.1:11435/v1"
+    assert prov.missing_credentials(p) is None
+
+
+def test_judge_model_defaults_to_answer_model(monkeypatch):
+    pytest.importorskip("openai")
+    monkeypatch.setenv("LOCAL_LLM_MODEL", "gemma3:27b")
+    monkeypatch.delenv("LOCAL_LLM_JUDGE_MODEL", raising=False)
+    assert prov.get_provider("local").default_judge_model == "gemma3:27b"
+
+
+def test_cloud_providers_still_require_their_key(monkeypatch):
+    pytest.importorskip("anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert prov.missing_credentials(prov.get_provider("anthropic")) == "ANTHROPIC_API_KEY"
+
+
+def test_local_models_cost_nothing():
+    assert prov.get_pricing("qwen3:8b", "local") == prov.LOCAL_PRICING
+    assert all(v == 0 for v in prov.LOCAL_PRICING.values())
+    # Without the provider hint an unknown tag still gets the conservative fallback.
+    assert prov.get_pricing("qwen3:8b")["output"] > 0
+
+
+def test_cloud_judge_env_does_not_leak_into_local_runs(monkeypatch):
+    monkeypatch.setenv("JUDGE_MODEL", "claude-opus-4-8")
+    monkeypatch.setenv("JUDGE_PROVIDER", "anthropic")
+    assert prov.judge_env_default("JUDGE_MODEL", "local") is None
+    assert prov.judge_env_default("JUDGE_PROVIDER", "local") is None
+    assert prov.judge_env_default("JUDGE_MODEL", "anthropic") == "claude-opus-4-8"
+
+
+def test_rule_ab_arm_answers_everything_before_grading(monkeypatch):
+    """A local server that holds one model at a time must see all answer calls
+    (model) before any grade call (judge), not an alternation per case."""
+    from evals.scripts import compare_rules as cr
+
+    calls: list[str] = []
+
+    async def complete(client, model, query, system_prompt, max_tokens):
+        calls.append(model)
+        return ("VERDICT: PASS\nREASON: ok" if model == "judge" else f"answer to {query}"), {}, 0
+
+    provider = SimpleNamespace(name="local", complete=complete)
+    cases = [
+        {"id": f"c{i}", "category": "fabrication-recall", "query": f"q{i}", "reference": "r", "rubric": "r",
+         "checks": {"must_not_contain": []}}
+        for i in range(3)
+    ]
+    prompts = {c["id"]: {"system_prompt": "sp"} for c in cases}
+    res = asyncio.run(cr.run_arm(cases, prompts, provider, None, "model", "judge", 2, "arm"))
+    assert calls == ["model"] * 6 + ["judge"] * 6
+    assert res.per_case == {"c0": False, "c1": False, "c2": False}
+
+
+def test_rule_ab_arm_keeps_interleaving_and_early_break_for_cloud():
+    """Cloud runs grade each sample as it arrives and stop a failed case early."""
+    from evals.scripts import compare_rules as cr
+
+    calls: list[str] = []
+
+    async def complete(client, model, query, system_prompt, max_tokens):
+        calls.append(model)
+        return ("VERDICT: FAIL\nREASON: wrong" if model == "judge" else "answer"), {}, 0
+
+    provider = SimpleNamespace(name="anthropic", complete=complete)
+    case = {"id": "c0", "category": "fabrication-recall", "query": "q", "reference": "r", "rubric": "r",
+            "checks": {"must_not_contain": []}}
+    res = asyncio.run(cr.run_arm([case], {"c0": {"system_prompt": "sp"}}, provider, None, "model", "judge", 3, "arm"))
+    assert calls == ["model", "judge"]  # first sample failed; samples 2-3 never generated
+    assert res.per_case == {"c0": True}

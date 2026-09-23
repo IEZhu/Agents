@@ -59,7 +59,14 @@ from evals.judges.pairwise_judge import (  # noqa: E402
     per_criterion_breakdown,
     run_judge,
 )
-from evals.runners._providers import ContaminatedResponseError, ProviderImpl, get_pricing, get_provider  # noqa: E402
+from evals.runners._providers import (  # noqa: E402
+    ContaminatedResponseError,
+    ProviderImpl,
+    get_pricing,
+    get_provider,
+    judge_env_default,
+    missing_credentials,
+)
 from evals.scripts.fetch import DATASETS, _require_load_dataset  # noqa: E402
 
 logger = logging.getLogger("bench")
@@ -905,9 +912,9 @@ async def main_async(args: argparse.Namespace) -> int:
     # `JUDGE_PROVIDER` / `JUDGE_MODEL` env vars let users swap judges without
     # editing scripts — e.g. `./scripts/set_judge.sh opus` updates .env once
     # and every subsequent bench run picks it up.
-    judge_provider_name = args.judge_provider or os.getenv("JUDGE_PROVIDER") or args.provider
+    judge_provider_name = args.judge_provider or judge_env_default("JUDGE_PROVIDER", args.provider) or args.provider
     judge_provider = get_provider(judge_provider_name)
-    judge_model = args.judge_model or os.getenv("JUDGE_MODEL") or judge_provider.default_judge_model
+    judge_model = args.judge_model or judge_env_default("JUDGE_MODEL", judge_provider.name) or judge_provider.default_judge_model
 
     queries = sample_queries(args.dataset, args.n, args.seed)
     ds_hash = dataset_hash(queries)
@@ -926,10 +933,12 @@ async def main_async(args: argparse.Namespace) -> int:
         print(f"[bench] --dry-run: skipping API calls", file=sys.stderr)
         return 0
 
-    if not os.getenv(provider.env_key):
-        raise SystemExit(f"{provider.env_key} not set in env (required for --provider {provider.name})")
-    if not os.getenv(judge_provider.env_key):
-        raise SystemExit(f"{judge_provider.env_key} not set in env (required for --judge-provider {judge_provider.name})")
+    missing = missing_credentials(provider)
+    if missing:
+        raise SystemExit(f"{missing} not set in env (required for --provider {provider.name})")
+    missing = missing_credentials(judge_provider)
+    if missing:
+        raise SystemExit(f"{missing} not set in env (required for --judge-provider {judge_provider.name})")
 
     async_client = provider.make_async_client()
     # Arms use only the async client; the judge runs synchronously inside
@@ -970,8 +979,8 @@ async def main_async(args: argparse.Namespace) -> int:
     # Per-model pricing table — falls back to provider-level if unknown.
     # Arm vs judge pricing is split so cross-provider / different-model judge
     # runs bill each role against the correct per-1M rates.
-    arm_pricing = get_pricing(model)
-    judge_pricing = get_pricing(judge_model)
+    arm_pricing = get_pricing(model, provider.name)
+    judge_pricing = get_pricing(judge_model, judge_provider.name)
     result = BenchmarkResult(
         config={
             "provider": provider.name,
@@ -1055,14 +1064,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--provider",
         default="openai",
-        choices=["openai", "anthropic"],
+        choices=["openai", "anthropic", "local"],
         help="LLM provider for both arms and judge (default: openai)",
     )
     p.add_argument("--model", default=None, help="model under test for both arms (default: provider's default)")
     p.add_argument(
         "--judge-provider", "--judge_provider",
         default=None,
-        choices=["openai", "anthropic"],
+        choices=["openai", "anthropic", "local"],
         help="separate provider for judge (default: same as --provider). Use to break self-judging bias OR to escape model-specific structured-output bugs (e.g. Gemini → claude-sonnet-4-6 judge).",
     )
     p.add_argument("--judge-model", "--judge_model", default=None, help="judge model (default: judge-provider's default)")

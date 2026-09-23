@@ -377,13 +377,28 @@ async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
 # --------------------------------------------------------------------------- #
 async def run_arm(cases, prompts, provider, client, model, judge_model, samples: int, label: str) -> ArmResult:
     res = ArmResult(label=label)
+    # A local server that holds only one of (model, judge_model) in memory would
+    # reload a model on every call if answers and grades alternate, so for the
+    # local provider every answer is generated first and graded afterwards.
+    # Cloud providers keep the interleaved loop: its early break skips the
+    # remaining samples of a failed case, which prefetching would pay for.
+    prefetched: dict[str, list[str]] = {}
+    if provider.name == "local" and judge_model != model:
+        for c in cases:
+            sp = prompts[c["id"]]["system_prompt"]
+            prefetched[c["id"]] = [
+                (await provider.complete(client, model, c["query"], sp, 800))[0] for _ in range(samples)
+            ]
     for c in cases:
         cid = c["id"]
         sp = prompts[cid]["system_prompt"]
         failed = False
         reason = ""
-        for _ in range(samples):
-            answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
+        for i in range(samples):
+            if prefetched:
+                answer = prefetched[cid][i]
+            else:
+                answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
             det = deterministic_fails(c, answer)
             verdict, why = (("FAIL", "; ".join(det)) if det else await llm_grade(provider, client, judge_model, c, answer))
             if case_fails(det, verdict):
@@ -397,14 +412,15 @@ async def run_arm(cases, prompts, provider, client, model, judge_model, samples:
 
 
 async def full_ab(cases, args) -> int:
-    from evals.runners._providers import get_provider
+    from evals.runners._providers import get_provider, judge_env_default, missing_credentials
     import os
 
     provider = get_provider(args.provider)
     model = args.model or provider.default_model
-    judge_model = args.judge_model or os.getenv("JUDGE_MODEL") or provider.default_judge_model
-    if not os.getenv(provider.env_key):
-        raise SystemExit(f"{provider.env_key} not set in env (required for --provider {provider.name})")
+    judge_model = args.judge_model or judge_env_default("JUDGE_MODEL", provider.name) or provider.default_judge_model
+    missing = missing_credentials(provider)
+    if missing:
+        raise SystemExit(f"{missing} not set in env (required for --provider {provider.name})")
 
     base_prompts = await build_prompts(cases, Path(args.baseline_rule))
     cand_prompts = await build_prompts(cases, Path(args.candidate_rule))
@@ -446,7 +462,7 @@ def main() -> int:
     p.add_argument("--baseline-rule", default=str(DEFAULT_BASELINE), help="rule text for the baseline arm")
     p.add_argument("--candidate-rule", default=str(DEFAULT_CANDIDATE), help="rule text for the candidate arm")
     p.add_argument("--dry-run", action="store_true", help="build prompts + check swap mechanics; no LLM calls")
-    p.add_argument("--provider", default="anthropic", choices=["anthropic", "openai"])
+    p.add_argument("--provider", default="anthropic", choices=["anthropic", "openai", "local"])
     p.add_argument("--model", default=None)
     p.add_argument("--judge-model", default=None)
     p.add_argument("--samples-per-case", type=int, default=1)
