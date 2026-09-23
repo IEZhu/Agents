@@ -493,6 +493,20 @@ def _get_base_original_bytes() -> bytes:
     return _base_original_bytes
 
 
+def exit_on_termination_signals() -> None:
+    """Turn SIGTERM, and SIGHUP where it exists, into SystemExit.
+
+    A plain SIGTERM, or SIGHUP from a closed terminal, would kill the process
+    mid-swap and leave a fixture in rules/rule-no-fabrication.mdc; as
+    SystemExit it unwinds through swap_rule.__exit__, which restores it first.
+    Windows has no SIGHUP, and a direct run there must still work.
+    """
+    for name in ("SIGTERM", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="A/B the no-fabrication rule on a golden-set.")
     p.add_argument("--dataset", default=str(DEFAULT_DATASET))
@@ -505,11 +519,7 @@ def main() -> int:
     p.add_argument("--samples-per-case", type=int, default=1)
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
-    # A plain SIGTERM, or SIGHUP from a closed terminal, would kill the process
-    # mid-swap and leave a fixture in rules/rule-no-fabrication.mdc; as
-    # SystemExit it unwinds through swap_rule.__exit__, which restores it first.
-    for sig in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
+    exit_on_termination_signals()
 
     cases = load_cases(Path(args.dataset))
     if args.dry_run:

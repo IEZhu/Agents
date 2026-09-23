@@ -32,10 +32,12 @@ What `local_ab` does:
    to `evals/reports/local_ab_ollama.log`. A reused server keeps whatever
    settings it was started with.
 2. **Models.** Pulls the answer and judge models if they're missing (~19 GB and
-   ~18 GB the first time). It then asks for one token from the answer model. A
-   server that answers `/api/version` but can't run models, such as an
-   `ollama serve` left behind after its install was removed, fails here with a
-   clear message instead of mid-run.
+   ~18 GB the first time). It then asks the judge model for one token, unloads
+   it, and asks the answer model for one token, so the first run begins with
+   the answer model loaded. Each model is loaded once here, which for large
+   models is most of this step's time. A server that answers `/api/version` but
+   can't run models, such as an `ollama serve` left behind after its install
+   was removed, fails here with a clear message instead of mid-run.
 3. **Run.** Runs `compare_rules --provider local` with both models, answering
    everything before grading so the server swaps models twice per arm.
 4. **Memory guard.** Checks free memory every 10 s (`memory_pressure` on macOS,

@@ -252,3 +252,16 @@ def test_swap_rule_fails_before_touching_the_rule_when_the_fixture_is_missing(tm
         with cr.swap_rule(tmp_path / "missing.mdc"):
             pass
     assert live.read_text() == "ORIGINAL"
+
+
+def test_termination_handlers_skip_sighup_where_it_does_not_exist(monkeypatch):
+    """Windows has no SIGHUP; a direct compare_rules run must still install SIGTERM."""
+    import signal
+
+    from evals.scripts import compare_rules as cr
+
+    installed = []
+    monkeypatch.setattr(cr.signal, "signal", lambda sig, handler: installed.append(sig))
+    monkeypatch.delattr(signal, "SIGHUP", raising=False)
+    cr.exit_on_termination_signals()
+    assert installed == [signal.SIGTERM]
