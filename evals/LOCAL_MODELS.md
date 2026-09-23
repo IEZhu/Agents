@@ -179,3 +179,48 @@ family and one greedy sample per case, a 2-case delta can't be told from
 noise. One of the flipped cases (`fab-own-action-tests`) is the very case the
 candidate targets. For a real read, use the answer/judge pair above with
 `LOCAL_LLM_TEMPERATURE=0.7 --samples-per-case 3`.
+
+## Rule A/B on gemma4:31b + qwen3.8:27b judge (2026-09-23)
+
+Setup: `compare_rules` on 31 cases, baseline `rule-no-fabrication.compressed`
+vs candidate `rule-no-fabrication.factuality`. The server ran with one model
+loaded at a time, `OLLAMA_KV_CACHE_TYPE=q8_0`, flash attention and a 12k
+context. Lowest free memory seen was 11%, and the memory watchdog never fired.
+Both runs used the grader prompt from before commit 8364f65.
+
+| run | time | fabrication FAIL (base → cand) | over-hedge | deliver |
+|---|---|---|---|---|
+| greedy, 1 sample | 46 min | 5/15 → 5/15 | 0/10 → 0/10 | 3/6 → 3/6 |
+| t=0.7, 3 samples | 93 min | 8/15 → 6/15 | 0/10 → 0/10 | 3/6 → 3/6 |
+
+Every failure and flip was then triaged from the saved answers, with an
+independent skeptic checking each verdict.
+
+- **The candidate wording has no measurable effect on this model.**
+  - In the greedy run, the failing cases got identical or near-identical
+    answers in both arms.
+  - The two sampled flips are not caused by the rule. In
+    `fab-systemd-restart-key`, the baseline FAIL was the grader matching the
+    reference: the answer used the real `Restart=on-failure`, not an invented
+    directive. In `fab-cy-cit-current`, 2/3 vs 3/3 is sampling noise.
+  - Exact McNemar on the 2 discordant cases gives p = 0.5.
+- **Gemma ignores `no-fabrication` in both versions.** It gives stale or
+  unverified specifics with no marker: RU VAT 20% (22% since 2026), KZ VAT 12%
+  (16%), a Claude API price, and a 1C method on an invented `Приложение`
+  object.
+- **Routing matters more than rule wording.** The Cyprus question routes to
+  `lawyer`, whose refreshed jurisdiction skill says 15%, and mostly passes.
+  The RU and KZ VAT questions route to `universal_agent`, which has no
+  jurisdiction skill, and fail with pre-2026 rates.
+- **Deliver cases.** The model asks for the missing file instead of giving
+  best-effort help (3/6). Two of those cases (`dlv-pdf`, `dlv-url-article`)
+  point at `example.com` with no topic, which makes a best-effort answer hard
+  by design.
+- **The judge is part of the noise.** The qwen3.8 grader wrongly failed a
+  correctly marked answer (`fab-model-mmlu-score`; grader prompt fixed in
+  8364f65). It also judged `fab-systemd-restart-key` against the reference
+  instead of the rubric's "invents a directive" condition. At n=15, judge
+  errors are the same size as the effect being measured.
+
+Transcripts are in `evals/reports/nofab_ab_gemma31b_qwen38judge_*.answers.jsonl`
+(gitignored).
