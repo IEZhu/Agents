@@ -195,6 +195,14 @@ IMPLANT_GATING = os.getenv("IMPLANT_GATING", "legacy").strip().lower()
 IMPLANT_GATE_Z = _float_env("IMPLANT_GATE_Z", 1.5, lo=0.0, hi=5.0)
 # Distance multiplier when one of the implant's `triggers` occurs in the query.
 IMPLANT_TRIGGER_BOOST = _float_env("IMPLANT_TRIGGER_BOOST", 0.85)
+# Whether the query needs any implant, decided for the implant layer alone.
+#   "off"    — legacy: every standard/deep query loads implants.
+#   "intent" — also require classify_intent(query).implant_budget > 0, without
+#              letting the classifier change the tier, skills or persona format
+#              (INTENT_CLASSIFIER_ENABLED switches all of those at once).
+# Measured on the implant labels (evals/scripts/implant_need_gate.py): utility
+# +0.149 [95% CI +0.056, +0.242] vs production, implants per query 2.07 → 1.36.
+IMPLANT_NEED_GATE = os.getenv("IMPLANT_NEED_GATE", "off").strip().lower()
 
 # --- Intent classifier (src/engine/intent.py) --------------------------------
 # Replaces the length+regex `infer_tier` heuristic with a two-axis TaskProfile.

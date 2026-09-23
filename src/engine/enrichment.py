@@ -91,6 +91,25 @@ def infer_tier(query: str) -> Tier:
     return _legacy_infer_tier(query)
 
 
+def implants_needed(query: str, tier: Tier, profile: Optional[TaskProfile] = None) -> bool:
+    """Decide whether *query* earns any implant, for the implant layer only.
+
+    With a profile the budget decides (the classifier already owns every layer).
+    Otherwise lite never loads implants, and ``IMPLANT_NEED_GATE=intent`` adds
+    the intent classifier's implant budget as a second gate while leaving the
+    tier — and with it skills and persona format — on the legacy rule.
+    """
+    if profile is not None:
+        return profile.implant_budget > 0
+    if tier not in ("standard", "deep"):
+        return False
+    from src.engine import config
+
+    if config.IMPLANT_NEED_GATE == "intent":
+        return classify_intent(query).implant_budget > 0
+    return True
+
+
 def resolve_profile(query: str, *, tier: Optional[Tier] = None) -> Optional[TaskProfile]:
     """Return the :class:`TaskProfile` for *query*, or ``None`` when disabled.
 
@@ -200,8 +219,9 @@ async def get_dynamic_context_string(
     # --- Implants layer ---------------------------------------------------
     # Legacy gate is `tier in ("standard", "deep")`; with a profile the gate is
     # the budget itself, so a mode that earns no implants (converse, retrieve)
-    # skips the layer the way lite always did.
-    implants_enabled = profile.implant_budget > 0 if profile else tier in ("standard", "deep")
+    # skips the layer the way lite always did. IMPLANT_NEED_GATE can add the
+    # intent budget as a gate for this layer alone (see implants_needed).
+    implants_enabled = implants_needed(query, tier, profile)
     if implants_enabled:
         try:
             from src.engine.config import (

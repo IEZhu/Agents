@@ -168,3 +168,42 @@ order:
    trigger hit, query length, tier].
 3. Only when (2) says yes, pick the implant from the agent's `preferred_implants`,
    re-ranked by trigger index distance.
+
+## Results: "needs any implant?" gate (2026-09-23)
+
+Correction to the table above: it measured the semantic layer alone. Production
+already skips implants on `lite` queries and loads the agent's
+`preferred_implants` before any semantic top-up. The honest "before" is that
+full pipeline (`P0`). Command: `python -m evals.scripts.implant_need_gate`.
+
+Test split (58 samples; the learned gate was trained on dev, 52):
+
+| policy | hit@3 | none-acc | utility | Δ vs P0 (95% bootstrap CI) | implants/query |
+|---|---|---|---|---|---|
+| P0 production | 0.29 | 0.53 | 0.410 | — | 2.07 |
+| P1 none | 0.00 | 1.00 | 0.500 | +0.090 [−0.038, +0.216] | 0.00 |
+| P2 intent gate | 0.25 | 0.87 | 0.558 | +0.149 [+0.056, +0.242] | 1.36 |
+| P3 learned gate (numpy logistic, 7 features) | 0.25 | 0.87 | 0.558 | +0.149 [+0.056, +0.242] | 1.36 |
+| P4 learned gate + triggers rerank | 0.18 | 0.87 | 0.523 | +0.113 [+0.006, +0.214] | 0.90 |
+| P5 oracle gate (upper bound) | 0.29 | 1.00 | 0.643 | +0.233 [+0.141, +0.333] | 1.36 |
+
+The intent gate has no parameters fitted on these labels, so it can be checked on
+all 110 samples. P0 0.480 → P2 0.586, Δ +0.106 [+0.045, +0.173]. Implants per
+query go 2.00 → 1.49, and it loses 2 of the 20 correct hits.
+
+What this shows:
+- **The existing intent classifier is a good implant-need detector.** Used for
+  this layer alone, it cuts implants injected into queries that need none (none-acc
+  0.53 → 0.87) at a small recall cost. The learned logistic gate converged to the
+  same decisions: its weights sit on `tier_lite` (−0.93) and `intent_budget`
+  (+0.82). Trigger features got ≈0 weight, so no model weights are shipped.
+- **Trigger reranking of the preferred list hurts** (hit@3 0.25 → 0.18). Keep the
+  agent's declared order.
+- **Headroom for gating is +0.085** (P5 vs P2). The remaining gap is recall of
+  the right implant, not the gate.
+
+Shipped as `IMPLANT_NEED_GATE=intent` (default `off`). It gates only the implant
+layer: tier, skills and persona format stay on the legacy rule. That is the point
+of per-layer sensitivity, and it differs from `INTENT_CLASSIFIER_ENABLED`, which
+switches all layers at once. Before the default is flipped, the answer-quality A/B
+must confirm it; labels are a proxy (single labeller, not human-reviewed).

@@ -89,3 +89,35 @@ def test_every_implant_declares_triggers():
         with open(path, encoding="utf-8") as f:
             fm = yaml.safe_load(split_frontmatter(f.read())[0]) or {}
         assert _normalize_triggers(fm.get("triggers")), f"{os.path.basename(path)} has no triggers"
+
+
+def test_need_gate_off_keeps_legacy_tier_rule(monkeypatch):
+    from src.engine import enrichment
+
+    monkeypatch.setattr(cfg, "IMPLANT_NEED_GATE", "off")
+    assert enrichment.implants_needed("hi", "lite") is False
+    assert enrichment.implants_needed("hi", "standard") is True
+    assert enrichment.implants_needed("hi", "deep") is True
+
+
+def test_need_gate_intent_adds_the_budget_without_changing_tier(monkeypatch):
+    from src.engine import enrichment
+
+    monkeypatch.setattr(cfg, "IMPLANT_NEED_GATE", "intent")
+    budgets = {"q-none": 0, "q-some": 2}
+    monkeypatch.setattr(
+        enrichment, "classify_intent",
+        lambda q: SimpleNamespace(implant_budget=budgets[q]),
+    )
+    assert enrichment.implants_needed("q-none", "deep") is False
+    assert enrichment.implants_needed("q-some", "standard") is True
+    # lite stays closed regardless of the classifier
+    assert enrichment.implants_needed("q-some", "lite") is False
+
+
+def test_profile_budget_wins_over_the_need_gate(monkeypatch):
+    from src.engine import enrichment
+
+    monkeypatch.setattr(cfg, "IMPLANT_NEED_GATE", "off")
+    assert enrichment.implants_needed("x", "deep", SimpleNamespace(implant_budget=0)) is False
+    assert enrichment.implants_needed("x", "lite", SimpleNamespace(implant_budget=1)) is True
