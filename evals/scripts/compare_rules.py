@@ -51,6 +51,7 @@ import argparse
 import asyncio
 import json
 import re
+import signal
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -180,7 +181,14 @@ class swap_rule:
         if self.variant_path is not None:
             self._original = RULE_PATH.read_bytes()
             RULE_PATH.write_bytes(self.variant_path.read_bytes())
-        _invalidate_all_caches()
+        try:
+            _invalidate_all_caches()
+        except BaseException:
+            # __exit__ never runs when __enter__ raises, and the cache reset does
+            # a slow first import: a Ctrl+C or SIGTERM landing there would leave
+            # the fixture in the live rule file.
+            self.__exit__(None, None, None)
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
@@ -491,6 +499,10 @@ def main() -> int:
     p.add_argument("--samples-per-case", type=int, default=1)
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
+    # A plain SIGTERM would kill the process mid-swap and leave a fixture in
+    # rules/rule-no-fabrication.mdc; as SystemExit it unwinds through
+    # swap_rule.__exit__, which restores the original first.
+    signal.signal(signal.SIGTERM, lambda signum, _frame: sys.exit(128 + signum))
 
     cases = load_cases(Path(args.dataset))
     if args.dry_run:

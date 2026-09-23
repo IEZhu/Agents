@@ -11,10 +11,59 @@ Only Ollama has been verified. LM Studio, llama.cpp `llama-server` and
 turning thinking off may differ from `reasoning_effort: "none"`; check that
 before trusting a run on them.
 
-## Start a server without installing anything
+## One command
 
-On this machine `nix` provides Ollama for one session, without a profile or
-Homebrew install. The port and context settings matter:
+```bash
+python -m evals.scripts.local_ab            # answer: gemma4:31b-it-qat, judge: qwen3.8:27b
+python -m evals.scripts.local_ab --plan     # show what it would do, start nothing
+python -m evals.scripts.local_ab --samples 3 --temperature 0.7
+python -m evals.scripts.local_ab --answer-model qwen3:8b --judge-model qwen3:8b   # light smoke
+```
+
+`local_ab` needs Ollama. For another OpenAI-compatible server, run
+`compare_rules` by hand (see "Run an eval" below).
+
+What `local_ab` does:
+
+1. **Server.** Uses a server already listening on `127.0.0.1:11435`. Otherwise
+   it starts one with `ollama serve`, or `nix run nixpkgs#ollama -- serve` when
+   `ollama` isn't installed. Settings are memory-lean: one model loaded, one
+   request at a time, flash attention, q8_0 KV cache, 12k context. Its log goes
+   to `evals/reports/local_ab_ollama.log`. A reused server keeps whatever
+   settings it was started with.
+2. **Models.** Pulls the answer and judge models if they're missing (~19 GB and
+   ~18 GB the first time). It then asks for one token from the answer model. A
+   server that answers `/api/version` but can't run models, such as an
+   `ollama serve` left behind after its install was removed, fails here with a
+   clear message instead of mid-run.
+3. **Run.** Runs `compare_rules --provider local` with both models, answering
+   everything before grading so the server swaps models twice per arm.
+4. **Memory guard.** Checks free memory every 10 s (`memory_pressure` on macOS,
+   `/proc/meminfo` on Linux). After three low readings in a row, about 20–30 s
+   below `--min-free-pct` (default 5%), it stops the run and exits with code 3.
+   It stops `compare_rules` with SIGINT first, so the swapped rule file is put
+   back.
+5. **Cleanup.** Stops the server it started, or unloads both models from a
+   server it reused. This also happens on Ctrl+C, `kill`/SIGTERM and a closed
+   terminal (SIGHUP). `--keep-server` leaves a started server running.
+
+Defaults compare `rule-no-fabrication.pre-compression` with `.compressed`. Pass
+`--baseline-rule` / `--candidate-rule` for other texts. The report and a
+`.answers.jsonl` file with every graded answer land in `evals/reports/`
+(gitignored).
+
+Checked end to end on 2026-09-23 with `qwen3:8b` in both roles on 2 cases:
+65 s including the server start. The script started and stopped the nix
+server, and the lowest free memory seen was 32%.
+
+## Start a server by hand
+
+Use this when you want the server to outlive a run, or when you run
+`run_mcp_vs_vanilla`, which `local_ab` doesn't drive. On this machine `nix`
+provides Ollama for one session, without a profile or Homebrew install. The
+port and context settings matter. Add the lean settings `local_ab` uses when
+memory is short (`OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NUM_PARALLEL=1
+OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0`):
 
 ```bash
 OLLAMA_HOST=127.0.0.1:11435 OLLAMA_CONTEXT_LENGTH=16384 OLLAMA_KEEP_ALIVE=30m \
@@ -23,9 +72,11 @@ OLLAMA_HOST=127.0.0.1:11435 OLLAMA_CONTEXT_LENGTH=16384 OLLAMA_KEEP_ALIVE=30m \
 
 - **Port 11435** avoids clashing with a leftover `ollama serve` on 11434.
 - **`OLLAMA_CONTEXT_LENGTH=16384`**:
-  - Measured on the 31 no-fabrication cases (qwen3 tokenizer), the enriched MCP
+  - Measured on the 31 no-fabrication cases of `feat/factuality-layer` (22 of
+    them are on this branch), with the qwen3 tokenizer: the enriched MCP
     prompts were 2,478 tokens at the median and 6,893 at most (`sysadmin`).
-    16k leaves room for the 800-token answer.
+    16k leaves room for the 800-token answer; `local_ab` uses 12k to save KV
+    memory, which still fits.
   - A larger context costs KV-cache memory, which this machine is short of.
   - When a single system + user request doesn't fit, the server answers
     HTTP 400 ("exceeds the available context size") instead of truncating, so
@@ -87,8 +138,8 @@ export LOCAL_LLM_BASE_URL=http://127.0.0.1:11435/v1
 export LOCAL_LLM_MODEL=gemma4:31b-it-qat
 export LOCAL_LLM_JUDGE_MODEL=qwen3.8:27b
 python -m evals.scripts.compare_rules --provider local \
-  --baseline-rule evals/fixtures/rule-no-fabrication.compressed.mdc \
-  --candidate-rule evals/fixtures/rule-no-fabrication.factuality.mdc \
+  --baseline-rule evals/fixtures/rule-no-fabrication.pre-compression.mdc \
+  --candidate-rule evals/fixtures/rule-no-fabrication.compressed.mdc \
   --out evals/reports/no_fabrication_ab_local.md
 python -m evals.runners.run_mcp_vs_vanilla --provider local --n 10 \
   --concurrency 1 --max-tokens 2048 --judge-max-tokens 1024
@@ -160,7 +211,8 @@ self-preference.
 
 ## First local run (smoke test, 2026-09-23)
 
-Setup: `compare_rules` on all 31 cases, `qwen3:8b` answering and grading,
+Setup: `compare_rules` on all 31 cases (`feat/factuality-layer` dataset;
+candidate `rule-no-fabrication.factuality`), `qwen3:8b` answering and grading,
 1 sample per case, before the fixes above.
 
 The run took 12.5 minutes. It made 62 answer calls plus one grade call per
@@ -183,8 +235,9 @@ candidate targets. For a real read, use the answer/judge pair above with
 ## Rule A/B on gemma4:31b + qwen3.8:27b judge (2026-09-23)
 
 Setup: `compare_rules` on 31 cases, baseline `rule-no-fabrication.compressed`
-vs candidate `rule-no-fabrication.factuality`. The server ran with one model
-loaded at a time, `OLLAMA_KV_CACHE_TYPE=q8_0`, flash attention and a 12k
+vs candidate `rule-no-fabrication.factuality`. The candidate fixture and 9 of
+the 31 cases live on branch `feat/factuality-layer`, not on this branch. The
+server ran with one model loaded at a time, `OLLAMA_KV_CACHE_TYPE=q8_0`, flash attention and a 12k
 context. Lowest free memory seen was 11%, and the memory watchdog never fired.
 Both runs used the grader prompt from before commit 8364f65.
 

@@ -187,3 +187,28 @@ def test_gate_fails_on_regression():
     base = _arm("baseline")
     cand = _arm("candidate", o1=True)       # candidate regresses overhedge bucket
     assert "Merge gate: FAIL" in render_report(_GATE_CASES, base, cand, _CFG)
+
+
+def test_swap_rule_restores_the_file_when_enter_is_interrupted(tmp_path, monkeypatch):
+    """A Ctrl+C/SIGTERM during the cache reset inside __enter__ must not leave
+    the fixture in the live rule file (with-statements skip __exit__ then)."""
+    import pytest
+    from evals.scripts import compare_rules as cr
+
+    live = tmp_path / "rule-no-fabrication.mdc"
+    live.write_text("ORIGINAL")
+    variant = tmp_path / "variant.mdc"
+    variant.write_text("VARIANT")
+    monkeypatch.setattr(cr, "RULE_PATH", live)
+    calls = []
+
+    def reset():
+        calls.append(1)
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(cr, "_invalidate_all_caches", reset)
+    with pytest.raises(KeyboardInterrupt):
+        with cr.swap_rule(variant):
+            pass
+    assert live.read_text() == "ORIGINAL"
