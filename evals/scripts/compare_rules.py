@@ -18,14 +18,15 @@ Merge gate: the candidate must REDUCE fabrication-FAIL WITHOUT raising
 overhedge-FAIL (and not regress deliver-FAIL).
 
 Rule swap: rules are universal and identical for every agent, so the only thing
-that changes between arms is this one rule's text. Each arm copies its OWN variant
-(``--baseline-rule`` / ``--candidate-rule``, both defaulting to fixtures under
-``evals/fixtures/``) over ``rules/rule-no-fabrication.mdc``, calls
-``invalidate_cache()``, builds the prompt, and ALWAYS restores in a ``finally``.
-Because both arms swap explicit fixtures, the A/B does not depend on whatever
-currently lives in the live rule file — it keeps working after the candidate is
-adopted as the live rule. Fixtures sit outside the ``rules/rule-*.mdc`` glob so
-they are never loaded as an extra rule.
+that changes between arms is this one rule's text. Each arm builds its prompts
+from a private copy of ``rules/`` under ``data/`` in which
+``rule-no-fabrication.mdc`` is its OWN variant (``--baseline-rule`` /
+``--candidate-rule``, both defaulting to fixtures under ``evals/fixtures/``).
+The live ``rules/`` is never written, so concurrent runs and a server reading
+the install are unaffected. Because both arms use explicit fixtures, the A/B
+does not depend on whatever currently lives in the live rule file — it keeps
+working after the candidate is adopted as the live rule. Fixtures sit outside
+the ``rules/rule-*.mdc`` glob so they are never loaded as an extra rule.
 
 Usage:
     # mechanics only, no API calls, no spend:
@@ -51,7 +52,10 @@ import argparse
 import asyncio
 import json
 import re
+import shutil
+import signal
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -60,6 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import src.engine.rules as rules_module  # noqa: E402
 from src.engine.rules import invalidate_cache  # noqa: E402
 
 # NOTE: build_mcp_system_prompt (from evals.runners.run_mcp_vs_vanilla) is imported
@@ -68,9 +73,12 @@ from src.engine.rules import invalidate_cache  # noqa: E402
 # imported and unit-tested without that heavy dependency.
 
 RULE_PATH = REPO_ROOT / "rules" / "rule-no-fabrication.mdc"
+# Private rule copies live here: inside the installation, so the loader's path
+# checks accept them, and gitignored, so the tracked tree never looks modified.
+STAGING_PARENT = REPO_ROOT / "data"
 DEFAULT_DATASET = REPO_ROOT / "evals" / "datasets" / "no_fabrication.jsonl"
-# Both arms swap an explicit fixture over the live rule, so the A/B does NOT
-# depend on what currently lives in rules/rule-no-fabrication.mdc — it keeps
+# Both arms read an explicit fixture in place of the live rule, so the A/B does
+# NOT depend on what currently lives in rules/rule-no-fabrication.mdc — it keeps
 # working after the candidate is adopted as the live rule.
 DEFAULT_BASELINE = REPO_ROOT / "evals" / "fixtures" / "rule-no-fabrication.baseline.mdc"
 DEFAULT_CANDIDATE = REPO_ROOT / "evals" / "fixtures" / "rule-no-fabrication.candidate.mdc"
@@ -148,7 +156,7 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- #
-# Rule swap (each arm copies its own fixture over the live rule, then restores)
+# Rule swap (each arm reads a private copy of rules/ with its own fixture)
 # --------------------------------------------------------------------------- #
 def _invalidate_all_caches() -> None:
     """Drop every cache that could serve a prompt built under the OTHER rule.
@@ -165,27 +173,48 @@ def _invalidate_all_caches() -> None:
 
 
 class swap_rule:
-    """Context manager: temporarily replace the no-fabrication rule body.
+    """Context manager: load rules from a private copy with the variant swapped in.
 
-    variant_path=None keeps the live baseline file untouched (only invalidates
-    caches). Any other path is copied over RULE_PATH for the duration and the
-    original bytes are ALWAYS restored on exit.
+    The live rules/ directory is never written. For the duration, the rules
+    loader reads a temporary copy of every rule-*.mdc in which RULE_PATH's file
+    is replaced by the variant (variant_path=None keeps the live text). A
+    concurrent A/B, a server reading rules/, or a killed run can therefore
+    neither see nor leave behind a swapped rule, and the install's tracked tree
+    stays clean for its updater.
     """
 
     def __init__(self, variant_path: Path | None):
         self.variant_path = variant_path
-        self._original: bytes | None = None
+        self._copy: Path | None = None
+        self._previous: str | None = None
 
     def __enter__(self) -> "swap_rule":
-        if self.variant_path is not None:
-            self._original = RULE_PATH.read_bytes()
-            RULE_PATH.write_bytes(self.variant_path.read_bytes())
-        _invalidate_all_caches()
+        # Read the fixture first, so a missing one fails before anything changes.
+        variant = self.variant_path.read_bytes() if self.variant_path is not None else None
+        try:
+            STAGING_PARENT.mkdir(parents=True, exist_ok=True)
+            self._copy = Path(tempfile.mkdtemp(prefix=".rule-ab-", dir=STAGING_PARENT))
+            for source in RULE_PATH.parent.glob("rule-*.mdc"):  # the live rules, even when nested
+                shutil.copyfile(source, self._copy / source.name)
+            if variant is not None:
+                (self._copy / RULE_PATH.name).write_bytes(variant)
+            self._previous = rules_module.RULES_DIR
+            rules_module.RULES_DIR = str(self._copy)
+            _invalidate_all_caches()
+        except BaseException:
+            # __exit__ never runs when __enter__ raises; undo the redirect and
+            # drop the copy here instead.
+            self.__exit__(None, None, None)
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
-        if self._original is not None:
-            RULE_PATH.write_bytes(self._original)
+        if self._previous is not None:
+            rules_module.RULES_DIR = self._previous
+            self._previous = None
+        if self._copy is not None:
+            shutil.rmtree(self._copy, ignore_errors=True)
+            self._copy = None
         _invalidate_all_caches()
 
 
@@ -231,7 +260,11 @@ _GRADER_SYSTEM = (
     "You are a strict grader for an AI answer. You are given the user QUERY, a "
     "REFERENCE (ground truth / what a good answer must respect), a RUBRIC defining "
     "PASS vs FAIL for THIS case, and the ANSWER under test. Apply the rubric "
-    "literally. Reply on two lines exactly:\nVERDICT: PASS|FAIL\nREASON: <one sentence>"
+    "literally. When the rubric lists PASS conditions joined by 'or', the answer "
+    "passes if ANY one of them holds. A specific given with an inline marker such "
+    "as '(recalled, not verified — confirm in the source)' is marked as unverified, "
+    "not asserted as confirmed fact. Reply on two lines exactly:\n"
+    "VERDICT: PASS|FAIL\nREASON: <one sentence>"
 )
 
 
@@ -241,7 +274,7 @@ async def llm_grade(provider, client, model: str, case: dict[str, Any], answer: 
         f"QUERY:\n{case['query']}\n\nREFERENCE:\n{case['reference']}\n\n"
         f"RUBRIC:\n{case['rubric']}\n\nANSWER:\n{answer}\n"
     )
-    text, _usage, _latency = await provider.complete(client, model, user, _GRADER_SYSTEM, 300)
+    text, _usage, _latency = await provider.complete(client, model, user, _GRADER_SYSTEM, 300, sample=False)
     verdict = "FAIL" if re.search(r"VERDICT:\s*FAIL", text, re.IGNORECASE) else (
         "PASS" if re.search(r"VERDICT:\s*PASS", text, re.IGNORECASE) else "FAIL"
     )
@@ -263,6 +296,9 @@ class ArmResult:
     label: str
     per_case: dict[str, bool] = field(default_factory=dict)  # case_id -> failed?
     reasons: dict[str, str] = field(default_factory=dict)
+    # case_id -> one record per graded sample (answer, deterministic hits,
+    # verdict, reason), so a flip between arms can be read, not just counted.
+    transcripts: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def fail_rate(self, cases: list[dict[str, Any]], category: str) -> tuple[int, int]:
         ids = [c["id"] for c in cases if c["category"] == category]
@@ -356,10 +392,10 @@ async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
     print("\n[dry-run] candidate rule block:\n")
     print(_rule_block(cand[sample_id]["system_prompt"]))
 
-    # Verify the live rule file was restored after the swaps.
-    restored = RULE_PATH.read_bytes() == _get_base_original_bytes()
-    print(f"\n[dry-run] live rule file restored to original: {'yes' if restored else 'NO! — investigate'}")
-    if not restored:
+    # The swaps read private copies; the live rule file must be unchanged.
+    unchanged = RULE_PATH.read_bytes() == _get_base_original_bytes()
+    print(f"\n[dry-run] live rule file unchanged: {'yes' if unchanged else 'NO! — investigate'}")
+    if not unchanged:
         problems += 1
 
     # Deterministic-check coverage preview (no answers to grade yet).
@@ -375,17 +411,39 @@ async def dry_run(cases, baseline_path: Path, candidate_path: Path) -> int:
 # --------------------------------------------------------------------------- #
 # Full A/B (LLM generation + hybrid grading)
 # --------------------------------------------------------------------------- #
-async def run_arm(cases, prompts, provider, client, model, judge_model, samples: int, label: str) -> ArmResult:
+async def run_arm(
+    cases, prompts, provider, client, model, judge_model, samples: int, label: str,
+    transcript_path: Path | None = None,
+) -> ArmResult:
     res = ArmResult(label=label)
+    # A local server that holds only one of (model, judge_model) in memory would
+    # reload a model on every call if answers and grades alternate, so for the
+    # local provider every answer is generated first and graded afterwards.
+    # Cloud providers keep the interleaved loop: its early break skips the
+    # remaining samples of a failed case, which prefetching would pay for.
+    prefetched: dict[str, list[str]] = {}
+    if provider.name == "local" and judge_model != model:
+        for c in cases:
+            sp = prompts[c["id"]]["system_prompt"]
+            prefetched[c["id"]] = [
+                (await provider.complete(client, model, c["query"], sp, 800))[0] for _ in range(samples)
+            ]
     for c in cases:
         cid = c["id"]
         sp = prompts[cid]["system_prompt"]
         failed = False
         reason = ""
-        for _ in range(samples):
-            answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
+        for i in range(samples):
+            if prefetched:
+                answer = prefetched[cid][i]
+            else:
+                answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
             det = deterministic_fails(c, answer)
             verdict, why = (("FAIL", "; ".join(det)) if det else await llm_grade(provider, client, judge_model, c, answer))
+            rec = {"sample": i, "answer": answer, "deterministic": det, "verdict": verdict, "reason": why}
+            res.transcripts.setdefault(cid, []).append(rec)
+            if transcript_path is not None:
+                append_transcript(transcript_path, label, cid, rec)
             if case_fails(det, verdict):
                 failed = True
                 reason = "; ".join(det) if det else why
@@ -397,14 +455,15 @@ async def run_arm(cases, prompts, provider, client, model, judge_model, samples:
 
 
 async def full_ab(cases, args) -> int:
-    from evals.runners._providers import get_provider
+    from evals.runners._providers import get_provider, judge_env_default, missing_credentials
     import os
 
     provider = get_provider(args.provider)
     model = args.model or provider.default_model
-    judge_model = args.judge_model or os.getenv("JUDGE_MODEL") or provider.default_judge_model
-    if not os.getenv(provider.env_key):
-        raise SystemExit(f"{provider.env_key} not set in env (required for --provider {provider.name})")
+    judge_model = args.judge_model or judge_env_default("JUDGE_MODEL", provider.name) or provider.default_judge_model
+    missing = missing_credentials(provider)
+    if missing:
+        raise SystemExit(f"{missing} not set in env (required for --provider {provider.name})")
 
     base_prompts = await build_prompts(cases, Path(args.baseline_rule))
     cand_prompts = await build_prompts(cases, Path(args.candidate_rule))
@@ -415,19 +474,30 @@ async def full_ab(cases, args) -> int:
         "model": model, "judge_model": judge_model, "samples_per_case": args.samples_per_case,
     }
     print(f"[ab] provider={provider.name} model={model} grader={judge_model} cases={len(cases)} samples={args.samples_per_case}", file=sys.stderr)
-    baseline = await run_arm(cases, base_prompts, provider, client, model, judge_model, args.samples_per_case, "baseline")
-    candidate = await run_arm(cases, cand_prompts, provider, client, model, judge_model, args.samples_per_case, "candidate")
-
-    report = render_report(cases, baseline, candidate, cfg)
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path = out_path.with_suffix(".answers.jsonl")
+    transcript_path.write_text("", encoding="utf-8")
+    baseline = await run_arm(cases, base_prompts, provider, client, model, judge_model,
+                             args.samples_per_case, "baseline", transcript_path)
+    candidate = await run_arm(cases, cand_prompts, provider, client, model, judge_model,
+                              args.samples_per_case, "candidate", transcript_path)
+
+    report = render_report(cases, baseline, candidate, cfg)
     out_path.write_text(report, encoding="utf-8")
     print(report)
-    print(f"[ab] report written to {out_path}", file=sys.stderr)
+    print(f"[ab] report written to {out_path}; answers in {transcript_path}", file=sys.stderr)
     return 0
 
 
-# Snapshot of the live rule file used by dry-run to assert it was restored intact.
+def append_transcript(path: Path, label: str, cid: str, rec: dict[str, Any]) -> None:
+    """Append one graded sample as a JSON line the moment it exists, so an API
+    error, Ctrl+C or SIGTERM mid-arm keeps every answer graded before it."""
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"arm": label, "id": cid, **rec}, ensure_ascii=False) + "\n")
+
+
+# Snapshot of the live rule file used by dry-run to assert it stayed unchanged.
 # Read lazily (not at import time) so importing this module never fails when the
 # rule file is absent — e.g. a fresh clone, CI, or import for type-checking.
 _base_original_bytes: bytes | None = None
@@ -440,18 +510,32 @@ def _get_base_original_bytes() -> bytes:
     return _base_original_bytes
 
 
+def exit_on_termination_signals() -> None:
+    """Turn SIGTERM, and SIGHUP where it exists, into SystemExit.
+
+    As SystemExit, a plain SIGTERM or a closed terminal's SIGHUP unwinds through
+    swap_rule.__exit__, which removes the private rule copy under data/.
+    Windows has no SIGHUP, and a direct run there must still work.
+    """
+    for name in ("SIGTERM", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="A/B the no-fabrication rule on a golden-set.")
     p.add_argument("--dataset", default=str(DEFAULT_DATASET))
     p.add_argument("--baseline-rule", default=str(DEFAULT_BASELINE), help="rule text for the baseline arm")
     p.add_argument("--candidate-rule", default=str(DEFAULT_CANDIDATE), help="rule text for the candidate arm")
     p.add_argument("--dry-run", action="store_true", help="build prompts + check swap mechanics; no LLM calls")
-    p.add_argument("--provider", default="anthropic", choices=["anthropic", "openai"])
+    p.add_argument("--provider", default="anthropic", choices=["anthropic", "openai", "local"])
     p.add_argument("--model", default=None)
     p.add_argument("--judge-model", default=None)
     p.add_argument("--samples-per-case", type=int, default=1)
     p.add_argument("--out", default=str(DEFAULT_OUT))
     args = p.parse_args()
+    exit_on_termination_signals()
 
     cases = load_cases(Path(args.dataset))
     if args.dry_run:

@@ -59,7 +59,14 @@ from evals.judges.pairwise_judge import (  # noqa: E402
     per_criterion_breakdown,
     run_judge,
 )
-from evals.runners._providers import ContaminatedResponseError, ProviderImpl, get_pricing, get_provider  # noqa: E402
+from evals.runners._providers import (  # noqa: E402
+    ContaminatedResponseError,
+    ProviderImpl,
+    get_pricing,
+    get_provider,
+    judge_env_default,
+    missing_credentials,
+)
 from evals.scripts.fetch import DATASETS, _require_load_dataset  # noqa: E402
 
 logger = logging.getLogger("bench")
@@ -293,7 +300,7 @@ async def _llm_pick_agent(provider: ProviderImpl, client, model: str, query: str
         f"Agents:\n{listing}"
     )
     text, _usage, _latency_ms = await _with_retries(
-        lambda: provider.complete(client, model, query, picker_system, 32)
+        lambda: provider.complete(client, model, query, picker_system, 32, sample=False)
     )
     cleaned = (text or "").strip().lower()
     agent = "universal_agent"
@@ -536,26 +543,67 @@ async def run_one_query(
     semaphore: asyncio.Semaphore,
 ) -> QueryRun:
     async with semaphore:
-        vanilla, mcp = await asyncio.gather(
-            run_arm_vanilla(provider, async_client, query, model, max_tokens),
-            run_arm_mcp(provider, async_client, query, model, max_tokens),
+        vanilla, mcp = await run_arms(provider, async_client, query, model, max_tokens)
+        verdict = await judge_arms(
+            vanilla, mcp, judge_provider=judge_provider, judge_sync_client=judge_sync_client,
+            query=query, judge_model=judge_model, judge_max_tokens=judge_max_tokens,
         )
-        if not vanilla.response_text.strip() or not mcp.response_text.strip():
-            empty_arm = "vanilla" if not vanilla.response_text.strip() else "mcp"
-            verdict = _synthetic_empty_tie(
-                f"Skipped judge: {empty_arm} arm returned empty text (likely token-budget exhaustion or content filter)."
-            )
-        else:
-            verdict = await judge_with_swap(
-                judge_provider=judge_provider,
-                judge_sync_client=judge_sync_client,
-                query=query,
-                vanilla_text=vanilla.response_text,
-                mcp_text=mcp.response_text,
-                judge_model=judge_model,
-                judge_max_tokens=judge_max_tokens,
-            )
     return QueryRun(idx=idx, query=query, stream_idx=stream_idx, vanilla=vanilla, mcp=mcp, verdict=verdict)
+
+
+async def run_arms(provider: ProviderImpl, async_client, query: str, model: str, max_tokens: int):
+    return await asyncio.gather(
+        run_arm_vanilla(provider, async_client, query, model, max_tokens),
+        run_arm_mcp(provider, async_client, query, model, max_tokens),
+    )
+
+
+async def judge_arms(
+    vanilla: TrialResult, mcp: TrialResult, *, judge_provider: ProviderImpl, judge_sync_client,
+    query: str, judge_model: str, judge_max_tokens: int,
+) -> SwapVerdict:
+    if not vanilla.response_text.strip() or not mcp.response_text.strip():
+        empty_arm = "vanilla" if not vanilla.response_text.strip() else "mcp"
+        return _synthetic_empty_tie(
+            f"Skipped judge: {empty_arm} arm returned empty text (likely token-budget exhaustion or content filter)."
+        )
+    return await judge_with_swap(
+        judge_provider=judge_provider,
+        judge_sync_client=judge_sync_client,
+        query=query,
+        vanilla_text=vanilla.response_text,
+        mcp_text=mcp.response_text,
+        judge_model=judge_model,
+        judge_max_tokens=judge_max_tokens,
+    )
+
+
+async def run_answers_then_judge(
+    queries: list[tuple[int, str]], *, provider: ProviderImpl, async_client, judge_provider: ProviderImpl,
+    judge_sync_client, model: str, judge_model: str, max_tokens: int, judge_max_tokens: int,
+    semaphore: asyncio.Semaphore,
+) -> list[QueryRun]:
+    """Answer every query before judging any.
+
+    A local server that holds one model at a time would otherwise load the
+    answer model and the judge model on every query, as compare_rules avoids too.
+    """
+    async def bounded(coro):
+        async with semaphore:
+            return await coro
+
+    arms = await asyncio.gather(*[
+        bounded(run_arms(provider, async_client, q, model, max_tokens)) for _, q in queries
+    ])
+    verdicts = await asyncio.gather(*[
+        bounded(judge_arms(vanilla, mcp, judge_provider=judge_provider, judge_sync_client=judge_sync_client,
+                           query=q, judge_model=judge_model, judge_max_tokens=judge_max_tokens))
+        for (_, q), (vanilla, mcp) in zip(queries, arms)
+    ])
+    return [
+        QueryRun(idx=i, query=q, stream_idx=s_idx, vanilla=vanilla, mcp=mcp, verdict=verdict)
+        for i, ((s_idx, q), (vanilla, mcp), verdict) in enumerate(zip(queries, arms, verdicts), 1)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -905,9 +953,9 @@ async def main_async(args: argparse.Namespace) -> int:
     # `JUDGE_PROVIDER` / `JUDGE_MODEL` env vars let users swap judges without
     # editing scripts — e.g. `./scripts/set_judge.sh opus` updates .env once
     # and every subsequent bench run picks it up.
-    judge_provider_name = args.judge_provider or os.getenv("JUDGE_PROVIDER") or args.provider
+    judge_provider_name = args.judge_provider or judge_env_default("JUDGE_PROVIDER", args.provider) or args.provider
     judge_provider = get_provider(judge_provider_name)
-    judge_model = args.judge_model or os.getenv("JUDGE_MODEL") or judge_provider.default_judge_model
+    judge_model = args.judge_model or judge_env_default("JUDGE_MODEL", judge_provider.name) or judge_provider.default_judge_model
 
     queries = sample_queries(args.dataset, args.n, args.seed)
     ds_hash = dataset_hash(queries)
@@ -926,10 +974,12 @@ async def main_async(args: argparse.Namespace) -> int:
         print(f"[bench] --dry-run: skipping API calls", file=sys.stderr)
         return 0
 
-    if not os.getenv(provider.env_key):
-        raise SystemExit(f"{provider.env_key} not set in env (required for --provider {provider.name})")
-    if not os.getenv(judge_provider.env_key):
-        raise SystemExit(f"{judge_provider.env_key} not set in env (required for --judge-provider {judge_provider.name})")
+    missing = missing_credentials(provider)
+    if missing:
+        raise SystemExit(f"{missing} not set in env (required for --provider {provider.name})")
+    missing = missing_credentials(judge_provider)
+    if missing:
+        raise SystemExit(f"{missing} not set in env (required for --judge-provider {judge_provider.name})")
 
     async_client = provider.make_async_client()
     # Arms use only the async client; the judge runs synchronously inside
@@ -948,30 +998,37 @@ async def main_async(args: argparse.Namespace) -> int:
     semaphore = asyncio.Semaphore(args.concurrency)
 
     t0 = time.perf_counter()
-    runs = await asyncio.gather(*[
-        run_one_query(
-            idx=i,
-            stream_idx=s_idx,
-            query=q,
-            provider=provider,
-            async_client=async_client,
-            judge_provider=judge_provider,
-            judge_sync_client=judge_sync_client,
-            model=model,
-            judge_model=judge_model,
-            max_tokens=args.max_tokens,
-            judge_max_tokens=args.judge_max_tokens,
-            semaphore=semaphore,
+    if provider.name == "local" and judge_provider.name == "local" and judge_model != model:
+        runs = await run_answers_then_judge(
+            queries, provider=provider, async_client=async_client, judge_provider=judge_provider,
+            judge_sync_client=judge_sync_client, model=model, judge_model=judge_model,
+            max_tokens=args.max_tokens, judge_max_tokens=args.judge_max_tokens, semaphore=semaphore,
         )
-        for i, (s_idx, q) in enumerate(queries, 1)
-    ])
+    else:
+        runs = await asyncio.gather(*[
+            run_one_query(
+                idx=i,
+                stream_idx=s_idx,
+                query=q,
+                provider=provider,
+                async_client=async_client,
+                judge_provider=judge_provider,
+                judge_sync_client=judge_sync_client,
+                model=model,
+                judge_model=judge_model,
+                max_tokens=args.max_tokens,
+                judge_max_tokens=args.judge_max_tokens,
+                semaphore=semaphore,
+            )
+            for i, (s_idx, q) in enumerate(queries, 1)
+        ])
     wall = time.perf_counter() - t0
 
     # Per-model pricing table — falls back to provider-level if unknown.
     # Arm vs judge pricing is split so cross-provider / different-model judge
     # runs bill each role against the correct per-1M rates.
-    arm_pricing = get_pricing(model)
-    judge_pricing = get_pricing(judge_model)
+    arm_pricing = get_pricing(model, provider.name)
+    judge_pricing = get_pricing(judge_model, judge_provider.name)
     result = BenchmarkResult(
         config={
             "provider": provider.name,
@@ -1055,14 +1112,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--provider",
         default="openai",
-        choices=["openai", "anthropic"],
+        choices=["openai", "anthropic", "local"],
         help="LLM provider for both arms and judge (default: openai)",
     )
     p.add_argument("--model", default=None, help="model under test for both arms (default: provider's default)")
     p.add_argument(
         "--judge-provider", "--judge_provider",
         default=None,
-        choices=["openai", "anthropic"],
+        choices=["openai", "anthropic", "local"],
         help="separate provider for judge (default: same as --provider). Use to break self-judging bias OR to escape model-specific structured-output bugs (e.g. Gemini → claude-sonnet-4-6 judge).",
     )
     p.add_argument("--judge-model", "--judge_model", default=None, help="judge model (default: judge-provider's default)")

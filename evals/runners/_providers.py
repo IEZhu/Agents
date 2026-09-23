@@ -1,7 +1,7 @@
 """
-Provider abstraction: OpenAI vs Anthropic.
+Provider abstraction: OpenAI vs Anthropic vs a local OpenAI-compatible server.
 
-Both providers expose the same surface:
+All providers expose the same surface:
   - async `complete(client, model, query, system_prompt | None, max_tokens) -> (text, usage_dict, latency_ms)`
   - sync `call_judge(client, query, left, right, model, system_prompt, max_tokens, verdict_schema) -> (payload_dict, usage_dict)`
   - `pricing` dict (USD per 1M tokens)
@@ -20,7 +20,10 @@ Usage normalisation:
 
 from __future__ import annotations
 
+import itertools
 import json
+import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -140,11 +143,18 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
 }
 
 
-def get_pricing(model: str) -> dict[str, float]:
+LOCAL_PRICING: dict[str, float] = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_creation": 0.0}
+
+
+def get_pricing(model: str, provider: str | None = None) -> dict[str, float]:
     """Look up pricing for a model. Tries exact match, then prefix match
     (handles dated snapshots like `gpt-4o-2024-11-20` mapping to `gpt-4o`).
     Falls back to a conservative high estimate so the report never under-reports.
+    Models served by the `local` provider cost nothing per token; their tags
+    (`qwen3:8b`, `gemma3:27b`) would otherwise hit the high fallback.
     """
+    if provider == "local":
+        return LOCAL_PRICING
     if model in MODEL_PRICING:
         return MODEL_PRICING[model]
     # Try prefix match — dated snapshots map to their alias.
@@ -162,6 +172,7 @@ def get_pricing(model: str) -> dict[str, float]:
 PRICING: dict[str, dict[str, float]] = {
     "openai": MODEL_PRICING["gpt-4o"],
     "anthropic": MODEL_PRICING["claude-sonnet-4-6"],
+    "local": LOCAL_PRICING,
 }
 
 
@@ -222,6 +233,8 @@ async def complete_openai(
     query: str,
     system_prompt: str | None,
     max_tokens: int,
+    *,
+    sample: bool = True,  # no effect: temperature is locked, see below
 ) -> tuple[str, dict[str, int], int]:
     # OpenAI's newer model family (gpt-5.x and reasoning models) requires three
     # mitigations vs the gpt-4 era:
@@ -336,6 +349,8 @@ async def complete_anthropic(
     query: str,
     system_prompt: str | None,
     max_tokens: int,
+    *,
+    sample: bool = True,  # no effect: temperature is 0 or locked, see below
 ) -> tuple[str, dict[str, int], int]:
     # Opus 4.7/4.8 deprecate `temperature` — see _supports_temperature_anthropic.
     # For models that still accept it, we keep `temperature=0` for determinism.
@@ -392,6 +407,151 @@ def call_judge_anthropic(
 
 
 # --------------------------------------------------------------------------- #
+# Local implementations (OpenAI-compatible server: Ollama, LM Studio,
+# llama.cpp `llama-server`, `mlx_lm.server`)
+# --------------------------------------------------------------------------- #
+# Behaviour pinned against Ollama 0.33.3 on 2026-09-23 (evals/LOCAL_MODELS.md).
+# Only Ollama was verified; other servers are expected to work but unchecked.
+#   * `max_completion_tokens` is ignored (a 20-token cap produced 1,641 tokens),
+#     so the cap goes in `max_tokens`.
+#   * Thinking models (qwen3) put their reasoning in `message.reasoning`; the
+#     top-level `think: false` is ignored on /v1, `reasoning_effort: "none"`
+#     turns it off. Left on, reasoning ate a 200-token judge budget and returned
+#     empty content with finish_reason=length.
+#   * `response_format` json_schema is honoured, and temperature=0 gives
+#     byte-identical repeats whatever the seed (greedy decoding).
+# Some servers inline reasoning as <think>…</think> instead; it is stripped,
+# including a block left unclosed when max_tokens cut the reasoning short.
+
+LOCAL_BASE_URL_ENV = "LOCAL_LLM_BASE_URL"
+LOCAL_DEFAULT_BASE_URL = "http://localhost:11434/v1"
+LOCAL_DEFAULT_MODEL = "qwen3:8b"
+# LOCAL_LLM_THINKING=1 applies only to calls at least this large (answers).
+# Router picks (32 tokens), graders (300) and judges keep thinking off: with it
+# on they return nothing, which would crash a run or grade every answer FAIL.
+LOCAL_THINKING_MIN_TOKENS = 1024
+_THINK_BLOCK = re.compile(r"<think>.*?(?:</think>\s*|\Z)", re.DOTALL | re.IGNORECASE)
+_call_counter = itertools.count()
+
+
+def _local_request(
+    model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
+) -> dict[str, Any]:
+    # LOCAL_LLM_TEMPERATURE samples answers only. Graders, judges and router
+    # picks run greedy (sample=False), so an arm difference under sampling comes
+    # from the answers, not from evaluator or routing noise.
+    temperature = float(os.getenv("LOCAL_LLM_TEMPERATURE", "0")) if sample else 0.0
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if temperature > 0:
+        # Sampling: a fresh seed per call so repeated samples and retry re-rolls
+        # differ, while a whole run stays reproducible (calls are sequential in
+        # the rule A/B). At temperature 0 decoding is greedy and a seed changes
+        # nothing, so none is sent.
+        kwargs["seed"] = int(os.getenv("LOCAL_LLM_SEED", "7")) + next(_call_counter)
+    thinking = os.getenv("LOCAL_LLM_THINKING", "0") == "1" and max_tokens >= LOCAL_THINKING_MIN_TOKENS
+    if not thinking:
+        kwargs["reasoning_effort"] = "none"
+    return kwargs
+
+
+def _local_text(response, what: str) -> str:
+    choice = response.choices[0]
+    text = _THINK_BLOCK.sub("", choice.message.content or "").strip()
+    if not text and choice.finish_reason == "length":
+        raise RuntimeError(
+            f"local {what} hit max_tokens with no visible text (reasoning likely consumed "
+            f"the budget); raise max_tokens or unset LOCAL_LLM_THINKING"
+        )
+    return text
+
+
+async def complete_local(
+    client,
+    model: str,
+    query: str,
+    system_prompt: str | None,
+    max_tokens: int,
+    *,
+    sample: bool = True,
+) -> tuple[str, dict[str, int], int]:
+    t0 = time.perf_counter()
+    messages: list[dict[str, Any]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": query})
+    response = await client.chat.completions.create(**_local_request(model, messages, max_tokens, sample))
+    latency_ms = int((time.perf_counter() - t0) * 1000)
+    text = _local_text(response, "completion")
+    if has_harness_artifacts(text):
+        raise ContaminatedResponseError(
+            f"local completion leaked agentic-harness scaffolding; re-rolling "
+            f"(finish_reason={response.choices[0].finish_reason})"
+        )
+    return text, normalise_usage_openai(response.usage), latency_ms
+
+
+def call_judge_local(
+    client,
+    query: str,
+    left: str,
+    right: str,
+    model: str,
+    system_prompt: str,
+    max_tokens: int,
+    verdict_schema: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, int]]:
+    kwargs = _local_request(
+        model,
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": judge_user_prompt(query, left, right)},
+        ],
+        max_tokens,
+        sample=False,
+    )
+    # Judges never think, whatever the budget: run_mcp_vs_vanilla's judge budget
+    # defaults to 4096, above LOCAL_THINKING_MIN_TOKENS.
+    kwargs["reasoning_effort"] = "none"
+    kwargs["response_format"] = {
+        "type": "json_schema",
+        "json_schema": {"name": verdict_schema["name"], "schema": verdict_schema["input_schema"]},
+    }
+    response = client.chat.completions.create(**kwargs)
+    try:
+        content = _local_text(response, "judge")
+    except RuntimeError as exc:
+        raise JudgeValidationError(str(exc)) from exc
+    args = _first_json_object(content)
+    if args is None:
+        raise JudgeValidationError(f"local judge returned no JSON object; first 200 chars: {content[:200]!r}")
+    return args, normalise_usage_openai(response.usage)
+
+
+def _first_json_object(text: str) -> dict[str, Any] | None:
+    """First JSON object in *text*, skipping prose that may itself contain braces.
+
+    Servers without structured-output support wrap the verdict in prose; decoding
+    from each `{` in turn finds it even when the prose says "use {x}" first.
+    """
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # Dispatch
 # --------------------------------------------------------------------------- #
 
@@ -403,10 +563,10 @@ class ProviderImpl:
     default_judge_model: str
     make_async_client: Callable[[], Any]
     make_sync_client: Callable[[], Any]
-    complete: Callable  # async
+    complete: Callable  # async (client, model, query, system_prompt, max_tokens, *, sample=True)
     call_judge: Callable  # sync
     pricing: dict[str, float]
-    env_key: str  # name of the API-key env var
+    env_key: str  # name of the API-key env var; "" when no key is required
     notes: str  # disclaimer text shown in the HTML report
 
 
@@ -444,10 +604,57 @@ def _make_anthropic_provider() -> ProviderImpl:
     )
 
 
+def _make_local_provider() -> ProviderImpl:
+    from openai import AsyncOpenAI, OpenAI
+
+    base_url = os.getenv(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL)
+    model = os.getenv("LOCAL_LLM_MODEL", LOCAL_DEFAULT_MODEL)
+    # Local servers ignore the key, but the SDK refuses to build a client without one.
+    api_key = os.getenv("LOCAL_LLM_API_KEY", "local")
+    # A 31B model on a laptop can take minutes for a long answer, and a model
+    # swap between answer and judge adds load time on top.
+    timeout = float(os.getenv("LOCAL_LLM_TIMEOUT", "900"))
+    return ProviderImpl(
+        name="local",
+        default_model=model,
+        default_judge_model=os.getenv("LOCAL_LLM_JUDGE_MODEL", model),
+        make_async_client=lambda: AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout),
+        make_sync_client=lambda: OpenAI(base_url=base_url, api_key=api_key, timeout=timeout),
+        complete=complete_local,
+        call_judge=call_judge_local,
+        pricing=LOCAL_PRICING,
+        env_key="",
+        notes=(
+            "Local open-weight model. MCP system prompts in this repo are Claude-authored, so "
+            "absolute quality says little about Claude in production; use local runs for "
+            "regressions and relative A/B deltas, and confirm decisions on the production model."
+        ),
+    )
+
+
 _PROVIDERS = {
     "openai": _make_openai_provider,
     "anthropic": _make_anthropic_provider,
+    "local": _make_local_provider,
 }
+
+
+def judge_env_default(key: str, provider_name: str) -> str | None:
+    """`JUDGE_PROVIDER` / `JUDGE_MODEL` env defaults, unless the run is local.
+
+    Those variables name cloud judges (e.g. `claude-opus-4-8`). Applied to a
+    local run they either send the judge to a cloud API the run is meant to
+    avoid, or ask the local server for a model it doesn't have (HTTP 404). A
+    local run uses `LOCAL_LLM_JUDGE_MODEL` or an explicit CLI flag instead.
+    """
+    return None if provider_name == "local" else os.getenv(key)
+
+
+def missing_credentials(provider: ProviderImpl) -> str | None:
+    """Name of the unset API-key env var the provider needs, or None if ready."""
+    if provider.env_key and not os.getenv(provider.env_key):
+        return provider.env_key
+    return None
 
 
 def get_provider(name: str) -> ProviderImpl:
