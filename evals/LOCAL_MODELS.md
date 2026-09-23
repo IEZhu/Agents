@@ -64,9 +64,9 @@ Notes on these models:
   small human-labelled set and report kappa. Run pairwise verdicts in both
   orders.
 - **Gemma 4 thinking.** Thinking stays off unless the system prompt starts with
-  its thinking token. Even with thinking off it may emit an empty thought block.
-  The client strips `<think>…</think>`; whether Gemma 4's block uses that syntax
-  is not yet checked on this machine, so inspect the first answers.
+  its thinking token. Checked on Ollama 0.33.3: `gemma4:31b-it-qat` returned a
+  clean `content` and an empty `reasoning` field. Its thought block, if any, is
+  removed by the server before it reaches the client.
 - **Qwen3.x thinking.** These models think by default; the client turns it off
   (see below).
 
