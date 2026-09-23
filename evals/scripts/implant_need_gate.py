@@ -8,7 +8,9 @@ touches the skill or routing layers.
 Policies compared on test (all use the production implant list unless noted):
   P0  production    — lite tier loads nothing; otherwise the agent's
                       preferred_implants up to the tier budget, topped up by
-                      legacy semantic retrieval (enrichment.py behaviour)
+                      legacy semantic retrieval under the shipped defaults
+                      (IMPLANT_GATING=legacy, IMPLANTS_RELEVANCE_THRESHOLD);
+                      the enrichment.py behaviour with flags off
   P1  none          — never load implants
   P2  intent gate   — production list, gated by classify_intent's implant budget
   P3  learned gate  — production list, gated by the trained classifier
@@ -101,6 +103,7 @@ def collect(samples, labels, trigger_boost: float = 1.0):
             d = _all_distances(legacy, r["query"], r["agent"])
             r["legacy_z1"] = _top1_z(d)
             r["legacy_rank"] = sorted(d, key=d.get)
+            r["legacy_dist"] = d
         cfg.IMPLANT_INDEX_MODE = "triggers"
         trig = ImplantRetriever()
         for r in records:
@@ -126,7 +129,9 @@ def production_list(r) -> list[str]:
         return []
     n = min(max(TIER_BUDGET[r["tier"]], len(r["pref"])), cfg.MAX_PREFERRED_IMPLANTS)
     chosen = r["pref"][:n]
-    for name in r["legacy_rank"]:
+    # Same gate as ImplantRetriever._legacy_candidates on the semantic top-up.
+    passing = [c for c in r["legacy_rank"] if r["legacy_dist"][c] < cfg.IMPLANTS_RELEVANCE_THRESHOLD]
+    for name in passing:
         if len(chosen) >= n:
             break
         if name not in chosen:
