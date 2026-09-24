@@ -552,6 +552,123 @@ def _first_json_object(text: str) -> dict[str, Any] | None:
 
 
 # --------------------------------------------------------------------------- #
+# OpenRouter: hosted open-weight models behind one OpenAI-compatible API
+# --------------------------------------------------------------------------- #
+# Request shape checked against openrouter.ai/docs on 2026-09-24:
+#   * `reasoning: {"enabled": false}` turns thinking off (models whose reasoning
+#     is mandatory reject it).
+#   * `provider.order` + `allow_fallbacks: false` keeps every call on the listed
+#     endpoints. Endpoint slugs name a host and a precision (`novita/bf16`,
+#     `deepinfra/bf16`), so one list can pin several models: each call goes to
+#     the first listed endpoint that serves its model. Unpinned, one run spreads
+#     over hosts with different weights, a difference an A/B cannot tell from
+#     an arm effect.
+#   * `require_parameters: true` skips hosts that would silently drop `seed`,
+#     `reasoning` or `response_format`.
+# Unlike a local server, hosts batch requests, and a probe on 2026-09-24 got two
+# different answers to one request at temperature 0 with a fixed seed from both
+# novita/bf16 (gemma-4-31b-it) and deepinfra/bf16 (qwen3.8-27b).
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_DEFAULT_MODEL = "google/gemma-4-31b-it"
+
+
+def openrouter_routing() -> dict[str, Any]:
+    """`provider` routing object from OPENROUTER_PROVIDER (comma-separated endpoint slugs)."""
+    routing: dict[str, Any] = {"require_parameters": True}
+    order = [s.strip() for s in os.getenv("OPENROUTER_PROVIDER", "").split(",") if s.strip()]
+    if order:
+        routing.update(order=order, allow_fallbacks=False)
+    return routing
+
+
+def _openrouter_request(
+    model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
+) -> dict[str, Any]:
+    # Same sampling contract as the local provider: OPENROUTER_TEMPERATURE applies
+    # to answers only, graders and router picks run at 0.
+    temperature = float(os.getenv("OPENROUTER_TEMPERATURE", "0")) if sample else 0.0
+    seed = int(os.getenv("OPENROUTER_SEED", "7"))
+    return {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        # Hosts are not deterministic at temperature 0 (see above); a fixed seed
+        # is the one lever left there. Sampled calls get a fresh seed each.
+        "seed": seed + next(_call_counter) if temperature > 0 else seed,
+        "extra_body": {"reasoning": {"enabled": False}, "provider": openrouter_routing()},
+    }
+
+
+def _openrouter_text(response, what: str) -> str:
+    choice = response.choices[0]
+    text = _THINK_BLOCK.sub("", choice.message.content or "").strip()
+    if not text and choice.finish_reason == "length":
+        raise RuntimeError(f"openrouter {what} hit max_tokens with no visible text; raise max_tokens")
+    return text
+
+
+async def complete_openrouter(
+    client,
+    model: str,
+    query: str,
+    system_prompt: str | None,
+    max_tokens: int,
+    *,
+    sample: bool = True,
+) -> tuple[str, dict[str, int], int]:
+    t0 = time.perf_counter()
+    messages: list[dict[str, Any]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": query})
+    response = await client.chat.completions.create(**_openrouter_request(model, messages, max_tokens, sample))
+    latency_ms = int((time.perf_counter() - t0) * 1000)
+    text = _openrouter_text(response, "completion")
+    if has_harness_artifacts(text):
+        raise ContaminatedResponseError(
+            f"openrouter completion leaked agentic-harness scaffolding; re-rolling "
+            f"(finish_reason={response.choices[0].finish_reason})"
+        )
+    return text, normalise_usage_openai(response.usage), latency_ms
+
+
+def call_judge_openrouter(
+    client,
+    query: str,
+    left: str,
+    right: str,
+    model: str,
+    system_prompt: str,
+    max_tokens: int,
+    verdict_schema: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, int]]:
+    kwargs = _openrouter_request(
+        model,
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": judge_user_prompt(query, left, right)},
+        ],
+        max_tokens,
+        sample=False,
+    )
+    kwargs["response_format"] = {
+        "type": "json_schema",
+        "json_schema": {"name": verdict_schema["name"], "schema": verdict_schema["input_schema"]},
+    }
+    response = client.chat.completions.create(**kwargs)
+    try:
+        content = _openrouter_text(response, "judge")
+    except RuntimeError as exc:
+        raise JudgeValidationError(str(exc)) from exc
+    args = _first_json_object(content)
+    if args is None:
+        raise JudgeValidationError(f"openrouter judge returned no JSON object; first 200 chars: {content[:200]!r}")
+    return args, normalise_usage_openai(response.usage)
+
+
+# --------------------------------------------------------------------------- #
 # Dispatch
 # --------------------------------------------------------------------------- #
 
@@ -632,22 +749,52 @@ def _make_local_provider() -> ProviderImpl:
     )
 
 
+def _make_openrouter_provider() -> ProviderImpl:
+    from openai import AsyncOpenAI, OpenAI
+
+    model = os.getenv("OPENROUTER_MODEL", OPENROUTER_DEFAULT_MODEL)
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    timeout = float(os.getenv("OPENROUTER_TIMEOUT", "300"))
+    # Concurrent runs meet 429s and upstream 5xx more often than a local server.
+    retries = int(os.getenv("OPENROUTER_MAX_RETRIES", "6"))
+    kwargs = {"base_url": OPENROUTER_BASE_URL, "api_key": api_key, "timeout": timeout, "max_retries": retries}
+    return ProviderImpl(
+        name="openrouter",
+        default_model=model,
+        default_judge_model=os.getenv("OPENROUTER_JUDGE_MODEL", model),
+        make_async_client=lambda: AsyncOpenAI(**kwargs),
+        make_sync_client=lambda: OpenAI(**kwargs),
+        complete=complete_openrouter,
+        call_judge=call_judge_openrouter,
+        pricing=get_pricing(model),
+        env_key="OPENROUTER_API_KEY",
+        notes=(
+            "Hosted open-weight model via OpenRouter. MCP system prompts in this repo are "
+            "Claude-authored, so absolute quality says little about Claude in production; hosts "
+            "are not deterministic at temperature 0, so compare arms against repeated baselines."
+        ),
+    )
+
+
 _PROVIDERS = {
     "openai": _make_openai_provider,
     "anthropic": _make_anthropic_provider,
     "local": _make_local_provider,
+    "openrouter": _make_openrouter_provider,
 }
 
 
 def judge_env_default(key: str, provider_name: str) -> str | None:
-    """`JUDGE_PROVIDER` / `JUDGE_MODEL` env defaults, unless the run is local.
+    """`JUDGE_PROVIDER` / `JUDGE_MODEL` env defaults, unless the run is local or OpenRouter.
 
-    Those variables name cloud judges (e.g. `claude-opus-4-8`). Applied to a
-    local run they either send the judge to a cloud API the run is meant to
-    avoid, or ask the local server for a model it doesn't have (HTTP 404). A
-    local run uses `LOCAL_LLM_JUDGE_MODEL` or an explicit CLI flag instead.
+    Those variables name first-party cloud judges (e.g. `claude-opus-4-8`).
+    Applied to a local run they either send the judge to a cloud API the run is
+    meant to avoid, or ask the local server for a model it doesn't have (HTTP
+    404); OpenRouter names models differently (`anthropic/claude-...`). Such a
+    run uses `LOCAL_LLM_JUDGE_MODEL` / `OPENROUTER_JUDGE_MODEL` or an explicit
+    CLI flag instead.
     """
-    return None if provider_name == "local" else os.getenv(key)
+    return None if provider_name in ("local", "openrouter") else os.getenv(key)
 
 
 def missing_credentials(provider: ProviderImpl) -> str | None:

@@ -26,6 +26,11 @@ Modes:
 
 Run it under evals/scripts/local_ab.py for local models, e.g.
     python -m evals.scripts.local_ab -- prompt_ab implants --out-dir DIR
+or against hosted models through OpenRouter, with concurrent requests:
+    OPENROUTER_PROVIDER=novita/bf16 python -m evals.scripts.prompt_ab implants \
+        --provider openrouter --model google/gemma-4-31b-it --concurrency 8 --out-dir DIR
+Hosts are not deterministic at temperature 0, so there the noise floors show
+how far FAIL counts move by chance, and "answers changed" says nothing.
 
 `--out-dir` holds the run's state. A manifest pins the model, grader,
 temperature, dataset and each arm's resolved commit; a rerun with different
@@ -57,6 +62,8 @@ from evals.scripts import compare_rules as cr  # noqa: E402
 BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
 DEFAULT_DATASET = cr.DEFAULT_DATASET
 MAX_TOKENS = 800
+# Providers whose answers run at a temperature this script controls.
+TEMPERATURE_ENV = {"local": "LOCAL_LLM_TEMPERATURE", "openrouter": "OPENROUTER_TEMPERATURE"}
 
 
 def log(msg: str) -> None:
@@ -140,7 +147,8 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
     if old is not None:
-        for key in ("mode", "provider", "model", "judge_model", "temperature", "samples", "dataset_sha256", "agents_sha256"):
+        for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
+                    "dataset_sha256", "agents_sha256"):
             if old.get(key) != current.get(key):
                 raise SystemExit(f"{path.parent} was run with {key}={old.get(key)!r}, now {current.get(key)!r}; "
                                  f"use a new --out-dir")
@@ -228,9 +236,45 @@ async def pick_agents(cases, provider, client, model, catalog_path: Path, out: P
 # --------------------------------------------------------------------------- #
 # Answering and grading (resumable)
 # --------------------------------------------------------------------------- #
-async def answer_all(cases, arms, prompts, provider, client, model, samples: int, path: Path) -> None:
+async def bounded(jobs, limit: int) -> None:
+    """Run zero-argument coroutine functions, at most `limit` at once.
+
+    The first failure cancels the rest. Each job appends its own record when it
+    finishes, so a failed or interrupted run keeps every completed record.
+    """
+    gate = asyncio.Semaphore(limit)
+
+    async def one(job):
+        async with gate:
+            await job()
+
+    tasks = [asyncio.ensure_future(one(job)) for job in jobs]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+
+
+async def answer_all(cases, arms, prompts, provider, client, model, samples: int, path: Path,
+                     concurrency: int = 1) -> None:
     done = {(r["arm"], r["id"], r["sample"]): r for r in read_jsonl(path)}
+
+    def record(arm, cid, i, answer, reused):
+        rec = {"arm": arm.label, "id": cid, "sample": i, "answer": answer, "reused_from": reused}
+        append_jsonl(path, rec)
+        done[(arm.label, cid, i)] = rec
+
+    def answer(arm, case, i, prompt):
+        async def job():
+            record(arm, case["id"], i, (await provider.complete(client, model, case["query"], prompt, MAX_TOKENS))[0], None)
+        return job
+
+    # Arm by arm: a later arm may reuse an earlier arm's answers, so each arm
+    # starts once the previous one is complete. Within an arm the calls run
+    # concurrently, in the arm's case order when `concurrency` is 1.
     for arm in arms:
+        jobs = []
         for case in (reversed(cases) if arm.reverse else cases):
             cid = case["id"]
             prompt = prompts[arm.label][cid]["system_prompt"]
@@ -242,26 +286,28 @@ async def answer_all(cases, arms, prompts, provider, client, model, samples: int
                              if arm.implants != "none" and prompts[a.label][cid]["system_prompt"] == prompt
                              and (a.label, cid, i) in done), None)
                 if twin is not None:
-                    answer, reused = done[(twin.label, cid, i)]["answer"], twin.label
+                    record(arm, cid, i, done[(twin.label, cid, i)]["answer"], twin.label)
                 else:
-                    answer, reused = (await provider.complete(client, model, case["query"], prompt, MAX_TOKENS))[0], None
-                record = {"arm": arm.label, "id": cid, "sample": i, "answer": answer, "reused_from": reused}
-                append_jsonl(path, record)
-                done[(arm.label, cid, i)] = record
+                    jobs.append(answer(arm, case, i, prompt))
+        await bounded(jobs, concurrency)
         log(f"answered {arm.label}")
 
 
-async def grade_all(cases, answers_path: Path, grades_path: Path, provider, client, judge_model) -> None:
+async def grade_all(cases, answers_path: Path, grades_path: Path, provider, client, judge_model,
+                    concurrency: int = 1) -> None:
     by_id = {c["id"]: c for c in cases}
     done = {(r["arm"], r["id"], r["sample"]) for r in read_jsonl(grades_path)}
-    for record in read_jsonl(answers_path):
-        key = (record["arm"], record["id"], record["sample"])
-        if key in done:
-            continue
-        det, verdict, why = await cr.grade_sample(provider, client, judge_model, by_id[record["id"]], record["answer"])
-        append_jsonl(grades_path, {"arm": key[0], "id": key[1], "sample": key[2], "deterministic": det,
-                                   "verdict": verdict, "reason": why})
-        done.add(key)
+
+    def grade(record):
+        async def job():
+            det, verdict, why = await cr.grade_sample(provider, client, judge_model, by_id[record["id"]],
+                                                      record["answer"])
+            append_jsonl(grades_path, {"arm": record["arm"], "id": record["id"], "sample": record["sample"],
+                                       "deterministic": det, "verdict": verdict, "reason": why})
+        return job
+
+    await bounded([grade(r) for r in read_jsonl(answers_path) if (r["arm"], r["id"], r["sample"]) not in done],
+                  concurrency)
 
 
 def arm_results(arms, grades: list[dict[str, Any]]) -> dict[str, cr.ArmResult]:
@@ -316,7 +362,10 @@ def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) 
     parts = [f"# prompt_ab {mode}", "",
              f"- dataset: `{cfg['dataset']}` ({len(cases)} cases); model `{cfg['model']}`, grader `{cfg['judge_model']}`",
              f"- samples per case: {cfg['samples']} (a case fails if any sample fails); "
-             f"temperature {cfg['temperature']}", ""]
+             f"temperature {cfg['temperature']}"]
+    if cfg.get("routing"):
+        parts.append(f"- provider `{cfg['provider']}`, routing `{json.dumps(cfg['routing'])}`")
+    parts.append("")
     if mode == "implants":
         parts += ["Every arm against `none`. The noise floors repeat `none`: `none_repeat` in the same "
                   "order, `none_reversed` last and in reverse order, so the server's prompt cache holds "
@@ -336,7 +385,7 @@ def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) 
 # Entry point
 # --------------------------------------------------------------------------- #
 async def run(args) -> int:
-    from evals.runners._providers import get_provider, judge_env_default
+    from evals.runners._providers import get_provider, judge_env_default, missing_credentials, openrouter_routing
 
     # The builder runs with its cwd in a worktree, so every path it gets is absolute.
     out: Path = args.out_dir.expanduser().resolve()
@@ -345,18 +394,26 @@ async def run(args) -> int:
     agents_file = Path(args.agents).expanduser().resolve() if args.agents else None
     cases = cr.load_cases(dataset)
     provider = get_provider(args.provider)
+    if missing := missing_credentials(provider):
+        raise SystemExit(f"--provider {provider.name} needs {missing}")
+    if provider.name == "local" and args.concurrency > 1:
+        # One model on one laptop answers one request at a time, and the noise
+        # floors rely on a fixed request order.
+        raise SystemExit("--concurrency > 1 is for hosted providers; a local server runs one request at a time")
     model = args.model or provider.default_model
     judge = args.judge_model or judge_env_default("JUDGE_MODEL", provider.name) or provider.default_judge_model
-    temperature = os.environ.get("LOCAL_LLM_TEMPERATURE", "0") if provider.name == "local" else "provider default"
-    if args.mode == "implants" and provider.name == "local" and float(temperature) != 0:
-        raise SystemExit("implants mode needs greedy decoding: set LOCAL_LLM_TEMPERATURE=0")
-    if args.samples > 1 and provider.name == "local" and float(temperature) == 0:
-        raise SystemExit("--samples > 1 needs LOCAL_LLM_TEMPERATURE > 0: greedy decoding repeats the same answer")
+    temperature_env = TEMPERATURE_ENV.get(provider.name)
+    temperature = os.environ.get(temperature_env, "0") if temperature_env else "provider default"
+    if args.mode == "implants" and temperature_env and float(temperature) != 0:
+        raise SystemExit(f"implants mode needs temperature 0: set {temperature_env}=0")
+    if args.samples > 1 and temperature_env and float(temperature) == 0:
+        raise SystemExit(f"--samples > 1 needs {temperature_env} > 0: greedy decoding repeats the same answer")
+    routing = openrouter_routing() if provider.name == "openrouter" else None
     arms = ([parse_arm(s) for s in args.arm] if args.mode == "revisions"
             else implant_arms(args.rev, [n for n in args.implants.split(",") if n]))
     client = provider.make_async_client()
     log(f"mode={args.mode} provider={provider.name} model={model} grader={judge} cases={len(cases)} "
-        f"arms={[a.label for a in arms]}")
+        f"arms={[a.label for a in arms]}" + (f" routing={routing}" if routing else ""))
 
     def free_answer_model():
         # Catalog and prompt builds load the embedding model; keep one model resident.
@@ -367,7 +424,7 @@ async def run(args) -> int:
 
     with Worktrees(REPO_ROOT) as trees:
         check_manifest(out / "manifest.json", {
-            "mode": args.mode, "provider": provider.name, "model": model, "judge_model": judge,
+            "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
             "temperature": temperature, "samples": args.samples, "dataset_sha256": sha256_file(dataset),
             "agents_sha256": sha256_file(agents_file) if agents_file else None,
             "arms": [{**asdict(a), "sha": trees.sha(a.rev)} for a in arms]})
@@ -385,13 +442,13 @@ async def run(args) -> int:
                                                      out / f"prompts_{arm.label}.json", arm)
 
     answers_path, grades_path = out / "answers.jsonl", out / "grades.jsonl"
-    await answer_all(cases, arms, prompts, provider, client, model, args.samples, answers_path)
-    await grade_all(cases, answers_path, grades_path, provider, client, judge)
+    await answer_all(cases, arms, prompts, provider, client, model, args.samples, answers_path, args.concurrency)
+    await grade_all(cases, answers_path, grades_path, provider, client, judge, args.concurrency)
     answers = read_jsonl(answers_path)
     results = arm_results(arms, read_jsonl(grades_path))
     cfg = {"dataset": str(dataset.relative_to(REPO_ROOT)) if dataset.is_relative_to(REPO_ROOT) else str(dataset),
-           "provider": provider.name, "model": model, "judge_model": judge, "samples": args.samples,
-           "temperature": temperature}
+           "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
+           "samples": args.samples, "temperature": temperature}
     summary = write_reports(args.mode, cases, arms, prompts, answers, results, cfg, out)
     print((out / "report.md").read_text(encoding="utf-8"))
     log(f"done: {out / 'report.md'}; fails per arm: { {k: len(v) for k, v in summary['fails'].items()} }")
@@ -403,10 +460,11 @@ def parse_args(argv=None):
     p.add_argument("mode", choices=["revisions", "implants"])
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--dataset", default=str(DEFAULT_DATASET))
-    p.add_argument("--provider", default="local", choices=["anthropic", "openai", "local"])
+    p.add_argument("--provider", default="local", choices=["anthropic", "openai", "local", "openrouter"])
     p.add_argument("--model")
     p.add_argument("--judge-model")
     p.add_argument("--samples", type=int, default=1)
+    p.add_argument("--concurrency", type=int, default=1, help="parallel requests; hosted providers only")
     p.add_argument("--agents", help="JSON map case id -> agent; default: picked by the answer model")
     p.add_argument("--arm", action="append", default=[], help="revisions mode: label=rev[:KEY=VAL,...] (repeat)")
     p.add_argument("--rev", default="HEAD", help="implants mode: revision whose prompts are varied")
@@ -417,6 +475,8 @@ def parse_args(argv=None):
         p.error("revisions mode needs at least two --arm")
     if args.mode == "implants" and args.samples != 1:
         p.error("implants mode runs one greedy sample per case")
+    if args.concurrency < 1:
+        p.error("--concurrency must be at least 1")
     return args
 
 

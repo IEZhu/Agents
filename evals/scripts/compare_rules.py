@@ -537,7 +537,7 @@ def main() -> int:
     p.add_argument("--baseline-rule", default=str(DEFAULT_BASELINE), help="rule text for the baseline arm")
     p.add_argument("--candidate-rule", default=str(DEFAULT_CANDIDATE), help="rule text for the candidate arm")
     p.add_argument("--dry-run", action="store_true", help="build prompts + check swap mechanics; no LLM calls")
-    p.add_argument("--provider", default="anthropic", choices=["anthropic", "openai", "local"])
+    p.add_argument("--provider", default="anthropic", choices=["anthropic", "openai", "local", "openrouter"])
     p.add_argument("--model", default=None)
     p.add_argument("--judge-model", default=None)
     p.add_argument("--samples-per-case", type=int, default=1)

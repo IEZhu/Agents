@@ -202,7 +202,7 @@ def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):
         return [], ("PASS" if "+CoV" in answer else "FAIL"), "stub"
 
     provider = SimpleNamespace(name="local", default_model="m", default_judge_model="j", complete=complete,
-                               make_async_client=lambda: None)
+                               make_async_client=lambda: None, env_key="")
     monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
     monkeypatch.setattr(pab.cr, "grade_sample", grade)
     monkeypatch.setattr("evals.scripts.local_ab.unload", lambda base, model: None)
@@ -217,3 +217,66 @@ def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):
     assert [a["label"] for a in json.loads((tmp_path / "out/manifest.json").read_text())["arms"]] == [
         "none", "none_repeat", "CoV", "production", "none_reversed"]
     assert "| CoV |" in (tmp_path / "out/report.md").read_text()
+
+
+def test_bounded_caps_concurrency_and_the_first_failure_cancels_the_rest():
+    running, peak, finished = 0, 0, []
+
+    def job(i, fail=False):
+        async def run():
+            nonlocal running, peak
+            running += 1
+            peak = max(peak, running)
+            await asyncio.sleep(0.01 if not fail else 0)
+            running -= 1
+            if fail:
+                raise RuntimeError("boom")
+            finished.append(i)
+        return run
+
+    asyncio.run(pab.bounded([job(i) for i in range(7)], 3))
+    assert peak == 3 and sorted(finished) == list(range(7))
+    finished.clear()
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(pab.bounded([job(0, fail=True)] + [job(i) for i in range(1, 7)], 2))
+    assert len(finished) < 6
+
+
+def test_concurrent_answers_keep_twin_reuse_across_arms(tmp_path):
+    cases = [{"id": f"c{i}", "query": f"q{i}"} for i in range(5)]
+    arms = [pab.Arm("none", "H", implants="none"), pab.Arm("CoV", "H", implants="CoV"),
+            pab.Arm("production", "H")]
+    prompts = {"none": {c["id"]: {"system_prompt": "base"} for c in cases},
+               "CoV": {c["id"]: {"system_prompt": "base+cov"} for c in cases},
+               "production": {c["id"]: {"system_prompt": "base+cov"} for c in cases}}
+    calls: list[str] = []
+    path = tmp_path / "answers.jsonl"
+    asyncio.run(pab.answer_all(cases, arms, prompts, _provider(calls), None, "m", 1, path, concurrency=4))
+    assert sorted(calls) == ["base"] * 5 + ["base+cov"] * 5
+    records = pab.read_jsonl(path)
+    assert len(records) == 15
+    assert {r["reused_from"] for r in records if r["arm"] == "production"} == {"CoV"}
+
+
+def _run_args(tmp_path, *extra):
+    dataset = tmp_path / "cases.jsonl"
+    dataset.write_text(json.dumps({"id": "c0", "category": "fabrication-recall", "query": "q", "reference": "r",
+                                   "rubric": "r", "checks": {"must_not_contain": []}}))
+    return pab.parse_args(["implants", "--out-dir", str(tmp_path / "out"), "--dataset", str(dataset), *extra])
+
+
+@pytest.mark.parametrize("name, env, extra, message", [
+    ("local", {}, ["--concurrency", "2"], "hosted providers"),
+    ("openrouter", {"OPENROUTER_TEMPERATURE": "0.7"}, [], "OPENROUTER_TEMPERATURE=0"),
+    ("openrouter", {"OPENROUTER_API_KEY": None}, [], "needs OPENROUTER_API_KEY"),
+])
+def test_run_refuses_settings_that_would_spoil_the_measurement(tmp_path, monkeypatch, name, env, extra, message):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
+    for key, value in env.items():
+        if value is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, value)
+    with pytest.raises(SystemExit, match=message):
+        asyncio.run(pab.run(_run_args(tmp_path, "--provider", name, *extra)))
