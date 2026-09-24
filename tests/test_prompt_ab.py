@@ -22,11 +22,57 @@ def test_parse_arm_reads_label_revision_and_flags():
             pab.parse_arm(bad)
 
 
-def test_implant_arms_start_with_the_noise_floor_and_end_with_production():
+def test_implant_arms_bracket_the_implants_with_two_noise_floors():
     arms = pab.implant_arms("HEAD", ["CoV", "StepBack"])
-    assert [(a.label, a.implants) for a in arms] == [
-        ("none", "none"), ("none_repeat", "none"), ("CoV", "CoV"), ("StepBack", "StepBack"),
-        ("production", "production")]
+    assert [(a.label, a.implants, a.reverse) for a in arms] == [
+        ("none", "none", False), ("none_repeat", "none", False), ("CoV", "CoV", False),
+        ("StepBack", "StepBack", False), ("production", "production", False),
+        ("none_reversed", "none", True)]
+
+
+def test_reversed_arm_is_answered_last_and_backwards(tmp_path):
+    cases = [{"id": f"c{i}", "query": f"q{i}"} for i in range(3)]
+    arms = [pab.Arm("none", "H", implants="none"), pab.Arm("none_reversed", "H", implants="none", reverse=True)]
+    prompts = {a.label: {c["id"]: {"system_prompt": "base"} for c in cases} for a in arms}
+    order: list[str] = []
+
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+        order.append(query)
+        return "a", {}, 0
+
+    provider = SimpleNamespace(name="local", complete=complete)
+    asyncio.run(pab.answer_all(cases, arms, prompts, provider, None, "m", 1, tmp_path / "a.jsonl"))
+    assert order == ["q0", "q1", "q2", "q2", "q1", "q0"]
+
+
+def _manifest(**over):
+    base = {"mode": "implants", "provider": "local", "model": "gemma", "judge_model": "qwen", "temperature": "0",
+            "samples": 1, "dataset_sha256": "d", "agents_sha256": "a",
+            "arms": [{"label": "none", "rev": "HEAD", "env": {}, "implants": "none", "reverse": False, "sha": "s1"}]}
+    return {**base, **over}
+
+
+def test_manifest_refuses_other_settings_but_accepts_added_arms(tmp_path):
+    path = tmp_path / "manifest.json"
+    pab.check_manifest(path, _manifest())
+    with pytest.raises(SystemExit, match="model"):
+        pab.check_manifest(path, _manifest(model="qwen3.8"))
+    moved = _manifest()
+    moved["arms"][0]["sha"] = "s2"
+    with pytest.raises(SystemExit, match="arm 'none' changed"):
+        pab.check_manifest(path, moved)
+    added = _manifest()
+    added["arms"].append({"label": "none_reversed", "rev": "HEAD", "env": {}, "implants": "none", "reverse": True, "sha": "s1"})
+    pab.check_manifest(path, added)
+    assert [a["label"] for a in pab.read_json(path)["arms"]] == ["none", "none_reversed"]
+
+
+def test_unreadable_state_files_count_as_missing(tmp_path):
+    broken = tmp_path / "catalog.json"
+    broken.write_text("")
+    assert pab.read_json(broken) is None and pab.read_json(tmp_path / "absent.json") is None
+    pab.write_json_atomic(broken, {"ok": 1})
+    assert pab.read_json(broken) == {"ok": 1} and not (tmp_path / "catalog.json.tmp").exists()
 
 
 def test_mcnemar_counts_both_directions():
@@ -129,3 +175,45 @@ def test_builder_records_match_the_preferred_implant_fast_path():
         ("implant-step-back-prompting.mdc", "SB"), ("implant-chain-of-verification.mdc", "COV BODY")]
     with pytest.raises(SystemExit, match="unknown implants"):
         builder.implant_records(retriever, ["Nope"])
+
+
+def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):
+    """Orchestration only: manifest, relative paths, async builds, answers, grades, report."""
+    stub = tmp_path / "stub_builder.py"
+    stub.write_text(
+        "import json, sys\n"
+        "a = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
+        "rows = [json.loads(l) for l in open(a['--dataset']) if l.strip()]\n"
+        "extra = '' if a['--implants'] == 'none' else '+' + a['--implants']\n"
+        "json.dump({'prompts': {r['id']: {'system_prompt': 'base' + extra, 'meta': {}} for r in rows}},"
+        " open(a['--out'], 'w'))\n")
+    monkeypatch.setattr(pab, "BUILDER", stub)
+    dataset = tmp_path / "cases.jsonl"
+    dataset.write_text("\n".join(json.dumps({"id": f"c{i}", "category": "fabrication-recall", "query": f"q{i}",
+                                             "reference": "r", "rubric": "r", "checks": {"must_not_contain": []}})
+                                 for i in range(2)))
+    agents = tmp_path / "agents.json"
+    agents.write_text(json.dumps({"c0": "universal_agent", "c1": "universal_agent"}))
+
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+        return f"{query} under {system_prompt}", {}, 0
+
+    async def grade(provider, client, judge, case, answer):
+        return [], ("PASS" if "+CoV" in answer else "FAIL"), "stub"
+
+    provider = SimpleNamespace(name="local", default_model="m", default_judge_model="j", complete=complete,
+                               make_async_client=lambda: None)
+    monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
+    monkeypatch.setattr(pab.cr, "grade_sample", grade)
+    monkeypatch.setattr("evals.scripts.local_ab.unload", lambda base, model: None)
+    monkeypatch.delenv("LOCAL_LLM_BASE_URL", raising=False)
+    monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
+    monkeypatch.chdir(tmp_path)
+    args = pab.parse_args(["implants", "--out-dir", "out", "--dataset", "cases.jsonl", "--agents", "agents.json",
+                           "--implants", "CoV"])
+    assert asyncio.run(pab.run(args)) == 0
+    summary = json.loads((tmp_path / "out/summary.json").read_text())
+    assert summary["fails"]["CoV"] == [] and summary["fails"]["none"] == ["c0", "c1"]
+    assert [a["label"] for a in json.loads((tmp_path / "out/manifest.json").read_text())["arms"]] == [
+        "none", "none_repeat", "CoV", "production", "none_reversed"]
+    assert "| CoV |" in (tmp_path / "out/report.md").read_text()

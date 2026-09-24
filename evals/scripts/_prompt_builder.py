@@ -75,16 +75,22 @@ async def build(args):
         else:
             prompt, meta = await build_mcp_system_prompt(case["query"], pick_agent=None)
         out[case["id"]] = {"system_prompt": prompt, "meta": meta}
-    with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump({"root": os.getcwd(), "implants": spec, "need_gate": os.environ.get("IMPLANT_NEED_GATE", "off"),
-                   "embedding_model": os.environ.get("EMBEDDING_MODEL"), "prompts": out},
-                  fh, ensure_ascii=False, indent=1)
+    write_atomic(args.out, {"root": os.getcwd(), "implants": spec,
+                            "need_gate": os.environ.get("IMPLANT_NEED_GATE", "off"),
+                            "embedding_model": os.environ.get("EMBEDDING_MODEL"), "prompts": out})
+
+
+def write_atomic(path, data):
+    """Write to a temporary file and rename, so a killed build leaves no partial file."""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
 
 
 def catalog(path):
     from evals.runners.run_mcp_vs_vanilla import _get_router
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(_get_router().get_agent_catalog(), fh, ensure_ascii=False, indent=1)
+    write_atomic(path, _get_router().get_agent_catalog())
 
 
 def main():

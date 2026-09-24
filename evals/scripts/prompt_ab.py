@@ -16,20 +16,28 @@ Modes:
              old=3a4fc5f new=HEAD gate=HEAD:IMPLANT_NEED_GATE=intent. Each arm is
              reported against the first one. Cases whose prompt is identical to
              one already answered reuse those answers.
-  implants   One revision. Arms: `none` (no implant), a repeat of `none` as the
-             noise floor, each implant alone, and `production` (the revision's
-             own selection). Run it at temperature 0: with greedy decoding any
-             answer that differs from `none` was changed by the implant.
+  implants   One revision. Arms: `none` (no implant), each implant alone,
+             `production` (the revision's own selection), and two noise floors.
+             `none_repeat` repeats `none` in the same order; `none_reversed`
+             repeats it last and in reverse case order, so the server's prompt
+             cache holds different neighbours. Run it at temperature 0: an answer
+             that differs from `none` by more than the floors do was changed by
+             the implant.
 
 Run it under evals/scripts/local_ab.py for local models, e.g.
     python -m evals.scripts.local_ab -- prompt_ab implants --out-dir DIR
+
+`--out-dir` holds the run's state. A manifest pins the model, grader,
+temperature, dataset and each arm's resolved commit; a rerun with different
+settings is refused, while new arms may be added to an existing run.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import hashlib
 import json
 import math
 import os
@@ -61,6 +69,7 @@ class Arm:
     rev: str
     env: dict[str, str] = field(default_factory=dict)
     implants: str = "production"
+    reverse: bool = False  # answer this arm's cases in reverse order
 
 
 def parse_arm(spec: str) -> Arm:
@@ -78,10 +87,14 @@ def parse_arm(spec: str) -> Arm:
     return Arm(label, rev, env)
 
 
+NOISE_FLOORS = ("none_repeat", "none_reversed")
+
+
 def implant_arms(rev: str, implants: list[str]) -> list[Arm]:
     arms = [Arm("none", rev, implants="none"), Arm("none_repeat", rev, implants="none")]
     arms += [Arm(name, rev, implants=name) for name in implants]
-    return arms + [Arm("production", rev, implants="production")]
+    return arms + [Arm("production", rev, implants="production"),
+                   Arm("none_reversed", rev, implants="none", reverse=True)]
 
 
 def mcnemar(base: dict[str, bool], other: dict[str, bool], ids) -> dict[str, Any]:
@@ -104,6 +117,41 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def write_json_atomic(path: Path, data: Any) -> None:
+    """A killed write must never leave a truncated file that a resume trusts."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_json(path: Path) -> Any | None:
+    """Parsed content, or None when the file is missing or unreadable."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def check_manifest(path: Path, current: dict[str, Any]) -> None:
+    """Refuse to resume a run made with other settings; allow added arms."""
+    old = read_json(path)
+    if old is not None:
+        for key in ("mode", "provider", "model", "judge_model", "temperature", "samples", "dataset_sha256", "agents_sha256"):
+            if old.get(key) != current.get(key):
+                raise SystemExit(f"{path.parent} was run with {key}={old.get(key)!r}, now {current.get(key)!r}; "
+                                 f"use a new --out-dir")
+        old_arms = {a["label"]: a for a in old["arms"]}
+        for arm in current["arms"]:
+            if arm["label"] in old_arms and old_arms[arm["label"]] != arm:
+                raise SystemExit(f"arm {arm['label']!r} changed since {path.parent} was run; use a new --out-dir")
+        current = {**current, "arms": list(old_arms.values()) + [a for a in current["arms"] if a["label"] not in old_arms]}
+    write_json_atomic(path, current)
+
+
 # --------------------------------------------------------------------------- #
 # Prompt building
 # --------------------------------------------------------------------------- #
@@ -124,6 +172,10 @@ class Worktrees:
             self.paths[rev] = path
         return self.paths[rev]
 
+    def sha(self, rev: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "rev-parse", f"{rev}^{{commit}}"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
     def __exit__(self, *exc):
         for path in self.paths.values():
             subprocess.run(["git", "-C", str(self.repo), "worktree", "remove", "--force", str(path)], check=False)
@@ -134,25 +186,41 @@ def builder_env(extra: dict[str, str]) -> dict[str, str]:
             "EMBEDDING_MODEL": os.environ.get("EMBEDDING_MODEL") or "intfloat/multilingual-e5-large", **extra}
 
 
-def build_prompts(root: Path, dataset: Path, agents: Path, out: Path, arm: Arm) -> dict[str, Any]:
-    if not out.exists():
+async def run_builder(args: list[str], cwd: Path, env: dict[str, str]) -> None:
+    """Run the builder without blocking the event loop, so a SIGINT stops it promptly."""
+    proc = await asyncio.create_subprocess_exec(sys.executable, str(BUILDER), *args, cwd=cwd, env=env)
+    try:
+        code = await proc.wait()
+    except BaseException:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        raise
+    if code:
+        raise SystemExit(f"prompt builder failed with exit code {code} in {cwd}")
+
+
+async def build_prompts(root: Path, dataset: Path, agents: Path, out: Path, arm: Arm) -> dict[str, Any]:
+    built = read_json(out)
+    if built is None:
         log(f"building prompts for {arm.label} ({arm.rev}, implants={arm.implants}, env={arm.env})")
-        subprocess.run([sys.executable, str(BUILDER), "--dataset", str(dataset), "--agents", str(agents),
-                        "--implants", arm.implants, "--out", str(out)],
-                       cwd=root, env=builder_env(arm.env), check=True)
-    return json.loads(out.read_text(encoding="utf-8"))["prompts"]
+        await run_builder(["--dataset", str(dataset), "--agents", str(agents), "--implants", arm.implants,
+                           "--out", str(out)], root, builder_env(arm.env))
+        built = read_json(out)
+    return built["prompts"]
 
 
 async def pick_agents(cases, provider, client, model, catalog_path: Path, out: Path) -> dict[str, str]:
-    if out.exists():
-        return json.loads(out.read_text())
+    agents = read_json(out)
+    if agents is not None:
+        return agents
     from evals.runners import run_mcp_vs_vanilla as rmv
-    catalog = json.loads(catalog_path.read_text())
+    catalog = read_json(catalog_path)
     rmv._get_router = lambda: SimpleNamespace(get_agent_catalog=lambda: catalog)
     agents = {}
     for case in cases:
         agents[case["id"]] = await rmv._llm_pick_agent(provider, client, model, case["query"])
-    out.write_text(json.dumps(agents, indent=1))
+    write_json_atomic(out, agents)
     log(f"agents: {dict(Counter(agents.values()))}")
     return agents
 
@@ -163,7 +231,7 @@ async def pick_agents(cases, provider, client, model, catalog_path: Path, out: P
 async def answer_all(cases, arms, prompts, provider, client, model, samples: int, path: Path) -> None:
     done = {(r["arm"], r["id"], r["sample"]): r for r in read_jsonl(path)}
     for arm in arms:
-        for case in cases:
+        for case in (reversed(cases) if arm.reverse else cases):
             cid = case["id"]
             prompt = prompts[arm.label][cid]["system_prompt"]
             for i in range(samples):
@@ -240,7 +308,7 @@ def implant_table(cases, arms, prompts, answers, results) -> str:
 def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) -> dict[str, Any]:
     ids = [c["id"] for c in cases]
     base = arms[0]
-    summary = {"mode": mode, **cfg, "arms": [vars(a) for a in arms], "fails": {}, "vs_first": {}}
+    summary = {"mode": mode, **cfg, "arms": [asdict(a) for a in arms], "fails": {}, "vs_first": {}}
     for arm in arms:
         summary["fails"][arm.label] = sorted(i for i, f in results[arm.label].per_case.items() if f)
         if arm is not base:
@@ -250,15 +318,17 @@ def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) 
              f"- samples per case: {cfg['samples']} (a case fails if any sample fails); "
              f"temperature {cfg['temperature']}", ""]
     if mode == "implants":
-        parts += ["Every arm against `none`. `none_repeat` is the noise floor: at temperature 0 it "
-                  "should change no answer.", "", implant_table(cases, arms, prompts, answers, results)]
+        parts += ["Every arm against `none`. The noise floors repeat `none`: `none_repeat` in the same "
+                  "order, `none_reversed` last and in reverse order, so the server's prompt cache holds "
+                  "different neighbours. An implant's effect is what exceeds both floors.", "",
+                  implant_table(cases, arms, prompts, answers, results)]
     for arm in arms[1:] if mode == "revisions" else []:
         report = cr.render_report(cases, results[base.label], results[arm.label],
                                   {**cfg, "candidate": f"{arm.label} vs {base.label}",
                                    "samples_per_case": cfg["samples"]})
         parts += [f"## {arm.label} vs {base.label}", "", report.split("\n", 2)[2]]
     (out / "report.md").write_text("\n".join(parts), encoding="utf-8")
-    (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_json_atomic(out / "summary.json", summary)
     return summary
 
 
@@ -268,9 +338,11 @@ def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) 
 async def run(args) -> int:
     from evals.runners._providers import get_provider, judge_env_default
 
-    out: Path = args.out_dir
+    # The builder runs with its cwd in a worktree, so every path it gets is absolute.
+    out: Path = args.out_dir.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
-    dataset = Path(args.dataset).resolve()
+    dataset = Path(args.dataset).expanduser().resolve()
+    agents_file = Path(args.agents).expanduser().resolve() if args.agents else None
     cases = cr.load_cases(dataset)
     provider = get_provider(args.provider)
     model = args.model or provider.default_model
@@ -278,6 +350,8 @@ async def run(args) -> int:
     temperature = os.environ.get("LOCAL_LLM_TEMPERATURE", "0") if provider.name == "local" else "provider default"
     if args.mode == "implants" and provider.name == "local" and float(temperature) != 0:
         raise SystemExit("implants mode needs greedy decoding: set LOCAL_LLM_TEMPERATURE=0")
+    if args.samples > 1 and provider.name == "local" and float(temperature) == 0:
+        raise SystemExit("--samples > 1 needs LOCAL_LLM_TEMPERATURE > 0: greedy decoding repeats the same answer")
     arms = ([parse_arm(s) for s in args.arm] if args.mode == "revisions"
             else implant_arms(args.rev, [n for n in args.implants.split(",") if n]))
     client = provider.make_async_client()
@@ -287,21 +361,28 @@ async def run(args) -> int:
     def free_answer_model():
         # Catalog and prompt builds load the embedding model; keep one model resident.
         if provider.name == "local":
+            from evals.runners._providers import LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL
             from evals.scripts.local_ab import unload
-            unload(os.environ["LOCAL_LLM_BASE_URL"].removesuffix("/v1"), model)
+            unload(os.environ.get(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL).rstrip("/").removesuffix("/v1"), model)
 
     with Worktrees(REPO_ROOT) as trees:
+        check_manifest(out / "manifest.json", {
+            "mode": args.mode, "provider": provider.name, "model": model, "judge_model": judge,
+            "temperature": temperature, "samples": args.samples, "dataset_sha256": sha256_file(dataset),
+            "agents_sha256": sha256_file(agents_file) if agents_file else None,
+            "arms": [{**asdict(a), "sha": trees.sha(a.rev)} for a in arms]})
         first = trees.get(arms[0].rev)
         catalog = out / "catalog.json"
-        if not args.agents and not catalog.exists():
+        if agents_file is None and read_json(catalog) is None:
             free_answer_model()
-            subprocess.run([sys.executable, str(BUILDER), "--catalog-out", str(catalog)],
-                           cwd=first, env=builder_env({}), check=True)
-        agents_path = Path(args.agents) if args.agents else out / "agents.json"
+            await run_builder(["--catalog-out", str(catalog)], first, builder_env({}))
+        agents_path = agents_file or out / "agents.json"
         await pick_agents(cases, provider, client, model, catalog, agents_path)
         free_answer_model()
-        prompts = {arm.label: build_prompts(trees.get(arm.rev), dataset, agents_path,
-                                            out / f"prompts_{arm.label}.json", arm) for arm in arms}
+        prompts = {}
+        for arm in arms:
+            prompts[arm.label] = await build_prompts(trees.get(arm.rev), dataset, agents_path,
+                                                     out / f"prompts_{arm.label}.json", arm)
 
     answers_path, grades_path = out / "answers.jsonl", out / "grades.jsonl"
     await answer_all(cases, arms, prompts, provider, client, model, args.samples, answers_path)

@@ -195,11 +195,19 @@ arm difference comes from the answers, not from evaluator or routing noise.
 # revisions and flags: every arm is reported against the first one
 python -m evals.scripts.local_ab --temperature 0.7 -- prompt_ab revisions --samples 3 \
   --arm old=3a4fc5f --arm new=HEAD --arm gate=HEAD:IMPLANT_NEED_GATE=intent --out-dir /abs/dir
-# implants: none, none again (noise floor), each implant alone, production; greedy
+# implants: none, each implant alone, production, and two noise floors; greedy
 python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
 ```
 
-Pass an absolute `--out-dir`: the child runs from the repository root.
+- **Noise floors.** Even at temperature 0, Ollama's server reuses the KV cache of recent
+  prompts, and a cached prefix is not guaranteed to decode bit-identically to a fresh one.
+  `none_repeat` repeats `none` in the same order; `none_reversed` repeats it last and in
+  reverse order, so its cached neighbours differ. Read an implant's "answers changed"
+  against both floors.
+- **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, dataset,
+  agents file and each arm's commit. A rerun with other settings is refused; adding arms
+  to a finished run is allowed.
+- Relative paths are resolved against the directory you run from.
 
 ## Server behaviour the client relies on
 
