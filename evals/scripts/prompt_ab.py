@@ -1,0 +1,348 @@
+"""Prompt A/B across git revisions, flags and implant sets on one case set.
+
+Both experiments share one pipeline:
+
+1. Every case gets one agent, picked once by the answer model from the agent
+   catalog (the production ROUTE_REQUIRED path), or taken from --agents. All
+   arms enrich for that agent, so arms differ only in what is under test.
+2. Each arm builds its system prompts with its revision's own code and content,
+   in a throwaway git worktree (evals/scripts/_prompt_builder.py).
+3. The answer model answers every arm, then the grader grades every answer
+   (hybrid grading from compare_rules). Both steps append to JSONL files and
+   skip what is already there, so an interrupted run resumes.
+
+Modes:
+  revisions  Arms are revisions plus env flags, `label=rev[:KEY=VAL,...]`, e.g.
+             old=3a4fc5f new=HEAD gate=HEAD:IMPLANT_NEED_GATE=intent. Each arm is
+             reported against the first one. Cases whose prompt is identical to
+             one already answered reuse those answers.
+  implants   One revision. Arms: `none` (no implant), a repeat of `none` as the
+             noise floor, each implant alone, and `production` (the revision's
+             own selection). Run it at temperature 0: with greedy decoding any
+             answer that differs from `none` was changed by the implant.
+
+Run it under evals/scripts/local_ab.py for local models, e.g.
+    python -m evals.scripts.local_ab -- prompt_ab implants --out-dir DIR
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+from collections import Counter
+from dataclasses import dataclass, field
+import json
+import math
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+from types import SimpleNamespace
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from evals.scripts import compare_rules as cr  # noqa: E402
+
+BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
+DEFAULT_DATASET = cr.DEFAULT_DATASET
+MAX_TOKENS = 800
+
+
+def log(msg: str) -> None:
+    print(f"[prompt_ab] {msg}", file=sys.stderr, flush=True)
+
+
+@dataclass
+class Arm:
+    label: str
+    rev: str
+    env: dict[str, str] = field(default_factory=dict)
+    implants: str = "production"
+
+
+def parse_arm(spec: str) -> Arm:
+    """`label=rev[:KEY=VAL,KEY=VAL]` -> Arm."""
+    label, sep, rest = spec.partition("=")
+    if not sep or not label or not rest:
+        raise ValueError(f"arm must look like label=rev[:KEY=VAL,...], got {spec!r}")
+    rev, _, flags = rest.partition(":")
+    env = {}
+    for item in filter(None, flags.split(",")):
+        key, eq, value = item.partition("=")
+        if not eq or not key:
+            raise ValueError(f"flag must look like KEY=VAL, got {item!r} in {spec!r}")
+        env[key] = value
+    return Arm(label, rev, env)
+
+
+def implant_arms(rev: str, implants: list[str]) -> list[Arm]:
+    arms = [Arm("none", rev, implants="none"), Arm("none_repeat", rev, implants="none")]
+    arms += [Arm(name, rev, implants=name) for name in implants]
+    return arms + [Arm("production", rev, implants="production")]
+
+
+def mcnemar(base: dict[str, bool], other: dict[str, bool], ids) -> dict[str, Any]:
+    """Exact two-sided McNemar on per-case FAIL flags (True = failed)."""
+    fixed = sum(1 for i in ids if base.get(i) and not other.get(i))
+    broken = sum(1 for i in ids if not base.get(i) and other.get(i))
+    n = fixed + broken
+    p = 1.0 if n == 0 else min(1.0, 2 * sum(math.comb(n, k) for k in range(min(fixed, broken) + 1)) / 2 ** n)
+    return {"fixed": fixed, "broken": broken, "p_exact": round(p, 4)}
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+# --------------------------------------------------------------------------- #
+# Prompt building
+# --------------------------------------------------------------------------- #
+class Worktrees:
+    """One detached worktree per revision, removed on exit."""
+
+    def __init__(self, repo: Path):
+        self.repo, self.parent, self.paths = repo, Path(tempfile.mkdtemp(prefix="prompt-ab-")), {}
+
+    def __enter__(self):
+        return self
+
+    def get(self, rev: str) -> Path:
+        if rev not in self.paths:
+            path = self.parent / f"wt{len(self.paths)}"
+            subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "--quiet", "--detach", str(path), rev],
+                           check=True)
+            self.paths[rev] = path
+        return self.paths[rev]
+
+    def __exit__(self, *exc):
+        for path in self.paths.values():
+            subprocess.run(["git", "-C", str(self.repo), "worktree", "remove", "--force", str(path)], check=False)
+
+
+def builder_env(extra: dict[str, str]) -> dict[str, str]:
+    return {**os.environ, "LANGFUSE_TRACING_ENABLED": "false", "AGENTS_AUTO_UPDATE": "0",
+            "EMBEDDING_MODEL": os.environ.get("EMBEDDING_MODEL") or "intfloat/multilingual-e5-large", **extra}
+
+
+def build_prompts(root: Path, dataset: Path, agents: Path, out: Path, arm: Arm) -> dict[str, Any]:
+    if not out.exists():
+        log(f"building prompts for {arm.label} ({arm.rev}, implants={arm.implants}, env={arm.env})")
+        subprocess.run([sys.executable, str(BUILDER), "--dataset", str(dataset), "--agents", str(agents),
+                        "--implants", arm.implants, "--out", str(out)],
+                       cwd=root, env=builder_env(arm.env), check=True)
+    return json.loads(out.read_text(encoding="utf-8"))["prompts"]
+
+
+async def pick_agents(cases, provider, client, model, catalog_path: Path, out: Path) -> dict[str, str]:
+    if out.exists():
+        return json.loads(out.read_text())
+    from evals.runners import run_mcp_vs_vanilla as rmv
+    catalog = json.loads(catalog_path.read_text())
+    rmv._get_router = lambda: SimpleNamespace(get_agent_catalog=lambda: catalog)
+    agents = {}
+    for case in cases:
+        agents[case["id"]] = await rmv._llm_pick_agent(provider, client, model, case["query"])
+    out.write_text(json.dumps(agents, indent=1))
+    log(f"agents: {dict(Counter(agents.values()))}")
+    return agents
+
+
+# --------------------------------------------------------------------------- #
+# Answering and grading (resumable)
+# --------------------------------------------------------------------------- #
+async def answer_all(cases, arms, prompts, provider, client, model, samples: int, path: Path) -> None:
+    done = {(r["arm"], r["id"], r["sample"]): r for r in read_jsonl(path)}
+    for arm in arms:
+        for case in cases:
+            cid = case["id"]
+            prompt = prompts[arm.label][cid]["system_prompt"]
+            for i in range(samples):
+                if (arm.label, cid, i) in done:
+                    continue
+                # Identical prompt already answered in an earlier arm: reuse it.
+                twin = next((a for a in arms[:arms.index(arm)]
+                             if arm.implants != "none" and prompts[a.label][cid]["system_prompt"] == prompt
+                             and (a.label, cid, i) in done), None)
+                if twin is not None:
+                    answer, reused = done[(twin.label, cid, i)]["answer"], twin.label
+                else:
+                    answer, reused = (await provider.complete(client, model, case["query"], prompt, MAX_TOKENS))[0], None
+                record = {"arm": arm.label, "id": cid, "sample": i, "answer": answer, "reused_from": reused}
+                append_jsonl(path, record)
+                done[(arm.label, cid, i)] = record
+        log(f"answered {arm.label}")
+
+
+async def grade_all(cases, answers_path: Path, grades_path: Path, provider, client, judge_model) -> None:
+    by_id = {c["id"]: c for c in cases}
+    done = {(r["arm"], r["id"], r["sample"]) for r in read_jsonl(grades_path)}
+    for record in read_jsonl(answers_path):
+        key = (record["arm"], record["id"], record["sample"])
+        if key in done:
+            continue
+        det, verdict, why = await cr.grade_sample(provider, client, judge_model, by_id[record["id"]], record["answer"])
+        append_jsonl(grades_path, {"arm": key[0], "id": key[1], "sample": key[2], "deterministic": det,
+                                   "verdict": verdict, "reason": why})
+        done.add(key)
+
+
+def arm_results(arms, grades: list[dict[str, Any]]) -> dict[str, cr.ArmResult]:
+    results = {arm.label: cr.ArmResult(label=arm.label) for arm in arms}
+    for g in sorted(grades, key=lambda g: (g["arm"], g["id"], g["sample"])):
+        res = results.get(g["arm"])
+        if res is None:
+            continue
+        failed = cr.case_fails(g["deterministic"], g["verdict"])
+        res.per_case[g["id"]] = res.per_case.get(g["id"], False) or failed
+        if failed and g["id"] not in res.reasons:
+            res.reasons[g["id"]] = g["reason"]
+    return results
+
+
+# --------------------------------------------------------------------------- #
+# Reports
+# --------------------------------------------------------------------------- #
+def implant_table(cases, arms, prompts, answers, results) -> str:
+    """One row per arm against `none`: how often and how the answers moved."""
+    ids = [c["id"] for c in cases]
+    cats = sorted({c["category"] for c in cases})
+    first = {(r["arm"], r["id"]): r["answer"] for r in answers if r["sample"] == 0}
+    none = results["none"].per_case
+    head = ("| arm | prompt +chars | answers changed | " + " | ".join(f"{c} FAIL" for c in cats)
+            + " | fixed / broken vs none (p) | hedge markers | asks for input | mean chars |")
+    lines = [head, "|" + "---|" * (7 + len(cats))]
+    for arm in arms:
+        added = sum(len(prompts[arm.label][i]["system_prompt"]) - len(prompts["none"][i]["system_prompt"]) for i in ids) / len(ids)
+        texts = [first.get((arm.label, i), "") for i in ids]
+        changed = sum(first.get((arm.label, i)) != first.get(("none", i)) for i in ids)
+        per = results[arm.label].per_case
+        fails = [f"{sum(per.get(c['id'], False) for c in cases if c['category'] == cat)}"
+                 f"/{sum(c['category'] == cat for c in cases)}" for cat in cats]
+        test = mcnemar(none, per, ids)
+        hedges = sum(bool(cr._HEDGE_MARKERS.search(t)) for t in texts)
+        asks = sum(bool(cr._REFUSAL.search(t)) for t in texts)
+        lines.append(f"| {arm.label} | {added:+.0f} | {changed}/{len(ids)} | " + " | ".join(fails)
+                     + f" | {test['fixed']} / {test['broken']} ({test['p_exact']}) | {hedges} | {asks}"
+                     f" | {sum(map(len, texts)) / len(ids):.0f} |")
+    return "\n".join(lines) + "\n"
+
+
+def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) -> dict[str, Any]:
+    ids = [c["id"] for c in cases]
+    base = arms[0]
+    summary = {"mode": mode, **cfg, "arms": [vars(a) for a in arms], "fails": {}, "vs_first": {}}
+    for arm in arms:
+        summary["fails"][arm.label] = sorted(i for i, f in results[arm.label].per_case.items() if f)
+        if arm is not base:
+            summary["vs_first"][arm.label] = mcnemar(results[base.label].per_case, results[arm.label].per_case, ids)
+    parts = [f"# prompt_ab {mode}", "",
+             f"- dataset: `{cfg['dataset']}` ({len(cases)} cases); model `{cfg['model']}`, grader `{cfg['judge_model']}`",
+             f"- samples per case: {cfg['samples']} (a case fails if any sample fails); "
+             f"temperature {cfg['temperature']}", ""]
+    if mode == "implants":
+        parts += ["Every arm against `none`. `none_repeat` is the noise floor: at temperature 0 it "
+                  "should change no answer.", "", implant_table(cases, arms, prompts, answers, results)]
+    for arm in arms[1:] if mode == "revisions" else []:
+        report = cr.render_report(cases, results[base.label], results[arm.label],
+                                  {**cfg, "candidate": f"{arm.label} vs {base.label}",
+                                   "samples_per_case": cfg["samples"]})
+        parts += [f"## {arm.label} vs {base.label}", "", report.split("\n", 2)[2]]
+    (out / "report.md").write_text("\n".join(parts), encoding="utf-8")
+    (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    return summary
+
+
+# --------------------------------------------------------------------------- #
+# Entry point
+# --------------------------------------------------------------------------- #
+async def run(args) -> int:
+    from evals.runners._providers import get_provider, judge_env_default
+
+    out: Path = args.out_dir
+    out.mkdir(parents=True, exist_ok=True)
+    dataset = Path(args.dataset).resolve()
+    cases = cr.load_cases(dataset)
+    provider = get_provider(args.provider)
+    model = args.model or provider.default_model
+    judge = args.judge_model or judge_env_default("JUDGE_MODEL", provider.name) or provider.default_judge_model
+    temperature = os.environ.get("LOCAL_LLM_TEMPERATURE", "0") if provider.name == "local" else "provider default"
+    if args.mode == "implants" and provider.name == "local" and float(temperature) != 0:
+        raise SystemExit("implants mode needs greedy decoding: set LOCAL_LLM_TEMPERATURE=0")
+    arms = ([parse_arm(s) for s in args.arm] if args.mode == "revisions"
+            else implant_arms(args.rev, [n for n in args.implants.split(",") if n]))
+    client = provider.make_async_client()
+    log(f"mode={args.mode} provider={provider.name} model={model} grader={judge} cases={len(cases)} "
+        f"arms={[a.label for a in arms]}")
+
+    def free_answer_model():
+        # Catalog and prompt builds load the embedding model; keep one model resident.
+        if provider.name == "local":
+            from evals.scripts.local_ab import unload
+            unload(os.environ["LOCAL_LLM_BASE_URL"].removesuffix("/v1"), model)
+
+    with Worktrees(REPO_ROOT) as trees:
+        first = trees.get(arms[0].rev)
+        catalog = out / "catalog.json"
+        if not args.agents and not catalog.exists():
+            free_answer_model()
+            subprocess.run([sys.executable, str(BUILDER), "--catalog-out", str(catalog)],
+                           cwd=first, env=builder_env({}), check=True)
+        agents_path = Path(args.agents) if args.agents else out / "agents.json"
+        await pick_agents(cases, provider, client, model, catalog, agents_path)
+        free_answer_model()
+        prompts = {arm.label: build_prompts(trees.get(arm.rev), dataset, agents_path,
+                                            out / f"prompts_{arm.label}.json", arm) for arm in arms}
+
+    answers_path, grades_path = out / "answers.jsonl", out / "grades.jsonl"
+    await answer_all(cases, arms, prompts, provider, client, model, args.samples, answers_path)
+    await grade_all(cases, answers_path, grades_path, provider, client, judge)
+    answers = read_jsonl(answers_path)
+    results = arm_results(arms, read_jsonl(grades_path))
+    cfg = {"dataset": str(dataset.relative_to(REPO_ROOT)) if dataset.is_relative_to(REPO_ROOT) else str(dataset),
+           "provider": provider.name, "model": model, "judge_model": judge, "samples": args.samples,
+           "temperature": temperature}
+    summary = write_reports(args.mode, cases, arms, prompts, answers, results, cfg, out)
+    print((out / "report.md").read_text(encoding="utf-8"))
+    log(f"done: {out / 'report.md'}; fails per arm: { {k: len(v) for k, v in summary['fails'].items()} }")
+    return 0
+
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("mode", choices=["revisions", "implants"])
+    p.add_argument("--out-dir", type=Path, required=True)
+    p.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    p.add_argument("--provider", default="local", choices=["anthropic", "openai", "local"])
+    p.add_argument("--model")
+    p.add_argument("--judge-model")
+    p.add_argument("--samples", type=int, default=1)
+    p.add_argument("--agents", help="JSON map case id -> agent; default: picked by the answer model")
+    p.add_argument("--arm", action="append", default=[], help="revisions mode: label=rev[:KEY=VAL,...] (repeat)")
+    p.add_argument("--rev", default="HEAD", help="implants mode: revision whose prompts are varied")
+    p.add_argument("--implants", default="RegressionFirst,CoV,IterBudget,StepBack,UncertaintyQ,LayerOfThoughts,LoT,VerifyAssumptions",
+                   help="implants mode: comma-separated short names, each tested alone")
+    args = p.parse_args(argv)
+    if args.mode == "revisions" and len(args.arm) < 2:
+        p.error("revisions mode needs at least two --arm")
+    if args.mode == "implants" and args.samples != 1:
+        p.error("implants mode runs one greedy sample per case")
+    return args
+
+
+def main(argv=None) -> int:
+    cr.exit_on_termination_signals()
+    return asyncio.run(run(parse_args(argv)))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

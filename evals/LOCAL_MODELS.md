@@ -179,6 +179,28 @@ gets its own seed, so samples differ and a whole run stays reproducible.
 Only answers sample. Graders, pairwise judges and router picks stay greedy, so an
 arm difference comes from the answers, not from evaluator or routing noise.
 
+## Prompt A/B across revisions, flags and implants
+
+`evals/scripts/prompt_ab.py` compares whole system prompts rather than one rule:
+
+- **One agent per case.** The answer model picks it once from the agent catalog (the
+  production `ROUTE_REQUIRED` path); every arm enriches for that agent.
+- **Each arm builds prompts with its own revision.** `_prompt_builder.py` runs in a
+  throwaway worktree of the arm's revision, so its code and content are the ones under
+  test. The per-query prompt cache is cleared before every case.
+- **Answer first, grade second, resumable.** Answers go to `answers.jsonl` and grades to
+  `grades.jsonl` in `--out-dir`; a rerun skips what is already there.
+
+```bash
+# revisions and flags: every arm is reported against the first one
+python -m evals.scripts.local_ab --temperature 0.7 -- prompt_ab revisions --samples 3 \
+  --arm old=3a4fc5f --arm new=HEAD --arm gate=HEAD:IMPLANT_NEED_GATE=intent --out-dir /abs/dir
+# implants: none, none again (noise floor), each implant alone, production; greedy
+python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
+```
+
+Pass an absolute `--out-dir`: the child runs from the repository root.
+
 ## Server behaviour the client relies on
 
 Measured against Ollama 0.33.3 on 2026-09-23:
@@ -285,3 +307,34 @@ independent skeptic checking each verdict.
 
 Transcripts are in `evals/reports/nofab_ab_gemma31b_qwen38judge_*.answers.jsonl`
 (gitignored).
+
+## #78 content and `IMPLANT_NEED_GATE` on gemma4:31b + qwen3.8:27b judge (2026-09-24)
+
+`prompt_ab revisions` on the 31 `no_fabrication` cases, 3 samples at t=0.7, run through
+`local_ab` (lowest free memory 11%). Arms: `old` = 3a4fc5f (before #78), `new` = 33600be,
+`gate` = 33600be with `IMPLANT_NEED_GATE=intent`. The gate changed 15 of 31 prompts; the
+other 16 reuse `new`. Every failing or flipped case was then triaged by an analyst and an
+adversarial skeptic.
+
+| bucket | old FAIL | new FAIL | gate FAIL |
+|---|---|---|---|
+| fabrication-recall | 7/15 | 5/15 | 5/15 |
+| overhedge-precision | 0/10 | 0/10 | 0/10 |
+| deliver-carveout | 3/6 | 3/6 | 3/6 |
+
+- **#78: one real fix, no regression.** `fab-kz-vat-current` now answers 16%, taken from
+  the refreshed `skill-jurisdiction-kz`. `fab-cy-cit-current` flipped to PASS only because
+  the grader read the headline 15%; two of three answers still give 12.5% to ordinary
+  companies. McNemar on the raw flips: 2 vs 0, p = 0.5.
+- **Refreshed facts rarely reach the prompt.** Even with `lawyer` picked, the jurisdiction
+  skill loads for KZ and CY only; RU, ES and US get other skills, so their updated figures
+  are never shown to the model.
+- **The rewritten factuality implants and the rules header changed nothing visible.** No
+  answer in any arm uses a "recalled, not verified" marker, and the three
+  deliver-carveout failures (asking for the file instead of a best effort) are the same.
+- **`IMPLANT_NEED_GATE=intent` is neutral on gemma.** It removes all implants from 15
+  prompts (median 27% shorter, 14% for the whole set) and changes no verdict; the
+  triage found no systematic quality difference on any of the 15.
+
+These say how gemma reads the prompts, not how Claude does.
+

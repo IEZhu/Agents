@@ -288,6 +288,15 @@ def case_fails(det: list[str], llm_verdict: str | None) -> bool:
     return bool(det) or llm_verdict == "FAIL"
 
 
+async def grade_sample(provider, client, judge_model: str, case: dict[str, Any], answer: str) -> tuple[list[str], str, str]:
+    """Deterministic checks first; the LLM grader runs only when none fired."""
+    det = deterministic_fails(case, answer)
+    if det:
+        return det, "FAIL", "; ".join(det)
+    verdict, why = await llm_grade(provider, client, judge_model, case, answer)
+    return det, verdict, why
+
+
 # --------------------------------------------------------------------------- #
 # Aggregation / report
 # --------------------------------------------------------------------------- #
@@ -438,8 +447,7 @@ async def run_arm(
                 answer = prefetched[cid][i]
             else:
                 answer, _u, _l = await provider.complete(client, model, c["query"], sp, 800)
-            det = deterministic_fails(c, answer)
-            verdict, why = (("FAIL", "; ".join(det)) if det else await llm_grade(provider, client, judge_model, c, answer))
+            det, verdict, why = await grade_sample(provider, client, judge_model, c, answer)
             rec = {"sample": i, "answer": answer, "deterministic": det, "verdict": verdict, "reason": why}
             res.transcripts.setdefault(cid, []).append(rec)
             if transcript_path is not None:
