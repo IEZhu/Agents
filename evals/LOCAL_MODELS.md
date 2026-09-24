@@ -209,6 +209,36 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   to a finished run is allowed.
 - Relative paths are resolved against the directory you run from.
 
+### The same models, hosted (OpenRouter)
+
+A 31B model on a laptop answers about one case a minute, so an implants run takes
+hours. The `openrouter` provider runs the same A/B against hosted copies of the open
+weights, with parallel requests:
+
+```bash
+export OPENROUTER_API_KEY=...                        # from a file, not the shell history
+export OPENROUTER_PROVIDER=novita/bf16,deepinfra/bf16  # endpoint slugs, no fallback
+python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8 \
+  --model google/gemma-4-31b-it --judge-model qwen/qwen3.8-27b --out-dir /abs/dir
+```
+
+- **Pin the endpoints.** A model is served by many hosts at different precisions
+  (`fp4`, `fp8`, `bf16`). `OPENROUTER_PROVIDER` lists endpoint slugs; every call goes
+  to the first listed one that serves its model, with fallbacks off, so one list can
+  pin the answer model and the grader. List the endpoints and their precisions with
+  `curl -s https://openrouter.ai/api/v1/models/<author>/<model>/endpoints`. The
+  manifest records the routing.
+- **Hosts are not deterministic.** At temperature 0 with a fixed seed, two identical
+  requests got two different answers on both `novita/bf16` and `deepinfra/bf16`
+  (2026-09-24). "Answers changed" is therefore meaningless on hosted models; the noise
+  floors show how far FAIL counts move by chance, and an implant's effect is what
+  exceeds them.
+- Thinking is off (`reasoning.enabled=false`); `OPENROUTER_TEMPERATURE` and
+  `OPENROUTER_SEED` play the roles of their `LOCAL_LLM_` counterparts.
+- `--concurrency` parallelises calls within an arm; arms still run in order, so a later
+  arm can reuse an earlier arm's answer to an identical prompt. The local provider
+  refuses it.
+
 ## Server behaviour the client relies on
 
 Measured against Ollama 0.33.3 on 2026-09-23:

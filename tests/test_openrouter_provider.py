@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 
 from evals.judges.pairwise_judge import JudgeValidationError
@@ -112,3 +114,35 @@ def test_provider_reads_its_key_and_ignores_first_party_judge_defaults(monkeypat
     assert prov.judge_env_default("JUDGE_MODEL", "openrouter") is None
     monkeypatch.delenv("OPENROUTER_API_KEY")
     assert prov.missing_credentials(prov.get_provider("openrouter")) == "OPENROUTER_API_KEY"
+
+
+def _rate_limited():
+    response = httpx.Response(429, request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"))
+    return openai.RateLimitError("rate-limited upstream", response=response, body=None)
+
+
+def test_upstream_rate_limits_are_waited_out_within_a_budget(monkeypatch):
+    pauses = []
+
+    async def fake_sleep(seconds):
+        pauses.append(seconds)
+
+    monkeypatch.setattr(prov.asyncio, "sleep", fake_sleep)
+    failures = iter([_rate_limited()] * 5)
+
+    async def create(**kwargs):
+        error = next(failures, None)
+        if error:
+            raise error
+        return "ok"
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    assert asyncio.run(prov._openrouter_create(client, {})) == "ok"
+    assert pauses == [5.0, 10.0, 20.0, 40.0, 60.0]
+
+    monkeypatch.setenv("OPENROUTER_RATE_LIMIT_WAIT", "30")
+    pauses.clear()
+    failures = iter([_rate_limited()] * 5)
+    with pytest.raises(openai.RateLimitError):
+        asyncio.run(prov._openrouter_create(client, {}))
+    assert pauses == [5.0, 10.0, 20.0]

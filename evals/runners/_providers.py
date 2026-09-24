@@ -20,6 +20,7 @@ Usage normalisation:
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 import json
 import os
@@ -568,6 +569,9 @@ def _first_json_object(text: str) -> dict[str, Any] | None:
 # Unlike a local server, hosts batch requests, and a probe on 2026-09-24 got two
 # different answers to one request at temperature 0 with a fixed seed from both
 # novita/bf16 (gemma-4-31b-it) and deepinfra/bf16 (qwen3.8-27b).
+#   * Hosts share a rate-limit pool across OpenRouter users and answer 429 for
+#     minutes at a time ("temporarily rate-limited upstream"), longer than the
+#     SDK's retries wait (its backoff is capped at 8 s).
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_DEFAULT_MODEL = "google/gemma-4-31b-it"
@@ -601,6 +605,27 @@ def _openrouter_request(
     }
 
 
+async def _openrouter_create(client, kwargs: dict[str, Any]):
+    """Create a completion, riding out upstream rate limits.
+
+    429s are retried with a pause that doubles up to a minute, for at most
+    OPENROUTER_RATE_LIMIT_WAIT seconds in total; other errors propagate.
+    """
+    from openai import RateLimitError
+
+    budget = float(os.getenv("OPENROUTER_RATE_LIMIT_WAIT", "900"))
+    delay, waited = 5.0, 0.0
+    while True:
+        try:
+            return await client.chat.completions.create(**kwargs)
+        except RateLimitError:
+            if waited >= budget:
+                raise
+            await asyncio.sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 60.0)
+
+
 def _openrouter_text(response, what: str) -> str:
     choice = response.choices[0]
     text = _THINK_BLOCK.sub("", choice.message.content or "").strip()
@@ -623,7 +648,7 @@ async def complete_openrouter(
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": query})
-    response = await client.chat.completions.create(**_openrouter_request(model, messages, max_tokens, sample))
+    response = await _openrouter_create(client, _openrouter_request(model, messages, max_tokens, sample))
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = _openrouter_text(response, "completion")
     if has_harness_artifacts(text):
