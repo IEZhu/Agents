@@ -385,3 +385,69 @@ adversarial skeptic.
 
 These say how gemma reads the prompts, not how Claude does.
 
+
+## Implant sensitivity on Opus 5.5, Gemma 4 31B and Qwen3.8 27B (2026-09-24)
+
+`prompt_ab implants` on the 31 `no_fabrication` cases, prompts from `7c01f5a`: no
+implant (three repeats), each of eight implants alone, and the production selection.
+Hosted through OpenRouter: Opus 5.5 on `azure/global` (reasoning `low`, t=0, 2
+samples), Gemma on `novita/bf16` and Qwen on `deepinfra/bf16` (t=0, 1 sample); Qwen
+graded Opus and Gemma, Gemma graded Qwen. Per-sample FAIL:
+
+| model | no implant | single implants (8 arms) | production |
+|---|---|---|---|
+| Opus 5.5 | 10/186 (5.4%) | 2–5 of 62 per arm | 5/62 |
+| Gemma 4 31B | 22/93 | 7–9 of 31 per arm | 7/31 |
+| Qwen3.8 27B | 14/93 | 4–6 of 31 per arm | 4/31 |
+
+- **Implants change answers, not outcomes.** On the local, deterministic gemma run
+  RegressionFirst, CoV and IterBudget changed 23, 24 and 20 of 31 answers against 0
+  for the no-implant repeat, yet no arm moves FAIL beyond the no-implant spread on any
+  model. On Opus, a per-case review of all 31 cases per arm (an 18-agent workflow with
+  an adversarial check of every claimed effect) found no substantive quality
+  difference and no leaked implant vocabulary: Opus ignores implants that do not fit.
+- **This dataset only shows misfires.** Its cases are factual questions and simple
+  deliverables; none is a debugging thread, a regression report or a formal-logic
+  problem, so no implant ran in its intended scope. Benefits need scope-matched cases.
+- **Harm on weaker models.** Qwen answered "I'll run the full test suite to confirm."
+  (nothing else) under RegressionFirst, IterBudget and VerifyAssumptions in 5 of 6
+  samples, against 0 of 12 without an implant. Gemma's answers on recently changed
+  facts swing between the old and the new value with any prompt change: the KZ VAT
+  16% → 12% reversion reproduced deterministically for RegressionFirst, CoV and
+  IterBudget, and Cyprus CIT 15% ↔ 12.5% flips with whichever arm is loaded. That is
+  sensitivity to prompt perturbation on facts the model holds weakly, not a mechanism
+  of one implant, and rewording one implant does not fix it.
+- **Selection sends implants out of scope.** Preferred implants load with distance
+  0.0 and bypass `IMPLANTS_RELEVANCE_THRESHOLD`: production loaded RegressionFirst on
+  13 of 31 cases, all tech how-to questions with no regression in them (the
+  `IMPLANT_NEED_GATE` flag addresses this entry point).
+
+### Bounded implant preamble (`exp/implant-rewrites`)
+
+The block header "The following cognitive implants have been loaded to augment
+reasoning" was replaced by a preamble that says the patterns were picked
+automatically and may not fit, that they shape reasoning but never replace the
+latest known facts, and that checks the agent cannot run go to the user. RegressionFirst
+and VerifyAssumptions got v2 texts with a scope condition and a no-tools fallback.
+Same cases, two samples, five implants plus production pooled (372 samples per cell):
+
+| model | no implant | old header | preamble v1 | preamble v2 |
+|---|---|---|---|---|
+| Qwen3.8 27B | 58 (15.6%) | 64 (17.2%) | 50 (13.4%) | 53 (14.2%) |
+| Gemma 4 31B (`deepinfra/fp8`) | 90 (24.2%) | 96 (25.8%) | 95 (25.5%) | — |
+| Opus 5.5 | 20 (5.4%) | 27 (7.3%) | 28 (7.5%) | — |
+
+- The Qwen tool-action stub is gone: 0 of 6 samples with preamble v1 and 0 of 16 with
+  v2, against 5 of 6 with the old header; every answer now says it cannot run the
+  tests. This is the one clean effect of the experiment.
+- Preamble v1 made Opus hedge a settled fact: "about 100 °C" opened 6 of 8 implant
+  samples of the boiling-point case (overhedge FAIL 6/120 against 2/120). v2 states
+  settled facts plainly and flags only facts that may have changed: 2 of 18 and
+  2/180, back to the old level (Opus overhedge cases only, 3 samples).
+- Gemma is unchanged: the preamble moves which recent facts flip, not how many.
+- RegressionFirst2 and VerifyAssumptions2 match their originals within noise on every
+  model (e.g. Qwen 9 vs 9 and 8 vs 9 of 62 with preamble v2); they are kept for their
+  scope condition and no-tools fallback, not for a measured gain.
+
+Cost: about $47 on OpenRouter, most of it the two Opus passes (about $0.025 per answer
+with reasoning `low`).
