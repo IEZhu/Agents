@@ -65,6 +65,10 @@ def test_manifest_refuses_other_settings_but_accepts_added_arms(tmp_path):
     added["arms"].append({"label": "none_reversed", "rev": "HEAD", "env": {}, "implants": "none", "reverse": True, "sha": "s1"})
     pab.check_manifest(path, added)
     assert [a["label"] for a in pab.read_json(path)["arms"]] == ["none", "none_reversed"]
+    # A run from before --max-tokens used the default budget, and resumes only with it.
+    pab.check_manifest(path, {**_manifest(), "max_tokens": pab.MAX_TOKENS})
+    with pytest.raises(SystemExit, match="max_tokens"):
+        pab.check_manifest(path, {**_manifest(), "max_tokens": 1400})
 
 
 def test_unreadable_state_files_count_as_missing(tmp_path):
@@ -267,6 +271,7 @@ def _run_args(tmp_path, *extra):
 
 @pytest.mark.parametrize("name, env, extra, message", [
     ("local", {}, ["--concurrency", "2"], "hosted providers"),
+    ("local", {}, ["--samples", "2"], "LOCAL_LLM_TEMPERATURE > 0"),
     ("openrouter", {"OPENROUTER_TEMPERATURE": "0.7"}, [], "OPENROUTER_TEMPERATURE=0"),
     ("openrouter", {"OPENROUTER_API_KEY": None}, [], "needs OPENROUTER_API_KEY"),
 ])
@@ -280,3 +285,38 @@ def test_run_refuses_settings_that_would_spoil_the_measurement(tmp_path, monkeyp
             monkeypatch.setenv(key, value)
     with pytest.raises(SystemExit, match=message):
         asyncio.run(pab.run(_run_args(tmp_path, "--provider", name, *extra)))
+
+
+def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_path, monkeypatch):
+    """Hosted models vary at temperature 0, so repeated samples measure failure rates."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_TEMPERATURE", "default")
+    stub = tmp_path / "stub_builder.py"
+    stub.write_text(
+        "import json, sys\n"
+        "a = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
+        "rows = [json.loads(l) for l in open(a['--dataset']) if l.strip()]\n"
+        "json.dump({'prompts': {r['id']: {'system_prompt': 'p' + a['--implants'], 'meta': {}} for r in rows}},"
+        " open(a['--out'], 'w'))\n")
+    monkeypatch.setattr(pab, "BUILDER", stub)
+    budgets = []
+
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+        budgets.append(max_tokens)
+        return "answer", {}, 0
+
+    async def grade(provider, client, judge, case, answer):
+        return [], "PASS", "stub"
+
+    provider = SimpleNamespace(name="openrouter", default_model="m", default_judge_model="j", complete=complete,
+                               make_async_client=lambda: None, env_key="OPENROUTER_API_KEY")
+    monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
+    monkeypatch.setattr(pab.cr, "grade_sample", grade)
+    agents = tmp_path / "agents.json"
+    agents.write_text(json.dumps({"c0": "universal_agent"}))
+    args = _run_args(tmp_path, "--provider", "openrouter", "--samples", "2", "--max-tokens", "1400",
+                     "--implants", "CoV", "--rev", "HEAD", "--agents", str(agents))
+    assert asyncio.run(pab.run(args)) == 0
+    assert set(budgets) == {1400} and len(budgets) == 5 * 2
+    manifest = json.loads((tmp_path / "out/manifest.json").read_text())
+    assert manifest["max_tokens"] == 1400 and manifest["samples"] == 2 and manifest["temperature"] == "default"

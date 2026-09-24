@@ -556,8 +556,10 @@ def _first_json_object(text: str) -> dict[str, Any] | None:
 # OpenRouter: hosted open-weight models behind one OpenAI-compatible API
 # --------------------------------------------------------------------------- #
 # Request shape checked against openrouter.ai/docs on 2026-09-24:
-#   * `reasoning: {"enabled": false}` turns thinking off (models whose reasoning
-#     is mandatory reject it).
+#   * `reasoning: {"enabled": false}` turns thinking off. Models whose reasoning
+#     is mandatory (claude-opus-5.5: "Reasoning is mandatory for this endpoint")
+#     reject it; OPENROUTER_REASONING=low|medium|high asks for that effort
+#     instead and keeps the reasoning out of the answer text.
 #   * `provider.order` + `allow_fallbacks: false` keeps every call on the listed
 #     endpoints. Endpoint slugs name a host and a precision (`novita/bf16`,
 #     `deepinfra/bf16`), so one list can pin several models: each call goes to
@@ -590,19 +592,30 @@ def _openrouter_request(
     model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
 ) -> dict[str, Any]:
     # Same sampling contract as the local provider: OPENROUTER_TEMPERATURE applies
-    # to answers only, graders and router picks run at 0.
-    temperature = float(os.getenv("OPENROUTER_TEMPERATURE", "0")) if sample else 0.0
-    seed = int(os.getenv("OPENROUTER_SEED", "7"))
-    return {
+    # to answers only, graders and router picks run at 0. Parameters no endpoint of
+    # a model accepts must be left out, or `require_parameters` finds no endpoint:
+    # OPENROUTER_TEMPERATURE=default and OPENROUTER_SEED=none omit them.
+    temp_env = os.getenv("OPENROUTER_TEMPERATURE", "0")
+    temperature = None if temp_env == "default" else (float(temp_env) if sample else 0.0)
+    # Graders and router picks (sample=False) never think: their small budgets
+    # would go to reasoning. So the grader must be a model that can turn it off.
+    effort = os.getenv("OPENROUTER_REASONING", "off") if sample else "off"
+    reasoning = {"enabled": False} if effort == "off" else {"effort": effort, "exclude": True}
+    kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": temperature,
+        "extra_body": {"reasoning": reasoning, "provider": openrouter_routing()},
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    seed_env = os.getenv("OPENROUTER_SEED", "7")
+    if seed_env != "none":
         # Hosts are not deterministic at temperature 0 (see above); a fixed seed
         # is the one lever left there. Sampled calls get a fresh seed each.
-        "seed": seed + next(_call_counter) if temperature > 0 else seed,
-        "extra_body": {"reasoning": {"enabled": False}, "provider": openrouter_routing()},
-    }
+        seed = int(seed_env)
+        kwargs["seed"] = seed + next(_call_counter) if temperature else seed
+    return kwargs
 
 
 async def _openrouter_create(client, kwargs: dict[str, Any]):

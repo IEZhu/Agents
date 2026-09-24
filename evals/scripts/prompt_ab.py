@@ -61,7 +61,7 @@ from evals.scripts import compare_rules as cr  # noqa: E402
 
 BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
 DEFAULT_DATASET = cr.DEFAULT_DATASET
-MAX_TOKENS = 800
+MAX_TOKENS = 800  # default answer budget; a thinking model spends part of it reasoning
 # Providers whose answers run at a temperature this script controls.
 TEMPERATURE_ENV = {"local": "LOCAL_LLM_TEMPERATURE", "openrouter": "OPENROUTER_TEMPERATURE"}
 
@@ -148,8 +148,10 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
     old = read_json(path)
     if old is not None:
         for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
-                    "dataset_sha256", "agents_sha256"):
-            if old.get(key) != current.get(key):
+                    "max_tokens", "dataset_sha256", "agents_sha256"):
+            # Runs made before max_tokens was configurable used the default.
+            legacy = MAX_TOKENS if key == "max_tokens" else None
+            if old.get(key, legacy) != current.get(key, legacy):
                 raise SystemExit(f"{path.parent} was run with {key}={old.get(key)!r}, now {current.get(key)!r}; "
                                  f"use a new --out-dir")
         old_arms = {a["label"]: a for a in old["arms"]}
@@ -257,7 +259,7 @@ async def bounded(jobs, limit: int) -> None:
 
 
 async def answer_all(cases, arms, prompts, provider, client, model, samples: int, path: Path,
-                     concurrency: int = 1) -> None:
+                     concurrency: int = 1, max_tokens: int = MAX_TOKENS) -> None:
     done = {(r["arm"], r["id"], r["sample"]): r for r in read_jsonl(path)}
 
     def record(arm, cid, i, answer, reused):
@@ -267,7 +269,7 @@ async def answer_all(cases, arms, prompts, provider, client, model, samples: int
 
     def answer(arm, case, i, prompt):
         async def job():
-            record(arm, case["id"], i, (await provider.complete(client, model, case["query"], prompt, MAX_TOKENS))[0], None)
+            record(arm, case["id"], i, (await provider.complete(client, model, case["query"], prompt, max_tokens))[0], None)
         return job
 
     # Arm by arm: a later arm may reuse an earlier arm's answers, so each arm
@@ -404,10 +406,16 @@ async def run(args) -> int:
     judge = args.judge_model or judge_env_default("JUDGE_MODEL", provider.name) or provider.default_judge_model
     temperature_env = TEMPERATURE_ENV.get(provider.name)
     temperature = os.environ.get(temperature_env, "0") if temperature_env else "provider default"
-    if args.mode == "implants" and temperature_env and float(temperature) != 0:
+    greedy = temperature == "default" or (temperature_env is not None and float(temperature) == 0)
+    if args.mode == "implants" and temperature_env and not greedy:
         raise SystemExit(f"implants mode needs temperature 0: set {temperature_env}=0")
-    if args.samples > 1 and temperature_env and float(temperature) == 0:
-        raise SystemExit(f"--samples > 1 needs {temperature_env} > 0: greedy decoding repeats the same answer")
+    if provider.name == "local":
+        # Only a local server repeats itself at temperature 0; hosted models vary
+        # anyway, so repeated samples measure how often a case fails.
+        if args.samples > 1 and greedy:
+            raise SystemExit(f"--samples > 1 needs {temperature_env} > 0: greedy decoding repeats the same answer")
+        if args.mode == "implants" and args.samples != 1:
+            raise SystemExit("implants mode on a local server runs one greedy sample per case")
     routing = openrouter_routing() if provider.name == "openrouter" else None
     arms = ([parse_arm(s) for s in args.arm] if args.mode == "revisions"
             else implant_arms(args.rev, [n for n in args.implants.split(",") if n]))
@@ -425,7 +433,8 @@ async def run(args) -> int:
     with Worktrees(REPO_ROOT) as trees:
         check_manifest(out / "manifest.json", {
             "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
-            "temperature": temperature, "samples": args.samples, "dataset_sha256": sha256_file(dataset),
+            "temperature": temperature, "samples": args.samples, "max_tokens": args.max_tokens,
+            "dataset_sha256": sha256_file(dataset),
             "agents_sha256": sha256_file(agents_file) if agents_file else None,
             "arms": [{**asdict(a), "sha": trees.sha(a.rev)} for a in arms]})
         first = trees.get(arms[0].rev)
@@ -442,7 +451,8 @@ async def run(args) -> int:
                                                      out / f"prompts_{arm.label}.json", arm)
 
     answers_path, grades_path = out / "answers.jsonl", out / "grades.jsonl"
-    await answer_all(cases, arms, prompts, provider, client, model, args.samples, answers_path, args.concurrency)
+    await answer_all(cases, arms, prompts, provider, client, model, args.samples, answers_path, args.concurrency,
+                     args.max_tokens)
     await grade_all(cases, answers_path, grades_path, provider, client, judge, args.concurrency)
     answers = read_jsonl(answers_path)
     results = arm_results(arms, read_jsonl(grades_path))
@@ -465,6 +475,8 @@ def parse_args(argv=None):
     p.add_argument("--judge-model")
     p.add_argument("--samples", type=int, default=1)
     p.add_argument("--concurrency", type=int, default=1, help="parallel requests; hosted providers only")
+    p.add_argument("--max-tokens", type=int, default=MAX_TOKENS,
+                   help="answer budget; raise it for thinking models, whose reasoning counts against it")
     p.add_argument("--agents", help="JSON map case id -> agent; default: picked by the answer model")
     p.add_argument("--arm", action="append", default=[], help="revisions mode: label=rev[:KEY=VAL,...] (repeat)")
     p.add_argument("--rev", default="HEAD", help="implants mode: revision whose prompts are varied")
@@ -473,8 +485,6 @@ def parse_args(argv=None):
     args = p.parse_args(argv)
     if args.mode == "revisions" and len(args.arm) < 2:
         p.error("revisions mode needs at least two --arm")
-    if args.mode == "implants" and args.samples != 1:
-        p.error("implants mode runs one greedy sample per case")
     if args.concurrency < 1:
         p.error("--concurrency must be at least 1")
     return args

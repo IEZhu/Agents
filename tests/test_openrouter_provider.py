@@ -38,7 +38,7 @@ def _client(content: str, finish: str = "stop", is_async: bool = False):
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     for key in ("OPENROUTER_PROVIDER", "OPENROUTER_TEMPERATURE", "OPENROUTER_SEED", "OPENROUTER_MODEL",
-                "OPENROUTER_JUDGE_MODEL"):
+                "OPENROUTER_JUDGE_MODEL", "OPENROUTER_REASONING"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -146,3 +146,19 @@ def test_upstream_rate_limits_are_waited_out_within_a_budget(monkeypatch):
     with pytest.raises(openai.RateLimitError):
         asyncio.run(prov._openrouter_create(client, {}))
     assert pauses == [5.0, 10.0, 20.0]
+
+
+def test_thinking_models_get_an_effort_and_unsupported_parameters_can_be_left_out(monkeypatch):
+    # claude-opus-5.5 rejects reasoning.enabled=false, and no endpoint of it takes `seed`.
+    monkeypatch.setenv("OPENROUTER_REASONING", "low")
+    monkeypatch.setenv("OPENROUTER_SEED", "none")
+    monkeypatch.setenv("OPENROUTER_TEMPERATURE", "default")
+    kw = prov._openrouter_request("anthropic/claude-opus-5.5", [{"role": "user", "content": "hi"}], 1400)
+    assert kw["extra_body"]["reasoning"] == {"effort": "low", "exclude": True}
+    assert "seed" not in kw and "temperature" not in kw
+    monkeypatch.setenv("OPENROUTER_TEMPERATURE", "0")
+    kw = prov._openrouter_request("m", [{"role": "user", "content": "hi"}], 10)
+    assert kw["temperature"] == 0 and "seed" not in kw
+    # A grader call keeps thinking off even when answers think.
+    kw = prov._openrouter_request("qwen/qwen3.8-27b", [{"role": "user", "content": "grade"}], 300, sample=False)
+    assert kw["extra_body"]["reasoning"] == {"enabled": False}

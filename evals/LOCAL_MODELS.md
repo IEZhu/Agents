@@ -235,6 +235,15 @@ python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8
   exceeds them.
 - Thinking is off (`reasoning.enabled=false`); `OPENROUTER_TEMPERATURE` and
   `OPENROUTER_SEED` play the roles of their `LOCAL_LLM_` counterparts.
+- Models that must think (`anthropic/claude-opus-5.5` answers 400 "Reasoning is
+  mandatory") take `OPENROUTER_REASONING=low|medium|high` for answers; graders keep
+  thinking off, so pick a grader that allows it. Reasoning tokens count against the
+  answer budget: raise `--max-tokens` (default 800). Leave out parameters no endpoint
+  of the model accepts, or `require_parameters` finds none: `OPENROUTER_SEED=none`
+  (no Opus 5.5 endpoint takes a seed), `OPENROUTER_TEMPERATURE=default` (Anthropic's
+  own endpoint takes no temperature; `azure/global` does).
+- `--samples N` repeats every arm on hosted models even at temperature 0; since they
+  vary anyway, the repeats measure how often a case fails under each arm.
 - `--concurrency` parallelises calls within an arm; arms still run in order, so a later
   arm can reuse an earlier arm's answer to an identical prompt. The local provider
   refuses it.
