@@ -431,3 +431,55 @@ def test_every_case_needs_an_agent_before_prompts_are_built(tmp_path, monkeypatc
     with pytest.raises(SystemExit, match="no agent for 1 cases"):
         asyncio.run(pab.run(_run_args(tmp_path, "--agents", str(agents))))
 
+
+def test_a_truncated_last_record_is_dropped_but_a_bad_inner_one_is_an_error(tmp_path):
+    path = tmp_path / "answers.jsonl"
+    path.write_text('{"a": 1}\n{"a": 2}\n{"a": ')
+    assert pab.read_jsonl(path) == [{"a": 1}, {"a": 2}]
+    pab.append_jsonl(path, {"a": 3})
+    assert pab.read_jsonl(path) == [{"a": 1}, {"a": 2}, {"a": 3}]
+    path.write_text('{"a": 1}\n{"a": \n{"a": 3}\n')
+    with pytest.raises(json.JSONDecodeError):
+        pab.read_jsonl(path)
+
+
+def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
+    stub = tmp_path / "stub_builder.py"
+    stub.write_text(
+        "import json, os, sys\n"
+        "a = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
+        "rows = [json.loads(l) for l in open(a['--dataset']) if l.strip()]\n"
+        "json.dump({'embedding_model': os.environ.get('EMBEDDING_MODEL'),"
+        " 'prompts': {r['id']: {'system_prompt': 'p', 'meta': {}} for r in rows}}, open(a['--out'], 'w'))\n")
+    monkeypatch.setattr(pab, "BUILDER", stub)
+
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+        return "answer", {}, 0
+
+    async def grade(provider, client, judge, case, answer):
+        return [], "PASS", "stub"
+
+    provider = SimpleNamespace(name="local", default_model="m", default_judge_model="j", complete=complete,
+                               make_async_client=lambda: None, env_key="")
+    monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
+    monkeypatch.setattr(pab.cr, "grade_sample", grade)
+    monkeypatch.setattr("evals.scripts.local_ab.unload", lambda base, model: None)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "catalog.json").write_text("{}")
+
+    async def pick(cases, provider, client, model, catalog_path, path):
+        agents = pab.read_json(path) or {c["id"]: "universal_agent" for c in cases}
+        pab.write_json_atomic(path, agents)
+        return agents
+
+    monkeypatch.setattr(pab, "pick_agents", pick)
+    assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
+    manifest = pab.read_json(out / "manifest.json")
+    assert manifest["agents_sha256"] == pab.sha256_file(out / "agents.json")
+    # A replaced agent map no longer matches the run and is refused.
+    (out / "agents.json").write_text(json.dumps({"c0": "lawyer"}))
+    with pytest.raises(SystemExit, match="agents_sha256"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+

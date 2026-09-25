@@ -116,9 +116,28 @@ def mcnemar(base: dict[str, bool], other: dict[str, bool], ids) -> dict[str, Any
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Records of a JSONL state file.
+
+    A kill during an append can leave a truncated last line with no newline; that
+    fragment is dropped from the file so the run resumes. Any other bad line is an
+    error.
+    """
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    rows = []
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            if number != len(lines) or text.endswith("\n"):
+                raise
+            log(f"dropping a truncated last record in {path}")
+            path.write_text(text[:len(text) - len(line)], encoding="utf-8")
+    return rows
 
 
 def append_jsonl(path: Path, record: dict[str, Any]) -> None:
@@ -465,6 +484,7 @@ async def run(args) -> int:
             from evals.scripts.local_ab import unload
             unload(os.environ.get(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL).rstrip("/").removesuffix("/v1"), model)
 
+    generated = out / "agents.json"
     with Worktrees(REPO_ROOT) as trees:
         # Resolve each revision once: a branch that moves mid-run must not build
         # prompts from a commit other than the one the manifest records.
@@ -475,7 +495,8 @@ async def run(args) -> int:
             "embedding_model": builder_env({})["EMBEDDING_MODEL"], "request_settings": request_settings(provider.name),
             "builder_config": builder_config(),
             "dataset_sha256": sha256_file(dataset),
-            "agents_sha256": sha256_file(agents_file) if agents_file else None,
+            # A generated agent map is pinned too, once it exists (see below).
+            "agents_sha256": sha256_file(agents_file or generated) if (agents_file or generated.exists()) else None,
             "arms": [{**asdict(a), "sha": shas[a.label]} for a in arms]})
         first = trees.get(shas[arms[0].label])
         catalog = out / "catalog.json"
@@ -484,6 +505,10 @@ async def run(args) -> int:
             await run_builder(["--catalog-out", str(catalog)], first, builder_env({}))
         agents_path = agents_file or out / "agents.json"
         agents = await pick_agents(cases, provider, client, model, catalog, agents_path)
+        if agents_file is None:
+            manifest = read_json(out / "manifest.json")
+            if manifest.get("agents_sha256") is None:
+                write_json_atomic(out / "manifest.json", {**manifest, "agents_sha256": sha256_file(generated)})
         # A case without an agent would be routed by each revision on its own.
         if missing := [c["id"] for c in cases if c["id"] not in agents]:
             raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
