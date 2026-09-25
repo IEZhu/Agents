@@ -84,8 +84,9 @@ symlinked directories and JSON entries untouched.
 `status` reports ready, starting, draining, or failed state, PID, boot ID, request
 counts (`inflight` for work, `streams` for open client notification streams),
 `idle_seconds` since the last request finished, and running jobs. `/health` requires a bearer token. Readiness means the
-model and indexes have warmed successfully. Admission is bounded at 32 requests,
-with eight I/O workers and one inference worker. Capacity exhaustion returns
+model and indexes have warmed successfully. Admission is bounded at 32 work requests,
+plus up to 32 open notification streams counted separately, with eight I/O workers and
+one inference worker. Capacity exhaustion returns
 busy. Cancelling an HTTP waiter retains the quota for its running job and does
 not replay a mutation.
 

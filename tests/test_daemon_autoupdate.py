@@ -97,6 +97,23 @@ def test_dependency_change_is_refused_before_draining_and_logged_once(scheduled)
     assert len(log) == 1
 
 
+def test_branch_moving_after_the_check_applies_nothing(scheduled, monkeypatch):
+    controller, root, old, target = scheduled
+    checked = autoupdate.check_target
+
+    def check_then_move(*args, **kwargs):
+        found = checked(*args, **kwargs)
+        push_to_remote(root, "later.txt", "later\n", "lands after the check")
+        return found
+
+    monkeypatch.setattr(autoupdate, "check_target", check_then_move)
+    result = autoupdate.run(controller)
+    # The transaction fetched a commit that was never checked: refuse before any file changes.
+    assert result["state"] == "deferred" and "branch moved" in result["reason"] and result["target"] == target
+    assert git(root, "rev-parse", "HEAD") == old
+    assert controller.running and not (controller.directory / "transaction.json").exists()
+    assert read_json(controller.directory / "auto-update.json")["state"] == "deferred"
+
 def test_disabled_or_unfinished_transaction_does_nothing(scheduled):
     controller, root, old, _ = scheduled
     (controller.directory / "transaction.json").write_text("{}")

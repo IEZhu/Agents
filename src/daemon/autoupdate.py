@@ -203,9 +203,12 @@ def _run(controller):
         return _record(controller, {**found, "state": "deferred", "reason": f"stdio readers hold the installation: {readers}"})
     if not _enabled_on_disk(controller):
         return {"state": "disabled"}
-    from .update import offline_update
+    from .update import TargetMoved, offline_update
     try:
-        result = offline_update(controller)
+        result = offline_update(controller, expected_target=found["target"])
+    except TargetMoved as error:
+        # Nothing was applied; the next interval checks the new commit from scratch.
+        return _record(controller, {**found, "state": "deferred", "reason": str(error)})
     except BlockingIOError:
         return _record(controller, {**found, "state": "deferred", "reason": "another controller operation or a stdio reader holds the installation"})
     except Exception as error:
