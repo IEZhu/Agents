@@ -22,6 +22,14 @@ available here and is not needed: do not route. Answer the user from these steps
    git fetch origin claude/ablation-sweep && git checkout claude/ablation-sweep
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
+   Cloud egress blocks huggingface.co, so fetch the embedding model from
+   fastembed's Google Cloud Storage copy and point the embedder at it. Export
+   the variable in every shell that runs `build_contexts.py`:
+   ```bash
+   mkdir -p /tmp/e5 && curl -sSfL https://storage.googleapis.com/qdrant-fastembed/fast-multilingual-e5-large.tar.gz | tar xz -C /tmp/e5
+   find /tmp/e5 -name '._*' -delete
+   export AGENTS_MODEL_PATH=/tmp/e5/fast-multilingual-e5-large
+   ```
 2. **Pick the components and the run directory**
    ```bash
    IDS=$(python evals/ablation/components.py --batch 3)     # or the explicit ids
