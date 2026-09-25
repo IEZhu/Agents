@@ -532,6 +532,15 @@ def parse_args(argv=None):
         p.error("--concurrency must be at least 1")
     if args.samples < 1:
         p.error("--samples must be at least 1")
+    # Labels key the prompts, commits and resumable records: a repeat, or an implant
+    # named like a built-in arm (none, production, ...), would overwrite another arm.
+    try:
+        labels = [a.label for a in ([parse_arm(s) for s in args.arm] if args.mode == "revisions"
+                                    else implant_arms(args.rev, [n for n in args.implants.split(",") if n]))]
+    except ValueError as error:
+        p.error(str(error))
+    if repeated := sorted({label for label in labels if labels.count(label) > 1}):
+        p.error(f"arm labels must be unique; repeated or reserved: {repeated}")
     return args
 
 

@@ -145,6 +145,17 @@ def test_builder_config_records_prompt_settings_the_revision_reads(monkeypatch):
     assert "EMBEDDING_MODEL" not in config and "AGENTS_AUTO_UPDATE" not in config
 
 
+@pytest.mark.parametrize("argv", [
+    ["revisions", "--arm", "a=HEAD", "--arm", "a=HEAD~1"],
+    ["implants", "--implants", "CoV,CoV"],
+    ["implants", "--implants", "none"],
+    ["implants", "--implants", "production"],
+])
+def test_arm_labels_must_be_unique(argv):
+    with pytest.raises(SystemExit):
+        pab.parse_args([*argv, "--out-dir", "x"])
+
+
 def test_samples_must_be_positive():
     with pytest.raises(SystemExit):
         pab.parse_args(["implants", "--out-dir", "x", "--samples", "0"])
