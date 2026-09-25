@@ -186,7 +186,8 @@ def _run(controller):
         return _record(controller, {"state": "skipped", "reason": f"git failed: {type(error).__name__}: {error}"})
     if found["state"] != "available":
         if found["state"] == "up_to_date":
-            return found  # the common case; no log line every interval
+            # Recorded so `status` shows the latest run; `_record` logs only changes.
+            return _record(controller, found)
         return _record(controller, found)
     health = controller.status()
     if health.get("state") != "ready":
@@ -205,7 +206,8 @@ def _run(controller):
         return {"state": "disabled"}
     from .update import TargetMoved, offline_update
     try:
-        result = offline_update(controller, expected_target=found["target"])
+        result = offline_update(controller, expected_target=found["target"],
+                                still_wanted=lambda: _enabled_on_disk(controller))
     except TargetMoved as error:
         # Nothing was applied; the next interval checks the new commit from scratch.
         return _record(controller, {**found, "state": "deferred", "reason": str(error)})
@@ -213,4 +215,6 @@ def _run(controller):
         return _record(controller, {**found, "state": "deferred", "reason": "another controller operation or a stdio reader holds the installation"})
     except Exception as error:
         return _record(controller, {**found, "state": "failed", "error": f"{type(error).__name__}: {error}"})
+    if result.get("state") == "disabled":
+        return {"state": "disabled"}
     return _record(controller, {**found, "state": str(result.get("state"))})

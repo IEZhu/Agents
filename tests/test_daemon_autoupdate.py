@@ -201,6 +201,30 @@ def test_disable_during_a_run_prevents_the_update(scheduled, monkeypatch):
 
 
 
+def test_disable_after_the_last_check_still_wins_under_the_lock(scheduled, monkeypatch):
+    controller, root, old, _ = scheduled
+    enabled = autoupdate._enabled_on_disk
+    calls = []
+
+    def disable_right_after_the_check(controller):
+        calls.append(enabled(controller))
+        if len(calls) == 1:  # `disable` runs between this check and the transaction
+            write_json(controller.directory / "service.json", {**controller.config, "auto_update": {"enabled": False}})
+        return calls[-1]
+
+    monkeypatch.setattr(autoupdate, "_enabled_on_disk", disable_right_after_the_check)
+    assert autoupdate.run(controller) == {"state": "disabled"}
+    assert calls == [True, False]
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
+
+
+def test_up_to_date_run_replaces_an_older_status(scheduled):
+    controller, root, _, target = scheduled
+    write_json(controller.directory / "auto-update.json", {"state": "deferred", "reason": "service is busy"})
+    git(root, "merge", "--quiet", "--ff-only", target)
+    assert autoupdate.run(controller)["state"] == "up_to_date"
+    assert read_json(controller.directory / "auto-update.json")["state"] == "up_to_date"
+
 def test_cli_passes_a_zero_interval_through_to_validation(tmp_path):
     from src.daemon.control import main
     write_json(tmp_path / "service.json", {"installation": "/unused", "python": "/usr/bin/python3", "path": "/usr/bin"})
