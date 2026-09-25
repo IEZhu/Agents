@@ -426,7 +426,7 @@ graded Opus and Gemma, Gemma graded Qwen. Per-sample FAIL:
   13 of 31 cases, all tech how-to questions with no regression in them (the
   `IMPLANT_NEED_GATE` flag addresses this entry point).
 
-### Bounded implant preamble (`exp/implant-rewrites`)
+### Bounded implant preamble (`feat/implant-preamble`)
 
 The block header "The following cognitive implants have been loaded to augment
 reasoning" was replaced by a preamble that says the patterns were picked
@@ -441,17 +441,26 @@ Same cases, two samples, five implants plus production pooled (372 samples per c
 | Gemma 4 31B (`deepinfra/fp8`) | 90 (24.2%) | 96 (25.8%) | 95 (25.5%) | — |
 | Opus 5.5 | 20 (5.4%) | 27 (7.3%) | 28 (7.5%) | — |
 
-- The Qwen tool-action stub is gone: 0 of 6 samples with preamble v1 and 0 of 16 with
-  v2, against 5 of 6 with the old header; every answer now says it cannot run the
-  tests. This is the one clean effect of the experiment.
-- Preamble v1 made Opus hedge a settled fact: "about 100 °C" opened 6 of 8 implant
-  samples of the boiling-point case (overhedge FAIL 6/120 against 2/120). v2 states
-  settled facts plainly and flags only facts that may have changed: 2 of 18 and
-  2/180, back to the old level (Opus overhedge cases only, 3 samples).
+- The Qwen tool-action stub is gone on the one case that asks the agent to run tests:
+  under RegressionFirst, IterBudget and VerifyAssumptions 5 of 6 samples with the old
+  header, 0 of 6 with either preamble wording (0 of 12 without an implant); every
+  answer now says it cannot run the tests. This is the one clean effect of the
+  experiment. The pooled differences in the table are within noise (p about 0.3).
+- Preamble v1 made Opus hedge a settled fact: "about 100 °C" opened 6 of 12 implant
+  samples of the boiling-point case, against 2 of 12 with the old header (overhedge
+  FAIL 6/120 against 2/120). v2 states settled facts plainly and flags only facts
+  that may have changed: 2 of 18 and 2/180, back to the old level. v2 was run on Opus
+  for the 10 overhedge cases only (3 samples) and not on Gemma.
 - Gemma is unchanged: the preamble moves which recent facts flip, not how many.
 - RegressionFirst2 and VerifyAssumptions2 match their originals within noise on every
   model (e.g. Qwen 9 vs 9 and 8 vs 9 of 62 with preamble v2); they are kept for their
   scope condition and no-tools fallback, not for a measured gain.
+
+The shipped wording drops "flagged if unsure" from v2 (it contradicted
+`rule-no-fabrication`, which marks load-bearing specifics regardless of confidence)
+and adds "and still answer"; these two edits were not A/B-tested. The raw answers
+and grades of these runs were lost with the session scratchpad; only the aggregates
+above remain. Keep future `--out-dir`s under a persistent path.
 
 Cost: about $47 on OpenRouter, most of it the two Opus passes (about $0.025 per answer
 with reasoning `low`).
