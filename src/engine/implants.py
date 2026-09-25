@@ -354,10 +354,11 @@ class ImplantRetriever:
         # the agent may have no tools. On the one no_fabrication case that asks the
         # agent to run tests, Qwen3.8 27B answered only "I'll run the full test suite
         # to confirm." in 5 of 6 samples under RegressionFirst, IterBudget and
-        # VerifyAssumptions (0 of 12 without an implant) and in 0 of 6 with this
-        # preamble. An earlier wording that asked to flag facts made Opus 5.5 hedge
-        # settled ones. Details: evals/LOCAL_MODELS.md, "Bounded implant preamble"
-        # (PR #82).
+        # VerifyAssumptions (0 of 12 without an implant) and in 0 of 6 with each of
+        # the two A/B-tested wordings of this preamble; an earlier wording that asked
+        # to flag facts made Opus 5.5 hedge settled ones. The text below adds review
+        # edits to the last tested wording and was not tested verbatim. Details:
+        # evals/LOCAL_MODELS.md, "Bounded implant preamble" (PR #82).
         formatted += (
             "These reasoning patterns were picked automatically and may not fit this request. "
             "Use a pattern only where it helps with what the user asked; otherwise ignore it and answer normally. "
