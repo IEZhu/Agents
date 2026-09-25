@@ -5,7 +5,8 @@
 Reads each run's judge_plan.json and judge/<stem>.verdict.json, maps A/B back to
 with/without, and writes RUN_DIR/results.json and RUN_DIR/RESULTS.md for a single
 run, or prints the combined table for several runs.
-net = verdicts won with the component minus verdicts won without it.
+net = verdicts won with the component minus verdicts won without it; "robust"
+counts only cases where the same arm won in both orders.
 """
 import json
 import sys
@@ -41,17 +42,27 @@ def untestable(run_dir: Path) -> dict:
 
 
 def table(rows: list[dict], skipped: dict) -> str:
-    by = defaultdict(lambda: {"with": 0, "without": 0, "tie": 0, "clear_or_large": 0, "cases": set()})
+    """Per-component counts. Judges favour position B, so the robust columns count
+    only cases where the same arm won in both orders."""
+    by = defaultdict(lambda: {"with": 0, "without": 0, "tie": 0, "clear_or_large": 0,
+                              "orders": defaultdict(list)})
     for r in rows:
         s = by[r["component"]]
         s[r["winner_arm"]] += 1
-        s["cases"].add(r["case"])
+        s["orders"][r["case"]].append(r["winner_arm"])
         if r["winner_arm"] != "tie" and r["margin"] in ("clear", "large"):
             s["clear_or_large"] += 1
-    lines = ["| Component | Cases | with | without | tie | net | clear/large |", "|---|---|---|---|---|---|---|"]
-    for comp, s in sorted(by.items(), key=lambda kv: kv[1]["with"] - kv[1]["without"]):
-        lines.append(f"| {comp} | {len(s['cases'])} | {s['with']} | {s['without']} | {s['tie']} | "
-                     f"{s['with'] - s['without']:+d} | {s['clear_or_large']} |")
+    for s in by.values():
+        both = [arms[0] for arms in s["orders"].values() if len(arms) == 2 and arms[0] == arms[1]]
+        s["robust_with"], s["robust_without"] = both.count("with"), both.count("without")
+    lines = ["| Component | Cases | with | without | tie | net | robust with | robust without | clear/large |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    order = sorted(by.items(), key=lambda kv: (kv[1]["robust_with"] - kv[1]["robust_without"],
+                                               kv[1]["with"] - kv[1]["without"]))
+    for comp, s in order:
+        lines.append(f"| {comp} | {len(s['orders'])} | {s['with']} | {s['without']} | {s['tie']} | "
+                     f"{s['with'] - s['without']:+d} | {s['robust_with']} | {s['robust_without']} | "
+                     f"{s['clear_or_large']} |")
     if skipped:
         lines += ["", "Untestable or no cases:"] + [f"- {c}: {why}" for c, why in sorted(skipped.items())]
     return "\n".join(lines) + "\n"
