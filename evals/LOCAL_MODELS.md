@@ -204,9 +204,11 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   `none_repeat` repeats `none` in the same order; `none_reversed` repeats it last and in
   reverse order, so its cached neighbours differ. Read an implant's "answers changed"
   against both floors.
-- **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, dataset,
-  agents file and each arm's commit. A rerun with other settings is refused; adding arms
-  to a finished run is allowed.
+- **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
+  budget, embedding model, request settings (reasoning effort, seed, grader temperature),
+  dataset, agents file and each arm's commit. A rerun with other settings is refused, and
+  so is one that reorders the arms already run; adding arms is allowed. Cached prompt
+  files are reused only if they were built with the current embedding model.
 - Relative paths are resolved against the directory you run from.
 
 ### The same models, hosted (OpenRouter)

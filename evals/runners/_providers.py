@@ -579,6 +579,19 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_DEFAULT_MODEL = "google/gemma-4-31b-it"
 
 
+def request_settings(provider_name: str) -> dict[str, str] | None:
+    """Env-driven request settings beyond model and temperature, for run manifests.
+
+    A resumed run must not mix answers or grades made with different settings.
+    """
+    if provider_name == "openrouter":
+        return {"reasoning": os.getenv("OPENROUTER_REASONING", "off"), "seed": os.getenv("OPENROUTER_SEED", "7"),
+                "grader_temperature": os.getenv("OPENROUTER_GRADER_TEMPERATURE", "0")}
+    if provider_name == "local":
+        return {"thinking": os.getenv("LOCAL_LLM_THINKING", "0"), "seed": os.getenv("LOCAL_LLM_SEED", "7")}
+    return None
+
+
 def openrouter_routing() -> dict[str, Any]:
     """`provider` routing object from OPENROUTER_PROVIDER (comma-separated endpoint slugs)."""
     routing: dict[str, Any] = {"require_parameters": True}

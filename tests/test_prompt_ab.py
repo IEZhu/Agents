@@ -69,10 +69,37 @@ def test_manifest_refuses_other_settings_but_accepts_added_arms(tmp_path):
     pab.check_manifest(path, {**_manifest(), "max_tokens": pab.MAX_TOKENS})
     with pytest.raises(SystemExit, match="max_tokens"):
         pab.check_manifest(path, {**_manifest(), "max_tokens": 1400})
-    # The same holds for the embedding model that picked skills and implants.
+    # A manifest without the embedding model defers to the prompt files (build_prompts);
+    # once recorded, a different model is refused.
     pab.check_manifest(path, {**_manifest(), "embedding_model": pab.DEFAULT_EMBEDDING_MODEL})
     with pytest.raises(SystemExit, match="embedding_model"):
         pab.check_manifest(path, {**_manifest(), "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"})
+
+
+def test_manifest_pins_request_settings_and_refuses_runs_that_never_recorded_them(tmp_path):
+    path = tmp_path / "manifest.json"
+    settings = {"reasoning": "low", "seed": "none", "grader_temperature": "0"}
+    pab.check_manifest(path, _manifest())
+    # Settings of a run recorded before they were pinned cannot be established.
+    with pytest.raises(SystemExit, match="request settings"):
+        pab.check_manifest(path, {**_manifest(), "request_settings": settings})
+    fresh = tmp_path / "fresh" / "manifest.json"
+    fresh.parent.mkdir()
+    pab.check_manifest(fresh, {**_manifest(), "request_settings": settings})
+    with pytest.raises(SystemExit, match="request_settings"):
+        pab.check_manifest(fresh, {**_manifest(), "request_settings": {**settings, "grader_temperature": "default"}})
+
+
+def test_cached_prompts_built_with_another_embedding_model_are_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+    out = tmp_path / "prompts_none.json"
+    arm = pab.Arm("none", "HEAD", implants="none")
+    for recorded in ("sentence-transformers/all-MiniLM-L6-v2", None):
+        pab.write_json_atomic(out, {"embedding_model": recorded, "prompts": {}})
+        with pytest.raises(SystemExit, match="embedding model"):
+            asyncio.run(pab.build_prompts(tmp_path, tmp_path, tmp_path, out, arm))
+    pab.write_json_atomic(out, {"embedding_model": "intfloat/multilingual-e5-large", "prompts": {"c1": {}}})
+    assert asyncio.run(pab.build_prompts(tmp_path, tmp_path, tmp_path, out, arm)) == {"c1": {}}
 
 
 def test_manifest_refuses_reordered_arms_but_accepts_arms_added_in_between(tmp_path):
@@ -205,11 +232,12 @@ def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):
     """Orchestration only: manifest, relative paths, async builds, answers, grades, report."""
     stub = tmp_path / "stub_builder.py"
     stub.write_text(
-        "import json, sys\n"
+        "import json, os, sys\n"
         "a = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
         "rows = [json.loads(l) for l in open(a['--dataset']) if l.strip()]\n"
         "extra = '' if a['--implants'] == 'none' else '+' + a['--implants']\n"
-        "json.dump({'prompts': {r['id']: {'system_prompt': 'base' + extra, 'meta': {}} for r in rows}},"
+        "json.dump({'embedding_model': os.environ.get('EMBEDDING_MODEL'),"
+        " 'prompts': {r['id']: {'system_prompt': 'base' + extra, 'meta': {}} for r in rows}},"
         " open(a['--out'], 'w'))\n")
     monkeypatch.setattr(pab, "BUILDER", stub)
     dataset = tmp_path / "cases.jsonl"
@@ -313,10 +341,11 @@ def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_pa
     monkeypatch.setenv("OPENROUTER_TEMPERATURE", "default")
     stub = tmp_path / "stub_builder.py"
     stub.write_text(
-        "import json, sys\n"
+        "import json, os, sys\n"
         "a = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
         "rows = [json.loads(l) for l in open(a['--dataset']) if l.strip()]\n"
-        "json.dump({'prompts': {r['id']: {'system_prompt': 'p' + a['--implants'], 'meta': {}} for r in rows}},"
+        "json.dump({'embedding_model': os.environ.get('EMBEDDING_MODEL'),"
+        " 'prompts': {r['id']: {'system_prompt': 'p' + a['--implants'], 'meta': {}} for r in rows}},"
         " open(a['--out'], 'w'))\n")
     monkeypatch.setattr(pab, "BUILDER", stub)
     budgets = []

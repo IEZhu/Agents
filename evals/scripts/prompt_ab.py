@@ -148,13 +148,19 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
     if old is not None:
-        # Runs made before these keys were recorded used the defaults.
-        legacy = {"max_tokens": MAX_TOKENS, "embedding_model": DEFAULT_EMBEDDING_MODEL}
+        # Runs made before --max-tokens existed used the fixed default. A missing
+        # embedding model is checked per prompt file instead (build_prompts); request
+        # settings of such a run cannot be established, so it is not resumed.
+        if "request_settings" not in old and current.get("request_settings") is not None:
+            raise SystemExit(f"{path.parent} was run before request settings were recorded; use a new --out-dir")
         for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
-                    "max_tokens", "embedding_model", "dataset_sha256", "agents_sha256"):
-            if old.get(key, legacy.get(key)) != current.get(key, legacy.get(key)):
-                raise SystemExit(f"{path.parent} was run with {key}={old.get(key)!r}, now {current.get(key)!r}; "
-                                 f"use a new --out-dir")
+                    "max_tokens", "embedding_model", "request_settings", "dataset_sha256", "agents_sha256"):
+            if key == "embedding_model" and key not in old:
+                continue
+            default = MAX_TOKENS if key == "max_tokens" else None
+            before, now = old.get(key, default), current.get(key, default)
+            if before != now:
+                raise SystemExit(f"{path.parent} was run with {key}={before!r}, now {now!r}; use a new --out-dir")
         old_arms = {a["label"]: a for a in old["arms"]}
         for arm in current["arms"]:
             if arm["label"] in old_arms and old_arms[arm["label"]] != arm:
@@ -219,11 +225,16 @@ async def run_builder(args: list[str], cwd: Path, env: dict[str, str]) -> None:
 
 async def build_prompts(root: Path, dataset: Path, agents: Path, out: Path, arm: Arm) -> dict[str, Any]:
     built = read_json(out)
+    env = builder_env(arm.env)
     if built is None:
         log(f"building prompts for {arm.label} ({arm.rev}, implants={arm.implants}, env={arm.env})")
         await run_builder(["--dataset", str(dataset), "--agents", str(agents), "--implants", arm.implants,
-                           "--out", str(out)], root, builder_env(arm.env))
+                           "--out", str(out)], root, env)
         built = read_json(out)
+    # The embedding model picks skills and implants; the builder records the one it used.
+    if built.get("embedding_model") != env["EMBEDDING_MODEL"]:
+        raise SystemExit(f"{out} was built with embedding model {built.get('embedding_model')!r}, now "
+                         f"{env['EMBEDDING_MODEL']!r}; use a new --out-dir")
     return built["prompts"]
 
 
@@ -394,7 +405,9 @@ def write_reports(mode, cases, arms, prompts, answers, results, cfg, out: Path) 
 # Entry point
 # --------------------------------------------------------------------------- #
 async def run(args) -> int:
-    from evals.runners._providers import get_provider, judge_env_default, missing_credentials, openrouter_routing
+    from evals.runners._providers import (
+        get_provider, judge_env_default, missing_credentials, openrouter_routing, request_settings,
+    )
 
     # The builder runs with its cwd in a worktree, so every path it gets is absolute.
     out: Path = args.out_dir.expanduser().resolve()
@@ -444,7 +457,7 @@ async def run(args) -> int:
         check_manifest(out / "manifest.json", {
             "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
             "temperature": temperature, "samples": args.samples, "max_tokens": args.max_tokens,
-            "embedding_model": builder_env({})["EMBEDDING_MODEL"],
+            "embedding_model": builder_env({})["EMBEDDING_MODEL"], "request_settings": request_settings(provider.name),
             "dataset_sha256": sha256_file(dataset),
             "agents_sha256": sha256_file(agents_file) if agents_file else None,
             "arms": [{**asdict(a), "sha": shas[a.label]} for a in arms]})
