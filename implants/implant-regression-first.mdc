@@ -28,8 +28,8 @@ triggers:
    - Recently modified files: `find <path> -mtime -2 -type f`.
    - Recent config / dependency / lockfile / OS upgrade changes.
 4. **State the regression hypothesis explicitly**: "Change X (specific commit / edit / config) is the likely cause."
-5. **Test that hypothesis first**: revert the suspected change in isolation (or `git bisect` if multiple). Only after it is falsified do you move to general root-cause analysis.
-6. **No tools to run the checks?** Name the likeliest change from what the user described, give the exact commands that would confirm it and the fix to apply if it is confirmed (usually reverting or adapting to that change). Never announce, imply or report a check you did not run.
+5. **Test that hypothesis first**: revert the suspected change on an isolated copy — a separate branch or worktree, a staging environment (or `git bisect` if multiple). Never roll back a live service or shared state without the user's go-ahead. Only after it is falsified do you move to general root-cause analysis.
+6. **No tools to run the checks?** Name the likeliest change from what the user described, give the exact commands that would confirm it and the fix to apply if it is confirmed (usually reverting or adapting to that change, tried on an isolated copy first). Never announce, imply or report a check you did not run.
 
 ## When to Use
 - User reports a regression (was-working-now-broken) in something they run, not a greenfield bug.
