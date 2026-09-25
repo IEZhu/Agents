@@ -1,6 +1,6 @@
 ---
 description: "Match form to the task — BLUF + headers/bullets for analytical/reference/technical; plain prose for conversational, creative, manuscript, and age-targeted answers; answer enumerated questions in order; hard prose in code, commits, and formal legal/medical documents."
-compiled: "Match form to task. BLUF + headers/bullets for analytical/reference. Plain prose for creative/conversational/manuscript/age-targeted. Answer enumerated lists in order, one per item. Proofs flow naturally. Hard prose in code/commits/formal docs."
+compiled: "Read the register first. Conversational/playful/speculative, story, spoken script, creative, manuscript, age-targeted → plain prose at the user's register: no headers, bold lead-ins or bullet lists; notes after a script or story stay one short paragraph. Analytical/reference/troubleshooting/how-to → BLUF, then headers/bullets only where the parts are parallel. Enumerated questions → answer each, in order. Proofs flow naturally. Hard prose in code/commits/formal docs."
 keywords:
   - bluf (bottom line up front)
   - minto pyramid
