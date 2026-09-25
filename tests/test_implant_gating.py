@@ -133,3 +133,16 @@ def test_choice_env_rejects_unknown_mode(monkeypatch, caplog):
     assert cfg._choice_env("IMPLANT_GATING", "legacy", ("legacy", "zscore")) == "zscore"
     monkeypatch.delenv("IMPLANT_GATING")
     assert cfg._choice_env("IMPLANT_GATING", "legacy", ("legacy", "zscore")) == "legacy"
+
+
+def test_implant_block_bounds_patterns_to_the_request():
+    """The preamble keeps implants from overriding facts or faking tool runs (PR #82, evals/LOCAL_MODELS.md)."""
+    assert ImplantRetriever.format_implants_for_prompt(None, []) == ""
+    text = ImplantRetriever.format_implants_for_prompt(
+        None, [{"metadata": {"filename": "implant-x.mdc", "description": "Desc"}, "content": BODY}])
+    assert text.startswith("## Dynamic Implants (Contextually Loaded)\n")
+    for phrase in ("may not fit this request", "otherwise ignore it and answer normally",
+                   "state settled facts plainly", "give the user the check and still answer"):
+        assert phrase in text
+    assert text.index("### Implant: implant-x.mdc") > text.index("promising to run it")
+    assert "**Description**: Desc" in text and "## When to Use" in text

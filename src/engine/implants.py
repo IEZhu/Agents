@@ -350,7 +350,23 @@ class ImplantRetriever:
             return ""
 
         formatted = "## Dynamic Implants (Contextually Loaded)\n"
-        formatted += "The following cognitive implants have been loaded to augment reasoning:\n\n"
+        # Implants are picked automatically and often land outside their scope, and
+        # the agent may have no tools. On the one no_fabrication case that asks the
+        # agent to run tests, Qwen3.8 27B answered only "I'll run the full test suite
+        # to confirm." in 5 of 6 samples under RegressionFirst, IterBudget and
+        # VerifyAssumptions (0 of 12 without an implant) and in 0 of 6 with this
+        # preamble. An earlier wording that asked to flag facts made Opus 5.5 hedge
+        # settled ones. Details: evals/LOCAL_MODELS.md, "Bounded implant preamble"
+        # (PR #82).
+        formatted += (
+            "These reasoning patterns were picked automatically and may not fit this request. "
+            "Use a pattern only where it helps with what the user asked; otherwise ignore it and answer normally. "
+            "They shape how you reason, not what you know: state settled facts plainly, and when a fact may have "
+            "changed recently, give the latest version you know rather than an older one that feels safer; the "
+            "always-on rules decide what gets marked. "
+            "When a pattern calls for commands or checks you cannot run, give the user the check and still answer, "
+            "instead of claiming or promising to run it.\n\n"
+        )
 
         for implant in implants:
             meta = implant.get("metadata", {})
