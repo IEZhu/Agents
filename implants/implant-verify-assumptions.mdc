@@ -1,9 +1,9 @@
 ---
-description: Verify Assumptions Before Architecture. Before proposing architectural decisions, refactors, integrations, or "we should use X" recommendations — list 1-3 facts you're taking as true (e.g. "X is a TUI app", "the config was applied", "the process is killed", "the font is installed") and give each ONE-COMMAND verification. Run all verifications BEFORE designing. Prevents building architecture on a hypothesis instead of fact.
+description: Verify Assumptions Before Architecture. Before proposing architectural decisions, refactors, integrations, fixes, or "we should use X" recommendations for the user's system, list 1-3 facts you're taking as true (e.g. "X is a TUI app", "the config was applied", "the process is killed", "the font is installed") and give each ONE-COMMAND verification. With tools, run the checks BEFORE designing; without tools, hand over the commands and state the proposal as conditional on them. Prevents building architecture on a hypothesis instead of fact.
 globs: []
 alwaysApply: false
 short_name: VerifyAssumptions
-one_liner: list and verify 1-3 load-bearing facts before architectural decisions
+one_liner: list and check 1-3 load-bearing facts before a design or fix recommendation, or hand over the checks
 triggers:
   - "we should use"
   - "should we switch to"
@@ -19,29 +19,30 @@ triggers:
   - "qué librería"
 ---
 ## Pattern
-1. **Detect the signal**: You're about to propose a design, refactor, integration, library choice, or "we should X" recommendation.
-2. **Enumerate load-bearing assumptions**: List 1-3 facts your proposal depends on. Be specific — vague assumptions ("the system is fast enough") don't qualify; concrete claims do ("X is a TUI app, not GUI"; "the config is applied at startup"; "the lockfile pins version Y").
+1. **Detect the signal**: You're about to recommend a design, refactor, integration, fix, library or tool choice that rests on properties of the user's system. Otherwise (a plain question, an explanation, a draft or template) this pattern does not apply: answer normally.
+2. **Enumerate load-bearing assumptions**: 1-3 concrete facts about the user's environment or code that the proposal depends on ("X is a TUI app, not GUI"; "the config is applied at startup"; "the lockfile pins version Y"). Vague ones ("the system is fast enough") don't qualify.
 3. **Pair each with a ONE-COMMAND verification**:
    - "X is a TUI app" → `ls $(nix eval --raw nixpkgs#X)/Applications/` (presence of `.app` ⇒ GUI).
    - "Config Y was applied" → `<app> +show-config | grep <key>`.
    - "Font Z is found" → `fc-list | grep <font>`.
    - "Process is killed" → `pgrep -f <name>`.
    - "Migration ran" → `<db> -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 5"`.
-4. **Run all checks**. State the actual output.
-5. **Only then propose the design**. If any verification falsifies an assumption, revise the proposal before presenting it.
+4. **Check**. With tools: run all checks before designing and state the actual output. Without tools: never claim a result; list each assumption with its command, mark it unchecked, and for a shaky one say what changes if it is false.
+5. **Then propose**. If a check falsifies an assumption, revise the proposal before presenting it. Unchecked assumptions are stated conditions, not blockers: still deliver the recommendation.
 
 ## When to Use
 - Architectural recommendations ("we should use X").
 - Library / framework / tool choices.
 - Refactoring proposals that hinge on properties of existing code.
-- "It will work because Y" claims where Y is unverified.
-- Any decision presented before reading the code or running a check.
+- Fix proposals that rely on an unchecked property of the running system (config applied, process killed, migration ran).
+- "It will work because Y" claims where Y is a checkable property of the user's system.
 
 ## Limitations
 - Adds latency: 1-3 commands and their interpretation before the recommendation.
-- Verifications themselves can be wrong (running the wrong probe). The one-command form is a feature — it forces specificity, but doesn't guarantee correctness.
+- Verifications themselves can be wrong (running the wrong probe). The one-command form forces specificity but doesn't guarantee correctness.
 - Not every assumption is verifiable in one command; for those, be explicit they are unverified ("assuming X, please confirm").
+- Unchecked is not false: keep your best current understanding and mark it; don't swap it for an older or default state because that feels safer.
 - Overkill for trivial choices (which date library to use).
 
 ## Anti-Pattern
-Building architecture on top of an unverified assumption ("we'll use kitty for wrapping because X is a TUI app") when a 5-second check (`ls .../Applications/`) would have falsified the premise. Without verify-step you build architecture on hypothesis, not fact.
+Building architecture on top of an unverified assumption ("we'll use kitty for wrapping because X is a TUI app") when a 5-second check (`ls .../Applications/`) would have falsified the premise. Equally wrong: reporting check output you never ran, or withholding the recommendation until the user has run every check.
