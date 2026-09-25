@@ -218,6 +218,22 @@ def test_disable_after_the_last_check_still_wins_under_the_lock(scheduled, monke
     assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
 
 
+def test_stop_after_the_last_check_is_not_undone(scheduled, monkeypatch):
+    controller, root, old, _ = scheduled
+    enabled = autoupdate._enabled_on_disk
+    calls = []
+
+    def stop_right_after_the_check(controller):
+        calls.append(enabled(controller))
+        if len(calls) == 1:  # a manual `stop` lands between this check and the transaction
+            controller.running = False
+        return calls[-1]
+
+    monkeypatch.setattr(autoupdate, "_enabled_on_disk", stop_right_after_the_check)
+    result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and result["reason"] == "service is stopped"
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0 and not controller.running
+
 def test_up_to_date_run_replaces_an_older_status(scheduled):
     controller, root, _, target = scheduled
     write_json(controller.directory / "auto-update.json", {"state": "deferred", "reason": "service is busy"})

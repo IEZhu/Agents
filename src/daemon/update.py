@@ -75,15 +75,15 @@ class TargetMoved(RuntimeError):
     """The branch moved after auto-update checked it; nothing was applied."""
 
 
-def offline_update(controller, expected_target=None, still_wanted=None):
+def offline_update(controller, expected_target=None, precheck=None):
     root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
         if (controller.directory / "transaction.json").exists():
             raise RuntimeError("An unfinished transaction requires recover")
-        # A scheduled update rechecks under the lock that `disable` also takes, so a
-        # disable that returned before this point always wins.
-        if still_wanted is not None and not still_wanted():
-            return {"state": "disabled"}
+        # A scheduled update rechecks its preconditions under the lock that `disable`
+        # and `stop` also take, so either one that returned before this point wins.
+        if precheck is not None and (refusal := precheck()):
+            return refusal
         prior = controller.status()
         journal = {"phase": "draining", "was_running": prior.get("state") in ("ready", "starting", "draining"),
                    "autostart": controller.config["autostart"]}

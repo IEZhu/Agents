@@ -175,6 +175,16 @@ def _enabled_on_disk(controller):
     return bool((read_json(controller.directory / "service.json", {}).get("auto_update") or {}).get("enabled"))
 
 
+def _precheck(controller):
+    """Preconditions rechecked under the control lock; a refusal result or None."""
+    if not _enabled_on_disk(controller):
+        return {"state": "disabled"}
+    state = controller.status().get("state")
+    if state != "ready":
+        return {"state": "deferred", "reason": f"service is {state}"}
+    return None
+
+
 def _run(controller):
     if not settings(controller)["enabled"]:
         return {"state": "disabled"}
@@ -206,8 +216,7 @@ def _run(controller):
         return {"state": "disabled"}
     from .update import TargetMoved, offline_update
     try:
-        result = offline_update(controller, expected_target=found["target"],
-                                still_wanted=lambda: _enabled_on_disk(controller))
+        result = offline_update(controller, expected_target=found["target"], precheck=lambda: _precheck(controller))
     except TargetMoved as error:
         # Nothing was applied; the next interval checks the new commit from scratch.
         return _record(controller, {**found, "state": "deferred", "reason": str(error)})
@@ -217,4 +226,6 @@ def _run(controller):
         return _record(controller, {**found, "state": "failed", "error": f"{type(error).__name__}: {error}"})
     if result.get("state") == "disabled":
         return {"state": "disabled"}
+    if result.get("state") == "deferred":
+        return _record(controller, {**found, **result})
     return _record(controller, {**found, "state": str(result.get("state"))})
