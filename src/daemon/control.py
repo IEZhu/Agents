@@ -131,7 +131,9 @@ class Controller:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             status = self.request()
-            if not status.get("inflight", 0) and not status.get("io_pending", 0): return
+            # Streams end on drain; waiting for them lets each client receive
+            # its final chunk before launchd stops the process.
+            if not any(status.get(key, 0) for key in ("inflight", "io_pending", "streams")): return
             time.sleep(.1)
         self.request("/admin/resume", method="POST")
         raise TimeoutError("Drain timed out; runtime resumed without killing active work")
@@ -159,6 +161,8 @@ class Controller:
         return self.start()
 
     def uninstall(self):
+        from .autoupdate import disable
+        disable(self)
         with file_lock(self.directory / "control.lock", blocking=False):
             self._stop()
             self.plist.unlink(missing_ok=True)
@@ -185,6 +189,10 @@ def main(argv=None):
     migrate.add_argument("--clients", default="codex,claude,cursor")
     restore = commands.add_parser("restore-clients"); restore.add_argument("backup", type=Path)
     token = commands.add_parser("token"); token.add_argument("action", choices=["rotate"])
+    auto = commands.add_parser("auto-update", help="unattended updates from the tracked branch")
+    auto.add_argument("action", choices=["enable", "disable", "status", "run"])
+    auto.add_argument("--interval", type=int, help="seconds between checks (default 900)")
+    auto.add_argument("--idle-seconds", type=int, help="apply only after this long without requests (default 120)")
     args = parser.parse_args(argv)
     controller = Controller(args.state)
     if args.command == "serve":
@@ -225,6 +233,13 @@ def main(argv=None):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
+    elif args.command == "auto-update":
+        from . import autoupdate
+        if args.action == "enable":
+            result = autoupdate.enable(controller, autoupdate.DEFAULT_INTERVAL if args.interval is None else args.interval,
+                                       autoupdate.DEFAULT_IDLE_SECONDS if args.idle_seconds is None else args.idle_seconds)
+        else:
+            result = getattr(autoupdate, args.action)(controller)
     elif args.command == "token":
         from .rotation import rotate_token
         result = rotate_token(controller)

@@ -113,6 +113,43 @@ async def test_admission_is_atomic_and_disconnect_retains_requests(tmp_path):
             assert not app.state.service.requests
 
 
+@pytest.mark.asyncio
+async def test_idle_streams_are_not_work_and_drain_closes_them(tmp_path):
+    """#76: a client's GET /mcp stream must not hold drain open forever."""
+    app = create_app(tmp_path, TOKEN, runtime_loader=fake_runtime)
+    service = app.state.service
+    async with app.router.lifespan_context(app):
+        while service.state == "starting": await asyncio.sleep(.001)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765",
+            headers={"Authorization": "Bearer " + TOKEN, "Accept": "application/json, text/event-stream"}) as http:
+            async def open_stream():
+                task = asyncio.create_task(http.get("/mcp"))
+                deadline = asyncio.get_running_loop().time() + 5
+                while service.streams < 1:
+                    assert not task.done(), "stream ended before it was admitted"
+                    assert asyncio.get_running_loop().time() < deadline, "stream was never admitted"
+                    await asyncio.sleep(.001)
+                return task
+            stream = await open_stream()
+            health = (await http.get("/health")).json()
+            assert health["inflight"] == 0 and health["streams"] == 1
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "route", "arguments": {}}}
+            assert (await http.post("/mcp", json=payload)).status_code == 200
+            assert (await http.get("/health")).json()["idle_seconds"] >= 0
+            drained = (await http.post("/admin/drain")).json()
+            response = await asyncio.wait_for(stream, timeout=5)
+            assert response.status_code == 200  # ended cleanly, not reset
+            assert service.streams == 0 and not service.stream_closers
+            assert drained["inflight"] == 0
+            assert (await http.get("/mcp")).status_code == 503  # no new streams while draining
+            # A drain that times out resumes the service; streams work again and close again.
+            await http.post("/admin/resume")
+            stream = await open_stream()
+            await http.post("/admin/drain")
+            assert (await asyncio.wait_for(stream, timeout=5)).status_code == 200
+            assert service.streams == 0
+
+
 def test_history_lru_retains_active_stores(tmp_path):
     stores = HistoryStores(capacity=1)
     a = ClientContext("a", "http", root=tmp_path / "a")

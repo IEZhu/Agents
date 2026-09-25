@@ -71,11 +71,19 @@ def rollback(controller, journal):
     return {"state": "rolled_back", "health": ready}
 
 
-def offline_update(controller):
+class TargetMoved(RuntimeError):
+    """The branch moved after auto-update checked it; nothing was applied."""
+
+
+def offline_update(controller, expected_target=None, precheck=None):
     root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
         if (controller.directory / "transaction.json").exists():
             raise RuntimeError("An unfinished transaction requires recover")
+        # A scheduled update rechecks its preconditions under the lock that `disable`
+        # and `stop` also take, so either one that returned before this point wins.
+        if precheck is not None and (refusal := precheck()):
+            return refusal
         prior = controller.status()
         journal = {"phase": "draining", "was_running": prior.get("state") in ("ready", "starting", "draining"),
                    "autostart": controller.config["autostart"]}
@@ -99,6 +107,9 @@ def offline_update(controller):
                 from src import self_update
                 def validate(old, target):
                     nonlocal mutated
+                    # Auto-update checked one commit before draining; apply only that one.
+                    if expected_target and target != expected_target:
+                        raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
                     changed = subprocess.run([controller.config["git"], "diff", "--name-only", old, target, "--", *DEPENDENCIES],
                                              cwd=root, capture_output=True, text=True, check=True)
                     if changed.stdout.strip():

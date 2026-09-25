@@ -18,6 +18,9 @@ from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
 logger = logging.getLogger(__name__)
 
+MAX_INFLIGHT = 32
+MAX_STREAMS = 32
+
 
 def load_runtime(port):
     from src import server
@@ -45,7 +48,13 @@ class Service:
         self.loader = runtime_loader
         self.state = "starting"
         self.started = time.monotonic()
+        # `inflight` counts work (POST/DELETE) and is what drain waits for.
+        # A GET /mcp is an idle notification stream that lives as long as its
+        # client (#76); it is counted apart and closed on drain instead.
         self.inflight = 0
+        self.streams = 0
+        self.stream_closers = set()
+        self.last_activity = time.monotonic()
         self.io = None
         self.transport = None
         self.server = None
@@ -63,7 +72,9 @@ class Service:
                 "install_root": str(Path(__file__).resolve().parents[2]),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
-                "inflight": self.inflight, "io_pending": self.io.inflight if self.io else 0,
+                "inflight": self.inflight, "streams": self.streams,
+                "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
+                "io_pending": self.io.inflight if self.io else 0,
                 "loop_lag_max_seconds": round(self.loop_lag_max, 6),
                 "startup_loop_lag_max_seconds": round(self.startup_loop_lag_max, 6),
                 "inference_pending": inference.pending if inference else 0}
@@ -111,6 +122,7 @@ class Service:
             yield
         finally:
             self.state = "draining"
+            self.close_streams()
             deadline = time.monotonic() + 60
             while (self.inflight or self.io.inflight) and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
@@ -132,6 +144,9 @@ class Service:
             return await JSONResponse(self.health(), 200 if self.state == "ready" else 503)(scope, receive, send)
         if path == "/admin/drain" and request.method == "POST":
             self.state = "draining"
+            # Clients reconnect their streams to the next process; stateless
+            # requests carry no session, so nothing else is lost.
+            self.close_streams()
             return await JSONResponse(self.health())(scope, receive, send)
         if path == "/admin/resume" and request.method == "POST":
             if self.transport is not None:
@@ -144,31 +159,87 @@ class Service:
             return await JSONResponse({"error": "not_found"}, 404)(scope, receive, send)
         if self.state != "ready":
             return await JSONResponse({"error": self.state}, 503)(scope, receive, send)
-        if self.inflight >= 32:
+        if request.method == "GET":
+            return await self.stream(request, scope, receive, send)
+        if self.inflight >= MAX_INFLIGHT:
             return await JSONResponse({"error": "busy"}, 503, headers={"Retry-After": "1"})(scope, receive, send)
         self.inflight += 1  # Admission occurs before the first await.
+        self.last_activity = time.monotonic()
         jobs = []
         tracking = request_jobs.set(jobs)
         async def handle():
             try:
-                identity = request.headers.get("x-agents-workspace")
-                root, error = None, None
-                try:
-                    root = await asyncio.to_thread(self.registry.resolve, identity)
-                except WorkspaceError as failure:
-                    error = str(failure)
-                context = ClientContext(str(uuid.uuid4()), "http", identity, root, error)
-                scope.setdefault("state", {})["client_context"] = context
-                await self.transport(scope, receive, send)
+                await self.dispatch(request, scope, receive, send)
             finally:
                 await finish_jobs(jobs)
                 self.inflight -= 1
+                self.last_activity = time.monotonic()
         task = asyncio.create_task(handle())
         self.requests.add(task)
         task.add_done_callback(self.requests.discard)
         request_jobs.reset(tracking)
         # A transport disconnect cannot cancel an already submitted mutation.
         await asyncio.shield(task)
+
+    async def dispatch(self, request, scope, receive, send):
+        identity = request.headers.get("x-agents-workspace")
+        root, error = None, None
+        try:
+            root = await asyncio.to_thread(self.registry.resolve, identity)
+        except WorkspaceError as failure:
+            error = str(failure)
+        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error)
+        scope.setdefault("state", {})["client_context"] = context
+        await self.transport(scope, receive, send)
+
+    async def stream(self, request, scope, receive, send):
+        if self.streams >= MAX_STREAMS:
+            return await JSONResponse({"error": "busy"}, 503, headers={"Retry-After": "1"})(scope, receive, send)
+        response = {"started": False, "ended": False}
+        closing = asyncio.Event()
+
+        async def tracked_send(message):
+            await send(message)
+            # Record only delivered messages: uvicorn may suspend a send for
+            # flow control before it processes the message.
+            if message["type"] == "http.response.start":
+                response["started"] = True
+            elif message["type"] == "http.response.body" and not message.get("more_body", False):
+                response["ended"] = True
+
+        async def closable_receive():
+            # Drain ends a stream by reporting a disconnect, so the SSE response
+            # and the MCP transport (terminate()) shut down through their own
+            # cleanup instead of being cancelled halfway.
+            if closing.is_set():
+                return {"type": "http.disconnect"}
+            message = asyncio.ensure_future(receive())
+            closed = asyncio.ensure_future(closing.wait())
+            done, _ = await asyncio.wait({message, closed}, return_when=asyncio.FIRST_COMPLETED)
+            if message in done:
+                closed.cancel()
+                return message.result()
+            message.cancel()
+            return {"type": "http.disconnect"}
+
+        self.stream_closers.add(closing)
+        self.streams += 1
+        try:
+            await self.dispatch(request, scope, closable_receive, tracked_send)
+            if closing.is_set():
+                # The client is still connected: finish the response so it sees
+                # an ended stream, not a reset, and reconnects to the next process.
+                if not response["started"]:
+                    await JSONResponse({"error": "draining"}, 503)(scope, receive, send)
+                elif not response["ended"]:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+        finally:
+            self.stream_closers.discard(closing)
+            self.streams -= 1
+
+    def close_streams(self):
+        for closing in list(self.stream_closers):
+            closing.set()
 
 
 def create_app(directory, token, port=8765, runtime_loader=load_runtime):
