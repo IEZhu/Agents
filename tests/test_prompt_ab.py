@@ -66,14 +66,14 @@ def test_manifest_refuses_other_settings_but_accepts_added_arms(tmp_path):
     pab.check_manifest(path, added)
     assert [a["label"] for a in pab.read_json(path)["arms"]] == ["none", "none_reversed"]
     # A run from before --max-tokens used the default budget, and resumes only with it.
-    pab.check_manifest(path, {**_manifest(), "max_tokens": pab.MAX_TOKENS})
+    pab.check_manifest(path, {**added, "max_tokens": pab.MAX_TOKENS})
     with pytest.raises(SystemExit, match="max_tokens"):
-        pab.check_manifest(path, {**_manifest(), "max_tokens": 1400})
+        pab.check_manifest(path, {**added, "max_tokens": 1400})
     # A manifest without the embedding model defers to the prompt files (build_prompts);
     # once recorded, a different model is refused.
-    pab.check_manifest(path, {**_manifest(), "embedding_model": pab.DEFAULT_EMBEDDING_MODEL})
+    pab.check_manifest(path, {**added, "embedding_model": pab.DEFAULT_EMBEDDING_MODEL})
     with pytest.raises(SystemExit, match="embedding_model"):
-        pab.check_manifest(path, {**_manifest(), "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"})
+        pab.check_manifest(path, {**added, "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"})
 
 
 def test_manifest_pins_request_settings_and_refuses_runs_that_never_recorded_them(tmp_path):
@@ -81,7 +81,7 @@ def test_manifest_pins_request_settings_and_refuses_runs_that_never_recorded_the
     settings = {"reasoning": "low", "seed": "none", "grader_temperature": "0"}
     pab.check_manifest(path, _manifest())
     # Settings of a run recorded before they were pinned cannot be established.
-    with pytest.raises(SystemExit, match="request settings"):
+    with pytest.raises(SystemExit, match="fully recorded"):
         pab.check_manifest(path, {**_manifest(), "request_settings": settings})
     fresh = tmp_path / "fresh" / "manifest.json"
     fresh.parent.mkdir()
@@ -115,7 +115,39 @@ def test_manifest_refuses_reordered_arms_but_accepts_arms_added_in_between(tmp_p
     with pytest.raises(SystemExit, match="reordered"):
         pab.check_manifest(path, {**base, "arms": [arm("new"), arm("old")]})
     pab.check_manifest(path, {**base, "arms": [arm("old"), arm("gate"), arm("new")]})
-    assert [a["label"] for a in pab.read_json(path)["arms"]] == ["old", "new", "gate"]
+    # The requested order is stored, so the same command resumes.
+    assert [a["label"] for a in pab.read_json(path)["arms"]] == ["old", "gate", "new"]
+    pab.check_manifest(path, {**base, "arms": [arm("old"), arm("gate"), arm("new")]})
+    # Dropping an arm already run could change the baseline silently.
+    with pytest.raises(SystemExit, match="removed or reordered"):
+        pab.check_manifest(path, {**base, "arms": [arm("gate"), arm("new")]})
+
+
+def test_manifest_pins_the_builder_config(tmp_path):
+    path = tmp_path / "manifest.json"
+    pab.check_manifest(path, {**_manifest(), "builder_config": {"RULES_ENABLED": "0"}})
+    with pytest.raises(SystemExit, match="builder_config"):
+        pab.check_manifest(path, {**_manifest(), "builder_config": {}})
+    legacy = tmp_path / "legacy" / "manifest.json"
+    legacy.parent.mkdir()
+    pab.check_manifest(legacy, _manifest())
+    with pytest.raises(SystemExit, match="fully recorded"):
+        pab.check_manifest(legacy, {**_manifest(), "builder_config": {}})
+
+
+def test_builder_config_records_prompt_settings_the_revision_reads(monkeypatch):
+    monkeypatch.setenv("RULES_ENABLED", "0")
+    monkeypatch.setenv("IMPLANT_NEED_GATE", "intent")
+    monkeypatch.setenv("EMBEDDING_MODEL", "m")
+    monkeypatch.setenv("AGENTS_AUTO_UPDATE", "1")
+    config = pab.builder_config()
+    assert config["RULES_ENABLED"] == "0" and config["IMPLANT_NEED_GATE"] == "intent"
+    assert "EMBEDDING_MODEL" not in config and "AGENTS_AUTO_UPDATE" not in config
+
+
+def test_samples_must_be_positive():
+    with pytest.raises(SystemExit):
+        pab.parse_args(["implants", "--out-dir", "x", "--samples", "0"])
 
 
 def test_unreadable_state_files_count_as_missing(tmp_path):
@@ -375,3 +407,16 @@ def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_pa
     # Prompts are built from the commit the manifest records, not from a name that can move.
     assert checkouts and set(checkouts) == {a["sha"] for a in manifest["arms"]}
     assert all(len(rev) == 40 for rev in checkouts)
+
+
+def test_every_case_needs_an_agent_before_prompts_are_built(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
+    provider = SimpleNamespace(name="local", default_model="m", default_judge_model="j", env_key="",
+                               make_async_client=lambda: None)
+    monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
+    monkeypatch.setattr("evals.scripts.local_ab.unload", lambda base, model: None)
+    agents = tmp_path / "agents.json"
+    agents.write_text(json.dumps({"other": "universal_agent"}))
+    with pytest.raises(SystemExit, match="no agent for 1 cases"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--agents", str(agents))))
+

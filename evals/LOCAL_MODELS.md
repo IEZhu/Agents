@@ -413,6 +413,11 @@ graded Opus and Gemma, Gemma graded Qwen. Per-sample FAIL:
 - **This dataset only shows misfires.** Its cases are factual questions and simple
   deliverables; none is a debugging thread, a regression report or a formal-logic
   problem, so no implant ran in its intended scope. Benefits need scope-matched cases.
+- **Named arms did not always load their implant.** These runs predate the builder's
+  bypass of the implant need gate: on lite-tier cases (e.g. short common-knowledge
+  questions) a single-implant arm got no implant at all, so its differences from
+  `none` there are noise. The raw runs are lost, so the affected cases cannot be
+  counted. The harms below changed the answer text under the implant, so there it did load.
 - **Harm on weaker models.** Qwen answered "I'll run the full test suite to confirm."
   (nothing else) under RegressionFirst, IterBudget and VerifyAssumptions in 5 of 6
   samples, against 0 of 12 without an implant. Gemma's answers on recently changed

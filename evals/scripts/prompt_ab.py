@@ -46,6 +46,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -150,11 +151,14 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
     if old is not None:
         # Runs made before --max-tokens existed used the fixed default. A missing
         # embedding model is checked per prompt file instead (build_prompts); request
-        # settings of such a run cannot be established, so it is not resumed.
-        if "request_settings" not in old and current.get("request_settings") is not None:
-            raise SystemExit(f"{path.parent} was run before request settings were recorded; use a new --out-dir")
+        # settings and builder config of such a run cannot be established, so it is
+        # not resumed.
+        if ("request_settings" not in old and current.get("request_settings") is not None) or (
+                "builder_config" not in old and "builder_config" in current):
+            raise SystemExit(f"{path.parent} was run before its settings were fully recorded; use a new --out-dir")
         for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
-                    "max_tokens", "embedding_model", "request_settings", "dataset_sha256", "agents_sha256"):
+                    "max_tokens", "embedding_model", "request_settings", "builder_config",
+                    "dataset_sha256", "agents_sha256"):
             if key == "embedding_model" and key not in old:
                 continue
             default = MAX_TOKENS if key == "max_tokens" else None
@@ -165,13 +169,13 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
         for arm in current["arms"]:
             if arm["label"] in old_arms and old_arms[arm["label"]] != arm:
                 raise SystemExit(f"arm {arm['label']!r} changed since {path.parent} was run; use a new --out-dir")
-        # Reports compare every arm with the first one, so the arms already run keep
-        # their order; new arms may come anywhere.
+        # Reports compare every arm with the first one, so the arms already run stay,
+        # in their order; new arms may come anywhere. The requested order is stored,
+        # so the same command resumes.
         kept = [a["label"] for a in current["arms"] if a["label"] in old_arms]
-        if kept != [label for label in old_arms if label in kept]:
-            raise SystemExit(f"arms were reordered since {path.parent} was run ({list(old_arms)} -> {kept}); "
-                             f"keep their order or use a new --out-dir")
-        current = {**current, "arms": list(old_arms.values()) + [a for a in current["arms"] if a["label"] not in old_arms]}
+        if kept != list(old_arms):
+            raise SystemExit(f"arms were removed or reordered since {path.parent} was run "
+                             f"({list(old_arms)} -> {kept}); keep them in order or use a new --out-dir")
     write_json_atomic(path, current)
 
 
@@ -202,6 +206,17 @@ class Worktrees:
     def __exit__(self, *exc):
         for path in self.paths.values():
             subprocess.run(["git", "-C", str(self.repo), "worktree", "remove", "--force", str(path)], check=False)
+
+
+def builder_config() -> dict[str, str]:
+    """Env settings the prompt builder's revision reads (src/engine/config.py), when set.
+
+    The embedding model is recorded on its own; auto-update is forced off.
+    """
+    source = (REPO_ROOT / "src/engine/config.py").read_text(encoding="utf-8")
+    names = set(re.findall(r'(?:getenv|environ\.get|_\w*env)\(\s*"([A-Z][A-Z0-9_]+)"', source))
+    return {name: os.environ[name] for name in sorted(names)
+            if name in os.environ and name != "EMBEDDING_MODEL" and not name.startswith("AGENTS_AUTO_UPDATE")}
 
 
 def builder_env(extra: dict[str, str]) -> dict[str, str]:
@@ -458,6 +473,7 @@ async def run(args) -> int:
             "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
             "temperature": temperature, "samples": args.samples, "max_tokens": args.max_tokens,
             "embedding_model": builder_env({})["EMBEDDING_MODEL"], "request_settings": request_settings(provider.name),
+            "builder_config": builder_config(),
             "dataset_sha256": sha256_file(dataset),
             "agents_sha256": sha256_file(agents_file) if agents_file else None,
             "arms": [{**asdict(a), "sha": shas[a.label]} for a in arms]})
@@ -467,7 +483,10 @@ async def run(args) -> int:
             free_answer_model()
             await run_builder(["--catalog-out", str(catalog)], first, builder_env({}))
         agents_path = agents_file or out / "agents.json"
-        await pick_agents(cases, provider, client, model, catalog, agents_path)
+        agents = await pick_agents(cases, provider, client, model, catalog, agents_path)
+        # A case without an agent would be routed by each revision on its own.
+        if missing := [c["id"] for c in cases if c["id"] not in agents]:
+            raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         free_answer_model()
         prompts = {}
         for arm in arms:
@@ -511,6 +530,8 @@ def parse_args(argv=None):
         p.error("revisions mode needs at least two --arm")
     if args.concurrency < 1:
         p.error("--concurrency must be at least 1")
+    if args.samples < 1:
+        p.error("--samples must be at least 1")
     return args
 
 

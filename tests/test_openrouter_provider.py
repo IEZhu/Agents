@@ -145,7 +145,8 @@ def test_upstream_rate_limits_are_waited_out_within_a_budget(monkeypatch):
     failures = iter([_rate_limited()] * 5)
     with pytest.raises(openai.RateLimitError):
         asyncio.run(prov._openrouter_create(client, {}))
-    assert pauses == [5.0, 10.0, 20.0]
+    # The last pause is cut to what is left of the budget, never past it.
+    assert pauses == [5.0, 10.0, 15.0]
 
 
 def test_thinking_models_get_an_effort_and_unsupported_parameters_can_be_left_out(monkeypatch):

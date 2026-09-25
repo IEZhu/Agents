@@ -651,10 +651,11 @@ async def _openrouter_create(client, kwargs: dict[str, Any]):
         try:
             return await client.chat.completions.create(**kwargs)
         except RateLimitError:
-            if waited >= budget:
+            pause = min(delay, budget - waited)
+            if pause <= 0:
                 raise
-            await asyncio.sleep(delay)
-            waited += delay
+            await asyncio.sleep(pause)
+            waited += pause
             delay = min(delay * 2, 60.0)
 
 
