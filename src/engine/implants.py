@@ -362,8 +362,8 @@ class ImplantRetriever:
             "These reasoning patterns were picked automatically and may not fit this request. "
             "Use a pattern only where it helps with what the user asked; otherwise ignore it and answer normally. "
             "They shape how you reason, not what you know: state settled facts plainly, and when a fact may have "
-            "changed recently, give the latest version you know rather than an older one that feels safer; the "
-            "always-on rules decide what gets marked. "
+            "changed recently, give the latest version you know, marked as not verified here, rather than an older "
+            "one that feels safer. "
             "When a pattern calls for commands or checks you cannot run, give the user the check and still answer, "
             "instead of claiming or promising to run it.\n\n"
         )
