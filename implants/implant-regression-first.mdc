@@ -1,5 +1,5 @@
 ---
-description: Regression-First Debugging. When user reports "was working before, broke now", "worked yesterday", "stopped working after", "used to work" — locate the last change in the system (recent session edits, git log, file mtimes, dependency bumps) BEFORE proposing fixes. Hypothesize that the last change is the cause; test that hypothesis first. Prevents symptom-chasing when a working baseline exists.
+description: Regression-First Debugging. When user reports that their own code, build, service or config "was working before, broke now", "worked yesterday", "stopped working after", "used to work" — locate the last change in that system (recent session edits, git log, file mtimes, dependency bumps) BEFORE proposing fixes. Hypothesize that the last change is the cause; test that hypothesis first. Prevents symptom-chasing when a working baseline exists.
 globs: []
 alwaysApply: false
 short_name: RegressionFirst
@@ -20,18 +20,19 @@ triggers:
   - "dejó de funcionar"
 ---
 ## Pattern
-1. **Detect the signal**: User says "worked before", "broke yesterday", "stopped after I changed X", "used to work", "регрессия", "после моих правок перестало" — any reference to a working baseline that no longer works.
+1. **Detect the signal**: User says something they run (code, test, build, service, config) "worked before", "broke yesterday", "stopped after I changed X", "used to work", "регрессия", "после моих правок перестало" — any reference to a working baseline that no longer works. No such signal → skip this pattern and answer the request as asked.
 2. **Halt hypothesis generation**: Do not propose fixes, root causes, or architectural theories yet.
 3. **Enumerate recent changes** in order of recency-likelihood:
    - Edits made in the current chat session (highest prior probability — these are causally closest).
    - `git log -5 --oneline` and `git diff HEAD~1` on the relevant repo.
    - Recently modified files: `find <path> -mtime -2 -type f`.
    - Recent config / dependency / lockfile / OS upgrade changes.
-4. **State the regression hypothesis explicitly**: "Change X (specific commit / edit / config) is the cause."
+4. **State the regression hypothesis explicitly**: "Change X (specific commit / edit / config) is the likely cause."
 5. **Test that hypothesis first**: revert the suspected change in isolation (or `git bisect` if multiple). Only after it is falsified do you move to general root-cause analysis.
+6. **No tools to run the checks?** Name the likeliest change from what the user described, give the exact commands that would confirm it and the fix to apply if it is confirmed (usually reverting or adapting to that change). Never announce, imply or report a check you did not run.
 
 ## When to Use
-- User reports a regression (was-working-now-broken), not a greenfield bug.
+- User reports a regression (was-working-now-broken) in something they run, not a greenfield bug.
 - After a deploy, config change, dependency bump, OS / tooling upgrade.
 - "It worked on my machine yesterday" / "this used to work in version N".
 - A test that passed on the previous commit now fails.
@@ -40,7 +41,7 @@ triggers:
 - Useless for greenfield bugs (no working baseline exists).
 - Unreliable if the user's "before" memory is wrong — confirm the working version actually worked.
 - Bisection cost grows with batched changes; narrow the time window first.
-- Does not apply when the cause is external (upstream API change) with no local recent change.
+- No local recent change found? Consider an external one (upstream API, service, dependency release) before concluding nothing changed.
 
 ## Anti-Pattern
-Proposing fixes for the symptom (rewriting a function, adding a workaround) without identifying what changed. If a baseline worked and now doesn't, **something changed** — find the change first. Every fix proposed without localizing the regression = wasted user time.
+Proposing fixes for the symptom (rewriting a function, adding a workaround) without identifying what changed. If a baseline worked and now doesn't, **something changed** — find the change first. Every fix proposed without localizing the regression = wasted user time. Equally wrong: citing diffs, logs or test runs you never saw.
