@@ -82,37 +82,26 @@ components and create mode-0600 JSON files exclusively. Debug pruning leaves
 symlinked directories and JSON entries untouched.
 
 `status` reports ready, starting, draining, or failed state, PID, boot ID, request
-counts, and running jobs. `/health` requires a bearer token. Readiness means the
-model and indexes have warmed successfully. Admission is bounded at 32 requests,
-with eight I/O workers and one inference worker. Capacity exhaustion returns
+counts (`inflight` for work, `streams` for open client notification streams),
+`idle_seconds` since the last request finished, and running jobs. `/health` requires a bearer token. Readiness means the
+model and indexes have warmed successfully. Admission is bounded at 32 work requests,
+plus up to 32 open notification streams counted separately, with eight I/O workers and
+one inference worker. Capacity exhaustion returns
 busy. Cancelling an HTTP waiter retains the quota for its running job and does
 not replay a mutation.
 
-### Drain blocks while any client is connected
+### Drain and connected clients
 
 `stop`, `restart`, `uninstall`, `restore-clients`, `update`, `recover`, and
-`token rotate` first drain the service: they wait up to 60 seconds for
-`inflight` to reach zero. Each connected MCP client holds a long-lived GET
-stream that counts as in flight, so the drain never completes while any client
-is attached ([#76](https://github.com/IEZhu/Agents/issues/76)). The service
-answers 503 for that minute, then resumes and the command fails with
-`TimeoutError: Drain timed out; runtime resumed without killing active work`.
-`status` shows a constant non-zero `inflight` with `io_pending: 0`.
-
-To restart the same code, for example to load rules or skills after a pull,
-let launchd restart the process. This skips the drain and aborts any request in
-progress:
-
-```bash
-launchctl kickstart -k "gui/$(id -u)/local.agents-core.<installation-hash>"
-```
-
-The installation hash is the name of the private state directory. `status`
-should report `ready` again after warmup. Do not use `kickstart` during an
-update, recovery, or other maintenance. The commands that change files,
-`update`, `recover`, `restore-clients`, `uninstall`, and `token rotate`, have no
-such bypass: disable Agents-Core in every client first, confirm that `status`
-reports `inflight: 0`, then run the command.
+`token rotate` first drain the service: new requests get 503, and the command
+waits up to 60 seconds for `inflight` (work), `io_pending` (queued I/O jobs) and
+`streams` (open notification streams) all to reach zero; if any stays above zero,
+including a stream that fails to close, the drain times out after 60 seconds.
+Connected clients do not need to be closed. Each one holds a long-lived GET notification stream; those
+are counted as `streams`, not as work, and drain ends them cleanly
+([#76](https://github.com/IEZhu/Agents/issues/76)). The transport is stateless,
+so a client's next request reaches the restarted process without a new session.
+A request sent during the stop window fails and can be retried.
 
 ## Memory and errors
 
@@ -146,9 +135,8 @@ retain source history.
 ```
 
 Updates require a clean target branch, a fast-forward, and unchanged dependency
-manifests. Disconnect every MCP client first: the drain cannot finish while a
-client stream is open (see [Drain blocks while any client is
-connected](#drain-blocks-while-any-client-is-connected)). The controller enters
+manifests. Clients may stay connected (see [Drain and connected
+clients](#drain-and-connected-clients)). The controller enters
 maintenance, waits up to 60 seconds for drain,
 stops the service, and acquires the exclusive installation lease and updater
 lock. A remaining stdio reader blocks the update. Reindexing runs in a separate
@@ -162,8 +150,34 @@ restored runtime. The controller journal remains until readiness completes; use
 `recover` after interruption. Do not delete journals manually.
 
 Dependency changes require a separate environment installation during maintenance.
-Automatic background updates are disabled for a shared installation. Git
-credentials and SSH must work with the LaunchAgent's PATH and environment.
+Git credentials and SSH must work with the LaunchAgent's PATH and environment.
+
+### Automatic updates (opt-in)
+
+```bash
+.venv/bin/python -m src.daemon auto-update enable
+.venv/bin/python -m src.daemon auto-update enable --interval 900 --idle-seconds 120
+.venv/bin/python -m src.daemon auto-update status
+.venv/bin/python -m src.daemon auto-update disable
+```
+
+`enable` installs a second LaunchAgent, `local.agents-core.<installation-hash>.updater`,
+that runs `auto-update run` every `--interval` seconds (default 900, minimum
+60). A run fetches the tracked branch (`main`) and stops there when the
+installation is up to date. It skips a target without touching the service when
+the checked-out branch is different, tracked files have local changes, the
+target is not a fast-forward, or dependency manifests changed; each skip is
+logged once per target. Otherwise it waits until the service is ready, has no
+work in flight, and has been idle for `--idle-seconds` (default 120), and then
+runs the same transaction as `update`. It also waits while any stdio server
+holds the installation, since `update` would stop the service only to find it
+busy. A stopped service is left stopped. An unfinished transaction blocks
+further runs until `recover`.
+
+Downtime is the stop, the reindex, and the warmup. The reindex re-embeds only
+when skills or implants changed, and only one model is loaded at a time. The
+last outcome is in `auto-update.json` and the history in `auto-update.log`, both
+in the private state directory. `uninstall` also removes the updater.
 
 `migrate` reports its private backup directory. To roll back client migration:
 
@@ -172,10 +186,10 @@ credentials and SSH must work with the LaunchAgent's PATH and environment.
 .venv/bin/python -m src.daemon uninstall
 ```
 
-Both commands drain the service first and fail while any client is connected
-(see [Drain blocks while any client is
-connected](#drain-blocks-while-any-client-is-connected)); disable Agents-Core in
-every client before running them.
+Both commands drain the service first (see [Drain and connected
+clients](#drain-and-connected-clients)). Disable Agents-Core in every client
+before running them: afterwards the clients' configuration no longer points at a
+running service.
 Restoration checks the maintenance barriers and holds the controller lock across
 daemon shutdown and configuration writes. It also checks that configurations
 have not been edited since migration. Restore multiple migration backups in
