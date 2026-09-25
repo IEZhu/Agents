@@ -3,6 +3,7 @@ import os
 import plistlib
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -22,7 +23,26 @@ def scheduled(installation):  # noqa: F811
     write_json(controller.directory / "service.json", controller.config)
     controller.health = {"inflight": 0, "io_pending": 0, "idle_seconds": 600}
     controller.calls, controller.stops = [], 0
-    controller.launchctl = lambda *args, check=True: controller.calls.append(args) or SimpleNamespace(returncode=0)
+    controller.loaded, controller.fail = set(), set()
+
+    def launchctl(*args, check=True):
+        """A small launchd: bootstrap loads a job, bootout unloads it, print reports it."""
+        controller.calls.append(args)
+        verb = args[0]
+        code = 0
+        if verb in controller.fail:
+            code = 5
+        elif verb == "bootstrap":
+            controller.loaded.add(plistlib.loads(Path(args[2]).read_bytes())["Label"])
+        elif verb == "bootout":
+            controller.loaded.discard(args[1].rsplit("/", 1)[1])
+        elif verb == "print":
+            code = 0 if args[1].rsplit("/", 1)[1] in controller.loaded else 113
+        if check and code:
+            raise subprocess.CalledProcessError(code, ["launchctl", *args])
+        return SimpleNamespace(returncode=code)
+
+    controller.launchctl = launchctl
     controller.status = lambda: {**controller.health, "state": "ready" if controller.running else "stopped"}
     stop = controller._stop
     def counted_stop():
@@ -131,7 +151,7 @@ def test_enable_schedules_a_background_agent_and_disable_removes_it(scheduled):
     assert plist["Label"] == "local.agents-core.test.updater"
     assert plist["StartInterval"] == 600 and plist["RunAtLoad"] is False
     assert plist["ProgramArguments"][-2:] == ["auto-update", "run"]
-    assert [call[0] for call in controller.calls][:2] == ["bootout", "bootstrap"]
+    assert "local.agents-core.test.updater" in controller.loaded
     assert read_json(controller.directory / "service.json")["auto_update"]["enabled"] is True
     assert autoupdate.disable(controller) == {"enabled": False}
     assert not autoupdate.plist_path(controller).exists()
@@ -139,6 +159,50 @@ def test_enable_schedules_a_background_agent_and_disable_removes_it(scheduled):
     with pytest.raises(ValueError):
         autoupdate.enable(controller, interval=10)
 
+
+def test_enable_changes_nothing_when_launchd_fails(scheduled):
+    controller, *_ = scheduled
+    autoupdate.enable(controller, interval=600)
+    plist = autoupdate.plist_path(controller)
+    before = plist.read_bytes()
+    # The running job cannot be unloaded: config, plist and job stay as they were.
+    controller.fail.add("bootout")
+    with pytest.raises(RuntimeError, match="could not unload"):
+        autoupdate.enable(controller, interval=900)
+    assert plist.read_bytes() == before and autoupdate.settings(controller)["interval"] == 600
+    # The new job fails to load: the previous plist and job come back, config untouched.
+    controller.fail = {"bootstrap"}
+    with pytest.raises(subprocess.CalledProcessError):
+        autoupdate.enable(controller, interval=900)
+    assert plist.read_bytes() == before and autoupdate.settings(controller)["interval"] == 600
+    assert read_json(controller.directory / "service.json")["auto_update"]["interval"] == 600
+
+
+def test_enable_from_scratch_leaves_no_plist_when_launchd_refuses(scheduled):
+    controller, *_ = scheduled
+    before = read_json(controller.directory / "service.json")
+    controller.fail.add("bootstrap")
+    with pytest.raises(subprocess.CalledProcessError):
+        autoupdate.enable(controller, interval=900)
+    assert not autoupdate.plist_path(controller).exists()
+    assert read_json(controller.directory / "service.json") == before
+
+
+def test_work_arriving_after_the_first_check_defers_before_draining(scheduled, monkeypatch):
+    controller, root, old, _ = scheduled
+    enabled = autoupdate._enabled_on_disk
+    calls = []
+
+    def busy_right_after_the_check(controller):
+        calls.append(enabled(controller))
+        if len(calls) == 1:  # a request lands between the first check and the transaction
+            controller.health["inflight"] = 1
+        return calls[-1]
+
+    monkeypatch.setattr(autoupdate, "_enabled_on_disk", busy_right_after_the_check)
+    result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and result["reason"] == "service is busy"
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
 
 def test_enable_refuses_an_uninstalled_service(tmp_path):
     controller = SimpleNamespace(config={}, directory=tmp_path)

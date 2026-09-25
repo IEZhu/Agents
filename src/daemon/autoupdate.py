@@ -71,11 +71,28 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
     if interval < 60 or idle_seconds < 0:
         raise ValueError("interval must be at least 60 seconds and idle_seconds not negative")
     with file_lock(controller.directory / "control.lock", blocking=False):
+        # Config and plist change only once launchd runs the new job; any failure
+        # leaves the previous config, plist and job as they were.
+        domain, target = f"gui/{os.getuid()}", f"gui/{os.getuid()}/{label(controller)}"
+        plist = plist_path(controller)
+        previous_plist = plist.read_bytes() if plist.exists() else None
+        was_loaded = controller.launchctl("print", target, check=False).returncode == 0
+        if was_loaded:  # reload a changed interval
+            controller.launchctl("bootout", target, check=False)
+            if controller.launchctl("print", target, check=False).returncode == 0:
+                raise RuntimeError("launchd could not unload the current updater; nothing changed")
+        try:
+            write_plist(controller, interval)
+            controller.launchctl("bootstrap", domain, str(plist))
+        except BaseException:
+            if previous_plist is None:
+                plist.unlink(missing_ok=True)
+            else:
+                atomic_private(plist, previous_plist.decode())
+                if was_loaded:
+                    controller.launchctl("bootstrap", domain, str(plist), check=False)
+            raise
         _save_settings(controller, enabled=True, interval=interval, idle_seconds=idle_seconds)
-        write_plist(controller, interval)
-        target = f"gui/{os.getuid()}/{label(controller)}"
-        controller.launchctl("bootout", target, check=False)  # reload a changed interval
-        controller.launchctl("bootstrap", f"gui/{os.getuid()}", str(plist_path(controller)))
     return status(controller)
 
 
@@ -179,9 +196,13 @@ def _precheck(controller):
     """Preconditions rechecked under the control lock; a refusal result or None."""
     if not _enabled_on_disk(controller):
         return {"state": "disabled"}
-    state = controller.status().get("state")
-    if state != "ready":
-        return {"state": "deferred", "reason": f"service is {state}"}
+    health = controller.status()
+    if health.get("state") != "ready":
+        return {"state": "deferred", "reason": f"service is {health.get('state')}"}
+    # Work may have arrived since the first check; draining now would 503 it.
+    if health.get("inflight") or health.get("io_pending") or \
+            health.get("idle_seconds", 0) < settings(controller)["idle_seconds"]:
+        return {"state": "deferred", "reason": "service is busy"}
     return None
 
 

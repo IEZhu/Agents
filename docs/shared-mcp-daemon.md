@@ -94,8 +94,10 @@ not replay a mutation.
 
 `stop`, `restart`, `uninstall`, `restore-clients`, `update`, `recover`, and
 `token rotate` first drain the service: new requests get 503, and the command
-waits up to 60 seconds for `inflight` to reach zero. Connected clients do not
-need to be closed. Each one holds a long-lived GET notification stream; those
+waits up to 60 seconds for `inflight` (work), `io_pending` (queued I/O jobs) and
+`streams` (open notification streams) all to reach zero; if any stays above zero,
+including a stream that fails to close, the drain times out after 60 seconds.
+Connected clients do not need to be closed. Each one holds a long-lived GET notification stream; those
 are counted as `streams`, not as work, and drain ends them cleanly
 ([#76](https://github.com/IEZhu/Agents/issues/76)). The transport is stateless,
 so a client's next request reaches the restarted process without a new session.
