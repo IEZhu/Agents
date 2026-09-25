@@ -592,11 +592,17 @@ def _openrouter_request(
     model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
 ) -> dict[str, Any]:
     # Same sampling contract as the local provider: OPENROUTER_TEMPERATURE applies
-    # to answers only, graders and router picks run at 0. Parameters no endpoint of
-    # a model accepts must be left out, or `require_parameters` finds no endpoint:
-    # OPENROUTER_TEMPERATURE=default and OPENROUTER_SEED=none omit them.
-    temp_env = os.getenv("OPENROUTER_TEMPERATURE", "0")
-    temperature = None if temp_env == "default" else (float(temp_env) if sample else 0.0)
+    # to answers only; graders and router picks (sample=False) run at 0. Parameters
+    # no endpoint of a model accepts must be left out, or `require_parameters` finds
+    # no endpoint: OPENROUTER_TEMPERATURE=default omits it for answers,
+    # OPENROUTER_GRADER_TEMPERATURE=default for graders (only for a grader whose
+    # endpoints reject it, since the endpoint default may sample), and
+    # OPENROUTER_SEED=none omits the seed.
+    if sample:
+        temp_env = os.getenv("OPENROUTER_TEMPERATURE", "0")
+        temperature = None if temp_env == "default" else float(temp_env)
+    else:
+        temperature = None if os.getenv("OPENROUTER_GRADER_TEMPERATURE", "0") == "default" else 0.0
     # Graders and router picks (sample=False) never think: their small budgets
     # would go to reasoning. So the grader must be a model that can turn it off.
     effort = os.getenv("OPENROUTER_REASONING", "off") if sample else "off"

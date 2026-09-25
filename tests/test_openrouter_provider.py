@@ -38,7 +38,7 @@ def _client(content: str, finish: str = "stop", is_async: bool = False):
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     for key in ("OPENROUTER_PROVIDER", "OPENROUTER_TEMPERATURE", "OPENROUTER_SEED", "OPENROUTER_MODEL",
-                "OPENROUTER_JUDGE_MODEL", "OPENROUTER_REASONING"):
+                "OPENROUTER_JUDGE_MODEL", "OPENROUTER_REASONING", "OPENROUTER_GRADER_TEMPERATURE"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -162,3 +162,16 @@ def test_thinking_models_get_an_effort_and_unsupported_parameters_can_be_left_ou
     # A grader call keeps thinking off even when answers think.
     kw = prov._openrouter_request("qwen/qwen3.8-27b", [{"role": "user", "content": "grade"}], 300, sample=False)
     assert kw["extra_body"]["reasoning"] == {"enabled": False}
+
+
+def test_graders_stay_greedy_when_answers_leave_temperature_to_the_endpoint(monkeypatch):
+    # OPENROUTER_TEMPERATURE=default is for answer models whose endpoints reject the
+    # parameter; an endpoint default would make grades and router picks sample.
+    monkeypatch.setenv("OPENROUTER_TEMPERATURE", "default")
+    messages = [{"role": "user", "content": "grade"}]
+    assert "temperature" not in prov._openrouter_request("anthropic/claude-opus-5.5", messages, 800)
+    assert prov._openrouter_request("qwen/qwen3.8-27b", messages, 300, sample=False)["temperature"] == 0
+    # Only a grader whose endpoints reject temperature opts out explicitly.
+    monkeypatch.setenv("OPENROUTER_GRADER_TEMPERATURE", "default")
+    assert "temperature" not in prov._openrouter_request("m", messages, 300, sample=False)
+

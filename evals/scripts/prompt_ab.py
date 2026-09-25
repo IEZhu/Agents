@@ -62,6 +62,7 @@ from evals.scripts import compare_rules as cr  # noqa: E402
 BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
 DEFAULT_DATASET = cr.DEFAULT_DATASET
 MAX_TOKENS = 800  # default answer budget; a thinking model spends part of it reasoning
+DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-large"  # picks skills and implants in the builds
 # Providers whose answers run at a temperature this script controls.
 TEMPERATURE_ENV = {"local": "LOCAL_LLM_TEMPERATURE", "openrouter": "OPENROUTER_TEMPERATURE"}
 
@@ -147,17 +148,23 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
     if old is not None:
+        # Runs made before these keys were recorded used the defaults.
+        legacy = {"max_tokens": MAX_TOKENS, "embedding_model": DEFAULT_EMBEDDING_MODEL}
         for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
-                    "max_tokens", "dataset_sha256", "agents_sha256"):
-            # Runs made before max_tokens was configurable used the default.
-            legacy = MAX_TOKENS if key == "max_tokens" else None
-            if old.get(key, legacy) != current.get(key, legacy):
+                    "max_tokens", "embedding_model", "dataset_sha256", "agents_sha256"):
+            if old.get(key, legacy.get(key)) != current.get(key, legacy.get(key)):
                 raise SystemExit(f"{path.parent} was run with {key}={old.get(key)!r}, now {current.get(key)!r}; "
                                  f"use a new --out-dir")
         old_arms = {a["label"]: a for a in old["arms"]}
         for arm in current["arms"]:
             if arm["label"] in old_arms and old_arms[arm["label"]] != arm:
                 raise SystemExit(f"arm {arm['label']!r} changed since {path.parent} was run; use a new --out-dir")
+        # Reports compare every arm with the first one, so the arms already run keep
+        # their order; new arms may come anywhere.
+        kept = [a["label"] for a in current["arms"] if a["label"] in old_arms]
+        if kept != [label for label in old_arms if label in kept]:
+            raise SystemExit(f"arms were reordered since {path.parent} was run ({list(old_arms)} -> {kept}); "
+                             f"keep their order or use a new --out-dir")
         current = {**current, "arms": list(old_arms.values()) + [a for a in current["arms"] if a["label"] not in old_arms]}
     write_json_atomic(path, current)
 
@@ -193,7 +200,7 @@ class Worktrees:
 
 def builder_env(extra: dict[str, str]) -> dict[str, str]:
     return {**os.environ, "LANGFUSE_TRACING_ENABLED": "false", "AGENTS_AUTO_UPDATE": "0",
-            "EMBEDDING_MODEL": os.environ.get("EMBEDDING_MODEL") or "intfloat/multilingual-e5-large", **extra}
+            "EMBEDDING_MODEL": os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL, **extra}
 
 
 async def run_builder(args: list[str], cwd: Path, env: dict[str, str]) -> None:
@@ -431,13 +438,17 @@ async def run(args) -> int:
             unload(os.environ.get(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL).rstrip("/").removesuffix("/v1"), model)
 
     with Worktrees(REPO_ROOT) as trees:
+        # Resolve each revision once: a branch that moves mid-run must not build
+        # prompts from a commit other than the one the manifest records.
+        shas = {a.label: trees.sha(a.rev) for a in arms}
         check_manifest(out / "manifest.json", {
             "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
             "temperature": temperature, "samples": args.samples, "max_tokens": args.max_tokens,
+            "embedding_model": builder_env({})["EMBEDDING_MODEL"],
             "dataset_sha256": sha256_file(dataset),
             "agents_sha256": sha256_file(agents_file) if agents_file else None,
-            "arms": [{**asdict(a), "sha": trees.sha(a.rev)} for a in arms]})
-        first = trees.get(arms[0].rev)
+            "arms": [{**asdict(a), "sha": shas[a.label]} for a in arms]})
+        first = trees.get(shas[arms[0].label])
         catalog = out / "catalog.json"
         if agents_file is None and read_json(catalog) is None:
             free_answer_model()
@@ -447,7 +458,7 @@ async def run(args) -> int:
         free_answer_model()
         prompts = {}
         for arm in arms:
-            prompts[arm.label] = await build_prompts(trees.get(arm.rev), dataset, agents_path,
+            prompts[arm.label] = await build_prompts(trees.get(shas[arm.label]), dataset, agents_path,
                                                      out / f"prompts_{arm.label}.json", arm)
 
     answers_path, grades_path = out / "answers.jsonl", out / "grades.jsonl"

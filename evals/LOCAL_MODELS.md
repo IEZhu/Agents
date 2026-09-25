@@ -241,7 +241,9 @@ python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8
   answer budget: raise `--max-tokens` (default 800). Leave out parameters no endpoint
   of the model accepts, or `require_parameters` finds none: `OPENROUTER_SEED=none`
   (no Opus 5.5 endpoint takes a seed), `OPENROUTER_TEMPERATURE=default` (Anthropic's
-  own endpoint takes no temperature; `azure/global` does).
+  own endpoint takes no temperature; `azure/global` does). The latter applies to answers
+  only: graders and router picks still send temperature 0, unless the grader's endpoints
+  reject it too (`OPENROUTER_GRADER_TEMPERATURE=default`).
 - `--samples N` repeats every arm on hosted models even at temperature 0; since they
   vary anyway, the repeats measure how often a case fails under each arm.
 - `--concurrency` parallelises calls within an arm; arms still run in order, so a later

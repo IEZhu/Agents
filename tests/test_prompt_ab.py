@@ -69,6 +69,26 @@ def test_manifest_refuses_other_settings_but_accepts_added_arms(tmp_path):
     pab.check_manifest(path, {**_manifest(), "max_tokens": pab.MAX_TOKENS})
     with pytest.raises(SystemExit, match="max_tokens"):
         pab.check_manifest(path, {**_manifest(), "max_tokens": 1400})
+    # The same holds for the embedding model that picked skills and implants.
+    pab.check_manifest(path, {**_manifest(), "embedding_model": pab.DEFAULT_EMBEDDING_MODEL})
+    with pytest.raises(SystemExit, match="embedding_model"):
+        pab.check_manifest(path, {**_manifest(), "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"})
+
+
+def test_manifest_refuses_reordered_arms_but_accepts_arms_added_in_between(tmp_path):
+    path = tmp_path / "manifest.json"
+
+    def arm(label):
+        return {"label": label, "rev": "HEAD", "env": {}, "implants": "production", "reverse": False, "sha": "s1"}
+
+    base = {"mode": "revisions", "provider": "local", "model": "m", "judge_model": "j", "temperature": "0",
+            "samples": 1, "dataset_sha256": "d", "agents_sha256": None}
+    pab.check_manifest(path, {**base, "arms": [arm("old"), arm("new")]})
+    # Reports compare every arm with the first: swapping them would change the baseline.
+    with pytest.raises(SystemExit, match="reordered"):
+        pab.check_manifest(path, {**base, "arms": [arm("new"), arm("old")]})
+    pab.check_manifest(path, {**base, "arms": [arm("old"), arm("gate"), arm("new")]})
+    assert [a["label"] for a in pab.read_json(path)["arms"]] == ["old", "new", "gate"]
 
 
 def test_unreadable_state_files_count_as_missing(tmp_path):
@@ -312,6 +332,9 @@ def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_pa
                                make_async_client=lambda: None, env_key="OPENROUTER_API_KEY")
     monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
     monkeypatch.setattr(pab.cr, "grade_sample", grade)
+    checkouts = []
+    real_get = pab.Worktrees.get
+    monkeypatch.setattr(pab.Worktrees, "get", lambda self, rev: checkouts.append(rev) or real_get(self, rev))
     agents = tmp_path / "agents.json"
     agents.write_text(json.dumps({"c0": "universal_agent"}))
     args = _run_args(tmp_path, "--provider", "openrouter", "--samples", "2", "--max-tokens", "1400",
@@ -320,3 +343,6 @@ def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_pa
     assert set(budgets) == {1400} and len(budgets) == 5 * 2
     manifest = json.loads((tmp_path / "out/manifest.json").read_text())
     assert manifest["max_tokens"] == 1400 and manifest["samples"] == 2 and manifest["temperature"] == "default"
+    # Prompts are built from the commit the manifest records, not from a name that can move.
+    assert checkouts and set(checkouts) == {a["sha"] for a in manifest["arms"]}
+    assert all(len(rev) == 40 for rev in checkouts)
