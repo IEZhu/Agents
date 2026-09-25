@@ -142,7 +142,8 @@ def test_implant_block_bounds_patterns_to_the_request():
         None, [{"metadata": {"filename": "implant-x.mdc", "description": "Desc"}, "content": BODY}])
     assert text.startswith("## Dynamic Implants (Contextually Loaded)\n")
     for phrase in ("may not fit this request", "otherwise ignore it and answer normally",
-                   "state settled facts plainly", "give the user the check and still answer"):
+                   "state settled facts plainly", "marked as not verified here",
+                   "give the user the check and still answer"):
         assert phrase in text
     assert text.index("### Implant: implant-x.mdc") > text.index("promising to run it")
     assert "**Description**: Desc" in text and "## When to Use" in text
