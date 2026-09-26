@@ -940,7 +940,12 @@ async def describe_repo(
     skip re-exploring the codebase.
 
     Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
+    status ∈ {"refreshed", "up-to-date", "rejected", "needs_summary", "error"}.
+
+    When sampling is unavailable, returns instead:
+      {status: "needs_summary", workspace_id, repo_hash, repo_path, prompt, instruction}.
+    Pass workspace_id, repo_path and repo_hash unchanged to write_repo_summary;
+    the key names intentionally match its parameters.
     """
     try:
         client = client_context(ctx)
