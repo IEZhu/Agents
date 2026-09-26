@@ -323,7 +323,12 @@ class MemoryGuard:
 # --------------------------------------------------------------------------- #
 
 
+CHILD_SCRIPTS = ("prompt_ab",)
+
+
 def ab_command(args: argparse.Namespace) -> list[str]:
+    if args.run:
+        return [sys.executable, "-m", f"evals.scripts.{args.run[0]}", *args.run[1:]]
     cmd = [
         sys.executable, "-m", "evals.scripts.compare_rules", "--provider", "local",
         "--baseline-rule", args.baseline_rule, "--candidate-rule", args.candidate_rule,
@@ -363,7 +368,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         f"{GUARD_INTERVAL_S} s apart (%%)")
     p.add_argument("--keep-server", action="store_true", help="leave a server this script started running")
     p.add_argument("--plan", action="store_true", help="print the plan and exit without starting anything")
+    p.add_argument("run", nargs=argparse.REMAINDER,
+                   help="after `--`: run another eval script under the same server and guard instead of "
+                        f"compare_rules, e.g. `-- prompt_ab implants --out-dir /abs/dir` ({', '.join(CHILD_SCRIPTS)})")
     args = p.parse_args(argv)
+    if args.run and args.run[0] == "--":
+        args.run = args.run[1:]
+    if args.run and args.run[0] not in CHILD_SCRIPTS:
+        p.error(f"can only run {', '.join(CHILD_SCRIPTS)} after `--`, got {args.run[0]!r}")
     if args.samples < 1:
         p.error("--samples must be at least 1")
     if args.temperature < 0:
@@ -473,7 +485,8 @@ def main(argv: list[str] | None = None) -> int:
     if guard.tripped:
         return GUARD_EXIT_CODE
     if code == 0:
-        log(f"report: {args.out}  answers: {Path(args.out).with_suffix('.answers.jsonl')}")
+        if not args.run:
+            log(f"report: {args.out}  answers: {Path(args.out).with_suffix('.answers.jsonl')}")
     return code
 
 

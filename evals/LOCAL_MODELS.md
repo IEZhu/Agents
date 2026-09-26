@@ -165,7 +165,7 @@ python -m evals.runners.run_mcp_vs_vanilla --provider local --n 10 \
 | `LOCAL_LLM_MODEL` | `qwen3:8b` | model under test |
 | `LOCAL_LLM_JUDGE_MODEL` | = `LOCAL_LLM_MODEL` | grader / pairwise judge |
 | `LOCAL_LLM_TEMPERATURE` | `0` | answers only: `0` = greedy and repeatable; set e.g. `0.7` to sample. Graders, judges and router picks always run at `0` |
-| `LOCAL_LLM_SEED` | `7` | base seed when sampling; each call gets base + call index |
+| `LOCAL_LLM_SEED` | `7` | base seed when sampling; prompt_ab derives each answer's seed from its arm, case and sample (other callers: base + call index) |
 | `LOCAL_LLM_THINKING` | `0` | `1` turns thinking on for calls of ≥1024 tokens (answers); router picks, graders and judges keep it off |
 | `LOCAL_LLM_TIMEOUT` | `900` | client timeout in seconds |
 | `LOCAL_LLM_API_KEY` | `local` | only for servers that check a key |
@@ -175,9 +175,85 @@ No API key is required, and reported cost is zero.
 **Repeated samples need `LOCAL_LLM_TEMPERATURE > 0`.** At temperature 0 decoding
 is greedy: every sample and every retry re-roll returns the same text, so
 `--samples-per-case 3` only triples the run time. With sampling on, each call
-gets its own seed, so samples differ and a whole run stays reproducible.
+gets its own seed, so samples differ and a whole run stays reproducible. In prompt_ab
+the seed follows the answer's arm, case and sample number, so a resumed run gives a
+missing sample the seed it would have had instead of repeating a finished one's.
 Only answers sample. Graders, pairwise judges and router picks stay greedy, so an
 arm difference comes from the answers, not from evaluator or routing noise.
+
+## Prompt A/B across revisions, flags and implants
+
+`evals/scripts/prompt_ab.py` compares whole system prompts rather than one rule:
+
+- **One agent per case.** The answer model picks it once from the agent catalog (the
+  production `ROUTE_REQUIRED` path); every arm enriches for that agent.
+- **Each arm builds prompts with its own revision.** `_prompt_builder.py` runs in a
+  throwaway worktree of the arm's revision, so its code and content are the ones under
+  test. The per-query prompt cache is cleared before every case.
+- **Answer first, grade second, resumable.** Answers go to `answers.jsonl` and grades to
+  `grades.jsonl` in `--out-dir`; a rerun skips what is already there.
+
+```bash
+# revisions and flags: every arm is reported against the first one
+python -m evals.scripts.local_ab --temperature 0.7 -- prompt_ab revisions --samples 3 \
+  --arm old=3a4fc5f --arm new=HEAD --arm gate=HEAD:IMPLANT_NEED_GATE=intent --out-dir /abs/dir
+# implants: none, each implant alone, production, and two noise floors; greedy
+python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
+```
+
+- **Noise floors.** Even at temperature 0, Ollama's server reuses the KV cache of recent
+  prompts, and a cached prefix is not guaranteed to decode bit-identically to a fresh one.
+  `none_repeat` repeats `none` in the same order; `none_reversed` repeats it last and in
+  reverse order, so its cached neighbours differ. Read an implant's "answers changed"
+  against both floors.
+- **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
+  budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local or SDK endpoint URL),
+  dataset, agents file and each arm's commit. A rerun with other settings is refused, and
+  so is one that reorders the arms already run; adding arms is allowed, after the first
+  arm, which stays the baseline. Cached prompt
+  files are reused only if they were built with the current embedding model.
+- Relative paths are resolved against the directory you run from.
+
+### The same models, hosted (OpenRouter)
+
+A 31B model on a laptop answers about one case a minute, so an implants run takes
+hours. The `openrouter` provider runs the same A/B against hosted copies of the open
+weights, with parallel requests:
+
+```bash
+export OPENROUTER_API_KEY=...                        # from a file, not the shell history
+export OPENROUTER_PROVIDER=novita/bf16,deepinfra/bf16  # endpoint slugs, no fallback
+python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8 \
+  --model google/gemma-4-31b-it --judge-model qwen/qwen3.8-27b --out-dir /abs/dir
+```
+
+- **Pin the endpoints.** A model is served by many hosts at different precisions
+  (`fp4`, `fp8`, `bf16`). `OPENROUTER_PROVIDER` lists endpoint slugs; every call goes
+  to the first listed one that serves its model, with fallbacks off, so one list can
+  pin the answer model and the grader. List the endpoints and their precisions with
+  `curl -s https://openrouter.ai/api/v1/models/<author>/<model>/endpoints`. The
+  manifest records the routing.
+- **Hosts are not deterministic.** At temperature 0 with a fixed seed, two identical
+  requests got two different answers on both `novita/bf16` and `deepinfra/bf16`
+  (2026-09-24). "Answers changed" is therefore meaningless on hosted models; the noise
+  floors show how far FAIL counts move by chance, and an implant's effect is what
+  exceeds them.
+- Thinking is off (`reasoning.enabled=false`); `OPENROUTER_TEMPERATURE` and
+  `OPENROUTER_SEED` play the roles of their `LOCAL_LLM_` counterparts.
+- Models that must think (`anthropic/claude-opus-5.5` answers 400 "Reasoning is
+  mandatory") take `OPENROUTER_REASONING=low|medium|high` for answers; graders keep
+  thinking off, so pick a grader that allows it. Reasoning tokens count against the
+  answer budget: raise `--max-tokens` (default 800). Leave out parameters no endpoint
+  of the model accepts, or `require_parameters` finds none: `OPENROUTER_SEED=none`
+  (no Opus 5.5 endpoint takes a seed), `OPENROUTER_TEMPERATURE=default` (Anthropic's
+  own endpoint takes no temperature; `azure/global` does). The latter applies to answers
+  only: graders and router picks still send temperature 0, unless the grader's endpoints
+  reject it too (`OPENROUTER_GRADER_TEMPERATURE=default`).
+- `--samples N` repeats every arm on hosted models even at temperature 0; since they
+  vary anyway, the repeats measure how often a case fails under each arm.
+- `--concurrency` parallelises calls within an arm; arms still run in order, so a later
+  arm can reuse an earlier arm's answer to an identical prompt. The local provider
+  refuses it.
 
 ## Server behaviour the client relies on
 
@@ -285,3 +361,114 @@ independent skeptic checking each verdict.
 
 Transcripts are in `evals/reports/nofab_ab_gemma31b_qwen38judge_*.answers.jsonl`
 (gitignored).
+
+## #78 content and `IMPLANT_NEED_GATE` on gemma4:31b + qwen3.8:27b judge (2026-09-24)
+
+`prompt_ab revisions` on the 31 `no_fabrication` cases, 3 samples at t=0.7, run through
+`local_ab` (lowest free memory 11%). Arms: `old` = 3a4fc5f (before #78), `new` = 33600be,
+`gate` = 33600be with `IMPLANT_NEED_GATE=intent`. The gate changed 15 of 31 prompts; the
+other 16 reuse `new`. Every failing or flipped case was then triaged by an analyst and an
+adversarial skeptic.
+
+| bucket | old FAIL | new FAIL | gate FAIL |
+|---|---|---|---|
+| fabrication-recall | 7/15 | 5/15 | 5/15 |
+| overhedge-precision | 0/10 | 0/10 | 0/10 |
+| deliver-carveout | 3/6 | 3/6 | 3/6 |
+
+- **#78: one real fix, no regression.** `fab-kz-vat-current` now answers 16%, taken from
+  the refreshed `skill-jurisdiction-kz`. `fab-cy-cit-current` flipped to PASS only because
+  the grader read the headline 15%; two of three answers still give 12.5% to ordinary
+  companies. McNemar on the raw flips: 2 vs 0, p = 0.5.
+- **Refreshed facts rarely reach the prompt.** Even with `lawyer` picked, the jurisdiction
+  skill loads for KZ and CY only; RU, ES and US get other skills, so their updated figures
+  are never shown to the model.
+- **The rewritten factuality implants and the rules header changed nothing visible.** No
+  answer in any arm uses a "recalled, not verified" marker, and the three
+  deliver-carveout failures (asking for the file instead of a best effort) are the same.
+- **`IMPLANT_NEED_GATE=intent` is neutral on gemma.** It removes all implants from 15
+  prompts (median 27% shorter, 14% for the whole set) and changes no verdict; the
+  triage found no systematic quality difference on any of the 15.
+
+These say how gemma reads the prompts, not how Claude does.
+
+
+## Implant sensitivity on Opus 5.5, Gemma 4 31B and Qwen3.8 27B (2026-09-24)
+
+`prompt_ab implants` on the 31 `no_fabrication` cases, prompts from `7c01f5a`: no
+implant (three repeats), each of eight implants alone, and the production selection.
+Hosted through OpenRouter: Opus 5.5 on `azure/global` (reasoning `low`, t=0, 2
+samples), Gemma on `novita/bf16` and Qwen on `deepinfra/bf16` (t=0, 1 sample); Qwen
+graded Opus and Gemma, Gemma graded Qwen. Per-sample FAIL:
+
+| model | no implant | single implants (8 arms) | production |
+|---|---|---|---|
+| Opus 5.5 | 10/186 (5.4%) | 2–5 of 62 per arm | 5/62 |
+| Gemma 4 31B | 22/93 | 7–9 of 31 per arm | 7/31 |
+| Qwen3.8 27B | 14/93 | 4–6 of 31 per arm | 4/31 |
+
+- **Implants change answers, not outcomes.** On the local, deterministic gemma run
+  RegressionFirst, CoV and IterBudget changed 23, 24 and 20 of 31 answers against 0
+  for the no-implant repeat, yet no arm moves FAIL beyond the no-implant spread on any
+  model. On Opus, a per-case review of all 31 cases per arm (an 18-agent workflow with
+  an adversarial check of every claimed effect) found no substantive quality
+  difference and no leaked implant vocabulary: Opus ignores implants that do not fit.
+- **This dataset only shows misfires.** Its cases are factual questions and simple
+  deliverables; none is a debugging thread, a regression report or a formal-logic
+  problem, so no implant ran in its intended scope. Benefits need scope-matched cases.
+- **Named arms did not always load their implant.** These runs predate the builder's
+  bypass of the implant need gate: on lite-tier cases (e.g. short common-knowledge
+  questions) a single-implant arm got no implant at all, so its differences from
+  `none` there are noise. The raw runs are lost, so the affected cases cannot be
+  counted. The harms below changed the answer text under the implant, so there it did load.
+- **Harm on weaker models.** Qwen answered "I'll run the full test suite to confirm."
+  (nothing else) under RegressionFirst, IterBudget and VerifyAssumptions in 5 of 6
+  samples, against 0 of 12 without an implant. Gemma's answers on recently changed
+  facts swing between the old and the new value with any prompt change: the KZ VAT
+  16% → 12% reversion reproduced deterministically for RegressionFirst, CoV and
+  IterBudget, and Cyprus CIT 15% ↔ 12.5% flips with whichever arm is loaded. That is
+  sensitivity to prompt perturbation on facts the model holds weakly, not a mechanism
+  of one implant, and rewording one implant does not fix it.
+- **Selection sends implants out of scope.** Preferred implants load with distance
+  0.0 and bypass `IMPLANTS_RELEVANCE_THRESHOLD`: production loaded RegressionFirst on
+  13 of 31 cases, all tech how-to questions with no regression in them (the
+  `IMPLANT_NEED_GATE` flag addresses this entry point).
+
+### Bounded implant preamble (`feat/implant-preamble`)
+
+The block header "The following cognitive implants have been loaded to augment
+reasoning" was replaced by a preamble that says the patterns were picked
+automatically and may not fit, that they shape reasoning but never replace the
+latest known facts, and that checks the agent cannot run go to the user. RegressionFirst
+and VerifyAssumptions got v2 texts with a scope condition and a no-tools fallback.
+Same cases, two samples, five implants plus production pooled (372 samples per cell):
+
+| model | no implant | old header | preamble v1 | preamble v2 |
+|---|---|---|---|---|
+| Qwen3.8 27B | 58 (15.6%) | 64 (17.2%) | 50 (13.4%) | 53 (14.2%) |
+| Gemma 4 31B (`deepinfra/fp8`) | 90 (24.2%) | 96 (25.8%) | 95 (25.5%) | — |
+| Opus 5.5 | 20 (5.4%) | 27 (7.3%) | 28 (7.5%) | — |
+
+- The Qwen tool-action stub is gone on the one case that asks the agent to run tests:
+  under RegressionFirst, IterBudget and VerifyAssumptions 5 of 6 samples with the old
+  header, 0 of 6 with either preamble wording (0 of 12 without an implant); every
+  answer now says it cannot run the tests. This is the one clean effect of the
+  experiment. The pooled differences in the table are within noise (p about 0.3).
+- Preamble v1 made Opus hedge a settled fact: "about 100 °C" opened 6 of 12 implant
+  samples of the boiling-point case, against 2 of 12 with the old header (overhedge
+  FAIL 6/120 against 2/120). v2 states settled facts plainly and flags only facts
+  that may have changed: 2 of 18 and 2/180, back to the old level. v2 was run on Opus
+  for the 10 overhedge cases only (3 samples) and not on Gemma.
+- Gemma is unchanged: the preamble moves which recent facts flip, not how many.
+- RegressionFirst2 and VerifyAssumptions2 match their originals within noise on every
+  model (e.g. Qwen 9 vs 9 and 8 vs 9 of 62 with preamble v2); they are kept for their
+  scope condition and no-tools fallback, not for a measured gain.
+
+The shipped wording drops "flagged if unsure" from v2 (it contradicted
+`rule-no-fabrication`, which marks load-bearing specifics regardless of confidence)
+and adds "and still answer"; these two edits were not A/B-tested. The raw answers
+and grades of these runs were lost with the session scratchpad; only the aggregates
+above remain. Keep future `--out-dir`s under a persistent path.
+
+Cost: about $47 on OpenRouter, most of it the two Opus passes (about $0.025 per answer
+with reasoning `low`).
