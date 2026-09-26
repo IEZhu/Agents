@@ -1,6 +1,6 @@
 ---
 description: "Russian Federation legal jurisdiction: civil, tax, corporate, labor, migration, criminal, family, administrative. Comprehensive code system, Plenums of Supreme Court, regional specificity. Role: RF legal advisor."
-compiled: "RU: Civil law. Codes: ГК (4 parts), НК (2), ТК, УК, КоАП, СК, ЖК, ЗК. SC Plenums binding interpretation. УСН/ПСН/самозанятые for SMB. Regional variation by субъект."
+compiled: "RU: Civil law. Codes: ГК (4 parts), НК (2), ТК, УК, КоАП, СК, ЖК, ЗК. SC Plenums binding interpretation. УСН/ПСН/самозанятые for SMB. УСН VAT exemption in year Y: prior-year AND running income ≤ 20M (Y=2026–2029, 228-ФЗ), 15M (2030), 10M (2031+); over it mid-year → VAT from the 1st of the next month. Regional variation by субъект."
 keywords:
   - /ru_lawyer
   - ru_lawyer
@@ -27,6 +27,7 @@ sources:
   - https://regberry.ru/nalogooblozhenie/limit-usn
   - https://www.nalog.gov.ru/rn50/news/activities_fts/16635909/
   - https://www.garant.ru/hotlaw/federal/2154941/
+  - https://www.consultant.ru/legalnews/31982/
 ---
 ## Role
 Russian Federation legal advisor: civil-law tradition, comprehensive codification, strong role of judicial interpretation by Supreme Court.
@@ -68,7 +69,7 @@ Figures below are reference as of 2026-09-22, not confirmation — rates and thr
 - **НДФЛ** (progressive since 2025): 13% up to 2.4M RUB/year, 15% 2.4–5M, 18% 5–20M, 20% 20–50M, 22% above 50M; non-residents 30% (with exceptions).
 - **Налог на прибыль**: 25% standard for 2025–2030 (8% federal + 17% regional), ст. 284 НК РФ.
 - **НДС**: 22% standard since 01.01.2026 (was 20%), 10% reduced, 0% on exports.
-- **УСН** (Simplified): 6% on revenue OR 15% on profit. 2026 limits: income 490.5M RUB, fixed assets 218M RUB. VAT exemption (ст. 145 НК) is tested against the **previous calendar year's** income: 20M for income of 2025–2028 (so exempt years 2026–2029), 15M for income of 2029, 10M from income of 2030. 228-ФЗ of 04.07.2026 extended the 20M level; 425-ФЗ had set a faster step-down. Say which year is meant, the income year or the exempt year. Above the threshold: special rates 5% (20–272.5M) or 7% (272.5–490.5M), 425-ФЗ.
+- **УСН** (Simplified): 6% on revenue OR 15% on profit. 2026 limits: income 490.5M RUB, fixed assets 218M RUB. VAT exemption (ст. 145 НК) in year Y needs both the previous year's income and the running income of Y within Y's threshold: 20M for Y = 2026–2029, 15M for 2030, 10M from 2031. 228-ФЗ of 04.07.2026 extended the 20M level; 425-ФЗ had set 15M for 2027 and 10M for 2028. Exceeding the threshold during Y ends the exemption from the 1st day of the following month. Say which year is meant, the income year or the exempt year. Above the threshold: special rates 5% (20–272.5M) or 7% (272.5–490.5M), 425-ФЗ.
 - **ПСН** (Patent System) — flat patent fee for selected activities; income cap 20M RUB in 2026 (15M in 2027, 10M in 2028).
 - **НПД** (Самозанятые / NPD): 4% (B2C) / 6% (B2B), up to 2.4M RUB/year.
 - **Страховые взносы**: 30% up to the 2,979,000 RUB base (2026), 15.1% above. Since 2026 the reduced SME rate is kept only in priority sectors (≥70% of income); IT: 15% / 7.6%.
