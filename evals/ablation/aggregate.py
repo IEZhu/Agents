@@ -36,7 +36,7 @@ def read_verdict(path: Path) -> tuple[dict, dict]:
         raise ValueError(f"margin {v.get('margin')!r} is not one of {MARGINS}")
     rubric = v.get("rubric")
     if not isinstance(rubric, list) or not rubric or not all(
-            isinstance(r, dict) and isinstance(r.get("item"), int) and r.get("A") in RUBRIC_MARKS
+            isinstance(r, dict) and type(r.get("item")) is int and r.get("A") in RUBRIC_MARKS
             and r.get("B") in RUBRIC_MARKS for r in rubric):
         raise ValueError("rubric is not a list of {item: int, A: mark, B: mark}")
     if not isinstance(v.get("reasons"), str):
