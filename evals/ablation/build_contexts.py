@@ -4,7 +4,9 @@
 
 Reads RUN_DIR/cases/<component>.json ({"component": id, "cases": [...]}) and
 writes RUN_DIR/ctx/<token>.md plus RUN_DIR/plan.json (token -> case, arm,
-component, agent). Each context is the production enrichment for the case's
+component, agent). Refuses a run with no case files, or with a component listed in
+RUN_DIR/ids.txt that has none. RUN_DIR/build_meta.json records the commit the
+contexts were built from, so they can be rebuilt without committing ctx/. Each context is the production enrichment for the case's
 agent and latest message, with platform instructions stripped:
 
 - rule-*:    with = production prompt;       without = that rule's section cut
@@ -25,6 +27,16 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("LANGFUSE_TRACING_ENABLED", "false")
 os.environ.setdefault("AGENTS_AUTO_UPDATE", "0")
 os.environ.setdefault("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+
+
+def build_meta() -> dict:
+    """The commit the contexts come from, and whether the tree differed from it."""
+    import subprocess
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+            "embedding_model": os.environ["EMBEDDING_MODEL"]}
 
 
 def cut_section(prompt: str, header: str) -> str:
@@ -56,6 +68,15 @@ def conversation_block(case: dict) -> str:
 
 
 async def main(run_dir: Path) -> None:
+    # Checked before the imports below, which load the embedding model.
+    case_files = sorted((run_dir / "cases").glob("*.json"))
+    if not case_files:
+        raise SystemExit(f"{run_dir}/cases has no case files; run the cases step first")
+    ids_file = run_dir / "ids.txt"
+    if ids_file.exists():
+        written = {path.stem for path in case_files}
+        if absent := [i for i in ids_file.read_text().split() if i not in written]:
+            raise SystemExit(f"no cases file for {absent}; rerun the cases step for them")
     from evals.runners.run_mcp_vs_vanilla import _strip_platform_instructions
     from src import server
     from src.engine import enrichment
@@ -94,8 +115,9 @@ async def main(run_dir: Path) -> None:
                         "rules": list(rules), "tier": tier}
 
     (run_dir / "ctx").mkdir(exist_ok=True)
+    (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
     plan, errors = {}, []
-    for path in sorted((run_dir / "cases").glob("*.json")):
+    for path in case_files:
         spec = json.loads(path.read_text())
         component = spec["component"]
         for case in spec["cases"]:

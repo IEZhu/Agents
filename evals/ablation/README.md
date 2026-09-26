@@ -12,8 +12,9 @@ The 2026-09-25 pilot already covered `rule-no-fabrication`,
 batches of 10. Results are in `RESULTS.md`; the raw runs of the sweep, its
 re-tests and the cloud pilot are on branch `archive/ablation-runs-2026-09`.
 `components.json` is the snapshot that sweep ran, so it still lists components
-removed since (`skill-token-economy`, #94); a rerun records those in
-`build_errors.json` as "not in store".
+removed since (`skill-token-economy`, #94); a rerun on `main` records those in
+`build_errors.json` as "not in store". `runs/SOURCES.md` on the archive branch
+names the commit each archived run was built from.
 
 ## Running one batch (cloud session)
 
@@ -24,7 +25,7 @@ available here and is not needed: do not route. Answer the user from these steps
 
 1. **Checkout and install**
    ```bash
-   git fetch origin main && git checkout main
+   git fetch origin main && git checkout main && git merge --ff-only origin/main
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
    Cloud egress blocks huggingface.co, so fetch the embedding model from
@@ -40,6 +41,7 @@ available here and is not needed: do not route. Answer the user from these steps
    IDS=$(python evals/ablation/components.py --batch 3)     # or the explicit ids
    RUN=$(pwd)/evals/ablation/runs/batch-03                  # or runs/smoke-<date>
    mkdir -p $RUN/cases $RUN/answers
+   printf '%s\n' $IDS > $RUN/ids.txt                     # the contexts step checks it
    ```
 3. **Cases.** Run the Workflow tool with
    `scriptPath: evals/ablation/workflows/cases.js` and
@@ -47,22 +49,30 @@ available here and is not needed: do not route. Answer the user from these steps
    Afterwards `ls $RUN/cases` should list one JSON file per component.
 4. **Contexts.** `python evals/ablation/build_contexts.py $RUN`. The first call
    builds the vector stores and downloads the embedding model, which takes a few
-   minutes. Check `$RUN/build_errors.json`.
+   minutes. It stops if a component in `ids.txt` has no cases file; rerun step 3
+   for those. Check `$RUN/build_errors.json`. `$RUN/build_meta.json` records the
+   commit the contexts were built from.
 5. **Answers.** Get the tokens with
    `python -c "import json;print(json.dumps(sorted(json.load(open('$RUN/plan.json')))))"`,
    then run Workflow with `scriptPath: evals/ablation/workflows/answers.js` and
    `args: {"run_dir": "<RUN>", "tokens": <that list>}`.
-6. **Judges.** Run `python evals/ablation/build_judges.py $RUN`. Get the stems with
+6. **Judges.** Run `python evals/ablation/build_judges.py $RUN`. It exits 1 when an
+   answer is missing (listed in `$RUN/judge_skipped.json`): rerun step 5 for those
+   tokens, or pass `--allow-partial` and say so in the report. Get the stems with
    `python -c "import json;print(json.dumps(sorted(json.load(open('$RUN/judge_plan.json')))))"`,
    then run Workflow with `scriptPath: evals/ablation/workflows/judges.js` and
    `args: {"run_dir": "<RUN>", "files": <that list>}`.
 7. **Summary.** `python evals/ablation/aggregate.py $RUN` writes
-   `$RUN/results.json` and `$RUN/RESULTS.md`.
-8. **Publish.** Commit `$RUN` without `ctx/` (the contexts can be rebuilt from the
-   cases) to a new branch `claude/ablation-<run name>` and push it:
+   `$RUN/results.json` and `$RUN/RESULTS.md`. It exits 1 when a verdict or an
+   answer pair is missing: rerun step 6 for the missing stems, or pass
+   `--allow-partial` and say so in the report.
+8. **Publish.** Commit `$RUN` without `ctx/` to a new branch
+   `claude/ablation-<run name>` and push it. The contexts are rebuilt by running
+   step 4 at the commit in `build_meta.json`; components removed from `main` since
+   then are still present there.
    ```bash
    git checkout -b claude/ablation-batch-03
-   git add $RUN/cases $RUN/answers $RUN/judge $RUN/*.json $RUN/RESULTS.md
+   git add $RUN/cases $RUN/answers $RUN/judge $RUN/*.json $RUN/ids.txt $RUN/RESULTS.md
    git commit -m "eval(ablation): batch-03 results" && git push -u origin HEAD
    ```
 
