@@ -933,11 +933,13 @@ async def describe_repo(
 ) -> str:
     """One-shot repo bootstrap.
 
-    Builds a deterministic context bundle from the repo, asks the calling
-    LLM (via MCP sampling) to distill it into a structured summary, and
-    writes the result into the managed Repository Memory section of
-    CLAUDE.md. Future Claude sessions read that section automatically and
-    skip re-exploring the codebase.
+    Builds a deterministic context bundle from the repo. When the client
+    supports MCP sampling, asks the calling LLM to distill it into a
+    structured summary and writes the result into the managed Repository
+    Memory section of CLAUDE.md. Otherwise (or when sampling fails) it
+    writes nothing and returns needs_summary; the summary is persisted only
+    once write_repo_summary is called. Future Claude sessions read that
+    section automatically and skip re-exploring the codebase.
 
     Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
     status ∈ {"refreshed", "up-to-date", "rejected", "needs_summary", "error"}.
@@ -1015,7 +1017,9 @@ async def write_repo_summary(
     """Persist a repository summary after describe_repo returned status='needs_summary'.
 
     Call this with the summary you generated from the prompt and the
-    repo_hash value from the describe_repo response.
+    repo_hash value from the describe_repo response. repo_path and
+    workspace_id are optional over stdio; over HTTP pass both back from
+    that response unchanged.
 
     Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
     status ∈ {"refreshed", "rejected", "error"}.
