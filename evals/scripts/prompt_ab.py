@@ -249,6 +249,9 @@ def builder_config() -> dict[str, str]:
     """
     source = (REPO_ROOT / "src/engine/config.py").read_text(encoding="utf-8")
     names = set(re.findall(r'(?:getenv|environ\.get|_\w*env)\(\s*"([A-Z][A-Z0-9_]+)"', source))
+    # The embedding artifact is chosen outside config.py (src/engine/embedder.py,
+    # src/engine/fingerprint.py); another artifact retrieves other skills and implants.
+    names |= {"AGENTS_MODEL_PATH", "AGENTS_MODEL_ARTIFACT"}
     return {name: os.environ[name] for name in sorted(names)
             if name in os.environ and name != "EMBEDDING_MODEL" and not name.startswith("AGENTS_AUTO_UPDATE")}
 
@@ -471,6 +474,10 @@ async def run(args) -> int:
     provider = get_provider(args.provider)
     if missing := missing_credentials(provider):
         raise SystemExit(f"--provider {provider.name} needs {missing}")
+    if provider.name == "openrouter" and not openrouter_routing().get("order"):
+        # An unpinned pool can serve arms from hosts with different weights, which
+        # the A/B cannot tell apart from an arm effect.
+        raise SystemExit("--provider openrouter needs OPENROUTER_PROVIDER (e.g. novita/bf16) to pin the endpoints")
     if provider.name == "local" and args.concurrency > 1:
         # One model on one laptop answers one request at a time, and the noise
         # floors rely on a fixed request order.

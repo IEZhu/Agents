@@ -143,8 +143,12 @@ def test_builder_config_records_prompt_settings_the_revision_reads(monkeypatch):
     monkeypatch.setenv("IMPLANT_NEED_GATE", "intent")
     monkeypatch.setenv("EMBEDDING_MODEL", "m")
     monkeypatch.setenv("AGENTS_AUTO_UPDATE", "1")
+    monkeypatch.setenv("AGENTS_MODEL_PATH", "/models/e5")
+    monkeypatch.setenv("AGENTS_MODEL_ARTIFACT", "e5-large-onnx")
     config = pab.builder_config()
     assert config["RULES_ENABLED"] == "0" and config["IMPLANT_NEED_GATE"] == "intent"
+    # The embedding artifact is read outside config.py but changes retrieval too.
+    assert config["AGENTS_MODEL_PATH"] == "/models/e5" and config["AGENTS_MODEL_ARTIFACT"] == "e5-large-onnx"
     assert "EMBEDDING_MODEL" not in config and "AGENTS_AUTO_UPDATE" not in config
 
 
@@ -391,9 +395,11 @@ def _run_args(tmp_path, *extra):
     ("local", {}, ["--samples", "2"], "LOCAL_LLM_TEMPERATURE > 0"),
     ("openrouter", {"OPENROUTER_TEMPERATURE": "0.7"}, [], "OPENROUTER_TEMPERATURE=0"),
     ("openrouter", {"OPENROUTER_API_KEY": None}, [], "needs OPENROUTER_API_KEY"),
+    ("openrouter", {"OPENROUTER_PROVIDER": None}, [], "OPENROUTER_PROVIDER"),
 ])
 def test_run_refuses_settings_that_would_spoil_the_measurement(tmp_path, monkeypatch, name, env, extra, message):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_PROVIDER", "novita/bf16")
     monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
     for key, value in env.items():
         if value is None:
@@ -428,6 +434,7 @@ def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_pa
 
     provider = SimpleNamespace(name="openrouter", default_model="m", default_judge_model="j", complete=complete,
                                make_async_client=lambda: None, env_key="OPENROUTER_API_KEY")
+    monkeypatch.setenv("OPENROUTER_PROVIDER", "novita/bf16")
     monkeypatch.setattr("evals.runners._providers.get_provider", lambda name: provider)
     monkeypatch.setattr(pab.cr, "grade_sample", grade)
     checkouts = []

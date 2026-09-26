@@ -264,3 +264,19 @@ def test_termination_handlers_skip_sighup_where_it_does_not_exist(monkeypatch):
     monkeypatch.delattr(signal, "SIGHUP", raising=False)
     cr.exit_on_termination_signals()
     assert installed == [signal.SIGTERM]
+
+
+def test_full_ab_refuses_an_unpinned_openrouter_pool(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from evals.runners import _providers as prov
+    from evals.scripts import compare_rules as cr_mod
+
+    monkeypatch.delenv("OPENROUTER_PROVIDER", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    provider = SimpleNamespace(name="openrouter", default_model="m", default_judge_model="j", env_key="OPENROUTER_API_KEY")
+    monkeypatch.setattr(prov, "get_provider", lambda name: provider)
+    args = SimpleNamespace(provider="openrouter", model=None, judge_model=None)
+    with pytest.raises(SystemExit, match="OPENROUTER_PROVIDER"):
+        asyncio.run(cr_mod.full_ab([], args))

@@ -232,7 +232,9 @@ python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8
   to the first listed one that serves its model, with fallbacks off, so one list can
   pin the answer model and the grader. List the endpoints and their precisions with
   `curl -s https://openrouter.ai/api/v1/models/<author>/<model>/endpoints`. The
-  manifest records the routing.
+  manifest records the routing. `prompt_ab` and `compare_rules` refuse to run on
+  OpenRouter without it: an unpinned pool can serve arms from hosts with different
+  weights, which an A/B cannot tell apart from the change under test.
 - **Hosts are not deterministic.** At temperature 0 with a fixed seed, two identical
   requests got two different answers on both `novita/bf16` and `deepinfra/bf16`
   (2026-09-24). "Answers changed" is therefore meaningless on hosted models; the noise
