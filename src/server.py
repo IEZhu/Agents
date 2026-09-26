@@ -1266,8 +1266,12 @@ def _register_memory_prompts():
         return [UserMessage(
             "Call the `describe_repo("
             f"force_refresh={force_arg})` MCP tool now as your only next action. "
-            "Then report the resulting status, hash, word count, and the summary "
-            "preview. Do not call any other tools first."
+            "Do not call any other tools first. If it returns status "
+            "`needs_summary`, nothing was written yet: generate the overview by "
+            "following its `prompt`, then call `write_repo_summary` with that "
+            "summary and the `repo_hash`, `repo_path` and `workspace_id` it "
+            "returned, unchanged. Then report the final status, hash, word count, "
+            "and the summary preview."
         )]
     describe_cmd.__name__ = "describe_repo"
     describe_cmd.__doc__ = (
