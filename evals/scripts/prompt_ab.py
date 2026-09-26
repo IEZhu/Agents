@@ -332,6 +332,10 @@ async def build_prompts(root: Path, dataset: Path, agents: Path, out: Path, arm:
 async def pick_agents(cases, provider, client, model, catalog_path: Path, out: Path) -> dict[str, str]:
     agents = read_json(out)
     if agents is not None:
+        # A map resumed from disk reaches missing_agents(), which needs an object.
+        if not isinstance(agents, dict):
+            raise SystemExit(f"{out} is not a JSON object mapping case ids to agents; "
+                             "delete it or use a new --out-dir")
         return agents
     from evals.runners import run_mcp_vs_vanilla as rmv
     catalog = read_json(catalog_path)
