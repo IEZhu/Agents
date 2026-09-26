@@ -47,7 +47,6 @@ capable_skills:
 - skill-structured-output
 - skill-token-economy
 preferred_implants:
-- implant-self-refine
 - implant-chain-of-verification
 - implant-contrastive-cot
 ---
