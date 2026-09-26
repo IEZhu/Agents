@@ -117,7 +117,9 @@ def get_debug_log_dir() -> str:
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
 # fastembed cache — persistent by default (macOS launchd wipes /tmp during long downloads).
-FASTEMBED_CACHE_DIR = os.path.expanduser(os.getenv("FASTEMBED_CACHE_DIR", "~/.cache/fastembed"))
+# A blank value (the uncommented `FASTEMBED_CACHE_DIR=` line from env.example)
+# counts as unset; otherwise os.makedirs("") fails when the model loads.
+FASTEMBED_CACHE_DIR = os.path.expanduser(os.getenv("FASTEMBED_CACHE_DIR", "").strip() or "~/.cache/fastembed")
 
 
 def _float_env(name: str, default: float, lo: float = 0.0, hi: float = 1.0) -> float:

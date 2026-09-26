@@ -134,6 +134,27 @@ class TestInstallRootUnchanged:
         assert os.path.realpath(unpatched.INSTALL_DATA_DIR) == os.path.join(install_root, "data")
 
 
+class TestFastembedCacheDir:
+    """FASTEMBED_CACHE_DIR is read at import time, so check fresh module loads."""
+
+    @staticmethod
+    def _load_config():
+        spec = importlib.util.spec_from_file_location("_fresh_config", engine_config.__file__)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_blank_value_falls_back_to_default(self, monkeypatch, blank):
+        # The uncommented `FASTEMBED_CACHE_DIR=` line from env.example.
+        monkeypatch.setenv("FASTEMBED_CACHE_DIR", blank)
+        assert self._load_config().FASTEMBED_CACHE_DIR == os.path.expanduser("~/.cache/fastembed")
+
+    def test_explicit_value_is_expanded(self, monkeypatch):
+        monkeypatch.setenv("FASTEMBED_CACHE_DIR", "~/models")
+        assert self._load_config().FASTEMBED_CACHE_DIR == os.path.expanduser("~/models")
+
+
 class TestDeprecatedAliases:
     """PEP 562 aliases preserve `from src.engine.config import REPO_ROOT` callsites."""
 
