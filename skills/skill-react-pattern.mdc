@@ -1,6 +1,6 @@
 ---
 description: "ReAct pattern for tool-using agents. Thought-Action-Observation loops, tool selection, grounding, error recovery. Role: Agent Operator."
-compiled: "Think before acting. Act with tools. Observe results. Before any irreversible or side-effecting action (refund, payment, delete, send), read the current state with a lookup tool and confirm its preconditions. Loop until goal met. Never act blindly. Recover from tool errors."
+compiled: "Think before acting. Act with tools. Observe results. Before any irreversible or side-effecting action (refund, payment, delete, send), read the current state with a lookup tool and confirm its preconditions, including when you write the rules for another agent. Loop until goal met. Never act blindly. Recover from tool errors."
 keywords:
   - think before acting
   - act with tools
