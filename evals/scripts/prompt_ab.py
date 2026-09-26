@@ -193,16 +193,16 @@ def harness_sha256() -> str:
     return hashlib.sha256("".join(sha256_file(p) for p in HARNESS_FILES).encode()).hexdigest()
 
 
-def has_run_state(out: Path) -> bool:
-    """Whether the directory holds records a run produced from its settings."""
+def has_records(out: Path) -> bool:
+    """Whether prompts, answers or grades were built in the directory."""
     return any(out.glob("prompts_*.json")) or any(
-        (out / name).exists() for name in ("agents.json", "answers.jsonl", "grades.jsonl"))
+        (out / name).exists() for name in ("answers.jsonl", "grades.jsonl"))
 
 
 def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
-    if old is None and has_run_state(path.parent):
+    if old is None and ((path.parent / "agents.json").exists() or has_records(path.parent)):
         # run() writes the manifest before any record, so records without one were
         # made under settings nothing recorded; adopting them would pin them to these.
         raise SystemExit(f"{path.parent} holds run records but no manifest.json; use a new --out-dir")
@@ -335,8 +335,9 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
 
     run() pins a generated map right after writing it. A kill in between leaves a
     map the manifest does not know; it is adopted while nothing was built from it,
-    since prompts are built only after the pin. Once prompts or answers exist the
-    map's hash is returned, and check_manifest refuses it against the recorded None.
+    since prompts are built only after the pin. Once prompts, answers or grades
+    exist the map's hash is returned, and check_manifest refuses it against the
+    recorded None.
     """
     if agents_file is not None:
         return sha256_file(agents_file)
@@ -344,8 +345,7 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     if not generated.exists():
         return None
     manifest = read_json(out / "manifest.json")
-    if (manifest is not None and manifest.get("agents_sha256") is None
-            and not any(out.glob("prompts_*.json")) and not (out / "answers.jsonl").exists()):
+    if manifest is not None and manifest.get("agents_sha256") is None and not has_records(out):
         return None
     return sha256_file(generated)
 

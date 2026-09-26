@@ -620,7 +620,7 @@ def test_a_generated_agent_map_a_kill_left_unpinned_is_adopted(tmp_path, monkeyp
     assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
 
 
-def test_an_unpinned_agent_map_is_not_adopted_once_prompts_or_answers_exist(tmp_path):
+def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
     (tmp_path / "agents.json").write_text("{}")
     pinned = pab.sha256_file(tmp_path / "agents.json")
     assert pab.agents_pin(tmp_path, None) == pinned  # no manifest: hashed as found
@@ -630,7 +630,7 @@ def test_an_unpinned_agent_map_is_not_adopted_once_prompts_or_answers_exist(tmp_
     assert not (tmp_path / "manifest.json").exists()
     pab.write_json_atomic(tmp_path / "manifest.json", {"agents_sha256": None})
     assert pab.agents_pin(tmp_path, None) is None
-    for state in ("prompts_none.json", "answers.jsonl"):
+    for state in ("prompts_none.json", "answers.jsonl", "grades.jsonl"):
         (tmp_path / state).write_text("")
         assert pab.agents_pin(tmp_path, None) == pinned
         # The hash, not None, is what makes check_manifest refuse the unpinned map.
