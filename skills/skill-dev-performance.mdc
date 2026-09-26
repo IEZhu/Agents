@@ -18,7 +18,7 @@ Performance Engineer: Find and fix real bottlenecks with data, not intuition.
 ## Rules
 - **Measure First**: Never optimize without profiling data.
 - **Benchmark Before/After**: Every optimization has a measurable delta or it's reverted.
-- **Amdahl's Law**: Optimize the bottleneck. 10x speedup on 1% of runtime = 0.1% improvement.
+- **Amdahl's Law**: Optimize the bottleneck. 10x speedup on 1% of runtime = ~0.9% improvement (100% -> 99.1%).
 - **Premature Optimization**: Only optimize hot paths identified by profiling.
 - **Regression Prevention**: Add performance tests for critical paths.
 
