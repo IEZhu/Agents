@@ -30,10 +30,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-os.environ.setdefault("LANGFUSE_TRACING_ENABLED", "false")
-os.environ.setdefault("AGENTS_AUTO_UPDATE", "0")
-os.environ.setdefault("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+# Set for a run, not on import: tests import this module, and the settings would
+# otherwise leak into every test that runs after them.
+RUN_ENV = {"LANGFUSE_TRACING_ENABLED": "false", "AGENTS_AUTO_UPDATE": "0",
+           "EMBEDDING_MODEL": "intfloat/multilingual-e5-large"}
 
 
 PROMPT_SOURCES = ("agents", "skills", "implants", "rules", "src", "evals/ablation", "evals/runners")
@@ -80,7 +80,7 @@ def build_meta() -> dict:
     # Untracked files count: a new, uncommitted skill changes the contexts as much as an edit.
     changed = git("status", "--porcelain", "--", *PROMPT_SOURCES, ":(exclude)evals/ablation/runs")
     return {"commit": git("rev-parse", "HEAD"), "dirty": bool(changed),
-            "embedding_model": os.environ["EMBEDDING_MODEL"]}
+            "embedding_model": os.environ.get("EMBEDDING_MODEL", RUN_ENV["EMBEDDING_MODEL"])}
 
 
 def cut_section(prompt: str, header: str) -> str:
@@ -227,4 +227,7 @@ async def main(run_dir: Path) -> None:
 
 
 if __name__ == "__main__":
+    for key, value in RUN_ENV.items():
+        os.environ.setdefault(key, value)
+    sys.path.insert(0, str(ROOT))
     asyncio.run(main(Path(sys.argv[1]).resolve()))
