@@ -120,6 +120,28 @@ def test_build_judges_records_a_pair_with_a_missing_answer(tmp_path, capsys):
     assert build_judges.main(run, allow_partial=True) == 0
 
 
+def test_rebuilding_judges_drops_only_verdicts_whose_input_changed(tmp_path, capsys):
+    run = tmp_path / "run"
+    _write(run / "cases" / "skill-x.json", {"component": "skill-x", "cases": [
+        {"id": c, "user_message": "q", "rubric": ["a"]} for c in ("c1", "c2")]})
+    plan = {f"{c}-{arm}": {"component": "skill-x", "case": c, "arm": arm}
+            for c in ("c1", "c2") for arm in ("with", "without")}
+    _write(run / "plan.json", plan)
+    (run / "answers").mkdir()
+    for token in plan:
+        (run / "answers" / f"{token}.md").write_text("answer")
+    build_judges.main(run)
+    stems = json.loads((run / "judge_plan.json").read_text())
+    for stem in stems:
+        _write(run / "judge" / f"{stem}.verdict.json", VERDICT)
+    build_judges.main(run)  # nothing changed: every verdict stays
+    assert all((run / "judge" / f"{stem}.verdict.json").exists() for stem in stems)
+    (run / "answers" / "c2-with.md").write_text("a revised answer")
+    build_judges.main(run)
+    kept = {stems[stem]["case"] for stem in stems if (run / "judge" / f"{stem}.verdict.json").exists()}
+    assert kept == {"c1"}
+
+
 @pytest.fixture
 def snapshot(tmp_path, monkeypatch):
     """A repository root whose components.json lists one present and one removed skill."""

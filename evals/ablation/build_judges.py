@@ -7,6 +7,8 @@ orders and RUN_DIR/judge_plan.json (stem -> component, case, which arm is A/B).
 Stems carry no arm names. Arm order in o1 is fixed per case by a hash; o2 swaps it.
 Pairs with a missing answer go to RUN_DIR/judge_skipped.json, which aggregate.py
 reports as missing; the script exits 1 on any skipped pair unless --allow-partial.
+On a rebuild, a verdict whose judge input changed is deleted, so it is judged again
+rather than counted for the new input; verdicts on unchanged input are kept.
 """
 import hashlib
 import json
@@ -43,7 +45,11 @@ def main(run_dir: Path, allow_partial: bool = False) -> int:
             body = (f"# Case {case_id}\n\n## Conversation so far\n{hist}## Latest user message\n{case['user_message']}\n\n"
                     f"## Rubric (what a strong answer does)\n{rubric}\n\n## Answer A\n{answers[a].read_text()}\n\n"
                     f"## Answer B\n{answers[b].read_text()}\n")
-            (run_dir / "judge" / f"{stem}.md").write_text(body, encoding="utf-8")
+            judge_input = run_dir / "judge" / f"{stem}.md"
+            if not judge_input.exists() or judge_input.read_text(encoding="utf-8") != body:
+                # A verdict on other input would be counted for this one: judge it again.
+                (run_dir / "judge" / f"{stem}.verdict.json").unlink(missing_ok=True)
+                judge_input.write_text(body, encoding="utf-8")
             judge_plan[stem] = {"component": component, "case": case_id, "A": a, "B": b}
     (run_dir / "judge_plan.json").write_text(json.dumps(judge_plan, indent=1) + "\n")
     (run_dir / "judge_skipped.json").write_text(json.dumps(skipped, indent=1) + "\n")
