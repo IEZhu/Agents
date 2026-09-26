@@ -177,3 +177,33 @@ Next step: re-test the flagged components on 6 fresh cases each before changing 
 | implant-role-play-expert | 2 | 4 | 0 | 0 | +4 | 2 | 0 | 1 |
 | implant-steel-man | 2 | 4 | 0 | 0 | +4 | 2 | 0 | 0 |
 
+
+## Re-test of flagged components (2026-09-26)
+
+14 components (the 10 robust losers plus the 4 at net −3) re-run with 6 fresh cases each
+(3 ru + 3 en), same design; judges could WebSearch a contested fact. Raw runs: branches
+`claude/ablation-retest-a..c`. skill-react-pattern and skill-jurisdiction-ru ran with the
+first version of their #85 fixes. Judges still favour position B (64% of decisive verdicts);
+41 of 84 case pairs were order-dependent.
+
+Confirmed negative: skill-token-economy, implant-self-refine, implant-output-priming,
+skill-jurisdiction-es (acted on in #86; token-economy is a deliberate brevity trade-off).
+The other ten came out neutral or positive, so their sweep result was noise.
+
+| Component | Cases | with | without | tie | net | robust with | robust without | clear/large |
+|---|---|---|---|---|---|---|---|---|
+| skill-token-economy | 6 | 3 | 9 | 0 | -6 | 1 | 4 | 0 |
+| implant-self-refine | 6 | 2 | 8 | 2 | -6 | 1 | 4 | 0 |
+| implant-output-priming | 6 | 2 | 8 | 2 | -6 | 1 | 3 | 3 |
+| skill-jurisdiction-es | 6 | 4 | 7 | 1 | -3 | 1 | 3 | 0 |
+| implant-graph-of-thoughts | 6 | 5 | 6 | 1 | -1 | 1 | 1 | 2 |
+| implant-react | 6 | 4 | 4 | 4 | +0 | 1 | 0 | 0 |
+| skill-dev-testing | 6 | 6 | 5 | 1 | +1 | 2 | 1 | 2 |
+| skill-3d-print-search | 6 | 7 | 5 | 0 | +2 | 3 | 2 | 1 |
+| implant-take-a-deep-breath | 6 | 4 | 2 | 6 | +2 | 1 | 0 | 0 |
+| implant-automatic-reasoning | 6 | 4 | 2 | 6 | +2 | 1 | 0 | 0 |
+| skill-jurisdiction-ru | 6 | 6 | 4 | 2 | +2 | 3 | 1 | 3 |
+| skill-react-pattern | 6 | 7 | 4 | 1 | +3 | 3 | 1 | 0 |
+| implant-tree-of-thought | 6 | 7 | 3 | 2 | +4 | 3 | 1 | 3 |
+| skill-roblox-development | 6 | 7 | 2 | 3 | +5 | 2 | 0 | 0 |
+
