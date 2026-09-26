@@ -419,8 +419,12 @@ _CONVERSE_LEX = _lex(
 
 #: Line-anchored. A bare ``` matched inline backticks in prose, and once a fence
 #: began selecting the mode that let "Use ```code``` formatting in your reply"
-#: classify as `operate`. Only a fence that opens a line counts.
-_CODE_FENCE = re.compile(r"^[ \t]*(?:```|~~~)", re.MULTILINE)
+#: classify as `operate`. Only a fence that opens a line counts, and only one
+#: CommonMark accepts as an opener: at most 3 leading spaces (4, or a tab, is an
+#: indented code block), and no backtick later on a backtick line — otherwise
+#: "```json``` please: list the capitals of the EU" still read as a fence.
+#: Accepted cost: a fence nested 4+ spaces deep in a list item is not seen.
+_CODE_FENCE = re.compile(r"^ {0,3}(?:`{3,}(?![^\n]*`)|~{3,})", re.MULTILINE)
 #: Accepts sub-numbered items ("11.1.", "2.3)") as well as flat ones. The flat-only
 #: form missed a multi-part exam paper whose items were numbered 11.1 .. 11.7.
 _LIST_LINE = re.compile(r"^\s*(\d+(\.\d+)*[.)]|[-*•])\s+\S")
