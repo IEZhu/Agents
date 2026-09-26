@@ -79,12 +79,14 @@ def test_a_verdict_that_is_not_an_object_is_rejected_and_null_errors_mean_none(t
 
 def test_a_complete_run_aggregates_and_exits_zero(tmp_path, capsys):
     run = _judged_run(tmp_path)
+    _write(run / "cases" / "skill-y.json", {"component": "skill-y", "cases": [], "untestable": "tool use only"})
     assert aggregate.main([run]) == 0
+    assert "skill-y: tool use only" in (run / "RESULTS.md").read_text()
     result = json.loads((run / "results.json").read_text())
     assert len(result["verdicts"]) == 2 and result["missing"] == []
 
 
-@pytest.mark.parametrize("gap", ["verdict", "rubric", "unknown case", "skipped", "build"])
+@pytest.mark.parametrize("gap", ["verdict", "rubric", "unknown case", "skipped", "build", "empty cases", "bad utf-8"])
 def test_any_gap_is_listed_as_missing_and_fails_unless_partial_is_allowed(tmp_path, capsys, gap):
     run = _judged_run(tmp_path)
     if gap == "verdict":
@@ -92,9 +94,14 @@ def test_any_gap_is_listed_as_missing_and_fails_unless_partial_is_allowed(tmp_pa
     elif gap == "rubric":  # only one of the case's two rubric items is graded
         _write(run / "judge" / "s__o2.verdict.json", {**VERDICT, "rubric": VERDICT["rubric"][:1]})
     elif gap == "unknown case":  # the verdict stays, the case it was judged on is gone
-        _write(run / "cases" / "skill-x.json", {"component": "skill-x", "cases": []})
+        _write(run / "cases" / "skill-x.json",
+               {"component": "skill-x", "cases": [{"id": "c9", "user_message": "q", "rubric": ["a", "b"]}]})
     elif gap == "skipped":
         _write(run / "judge_skipped.json", ["skill-x/c2"])
+    elif gap == "empty cases":  # a cases step that wrote nothing and gave no reason
+        _write(run / "cases" / "skill-y.json", {"component": "skill-y", "cases": []})
+    elif gap == "bad utf-8":
+        (run / "judge" / "s__o2.verdict.json").write_bytes(b'{"winner": "\xff"}')
     else:
         _write(run / "build_errors.json", [{"component": "skill-x", "case": "c3", "error": "arms identical"}])
     assert aggregate.main([run]) == 1
@@ -172,7 +179,7 @@ def test_build_contexts_refuses_a_listed_component_without_cases(tmp_path, snaps
 
 def test_build_contexts_refuses_case_files_it_was_not_asked_to_build(tmp_path, snapshot):
     run = tmp_path / "run"
-    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": []})
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only"})
     (run / "ids.txt").write_text("skill-gone\n")
     with pytest.raises(SystemExit, match="not in ids.txt"):
         asyncio.run(build_contexts.main(run))
@@ -197,6 +204,13 @@ def test_build_contexts_refuses_a_repeated_case_id(tmp_path, snapshot):
 def no_model(monkeypatch):
     """Fail the test if build_contexts gets as far as its heavy imports."""
     monkeypatch.setitem(__import__("sys").modules, "evals.runners.run_mcp_vs_vanilla", None)
+
+
+def test_build_contexts_refuses_an_empty_case_file_without_a_reason(tmp_path, snapshot, no_model):
+    run = tmp_path / "run"
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": []})
+    with pytest.raises(SystemExit, match="no untestable reason"):
+        asyncio.run(build_contexts.main(run))
 
 
 def test_build_contexts_skips_the_model_when_only_untestable_components_are_left(tmp_path, snapshot, no_model, capsys):

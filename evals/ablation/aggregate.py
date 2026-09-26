@@ -7,8 +7,9 @@ with/without, and writes RUN_DIR/results.json and RUN_DIR/RESULTS.md for a singl
 run, or prints the combined table for several runs.
 net = verdicts won with the component minus verdicts won without it; "robust"
 counts only cases where the same arm won in both orders.
-Missing or malformed verdicts, answer pairs build_judges.py skipped and cases
-build_contexts.py could not build are listed as missing; the script exits 1 when
+Missing or malformed verdicts, answer pairs build_judges.py skipped, cases
+build_contexts.py could not build and case files with no cases and no untestable
+reason are listed as missing; the script exits 1 when
 any are missing unless --allow-partial.
 """
 import json
@@ -92,13 +93,20 @@ def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
     return rows, missing
 
 
-def untestable(run_dir: Path) -> dict:
-    out = {}
+def untestable(run_dir: Path) -> tuple[dict, list[dict]]:
+    """Components without cases: untestable when the case file gives a reason, and
+    missing otherwise, since an empty file can also come from a failed cases step."""
+    skipped, missing = {}, []
     for path in (run_dir / "cases").glob("*.json"):
         spec = json.loads(path.read_text())
-        if not spec.get("cases"):
-            out[spec["component"]] = spec.get("untestable", "no cases")
-    return out
+        if spec.get("cases"):
+            continue
+        reason = spec.get("untestable")
+        if isinstance(reason, str) and reason.strip():
+            skipped[spec["component"]] = reason
+        else:
+            missing.append({"pair": f"{spec['component']}/*", "error": "case file has no cases and no untestable reason"})
+    return skipped, missing
 
 
 def table(rows: list[dict], skipped: dict) -> str:
@@ -132,9 +140,11 @@ def main(run_dirs: list[Path], allow_partial: bool = False) -> int:
     all_rows, all_skipped, all_missing = [], {}, []
     for run_dir in run_dirs:
         rows, missing = load(run_dir)
+        skipped, empty = untestable(run_dir)
+        missing += empty
         all_rows += rows
         all_missing += missing
-        all_skipped.update(untestable(run_dir))
+        all_skipped.update(skipped)
         if len(run_dirs) == 1:
             (run_dir / "results.json").write_text(json.dumps({"verdicts": rows, "missing": missing}, ensure_ascii=False, indent=1) + "\n")
             (run_dir / "RESULTS.md").write_text(f"# Ablation results: {run_dir.name}\n\n" + table(rows, all_skipped))

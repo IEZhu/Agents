@@ -8,7 +8,8 @@ component, agent, context hash). Each context is the production enrichment for t
 case's agent and latest message, with platform instructions stripped.
 
 Refuses a run with no case files, a case file whose component differs from its
-file name or that repeats a case id, and, when RUN_DIR/ids.txt exists, a listed
+file name, that repeats a case id or that has no cases and no untestable reason,
+and, when RUN_DIR/ids.txt exists, a listed
 component without a case file or a case file for a component it does not list.
 RUN_DIR/build_meta.json records the commit the contexts were built from, so they
 can be rebuilt without committing ctx/. On a rebuild, an answer is kept only when
@@ -117,6 +118,11 @@ async def main(run_dir: Path) -> None:
     specs = {path: json.loads(path.read_text()) for path in case_files}
     if mismatched := [path.name for path, spec in specs.items() if spec.get("component") != path.stem]:
         raise SystemExit(f"case files whose component does not match the file name: {mismatched}")
+    # An empty file is untestable only when it says why; otherwise the cases step failed.
+    if unexplained := [path.name for path, spec in specs.items() if not spec.get("cases") and not (
+            isinstance(spec.get("untestable"), str) and spec["untestable"].strip())]:
+        raise SystemExit(f"case files with no cases and no untestable reason: {unexplained}; "
+                         "rerun the cases step for them")
     # Tokens come from component, case id and arm, so a repeated id would overwrite a case.
     if repeated := [path.name for path, spec in specs.items()
                     if len({c["id"] for c in spec.get("cases", [])}) != len(spec.get("cases", []))]:
