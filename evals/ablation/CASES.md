@@ -38,7 +38,8 @@ component is meant to catch.
 - **No leak.** The user never names the component, quotes it or uses its terms
   of art. Real users describe their problem, not the technique.
 - **Realistic.** Concrete details (versions, numbers, error text, constraints) the
-  way a real user writes them. Russian for case 1, English for case 2.
+  way a real user writes them. The first half of the cases in Russian, the rest in English
+  (2 cases per component by default; a re-test may ask for more).
 - **Agent.** Use one of the component's owners from `components.json` when it has
   any; otherwise the agent under `agents/` that would normally get the request.
 - **Rubric.** 3-4 items. Each is checkable from the answer text alone. At least one

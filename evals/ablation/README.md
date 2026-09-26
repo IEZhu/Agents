@@ -13,7 +13,8 @@ batches of 10.
 
 ## Running one batch (cloud session)
 
-The request names a batch (`batch 3`) or explicit ids (`ids: skill-a implant-b`).
+The request names a batch (`batch 3`) or explicit ids (`ids: skill-a implant-b`), and
+may set a run name and a case count (`name: retest-a`, `cases: 6`; default 2).
 Every step runs from the repository root. The Agents-Core MCP server is not
 available here and is not needed: do not route. Answer the user from these steps.
 
@@ -38,7 +39,7 @@ available here and is not needed: do not route. Answer the user from these steps
    ```
 3. **Cases.** Run the Workflow tool with
    `scriptPath: evals/ablation/workflows/cases.js` and
-   `args: {"run_dir": "<RUN>", "ids": [<IDS as JSON strings>]}`.
+   `args: {"run_dir": "<RUN>", "ids": [<IDS as JSON strings>], "n_cases": <case count>}`.
    Afterwards `ls $RUN/cases` should list one JSON file per component.
 4. **Contexts.** `python evals/ablation/build_contexts.py $RUN`. The first call
    builds the vector stores and downloads the embedding model, which takes a few
