@@ -1,0 +1,1743 @@
+[
+ {
+  "id": "rule-anti-sycophancy",
+  "kind": "rule",
+  "file": "rules/rule-anti-sycophancy.mdc",
+  "short_name": null,
+  "description": "Don't agree to agree. Push back on errors.",
+  "owners": []
+ },
+ {
+  "id": "rule-honest-uncertainty",
+  "kind": "rule",
+  "file": "rules/rule-honest-uncertainty.mdc",
+  "short_name": null,
+  "description": "Calibrate confidence on judgment calls.",
+  "owners": []
+ },
+ {
+  "id": "rule-language-match",
+  "kind": "rule",
+  "file": "rules/rule-language-match.mdc",
+  "short_name": null,
+  "description": "Match the language of the last message.",
+  "owners": []
+ },
+ {
+  "id": "rule-serve-the-request",
+  "kind": "rule",
+  "file": "rules/rule-serve-the-request.mdc",
+  "short_name": null,
+  "description": "The request outranks persona and skill defaults.",
+  "owners": []
+ },
+ {
+  "id": "skill-3d-platforms",
+  "kind": "skill",
+  "file": "skills/skill-3d-platforms.mdc",
+  "short_name": null,
+  "description": "Comprehensive registry of 3D printable model platforms with search strategies and quality indicators.",
+  "owners": [
+   "3d_print_finder"
+  ]
+ },
+ {
+  "id": "skill-3d-print-search",
+  "kind": "skill",
+  "file": "skills/skill-3d-print-search.mdc",
+  "short_name": null,
+  "description": "Multi-platform 3D model search, quality assessment, and FDM print optimization",
+  "owners": [
+   "3d_print_finder",
+   "blender_scripter"
+  ]
+ },
+ {
+  "id": "skill-agent-handoff",
+  "kind": "skill",
+  "file": "skills/skill-agent-handoff.mdc",
+  "short_name": null,
+  "description": "Agent handoff patterns. When and how to transfer tasks between specialized agents. Routing signals, context passing, graceful transitions. Role: Traffic Controller.",
+  "owners": [
+   "ai_senior_engineer"
+  ]
+ },
+ {
+  "id": "skill-agentic-loops",
+  "kind": "skill",
+  "file": "skills/skill-agentic-loops.mdc",
+  "short_name": null,
+  "description": "Autonomous agent loop patterns. Checkpoints, convergence criteria, budget limits, error recovery for long-running agent tasks. Role: Loop Supervisor.",
+  "owners": [
+   "ai_senior_engineer",
+   "prompt_engineer",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "skill-agnotology",
+  "kind": "skill",
+  "file": "skills/skill-agnotology.mdc",
+  "short_name": null,
+  "description": "Agnotology Skills: Detection of hidden knowledge and cultural ignorance",
+  "owners": [
+   "black_hole_finder",
+   "daily_briefing",
+   "debate_moderator",
+   "deep_researcher",
+   "instagram_analyst",
+   "investigative_analyst",
+   "purchase_researcher",
+   "semantic_expert"
+  ]
+ },
+ {
+  "id": "skill-analysis-critical",
+  "kind": "skill",
+  "file": "skills/skill-analysis-critical.mdc",
+  "short_name": null,
+  "description": "Critical analysis method selector. Maps validation needs to reasoning implants. Role: Logic Auditor.",
+  "owners": [
+   "3d_print_finder",
+   "ai_senior_engineer",
+   "bio_hacker",
+   "black_hole_finder",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "database_admin",
+   "debate_moderator",
+   "deep_researcher",
+   "devops_engineer",
+   "diagram_architect",
+   "document_ocr_expert",
+   "fitness_coach",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "literary_writer",
+   "math_scientist",
+   "medical_expert",
+   "presentation_coach",
+   "product_manager",
+   "prompt_engineer",
+   "purchase_researcher",
+   "security_expert",
+   "semantic_expert",
+   "sysadmin",
+   "universal_agent",
+   "ux_designer",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-bio-mechanism",
+  "kind": "skill",
+  "file": "skills/skill-bio-mechanism.mdc",
+  "short_name": null,
+  "description": "Systemic approach to biology requiring mechanistic explanations. Systems Biology, Homeostasis, Neurotransmitters. Role: Systems Biologist.",
+  "owners": [
+   "bio_hacker",
+   "fitness_coach",
+   "medical_expert"
+  ]
+ },
+ {
+  "id": "skill-bio-protocol-design",
+  "kind": "skill",
+  "file": "skills/skill-bio-protocol-design.mdc",
+  "short_name": null,
+  "description": "Bio protocol design. Mechanism-first reasoning, dosage/timing/duration, safety stops. Role: Protocol Designer.",
+  "owners": [
+   "bio_hacker",
+   "fitness_coach",
+   "medical_expert"
+  ]
+ },
+ {
+  "id": "skill-bio-protocols",
+  "kind": "skill",
+  "file": "skills/skill-bio-protocols.mdc",
+  "short_name": null,
+  "description": "Standardized format for actionable health interventions. MED, Hormesis, Stacking. Role: Clinical Coach.",
+  "owners": [
+   "bio_hacker",
+   "fitness_coach",
+   "medical_expert"
+  ]
+ },
+ {
+  "id": "skill-blender-scripting",
+  "kind": "skill",
+  "file": "skills/skill-blender-scripting.mdc",
+  "short_name": null,
+  "description": "Blender Python (bpy) scripting patterns and 3D printing best practices for procedural object generation.",
+  "owners": [
+   "blender_scripter"
+  ]
+ },
+ {
+  "id": "skill-caveman-tokenomics",
+  "kind": "skill",
+  "file": "skills/skill-caveman-tokenomics.mdc",
+  "short_name": null,
+  "description": "Terse output. BLUF (answer-first). Drop fluff, keep technical substance. Inspired by github.com/JuliusBrussee/caveman.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "alerts_describer",
+   "code_reviewer",
+   "data_analyst",
+   "database_admin",
+   "devops_engineer",
+   "mcp_builder",
+   "prompt_engineer",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-clickup-markdown",
+  "kind": "skill",
+  "file": "skills/skill-clickup-markdown.mdc",
+  "short_name": null,
+  "description": "ClickUp-specific Markdown formatting rules and quirks. Use when generating content for ClickUp tasks/comments.",
+  "owners": [
+   "tech_writer"
+  ]
+ },
+ {
+  "id": "skill-code-generation",
+  "kind": "skill",
+  "file": "skills/skill-code-generation.mdc",
+  "short_name": null,
+  "description": "Code generation patterns. Generate code with tests, documentation, error handling, and validation. Role: Code Generator.",
+  "owners": [
+   "blender_scripter",
+   "install_to_repo",
+   "math_scientist",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "software_engineer",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-confidence-markers",
+  "kind": "skill",
+  "file": "skills/skill-confidence-markers.mdc",
+  "short_name": null,
+  "description": "Explicit confidence markers on deliverables — HIGH/MEDIUM/LOW (or a domain variant) on findings, recommendations, solutions. Deliberate, calibrated, never per-sentence. Role: Epistemic Signaler.",
+  "owners": [
+   "debate_moderator",
+   "security_expert",
+   "software_engineer"
+  ]
+ },
+ {
+  "id": "skill-consultative-intake",
+  "kind": "skill",
+  "file": "skills/skill-consultative-intake.mdc",
+  "short_name": null,
+  "description": "Phased workflow for ambiguous requests. Phase 1 clarifying questions, Phase 2 confirm understanding, Phase 3 execute. Role: Intake Specialist.",
+  "owners": [
+   "3d_print_finder",
+   "agent_builder",
+   "bio_hacker",
+   "child_psychologist",
+   "debate_moderator",
+   "deep_researcher",
+   "education_tutor",
+   "fitness_coach",
+   "investigative_analyst",
+   "lawyer",
+   "medical_expert",
+   "presentation_coach",
+   "product_manager",
+   "prompt_engineer",
+   "psychologist",
+   "purchase_researcher",
+   "universal_agent",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-creative-craft",
+  "kind": "skill",
+  "file": "skills/skill-creative-craft.mdc",
+  "short_name": null,
+  "description": "Creative writing craft. Show don't tell, POV, subtext. Role: Narrative Craftsperson.",
+  "owners": [
+   "education_tutor",
+   "literary_writer",
+   "presentation_coach",
+   "tech_writer",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-decision-frameworks",
+  "kind": "skill",
+  "file": "skills/skill-decision-frameworks.mdc",
+  "short_name": null,
+  "description": "Decision Frameworks. Inversion, Eisenhower Matrix, Reversibility Test, Devil's Advocate. Role: Decision Architect.",
+  "owners": [
+   "3d_print_finder",
+   "bio_hacker",
+   "black_hole_finder",
+   "child_psychologist",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "debate_moderator",
+   "deep_researcher",
+   "education_tutor",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "math_scientist",
+   "medical_expert",
+   "presentation_coach",
+   "product_manager",
+   "psychologist",
+   "purchase_researcher",
+   "semantic_expert",
+   "system_architect",
+   "universal_agent",
+   "ux_designer",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-dense-summarization",
+  "kind": "skill",
+  "file": "skills/skill-dense-summarization.mdc",
+  "short_name": null,
+  "description": "Guidelines for condensing information to high density",
+  "owners": [
+   "3d_print_finder",
+   "agent_builder",
+   "ai_senior_engineer",
+   "alerts_describer",
+   "bio_hacker",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "debate_moderator",
+   "deep_researcher",
+   "diagram_architect",
+   "document_ocr_expert",
+   "fitness_coach",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "literary_writer",
+   "math_scientist",
+   "medical_expert",
+   "presentation_coach",
+   "product_manager",
+   "prompt_engineer",
+   "purchase_researcher",
+   "semantic_expert",
+   "tech_writer",
+   "universal_agent",
+   "ux_designer",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-dev-api-design",
+  "kind": "skill",
+  "file": "skills/skill-dev-api-design.mdc",
+  "short_name": null,
+  "description": "API Design Patterns. REST, GraphQL, gRPC. Schema design, versioning, error responses, pagination. Role: API Architect.",
+  "owners": [
+   "code_reviewer",
+   "database_admin",
+   "diagram_architect",
+   "mcp_builder",
+   "product_manager",
+   "software_engineer",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-dev-clean-code",
+  "kind": "skill",
+  "file": "skills/skill-dev-clean-code.mdc",
+  "short_name": null,
+  "description": "Universal standards for maintainable code. Covers SOLID, DRY, KISS, YAGNI, Boy Scout Rule. Code smells and refactoring patterns. Role: Principal Engineer.",
+  "owners": [
+   "ai_senior_engineer",
+   "blender_scripter",
+   "code_reviewer",
+   "database_admin",
+   "devops_engineer",
+   "install_to_repo",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-dev-debugging",
+  "kind": "skill",
+  "file": "skills/skill-dev-debugging.mdc",
+  "short_name": null,
+  "description": "Structured approach to identifying and resolving software defects. Scientific Method, Root Cause Analysis, Binary Search. Role: Detective.",
+  "owners": [
+   "ai_senior_engineer",
+   "blender_scripter",
+   "code_reviewer",
+   "database_admin",
+   "devops_engineer",
+   "install_to_repo",
+   "math_scientist",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-dev-performance",
+  "kind": "skill",
+  "file": "skills/skill-dev-performance.mdc",
+  "short_name": null,
+  "description": "Performance Engineering. Profiling, bottleneck identification, optimization patterns, benchmarking. Role: Performance Engineer.",
+  "owners": [
+   "blender_scripter",
+   "code_reviewer",
+   "data_analyst",
+   "database_admin",
+   "devops_engineer",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-dev-security",
+  "kind": "skill",
+  "file": "skills/skill-dev-security.mdc",
+  "short_name": null,
+  "description": "Fundamental security practices. OWASP, Input Validation, Secrets Management, CIA Triad. Role: Security Auditor.",
+  "owners": [
+   "blender_scripter",
+   "code_reviewer",
+   "database_admin",
+   "devops_engineer",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-dev-testing",
+  "kind": "skill",
+  "file": "skills/skill-dev-testing.mdc",
+  "short_name": null,
+  "description": "Testing Methodologies. Unit, Integration, E2E, Property-Based, TDD/BDD workflow. Role: Test Architect.",
+  "owners": [
+   "blender_scripter",
+   "code_reviewer",
+   "database_admin",
+   "devops_engineer",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-epistemic-method",
+  "kind": "skill",
+  "file": "skills/skill-epistemic-method.mdc",
+  "short_name": null,
+  "description": "Epistemic gap analysis. Semantic voids, time-slicing, cui bono. Role: Epistemic Detective.",
+  "owners": [
+   "black_hole_finder",
+   "daily_briefing",
+   "data_forensic",
+   "debate_moderator",
+   "deep_researcher",
+   "investigative_analyst",
+   "math_scientist",
+   "medical_expert",
+   "semantic_expert",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "skill-error-recovery",
+  "kind": "skill",
+  "file": "skills/skill-error-recovery.mdc",
+  "short_name": null,
+  "description": "Error Recovery Protocol. Universal error handling for all agents. Classify errors, apply recovery strategies, never silently fail.",
+  "owners": [
+   "ai_senior_engineer",
+   "alerts_describer",
+   "blender_scripter",
+   "code_reviewer",
+   "database_admin",
+   "devops_engineer",
+   "install_to_repo",
+   "mcp_builder",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "system_architect",
+   "tech_writer"
+  ]
+ },
+ {
+  "id": "skill-fact-verification",
+  "kind": "skill",
+  "file": "skills/skill-fact-verification.mdc",
+  "short_name": null,
+  "description": "Fact Verification Protocol. Provenance-weighted confidence, quote-backed support, Chain-of-Verification, Temporal Coherence, Anomaly Detection. Role: Fact Checker.",
+  "owners": [
+   "3d_print_finder",
+   "bio_hacker",
+   "black_hole_finder",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "debate_moderator",
+   "deep_researcher",
+   "document_ocr_expert",
+   "education_tutor",
+   "fitness_coach",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "math_scientist",
+   "medical_expert",
+   "product_manager",
+   "prompt_engineer",
+   "purchase_researcher",
+   "security_expert",
+   "semantic_expert",
+   "tech_writer",
+   "universal_agent",
+   "ux_designer",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-fitness-programming",
+  "kind": "skill",
+  "file": "skills/skill-fitness-programming.mdc",
+  "short_name": null,
+  "description": "Exercise programming methodology. Periodization, progressive overload, RPE/RIR, splits, biomechanics. Role: Program Designer.",
+  "owners": [
+   "fitness_coach"
+  ]
+ },
+ {
+  "id": "skill-forensic-process",
+  "kind": "skill",
+  "file": "skills/skill-forensic-process.mdc",
+  "short_name": null,
+  "description": "Forensic data processing: timeline reconstruction, dedup, fact extraction, triangulation. Role: Forensic Analyst.",
+  "owners": [
+   "alerts_describer",
+   "black_hole_finder",
+   "data_analyst",
+   "data_forensic",
+   "deep_researcher",
+   "document_ocr_expert",
+   "investigative_analyst",
+   "semantic_expert",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-git-conventions",
+  "kind": "skill",
+  "file": "skills/skill-git-conventions.mdc",
+  "short_name": null,
+  "description": "Git Commit Conventions. Conventional Commits, Atomic Commits.",
+  "owners": [
+   "agent_builder",
+   "code_reviewer",
+   "devops_engineer",
+   "install_to_repo",
+   "mcp_builder",
+   "software_engineer",
+   "sysadmin",
+   "tech_writer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-co",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-co.mdc",
+  "short_name": null,
+  "description": "Colombian legal jurisdiction: civil, tax, corporate, labor, immigration, constitutional law. Constitución 1991, acción de tutela, SAS, DIAN, RUT, ICA. Role: Colombia legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-cy",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-cy.mdc",
+  "short_name": null,
+  "description": "Cypriot legal jurisdiction: company, tax, immigration, property, banking, EU regulations. Cap. 113 Companies Law, IP Box ~3%, non-dom 17yr, DTT network 65+. Role: Cyprus legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-es",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-es.mdc",
+  "short_name": null,
+  "description": "Spanish legal jurisdiction: civil, tax, corporate, immigration, labor, real estate, EU regulations. 17 Autonomous Communities, Ley Beckham, IRPF, IS, NIE, Golden Visa (abolished 2025). Role: Spain legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-ge",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-ge.mdc",
+  "short_name": null,
+  "description": "Georgian legal jurisdiction: civil, tax, corporate, labor, immigration, property. Virtual Zone IT (0% on export IT profit), International Company 5%, micro-business 0%, small business 1%, Estonian-model 15% profit tax. Role: Georgia legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-kz",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-kz.mdc",
+  "short_name": null,
+  "description": "Kazakhstan legal jurisdiction: civil, tax, corporate, labor, migration, land. AIFC common law zone, Astana Hub IT-park. ТОО, ИП, AIFC Company Regulations. Role: Kazakhstan legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-mx",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-mx.mdc",
+  "short_name": null,
+  "description": "Mexican legal jurisdiction: civil, tax, corporate, labor, immigration, constitutional, amparo. Federal vs state, CFDI mandatory, PTU 10%, fideicomiso for restricted zone. Role: Mexico legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-rs",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-rs.mdc",
+  "short_name": null,
+  "description": "Serbian legal jurisdiction: civil, tax, corporate, labor, property, immigration, EU accession context. ЗОО, привредна друштва (д.о.о./а.д.), paušalno oporezivanje. Role: Serbia legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-ru",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-ru.mdc",
+  "short_name": null,
+  "description": "Russian Federation legal jurisdiction: civil, tax, corporate, labor, migration, criminal, family, administrative. Comprehensive code system, Plenums of Supreme Court, regional specificity. Role: RF legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-jurisdiction-us",
+  "kind": "skill",
+  "file": "skills/skill-jurisdiction-us.mdc",
+  "short_name": null,
+  "description": "United States legal jurisdiction: federal + 50 states. Common law, IRS, USCIS, USPTO, SEC. Visa categories (H-1B, EB-1/2/3/5, E-2, TN, O-1), LLC/Corp, at-will employment, circuit splits. Role: US legal advisor.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-legal-citation",
+  "kind": "skill",
+  "file": "skills/skill-legal-citation.mdc",
+  "short_name": null,
+  "description": "Legal citation discipline. Verbatim statute, jurisdiction, conflicts of law. Never invent precedent. Role: Legal Citator.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "skill-literary-devices",
+  "kind": "skill",
+  "file": "skills/skill-literary-devices.mdc",
+  "short_name": null,
+  "description": "Literary devices and stylistic figures. Metaphors, sound symbolism, symbolism, prose rhythm.",
+  "owners": [
+   "education_tutor",
+   "literary_writer",
+   "presentation_coach"
+  ]
+ },
+ {
+  "id": "skill-mathematical-reasoning",
+  "kind": "skill",
+  "file": "skills/skill-mathematical-reasoning.mdc",
+  "short_name": null,
+  "description": "Mathematical and scientific reasoning. Step-by-step proofs, dimensional analysis, estimation, formal notation, verification. Role: Mathematician.",
+  "owners": [
+   "blender_scripter",
+   "code_reviewer",
+   "data_analyst",
+   "database_admin",
+   "math_scientist",
+   "roblox_studio_expert",
+   "software_engineer"
+  ]
+ },
+ {
+  "id": "skill-mcp-development",
+  "kind": "skill",
+  "file": "skills/skill-mcp-development.mdc",
+  "short_name": null,
+  "description": "Best practices for developing MCP servers (Model Context Protocol)",
+  "owners": [
+   "agent_builder",
+   "devops_engineer",
+   "install_to_repo",
+   "mcp_builder",
+   "security_expert",
+   "software_engineer",
+   "sysadmin"
+  ]
+ },
+ {
+  "id": "skill-mermaid-best-practices",
+  "kind": "skill",
+  "file": "skills/skill-mermaid-best-practices.mdc",
+  "short_name": null,
+  "description": "Best practices for creating compact, human-readable Mermaid diagrams. Covers flowcharts, sequence, ER, Gantt, class diagrams. Role: Visualization Expert.",
+  "owners": [
+   "alerts_describer",
+   "diagram_architect",
+   "install_to_repo",
+   "presentation_coach",
+   "product_manager",
+   "sysadmin",
+   "system_architect",
+   "tech_writer",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-multi-step-planning",
+  "kind": "skill",
+  "file": "skills/skill-multi-step-planning.mdc",
+  "short_name": null,
+  "description": "Multi-step task planning and decomposition. Break complex goals into actionable steps with dependencies, checkpoints, and exit criteria. Role: Task Planner.",
+  "owners": [
+   "ai_senior_engineer",
+   "product_manager",
+   "prompt_engineer",
+   "system_architect",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "skill-narrative-craft",
+  "kind": "skill",
+  "file": "skills/skill-narrative-craft.mdc",
+  "short_name": null,
+  "description": "Narrative Craft. Building a story, voice, point of view, pacing, emotional arcs.",
+  "owners": [
+   "child_psychologist",
+   "education_tutor",
+   "fitness_coach",
+   "literary_writer",
+   "presentation_coach",
+   "psychologist",
+   "tech_writer",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-pedagogy",
+  "kind": "skill",
+  "file": "skills/skill-pedagogy.mdc",
+  "short_name": null,
+  "description": "Pedagogy and teaching techniques. Socratic method, scaffolding, zone of proximal development, active recall, spaced repetition. Role: Educator.",
+  "owners": [
+   "child_psychologist",
+   "education_tutor",
+   "fitness_coach",
+   "literary_writer",
+   "presentation_coach",
+   "psychologist",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-product-frameworks",
+  "kind": "skill",
+  "file": "skills/skill-product-frameworks.mdc",
+  "short_name": null,
+  "description": "Product Management Frameworks. RICE, MoSCoW, User Stories, PRD, OKR, Jobs-to-be-Done. Role: Product Strategist.",
+  "owners": [
+   "product_manager",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "skill-prompt-design-process",
+  "kind": "skill",
+  "file": "skills/skill-prompt-design-process.mdc",
+  "short_name": null,
+  "description": "Prompt design process. Role+Task+Constraints, few-shot, eval loop. Role: Prompt Architect.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "prompt_engineer"
+  ]
+ },
+ {
+  "id": "skill-prompt-engineering",
+  "kind": "skill",
+  "file": "skills/skill-prompt-engineering.mdc",
+  "short_name": null,
+  "description": "Prompt Engineering. Few-shot, Chain-of-Thought, structured output, evaluation, anti-patterns. Role: Prompt Architect.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "prompt_engineer"
+  ]
+ },
+ {
+  "id": "skill-prompt-security",
+  "kind": "skill",
+  "file": "skills/skill-prompt-security.mdc",
+  "short_name": null,
+  "description": "Prompt security patterns. Sandwich Defense, Instructional Hierarchy, Delimiters, Negative Constraints. Protection against injection and override attacks. Role: Prompt Security Engineer.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "prompt_engineer",
+   "security_expert"
+  ]
+ },
+ {
+  "id": "skill-prompt-techniques",
+  "kind": "skill",
+  "file": "skills/skill-prompt-techniques.mdc",
+  "short_name": null,
+  "description": "Prompt engineering techniques. Mega-Prompting, Few-Shot Selection, Tone Transfer, Directional Stimulus, Emotion Prompting, Simulated Interaction. Role: Prompt Technician.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "prompt_engineer"
+  ]
+ },
+ {
+  "id": "skill-psy-cbt",
+  "kind": "skill",
+  "file": "skills/skill-psy-cbt.mdc",
+  "short_name": null,
+  "description": "Cognitive Behavioral Therapy tools. Cognitive Reframing, Distortions, Socratic Method. Role: CBT Therapist.",
+  "owners": [
+   "child_psychologist",
+   "psychologist"
+  ]
+ },
+ {
+  "id": "skill-psy-child-dev",
+  "kind": "skill",
+  "file": "skills/skill-psy-child-dev.mdc",
+  "short_name": null,
+  "description": "Child developmental psychology. Age-stage framework, play therapy, attachment theory, narrative therapy, behavioral charts. Role: Child Development Specialist.",
+  "owners": [
+   "child_psychologist"
+  ]
+ },
+ {
+  "id": "skill-psy-digital-wellbeing",
+  "kind": "skill",
+  "file": "skills/skill-psy-digital-wellbeing.mdc",
+  "short_name": null,
+  "description": "Digital environment psychology for children and adolescents. Screen time, social media, cyberbullying, gaming addiction, dopamine economy, parasocial relationships. Role: Digital Wellbeing Analyst.",
+  "owners": [
+   "child_psychologist",
+   "psychologist"
+  ]
+ },
+ {
+  "id": "skill-psy-nvc",
+  "kind": "skill",
+  "file": "skills/skill-psy-nvc.mdc",
+  "short_name": null,
+  "description": "Non-Violent Communication framework. OFNR, Empathy, Conflict Resolution. Role: Mediator.",
+  "owners": [
+   "child_psychologist",
+   "debate_moderator",
+   "fitness_coach",
+   "psychologist"
+  ]
+ },
+ {
+  "id": "skill-purchase-research",
+  "kind": "skill",
+  "file": "skills/skill-purchase-research.mdc",
+  "short_name": null,
+  "description": "Decision Matrix methodology for product comparison and purchase research. Weighted scoring, trust-tiered sources, value optimization.",
+  "owners": [
+   "3d_print_finder",
+   "instagram_analyst",
+   "purchase_researcher",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-react-pattern",
+  "kind": "skill",
+  "file": "skills/skill-react-pattern.mdc",
+  "short_name": null,
+  "description": "ReAct pattern for tool-using agents. Thought-Action-Observation loops, tool selection, grounding, error recovery. Role: Agent Operator.",
+  "owners": [
+   "ai_senior_engineer",
+   "prompt_engineer",
+   "software_engineer"
+  ]
+ },
+ {
+  "id": "skill-reasoning-logic",
+  "kind": "skill",
+  "file": "skills/skill-reasoning-logic.mdc",
+  "short_name": null,
+  "description": "Logical reasoning and argumentation. Fallacy detection, argument strength rating, First Principles, Occam's Razor, Hanlon's Razor. Role: Logic Auditor.",
+  "owners": [
+   "bio_hacker",
+   "black_hole_finder",
+   "child_psychologist",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "database_admin",
+   "debate_moderator",
+   "deep_researcher",
+   "devops_engineer",
+   "diagram_architect",
+   "document_ocr_expert",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "math_scientist",
+   "medical_expert",
+   "presentation_coach",
+   "product_manager",
+   "prompt_engineer",
+   "psychologist",
+   "purchase_researcher",
+   "security_expert",
+   "semantic_expert",
+   "sysadmin",
+   "universal_agent",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-report-formats",
+  "kind": "skill",
+  "file": "skills/skill-report-formats.mdc",
+  "short_name": null,
+  "description": "Reusable analytical-report display models: Executive Summary, Key Findings, Confidence/Risk Assessment, Comparison/Decision Matrix, Recommendations/Next Steps. Apply only to report/analysis genres, never to prose or creative tasks. Role: Report Formatter.",
+  "owners": [
+   "debate_moderator",
+   "deep_researcher",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "skill-roblox-development",
+  "kind": "skill",
+  "file": "skills/skill-roblox-development.mdc",
+  "short_name": null,
+  "description": "Roblox development best practices. Covers Luau patterns, Roblox API, anti-exploit, performance, DataStore, networking. Role: Roblox Game Developer. Competency: Expert.",
+  "owners": [
+   "roblox_studio_expert"
+  ]
+ },
+ {
+  "id": "skill-source-trust-tiers",
+  "kind": "skill",
+  "file": "skills/skill-source-trust-tiers.mdc",
+  "short_name": null,
+  "description": "Source credibility tiers and triangulation. Peer-reviewed > expert > media > marketing. Role: Source Auditor.",
+  "owners": [
+   "3d_print_finder",
+   "bio_hacker",
+   "black_hole_finder",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "debate_moderator",
+   "deep_researcher",
+   "document_ocr_expert",
+   "education_tutor",
+   "fitness_coach",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "math_scientist",
+   "medical_expert",
+   "purchase_researcher",
+   "universal_agent",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-structured-output",
+  "kind": "skill",
+  "file": "skills/skill-structured-output.mdc",
+  "short_name": null,
+  "description": "Structured output patterns. JSON Schema, XML tags, validated formats, parsing pipelines. Role: Output Architect.",
+  "owners": [
+   "agent_builder",
+   "alerts_describer",
+   "data_analyst",
+   "data_forensic",
+   "diagram_architect",
+   "document_ocr_expert",
+   "install_to_repo",
+   "mcp_builder",
+   "prompt_engineer",
+   "semantic_expert",
+   "tech_writer"
+  ]
+ },
+ {
+  "id": "skill-system-design",
+  "kind": "skill",
+  "file": "skills/skill-system-design.mdc",
+  "short_name": null,
+  "description": "System design and architecture. Distributed systems, scalability patterns, trade-off analysis, C4 model, capacity planning. Role: System Architect.",
+  "owners": [
+   "ai_senior_engineer",
+   "code_reviewer",
+   "database_admin",
+   "devops_engineer",
+   "diagram_architect",
+   "product_manager",
+   "roblox_studio_expert",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "skill-tech-writing",
+  "kind": "skill",
+  "file": "skills/skill-tech-writing.mdc",
+  "short_name": null,
+  "description": "Technical Writing and Documentation Best Practices. Clarity, Conciseness, Markdown, API docs, audience adaptation.",
+  "owners": [
+   "3d_print_finder",
+   "agent_builder",
+   "alerts_describer",
+   "diagram_architect",
+   "document_ocr_expert",
+   "install_to_repo",
+   "literary_writer",
+   "mcp_builder",
+   "presentation_coach",
+   "product_manager",
+   "semantic_expert",
+   "sysadmin",
+   "tech_writer",
+   "universal_agent",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-temporal-validation",
+  "kind": "skill",
+  "file": "skills/skill-temporal-validation.mdc",
+  "short_name": null,
+  "description": "Temporal Validation Skill: Logic for validating timestamps and event freshness",
+  "owners": [
+   "3d_print_finder",
+   "alerts_describer",
+   "bio_hacker",
+   "black_hole_finder",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "deep_researcher",
+   "document_ocr_expert",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "math_scientist",
+   "medical_expert",
+   "purchase_researcher",
+   "semantic_expert",
+   "tech_writer",
+   "universal_agent",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-token-economy",
+  "kind": "skill",
+  "file": "skills/skill-token-economy.mdc",
+  "short_name": null,
+  "description": "Token usage minimization during generation. No filler, no echo, atomic edits, referential integrity. Role: Cost Optimizer.",
+  "owners": [
+   "agent_builder",
+   "mcp_builder",
+   "prompt_engineer"
+  ]
+ },
+ {
+  "id": "skill-ux-principles",
+  "kind": "skill",
+  "file": "skills/skill-ux-principles.mdc",
+  "short_name": null,
+  "description": "UX/UI design principles. Gestalt laws, Nielsen heuristics, WCAG accessibility, design tokens, information architecture. Role: UX Designer.",
+  "owners": [
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "skill-wayback-machine",
+  "kind": "skill",
+  "file": "skills/skill-wayback-machine.mdc",
+  "short_name": null,
+  "description": "Temporal Forensic Layer: Access historical web snapshots via Archive.org Wayback Machine.",
+  "owners": [
+   "black_hole_finder",
+   "daily_briefing",
+   "data_forensic",
+   "deep_researcher",
+   "investigative_analyst",
+   "purchase_researcher",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "skill-web-search",
+  "kind": "skill",
+  "file": "skills/skill-web-search.mdc",
+  "short_name": null,
+  "description": "Web Search Best Practices. When to search vs guess; tool-selection ladder (WebSearch→WebFetch→Wayback→rtk curl), query formulation, operators (site:/filetype:/quotes/-exclude), narrow relevance, captcha avoidance, token economy, untrusted-content safety. Role: Search Strategist.",
+  "owners": [
+   "3d_print_finder",
+   "ai_senior_engineer",
+   "bio_hacker",
+   "black_hole_finder",
+   "code_reviewer",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "database_admin",
+   "debate_moderator",
+   "deep_researcher",
+   "devops_engineer",
+   "investigative_analyst",
+   "lawyer",
+   "medical_expert",
+   "product_manager",
+   "purchase_researcher",
+   "security_expert",
+   "software_engineer",
+   "sysadmin",
+   "universal_agent",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "implant-active-prompting",
+  "kind": "implant",
+  "file": "implants/implant-active-prompting.mdc",
+  "short_name": "ActivePrompting",
+  "description": "Active Prompting. Active uncertainty check. If confidence is low, triggers deep CoT analysis. Related to adaptive prompting.",
+  "owners": []
+ },
+ {
+  "id": "implant-analogical-prompting",
+  "kind": "implant",
+  "file": "implants/implant-analogical-prompting.mdc",
+  "short_name": "AnalogicalPrompting",
+  "description": "Analogical Prompting. Self-generated Few-Shot examples. Model invents similar tasks from different domains to solve the current one.",
+  "owners": [
+   "education_tutor",
+   "literary_writer"
+  ]
+ },
+ {
+  "id": "implant-automatic-reasoning",
+  "kind": "implant",
+  "file": "implants/implant-automatic-reasoning.mdc",
+  "short_name": "AutoReasoning",
+  "description": "Automatic Reasoning & Tool-use (ART). Alternates reasoning with tool calls (calc, search, code execution).",
+  "owners": []
+ },
+ {
+  "id": "implant-buffer-of-thoughts",
+  "kind": "implant",
+  "file": "implants/implant-buffer-of-thoughts.mdc",
+  "short_name": "BoT",
+  "description": "Buffer of Thoughts. Meta-template extraction for repetitive tasks. Identify → Abstract → Store → Instantiate → Refine.",
+  "owners": []
+ },
+ {
+  "id": "implant-causal-reasoning",
+  "kind": "implant",
+  "file": "implants/implant-causal-reasoning.mdc",
+  "short_name": "CausalReasoning",
+  "description": "Causal Reasoning. Distinguish correlation from causation. Check temporal precedence, mechanism, dose-response, alternative explanations.",
+  "owners": [
+   "bio_hacker",
+   "data_analyst",
+   "investigative_analyst",
+   "medical_expert",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "implant-chain-of-abstraction",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-abstraction.mdc",
+  "short_name": "CoAbstraction",
+  "description": "Chain of Abstraction. Progressive abstraction to focus reasoning on core structure, ignoring irrelevant details.",
+  "owners": []
+ },
+ {
+  "id": "implant-chain-of-code",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-code.mdc",
+  "short_name": "CoC",
+  "description": "Chain of Code (CoC). Pseudocode-driven reasoning. For logic puzzles and multi-step math.",
+  "owners": [
+   "math_scientist"
+  ]
+ },
+ {
+  "id": "implant-chain-of-draft",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-draft.mdc",
+  "short_name": "ChainOfDraft",
+  "description": "Chain of Draft (CoD). Token efficiency implant. Uses thesis points and mini-steps (3-5 words) instead of full CoT.",
+  "owners": []
+ },
+ {
+  "id": "implant-chain-of-note",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-note.mdc",
+  "short_name": "ChainOfNote",
+  "description": "Chain of Note (CoN). RAG Source Annotation. Reads fragments, annotates relevance, synthesizes answer only from relevant notes. Reduces hallucinations.",
+  "owners": [
+   "daily_briefing"
+  ]
+ },
+ {
+  "id": "implant-chain-of-symbol",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-symbol.mdc",
+  "short_name": "ChainOfSymbol",
+  "description": "Symbolic Abstraction. Replaces objects with symbols (A, B, C), solves logic/spatial task, translates back.",
+  "owners": []
+ },
+ {
+  "id": "implant-chain-of-table",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-table.mdc",
+  "short_name": "ChainOfTable",
+  "description": "Tabular Thinking. Structures data into a table (Objects x Characteristics) before answering. Good for comparisons.",
+  "owners": []
+ },
+ {
+  "id": "implant-chain-of-verification",
+  "kind": "implant",
+  "file": "implants/implant-chain-of-verification.mdc",
+  "short_name": "CoV",
+  "description": "Chain of Verification (CoV). Fact-checking via draft → verification questions → answers from tools or a fresh context → revise. Reduces hallucinations in knowledge-heavy answers.",
+  "owners": [
+   "3d_print_finder",
+   "bio_hacker",
+   "black_hole_finder",
+   "code_reviewer",
+   "daily_briefing",
+   "data_analyst",
+   "data_forensic",
+   "deep_researcher",
+   "document_ocr_expert",
+   "fitness_coach",
+   "instagram_analyst",
+   "investigative_analyst",
+   "lawyer",
+   "medical_expert",
+   "prompt_engineer",
+   "purchase_researcher",
+   "tech_writer",
+   "website_analyst"
+  ]
+ },
+ {
+  "id": "implant-complexity-based-prompting",
+  "kind": "implant",
+  "file": "implants/implant-complexity-based-prompting.mdc",
+  "short_name": "ComplexityPrompting",
+  "description": "Complexity-Based Prompting. Generate multiple reasoning chains, select the most detailed one. Longer reasoning can improve accuracy on some complex tasks.",
+  "owners": []
+ },
+ {
+  "id": "implant-constitutional-critique",
+  "kind": "implant",
+  "file": "implants/implant-constitutional-critique.mdc",
+  "short_name": "ConstitutionalCritique",
+  "description": "Constitutional Critique. Ethical Self-Correction based on principles (Safety, Helpfulness, Honesty). Constitutional AI.",
+  "owners": []
+ },
+ {
+  "id": "implant-contextual-compression",
+  "kind": "implant",
+  "file": "implants/implant-contextual-compression.mdc",
+  "short_name": "ContextualCompression",
+  "description": "Contextual Compression. Distills text to key facts/numbers. Token economy for input processing.",
+  "owners": [
+   "document_ocr_expert"
+  ]
+ },
+ {
+  "id": "implant-contrastive-cot",
+  "kind": "implant",
+  "file": "implants/implant-contrastive-cot.mdc",
+  "short_name": "ContrastiveCoT",
+  "description": "Contrastive CoT. Shows Correct AND Incorrect solution examples to prevent common mistakes.",
+  "owners": [
+   "prompt_engineer"
+  ]
+ },
+ {
+  "id": "implant-cumulative-reasoning",
+  "kind": "implant",
+  "file": "implants/implant-cumulative-reasoning.mdc",
+  "short_name": "CumulReason",
+  "description": "Cumulative Reasoning. Build conclusions through incremental evidence accumulation. Each step adds one verified fact.",
+  "owners": [
+   "data_forensic",
+   "investigative_analyst"
+  ]
+ },
+ {
+  "id": "implant-decomposed-prompting",
+  "kind": "implant",
+  "file": "implants/implant-decomposed-prompting.mdc",
+  "short_name": "DecompPrompt",
+  "description": "Decomposed Prompting. Break complex prompts into simpler sub-prompts, solve each independently, combine results.",
+  "owners": [
+   "semantic_expert",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "implant-dr-cot",
+  "kind": "implant",
+  "file": "implants/implant-dr-cot.mdc",
+  "short_name": "DRCoT",
+  "description": "Dynamic Recursive CoT (DR-CoT). Dynamically decide when to recurse deeper vs. stop reasoning. Adaptive depth reasoning.",
+  "owners": []
+ },
+ {
+  "id": "implant-dynamic-few-shot",
+  "kind": "implant",
+  "file": "implants/implant-dynamic-few-shot.mdc",
+  "short_name": "DynamicFewShot",
+  "description": "Dynamic Few-Shot. Select task-relevant examples from a pool rather than using static examples. Adaptive example selection.",
+  "owners": []
+ },
+ {
+  "id": "implant-generated-knowledge",
+  "kind": "implant",
+  "file": "implants/implant-generated-knowledge.mdc",
+  "short_name": "GeneratedKnowledge",
+  "description": "Generated Knowledge. Surface relevant background (commonsense, concepts, principles) before answering. For framing and reasoning — not a substitute for retrieval of specific facts.",
+  "owners": [
+   "literary_writer"
+  ]
+ },
+ {
+  "id": "implant-graph-of-thoughts",
+  "kind": "implant",
+  "file": "implants/implant-graph-of-thoughts.mdc",
+  "short_name": "GoT",
+  "description": "Graph of Thoughts (GoT). Network reasoning where thoughts are nodes and dependencies are edges. Unlike ToT, allows merging partial solutions from different branches.",
+  "owners": []
+ },
+ {
+  "id": "implant-layer-of-thoughts",
+  "kind": "implant",
+  "file": "implants/implant-layer-of-thoughts.mdc",
+  "short_name": "LayerOfThoughts",
+  "description": "Layer of Thoughts. Hierarchical analysis for domains with rules (Law, Policy, Compliance).",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "implant-least-to-most-prompting",
+  "kind": "implant",
+  "file": "implants/implant-least-to-most-prompting.mdc",
+  "short_name": "LeastToMost",
+  "description": "Least-to-Most Prompting. Decompose complex task, solve sequentially from simple to complex using previous answers.",
+  "owners": []
+ },
+ {
+  "id": "implant-logic-of-thought",
+  "kind": "implant",
+  "file": "implants/implant-logic-of-thought.mdc",
+  "short_name": "LoT",
+  "description": "Logic of Thought (LoT). Formal logical reasoning. Extract propositions, apply inference rules, derive conclusion.",
+  "owners": [
+   "lawyer"
+  ]
+ },
+ {
+  "id": "implant-maieutic-prompting",
+  "kind": "implant",
+  "file": "implants/implant-maieutic-prompting.mdc",
+  "short_name": "MaieuticPrompting",
+  "description": "Maieutic Prompting. Socratic method. Explanation tree to find logical contradictions and select the consistent branch.",
+  "owners": [
+   "black_hole_finder",
+   "child_psychologist",
+   "education_tutor",
+   "psychologist"
+  ]
+ },
+ {
+  "id": "implant-metacognitive-prompting",
+  "kind": "implant",
+  "file": "implants/implant-metacognitive-prompting.mdc",
+  "short_name": "MetacognitivePrompting",
+  "description": "Metacognitive Prompting. Self-evaluation of thinking process. Confidence calibration during reasoning.",
+  "owners": []
+ },
+ {
+  "id": "implant-multi-agent-debate",
+  "kind": "implant",
+  "file": "implants/implant-multi-agent-debate.mdc",
+  "short_name": "MultiDebate",
+  "description": "Multi-Agent Debate. Generate distinct perspectives, let them critique each other, synthesize consensus. Often improves accuracy on complex reasoning tasks compared to single-agent approaches.",
+  "owners": [
+   "debate_moderator"
+  ]
+ },
+ {
+  "id": "implant-narrative-of-thought",
+  "kind": "implant",
+  "file": "implants/implant-narrative-of-thought.mdc",
+  "short_name": "NoT",
+  "description": "Narrative of Thought (NoT). Ordering chaotic events into a chronological story/timeline for cause-effect analysis.",
+  "owners": [
+   "alerts_describer",
+   "data_forensic",
+   "semantic_expert"
+  ]
+ },
+ {
+  "id": "implant-output-automata",
+  "kind": "implant",
+  "file": "implants/implant-output-automata.mdc",
+  "short_name": "OutputAutomata",
+  "description": "Output Automata. Structure complex dialogue or processes as Finite State Machines with explicit states, transitions, and guards.",
+  "owners": []
+ },
+ {
+  "id": "implant-output-priming",
+  "kind": "implant",
+  "file": "implants/implant-output-priming.mdc",
+  "short_name": "OutputPriming",
+  "description": "Output Priming. Provide the beginning of the desired output to steer completion format, style, and content. Structural anchoring.",
+  "owners": [
+   "alerts_describer",
+   "diagram_architect"
+  ]
+ },
+ {
+  "id": "implant-plan-and-solve-plus",
+  "kind": "implant",
+  "file": "implants/implant-plan-and-solve-plus.mdc",
+  "short_name": "PlanSolvePlus",
+  "description": "Plan & Solve+ (PS+). Atomic planning before execution. For architecture, refactoring, multi-step tasks.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "install_to_repo",
+   "mcp_builder",
+   "system_architect"
+  ]
+ },
+ {
+  "id": "implant-premortem",
+  "kind": "implant",
+  "file": "implants/implant-premortem.mdc",
+  "short_name": "PreMortem",
+  "description": "Pre-Mortem Analysis. Assume the plan has failed, identify causes, then mitigate. Prevents overconfidence in planning.",
+  "owners": [
+   "3d_print_finder",
+   "debate_moderator",
+   "presentation_coach",
+   "product_manager",
+   "security_expert",
+   "system_architect",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "implant-program-of-thoughts",
+  "kind": "implant",
+  "file": "implants/implant-program-of-thoughts.mdc",
+  "short_name": "PoT",
+  "description": "Program of Thoughts (PoT). Write executable code to solve calculations and data tasks instead of guessing.",
+  "owners": [
+   "math_scientist"
+  ]
+ },
+ {
+  "id": "implant-prompt-chaining",
+  "kind": "implant",
+  "file": "implants/implant-prompt-chaining.mdc",
+  "short_name": "PromptChaining",
+  "description": "Prompt Chaining. Breaking task into a sequence of dependent LLM calls where each output feeds the next input.",
+  "owners": []
+ },
+ {
+  "id": "implant-react",
+  "kind": "implant",
+  "file": "implants/implant-react.mdc",
+  "short_name": "ReAct",
+  "description": "ReAct (Reasoning + Acting). Interleave thinking with tool use. Thought→Action→Observation cycle for grounded decision-making.",
+  "owners": []
+ },
+ {
+  "id": "implant-recursion-of-thought",
+  "kind": "implant",
+  "file": "implants/implant-recursion-of-thought.mdc",
+  "short_name": "RoT",
+  "description": "Recursion of Thought. Breaking recursive tasks (nested structures) into sub-calls.",
+  "owners": []
+ },
+ {
+  "id": "implant-reflexion",
+  "kind": "implant",
+  "file": "implants/implant-reflexion.mdc",
+  "short_name": "Reflexion",
+  "description": "Reflexion. Self-critique loop for high-stakes tasks. Actor-Critic-Reflector cycle with episodic memory.",
+  "owners": []
+ },
+ {
+  "id": "implant-rephrase-and-respond",
+  "kind": "implant",
+  "file": "implants/implant-rephrase-and-respond.mdc",
+  "short_name": "RephraseAndRespond",
+  "description": "Rephrase and Respond (RaR). Clarifying ambiguous requests before answering. Addresses human-LLM communication gaps.",
+  "owners": []
+ },
+ {
+  "id": "implant-reverse-cot",
+  "kind": "implant",
+  "file": "implants/implant-reverse-cot.mdc",
+  "short_name": "ReverseCoT",
+  "description": "Reverse CoT. Reconstructing conditions from the solution to verify consistency and catch errors.",
+  "owners": []
+ },
+ {
+  "id": "implant-role-play-expert",
+  "kind": "implant",
+  "file": "implants/implant-role-play-expert.mdc",
+  "short_name": "RolePlayExpert",
+  "description": "Role-Play Expert. Persona assignment for reasoning style and analytical frameworks — not for factual accuracy.",
+  "owners": [
+   "code_reviewer",
+   "security_expert",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "implant-second-order-thinking",
+  "kind": "implant",
+  "file": "implants/implant-second-order-thinking.mdc",
+  "short_name": "SecondOrder",
+  "description": "Second-Order Thinking. Map cascading consequences beyond immediate effects. Prevents short-sighted decisions.",
+  "owners": [
+   "product_manager",
+   "ux_designer"
+  ]
+ },
+ {
+  "id": "implant-self-consistency",
+  "kind": "implant",
+  "file": "implants/implant-self-consistency.mdc",
+  "short_name": "SelfConsistency",
+  "description": "Self-Consistency. Majority Vote. Generate multiple reasoning paths, select most frequent answer.",
+  "owners": []
+ },
+ {
+  "id": "implant-self-discover",
+  "kind": "implant",
+  "file": "implants/implant-self-discover.mdc",
+  "short_name": "SelfDiscover",
+  "description": "Self-Discover. Adaptive Reasoning. Selects and composes thinking modules for new tasks.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "implant-self-harmonized-cot",
+  "kind": "implant",
+  "file": "implants/implant-self-harmonized-cot.mdc",
+  "short_name": "SHCoT",
+  "description": "Self-Harmonized CoT (SH-CoT). Generates multiple solutions and harmonizes/merges them into the best combined answer.",
+  "owners": []
+ },
+ {
+  "id": "implant-self-refine",
+  "kind": "implant",
+  "file": "implants/implant-self-refine.mdc",
+  "short_name": "SelfRefine",
+  "description": "Self-Refine. Iterative self-improvement without external feedback. Generate→Critique→Refine loop.",
+  "owners": [
+   "literary_writer",
+   "presentation_coach",
+   "prompt_engineer",
+   "tech_writer"
+  ]
+ },
+ {
+  "id": "implant-skeleton-of-thought",
+  "kind": "implant",
+  "file": "implants/implant-skeleton-of-thought.mdc",
+  "short_name": "SoT",
+  "description": "Skeleton-of-Thought (SoT). Speed & Coherence. Outline first, then expand sections in parallel.",
+  "owners": [
+   "alerts_describer",
+   "diagram_architect",
+   "presentation_coach",
+   "tech_writer"
+  ]
+ },
+ {
+  "id": "implant-steel-man",
+  "kind": "implant",
+  "file": "implants/implant-steel-man.mdc",
+  "short_name": "SteelMan",
+  "description": "Steel-Man Argumentation. Before criticizing a position, construct its strongest possible version. Ensures intellectual honesty and deeper analysis.",
+  "owners": [
+   "debate_moderator",
+   "security_expert"
+  ]
+ },
+ {
+  "id": "implant-step-back-prompting",
+  "kind": "implant",
+  "file": "implants/implant-step-back-prompting.mdc",
+  "short_name": "StepBack",
+  "description": "Step-Back Prompting. Abstract principle first, then apply to specifics. For complex problems where details obscure the core issue.",
+  "owners": [
+   "black_hole_finder",
+   "child_psychologist",
+   "deep_researcher",
+   "education_tutor",
+   "instagram_analyst",
+   "psychologist",
+   "system_architect",
+   "universal_agent"
+  ]
+ },
+ {
+  "id": "implant-system-2-attention",
+  "kind": "implant",
+  "file": "implants/implant-system-2-attention.mdc",
+  "short_name": "S2A",
+  "description": "System 2 Attention (S2A). Input cleaning. Removes bias, flattery, and leading framing before answering.",
+  "owners": [
+   "child_psychologist",
+   "psychologist"
+  ]
+ },
+ {
+  "id": "implant-take-a-deep-breath",
+  "kind": "implant",
+  "file": "implants/implant-take-a-deep-breath.mdc",
+  "short_name": "DeepBreath",
+  "description": "Take a Deep Breath. Zero-shot CoT trigger. Simplest possible reasoning activation.",
+  "owners": []
+ },
+ {
+  "id": "implant-thread-of-thought",
+  "kind": "implant",
+  "file": "implants/implant-thread-of-thought.mdc",
+  "short_name": "ThreadOfThought",
+  "description": "Thread of Thought (ThoT). Long context understanding. Walk through chaotic context sequentially, holding the thread.",
+  "owners": [
+   "semantic_expert"
+  ]
+ },
+ {
+  "id": "implant-tree-of-thought",
+  "kind": "implant",
+  "file": "implants/implant-tree-of-thought.mdc",
+  "short_name": "ToT",
+  "description": "Tree of Thoughts (ToT). Explore multiple reasoning paths with evaluation and backtracking. Breadth-first or depth-first search over thoughts.",
+  "owners": []
+ },
+ {
+  "id": "implant-uncertainty-quantification",
+  "kind": "implant",
+  "file": "implants/implant-uncertainty-quantification.mdc",
+  "short_name": "UncertaintyQ",
+  "description": "Uncertainty Quantification. Stakes-based answer threshold, separate checked facts from recalled ones and from inferences, hedge in plain language where it changes a decision. Prevent overconfident claims without over-hedging.",
+  "owners": [
+   "bio_hacker",
+   "data_analyst",
+   "deep_researcher",
+   "fitness_coach",
+   "medical_expert",
+   "purchase_researcher"
+  ]
+ },
+ {
+  "id": "implant-verify-assumptions",
+  "kind": "implant",
+  "file": "implants/implant-verify-assumptions.mdc",
+  "short_name": "VerifyAssumptions",
+  "description": "Verify Assumptions Before Architecture. Before proposing architectural decisions, refactors, integrations, fixes, or \"we should use X\" recommendations for the user's system, list 1-3 facts you're taking as true (e.g. \"X is a TUI app\", \"the config was applied\", \"the process is killed\", \"the font is installed\") and give each ONE-COMMAND verification. With tools, run the checks BEFORE designing; without tools, hand over the commands and state the proposal as conditional on them. Prevents building architecture on a hypothesis instead of fact.",
+  "owners": [
+   "agent_builder",
+   "ai_senior_engineer",
+   "blender_scripter",
+   "database_admin",
+   "install_to_repo",
+   "mcp_builder",
+   "product_manager"
+  ]
+ }
+]
