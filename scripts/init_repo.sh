@@ -265,22 +265,39 @@ try:
 except (json.JSONDecodeError, FileNotFoundError):
     config = {}
 
-if 'mcpServers' not in config:
-    config['mcpServers'] = {}
+# Refuse to rewrite a config whose shape we do not understand: resetting it
+# would drop the user's other settings and MCP servers.
+if not isinstance(config, dict):
+    print(f'ERROR: {config_path} root must be a JSON object', file=sys.stderr)
+    sys.exit(1)
+servers = config.setdefault('mcpServers', {})
+if not isinstance(servers, dict):
+    print(f'ERROR: {config_path} mcpServers must be a JSON object', file=sys.stderr)
+    sys.exit(1)
 
-# Preserve existing entry to avoid clobbering user-added fields (e.g. env)
-entry = config['mcpServers'].get('Agents-Core', {})
+# Preserve existing entry to avoid clobbering user-added fields (e.g. env);
+# a non-object entry is ours and unusable, so start over.
+entry = servers.get('Agents-Core')
+if not isinstance(entry, dict):
+    entry = {}
 entry['command'] = python_abs
 entry['args'] = [server_abs]
 
 # On NixOS, Nix Python's linker is from /nix/store (not /lib64),
 # so nix-ld can't help it. Pass LD_LIBRARY_PATH per-process via env
 # to avoid setting it globally (which breaks Firefox and other apps).
+# Prepend to any user value instead of replacing it; re-runs stay idempotent.
 if is_nixos and nix_ld_path:
-    entry.setdefault('env', {})
-    entry['env']['LD_LIBRARY_PATH'] = nix_ld_path
+    env = entry.get('env')
+    if not isinstance(env, dict):
+        env = {}
+    existing = env.get('LD_LIBRARY_PATH')
+    existing = existing if isinstance(existing, str) else ''
+    if nix_ld_path not in existing.split(':'):
+        env['LD_LIBRARY_PATH'] = f'{nix_ld_path}:{existing}' if existing else nix_ld_path
+    entry['env'] = env
 
-config['mcpServers']['Agents-Core'] = entry
+servers['Agents-Core'] = entry
 
 with open(config_path, 'w') as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
