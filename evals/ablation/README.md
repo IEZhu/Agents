@@ -63,9 +63,10 @@ available here and is not needed: do not route. Answer the user from these steps
    then run Workflow with `scriptPath: evals/ablation/workflows/judges.js` and
    `args: {"run_dir": "<RUN>", "files": <that list>}`.
 7. **Summary.** `python evals/ablation/aggregate.py $RUN` writes
-   `$RUN/results.json` and `$RUN/RESULTS.md`. It exits 1 when a verdict or an
-   answer pair is missing: rerun step 6 for the missing stems, or pass
-   `--allow-partial` and say so in the report.
+   `$RUN/results.json` and `$RUN/RESULTS.md`. It exits 1 when a verdict is missing
+   or malformed, an answer pair was skipped, or a case's context was not built
+   (`build_errors.json`); `results.json` lists them under `missing`. Rerun the step
+   that produced the gap, or pass `--allow-partial` and say so in the report.
 8. **Publish.** Commit `$RUN` without `ctx/` to a new branch
    `claude/ablation-<run name>` and push it. The contexts are rebuilt by running
    step 4 at the commit in `build_meta.json`; components removed from `main` since
