@@ -126,7 +126,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
+    # Not splitlines(): it also splits at U+2028 and U+0085, which json.dumps
+    # leaves unescaped inside an answer.
+    lines = text.split("\n")
     rows = []
     for number, line in enumerate(lines, 1):
         if not line.strip():

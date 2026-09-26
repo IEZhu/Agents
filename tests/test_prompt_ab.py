@@ -522,6 +522,14 @@ def test_a_complete_last_record_without_its_newline_gets_one_before_the_next_app
     assert path.read_text() == '{"a": 1}\n{"a": 2}\n'
 
 
+def test_records_whose_text_holds_unicode_line_separators_read_back(tmp_path):
+    path = tmp_path / "answers.jsonl"
+    records = [{"answer": "one two"}, {"answer": "three\x85four"}]
+    for record in records:
+        pab.append_jsonl(path, record)
+    assert pab.read_jsonl(path) == records
+
+
 def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
     stub = tmp_path / "stub_builder.py"
