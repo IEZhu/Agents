@@ -533,6 +533,10 @@ def test_every_case_needs_an_agent_before_prompts_are_built(tmp_path, monkeypatc
     agents.write_text(json.dumps({"other": "universal_agent"}))
     with pytest.raises(SystemExit, match="no agent for 1 cases"):
         asyncio.run(pab.run(_run_args(tmp_path, "--agents", str(agents))))
+    # Refused before the manifest pins it, so a fixed map can be used in the same out dir.
+    assert not (tmp_path / "out/manifest.json").exists()
+    with pytest.raises(SystemExit, match="does not exist or is not a JSON object"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--agents", str(tmp_path / "absent.json"))))
 
 
 def test_a_truncated_last_record_is_dropped_but_a_bad_inner_one_is_an_error(tmp_path):
@@ -637,6 +641,11 @@ def test_an_incomplete_generated_agent_map_is_not_pinned(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="has no agent"):
         asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
     assert pab.read_json(out / "manifest.json")["agents_sha256"] is None
+    # The unpinned map is removed, so the next run picks a complete one.
+    assert not (out / "agents.json").exists()
+    monkeypatch.setattr(pab, "pick_agents", _pick_universal)
+    assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
 
 
 def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
