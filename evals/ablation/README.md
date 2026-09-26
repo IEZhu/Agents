@@ -57,7 +57,9 @@ available here and is not needed: do not route. Answer the user from these steps
    builds the vector stores and downloads the embedding model, which takes a few
    minutes. It stops if a component in `ids.txt` has no cases file; rerun step 3
    for those. Check `$RUN/build_errors.json`. `$RUN/build_meta.json` records the
-   commit the contexts were built from.
+   commit the contexts were built from. On a rebuild, an answer survives only if its
+   context is known to be unchanged; in a run published before `plan.json` recorded
+   context hashes, every answer is deleted and answered again.
 5. **Answers.** Get the tokens with
    `python -c "import json;print(json.dumps(sorted(json.load(open('$RUN/plan.json')))))"`,
    then run Workflow with `scriptPath: evals/ablation/workflows/answers.js` and

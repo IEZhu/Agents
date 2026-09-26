@@ -11,8 +11,8 @@ Refuses a run with no case files, a case file whose component differs from its
 file name or that repeats a case id, and, when RUN_DIR/ids.txt exists, a listed
 component without a case file or a case file for a component it does not list.
 RUN_DIR/build_meta.json records the commit the contexts were built from, so they
-can be rebuilt without committing ctx/. On a rebuild, the answer to a context that
-changed is deleted so it is answered again; an unchanged context keeps its answer.
+can be rebuilt without committing ctx/. On a rebuild, an answer is kept only when
+its context is known to be unchanged; otherwise it is deleted and answered again.
 
 - rule-*:    with = production prompt;       without = that rule's section cut
 - skill-*:   with = production skills + this skill (added if retrieval missed it);
@@ -45,13 +45,16 @@ def drop_stale_answer(run_dir: Path, token: str, text: str, previous: dict) -> N
     """Delete the answer to a context that changed since it was answered.
 
     The previous plan records each context's hash; runs built before that are
-    compared with ctx/ when it is still there. An unchanged context keeps its answer.
+    compared with ctx/ when it is still there. An answer whose context cannot be
+    compared at all (an old published run without either) is deleted too: nothing
+    shows it answered this context. Only a context known to be unchanged keeps its
+    answer. Published answers stay in git, so a deleted one can be restored.
     """
     before = previous.get(token, {}).get("ctx_sha256")
     ctx = run_dir / "ctx" / f"{token}.md"
     if before is None and ctx.exists():
         before = ctx_sha256(ctx.read_text(encoding="utf-8"))
-    if before is not None and before != ctx_sha256(text):
+    if before != ctx_sha256(text):
         (run_dir / "answers" / f"{token}.md").unlink(missing_ok=True)
 
 

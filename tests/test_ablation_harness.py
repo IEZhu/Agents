@@ -224,8 +224,10 @@ def test_a_rebuilt_context_that_changed_loses_its_answer(tmp_path):
     (run / "ctx" / "t2.md").write_text("context")
     build_contexts.drop_stale_answer(run, "t2", "revised context", {})
     assert not (run / "answers" / "t2.md").exists()
+    # Nothing to compare with (an old published run without hash or ctx): the answer goes too.
+    answered("t3")
     build_contexts.drop_stale_answer(run, "t3", "context", {})
-    assert answered("t3").exists()
+    assert not (run / "answers" / "t3.md").exists()
 
 
 def test_the_components_snapshot_is_not_replaced_by_accident(tmp_path, monkeypatch):
