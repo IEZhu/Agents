@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import json
+import logging
 import os
 import uuid
 
@@ -23,7 +24,7 @@ def debug_clock(monkeypatch):
 
 
 @pytest.mark.parametrize("component", ["ancestor", "root", "date", "file"])
-def test_debug_writer_does_not_follow_symlinks(tmp_path, debug_clock, component):
+def test_debug_writer_does_not_follow_symlinks(tmp_path, debug_clock, component, caplog):
     outside = tmp_path / "outside"
     outside.mkdir()
     root = tmp_path / "debug"
@@ -43,12 +44,27 @@ def test_debug_writer_does_not_follow_symlinks(tmp_path, debug_clock, component)
         path.parent.mkdir(parents=True)
         path.symlink_to(target)
 
-    debug_logger._write_debug("route", "req", {"value": "new"}, directory=root)
+    with caplog.at_level(logging.WARNING, logger=debug_logger.__name__):
+        debug_logger._write_debug("route", "req", {"value": "new"}, directory=root)
 
     assert target.read_text() == "preserve target"
     assert set(outside.iterdir()) == {target}
+    assert len(caplog.records) == 1, "a refused snapshot must say why it is missing"
     if component == "file":
         assert path.is_symlink()
+
+
+def test_debug_writer_logs_a_failed_write_instead_of_raising(tmp_path, debug_clock, caplog):
+    root = tmp_path / "debug"
+    root.write_text("a file where the log directory should be")
+
+    with caplog.at_level(logging.WARNING, logger=debug_logger.__name__):
+        debug_logger._write_debug("route", "req", {"value": "new"}, directory=root)
+
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "route/req" in record.getMessage()
+    assert record.exc_info is not None
 
 
 def test_debug_writer_creates_private_json_without_overwriting(tmp_path, debug_clock):

@@ -8,12 +8,15 @@ When disabled — pure no-op, zero overhead.
 """
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from datetime import datetime, timezone
 
 from src.engine.config import AGENTS_DEBUG, get_debug_log_dir
+
+logger = logging.getLogger(__name__)
 
 
 def _write_debug(tool: str, direction: str, data: dict, directory=None) -> None:
@@ -37,6 +40,7 @@ def _write_debug(tool: str, direction: str, data: dict, directory=None) -> None:
 
         target_dir = Path(directory or get_debug_log_dir()).absolute() / date_dir
         if any(path.is_symlink() for path in (target_dir, *target_dir.parents)):
+            logger.warning("debug_log: not writing %s/%s snapshot under symlinked %s", tool, direction, target_dir)
             return
         target_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
@@ -52,7 +56,9 @@ def _write_debug(tool: str, direction: str, data: dict, directory=None) -> None:
         with os.fdopen(os.open(filepath, flags, 0o600), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
     except Exception:
-        pass
+        # Never raise into the caller (error handlers log through here), but say
+        # why the snapshot is missing instead of dropping it silently.
+        logger.warning("debug_log: failed to write %s/%s snapshot", tool, direction, exc_info=True)
 
 
 _queue = None
@@ -78,6 +84,7 @@ def debug_log(tool: str, direction: str, data: dict, *, directory=None) -> None:
         try:
             _queue.put_nowait((tool, direction, data, str(directory or state_dir() / "debug")))
         except queue.Full:
-            pass  # Diagnostic loss must not block requests or allocate an unbounded queue.
+            # Diagnostic loss must not block requests or allocate an unbounded queue.
+            logger.debug("debug_log: queue full, dropped %s/%s snapshot", tool, direction)
     else:
         _write_debug(tool, direction, data, directory)
