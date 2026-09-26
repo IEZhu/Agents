@@ -1,15 +1,16 @@
 # Component ablation sweep
 
 Measures what each rule, skill and implant changes in real answers. For every
-component: two in-scope cases (ru + en), one answer with the component and one
-without it, and a blind pairwise judge in both orders. That gives 4 verdicts per
-component. This is a screening pass: components with a consistent
+component: N in-scope cases (2 by default, the first half in Russian and the rest
+in English), one answer with the component and one without it, and a blind
+pairwise judge in both orders, so 2N verdicts per component (4 in the sweep, 12
+in the 6-case re-tests). This is a screening pass: components with a consistent
 with/without gap get a closer look afterwards.
 
-Rules and skills are removed from the production prompt, which otherwise stays as
-production builds it. Implants are tested alone: the with arm gets exactly that
-implant and the without arm gets none, so other implants production would retrieve
-are left out of both.
+For rules and skills the two arms differ only in that component; the rest of the
+prompt is what production builds. Implants are tested alone: the with arm gets
+exactly that implant and the without arm gets none, so other implants production
+would retrieve are left out of both.
 
 The 2026-09-25 pilot already covered `rule-no-fabrication`,
 `skill-content-structure`, `implant-regression-first` and
