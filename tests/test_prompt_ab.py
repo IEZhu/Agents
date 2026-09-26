@@ -620,6 +620,19 @@ def test_a_generated_agent_map_a_kill_left_unpinned_is_adopted(tmp_path, monkeyp
     assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
 
 
+def test_an_incomplete_generated_agent_map_is_not_pinned(tmp_path, monkeypatch):
+    out = _generated_agents_run(tmp_path, monkeypatch)
+
+    async def partial(cases, provider, client, model, catalog_path, path):
+        pab.write_json_atomic(path, {})
+        return {}
+
+    monkeypatch.setattr(pab, "pick_agents", partial)
+    with pytest.raises(SystemExit, match="has no agent"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] is None
+
+
 def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
     (tmp_path / "agents.json").write_text("{}")
     pinned = pab.sha256_file(tmp_path / "agents.json")
