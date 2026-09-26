@@ -158,7 +158,7 @@ Techniques for breaking down complex problems:
 
 ### Efficiency
 
-> **Moved to skills**: output brevity lives in `skill-caveman-tokenomics`. The older `skill-token-economy` was removed after the 2026-09 ablation sweep, where it lowered answer quality.
+> **Moved to skills**: output brevity → `skill-caveman-tokenomics`
 
 ## Activation Methods
 
