@@ -549,7 +549,8 @@ def test_records_whose_text_holds_unicode_line_separators_read_back(tmp_path):
     assert pab.read_jsonl(path) == records
 
 
-def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
+def _generated_agents_run(tmp_path, monkeypatch):
+    """A local run with a stub builder, answers and grades; the agent map is generated in out/."""
     monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
     stub = tmp_path / "stub_builder.py"
     stub.write_text(
@@ -574,13 +575,18 @@ def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypat
     out = tmp_path / "out"
     out.mkdir()
     (out / "catalog.json").write_text("{}")
+    return out
 
-    async def pick(cases, provider, client, model, catalog_path, path):
-        agents = pab.read_json(path) or {c["id"]: "universal_agent" for c in cases}
-        pab.write_json_atomic(path, agents)
-        return agents
 
-    monkeypatch.setattr(pab, "pick_agents", pick)
+async def _pick_universal(cases, provider, client, model, catalog_path, path):
+    agents = pab.read_json(path) or {c["id"]: "universal_agent" for c in cases}
+    pab.write_json_atomic(path, agents)
+    return agents
+
+
+def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
+    out = _generated_agents_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(pab, "pick_agents", _pick_universal)
     assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
     manifest = pab.read_json(out / "manifest.json")
     assert manifest["agents_sha256"] == pab.sha256_file(out / "agents.json")
@@ -588,4 +594,35 @@ def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypat
     (out / "agents.json").write_text(json.dumps({"c0": "lawyer"}))
     with pytest.raises(SystemExit, match="agents_sha256"):
         asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+
+
+def test_a_generated_agent_map_a_kill_left_unpinned_is_adopted(tmp_path, monkeypatch):
+    out = _generated_agents_run(tmp_path, monkeypatch)
+
+    async def killed(*args):
+        await _pick_universal(*args)
+        raise RuntimeError("killed")  # after the map is written, before the manifest pins it
+
+    monkeypatch.setattr(pab, "pick_agents", killed)
+    with pytest.raises(RuntimeError, match="killed"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] is None and (out / "agents.json").exists()
+    monkeypatch.setattr(pab, "pick_agents", _pick_universal)
+    assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
+
+
+def test_an_unpinned_agent_map_is_not_adopted_once_prompts_or_answers_exist(tmp_path):
+    (tmp_path / "agents.json").write_text("{}")
+    pinned = pab.sha256_file(tmp_path / "agents.json")
+    assert pab.agents_pin(tmp_path, None) == pinned  # no manifest yet: pinned as found
+    pab.write_json_atomic(tmp_path / "manifest.json", {"agents_sha256": None})
+    assert pab.agents_pin(tmp_path, None) is None
+    for state in ("prompts_none.json", "answers.jsonl"):
+        (tmp_path / state).write_text("")
+        assert pab.agents_pin(tmp_path, None) == pinned
+        (tmp_path / state).unlink()
+    supplied = tmp_path / "mine.json"
+    supplied.write_text('{"c0": "lawyer"}')
+    assert pab.agents_pin(tmp_path, supplied) == pab.sha256_file(supplied)
 

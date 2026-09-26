@@ -320,6 +320,25 @@ async def pick_agents(cases, provider, client, model, catalog_path: Path, out: P
     return agents
 
 
+def agents_pin(out: Path, agents_file: Path | None) -> str | None:
+    """The agent map's hash for the manifest; None while a generated map is not pinned yet.
+
+    run() pins a generated map right after writing it. A kill in between leaves a
+    map the manifest does not know; it is adopted while nothing was built from it,
+    since prompts are built only after the pin.
+    """
+    if agents_file is not None:
+        return sha256_file(agents_file)
+    generated = out / "agents.json"
+    if not generated.exists():
+        return None
+    manifest = read_json(out / "manifest.json")
+    if (manifest is not None and manifest.get("agents_sha256") is None
+            and not any(out.glob("prompts_*.json")) and not (out / "answers.jsonl").exists()):
+        return None
+    return sha256_file(generated)
+
+
 # --------------------------------------------------------------------------- #
 # Answering and grading (resumable)
 # --------------------------------------------------------------------------- #
@@ -533,7 +552,7 @@ async def run(args) -> int:
             "builder_config": builder_config(), "harness_sha256": harness_sha256(),
             "dataset_sha256": sha256_file(dataset),
             # A generated agent map is pinned too, once it exists (see below).
-            "agents_sha256": sha256_file(agents_file or generated) if (agents_file or generated.exists()) else None,
+            "agents_sha256": agents_pin(out, agents_file),
             "arms": [{**asdict(a), "sha": shas[a.label]} for a in arms]})
         first = trees.get(shas[arms[0].label])
         catalog = out / "catalog.json"
