@@ -7,13 +7,25 @@ with/without, and writes RUN_DIR/results.json and RUN_DIR/RESULTS.md for a singl
 run, or prints the combined table for several runs.
 net = verdicts won with the component minus verdicts won without it; "robust"
 counts only cases where the same arm won in both orders.
-Missing verdicts, and answer pairs build_judges.py skipped, are listed as missing;
-the script exits 1 when any are missing unless --allow-partial.
+Missing or malformed verdicts, answer pairs build_judges.py skipped and cases
+build_contexts.py could not build are listed as missing; the script exits 1 when
+any are missing unless --allow-partial.
 """
 import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+
+def read_verdict(path: Path) -> tuple[dict, dict]:
+    """A verdict and its factual errors; anything that is not one raises ValueError."""
+    v = json.loads(path.read_text())
+    if not isinstance(v, dict) or v.get("winner") not in ("A", "B", "tie"):
+        raise ValueError("not a verdict object with winner A, B or tie")
+    errors = v.get("factual_errors") or {}
+    if not isinstance(errors, dict) or not all(isinstance(errors.get(k, []), list) for k in ("A", "B")):
+        raise ValueError("factual_errors is not {A: [...], B: [...]}")
+    return v, errors
 
 
 def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
@@ -22,15 +34,19 @@ def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
     for stem, p in sorted(judge_plan.items()):
         path = run_dir / "judge" / f"{stem}.verdict.json"
         try:
-            v = json.loads(path.read_text())
+            v, errors = read_verdict(path)
             winner = {"A": p["A"], "B": p["B"], "tie": "tie"}[v["winner"]]
-        except (OSError, ValueError, KeyError) as exc:
+        except (OSError, ValueError) as exc:
             missing.append({"stem": stem, "error": repr(exc)})
             continue
         rows.append({**p, "stem": stem, "winner_arm": winner, "margin": v.get("margin"),
                      "reasons": v.get("reasons", ""),
-                     "errors_with": v.get("factual_errors", {}).get("A" if p["A"] == "with" else "B", []),
-                     "errors_without": v.get("factual_errors", {}).get("A" if p["A"] == "without" else "B", [])})
+                     "errors_with": errors.get("A" if p["A"] == "with" else "B", []),
+                     "errors_without": errors.get("A" if p["A"] == "without" else "B", [])})
+    build_errors = run_dir / "build_errors.json"
+    if build_errors.exists():
+        missing += [{"pair": f"{e['component']}/{e['case']}", "error": f"context not built: {e['error']}"}
+                    for e in json.loads(build_errors.read_text())]
     skipped = run_dir / "judge_skipped.json"
     if skipped.exists():
         missing += [{"pair": pair, "error": "answer missing, not judged"} for pair in json.loads(skipped.read_text())]
