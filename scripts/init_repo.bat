@@ -67,13 +67,13 @@ echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
 echo   --skip-mcp     Skip MCP environment detection and configuration
 echo   --help         Show this help message
-echo   Set AGENTS_PERSONA_PROTOCOL=2 to opt into the experimental persona protocol.
+echo   Persona protocol 2 is the default; set AGENTS_PERSONA_PROTOCOL=1 for version 1.
 exit /b 0
 
 :args_done
 
-REM Version 2 is an explicit opt-in pending client/model behavior validation.
-set "PERSONA_PROTOCOL=1"
+REM Persona protocol 2 is the default; AGENTS_PERSONA_PROTOCOL=1 installs version 1.
+set "PERSONA_PROTOCOL=2"
 if defined AGENTS_PERSONA_PROTOCOL set "PERSONA_PROTOCOL=%AGENTS_PERSONA_PROTOCOL%"
 if not "%PERSONA_PROTOCOL%"=="1" if not "%PERSONA_PROTOCOL%"=="2" (
     echo AGENTS_PERSONA_PROTOCOL must be 1 or 2

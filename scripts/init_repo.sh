@@ -13,8 +13,9 @@
 #   --skip-mcp     Skip MCP environment detection and configuration
 #   --help         Show this help message
 #
-# Set AGENTS_PERSONA_PROTOCOL=2 to opt into the experimental persona protocol.
-# The default is protocol 1 until client/model behavior is validated.
+# The default is persona protocol 2: the model keeps its role across turns and routes
+# only when the task needs another specialization (docs/routing_flow.md).
+# Set AGENTS_PERSONA_PROTOCOL=1 to install the version 1 compatibility protocol.
 
 set -e
 # ERR trap inherited into shell functions/subshells (see _fatal_on_err below).
@@ -37,7 +38,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_PATH="$REPO_ROOT/.venv"
 PYTHON_MIN_VERSION="3.10"
 # Select the same protocol for managed instructions, memory, and printed fallback.
-PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-1}"
+PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"
 case "$PERSONA_PROTOCOL" in
     1) ROUTING_TEMPLATE="$REPO_ROOT/scripts/templates/routing-protocol-v1.md" ;;
     2) ROUTING_TEMPLATE="$REPO_ROOT/scripts/templates/routing-protocol-core.md" ;;

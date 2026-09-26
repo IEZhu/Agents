@@ -153,7 +153,7 @@ def test_symlink_target_is_not_replaced(tmp_path, helpers):
     assert link.is_symlink()
 
 
-def test_checkout_defaults_to_v1_and_explicit_opt_in_is_reversible(tmp_path, helpers):
+def test_checkout_defaults_to_v2_and_switching_to_v1_is_reversible(tmp_path, helpers):
     injector, _ = helpers
     root = Path(__file__).resolve().parents[1]
     templates = root / "scripts" / "templates"
@@ -162,20 +162,27 @@ def test_checkout_defaults_to_v1_and_explicit_opt_in_is_reversible(tmp_path, hel
     assert original.count(begin) == original.count(end) == 1
     before, managed = original.split(begin, 1)
     section, after = managed.split(end, 1)
-    assert section.strip() == (templates / "routing-protocol-v1.md").read_bytes().strip()
+    assert section.strip() == (templates / "routing-protocol-core.md").read_bytes().strip()
+    assert b"Before answering ANY user query" not in original
     assert b"## Repository notes" in after
 
     target = tmp_path / "CLAUDE.md"
     target.write_bytes(original)
-    assert injector.inject(target, templates / "routing-protocol-core.md")
-    opted_in = target.read_bytes()
-    assert opted_in.startswith(before + begin) and opted_in.endswith(end + after)
-    assert opted_in.count(begin) == opted_in.count(end) == 1
-    assert b"Before answering ANY user query" not in opted_in
-    assert not injector.inject(target, templates / "routing-protocol-core.md")
-
     assert injector.inject(target, templates / "routing-protocol-v1.md")
+    switched = target.read_bytes()
+    assert switched.startswith(before + begin) and switched.endswith(end + after)
+    assert switched.count(begin) == switched.count(end) == 1
+    assert b"Before answering ANY user query" in switched
+    assert not injector.inject(target, templates / "routing-protocol-v1.md")
+
+    assert injector.inject(target, templates / "routing-protocol-core.md")
     assert target.read_bytes() == original
     backups = list(tmp_path.glob("CLAUDE.md.backup.*"))
     assert len(backups) == 2
-    assert {path.read_bytes() for path in backups} == {original, opted_in}
+    assert {path.read_bytes() for path in backups} == {original, switched}
+
+
+def test_installers_default_to_protocol_2():
+    root = Path(__file__).resolve().parents[1]
+    assert 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"' in (root / "scripts" / "init_repo.sh").read_text()
+    assert 'set "PERSONA_PROTOCOL=2"' in (root / "scripts" / "init_repo.bat").read_text()

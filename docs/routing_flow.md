@@ -38,10 +38,15 @@ instructions for a known role without selecting another one. Cache expiry has no
 bearing on the client's retained instructions.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
-The default installer still uses the [v1 compatibility template](../scripts/templates/routing-protocol-v1.md).
-Version 2 is an explicit opt-in until the required dialogue evaluations pass for a
-specific client and model; server contract tests alone do not establish support.
-See the [measured results and remaining validation gaps](persona-switch-eval-results.md).
+The installer uses version 2 by default since 2026-09-26; the
+[v1 compatibility template](../scripts/templates/routing-protocol-v1.md) remains
+available with `AGENTS_PERSONA_PROTOCOL=1`. The switch rests on two measurements:
+in 30 days of telemetry under v1, 96% of routed turns returned ROUTE_REQUIRED and
+continuing turns re-picked the active agent 73% of the time, re-sending its prompt
+([telemetry analysis](../evals/telemetry/README.md)); in the dialogue evaluation,
+v2 made no selection calls on continuing turns and switched roles correctly in
+every completed case. Server contract tests alone do not establish support for a
+client and model; see the [measured results and remaining validation gaps](persona-switch-eval-results.md).
 
 ## Version 2 API
 
@@ -127,15 +132,15 @@ because connectivity returns.
 
 ## Installation, migration and rollback
 
-Use `AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh` to opt in. On Windows set
-`AGENTS_PERSONA_PROTOCOL=2` before `scripts\init_repo.bat`. Omit the variable (or set
-it to 1) to install v1. Use the same setting on subsequent installer runs.
+`./scripts/init_repo.sh` installs v2. Use `AGENTS_PERSONA_PROTOCOL=1 ./scripts/init_repo.sh`
+to install v1; on Windows set `AGENTS_PERSONA_PROTOCOL=1` before `scripts\init_repo.bat`.
+Use the same setting on subsequent installer runs.
 
-The checked-in `CLAUDE.md` uses a managed v1 section. Global installation does not
-modify this tracked file. To opt the checkout itself into v2, run
-`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md`
+The checked-in `CLAUDE.md` uses a managed v2 section. Global installation does not
+modify this tracked file. To switch the checkout itself to v1, run
+`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-v1.md`
 (or use `.venv\Scripts\python.exe` on Windows). Use
-`scripts/templates/routing-protocol-v1.md` as the source to switch it back to v1.
+`scripts/templates/routing-protocol-core.md` as the source to switch it back to v2.
 Only the managed section is replaced; repository notes outside it remain intact.
 
 Both installers replace only the marked routing section and back up changed

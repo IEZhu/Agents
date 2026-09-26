@@ -158,7 +158,7 @@ The server exposes MCP tools that any compatible client can call:
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling, or sampling failed); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
 
-### Persona continuity (protocol 2, opt-in)
+### Persona continuity (protocol 2, default)
 
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
@@ -174,26 +174,31 @@ and tool results. This is logical replacement: MCP cannot physically delete old
 messages. No history or cache clearing is required. Calls without `protocol_version=2`
 retain the version 1 API and `context_hash` behavior. V2 never uses sampling.
 
-The installer defaults to version 1. The [dialogue evaluation report](docs/persona-switch-eval-results.md)
-records results and remaining gaps for each tested client/model; they do not
-establish support for other applications or native context compaction. Opt in
-explicitly:
+The installer defaults to version 2 since 2026-09-26. Under version 1, 96% of
+routed turns in 30 days of telemetry returned ROUTE_REQUIRED, and when the turn
+continued a conversation the model re-picked the agent already active 73% of the
+time, re-sending its full prompt ([analysis](evals/telemetry/README.md)); in the
+[dialogue evaluation](docs/persona-switch-eval-results.md), version 2 made no
+selection calls on continuing turns and switched roles correctly in every completed
+case. That report also records the remaining gaps for each tested client/model;
+they do not establish support for other applications or native context compaction.
+To install version 1 instead:
 
 ```bash
-AGENTS_PERSONA_PROTOCOL=2 ./scripts/init_repo.sh
+AGENTS_PERSONA_PROTOCOL=1 ./scripts/init_repo.sh
 ```
 
-On Windows, set `AGENTS_PERSONA_PROTOCOL=2` before running `scripts\init_repo.bat`.
-Use the same setting on reruns. The checked-in `CLAUDE.md` also defaults to v1;
-the global installer does not change this tracked file. To opt this checkout into
-v2, explicitly replace its managed section:
+On Windows, set `AGENTS_PERSONA_PROTOCOL=1` before running `scripts\init_repo.bat`.
+Use the same setting on reruns. The checked-in `CLAUDE.md` also uses v2; the global
+installer does not change this tracked file. To switch this checkout to another
+version, replace its managed section:
 
 ```bash
-.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
+.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-v1.md
 ```
 
-On Windows, use `.venv\Scripts\python.exe` for the same command. To restore this
-checkout to v1, use `scripts/templates/routing-protocol-v1.md` as the source.
+On Windows, use `.venv\Scripts\python.exe` for the same command. To return this
+checkout to v2, use `scripts/templates/routing-protocol-core.md` as the source.
 Repository notes outside the markers are preserved. Managed instruction sections
 are backed up and replaced by markers. Only exact known installer-generated
 routing memory is migrated; edited reminders are preserved with a path-specific warning. Windows
