@@ -56,7 +56,10 @@ def _judged_run(tmp_path: Path) -> Path:
     {"rubric": []},
     {"rubric": [{"item": 1, "A": "met", "B": "maybe"}]},
     {"reasons": 3},
-    {"factual_errors": {"A": [1]}},
+    {"factual_errors": {"A": [1], "B": []}},
+    {"factual_errors": {"A": []}},
+    {"factual_errors": []},
+    {"factual_errors": ""},
 ])
 def test_a_malformed_verdict_is_rejected(tmp_path, change):
     path = _write(tmp_path / "v.json", {**VERDICT, **change})
@@ -67,8 +70,9 @@ def test_a_malformed_verdict_is_rejected(tmp_path, change):
 def test_a_verdict_that_is_not_an_object_is_rejected_and_null_errors_mean_none(tmp_path):
     with pytest.raises(ValueError):
         aggregate.read_verdict(_write(tmp_path / "v.json", []))
-    _v, errors = aggregate.read_verdict(_write(tmp_path / "v.json", {**VERDICT, "factual_errors": None}))
-    assert errors == {}
+    for absent in ({**VERDICT, "factual_errors": None}, {k: v for k, v in VERDICT.items() if k != "factual_errors"}):
+        _v, errors = aggregate.read_verdict(_write(tmp_path / "v.json", absent))
+        assert errors == {"A": [], "B": []}
 
 
 def test_a_complete_run_aggregates_and_exits_zero(tmp_path, capsys):
@@ -78,19 +82,21 @@ def test_a_complete_run_aggregates_and_exits_zero(tmp_path, capsys):
     assert len(result["verdicts"]) == 2 and result["missing"] == []
 
 
-@pytest.mark.parametrize("gap", ["verdict", "rubric", "skipped", "build"])
+@pytest.mark.parametrize("gap", ["verdict", "rubric", "unknown case", "skipped", "build"])
 def test_any_gap_is_listed_as_missing_and_fails_unless_partial_is_allowed(tmp_path, capsys, gap):
     run = _judged_run(tmp_path)
     if gap == "verdict":
         (run / "judge" / "s__o2.verdict.json").unlink()
     elif gap == "rubric":  # only one of the case's two rubric items is graded
         _write(run / "judge" / "s__o2.verdict.json", {**VERDICT, "rubric": VERDICT["rubric"][:1]})
+    elif gap == "unknown case":  # the verdict stays, the case it was judged on is gone
+        _write(run / "cases" / "skill-x.json", {"component": "skill-x", "cases": []})
     elif gap == "skipped":
         _write(run / "judge_skipped.json", ["skill-x/c2"])
     else:
         _write(run / "build_errors.json", [{"component": "skill-x", "case": "c3", "error": "arms identical"}])
     assert aggregate.main([run]) == 1
-    assert len(json.loads((run / "results.json").read_text())["missing"]) == 1
+    assert len(json.loads((run / "results.json").read_text())["missing"]) == (2 if gap == "unknown case" else 1)
     assert aggregate.main([run], allow_partial=True) == 0
 
 
@@ -137,6 +143,21 @@ def test_build_contexts_refuses_a_listed_component_without_cases(tmp_path, snaps
     (run / "cases").mkdir(parents=True)
     (run / "ids.txt").write_text("skill-kept\nskill-gone\n")
     with pytest.raises(SystemExit, match=r"no cases file for \['skill-kept'\]"):
+        asyncio.run(build_contexts.main(run))
+
+
+def test_build_contexts_refuses_case_files_it_was_not_asked_to_build(tmp_path, snapshot):
+    run = tmp_path / "run"
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": []})
+    (run / "ids.txt").write_text("skill-gone\n")
+    with pytest.raises(SystemExit, match="not in ids.txt"):
+        asyncio.run(build_contexts.main(run))
+
+
+def test_build_contexts_refuses_a_case_file_naming_another_component(tmp_path, snapshot):
+    run = tmp_path / "run"
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-gone", "cases": []})
+    with pytest.raises(SystemExit, match="does not match the file name"):
         asyncio.run(build_contexts.main(run))
 
 
