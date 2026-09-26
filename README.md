@@ -155,7 +155,7 @@ The server exposes MCP tools that any compatible client can call:
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
 | `clear_session_cache()` | Reset session cache |
 | `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
-| `write_repo_summary(summary, repo_hash, repo_path, workspace_id)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
+| `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
 
 ### Persona continuity (protocol 2, opt-in)
