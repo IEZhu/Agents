@@ -4,7 +4,8 @@
 
 Writes DATA_DIR/stats.json and prints each entry: call counts, routing statuses and
 tiers, latencies, how often ROUTE_REQUIRED is followed by get_agent_context and how
-many routed turns end with a log_interaction, agents, prompt sizes, footer and
+many routed turns end with a log_interaction (upper bounds from one-to-one time
+matching, since calls carry no shared id), agents, prompt sizes, footer and
 language checks on the logged answers, how often each skill and implant is
 retrieved, and those frequencies crossed with evals/ablation/RESULTS.md.
 The logged-answer checks are only as good as the logging: see README.md.
@@ -24,6 +25,21 @@ def ts(s): return datetime.fromisoformat(s.replace("Z", "+00:00"))
 def pct(a, b): return round(100 * a / b, 1) if b else None
 def q(vals, p):
     vals = sorted(vals); return vals[min(len(vals) - 1, int(p * len(vals)))] if vals else None
+def match_one_to_one(starts, ends, window):
+    """How many starts have a later end within the window, each end used at most once."""
+    ends = sorted(ends)
+    used = [False] * len(ends)
+    matched = 0
+    for start in sorted(starts):
+        i = bisect.bisect_left(ends, start)
+        while i < len(ends) and used[i]:
+            i += 1
+        if i < len(ends) and ends[i] - start <= window:
+            used[i] = True
+            matched += 1
+    return matched
+
+
 def main(D: Path) -> dict:
     def rows(n):
         # extract.py writes no file for a table with no rows (e.g. read_history never called).
@@ -31,7 +47,8 @@ def main(D: Path) -> dict:
         return list(csv.DictReader(open(path))) if path.exists() else []
     route, gac, sk, im, hist, inter = (rows(n) for n in ("route", "gac", "skills_ret", "implants_ret", "history", "interactions"))
     S = {}
-    S["period"] = [min(r["ts"] for r in route + gac + inter)[:10], max(r["ts"] for r in route + gac + inter)[:10]]
+    stamps = [r["ts"] for r in route + gac + inter]
+    S["period"] = [min(stamps)[:10], max(stamps)[:10]] if stamps else None
     S["counts"] = {"route_and_load": len(route), "get_agent_context": len(gac), "retrieve_skills": len(sk),
                    "retrieve_implants": len(im), "log_interaction": len(inter), "read_history": len(hist)}
     # routing
@@ -47,14 +64,14 @@ def main(D: Path) -> dict:
         lat = [float(r["latency"]) for r in rs if r["latency"] not in ("", "None")]
         S[f"latency_{name}_s"] = {"p50": q(lat, .5), "p90": q(lat, .9), "p99": q(lat, .99), "max": max(lat) if lat else None}
     # follow-through: ROUTE_REQUIRED -> get_agent_context within 180 s
-    gts = sorted(ts(g["ts"]) for g in gac)
+    # Calls cannot be linked by id (see README), so pair each route with the first unused
+    # later call in the window, one to one; the result is still an upper bound.
     rr = [ts(r["ts"]) for r in route if r["status"] == "ROUTE_REQUIRED"]
-    fol = sum(1 for t in rr if (i := bisect.bisect_left(gts, t)) < len(gts) and gts[i] - t <= timedelta(seconds=180))
-    S["route_required_followed_by_gac_180s"] = [fol, len(rr), pct(fol, len(rr))]
+    fol = match_one_to_one(rr, [ts(g["ts"]) for g in gac], timedelta(seconds=180))
+    S["route_required_followed_by_gac_180s_upper_bound"] = [fol, len(rr), pct(fol, len(rr))]
     # turns vs log_interaction: turns = route_and_load calls (protocol step 1) ; logs within 30 min after a route
-    its = sorted(ts(i["ts"]) for i in inter)
-    logged = sum(1 for r in route if (i := bisect.bisect_left(its, ts(r["ts"]))) < len(its) and its[i] - ts(r["ts"]) <= timedelta(minutes=30))
-    S["routed_turns_with_log_within_30m"] = [logged, len(route), pct(logged, len(route))]
+    logged = match_one_to_one([ts(r["ts"]) for r in route], [ts(i["ts"]) for i in inter], timedelta(minutes=30))
+    S["routed_turns_with_log_within_30m_upper_bound"] = [logged, len(route), pct(logged, len(route))]
     by_day_r = collections.Counter(r["ts"][:10] for r in route); by_day_i = collections.Counter(i["ts"][:10] for i in inter)
     S["log_to_route_ratio_by_day"] = {d: [by_day_i.get(d, 0), by_day_r[d]] for d in sorted(by_day_r)}
     # agents
@@ -78,7 +95,8 @@ def main(D: Path) -> dict:
     lm = [(i["q_lang"], i["r_lang"]) for i in inter if i["q_lang"] in ("ru", "en") and i["r_lang"] in ("ru", "en")]
     S["language_pairs"] = collections.Counter(f"{a}->{b}" for a, b in lm).most_common()
     S["language_match_pct"] = pct(sum(a == b for a, b in lm), len(lm))
-    rl = [int(i["r_len"]) for i in inter]; S["response_chars"] = {"p50": q(rl, .5), "p90": q(rl, .9), "max": max(rl)}
+    rl = [int(i["r_len"]) for i in inter]
+    S["response_chars"] = {"p50": q(rl, .5), "p90": q(rl, .9), "max": max(rl) if rl else None}
     S["persona_action"] = collections.Counter(i["persona_action"] for i in inter if i["persona_action"]).most_common()
     # enrichment frequencies
     skill_freq, skill_tier = collections.Counter(), collections.defaultdict(collections.Counter)

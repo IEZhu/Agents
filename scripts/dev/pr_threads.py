@@ -14,9 +14,14 @@ import argparse
 import json
 import subprocess
 
-QUERY = """query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){
-  headRefOid reviewThreads(first:100){nodes{id isResolved path line
-    comments(first:50){nodes{databaseId author{login} body}}}}}}}"""
+# Threads are paged with a cursor; each thread's first comment (the finding) and last
+# comment (who spoke last) are fetched directly, so long threads need no paging.
+QUERY = """query($owner:String!,$name:String!,$n:Int!,$after:String){repository(owner:$owner,name:$name){
+  pullRequest(number:$n){headRefOid reviewThreads(first:100,after:$after){
+    pageInfo{hasNextPage endCursor}
+    nodes{id isResolved path line
+      first:comments(first:1){nodes{databaseId author{login} body}}
+      last:comments(last:1){nodes{databaseId author{login}}}}}}}}"""
 
 
 def gh(*args: str) -> str:
@@ -24,15 +29,28 @@ def gh(*args: str) -> str:
 
 
 def threads(owner: str, name: str, number: int) -> tuple[str, list[dict]]:
-    data = json.loads(gh("api", "graphql", "-f", f"query={QUERY}", "-F", f"owner={owner}",
-                         "-F", f"name={name}", "-F", f"n={number}"))["data"]["repository"]["pullRequest"]
-    return data["headRefOid"], data["reviewThreads"]["nodes"]
+    nodes, after = [], None
+    while True:
+        args = ["api", "graphql", "-f", f"query={QUERY}", "-F", f"owner={owner}", "-F", f"name={name}", "-F", f"n={number}"]
+        if after:
+            args += ["-f", f"after={after}"]
+        data = json.loads(gh(*args))["data"]["repository"]["pullRequest"]
+        page = data["reviewThreads"]
+        nodes += page["nodes"]
+        if not page["pageInfo"]["hasNextPage"]:
+            return data["headRefOid"], nodes
+        after = page["pageInfo"]["endCursor"]
+
+
+def login(node: dict | None) -> str:
+    """GitHub returns a null author for deleted accounts."""
+    return ((node or {}).get("author") or {}).get("login") or "ghost"
 
 
 def review_bodies(repo: str, number: int, head: str, me: str) -> list[dict]:
     pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/pulls/{number}/reviews"))
     return [r for page in pages for r in page
-            if r["commit_id"] == head and r["user"]["login"] != me and r["body"].strip()]
+            if r["commit_id"] == head and (r.get("user") or {}).get("login") != me and r["body"].strip()]
 
 
 def show(repo: str, number: int, me: str, resolve_mine: bool) -> int:
@@ -41,18 +59,17 @@ def show(repo: str, number: int, me: str, resolve_mine: bool) -> int:
     open_threads = [t for t in nodes if not t["isResolved"]]
     print(f"#{number} head {head[:7]}: {len(open_threads)} unresolved of {len(nodes)} threads")
     for t in open_threads:
-        comments = t["comments"]["nodes"]
-        last, first = comments[-1], comments[0]
-        if resolve_mine and last["author"]["login"] == me:
+        first, last = t["first"]["nodes"][0], t["last"]["nodes"][0]
+        if resolve_mine and login(last) == me:
             gh("api", "graphql", "-f", f'query=mutation{{resolveReviewThread(input:{{threadId:"{t["id"]}"}}){{thread{{isResolved}}}}}}')
             print(f"  resolved {t['path']}:{t['line']}")
             continue
-        state = "answered" if last["author"]["login"] == me else "UNANSWERED"
-        print(f"  {state} {t['path']}:{t['line']} {first['author']['login']} c{first['databaseId']}")
+        state = "answered" if login(last) == me else "UNANSWERED"
+        print(f"  {state} {t['path']}:{t['line']} {login(first)} c{first['databaseId']}")
         print("    " + first["body"].replace("\n", " ")[:500])
     if not resolve_mine:
         for r in review_bodies(repo, number, head, me):
-            print(f"  REVIEW {r['user']['login']} {r['submitted_at']}: " + r["body"].replace("\n", " ")[:800])
+            print(f"  REVIEW {(r.get('user') or {}).get('login', 'ghost')} {r['submitted_at']}: " + r["body"].replace("\n", " ")[:800])
     return len(open_threads)
 
 
@@ -65,8 +82,9 @@ def main() -> None:
     repo = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
     me = gh("api", "user", "--jq", ".login").strip()
     if args.closed:
-        numbers = json.loads(gh("pr", "list", "--repo", repo, "--state", "closed", "--limit", "500",
-                                "--json", "number", "--jq", "[.[].number]"))
+        # The REST list pages through every closed PR; `gh pr list --limit` would cap it.
+        pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/pulls?state=closed&per_page=100"))
+        numbers = [pr["number"] for page in pages for pr in page]
         owner, name = repo.split("/")
         for n in sorted(numbers):
             if any(not t["isResolved"] for t in threads(owner, name, n)[1]):
