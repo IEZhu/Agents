@@ -311,9 +311,15 @@ print('OK')
 
 print_header "🔍 Pre-flight Checks"
 
-# NixOS notice (only relevant when MCP config will actually be written)
+# NixOS notice (only relevant when MCP config will actually be written).
+# NIX_LD_LIB_PATH is cleared above when the nix-ld lib dir is missing, and
+# inject_mcp_config then skips the env, so say so instead of claiming success.
 if [ "$IS_NIXOS" = true ] && [ "$SKIP_MCP" = false ]; then
-    print_success "NixOS detected — MCP config will include LD_LIBRARY_PATH env"
+    if [ -n "$NIX_LD_LIB_PATH" ]; then
+        print_success "NixOS detected — MCP config will include LD_LIBRARY_PATH env"
+    else
+        print_warn "NixOS detected but /run/current-system/sw/share/nix-ld/lib not found — LD_LIBRARY_PATH will NOT be added to MCP config; enable programs.nix-ld and re-run"
+    fi
 fi
 
 SELECTED_PYTHON=""
