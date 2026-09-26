@@ -7,7 +7,10 @@ For every labeled sample, simulate a cold-start prediction:
 
 The persistent semantic router cache (`INSTALL_DATA_DIR/router_cache.npz`)
 is intentionally bypassed: it is pre-populated on developer machines and
-would make this measurement non-deterministic across environments.
+would make this measurement non-deterministic across environments. The router
+is built against a throwaway data dir (`_isolated_data`), because its
+constructor clears the cache and rewrites its markers when the embedding model
+or fingerprint differs — that must not touch the live install.
 
 Reports top-1 / top-3 accuracy, per-source / per-language breakdown,
 confusion matrix, and worst miss-cases.
@@ -28,6 +31,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from evals.scripts._isolated_data import isolate_data_dir  # noqa: E402
+
+isolate_data_dir()  # before any engine import: the router must not write the live router cache
 
 from evals.metrics.routing import RoutingResult, compute_metrics, format_markdown  # noqa: E402
 from evals.runners._loader import EvalSample, LoaderStats, iter_valid, load_samples  # noqa: E402

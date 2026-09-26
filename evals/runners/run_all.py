@@ -27,6 +27,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from evals.scripts._isolated_data import isolate_data_dir  # noqa: E402
+
+# Before any engine import: run_retrieval binds src.engine first, after which the
+# isolate_data_dir() call in run_routing would raise instead of isolating.
+isolate_data_dir()
+
 from evals.metrics.retrieval import compute_metrics as compute_retrieval_metrics  # noqa: E402
 from evals.metrics.retrieval import format_markdown as format_retrieval  # noqa: E402
 from evals.metrics.routing import compute_metrics as compute_routing_metrics  # noqa: E402
