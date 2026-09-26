@@ -153,11 +153,22 @@ def write_json_atomic(path: Path, data: Any) -> None:
 
 
 def read_json(path: Path) -> Any | None:
-    """Parsed content, or None when the file is missing or unreadable."""
+    """Parsed content, or None when the file does not exist.
+
+    A file that exists but cannot be parsed is refused rather than rebuilt:
+    this script writes its state atomically, so such a file was damaged from
+    outside. Rebuilding it would drop the fingerprint the answers and grades
+    already in the directory were produced under.
+    """
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return None
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise SystemExit(f"{path} exists but is not valid JSON ({exc}); restore or delete it, "
+                         "or use a new --out-dir") from exc
 
 
 def sha256_file(path: Path) -> str:

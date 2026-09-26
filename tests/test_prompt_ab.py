@@ -161,12 +161,17 @@ def test_samples_must_be_positive():
         pab.parse_args(["implants", "--out-dir", "x", "--samples", "0"])
 
 
-def test_unreadable_state_files_count_as_missing(tmp_path):
-    broken = tmp_path / "catalog.json"
-    broken.write_text("")
-    assert pab.read_json(broken) is None and pab.read_json(tmp_path / "absent.json") is None
+def test_unreadable_state_files_are_refused_not_rebuilt(tmp_path):
+    assert pab.read_json(tmp_path / "absent.json") is None
+    broken = tmp_path / "manifest.json"
+    broken.write_text("{\"mode\": ")
+    with pytest.raises(SystemExit, match="not valid JSON"):
+        pab.read_json(broken)
+    with pytest.raises(SystemExit, match="not valid JSON"):
+        pab.check_manifest(broken, {"mode": "implants", "arms": []})
+    assert broken.read_text() == "{\"mode\": "
     pab.write_json_atomic(broken, {"ok": 1})
-    assert pab.read_json(broken) == {"ok": 1} and not (tmp_path / "catalog.json.tmp").exists()
+    assert pab.read_json(broken) == {"ok": 1} and not (tmp_path / "manifest.json.tmp").exists()
 
 
 def test_mcnemar_counts_both_directions():
