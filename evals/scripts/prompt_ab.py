@@ -33,8 +33,9 @@ Hosts are not deterministic at temperature 0, so there the noise floors show
 how far FAIL counts move by chance, and "answers changed" says nothing.
 
 `--out-dir` holds the run's state. A manifest pins the model, grader,
-temperature, dataset and each arm's resolved commit; a rerun with different
-settings is refused, while new arms may be added to an existing run.
+temperature, dataset, each arm's resolved commit and a hash of the harness code
+(HARNESS_FILES); a rerun with different settings, or after any edit to that
+code, is refused, while new arms may be added to an existing run.
 """
 from __future__ import annotations
 
@@ -61,6 +62,11 @@ if str(REPO_ROOT) not in sys.path:
 from evals.scripts import compare_rules as cr  # noqa: E402
 
 BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
+# Code from this checkout, not the arms' revisions, that builds prompts, picks
+# agents, sends requests and grades answers, in a fixed order. The builder imports
+# its own helpers from each revision; pick_agents uses this checkout's picker.
+HARNESS_FILES = (Path(__file__).resolve(), BUILDER, Path(cr.__file__).resolve(),
+                 REPO_ROOT / "evals/runners/_providers.py", REPO_ROOT / "evals/runners/run_mcp_vs_vanilla.py")
 DEFAULT_DATASET = cr.DEFAULT_DATASET
 MAX_TOKENS = 800  # default answer budget; a thinking model spends part of it reasoning
 DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-large"  # picks skills and implants in the builds
@@ -119,13 +125,16 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """Records of a JSONL state file.
 
     A kill during an append can leave a truncated last line with no newline; that
-    fragment is dropped from the file so the run resumes. Any other bad line is an
-    error.
+    fragment is dropped from the file so the run resumes. A complete last record
+    that lost only its newline gets it back, or the next append would continue
+    its line. Any other bad line is an error.
     """
     if not path.exists():
         return []
     text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
+    # Not splitlines(): it also splits at U+2028 and U+0085, which json.dumps
+    # leaves unescaped inside an answer.
+    lines = text.split("\n")
     rows = []
     for number, line in enumerate(lines, 1):
         if not line.strip():
@@ -137,6 +146,11 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise
             log(f"dropping a truncated last record in {path}")
             path.write_text(text[:len(text) - len(line)], encoding="utf-8")
+            return rows
+    if text and not text.endswith("\n"):
+        log(f"ending the last record in {path} with its missing newline")
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n")
     return rows
 
 
@@ -171,23 +185,51 @@ def read_json(path: Path) -> Any | None:
                          "or use a new --out-dir") from exc
 
 
+def read_manifest(path: Path) -> dict[str, Any] | None:
+    """The run manifest, or None when there is none; anything but a JSON object is refused."""
+    if not path.exists():
+        return None
+    # read_json() also returns None for a file holding JSON null, which is refused here.
+    manifest = read_json(path)
+    if not isinstance(manifest, dict):
+        raise SystemExit(f"{path} is not a JSON object; restore or delete it, or use a new --out-dir")
+    return manifest
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def harness_sha256() -> str:
+    """One hash over HARNESS_FILES, so a resume cannot mix records made by other code."""
+    return hashlib.sha256("".join(sha256_file(p) for p in HARNESS_FILES).encode()).hexdigest()
+
+
+def has_records(out: Path) -> bool:
+    """Whether prompts, answers or grades were built in the directory."""
+    return any(out.glob("prompts_*.json")) or any(
+        (out / name).exists() for name in ("answers.jsonl", "grades.jsonl"))
+
+
 def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
-    old = read_json(path)
+    old = read_manifest(path)
+    if old is None and has_records(path.parent):
+        # run() writes the manifest before any record, so records without one were
+        # made under settings nothing recorded; adopting them would pin them to these.
+        # A generated agent map without one is refused by agents_pin; a supplied map
+        # may live in the directory.
+        raise SystemExit(f"{path.parent} holds run records but no manifest.json; use a new --out-dir")
     if old is not None:
         # Runs made before --max-tokens existed used the fixed default. A missing
         # embedding model is checked per prompt file instead (build_prompts); request
-        # settings and builder config of such a run cannot be established, so it is
-        # not resumed.
-        if ("request_settings" not in old and current.get("request_settings") is not None) or (
-                "builder_config" not in old and "builder_config" in current):
+        # settings, builder config and harness code of such a run cannot be
+        # established, so it is not resumed.
+        if ("request_settings" not in old and current.get("request_settings") is not None) or any(
+                key not in old and key in current for key in ("builder_config", "harness_sha256")):
             raise SystemExit(f"{path.parent} was run before its settings were fully recorded; use a new --out-dir")
         for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
-                    "max_tokens", "embedding_model", "request_settings", "builder_config",
+                    "max_tokens", "embedding_model", "request_settings", "builder_config", "harness_sha256",
                     "dataset_sha256", "agents_sha256"):
             if key == "embedding_model" and key not in old:
                 continue
@@ -293,6 +335,10 @@ async def build_prompts(root: Path, dataset: Path, agents: Path, out: Path, arm:
 async def pick_agents(cases, provider, client, model, catalog_path: Path, out: Path) -> dict[str, str]:
     agents = read_json(out)
     if agents is not None:
+        # A map resumed from disk reaches missing_agents(), which needs an object.
+        if not isinstance(agents, dict):
+            raise SystemExit(f"{out} is not a JSON object mapping case ids to agents; "
+                             "delete it or use a new --out-dir")
         return agents
     from evals.runners import run_mcp_vs_vanilla as rmv
     catalog = read_json(catalog_path)
@@ -303,6 +349,37 @@ async def pick_agents(cases, provider, client, model, catalog_path: Path, out: P
     write_json_atomic(out, agents)
     log(f"agents: {dict(Counter(agents.values()))}")
     return agents
+
+
+def missing_agents(cases: list[dict[str, Any]], agents: dict[str, str]) -> list[str]:
+    """Ids of the cases the map gives no agent; each revision would route those on its own."""
+    return [c["id"] for c in cases if not agents.get(c["id"])]
+
+
+def agents_pin(out: Path, agents_file: Path | None) -> str | None:
+    """The agent map's hash for the manifest; None while a generated map is not pinned yet.
+
+    run() pins a generated map right after writing it. A kill in between leaves a
+    map the manifest does not know; it is adopted while nothing was built from it,
+    since prompts are built only after the pin. Once prompts, answers or grades
+    exist the map's hash is returned, and check_manifest refuses it against the
+    recorded None. An agents.json with no manifest at all is refused here, unless
+    it is the supplied map itself, and so are records whose generated map is gone.
+    """
+    generated = out / "agents.json"
+    manifest = read_manifest(out / "manifest.json")
+    if manifest is None and generated.exists() and agents_file != generated:
+        raise SystemExit(f"{out} holds an agents.json but no manifest.json; use a new --out-dir")
+    if agents_file is not None:
+        return sha256_file(agents_file)
+    if not generated.exists():
+        if has_records(out):
+            # A fresh map would be picked anew, unlike the one the records were built from.
+            raise SystemExit(f"{out} holds prompts, answers or grades but no agents.json; use a new --out-dir")
+        return None
+    if manifest.get("agents_sha256") is None and not has_records(out):
+        return None
+    return sha256_file(generated)
 
 
 # --------------------------------------------------------------------------- #
@@ -511,6 +588,14 @@ async def run(args) -> int:
             unload(os.environ.get(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL).rstrip("/").removesuffix("/v1"), model)
 
     generated = out / "agents.json"
+    if agents_file is not None:
+        # Checked before the manifest records its hash: a map fixed after a failed
+        # check must not find the out dir pinned to the incomplete one.
+        supplied = read_json(agents_file)
+        if not isinstance(supplied, dict):
+            raise SystemExit(f"--agents {agents_file} does not exist or is not a JSON object")
+        if missing := missing_agents(cases, supplied):
+            raise SystemExit(f"{agents_file} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
     with Worktrees(REPO_ROOT) as trees:
         # Resolve each revision once: a branch that moves mid-run must not build
         # prompts from a commit other than the one the manifest records.
@@ -519,10 +604,10 @@ async def run(args) -> int:
             "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
             "temperature": temperature, "samples": args.samples, "max_tokens": args.max_tokens,
             "embedding_model": builder_env({})["EMBEDDING_MODEL"], "request_settings": request_settings(provider.name),
-            "builder_config": builder_config(),
+            "builder_config": builder_config(), "harness_sha256": harness_sha256(),
             "dataset_sha256": sha256_file(dataset),
             # A generated agent map is pinned too, once it exists (see below).
-            "agents_sha256": sha256_file(agents_file or generated) if (agents_file or generated.exists()) else None,
+            "agents_sha256": agents_pin(out, agents_file),
             "arms": [{**asdict(a), "sha": shas[a.label]} for a in arms]})
         first = trees.get(shas[arms[0].label])
         catalog = out / "catalog.json"
@@ -531,13 +616,17 @@ async def run(args) -> int:
             await run_builder(["--catalog-out", str(catalog)], first, builder_env({}))
         agents_path = agents_file or out / "agents.json"
         agents = await pick_agents(cases, provider, client, model, catalog, agents_path)
+        # Checked before the pin, so an incomplete map is never recorded as the run's.
+        if missing := missing_agents(cases, agents):
+            if agents_file is None and read_manifest(out / "manifest.json").get("agents_sha256") is None:
+                # Never pinned and nothing built from it: the next run picks the map anew
+                # instead of failing on this one again.
+                generated.unlink()
+            raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         if agents_file is None:
-            manifest = read_json(out / "manifest.json")
+            manifest = read_manifest(out / "manifest.json")
             if manifest.get("agents_sha256") is None:
                 write_json_atomic(out / "manifest.json", {**manifest, "agents_sha256": sha256_file(generated)})
-        # A case without an agent would be routed by each revision on its own.
-        if missing := [c["id"] for c in cases if c["id"] not in agents]:
-            raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         free_answer_model()
         prompts = {}
         for arm in arms:

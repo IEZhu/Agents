@@ -189,7 +189,10 @@ arm difference comes from the answers, not from evaluator or routing noise.
   production `ROUTE_REQUIRED` path); every arm enriches for that agent.
 - **Each arm builds prompts with its own revision.** `_prompt_builder.py` runs in a
   throwaway worktree of the arm's revision, so its code and content are the ones under
-  test. The per-query prompt cache is cleared before every case.
+  test. The per-query prompt cache is cleared before every case. A named implant arm
+  loads its implants on lite cases only on revisions with `enrichment.implants_needed`
+  (80bc71c or later); on older ones the build stops at the first case that did not load
+  them.
 - **Answer first, grade second, resumable.** Answers go to `answers.jsonl` and grades to
   `grades.jsonl` in `--out-dir`; a rerun skips what is already there.
 
@@ -208,9 +211,15 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   against both floors.
 - **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
   budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local or SDK endpoint URL),
-  dataset, agents file and each arm's commit. A rerun with other settings is refused, and
+  dataset, agents file, each arm's commit and a hash of the harness code (`prompt_ab.py`,
+  `_prompt_builder.py`, `compare_rules.py`, `_providers.py`, and `run_mcp_vs_vanilla.py`,
+  whose picker chooses the agents). A rerun with other settings
+  or after an edit to that code is refused, and
   so is one that reorders the arms already run; adding arms is allowed, after the first
-  arm, which stays the baseline. Cached prompt
+  arm, which stays the baseline. A directory with an agent map, prompts, answers or
+  grades but no `manifest.json` is refused, unless the map is the `--agents` file itself,
+  and so are prompts, answers or grades whose generated agent map is missing.
+  Cached prompt
   files are reused only if they were built with the current embedding model.
 - Relative paths are resolved against the directory you run from.
 
