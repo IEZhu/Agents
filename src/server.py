@@ -943,7 +943,8 @@ async def describe_repo(
 
     Returns JSON whose fields depend on status:
       refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
-      rejected (sampled summary failed the sanity check):
+      rejected, repo changed while sampling: {status, reason}
+      rejected, sampled summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
       needs_summary (no sampling; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
