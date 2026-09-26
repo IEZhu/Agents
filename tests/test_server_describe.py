@@ -179,3 +179,13 @@ async def test_http_write_requires_original_workspace_id(repo):
         repo_path=needs["repo_path"], workspace_id=needs["workspace_id"], ctx=ctx,
     ))
     assert right["status"] == "refreshed"
+
+
+@pytest.mark.asyncio
+async def test_slash_prompt_directs_the_needs_summary_fallback():
+    result = await server.mcp.get_prompt("describe_repo", {"force": "yes"})
+    text = result.messages[0].content.text
+    assert "describe_repo(force_refresh=True)" in text
+    assert "needs_summary" in text and "write_repo_summary" in text
+    for key in ("repo_hash", "repo_path", "workspace_id"):
+        assert key in text
