@@ -946,7 +946,7 @@ async def describe_repo(
       rejected, repo changed while sampling: {status, reason}
       rejected, sampled summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
-      needs_summary (no sampling; nothing written):
+      needs_summary (no sampling, or sampling failed; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
       error: {status, error}
     Pass workspace_id, repo_path and repo_hash unchanged to write_repo_summary;

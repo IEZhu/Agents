@@ -222,15 +222,17 @@ async def describe_repo(
     repo_path: str | None = None,
     force_refresh: bool = False,
 ) -> str:
-    """One-shot repo bootstrap. Generates a structured summary via MCP sampling
-    and writes it into the managed Repository Memory section of CLAUDE.md.
+    """One-shot repo bootstrap. When the client supports MCP sampling, generates
+    a structured summary and writes it into the managed Repository Memory
+    section of CLAUDE.md. Without sampling, or when the sampling call fails, it
+    writes nothing and returns needs_summary; write_repo_summary persists it.
 
     Returns JSON whose fields depend on status:
       refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
       rejected, repo changed while sampling: {status, reason}
       rejected, sampled summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
-      needs_summary (no sampling; nothing written):
+      needs_summary (no sampling, or sampling failed; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
       error: {status, error}
     """
