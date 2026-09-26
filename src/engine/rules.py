@@ -1,8 +1,8 @@
 """Always-on universal rules layer.
 
 Rules apply to every agent without exception. Anything per-agent belongs in
-``skills/``, listed in the agent's ``core_skills``/``preferred_skills``
-frontmatter. The architectural invariant is enforced in ``load_all_rules`` —
+``skills/``, listed in the agent's ``core_skills``/``preferred_skills``/
+``capable_skills`` frontmatter. The architectural invariant is enforced in ``load_all_rules`` —
 any rule with ``applies_to`` or ``exclude_agents`` fields is rejected and logged.
 
 Rules are lazy-loaded via ``get_rules()``, sorted by ``priority`` (lower first),
@@ -94,7 +94,7 @@ def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
     if forbidden:
         logger.error(
             "Rule %s has forbidden fields %s — rules are universal. "
-            "Move per-agent guidance to a skill in the agent's core_skills/preferred_skills.",
+            "Move per-agent guidance to a skill in the agent's core_skills/preferred_skills/capable_skills.",
             path, forbidden,
         )
         return None

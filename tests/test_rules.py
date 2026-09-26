@@ -79,7 +79,7 @@ def test_invariant_no_per_agent_fields_in_any_rule_file():
     """Architectural invariant: rules are universal, no opt-in/opt-out fields.
 
     A rule that needs ``applies_to`` or ``exclude_agents`` is not a rule —
-    promote it to a skill in the agent's ``core_skills``/``preferred_skills``.
+    promote it to a skill in the agent's ``core_skills``/``preferred_skills``/``capable_skills``.
     """
     for path in _list_rule_files():
         content = path.read_text(encoding="utf-8")
