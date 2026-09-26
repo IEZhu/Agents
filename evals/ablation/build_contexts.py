@@ -70,13 +70,26 @@ def conversation_block(case: dict) -> str:
 async def main(run_dir: Path) -> None:
     # Checked before the imports below, which load the embedding model.
     case_files = sorted((run_dir / "cases").glob("*.json"))
-    if not case_files:
-        raise SystemExit(f"{run_dir}/cases has no case files; run the cases step first")
     ids_file = run_dir / "ids.txt"
-    if ids_file.exists():
-        written = {path.stem for path in case_files}
-        if absent := [i for i in ids_file.read_text().split() if i not in written]:
-            raise SystemExit(f"no cases file for {absent}; rerun the cases step for them")
+    ids = ids_file.read_text().split() if ids_file.exists() else []
+    # components.json is a snapshot: a component removed from the repository since
+    # has no file to test, so it is recorded as a build error instead of stopping.
+    files = {c["id"]: c["file"] for c in json.loads((ROOT / "evals/ablation/components.json").read_text())}
+    removed = [i for i in ids if i in files and not (ROOT / files[i]).exists()]
+    written = {path.stem for path in case_files}
+    if absent := [i for i in ids if i not in written and i not in removed]:
+        raise SystemExit(f"no cases file for {absent}; rerun the cases step for them")
+    if not case_files and not removed:
+        raise SystemExit(f"{run_dir}/cases has no case files; run the cases step first")
+    removed_errors = [{"component": i, "case": "*",
+                       "error": "not in store: removed from the repository since components.json"} for i in removed]
+    if all(path.stem in removed for path in case_files):
+        # Nothing left to build: skip loading the embedding model.
+        (run_dir / "plan.json").write_text("{}\n")
+        (run_dir / "build_errors.json").write_text(json.dumps(removed_errors, ensure_ascii=False, indent=1) + "\n")
+        (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
+        print(f"0 contexts, {len(removed_errors)} errors -> {run_dir}")
+        return
     from evals.runners.run_mcp_vs_vanilla import _strip_platform_instructions
     from src import server
     from src.engine import enrichment
@@ -116,8 +129,10 @@ async def main(run_dir: Path) -> None:
 
     (run_dir / "ctx").mkdir(exist_ok=True)
     (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
-    plan, errors = {}, []
+    plan, errors = {}, list(removed_errors)
     for path in case_files:
+        if path.stem in removed:
+            continue
         spec = json.loads(path.read_text())
         component = spec["component"]
         for case in spec["cases"]:

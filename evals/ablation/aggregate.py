@@ -17,14 +17,35 @@ from collections import defaultdict
 from pathlib import Path
 
 
+MARGINS = ("small", "clear", "large")
+RUBRIC_MARKS = ("met", "partial", "missed")
+
+
 def read_verdict(path: Path) -> tuple[dict, dict]:
-    """A verdict and its factual errors; anything that is not one raises ValueError."""
+    """A verdict in the shape judges.js asks for, and its factual errors.
+
+    Anything else raises ValueError, so it is reported as missing rather than
+    counted: an object with winner A/B/tie, margin small/clear/large, a non-empty
+    rubric of {item: int, A: mark, B: mark}, reasons as text, and factual_errors as
+    {A: [str], B: [str]} (absent or null means none).
+    """
     v = json.loads(path.read_text())
     if not isinstance(v, dict) or v.get("winner") not in ("A", "B", "tie"):
         raise ValueError("not a verdict object with winner A, B or tie")
+    if v.get("margin") not in MARGINS:
+        raise ValueError(f"margin {v.get('margin')!r} is not one of {MARGINS}")
+    rubric = v.get("rubric")
+    if not isinstance(rubric, list) or not rubric or not all(
+            isinstance(r, dict) and isinstance(r.get("item"), int) and r.get("A") in RUBRIC_MARKS
+            and r.get("B") in RUBRIC_MARKS for r in rubric):
+        raise ValueError("rubric is not a list of {item: int, A: mark, B: mark}")
+    if not isinstance(v.get("reasons"), str):
+        raise ValueError("reasons is not text")
     errors = v.get("factual_errors") or {}
-    if not isinstance(errors, dict) or not all(isinstance(errors.get(k, []), list) for k in ("A", "B")):
-        raise ValueError("factual_errors is not {A: [...], B: [...]}")
+    if not isinstance(errors, dict) or not all(
+            isinstance(errors.get(k, []), list) and all(isinstance(e, str) for e in errors.get(k, []))
+            for k in ("A", "B")):
+        raise ValueError("factual_errors is not {A: [str], B: [str]}")
     return v, errors
 
 
