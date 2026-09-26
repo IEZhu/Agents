@@ -207,9 +207,10 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   reverse order, so its cached neighbours differ. Read an implant's "answers changed"
   against both floors.
 - **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
-  budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local endpoint URL),
+  budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local or SDK endpoint URL),
   dataset, agents file and each arm's commit. A rerun with other settings is refused, and
-  so is one that reorders the arms already run; adding arms is allowed. Cached prompt
+  so is one that reorders the arms already run; adding arms is allowed, after the first
+  arm, which stays the baseline. Cached prompt
   files are reused only if they were built with the current embedding model.
 - Relative paths are resolved against the directory you run from.
 

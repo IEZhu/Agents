@@ -101,6 +101,13 @@ def test_request_settings_pin_the_seed_scheme_and_the_local_endpoint(monkeypatch
     assert prov.request_settings("openrouter")["seed_scheme"] == prov.SEED_SCHEME
 
 
+def test_request_settings_pin_hosted_sdk_endpoints(monkeypatch):
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example/anthropic/")
+    assert prov.request_settings("openai") == {"base_url": "default"}
+    assert prov.request_settings("anthropic") == {"base_url": "https://gateway.example/anthropic"}
+
+
 def test_empty_answer_cut_by_max_tokens_is_an_error():
     client, _ = _client("", finish="length", is_async=True)
     with pytest.raises(RuntimeError, match="max_tokens"):

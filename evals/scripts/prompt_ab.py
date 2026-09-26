@@ -200,12 +200,16 @@ def check_manifest(path: Path, current: dict[str, Any]) -> None:
             if arm["label"] in old_arms and old_arms[arm["label"]] != arm:
                 raise SystemExit(f"arm {arm['label']!r} changed since {path.parent} was run; use a new --out-dir")
         # Reports compare every arm with the first one, so the arms already run stay,
-        # in their order; new arms may come anywhere. The requested order is stored,
-        # so the same command resumes.
+        # in their order, and the first of them stays first; new arms may come after
+        # it, anywhere. The requested order is stored, so the same command resumes.
         kept = [a["label"] for a in current["arms"] if a["label"] in old_arms]
         if kept != list(old_arms):
             raise SystemExit(f"arms were removed or reordered since {path.parent} was run "
                              f"({list(old_arms)} -> {kept}); keep them in order or use a new --out-dir")
+        baseline = next(iter(old_arms))
+        if current["arms"][0]["label"] != baseline:
+            raise SystemExit(f"arm {current['arms'][0]['label']!r} would replace {baseline!r} as the baseline of "
+                             f"{path.parent}; add new arms after it or use a new --out-dir")
     write_json_atomic(path, current)
 
 

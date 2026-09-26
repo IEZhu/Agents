@@ -121,6 +121,9 @@ def test_manifest_refuses_reordered_arms_but_accepts_arms_added_in_between(tmp_p
     # Dropping an arm already run could change the baseline silently.
     with pytest.raises(SystemExit, match="removed or reordered"):
         pab.check_manifest(path, {**base, "arms": [arm("gate"), arm("new")]})
+    # A new arm put in front of the first one would silently become the baseline.
+    with pytest.raises(SystemExit, match="baseline"):
+        pab.check_manifest(path, {**base, "arms": [arm("fresh"), arm("old"), arm("gate"), arm("new")]})
 
 
 def test_manifest_pins_the_builder_config(tmp_path):

@@ -614,6 +614,11 @@ def request_settings(provider_name: str) -> dict[str, str] | None:
         return {"reasoning": os.getenv("OPENROUTER_REASONING", "off"), "seed": os.getenv("OPENROUTER_SEED", "7"),
                 "seed_scheme": SEED_SCHEME,
                 "grader_temperature": os.getenv("OPENROUTER_GRADER_TEMPERATURE", "0")}
+    if provider_name in ("openai", "anthropic"):
+        # The SDK clients honour a base-URL override (an OpenAI-compatible proxy,
+        # a gateway): another endpoint is another backend under the same model name.
+        env = "OPENAI_BASE_URL" if provider_name == "openai" else "ANTHROPIC_BASE_URL"
+        return {"base_url": (os.getenv(env) or "default").rstrip("/")}
     if provider_name == "local":
         # The endpoint is pinned too: the same model name on another server
         # (Ollama vs LM Studio) is a different backend.
