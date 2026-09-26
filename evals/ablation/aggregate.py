@@ -27,7 +27,7 @@ def read_verdict(path: Path) -> tuple[dict, dict]:
     Anything else raises ValueError, so it is reported as missing rather than
     counted: an object with winner A/B/tie, margin small/clear/large, a non-empty
     rubric of {item: int, A: mark, B: mark}, reasons as text, and factual_errors as
-    {A: [str], B: [str]} (absent or null means none).
+    {A: [str], B: [str]} with both keys (only an absent or null field means none).
     """
     v = json.loads(path.read_text())
     if not isinstance(v, dict) or v.get("winner") not in ("A", "B", "tie"):
@@ -41,10 +41,11 @@ def read_verdict(path: Path) -> tuple[dict, dict]:
         raise ValueError("rubric is not a list of {item: int, A: mark, B: mark}")
     if not isinstance(v.get("reasons"), str):
         raise ValueError("reasons is not text")
-    errors = v.get("factual_errors") or {}
+    errors = v.get("factual_errors")
+    if errors is None:
+        return v, {"A": [], "B": []}
     if not isinstance(errors, dict) or not all(
-            isinstance(errors.get(k, []), list) and all(isinstance(e, str) for e in errors.get(k, []))
-            for k in ("A", "B")):
+            isinstance(errors.get(k), list) and all(isinstance(e, str) for e in errors[k]) for k in ("A", "B")):
         raise ValueError("factual_errors is not {A: [str], B: [str]}")
     return v, errors
 
@@ -69,7 +70,9 @@ def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
             v, errors = read_verdict(path)
             items = sorted(r["item"] for r in v["rubric"])
             n = sizes.get((p["component"], p["case"]))
-            if n is not None and items != list(range(1, n + 1)):
+            if n is None:
+                raise ValueError("the planned case is not in the run's cases, so its rubric is unknown")
+            if items != list(range(1, n + 1)):
                 raise ValueError(f"rubric items {items} do not cover the case's {n} items once each")
             winner = {"A": p["A"], "B": p["B"], "tie": "tie"}[v["winner"]]
         except (OSError, ValueError) as exc:

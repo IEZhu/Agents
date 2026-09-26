@@ -4,8 +4,9 @@
 
 Reads RUN_DIR/cases/<component>.json ({"component": id, "cases": [...]}) and
 writes RUN_DIR/ctx/<token>.md plus RUN_DIR/plan.json (token -> case, arm,
-component, agent). Refuses a run with no case files, or with a component listed in
-RUN_DIR/ids.txt that has none. RUN_DIR/build_meta.json records the commit the
+component, agent). Refuses a run with no case files, a case file whose component
+differs from its file name, or, when RUN_DIR/ids.txt exists, a listed component
+without a case file or a case file for a component it does not list. RUN_DIR/build_meta.json records the commit the
 contexts were built from, so they can be rebuilt without committing ctx/. Each context is the production enrichment for the case's
 agent and latest message, with platform instructions stripped:
 
@@ -70,8 +71,14 @@ def conversation_block(case: dict) -> str:
 async def main(run_dir: Path) -> None:
     # Checked before the imports below, which load the embedding model.
     case_files = sorted((run_dir / "cases").glob("*.json"))
+    # A case file names its component twice; building from the wrong one would test
+    # another component under this one's name.
+    if mismatched := [path.name for path in case_files if json.loads(path.read_text()).get("component") != path.stem]:
+        raise SystemExit(f"case files whose component does not match the file name: {mismatched}")
     ids_file = run_dir / "ids.txt"
     ids = ids_file.read_text().split() if ids_file.exists() else []
+    if ids_file.exists() and (extra := [path.name for path in case_files if path.stem not in ids]):
+        raise SystemExit(f"case files for components not in ids.txt: {extra}; remove them or list them there")
     # components.json is a snapshot: a component removed from the repository since
     # has no file to test, so it is recorded as a build error instead of stopping.
     files = {c["id"]: c["file"] for c in json.loads((ROOT / "evals/ablation/components.json").read_text())}
