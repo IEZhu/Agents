@@ -35,14 +35,24 @@ KEYS = ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST")
 FIELDS = "core,basic,io,trace_context,metadata,metrics"
 
 
+def env_value(raw: str) -> str:
+    """A .env value: the text inside quotes, or up to an inline ' #' comment."""
+    raw = raw.strip()
+    if raw[:1] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        return raw[1:end] if end > 0 else raw[1:]
+    return raw.split(" #", 1)[0].split("\t#", 1)[0].strip()
+
+
 def settings() -> dict[str, str]:
     found = {k: os.environ[k] for k in KEYS if os.environ.get(k)}
     env_file = ROOT / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
-            key, _, value = line.strip().partition("=")
+            key, _, value = line.strip().removeprefix("export ").partition("=")
+            key = key.strip()
             if key in KEYS and key not in found:
-                found[key] = value.strip().strip('"').strip("'")
+                found[key] = env_value(value)
     if missing := [k for k in KEYS if k not in found]:
         raise SystemExit(f"missing {missing}: set them in the environment or in {env_file}")
     return found
