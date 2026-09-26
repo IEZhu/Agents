@@ -165,7 +165,7 @@ python -m evals.runners.run_mcp_vs_vanilla --provider local --n 10 \
 | `LOCAL_LLM_MODEL` | `qwen3:8b` | model under test |
 | `LOCAL_LLM_JUDGE_MODEL` | = `LOCAL_LLM_MODEL` | grader / pairwise judge |
 | `LOCAL_LLM_TEMPERATURE` | `0` | answers only: `0` = greedy and repeatable; set e.g. `0.7` to sample. Graders, judges and router picks always run at `0` |
-| `LOCAL_LLM_SEED` | `7` | base seed when sampling; each call gets base + call index |
+| `LOCAL_LLM_SEED` | `7` | base seed when sampling; prompt_ab derives each answer's seed from its arm, case and sample (other callers: base + call index) |
 | `LOCAL_LLM_THINKING` | `0` | `1` turns thinking on for calls of ≥1024 tokens (answers); router picks, graders and judges keep it off |
 | `LOCAL_LLM_TIMEOUT` | `900` | client timeout in seconds |
 | `LOCAL_LLM_API_KEY` | `local` | only for servers that check a key |
@@ -175,7 +175,9 @@ No API key is required, and reported cost is zero.
 **Repeated samples need `LOCAL_LLM_TEMPERATURE > 0`.** At temperature 0 decoding
 is greedy: every sample and every retry re-roll returns the same text, so
 `--samples-per-case 3` only triples the run time. With sampling on, each call
-gets its own seed, so samples differ and a whole run stays reproducible.
+gets its own seed, so samples differ and a whole run stays reproducible. In prompt_ab
+the seed follows the answer's arm, case and sample number, so a resumed run gives a
+missing sample the seed it would have had instead of repeating a finished one's.
 Only answers sample. Graders, pairwise judges and router picks stay greedy, so an
 arm difference comes from the answers, not from evaluator or routing noise.
 
@@ -205,7 +207,7 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   reverse order, so its cached neighbours differ. Read an implant's "answers changed"
   against both floors.
 - **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
-  budget, embedding model, request settings (reasoning effort, seed, grader temperature),
+  budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local endpoint URL),
   dataset, agents file and each arm's commit. A rerun with other settings is refused, and
   so is one that reorders the arms already run; adding arms is allowed. Cached prompt
   files are reused only if they were built with the current embedding model.

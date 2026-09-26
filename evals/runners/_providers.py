@@ -21,6 +21,8 @@ Usage normalisation:
 from __future__ import annotations
 
 import asyncio
+import collections
+import hashlib
 import itertools
 import json
 import os
@@ -236,6 +238,7 @@ async def complete_openai(
     max_tokens: int,
     *,
     sample: bool = True,  # no effect: temperature is locked, see below
+    seed_key: str | None = None,  # no effect: no seed is sent
 ) -> tuple[str, dict[str, int], int]:
     # OpenAI's newer model family (gpt-5.x and reasoning models) requires three
     # mitigations vs the gpt-4 era:
@@ -352,6 +355,7 @@ async def complete_anthropic(
     max_tokens: int,
     *,
     sample: bool = True,  # no effect: temperature is 0 or locked, see below
+    seed_key: str | None = None,  # no effect: no seed is sent
 ) -> tuple[str, dict[str, int], int]:
     # Opus 4.7/4.8 deprecate `temperature` — see _supports_temperature_anthropic.
     # For models that still accept it, we keep `temperature=0` for determinism.
@@ -433,10 +437,31 @@ LOCAL_DEFAULT_MODEL = "qwen3:8b"
 LOCAL_THINKING_MIN_TOKENS = 1024
 _THINK_BLOCK = re.compile(r"<think>.*?(?:</think>\s*|\Z)", re.DOTALL | re.IGNORECASE)
 _call_counter = itertools.count()
+_seed_attempts: collections.Counter[str] = collections.Counter()
+SEED_SCHEME = "identity-v1"
+
+
+def _sample_seed(base: int, seed_key: str | None) -> int:
+    """Seed for one sampled call.
+
+    With a key (a caller's persisted identity such as arm, case and sample) the
+    seed depends only on that key and on the attempt number within this process.
+    A resumed run then regenerates a missing sample with the seed it would have
+    had, instead of one that follows call order and may repeat a finished
+    sample's. Retries of the same key still get a fresh seed. Without a key,
+    call order is used, as before.
+    """
+    if seed_key is None:
+        return base + next(_call_counter)
+    attempt = _seed_attempts[seed_key]
+    _seed_attempts[seed_key] += 1
+    offset = int(hashlib.sha256(seed_key.encode()).hexdigest()[:8], 16) % (1 << 20)
+    return base + offset * 64 + attempt
 
 
 def _local_request(
     model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
+    seed_key: str | None = None,
 ) -> dict[str, Any]:
     # LOCAL_LLM_TEMPERATURE samples answers only. Graders, judges and router
     # picks run greedy (sample=False), so an arm difference under sampling comes
@@ -453,7 +478,7 @@ def _local_request(
         # differ, while a whole run stays reproducible (calls are sequential in
         # the rule A/B). At temperature 0 decoding is greedy and a seed changes
         # nothing, so none is sent.
-        kwargs["seed"] = int(os.getenv("LOCAL_LLM_SEED", "7")) + next(_call_counter)
+        kwargs["seed"] = _sample_seed(int(os.getenv("LOCAL_LLM_SEED", "7")), seed_key)
     thinking = os.getenv("LOCAL_LLM_THINKING", "0") == "1" and max_tokens >= LOCAL_THINKING_MIN_TOKENS
     if not thinking:
         kwargs["reasoning_effort"] = "none"
@@ -479,13 +504,14 @@ async def complete_local(
     max_tokens: int,
     *,
     sample: bool = True,
+    seed_key: str | None = None,
 ) -> tuple[str, dict[str, int], int]:
     t0 = time.perf_counter()
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": query})
-    response = await client.chat.completions.create(**_local_request(model, messages, max_tokens, sample))
+    response = await client.chat.completions.create(**_local_request(model, messages, max_tokens, sample, seed_key))
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = _local_text(response, "completion")
     if has_harness_artifacts(text):
@@ -586,9 +612,14 @@ def request_settings(provider_name: str) -> dict[str, str] | None:
     """
     if provider_name == "openrouter":
         return {"reasoning": os.getenv("OPENROUTER_REASONING", "off"), "seed": os.getenv("OPENROUTER_SEED", "7"),
+                "seed_scheme": SEED_SCHEME,
                 "grader_temperature": os.getenv("OPENROUTER_GRADER_TEMPERATURE", "0")}
     if provider_name == "local":
-        return {"thinking": os.getenv("LOCAL_LLM_THINKING", "0"), "seed": os.getenv("LOCAL_LLM_SEED", "7")}
+        # The endpoint is pinned too: the same model name on another server
+        # (Ollama vs LM Studio) is a different backend.
+        return {"thinking": os.getenv("LOCAL_LLM_THINKING", "0"), "seed": os.getenv("LOCAL_LLM_SEED", "7"),
+                "seed_scheme": SEED_SCHEME,
+                "base_url": os.getenv(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL).rstrip("/")}
     return None
 
 
@@ -603,6 +634,7 @@ def openrouter_routing() -> dict[str, Any]:
 
 def _openrouter_request(
     model: str, messages: list[dict[str, Any]], max_tokens: int, sample: bool = True,
+    seed_key: str | None = None,
 ) -> dict[str, Any]:
     # Same sampling contract as the local provider: OPENROUTER_TEMPERATURE applies
     # to answers only; graders and router picks (sample=False) run at 0. Parameters
@@ -633,7 +665,7 @@ def _openrouter_request(
         # Hosts are not deterministic at temperature 0 (see above); a fixed seed
         # is the one lever left there. Sampled calls get a fresh seed each.
         seed = int(seed_env)
-        kwargs["seed"] = seed + next(_call_counter) if temperature else seed
+        kwargs["seed"] = _sample_seed(seed, seed_key) if temperature else seed
     return kwargs
 
 
@@ -675,13 +707,14 @@ async def complete_openrouter(
     max_tokens: int,
     *,
     sample: bool = True,
+    seed_key: str | None = None,
 ) -> tuple[str, dict[str, int], int]:
     t0 = time.perf_counter()
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": query})
-    response = await _openrouter_create(client, _openrouter_request(model, messages, max_tokens, sample))
+    response = await _openrouter_create(client, _openrouter_request(model, messages, max_tokens, sample, seed_key))
     latency_ms = int((time.perf_counter() - t0) * 1000)
     text = _openrouter_text(response, "completion")
     if has_harness_artifacts(text):
@@ -738,7 +771,7 @@ class ProviderImpl:
     default_judge_model: str
     make_async_client: Callable[[], Any]
     make_sync_client: Callable[[], Any]
-    complete: Callable  # async (client, model, query, system_prompt, max_tokens, *, sample=True)
+    complete: Callable  # async (client, model, query, system_prompt, max_tokens, *, sample=True, seed_key=None)
     call_judge: Callable  # sync
     pricing: dict[str, float]
     env_key: str  # name of the API-key env var; "" when no key is required

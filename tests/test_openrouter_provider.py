@@ -76,6 +76,31 @@ def test_sampled_answers_get_a_fresh_seed_but_graders_stay_greedy(monkeypatch):
     assert calls.kwargs["temperature"] == 0 and calls.kwargs["seed"] == 7
 
 
+def test_sampled_seed_follows_the_caller_identity_across_restarts(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_TEMPERATURE", "0.7")
+    monkeypatch.setattr(prov, "_seed_attempts", prov.collections.Counter())
+    client, calls = _client("OK.", is_async=True)
+
+    def seed(key):
+        asyncio.run(prov.complete_openrouter(client, "m", "hi", None, 50, seed_key=key))
+        return calls.kwargs["seed"]
+
+    first, retry, other = seed("arm:c1:0"), seed("arm:c1:0"), seed("arm:c1:1")
+    assert first != retry and other not in (first, retry)
+    # A restarted process (fresh attempt counter) gives each key the seed it had,
+    # whatever ran before it.
+    monkeypatch.setattr(prov, "_seed_attempts", prov.collections.Counter())
+    seed("arm:c9:0")
+    assert seed("arm:c1:1") == other and seed("arm:c1:0") == first
+
+
+def test_request_settings_pin_the_seed_scheme_and_the_local_endpoint(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://localhost:1234/v1/")
+    local = prov.request_settings("local")
+    assert local["base_url"] == "http://localhost:1234/v1" and local["seed_scheme"] == prov.SEED_SCHEME
+    assert prov.request_settings("openrouter")["seed_scheme"] == prov.SEED_SCHEME
+
+
 def test_empty_answer_cut_by_max_tokens_is_an_error():
     client, _ = _client("", finish="length", is_async=True)
     with pytest.raises(RuntimeError, match="max_tokens"):

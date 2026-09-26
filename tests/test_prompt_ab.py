@@ -36,7 +36,7 @@ def test_reversed_arm_is_answered_last_and_backwards(tmp_path):
     prompts = {a.label: {c["id"]: {"system_prompt": "base"} for c in cases} for a in arms}
     order: list[str] = []
 
-    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True, seed_key=None):
         order.append(query)
         return "a", {}, 0
 
@@ -183,7 +183,7 @@ def test_mcnemar_counts_both_directions():
 
 
 def _provider(calls):
-    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True, seed_key=None):
         calls.append(system_prompt)
         return f"answer to {query} under {system_prompt}", {}, 0
     return SimpleNamespace(name="local", complete=complete)
@@ -208,6 +208,24 @@ def test_answers_reuse_identical_prompts_but_regenerate_the_noise_floor(tmp_path
     calls.clear()
     asyncio.run(pab.answer_all(cases, arms, prompts, _provider(calls), None, "m", 1, path))
     assert calls == [] and len(pab.read_jsonl(path)) == 8
+
+
+def test_answers_seed_each_sample_by_its_persisted_identity(tmp_path):
+    cases = [{"id": "c1", "query": "q1"}]
+    arms = [pab.Arm("none", "H", implants="none")]
+    prompts = {"none": {"c1": {"system_prompt": "base"}}}
+    keys: list[str] = []
+
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True, seed_key=None):
+        keys.append(seed_key)
+        return "a", {}, 0
+
+    path = tmp_path / "answers.jsonl"
+    pab.append_jsonl(path, {"arm": "none", "id": "c1", "sample": 0, "answer": "a", "reused_from": None})
+    provider = SimpleNamespace(name="local", complete=complete)
+    asyncio.run(pab.answer_all(cases, arms, prompts, provider, None, "m", 3, path))
+    # Sample 0 was already done; the resumed samples keep their own identities.
+    assert keys == ["none:c1:1", "none:c1:2"]
 
 
 def test_grades_resume_and_a_case_fails_if_any_sample_fails(tmp_path, monkeypatch):
@@ -295,7 +313,7 @@ def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):
     agents = tmp_path / "agents.json"
     agents.write_text(json.dumps({"c0": "universal_agent", "c1": "universal_agent"}))
 
-    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True, seed_key=None):
         return f"{query} under {system_prompt}", {}, 0
 
     async def grade(provider, client, judge, case, answer):
@@ -398,7 +416,7 @@ def test_hosted_implant_runs_may_repeat_samples_and_pin_the_answer_budget(tmp_pa
     monkeypatch.setattr(pab, "BUILDER", stub)
     budgets = []
 
-    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True, seed_key=None):
         budgets.append(max_tokens)
         return "answer", {}, 0
 
@@ -459,7 +477,7 @@ def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypat
         " 'prompts': {r['id']: {'system_prompt': 'p', 'meta': {}} for r in rows}}, open(a['--out'], 'w'))\n")
     monkeypatch.setattr(pab, "BUILDER", stub)
 
-    async def complete(client, model, query, system_prompt, max_tokens, sample=True):
+    async def complete(client, model, query, system_prompt, max_tokens, sample=True, seed_key=None):
         return "answer", {}, 0
 
     async def grade(provider, client, judge, case, answer):

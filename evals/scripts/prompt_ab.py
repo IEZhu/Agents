@@ -332,7 +332,11 @@ async def answer_all(cases, arms, prompts, provider, client, model, samples: int
 
     def answer(arm, case, i, prompt):
         async def job():
-            record(arm, case["id"], i, (await provider.complete(client, model, case["query"], prompt, max_tokens))[0], None)
+            # The seed follows the persisted identity, so a resumed run regenerates
+            # a missing sample with its own seed, not a finished sample's.
+            text = (await provider.complete(client, model, case["query"], prompt, max_tokens,
+                                            seed_key=f"{arm.label}:{case['id']}:{i}"))[0]
+            record(arm, case["id"], i, text, None)
         return job
 
     # Arm by arm: a later arm may reuse an earlier arm's answers, so each arm
