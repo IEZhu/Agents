@@ -144,10 +144,11 @@ def test_builder_config_records_prompt_settings_the_revision_reads(monkeypatch):
     monkeypatch.setenv("EMBEDDING_MODEL", "m")
     monkeypatch.setenv("AGENTS_AUTO_UPDATE", "1")
     monkeypatch.setenv("AGENTS_MODEL_PATH", "/models/e5")
+    monkeypatch.setenv("AGENTS_MODEL_ARTIFACT", "e5-large-onnx")
     config = pab.builder_config()
     assert config["RULES_ENABLED"] == "0" and config["IMPLANT_NEED_GATE"] == "intent"
     # The embedding artifact is read outside config.py but changes retrieval too.
-    assert config["AGENTS_MODEL_PATH"] == "/models/e5"
+    assert config["AGENTS_MODEL_PATH"] == "/models/e5" and config["AGENTS_MODEL_ARTIFACT"] == "e5-large-onnx"
     assert "EMBEDDING_MODEL" not in config and "AGENTS_AUTO_UPDATE" not in config
 
 
