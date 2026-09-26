@@ -31,7 +31,6 @@ capable_skills:
 preferred_implants:
 - implant-skeleton-of-thought
 - implant-narrative-of-thought
-- implant-output-priming
 ---
 # Alerts Describer System Prompt
 

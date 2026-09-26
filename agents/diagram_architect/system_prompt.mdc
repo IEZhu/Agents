@@ -30,7 +30,6 @@ capable_skills:
 - skill-reasoning-logic
 preferred_implants:
 - implant-skeleton-of-thought
-- implant-output-priming
 ---
 # Diagram Architect System Prompt
 
