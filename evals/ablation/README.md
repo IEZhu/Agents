@@ -18,8 +18,9 @@ batches of 10. Results are in `RESULTS.md`; the raw runs of the sweep, its
 re-tests and the cloud pilot are on branch `archive/ablation-runs-2026-09`.
 `components.json` is the snapshot that sweep ran, so it still lists components
 removed since (`skill-token-economy`, #94); a rerun on `main` records those in
-`build_errors.json` as "not in store". `runs/SOURCES.md` on the archive branch
-names the commit each archived run was built from.
+`build_errors.json` as "not in store". `components.py --write --force` regenerates it;
+without `--force` it refuses to replace the snapshot. `runs/SOURCES.md` on the archive
+branch names the commit each archived run was built from.
 
 ## Running one batch (cloud session)
 

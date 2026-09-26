@@ -4,11 +4,15 @@
 
 Reads RUN_DIR/cases/<component>.json ({"component": id, "cases": [...]}) and
 writes RUN_DIR/ctx/<token>.md plus RUN_DIR/plan.json (token -> case, arm,
-component, agent). Refuses a run with no case files, a case file whose component
-differs from its file name or that repeats a case id, or, when RUN_DIR/ids.txt exists, a listed component
-without a case file or a case file for a component it does not list. RUN_DIR/build_meta.json records the commit the
-contexts were built from, so they can be rebuilt without committing ctx/. Each context is the production enrichment for the case's
-agent and latest message, with platform instructions stripped:
+component, agent, context hash). Each context is the production enrichment for the
+case's agent and latest message, with platform instructions stripped.
+
+Refuses a run with no case files, a case file whose component differs from its
+file name or that repeats a case id, and, when RUN_DIR/ids.txt exists, a listed
+component without a case file or a case file for a component it does not list.
+RUN_DIR/build_meta.json records the commit the contexts were built from, so they
+can be rebuilt without committing ctx/. On a rebuild, the answer to a context that
+changed is deleted so it is answered again; an unchanged context keeps its answer.
 
 - rule-*:    with = production prompt;       without = that rule's section cut
 - skill-*:   with = production skills + this skill (added if retrieval missed it);
@@ -30,13 +34,36 @@ os.environ.setdefault("AGENTS_AUTO_UPDATE", "0")
 os.environ.setdefault("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
 
 
+PROMPT_SOURCES = ("agents", "skills", "implants", "rules", "src", "evals/ablation", "evals/runners")
+
+
+def ctx_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def drop_stale_answer(run_dir: Path, token: str, text: str, previous: dict) -> None:
+    """Delete the answer to a context that changed since it was answered.
+
+    The previous plan records each context's hash; runs built before that are
+    compared with ctx/ when it is still there. An unchanged context keeps its answer.
+    """
+    before = previous.get(token, {}).get("ctx_sha256")
+    ctx = run_dir / "ctx" / f"{token}.md"
+    if before is None and ctx.exists():
+        before = ctx_sha256(ctx.read_text(encoding="utf-8"))
+    if before is not None and before != ctx_sha256(text):
+        (run_dir / "answers" / f"{token}.md").unlink(missing_ok=True)
+
+
 def build_meta() -> dict:
     """The commit the contexts come from, and whether the tree differed from it."""
     import subprocess
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+    # Untracked files count: a new, uncommitted skill changes the contexts as much as an edit.
+    changed = git("status", "--porcelain", "--", *PROMPT_SOURCES, ":(exclude)evals/ablation/runs")
+    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(changed),
             "embedding_model": os.environ["EMBEDDING_MODEL"]}
 
 
@@ -141,6 +168,7 @@ async def main(run_dir: Path) -> None:
 
     (run_dir / "ctx").mkdir(exist_ok=True)
     (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
+    previous = json.loads((run_dir / "plan.json").read_text()) if (run_dir / "plan.json").exists() else {}
     plan, errors = {}, list(removed_errors)
     for path in case_files:
         if path.stem in removed:
@@ -161,9 +189,10 @@ async def main(run_dir: Path) -> None:
             for arm, (prompt, meta) in built.items():
                 token = hashlib.sha1(f"{component}:{case['id']}:{arm}".encode()).hexdigest()[:12]
                 text = f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"
+                drop_stale_answer(run_dir, token, text, previous)
                 (run_dir / "ctx" / f"{token}.md").write_text(text, encoding="utf-8")
                 plan[token] = {"component": component, "case": case["id"], "arm": arm,
-                               "agent": case["agent"], "chars": len(prompt), **meta}
+                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(text), **meta}
             delta = len(built["with"][0]) - len(built["without"][0])
             print(f"{component}/{case['id']}: {case['agent']} tier={built['with'][1]['tier']} +{delta} chars", flush=True)
     restore()

@@ -26,6 +26,7 @@ def _module(name: str):
 aggregate = _module("aggregate")
 build_judges = _module("build_judges")
 build_contexts = _module("build_contexts")
+components = _module("components")
 
 VERDICT = {"winner": "B", "margin": "small",
            "rubric": [{"item": 1, "A": "met", "B": "met"}, {"item": 2, "A": "partial", "B": "met"}],
@@ -201,3 +202,38 @@ def test_build_contexts_records_a_removed_component_without_loading_the_model(tm
     assert [(e["component"], e["error"].split(":")[0]) for e in errors] == [("skill-gone", "not in store")]
     assert json.loads((run / "plan.json").read_text()) == {}
     assert set(json.loads((run / "build_meta.json").read_text())) == {"commit", "dirty", "embedding_model"}
+
+
+def test_a_rebuilt_context_that_changed_loses_its_answer(tmp_path):
+    run = tmp_path / "run"
+    (run / "ctx").mkdir(parents=True)
+    (run / "answers").mkdir()
+
+    def answered(token):
+        (run / "answers" / f"{token}.md").write_text("answer")
+        return run / "answers" / f"{token}.md"
+
+    same = build_contexts.ctx_sha256("context")
+    # The previous plan knows the hash: a changed context loses its answer, an unchanged one keeps it.
+    build_contexts.drop_stale_answer(run, "t1", "context", {"t1": {"ctx_sha256": same}})
+    assert answered("t1").exists()
+    build_contexts.drop_stale_answer(run, "t1", "revised context", {"t1": {"ctx_sha256": same}})
+    assert not (run / "answers" / "t1.md").exists()
+    # A run from before the hash was recorded falls back to the ctx file, when there is one.
+    answered("t2")
+    (run / "ctx" / "t2.md").write_text("context")
+    build_contexts.drop_stale_answer(run, "t2", "revised context", {})
+    assert not (run / "answers" / "t2.md").exists()
+    build_contexts.drop_stale_answer(run, "t3", "context", {})
+    assert answered("t3").exists()
+
+
+def test_the_components_snapshot_is_not_replaced_by_accident(tmp_path, monkeypatch):
+    snapshot = _write(tmp_path / "components.json", [{"id": f"skill-{i}"} for i in range(25)])
+    monkeypatch.setattr(components, "OUT", snapshot)
+    for argv in ([], ["--write"], ["--batch", "0"], ["--batch", "4"]):
+        monkeypatch.setattr("sys.argv", ["components.py", *argv])
+        with pytest.raises(SystemExit):
+            components.main()
+    assert len(json.loads(snapshot.read_text())) == 25
+
