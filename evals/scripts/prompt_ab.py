@@ -185,6 +185,14 @@ def read_json(path: Path) -> Any | None:
                          "or use a new --out-dir") from exc
 
 
+def read_manifest(path: Path) -> dict[str, Any] | None:
+    """The run manifest, or None when there is none; anything but a JSON object is refused."""
+    manifest = read_json(path)
+    if manifest is not None and not isinstance(manifest, dict):
+        raise SystemExit(f"{path} is not a JSON object; restore or delete it, or use a new --out-dir")
+    return manifest
+
+
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -202,7 +210,7 @@ def has_records(out: Path) -> bool:
 
 def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
-    old = read_json(path)
+    old = read_manifest(path)
     if old is None and has_records(path.parent):
         # run() writes the manifest before any record, so records without one were
         # made under settings nothing recorded; adopting them would pin them to these.
@@ -344,7 +352,7 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     it is the supplied map itself.
     """
     generated = out / "agents.json"
-    manifest = read_json(out / "manifest.json")
+    manifest = read_manifest(out / "manifest.json")
     if manifest is None and generated.exists() and agents_file != generated:
         raise SystemExit(f"{out} holds an agents.json but no manifest.json; use a new --out-dir")
     if agents_file is not None:
@@ -583,7 +591,7 @@ async def run(args) -> int:
         if missing := [c["id"] for c in cases if c["id"] not in agents]:
             raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         if agents_file is None:
-            manifest = read_json(out / "manifest.json")
+            manifest = read_manifest(out / "manifest.json")
             if manifest.get("agents_sha256") is None:
                 write_json_atomic(out / "manifest.json", {**manifest, "agents_sha256": sha256_file(generated)})
         free_answer_model()
