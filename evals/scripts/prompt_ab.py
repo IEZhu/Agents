@@ -193,9 +193,19 @@ def harness_sha256() -> str:
     return hashlib.sha256("".join(sha256_file(p) for p in HARNESS_FILES).encode()).hexdigest()
 
 
+def has_run_state(out: Path) -> bool:
+    """Whether the directory holds records a run produced from its settings."""
+    return any(out.glob("prompts_*.json")) or any(
+        (out / name).exists() for name in ("agents.json", "answers.jsonl", "grades.jsonl"))
+
+
 def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
+    if old is None and has_run_state(path.parent):
+        # run() writes the manifest before any record, so records without one were
+        # made under settings nothing recorded; adopting them would pin them to these.
+        raise SystemExit(f"{path.parent} holds run records but no manifest.json; use a new --out-dir")
     if old is not None:
         # Runs made before --max-tokens existed used the fixed default. A missing
         # embedding model is checked per prompt file instead (build_prompts); request
