@@ -463,7 +463,7 @@ async def run_arm(
 
 
 async def full_ab(cases, args) -> int:
-    from evals.runners._providers import get_provider, judge_env_default, missing_credentials
+    from evals.runners._providers import get_provider, judge_env_default, missing_credentials, openrouter_routing
     import os
 
     provider = get_provider(args.provider)
@@ -472,6 +472,10 @@ async def full_ab(cases, args) -> int:
     missing = missing_credentials(provider)
     if missing:
         raise SystemExit(f"{missing} not set in env (required for --provider {provider.name})")
+    if provider.name == "openrouter" and not openrouter_routing().get("order"):
+        # An unpinned pool can serve the two arms from hosts with different
+        # weights, which this A/B cannot tell apart from the rule change.
+        raise SystemExit("--provider openrouter needs OPENROUTER_PROVIDER (e.g. novita/bf16) to pin the endpoints")
 
     base_prompts = await build_prompts(cases, Path(args.baseline_rule))
     cand_prompts = await build_prompts(cases, Path(args.candidate_rule))
