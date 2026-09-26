@@ -623,11 +623,13 @@ def test_a_generated_agent_map_a_kill_left_unpinned_is_adopted(tmp_path, monkeyp
 def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
     (tmp_path / "agents.json").write_text("{}")
     pinned = pab.sha256_file(tmp_path / "agents.json")
-    assert pab.agents_pin(tmp_path, None) == pinned  # no manifest: hashed as found
-    # ... but a directory with records and no manifest is refused outright.
+    # A generated map with no manifest was made under settings nothing recorded.
     with pytest.raises(SystemExit, match="no manifest"):
-        pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
-    assert not (tmp_path / "manifest.json").exists()
+        pab.agents_pin(tmp_path, None)
+    # A map supplied with --agents may live in the out dir of a fresh run.
+    assert pab.agents_pin(tmp_path, tmp_path / "agents.json") == pinned
+    pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
+    (tmp_path / "manifest.json").unlink()
     pab.write_json_atomic(tmp_path / "manifest.json", {"agents_sha256": None})
     assert pab.agents_pin(tmp_path, None) is None
     for state in ("prompts_none.json", "answers.jsonl", "grades.jsonl"):

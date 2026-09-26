@@ -202,9 +202,11 @@ def has_records(out: Path) -> bool:
 def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
-    if old is None and ((path.parent / "agents.json").exists() or has_records(path.parent)):
+    if old is None and has_records(path.parent):
         # run() writes the manifest before any record, so records without one were
         # made under settings nothing recorded; adopting them would pin them to these.
+        # A generated agent map without one is refused by agents_pin; a supplied map
+        # may live in the directory.
         raise SystemExit(f"{path.parent} holds run records but no manifest.json; use a new --out-dir")
     if old is not None:
         # Runs made before --max-tokens existed used the fixed default. A missing
@@ -337,7 +339,7 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     map the manifest does not know; it is adopted while nothing was built from it,
     since prompts are built only after the pin. Once prompts, answers or grades
     exist the map's hash is returned, and check_manifest refuses it against the
-    recorded None.
+    recorded None. A generated map with no manifest at all is refused here.
     """
     if agents_file is not None:
         return sha256_file(agents_file)
@@ -345,7 +347,9 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     if not generated.exists():
         return None
     manifest = read_json(out / "manifest.json")
-    if manifest is not None and manifest.get("agents_sha256") is None and not has_records(out):
+    if manifest is None:
+        raise SystemExit(f"{out} holds a generated agents.json but no manifest.json; use a new --out-dir")
+    if manifest.get("agents_sha256") is None and not has_records(out):
         return None
     return sha256_file(generated)
 
