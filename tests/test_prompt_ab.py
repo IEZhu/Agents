@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -138,6 +139,25 @@ def test_manifest_pins_the_builder_config(tmp_path):
         pab.check_manifest(legacy, {**_manifest(), "builder_config": {}})
 
 
+def test_manifest_pins_the_harness_code(tmp_path, monkeypatch):
+    assert all(path.is_file() for path in pab.HARNESS_FILES)
+    code = tmp_path / "harness.py"
+    code.write_text("x = 1\n")
+    monkeypatch.setattr(pab, "HARNESS_FILES", (code,))
+    path = tmp_path / "manifest.json"
+    pab.check_manifest(path, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+    pab.check_manifest(path, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+    # Edited generation or grading code must not add records to the old ones.
+    code.write_text("x = 2\n")
+    with pytest.raises(SystemExit, match="harness_sha256"):
+        pab.check_manifest(path, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+    legacy = tmp_path / "legacy" / "manifest.json"
+    legacy.parent.mkdir()
+    pab.check_manifest(legacy, _manifest())
+    with pytest.raises(SystemExit, match="fully recorded"):
+        pab.check_manifest(legacy, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+
+
 def test_builder_config_records_prompt_settings_the_revision_reads(monkeypatch):
     monkeypatch.setenv("RULES_ENABLED", "0")
     monkeypatch.setenv("IMPLANT_NEED_GATE", "intent")
@@ -177,6 +197,20 @@ def test_unreadable_state_files_are_refused_not_rebuilt(tmp_path):
     with pytest.raises(SystemExit, match="not valid JSON"):
         pab.check_manifest(broken, {"mode": "implants", "arms": []})
     assert broken.read_text() == "{\"mode\": "
+    for not_an_object in ("[]", "\"manifest\"", "3", "null"):
+        broken.write_text(not_an_object)
+        with pytest.raises(SystemExit, match="not a JSON object"):
+            pab.check_manifest(broken, {"mode": "implants", "arms": []})
+        with pytest.raises(SystemExit, match="not a JSON object"):
+            pab.agents_pin(tmp_path, None)
+    orphan = tmp_path / "orphan"
+    for record in ("answers.jsonl", "grades.jsonl", "prompts_none.json"):
+        orphan.mkdir(exist_ok=True)
+        (orphan / record).write_text("")
+        with pytest.raises(SystemExit, match="no manifest"):
+            pab.check_manifest(orphan / "manifest.json", {"mode": "implants", "arms": []})
+        (orphan / record).unlink()
+    pab.check_manifest(orphan / "manifest.json", {"mode": "implants", "arms": []})
     pab.write_json_atomic(broken, {"ok": 1})
     assert pab.read_json(broken) == {"ok": 1} and not (tmp_path / "manifest.json.tmp").exists()
 
@@ -279,11 +313,7 @@ def test_local_ab_runs_prompt_ab_under_its_server():
         la.parse_args(["--", "rm", "-rf", "/"])
 
 
-def test_builder_records_match_the_preferred_implant_fast_path():
-    metas = [{"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV BODY",
-              "description": "d"},
-             {"filename": "implant-step-back-prompting.mdc", "short_name": "StepBack", "body": "SB", "description": "d"}]
-
+def _implant_retriever(metas):
     class Store:
         def get_all_metadatas(self):
             return metas
@@ -293,12 +323,59 @@ def test_builder_records_match_the_preferred_implant_fast_path():
             return SimpleNamespace(ids=[m["filename"] for m in chosen], metadatas=chosen,
                                    documents=["index text"] * len(chosen))
 
-    retriever = SimpleNamespace(store=Store())
+    return SimpleNamespace(store=Store())
+
+
+def test_builder_records_match_the_preferred_implant_fast_path():
+    metas = [{"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV BODY",
+              "description": "d"},
+             {"filename": "implant-step-back-prompting.mdc", "short_name": "StepBack", "body": "SB", "description": "d"}]
+    retriever = _implant_retriever(metas)
     records = builder.implant_records(retriever, ["StepBack", "implant-chain-of-verification"])
     assert [(r["filename"], r["content"]) for r in records] == [
         ("implant-step-back-prompting.mdc", "SB"), ("implant-chain-of-verification.mdc", "COV BODY")]
     with pytest.raises(SystemExit, match="unknown implants"):
         builder.implant_records(retriever, ["Nope"])
+
+
+@pytest.mark.parametrize("need_gate", [True, False])
+def test_a_named_arm_must_load_its_implant_on_every_case(tmp_path, monkeypatch, need_gate):
+    """A revision without implants_needed skips lite cases before retrieve, which the builder patches."""
+    import evals.runners
+    import src
+    import src.engine
+
+    enrichment = SimpleNamespace(implant_retriever=_implant_retriever([
+        {"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV", "description": "d"}]))
+    if need_gate:
+        enrichment.implants_needed = lambda query, tier, profile=None: tier != "lite"
+
+    async def load_and_enrich(agent, query, history):
+        tier = "lite" if len(query) < 5 else "standard"
+        gate = getattr(enrichment, "implants_needed", lambda query, tier: tier != "lite")
+        implants = enrichment.implant_retriever.retrieve(query) if gate(query, tier) else []
+        return "prompt", "h", [], [i["metadata"]["short_name"] for i in implants], [], tier
+
+    fakes = {(src, "server"): SimpleNamespace(SESSION_CACHE={}, _load_and_enrich=load_and_enrich),
+             (src.engine, "enrichment"): enrichment,
+             (evals.runners, "run_mcp_vs_vanilla"): SimpleNamespace(_strip_platform_instructions=lambda p: p,
+                                                                    build_mcp_system_prompt=None)}
+    for (parent, name), module in fakes.items():
+        monkeypatch.setattr(parent, name, module, raising=False)
+        monkeypatch.setitem(sys.modules, f"{parent.__name__}.{name}", module)
+    dataset = tmp_path / "cases.jsonl"
+    dataset.write_text('{"id": "long", "query": "a standard question"}\n{"id": "hi", "query": "hi"}\n')
+    agents = tmp_path / "agents.json"
+    agents.write_text(json.dumps({"long": "universal_agent", "hi": "universal_agent"}))
+    args = SimpleNamespace(dataset=str(dataset), agents=str(agents), implants="CoV", out=str(tmp_path / "p.json"))
+    if need_gate:
+        asyncio.run(builder.build(args))
+        built = json.loads((tmp_path / "p.json").read_text())["prompts"]
+        assert [built[i]["meta"]["implants_loaded"] for i in ("long", "hi")] == [["CoV"], ["CoV"]]
+    else:
+        with pytest.raises(SystemExit, match=r"case 'hi' \(tier lite\).*predates enrichment.implants_needed"):
+            asyncio.run(builder.build(args))
+        assert not (tmp_path / "p.json").exists()
 
 
 def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):
@@ -463,6 +540,10 @@ def test_every_case_needs_an_agent_before_prompts_are_built(tmp_path, monkeypatc
     agents.write_text(json.dumps({"other": "universal_agent"}))
     with pytest.raises(SystemExit, match="no agent for 1 cases"):
         asyncio.run(pab.run(_run_args(tmp_path, "--agents", str(agents))))
+    # Refused before the manifest pins it, so a fixed map can be used in the same out dir.
+    assert not (tmp_path / "out/manifest.json").exists()
+    with pytest.raises(SystemExit, match="does not exist or is not a JSON object"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--agents", str(tmp_path / "absent.json"))))
 
 
 def test_a_truncated_last_record_is_dropped_but_a_bad_inner_one_is_an_error(tmp_path):
@@ -476,7 +557,25 @@ def test_a_truncated_last_record_is_dropped_but_a_bad_inner_one_is_an_error(tmp_
         pab.read_jsonl(path)
 
 
-def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
+def test_a_complete_last_record_without_its_newline_gets_one_before_the_next_append(tmp_path):
+    path = tmp_path / "answers.jsonl"
+    path.write_text('{"a": 1}')
+    assert pab.read_jsonl(path) == [{"a": 1}]
+    pab.append_jsonl(path, {"a": 2})
+    assert pab.read_jsonl(path) == [{"a": 1}, {"a": 2}]
+    assert path.read_text() == '{"a": 1}\n{"a": 2}\n'
+
+
+def test_records_whose_text_holds_unicode_line_separators_read_back(tmp_path):
+    path = tmp_path / "answers.jsonl"
+    records = [{"answer": "one two"}, {"answer": "three\x85four"}]
+    for record in records:
+        pab.append_jsonl(path, record)
+    assert pab.read_jsonl(path) == records
+
+
+def _generated_agents_run(tmp_path, monkeypatch):
+    """A local run with a stub builder, answers and grades; the agent map is generated in out/."""
     monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
     stub = tmp_path / "stub_builder.py"
     stub.write_text(
@@ -501,13 +600,18 @@ def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypat
     out = tmp_path / "out"
     out.mkdir()
     (out / "catalog.json").write_text("{}")
+    return out
 
-    async def pick(cases, provider, client, model, catalog_path, path):
-        agents = pab.read_json(path) or {c["id"]: "universal_agent" for c in cases}
-        pab.write_json_atomic(path, agents)
-        return agents
 
-    monkeypatch.setattr(pab, "pick_agents", pick)
+async def _pick_universal(cases, provider, client, model, catalog_path, path):
+    agents = pab.read_json(path) or {c["id"]: "universal_agent" for c in cases}
+    pab.write_json_atomic(path, agents)
+    return agents
+
+
+def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
+    out = _generated_agents_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(pab, "pick_agents", _pick_universal)
     assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
     manifest = pab.read_json(out / "manifest.json")
     assert manifest["agents_sha256"] == pab.sha256_file(out / "agents.json")
@@ -515,4 +619,82 @@ def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypat
     (out / "agents.json").write_text(json.dumps({"c0": "lawyer"}))
     with pytest.raises(SystemExit, match="agents_sha256"):
         asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+
+
+def test_a_generated_agent_map_a_kill_left_unpinned_is_adopted(tmp_path, monkeypatch):
+    out = _generated_agents_run(tmp_path, monkeypatch)
+
+    async def killed(*args):
+        await _pick_universal(*args)
+        raise RuntimeError("killed")  # after the map is written, before the manifest pins it
+
+    monkeypatch.setattr(pab, "pick_agents", killed)
+    with pytest.raises(RuntimeError, match="killed"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] is None and (out / "agents.json").exists()
+    monkeypatch.setattr(pab, "pick_agents", _pick_universal)
+    assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
+
+
+def test_an_incomplete_generated_agent_map_is_not_pinned(tmp_path, monkeypatch):
+    out = _generated_agents_run(tmp_path, monkeypatch)
+
+    async def partial(cases, provider, client, model, catalog_path, path):
+        pab.write_json_atomic(path, {})
+        return {}
+
+    monkeypatch.setattr(pab, "pick_agents", partial)
+    with pytest.raises(SystemExit, match="has no agent"):
+        asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV")))
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] is None
+    # The unpinned map is removed, so the next run picks a complete one.
+    assert not (out / "agents.json").exists()
+    monkeypatch.setattr(pab, "pick_agents", _pick_universal)
+    assert asyncio.run(pab.run(_run_args(tmp_path, "--implants", "CoV"))) == 0
+    assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
+
+
+def test_an_agent_map_on_disk_must_be_an_object(tmp_path):
+    for not_an_object in ("[]", "\"lawyer\"", "3"):
+        (tmp_path / "agents.json").write_text(not_an_object)
+        with pytest.raises(SystemExit, match="not a JSON object"):
+            asyncio.run(pab.pick_agents([], None, None, "m", tmp_path / "catalog.json", tmp_path / "agents.json"))
+
+
+def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
+    (tmp_path / "agents.json").write_text("{}")
+    pinned = pab.sha256_file(tmp_path / "agents.json")
+    # A generated map with no manifest was made under settings nothing recorded.
+    with pytest.raises(SystemExit, match="no manifest"):
+        pab.agents_pin(tmp_path, None)
+    # ... even when --agents supplies another map, which would leave it lying there.
+    supplied = tmp_path / "mine.json"
+    supplied.write_text('{"c0": "lawyer"}')
+    with pytest.raises(SystemExit, match="no manifest"):
+        pab.agents_pin(tmp_path, supplied)
+    # A map supplied with --agents may live in the out dir of a fresh run.
+    assert pab.agents_pin(tmp_path, tmp_path / "agents.json") == pinned
+    pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
+    (tmp_path / "manifest.json").unlink()
+    pab.write_json_atomic(tmp_path / "manifest.json", {"agents_sha256": None})
+    assert pab.agents_pin(tmp_path, None) is None
+    for state in ("prompts_none.json", "answers.jsonl", "grades.jsonl"):
+        (tmp_path / state).write_text("")
+        assert pab.agents_pin(tmp_path, None) == pinned
+        # The hash, not None, is what makes check_manifest refuse the unpinned map.
+        with pytest.raises(SystemExit, match="agents_sha256"):
+            pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
+        (tmp_path / state).unlink()
+    supplied = tmp_path / "mine.json"
+    supplied.write_text('{"c0": "lawyer"}')
+    assert pab.agents_pin(tmp_path, supplied) == pab.sha256_file(supplied)
+    # Records whose generated map is gone are refused, pinned or not.
+    (tmp_path / "agents.json").unlink()
+    for state in ("prompts_none.json", "answers.jsonl", "grades.jsonl"):
+        (tmp_path / state).write_text("")
+        with pytest.raises(SystemExit, match="no agents.json"):
+            pab.agents_pin(tmp_path, None)
+        (tmp_path / state).unlink()
+    assert pab.agents_pin(tmp_path, None) is None
 
