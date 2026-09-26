@@ -187,8 +187,11 @@ def read_json(path: Path) -> Any | None:
 
 def read_manifest(path: Path) -> dict[str, Any] | None:
     """The run manifest, or None when there is none; anything but a JSON object is refused."""
+    if not path.exists():
+        return None
+    # read_json() also returns None for a file holding JSON null, which is refused here.
     manifest = read_json(path)
-    if manifest is not None and not isinstance(manifest, dict):
+    if not isinstance(manifest, dict):
         raise SystemExit(f"{path} is not a JSON object; restore or delete it, or use a new --out-dir")
     return manifest
 
