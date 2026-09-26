@@ -153,7 +153,6 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 | `skill-prompt-engineering` | Prompt design methodology, evaluation, anti-patterns |
 | `skill-prompt-techniques` | Mega-Prompting, Few-Shot, Tone Transfer, Directional Stimulus |
 | `skill-prompt-security` | Sandwich Defense, Instructional Hierarchy, Delimiters, Negative Constraints |
-| `skill-token-economy` | Minimize token usage, eliminate redundancy |
 | `skill-error-recovery` | Universal error handling protocol |
 
 ## Loading Methods (3-Tier Per-Agent Model)
