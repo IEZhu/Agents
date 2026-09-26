@@ -13,8 +13,10 @@ they are JSON) and traces.jsonl (one record per trace, built from its root
 observation: name, timestamp, latency, input, output, metadata), the two files
 extract.py reads.
 
-The export holds the user's queries and answers verbatim: write it outside the
-repository and never commit it. extract.py turns it into text-free tables.
+The export holds the user's queries and answers as Agents-Core logged them (queries
+capped at 2000 characters, answers at 5000, by log_interaction in src/server.py) and
+the tool inputs in full: write it outside the repository and never commit it.
+extract.py turns it into text-free tables.
 """
 import argparse
 import base64
@@ -29,7 +31,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 KEYS = ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST")
-FIELDS = "core,basic,io,trace_context,metadata"
+# latency arrives with core as well, but the documentation places it under metrics.
+FIELDS = "core,basic,io,trace_context,metadata,metrics"
 
 
 def settings() -> dict[str, str]:
@@ -111,9 +114,13 @@ def main(out: Path, since: str) -> None:
             query["cursor"] = cursor
         page = get(**query)
         observations += [{**o, "input": parsed(o.get("input")), "output": parsed(o.get("output"))} for o in page["data"]]
-        cursor = page.get("meta", {}).get("cursor")
-        if not cursor or not page["data"]:
-            break
+        next_cursor = page.get("meta", {}).get("cursor")
+        if not next_cursor:
+            break  # the API omits the cursor after the last page
+        if next_cursor == cursor or not page["data"]:
+            # Asking again would loop on the same page; stopping would write a partial export.
+            raise SystemExit(f"pagination made no progress after {len(observations)} observations; nothing written")
+        cursor = next_cursor
         time.sleep(0.3)
 
     out.mkdir(parents=True, exist_ok=True)

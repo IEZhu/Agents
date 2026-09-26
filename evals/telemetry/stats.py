@@ -10,7 +10,6 @@ language checks on the logged answers, how often each skill and implant is
 retrieved, and those frequencies crossed with evals/ablation/RESULTS.md.
 The logged-answer checks are only as good as the logging: see README.md.
 """
-import bisect
 import collections
 import csv
 import json
@@ -26,17 +25,20 @@ def pct(a, b): return round(100 * a / b, 1) if b else None
 def q(vals, p):
     vals = sorted(vals); return vals[min(len(vals) - 1, int(p * len(vals)))] if vals else None
 def match_one_to_one(starts, ends, window):
-    """How many starts have a later end within the window, each end used at most once."""
+    """How many starts have a later end within the window, each end used at most once.
+
+    Greedy in time order: each start takes the earliest unused end at or after it.
+    Ends before the current start can never match a later start, so one pointer walks
+    the sorted ends once.
+    """
     ends = sorted(ends)
-    used = [False] * len(ends)
-    matched = 0
+    j = matched = 0
     for start in sorted(starts):
-        i = bisect.bisect_left(ends, start)
-        while i < len(ends) and used[i]:
-            i += 1
-        if i < len(ends) and ends[i] - start <= window:
-            used[i] = True
+        while j < len(ends) and ends[j] < start:
+            j += 1
+        if j < len(ends) and ends[j] - start <= window:
             matched += 1
+            j += 1
     return matched
 
 

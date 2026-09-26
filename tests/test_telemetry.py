@@ -133,3 +133,55 @@ def test_v2_observations_become_legacy_shaped_traces():
     # No parentless observation: the one with children stands in, even if it started later.
     assert traces["t2"]["name"] == "agent_interaction"
 
+
+def test_matching_is_the_greedy_one_to_one_pairing():
+    import random
+    from datetime import datetime, timedelta
+    rng = random.Random(7)
+    t0, window = datetime(2026, 9, 1), timedelta(seconds=30)
+
+    def brute(starts, ends):
+        used, n = set(), 0
+        for s in sorted(starts):
+            later = [i for i, e in sorted(enumerate(ends), key=lambda x: x[1]) if e >= s and i not in used]
+            if later and ends[later[0]] - s <= window:
+                used.add(later[0]); n += 1
+        return n
+
+    for _ in range(200):
+        starts = [t0 + timedelta(seconds=rng.randint(0, 120)) for _ in range(rng.randint(0, 8))]
+        ends = [t0 + timedelta(seconds=rng.randint(0, 150)) for _ in range(rng.randint(0, 8))]
+        assert stats.match_one_to_one(starts, ends, window) == brute(starts, ends)
+
+
+class _Response:
+    def __init__(self, payload):
+        self.payload = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, *args):
+        return self.payload
+
+
+def test_export_stops_when_pagination_makes_no_progress(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
+    monkeypatch.setenv("LANGFUSE_HOST", "https://example.invalid")
+    obs = {"id": "o1", "traceId": "t1", "startTime": "2026-09-01T10:00:00Z", "parentObservationId": None, "name": "x"}
+    pages = iter([{"data": [obs], "meta": {"cursor": "c1"}}, {"data": [obs], "meta": {"cursor": "c1"}}])
+    monkeypatch.setattr(export.urllib.request, "urlopen", lambda request, timeout: _Response(next(pages)))
+    monkeypatch.setattr(export.time, "sleep", lambda s: None)
+    with pytest.raises(SystemExit, match="no progress"):
+        export.main(tmp_path / "out", "2026-09-01")
+    assert not (tmp_path / "out" / "traces.jsonl").exists()
+    # A last page without a cursor ends the export normally.
+    pages = iter([{"data": [obs], "meta": {"cursor": "c1"}}, {"data": [obs], "meta": {}}])
+    export.main(tmp_path / "out", "2026-09-01")
+    assert len((tmp_path / "out" / "observations.jsonl").read_text().splitlines()) == 2
+
