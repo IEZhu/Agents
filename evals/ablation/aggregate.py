@@ -62,8 +62,13 @@ def rubric_sizes(run_dir: Path) -> dict:
 
 
 def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
+    if not (run_dir / "judge_plan.json").exists():
+        raise SystemExit(f"{run_dir}/judge_plan.json is missing; run build_judges.py first")
     judge_plan = json.loads((run_dir / "judge_plan.json").read_text())
     sizes = rubric_sizes(run_dir)
+    if not judge_plan and any(sizes):
+        # Cases exist but nothing was planned: the gap is upstream, not "no work".
+        return [], [{"pair": "*", "error": "judge_plan.json is empty although the run has cases"}]
     rows, missing = [], []
     for stem, p in sorted(judge_plan.items()):
         path = run_dir / "judge" / f"{stem}.verdict.json"

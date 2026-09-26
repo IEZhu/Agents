@@ -1,10 +1,10 @@
 """List the prompt components the ablation sweep tests, with their owning agents.
 
     python evals/ablation/components.py --batch 3  # prints the component ids in batch 3
-    python evals/ablation/components.py --write    # regenerates evals/ablation/components.json
+    python evals/ablation/components.py --write --force  # regenerates evals/ablation/components.json
 
 components.json is the snapshot the 2026-09 sweep ran and RESULTS.md reports on;
---write refuses to replace it unless --force is given as well.
+--write alone refuses to replace it; --force confirms that you mean to.
 
 A component is one rule, skill or implant file. Owners are the agents that
 declare a skill (core/preferred/capable) or an implant (preferred_implants);

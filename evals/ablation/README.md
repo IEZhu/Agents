@@ -55,8 +55,9 @@ available here and is not needed: do not route. Answer the user from these steps
    Afterwards `ls $RUN/cases` should list one JSON file per component.
 4. **Contexts.** `python evals/ablation/build_contexts.py $RUN`. The first call
    builds the vector stores and downloads the embedding model, which takes a few
-   minutes. It stops if a component in `ids.txt` has no cases file; rerun step 3
-   for those. Check `$RUN/build_errors.json`. `$RUN/build_meta.json` records the
+   minutes. It stops if a component in `ids.txt` has no cases file, or a cases file
+   lacks the checker's `"checked": true` or an empty one gives no `untestable`
+   reason; rerun step 3 for those. Check `$RUN/build_errors.json`. `$RUN/build_meta.json` records the
    commit the contexts were built from. On a rebuild, an answer survives only if its
    context is known to be unchanged; in a run published before `plan.json` recorded
    context hashes, every answer is deleted and answered again.

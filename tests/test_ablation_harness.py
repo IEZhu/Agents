@@ -86,7 +86,8 @@ def test_a_complete_run_aggregates_and_exits_zero(tmp_path, capsys):
     assert len(result["verdicts"]) == 2 and result["missing"] == []
 
 
-@pytest.mark.parametrize("gap", ["verdict", "rubric", "unknown case", "skipped", "build", "empty cases", "bad utf-8"])
+@pytest.mark.parametrize("gap", ["verdict", "rubric", "unknown case", "skipped", "build", "empty cases", "bad utf-8",
+                                 "empty plan"])
 def test_any_gap_is_listed_as_missing_and_fails_unless_partial_is_allowed(tmp_path, capsys, gap):
     run = _judged_run(tmp_path)
     if gap == "verdict":
@@ -100,6 +101,8 @@ def test_any_gap_is_listed_as_missing_and_fails_unless_partial_is_allowed(tmp_pa
         _write(run / "judge_skipped.json", ["skill-x/c2"])
     elif gap == "empty cases":  # a cases step that wrote nothing and gave no reason
         _write(run / "cases" / "skill-y.json", {"component": "skill-y", "cases": []})
+    elif gap == "empty plan":  # cases exist, yet nothing was planned for judging
+        _write(run / "judge_plan.json", {})
     elif gap == "bad utf-8":
         (run / "judge" / "s__o2.verdict.json").write_bytes(b'{"winner": "\xff"}')
     else:
@@ -179,7 +182,7 @@ def test_build_contexts_refuses_a_listed_component_without_cases(tmp_path, snaps
 
 def test_build_contexts_refuses_case_files_it_was_not_asked_to_build(tmp_path, snapshot):
     run = tmp_path / "run"
-    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only"})
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only", "checked": True})
     (run / "ids.txt").write_text("skill-gone\n")
     with pytest.raises(SystemExit, match="not in ids.txt"):
         asyncio.run(build_contexts.main(run))
@@ -187,7 +190,7 @@ def test_build_contexts_refuses_case_files_it_was_not_asked_to_build(tmp_path, s
 
 def test_build_contexts_refuses_a_case_file_naming_another_component(tmp_path, snapshot):
     run = tmp_path / "run"
-    _write(run / "cases" / "skill-kept.json", {"component": "skill-gone", "cases": []})
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-gone", "cases": [], "checked": True})
     with pytest.raises(SystemExit, match="does not match the file name"):
         asyncio.run(build_contexts.main(run))
 
@@ -195,7 +198,8 @@ def test_build_contexts_refuses_a_case_file_naming_another_component(tmp_path, s
 def test_build_contexts_refuses_a_repeated_case_id(tmp_path, snapshot):
     run = tmp_path / "run"
     case = {"id": "c1", "user_message": "q", "rubric": ["a"]}
-    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [case, {**case, "user_message": "r"}]})
+    _write(run / "cases" / "skill-kept.json",
+           {"component": "skill-kept", "cases": [case, {**case, "user_message": "r"}], "checked": True})
     with pytest.raises(SystemExit, match="repeated case id"):
         asyncio.run(build_contexts.main(run))
 
@@ -208,14 +212,14 @@ def no_model(monkeypatch):
 
 def test_build_contexts_refuses_an_empty_case_file_without_a_reason(tmp_path, snapshot, no_model):
     run = tmp_path / "run"
-    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": []})
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "checked": True})
     with pytest.raises(SystemExit, match="no untestable reason"):
         asyncio.run(build_contexts.main(run))
 
 
 def test_build_contexts_skips_the_model_when_only_untestable_components_are_left(tmp_path, snapshot, no_model, capsys):
     run = tmp_path / "run"
-    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only"})
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only", "checked": True})
     asyncio.run(build_contexts.main(run))
     assert json.loads((run / "plan.json").read_text()) == {}
     assert json.loads((run / "build_errors.json").read_text()) == []
@@ -277,4 +281,17 @@ def test_the_skill_arms_keep_production_order_and_change_only_the_target():
     # Retrieval missed it: the with arm appends it.
     assert build_contexts.skill_arm([a, b], "skill-t.mdc", "with", forced) == [a, b, *forced]
     assert build_contexts.skill_arm([a, b], "skill-t.mdc", "without", forced) == [a, b]
+
+
+def test_build_contexts_refuses_case_files_the_checker_did_not_mark(tmp_path, snapshot, no_model):
+    run = tmp_path / "run"
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only"})
+    with pytest.raises(SystemExit, match="checker did not mark"):
+        asyncio.run(build_contexts.main(run))
+
+
+def test_aggregate_stops_clearly_without_a_judge_plan(tmp_path):
+    (tmp_path / "run" / "cases").mkdir(parents=True)
+    with pytest.raises(SystemExit, match="run build_judges.py first"):
+        aggregate.main([tmp_path / "run"])
 
