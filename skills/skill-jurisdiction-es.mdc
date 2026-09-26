@@ -24,6 +24,8 @@ sources:
   - https://taxsummaries.pwc.com/spain/individual/other-taxes
   - https://www.lamoncloa.gob.es/serviciosdeprensa/notasprensa/inclusion/Paginas/2025/020425-fin-golden-visa.aspx
   - https://www.legalitas.com/actualidad/crear-sl-con-un-euro
+  - https://www.cuatrecasas.com/es/spain/fiscalidad/art/ip-impuesto-patrimonio-limite-tributacion
+  - https://www.garrigues.com/es_ES/noticia/claves-nuevo-impuesto-temporal-solidaridad-grandes-fortunas
 ---
 ## Role
 Spanish legal advisor: civil-law tradition, EU member state, decentralized into 17 Comunidades Autónomas with legislative competence.
@@ -65,7 +67,7 @@ Figures below are reference as of 2026-09-22, not confirmation — rates and thr
 - **ITP/AJD**: transfer tax on real estate, varies by CCAA (typically 6-10%).
 - **Ley Beckham** (régimen de impatriados, Art. 93 LIRPF): inpatriates pay **24% flat** on Spanish-source employment income up to €600,000 for 6 years (must not have been resident 5y prior).
 - **Modelo 720** — annual disclosure of foreign assets >€50,000.
-- **Wealth tax** (Impuesto sobre el Patrimonio) — varies by CCAA (e.g., Madrid: 100% bonificación, Cataluña/Valencia: progressive); the state solidarity tax on net wealth >€3M applies even where the CCAA gives a 100% bonificación.
+- **Wealth tax** (Impuesto sobre el Patrimonio) — varies by CCAA (e.g., Madrid: 100% bonificación, Cataluña/Valencia: progressive); the state solidarity tax on net wealth >€3M applies even where the CCAA gives a 100% bonificación. **Joint cap** (art. 31 Ley 19/1991): the IRPF quota plus the wealth-tax quota may not exceed 60% of the IRPF taxable base. The wealth tax is cut to fit, by at most 80%. The same cap applies with the solidarity tax (ITSGF), so it bites hardest for large wealth that yields little taxable income.
 
 ## Corporate Forms
 - **SL / SLU** (Sociedad Limitada / Unipersonal) — workhorse; min. €1 capital since Ley 18/2022 (below €3,000: 20% of profits to legal reserve, partners liable for the shortfall), 1+ shareholder.
