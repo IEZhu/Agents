@@ -1,9 +1,12 @@
 """MCP config injection must keep user fields and refuse configs it cannot parse.
 
-Covers the inline Python in ``scripts/init_repo.sh``, extracted the same way as
-in ``test_daemon_migration_guards.py``.
+Covers both injectors: the inline Python in ``scripts/init_repo.sh`` (extracted
+the same way as in ``test_daemon_migration_guards.py``) and
+``scripts/_helpers/inject_mcp.py`` used by ``init_repo.bat``.
 """
+import importlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -77,6 +80,56 @@ def test_shell_injection_keeps_ld_path_that_already_has_nix_ld(tmp_path, monkeyp
 def test_shell_injection_refuses_unexpected_shapes(tmp_path, monkeypatch, original):
     with pytest.raises(SystemExit) as exc:
         _run_shell_injection(tmp_path, monkeypatch, original)
+
+    assert exc.value.code == 1
+    assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8")) == original
+
+
+@pytest.fixture
+def run_helper(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts" / "_helpers"))
+    inject_mcp = importlib.import_module("inject_mcp")
+    path = tmp_path / "mcp.json"
+
+    def run(config=None):
+        """Write ``config`` (None re-runs on the current file) and inject into it."""
+        if config is not None:
+            path.write_text(json.dumps(config), encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["inject_mcp.py", str(path), "/venv/bin/python", "/srv/server.py"])
+        inject_mcp.main()
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    return run
+
+
+def test_helper_preserves_user_fields_across_reruns(run_helper):
+    original = {
+        "mcpServers": {
+            "Agents-Core": {"command": "old", "cwd": "/work", "env": {"A": "1"}},
+            "other": {"command": "other"},
+        }
+    }
+    run_helper(original)
+    config = run_helper()
+
+    assert config["mcpServers"]["Agents-Core"] == {
+        "command": "/venv/bin/python",
+        "args": ["/srv/server.py"],
+        "cwd": "/work",
+        "env": {"A": "1"},
+    }
+    assert config["mcpServers"]["other"] == {"command": "other"}
+
+
+def test_helper_replaces_non_object_entry(run_helper):
+    config = run_helper({"mcpServers": {"Agents-Core": "x"}})
+    assert config["mcpServers"]["Agents-Core"] == {"command": "/venv/bin/python", "args": ["/srv/server.py"]}
+
+
+@pytest.mark.parametrize("original", [[{"mcpServers": {}}], {"mcpServers": "x"}, {"mcpServers": []}])
+def test_helper_refuses_unexpected_shapes(run_helper, tmp_path, original):
+    with pytest.raises(SystemExit) as exc:
+        run_helper(original)
 
     assert exc.value.code == 1
     assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8")) == original
