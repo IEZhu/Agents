@@ -33,8 +33,9 @@ Hosts are not deterministic at temperature 0, so there the noise floors show
 how far FAIL counts move by chance, and "answers changed" says nothing.
 
 `--out-dir` holds the run's state. A manifest pins the model, grader,
-temperature, dataset and each arm's resolved commit; a rerun with different
-settings is refused, while new arms may be added to an existing run.
+temperature, dataset, each arm's resolved commit and a hash of the harness code
+(HARNESS_FILES); a rerun with different settings, or after any edit to that
+code, is refused, while new arms may be added to an existing run.
 """
 from __future__ import annotations
 
@@ -61,6 +62,10 @@ if str(REPO_ROOT) not in sys.path:
 from evals.scripts import compare_rules as cr  # noqa: E402
 
 BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
+# Code from this checkout, not the arms' revisions, that builds prompts, sends
+# requests and grades answers, in a fixed order.
+HARNESS_FILES = (Path(__file__).resolve(), BUILDER, Path(cr.__file__).resolve(),
+                 REPO_ROOT / "evals/runners/_providers.py")
 DEFAULT_DATASET = cr.DEFAULT_DATASET
 MAX_TOKENS = 800  # default answer budget; a thinking model spends part of it reasoning
 DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-large"  # picks skills and implants in the builds
@@ -183,19 +188,24 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def harness_sha256() -> str:
+    """One hash over HARNESS_FILES, so a resume cannot mix records made by other code."""
+    return hashlib.sha256("".join(sha256_file(p) for p in HARNESS_FILES).encode()).hexdigest()
+
+
 def check_manifest(path: Path, current: dict[str, Any]) -> None:
     """Refuse to resume a run made with other settings; allow added arms."""
     old = read_json(path)
     if old is not None:
         # Runs made before --max-tokens existed used the fixed default. A missing
         # embedding model is checked per prompt file instead (build_prompts); request
-        # settings and builder config of such a run cannot be established, so it is
-        # not resumed.
-        if ("request_settings" not in old and current.get("request_settings") is not None) or (
-                "builder_config" not in old and "builder_config" in current):
+        # settings, builder config and harness code of such a run cannot be
+        # established, so it is not resumed.
+        if ("request_settings" not in old and current.get("request_settings") is not None) or any(
+                key not in old and key in current for key in ("builder_config", "harness_sha256")):
             raise SystemExit(f"{path.parent} was run before its settings were fully recorded; use a new --out-dir")
         for key in ("mode", "provider", "routing", "model", "judge_model", "temperature", "samples",
-                    "max_tokens", "embedding_model", "request_settings", "builder_config",
+                    "max_tokens", "embedding_model", "request_settings", "builder_config", "harness_sha256",
                     "dataset_sha256", "agents_sha256"):
             if key == "embedding_model" and key not in old:
                 continue
@@ -520,7 +530,7 @@ async def run(args) -> int:
             "mode": args.mode, "provider": provider.name, "routing": routing, "model": model, "judge_model": judge,
             "temperature": temperature, "samples": args.samples, "max_tokens": args.max_tokens,
             "embedding_model": builder_env({})["EMBEDDING_MODEL"], "request_settings": request_settings(provider.name),
-            "builder_config": builder_config(),
+            "builder_config": builder_config(), "harness_sha256": harness_sha256(),
             "dataset_sha256": sha256_file(dataset),
             # A generated agent map is pinned too, once it exists (see below).
             "agents_sha256": sha256_file(agents_file or generated) if (agents_file or generated.exists()) else None,

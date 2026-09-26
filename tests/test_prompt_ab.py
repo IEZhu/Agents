@@ -139,6 +139,25 @@ def test_manifest_pins_the_builder_config(tmp_path):
         pab.check_manifest(legacy, {**_manifest(), "builder_config": {}})
 
 
+def test_manifest_pins_the_harness_code(tmp_path, monkeypatch):
+    assert all(path.is_file() for path in pab.HARNESS_FILES)
+    code = tmp_path / "harness.py"
+    code.write_text("x = 1\n")
+    monkeypatch.setattr(pab, "HARNESS_FILES", (code,))
+    path = tmp_path / "manifest.json"
+    pab.check_manifest(path, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+    pab.check_manifest(path, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+    # Edited generation or grading code must not add records to the old ones.
+    code.write_text("x = 2\n")
+    with pytest.raises(SystemExit, match="harness_sha256"):
+        pab.check_manifest(path, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+    legacy = tmp_path / "legacy" / "manifest.json"
+    legacy.parent.mkdir()
+    pab.check_manifest(legacy, _manifest())
+    with pytest.raises(SystemExit, match="fully recorded"):
+        pab.check_manifest(legacy, {**_manifest(), "harness_sha256": pab.harness_sha256()})
+
+
 def test_builder_config_records_prompt_settings_the_revision_reads(monkeypatch):
     monkeypatch.setenv("RULES_ENABLED", "0")
     monkeypatch.setenv("IMPLANT_NEED_GATE", "intent")
