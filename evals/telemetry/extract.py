@@ -35,6 +35,14 @@ def lang(text):
     return "ru" if c / (c + l) >= 0.3 else "en"
 
 
+def distance(d):
+    """One format for retrieval distances: the legacy API returned 0, the v2 API 0.0."""
+    try:
+        return f"{float(d):.4f}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def parse(x):
     if isinstance(x, str):
         try:
@@ -46,6 +54,8 @@ def parse(x):
 
 def write(D, name, rows):
     if not rows:
+        # A stale table from an earlier export would be mixed into this one's stats.
+        (D / f"{name}.csv").unlink(missing_ok=True)
         return
     keys = list(dict.fromkeys(k for r in rows for k in r))
     with open(D / f"{name}.csv", "w", newline="") as f:
@@ -68,7 +78,7 @@ def main(D: Path) -> None:
             route.append({**base, "q_len": len(q), "q_lang": lang(q), "protocol": kw.get("protocol_version"),
                           "has_hash": bool(kw.get("context_hash")), "has_history": bool(kw.get("chat_history")),
                           "status": o.get("status", "?" if out is None else "unparsed"), "tier": o.get("tier"),
-                          "agent": o.get("agent"), "reasoning": (o.get("reasoning") or "")[:60],
+                          "agent": o.get("agent"), "reasoning_len": len(o.get("reasoning") or ""),
                           "n_candidates": len(o.get("candidates") or []),
                           "n_skills": len(o.get("skills_loaded") or []), "n_implants": len(o.get("implants_loaded") or []),
                           "prompt_chars": len(o.get("system_prompt") or ""), "request_id": o.get("request_id")})
@@ -85,12 +95,12 @@ def main(D: Path) -> None:
             o = out if isinstance(out, list) else []
             skills.append({**base, "n_results": kw.get("n_results"), "n_mandatory": len(kw.get("mandatory") or []),
                            "n_preferred": len(kw.get("preferred") or []), "n_capable": len(kw.get("capable") or []),
-                           "returned": "|".join(f"{s.get('filename','?').removesuffix('.mdc')}:{s.get('tier','')}:{s.get('distance')}" for s in o if isinstance(s, dict))})
+                           "returned": "|".join(f"{s.get('filename','?').removesuffix('.mdc')}:{s.get('tier','')}:{distance(s.get('distance'))}" for s in o if isinstance(s, dict))})
         elif n == "retrieve_implants":
             o = out if isinstance(out, list) else []
             implants.append({**base, "role": kw.get("role"), "n_results": kw.get("n_results"),
                              "n_preferred": len(kw.get("preferred_implants") or []),
-                             "returned": "|".join(f"{s.get('filename','?').removesuffix('.mdc')}:{s.get('distance')}" for s in o if isinstance(s, dict))})
+                             "returned": "|".join(f"{s.get('filename','?').removesuffix('.mdc')}:{distance(s.get('distance'))}" for s in o if isinstance(s, dict))})
         elif n == "read_history":
             o = out if isinstance(out, dict) else {}
             hist.append({**base, "mode": o.get("mode"), "total": o.get("total"), "has_query": bool(kw.get("query"))})

@@ -10,7 +10,7 @@ scripts export that data and summarise it.
 ```bash
 # 1. Export everything (keys from the environment or .env). Write OUTSIDE the repository:
 #    the export holds queries and answers verbatim.
-python evals/telemetry/export_langfuse.py ~/evals-runs/langfuse-$(date +%F)
+python evals/telemetry/export_langfuse.py ~/evals-runs/langfuse-$(date +%F) [--since YYYY-MM-DD]
 
 # 2. Text-free tables: lengths, statuses, agents, loaded components, heuristic language.
 python evals/telemetry/extract.py ~/evals-runs/langfuse-$(date +%F)
@@ -19,9 +19,14 @@ python evals/telemetry/extract.py ~/evals-runs/langfuse-$(date +%F)
 python evals/telemetry/stats.py ~/evals-runs/langfuse-$(date +%F)
 ```
 
-The export of 30 days (about 4,000 traces and 4,500 observations) took a few minutes
-and 113 MB. The CSV tables are small and contain no query or answer text; the raw
-JSONL files do, so keep them local.
+The export uses the v2 observations API with cursor pagination; the legacy
+`/api/public/traces` and `/api/public/observations` endpoints stop working on Langfuse
+Cloud on 2026-11-16. `traces.jsonl` is rebuilt from each trace's root observation, in
+the shape the legacy endpoint returned, so `extract.py` reads either. Checked against
+a legacy export of the same period, every extracted table matched apart from rows at the
+cut-off second. 30 days (about 4,500 observations) export in a few minutes. The CSV
+tables are small and contain no query or answer text; the raw JSONL files do, so keep
+them local.
 
 Read the numbers with the caveats below before drawing conclusions: several metrics
 are shaped by how the data is logged rather than by behaviour.
