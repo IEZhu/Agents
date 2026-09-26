@@ -189,7 +189,10 @@ arm difference comes from the answers, not from evaluator or routing noise.
   production `ROUTE_REQUIRED` path); every arm enriches for that agent.
 - **Each arm builds prompts with its own revision.** `_prompt_builder.py` runs in a
   throwaway worktree of the arm's revision, so its code and content are the ones under
-  test. The per-query prompt cache is cleared before every case.
+  test. The per-query prompt cache is cleared before every case. A named implant arm
+  loads its implants on lite cases only on revisions with `enrichment.implants_needed`
+  (80bc71c or later); on older ones the build stops at the first case that did not load
+  them.
 - **Answer first, grade second, resumable.** Answers go to `answers.jsonl` and grades to
   `grades.jsonl` in `--out-dir`; a rerun skips what is already there.
 

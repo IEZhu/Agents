@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -275,11 +276,7 @@ def test_local_ab_runs_prompt_ab_under_its_server():
         la.parse_args(["--", "rm", "-rf", "/"])
 
 
-def test_builder_records_match_the_preferred_implant_fast_path():
-    metas = [{"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV BODY",
-              "description": "d"},
-             {"filename": "implant-step-back-prompting.mdc", "short_name": "StepBack", "body": "SB", "description": "d"}]
-
+def _implant_retriever(metas):
     class Store:
         def get_all_metadatas(self):
             return metas
@@ -289,12 +286,59 @@ def test_builder_records_match_the_preferred_implant_fast_path():
             return SimpleNamespace(ids=[m["filename"] for m in chosen], metadatas=chosen,
                                    documents=["index text"] * len(chosen))
 
-    retriever = SimpleNamespace(store=Store())
+    return SimpleNamespace(store=Store())
+
+
+def test_builder_records_match_the_preferred_implant_fast_path():
+    metas = [{"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV BODY",
+              "description": "d"},
+             {"filename": "implant-step-back-prompting.mdc", "short_name": "StepBack", "body": "SB", "description": "d"}]
+    retriever = _implant_retriever(metas)
     records = builder.implant_records(retriever, ["StepBack", "implant-chain-of-verification"])
     assert [(r["filename"], r["content"]) for r in records] == [
         ("implant-step-back-prompting.mdc", "SB"), ("implant-chain-of-verification.mdc", "COV BODY")]
     with pytest.raises(SystemExit, match="unknown implants"):
         builder.implant_records(retriever, ["Nope"])
+
+
+@pytest.mark.parametrize("need_gate", [True, False])
+def test_a_named_arm_must_load_its_implant_on_every_case(tmp_path, monkeypatch, need_gate):
+    """A revision without implants_needed skips lite cases before retrieve, which the builder patches."""
+    import evals.runners
+    import src
+    import src.engine
+
+    enrichment = SimpleNamespace(implant_retriever=_implant_retriever([
+        {"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV", "description": "d"}]))
+    if need_gate:
+        enrichment.implants_needed = lambda query, tier, profile=None: tier != "lite"
+
+    async def load_and_enrich(agent, query, history):
+        tier = "lite" if len(query) < 5 else "standard"
+        gate = getattr(enrichment, "implants_needed", lambda query, tier: tier != "lite")
+        implants = enrichment.implant_retriever.retrieve(query) if gate(query, tier) else []
+        return "prompt", "h", [], [i["metadata"]["short_name"] for i in implants], [], tier
+
+    fakes = {(src, "server"): SimpleNamespace(SESSION_CACHE={}, _load_and_enrich=load_and_enrich),
+             (src.engine, "enrichment"): enrichment,
+             (evals.runners, "run_mcp_vs_vanilla"): SimpleNamespace(_strip_platform_instructions=lambda p: p,
+                                                                    build_mcp_system_prompt=None)}
+    for (parent, name), module in fakes.items():
+        monkeypatch.setattr(parent, name, module, raising=False)
+        monkeypatch.setitem(sys.modules, f"{parent.__name__}.{name}", module)
+    dataset = tmp_path / "cases.jsonl"
+    dataset.write_text('{"id": "long", "query": "a standard question"}\n{"id": "hi", "query": "hi"}\n')
+    agents = tmp_path / "agents.json"
+    agents.write_text(json.dumps({"long": "universal_agent", "hi": "universal_agent"}))
+    args = SimpleNamespace(dataset=str(dataset), agents=str(agents), implants="CoV", out=str(tmp_path / "p.json"))
+    if need_gate:
+        asyncio.run(builder.build(args))
+        built = json.loads((tmp_path / "p.json").read_text())["prompts"]
+        assert [built[i]["meta"]["implants_loaded"] for i in ("long", "hi")] == [["CoV"], ["CoV"]]
+    else:
+        with pytest.raises(SystemExit, match=r"case 'hi' \(tier lite\).*predates enrichment.implants_needed"):
+            asyncio.run(builder.build(args))
+        assert not (tmp_path / "p.json").exists()
 
 
 def test_run_end_to_end_with_a_stub_builder(tmp_path, monkeypatch):

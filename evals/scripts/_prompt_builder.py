@@ -13,7 +13,9 @@ come from the environment and are read by that revision's config.
 revision's own selection, `none` loads no implant, and a list loads exactly those
 implants (short names or file stems) in the same format production uses. The
 per-query prompt cache is cleared before every case, so no build can reuse a
-prompt enriched under another implant set.
+prompt enriched under another implant set. A case that does not load every named
+implant stops the build: revisions without `enrichment.implants_needed` gate the
+layer by tier inline, so they cannot give a named arm its implants on lite cases.
 """
 import argparse
 import asyncio
@@ -52,12 +54,23 @@ def implant_records(retriever, names):
              "metadata": lookup[cid][0], "distance": 0.0} for cid in ids]
 
 
+def missing_implants(records, loaded):
+    """File stems of the requested implants absent from a case's loaded names.
+
+    Enrichment names an implant by its short name, or by its file stem when it has none.
+    """
+    loaded = set(loaded)
+    stems = [r["filename"].removesuffix(".mdc") for r in records]
+    return [stem for stem, r in zip(stems, records) if not {r["metadata"].get("short_name"), stem} & loaded]
+
+
 async def build(args):
     from evals.runners.run_mcp_vs_vanilla import _strip_platform_instructions, build_mcp_system_prompt
     from src import server
     from src.engine import enrichment
 
     spec = args.implants
+    records = None
     if spec != "production":
         records = [] if spec == "none" else implant_records(enrichment.implant_retriever, spec.split(","))
         enrichment.implant_retriever.retrieve = lambda *a, **k: list(records)
@@ -78,6 +91,12 @@ async def build(args):
                     "implants_loaded": list(implants), "rules_loaded": list(rules)}
         else:
             prompt, meta = await build_mcp_system_prompt(case["query"], pick_agent=None)
+        # Patching retrieve cannot reach a gate that skips the layer before calling it.
+        if records and (missing := missing_implants(records, meta["implants_loaded"])):
+            legacy = "" if hasattr(enrichment, "implants_needed") else (
+                "; this revision predates enrichment.implants_needed and gates implants by tier inline, "
+                "so it cannot build a named implant arm")
+            raise SystemExit(f"case {case['id']!r} (tier {meta.get('tier')}) did not load {missing}{legacy}")
         out[case["id"]] = {"system_prompt": prompt, "meta": meta}
     write_atomic(args.out, {"root": os.getcwd(), "implants": spec,
                             "need_gate": os.environ.get("IMPLANT_NEED_GATE", "off"),
