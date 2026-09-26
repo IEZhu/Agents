@@ -27,7 +27,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. Already used in `route_and_load` (`src/server.py:196`). A client without sampling gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
+| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. Already used in `route_and_load` (`src/server.py:196`). A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
 | `history.md` location | **Repo root, gitignored by default** | The file stays as local per-repo memory next to the code, but is gitignored by default to avoid polluting PRs and leaking secrets. Teams can remove it from `.gitignore` to opt into a versioned approach. |
 | History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
 | Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and incrementally refreshed by mtime. |
@@ -46,7 +46,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 ## 2. Goals & Non-Goals
 
 **Goals**
-- New MCP tools: `describe_repo`, `write_repo_summary` (the no-sampling fallback), `read_history`; history writing integrated into existing `log_interaction`.
+- New MCP tools: `describe_repo`, `write_repo_summary` (the fallback when there is no sampling or it fails), `read_history`; history writing integrated into existing `log_interaction`.
 - Idempotent, non-destructive editing of `CLAUDE.md` via a new marker pair (separate from the existing routing-protocol section).
 - Append-only `history.md` at the repo root with content-hash dedup, monthly rotation, optional semantic recall.
 - Tests in the style of existing ones (`pytest`, `tmp_path`, mock embedder).
@@ -380,7 +380,7 @@ Table: term | definition. Domain-specific terms only. Max 15.
    - `_needs_refresh(force) → (bool, hash)` — pattern from `src/engine/skills.py:43-51`.
    - `_build_context_bundle() → str` — renders the `{{CONTEXT_BUNDLE}}` block: tree (`Path.rglob` with filters, depth ≤ 3, excluding `node_modules`, `.venv`, `__pycache__`, `.git`, `data/`), key file contents, sample `.mdc` frontmatter.
    - `_render_prompt(bundle, repo_name) → str` — substitutes placeholders in the describe prompt template (stored as a multiline constant in the module).
-   - `async describe(ctx, force=False) → dict` — orchestrator: if no refresh needed — return cached summary read via `managed_section.read_section`; otherwise build prompt, call `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, save hash, return status. Without sampling, write nothing and return `needs_summary` with the prompt; `write_repo_summary` later persists the model's summary after re-checking the repo hash.
+   - `async describe(ctx, force=False) → dict` — orchestrator: if no refresh needed — return cached summary read via `managed_section.read_section`; otherwise build prompt, call `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, save hash, return status. Without sampling, or when the sampling call fails, write nothing and return `needs_summary` with the prompt; `write_repo_summary` later persists the model's summary after re-checking the repo hash.
 6. Add `describe_repo` and `write_repo_summary` tools to `src/server.py`. Wrap with `@observe` if Langfuse is loaded. Return JSON.
 7. Write `tests/test_describer.py`: deterministic hash, refresh-on-change, refresh-skipped-when-unchanged, mocked `ctx.session.create_message` with a pre-built summary, upsert verification, word-count assertion (800–1500).
 

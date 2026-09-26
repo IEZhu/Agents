@@ -164,8 +164,8 @@ notes outside the markers so future protocol changes preserve them.
 - Agent metadata declares core, preferred and capable skills, plus preferred
   implants. General rules are versioned bundle content, governed by
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`.
-- `describe_repo()` bootstraps repository memory. When sampling is unavailable,
-  `write_repo_summary(...)` completes the managed summary. `read_history(...)`
+- `describe_repo()` bootstraps repository memory. When sampling is unavailable or
+  fails, `write_repo_summary(...)` completes the managed summary. `read_history(...)`
   retrieves existing entries; `log_interaction(...)` records turn attribution.
 - Preserve unrelated Repository Memory sections and user instructions when
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
