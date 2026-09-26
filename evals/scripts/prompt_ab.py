@@ -349,7 +349,7 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     since prompts are built only after the pin. Once prompts, answers or grades
     exist the map's hash is returned, and check_manifest refuses it against the
     recorded None. An agents.json with no manifest at all is refused here, unless
-    it is the supplied map itself.
+    it is the supplied map itself, and so are records whose generated map is gone.
     """
     generated = out / "agents.json"
     manifest = read_manifest(out / "manifest.json")
@@ -358,6 +358,9 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     if agents_file is not None:
         return sha256_file(agents_file)
     if not generated.exists():
+        if has_records(out):
+            # A fresh map would be picked anew, unlike the one the records were built from.
+            raise SystemExit(f"{out} holds prompts, answers or grades but no agents.json; use a new --out-dir")
         return None
     if manifest.get("agents_sha256") is None and not has_records(out):
         return None
