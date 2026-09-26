@@ -32,7 +32,6 @@ capable_skills:
 - skill-error-recovery
 - skill-dev-testing
 - skill-code-generation
-- skill-token-economy
 preferred_implants:
 - implant-verify-assumptions
 - implant-plan-and-solve-plus
