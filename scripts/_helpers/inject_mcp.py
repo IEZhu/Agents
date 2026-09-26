@@ -25,13 +25,24 @@ def main():
         print("Please fix the file manually or restore from backup", file=sys.stderr)
         sys.exit(1)
 
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
+    # Refuse to rewrite a config whose shape we do not understand: resetting it
+    # would drop the user's other settings and MCP servers.
+    if not isinstance(config, dict):
+        print(f"ERROR: {config_path} root must be a JSON object", file=sys.stderr)
+        sys.exit(1)
+    servers = config.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        print(f"ERROR: {config_path} 'mcpServers' must be a JSON object", file=sys.stderr)
+        sys.exit(1)
 
-    config["mcpServers"]["Agents-Core"] = {
-        "command": python_abs,
-        "args": [server_abs],
-    }
+    # Preserve existing entry to avoid clobbering user-added fields (e.g. env),
+    # matching init_repo.sh; a non-object entry is ours and unusable, so start over.
+    entry = servers.get("Agents-Core")
+    if not isinstance(entry, dict):
+        entry = {}
+    entry["command"] = python_abs
+    entry["args"] = [server_abs]
+    servers["Agents-Core"] = entry
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
