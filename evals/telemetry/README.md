@@ -9,7 +9,7 @@ scripts export that data and summarise it.
 
 ```bash
 # 1. Export everything (keys from the environment or .env). Write OUTSIDE the repository:
-#    the export holds queries and answers verbatim.
+#    the export holds queries and answers as logged (capped at 2000 and 5000 characters).
 python evals/telemetry/export_langfuse.py ~/evals-runs/langfuse-$(date +%F) [--since YYYY-MM-DD]
 
 # 2. Text-free tables: lengths, statuses, agents, loaded components, heuristic language.
