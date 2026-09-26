@@ -109,10 +109,11 @@ read_history(limit=20, since?, query?)
 | `src/memory/__init__.py` | Package marker |
 | `src/memory/config.py` | Constants: markers, thresholds; path constants (`HISTORY_FILE`, `CLAUDE_MD_FILE`, `MEMORY_DATA_DIR`, `DESCRIBE_HASH_FILE`, `HISTORY_ARCHIVE_DIR`) are exposed via PEP 562 `__getattr__` so they resolve lazily against `get_client_repo_root()` / `get_client_data_dir()` — see issue #36. |
 | `src/memory/managed_section.py` | Pure Python port of the marker editor from `scripts/init_repo.sh:636-672`. Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
-| `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → sampling → upsert |
+| `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → upsert of the summary (sampled by the server, or sent back through `write_repo_summary`) |
 | `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (wrapper around NumpyVectorStore) |
 | `tests/test_managed_section.py` | Marker editor tests (style of `tests/test_vector_store.py`) |
 | `tests/test_describer.py` | Hash, refresh logic, mock sampling, upsert verification |
+| `tests/test_server_describe.py` | Tool level: `needs_summary` without sampling or when sampling fails, `write_repo_summary` persistence and rejection, the direct write when sampling succeeds |
 | `tests/test_history.py` | Append, dedup, rotation, recent read, semantic search (mock embedder) |
 
 | Modified file | What changes |
@@ -485,7 +486,7 @@ The implementation as of 2026-04-15 matches the spec. Clarifications that emerge
 
 2. **CLAUDE.md/history.md hashes are excluded from the repo hash** (`_HASH_EXCLUDED_FILES` in `describer.py`). Without this, `describe_repo` would invalidate its own cache on every run — the side effect of writing to CLAUDE.md changes the top-level filenames.
 
-3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**, and the `ctx.session.create_message(...)` call stays in `src/server.py`. This allows writing unit tests without an MCP context — tests do not use sampling.
+3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**, and the `ctx.session.create_message(...)` call stays in `src/server.py`. This allows writing unit tests without an MCP context — tests do not use sampling. `src/server.py` samples only when the client declares the capability (never over HTTP); when it does not, or the sampling call raises, `describe_repo` returns `needs_summary` and writes nothing.
 
 4. **`HistoryWriter`/`HistoryReader` are pure stdlib**, without numpy. `HistoryStore` (semantic recall) imports `NumpyVectorStore` and the embedder only on the first `search()`. This is critical for NixOS environments: writer/reader work even when numpy cannot load (semantic-store tests are marked `skipif` in that case).
 
