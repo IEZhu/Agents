@@ -193,7 +193,21 @@ def test_build_contexts_refuses_a_repeated_case_id(tmp_path, snapshot):
         asyncio.run(build_contexts.main(run))
 
 
-def test_build_contexts_records_a_removed_component_without_loading_the_model(tmp_path, snapshot, capsys):
+@pytest.fixture
+def no_model(monkeypatch):
+    """Fail the test if build_contexts gets as far as its heavy imports."""
+    monkeypatch.setitem(__import__("sys").modules, "evals.runners.run_mcp_vs_vanilla", None)
+
+
+def test_build_contexts_skips_the_model_when_only_untestable_components_are_left(tmp_path, snapshot, no_model, capsys):
+    run = tmp_path / "run"
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [], "untestable": "tool use only"})
+    asyncio.run(build_contexts.main(run))
+    assert json.loads((run / "plan.json").read_text()) == {}
+    assert json.loads((run / "build_errors.json").read_text()) == []
+
+
+def test_build_contexts_records_a_removed_component_without_loading_the_model(tmp_path, snapshot, no_model, capsys):
     run = tmp_path / "run"
     (run / "cases").mkdir(parents=True)
     (run / "ids.txt").write_text("skill-gone\n")

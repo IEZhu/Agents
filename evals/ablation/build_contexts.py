@@ -136,8 +136,9 @@ async def main(run_dir: Path) -> None:
         raise SystemExit(f"{run_dir}/cases has no case files; run the cases step first")
     removed_errors = [{"component": i, "case": "*",
                        "error": "not in store: removed from the repository since components.json"} for i in removed]
-    if all(path.stem in removed for path in case_files):
-        # Nothing left to build: skip loading the embedding model.
+    if all(path.stem in removed or not specs[path].get("cases") for path in case_files):
+        # Nothing left to build (removed or untestable components only): skip loading
+        # the embedding model.
         (run_dir / "plan.json").write_text("{}\n")
         (run_dir / "build_errors.json").write_text(json.dumps(removed_errors, ensure_ascii=False, indent=1) + "\n")
         (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
