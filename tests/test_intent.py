@@ -754,6 +754,9 @@ class TestFenceOpenerFollowsCommonMark:
         ("```json``` output please, explain how recursion works", "explain"),
         ("text\n    ``` indented", None),
         ("text\n\t``` indented", None),
+        # On the first line too: trimming the query must not drop the indentation.
+        ("    ``` indented", None),
+        ("\n\t``` indented", None),
     ])
     def test_invalid_openers_are_not_fences(self, query, expected_mode):
         profile = classify_intent(query)
@@ -767,6 +770,7 @@ class TestFenceOpenerFollowsCommonMark:
         "~~~\nx\n~~~",
         "help\n   ```python\npass\n   ```",
         "help\n````\nx\n````",
+        "\n\n   ```python\npass\n   ```",
     ])
     def test_valid_openers_still_count(self, query):
         profile = classify_intent(query)

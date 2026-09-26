@@ -425,6 +425,9 @@ _CONVERSE_LEX = _lex(
 #: "```json``` please: list the capitals of the EU" still read as a fence.
 #: Accepted cost: a fence nested 4+ spaces deep in a list item is not seen.
 _CODE_FENCE = re.compile(r"^ {0,3}(?:`{3,}(?![^\n]*`)|~{3,})", re.MULTILINE)
+#: Blank lines before the first line of a query. Only these are trimmed from its
+#: front, so the first line keeps the indentation ``_CODE_FENCE`` judges it by.
+_LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t]*\r?\n)+")
 #: Accepts sub-numbered items ("11.1.", "2.3)") as well as flat ones. The flat-only
 #: form missed a multi-part exam paper whose items were numbered 11.1 .. 11.7.
 _LIST_LINE = re.compile(r"^\s*(\d+(\.\d+)*[.)]|[-*•])\s+\S")
@@ -560,7 +563,7 @@ def _detect_mode(text: str, signals: list[str]) -> tuple[TaskMode, float]:
     # ranking the fence first demoted it from 4 skills + 3 implants to 2 + 2.
     # They still sit above create/explain/retrieve, which is what stops a fenced
     # traceback plus "help" from landing on `retrieve`/`lite`.
-    if _looks_like_code(stripped) or _CODE_FENCE.search(stripped):
+    if _looks_like_code(stripped) or _CODE_FENCE.search(text):
         signals.append("code_ish")
         return "operate", 0.8
     for mode, lex in (
@@ -639,7 +642,7 @@ def classify_intent(
     would make the profile depend on turn order, which the session prompt cache
     key in ``server._load_and_enrich`` does not model.
     """
-    text = (query or "").strip()
+    text = _LEADING_BLANK_LINES.sub("", (query or "").rstrip())
     if not text:
         return TaskProfile(
             mode="converse", tier="lite", depth_score=0, skill_pool_size=0,
