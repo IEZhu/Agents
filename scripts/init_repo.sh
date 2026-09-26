@@ -713,70 +713,70 @@ else
         if [ -e "$CLAUDE_CODE_DIR" ] && [ ! -d "$CLAUDE_CODE_DIR" ]; then
             print_error "$CLAUDE_CODE_DIR exists but is not a directory — skipping Claude Code configuration"
         else
-        mkdir -p "$CLAUDE_CODE_DIR"
+            mkdir -p "$CLAUDE_CODE_DIR"
 
-        # 1. MCP server in ~/.claude.json (the only user-scope MCP config Claude Code reads)
-        print_step "Configuring Claude Code MCP ($CLAUDE_CODE_MCP)..."
+            # 1. MCP server in ~/.claude.json (the only user-scope MCP config Claude Code reads)
+            print_step "Configuring Claude Code MCP ($CLAUDE_CODE_MCP)..."
 
-        if [ ! -f "$CLAUDE_CODE_MCP" ]; then
-            echo '{}' > "$CLAUDE_CODE_MCP"
-        fi
-
-        # Backup before modifying
-        cp "$CLAUDE_CODE_MCP" "${CLAUDE_CODE_MCP}.backup.$(date +%s)"
-
-        if inject_mcp_config "$CLAUDE_CODE_MCP" "~/.claude.json"; then
-            CONFIGURED_ENVS+=("Claude Code")
-        fi
-
-        # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
-        CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
-        CLAUDE_MD_SRC="$ROUTING_TEMPLATE"
-        # --- Ask permission before modifying instruction files ---
-        echo ""
-        echo -e "  ${CYAN}Agents-Core wants to add routing instructions to:${NC}"
-        echo "    $CLAUDE_CODE_MD"
-        echo ""
-        read -p "  Allow? [Y/n]: " -r
-        echo ""
-
-        CLAUDE_MD_CONFIGURED=false
-        if [[ $REPLY =~ ^[Nn] ]]; then
-            print_warn "Skipped CLAUDE.md injection — instructions will be printed at the end"
-        elif [ -f "$CLAUDE_MD_SRC" ]; then
-            print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
-            if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/inject_claude_md.py" "$CLAUDE_CODE_MD" "$CLAUDE_MD_SRC"; then
-                print_success "Agents-Core protocol $PERSONA_PROTOCOL configured in global CLAUDE.md"
-                CLAUDE_MD_CONFIGURED=true
-            else
-                print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
+            if [ ! -f "$CLAUDE_CODE_MCP" ]; then
+                echo '{}' > "$CLAUDE_CODE_MCP"
             fi
-        else
-            print_warn "Template not found at $CLAUDE_MD_SRC, skipping"
-        fi
 
-        # 3. Only known generated routing reminders may be migrated automatically.
-        CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/memory"
-        MEMORY_FILE="$CLAUDE_MEMORY_DIR/feedback_agents_core_routing.md"
-        if [ "$CLAUDE_MD_CONFIGURED" = true ]; then
+            # Backup before modifying
+            cp "$CLAUDE_CODE_MCP" "${CLAUDE_CODE_MCP}.backup.$(date +%s)"
+
+            if inject_mcp_config "$CLAUDE_CODE_MCP" "~/.claude.json"; then
+                CONFIGURED_ENVS+=("Claude Code")
+            fi
+
+            # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
+            CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
+            CLAUDE_MD_SRC="$ROUTING_TEMPLATE"
+            # --- Ask permission before modifying instruction files ---
             echo ""
-            echo -e "  ${CYAN}Agents-Core wants to configure its routing reminder:${NC}"
-            echo "    $MEMORY_FILE"
+            echo -e "  ${CYAN}Agents-Core wants to add routing instructions to:${NC}"
+            echo "    $CLAUDE_CODE_MD"
             echo ""
             read -p "  Allow? [Y/n]: " -r
             echo ""
+
+            CLAUDE_MD_CONFIGURED=false
             if [[ $REPLY =~ ^[Nn] ]]; then
-                print_warn "Skipped memory file; align any old routing reminder with protocol $PERSONA_PROTOCOL manually"
+                print_warn "Skipped CLAUDE.md injection — instructions will be printed at the end"
+            elif [ -f "$CLAUDE_MD_SRC" ]; then
+                print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
+                if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/inject_claude_md.py" "$CLAUDE_CODE_MD" "$CLAUDE_MD_SRC"; then
+                    print_success "Agents-Core protocol $PERSONA_PROTOCOL configured in global CLAUDE.md"
+                    CLAUDE_MD_CONFIGURED=true
+                else
+                    print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
+                fi
             else
-                "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/migrate_routing_memory.py" \
-                    "$CLAUDE_MEMORY_DIR" --protocol "$PERSONA_PROTOCOL" \
-                    || print_error "Memory migration failed; inspect $MEMORY_FILE manually"
+                print_warn "Template not found at $CLAUDE_MD_SRC, skipping"
             fi
-            print_step "Check your project instructions and memory for conflicting 'always route_and_load' requirements."
-            print_step "Only the managed section and exact generated reminder are migrated; other project memory is preserved."
-        else
-            print_warn "Skipping memory setup — global CLAUDE.md routing section was not configured"
-        fi
+
+            # 3. Only known generated routing reminders may be migrated automatically.
+            CLAUDE_MEMORY_DIR="$CLAUDE_CODE_DIR/memory"
+            MEMORY_FILE="$CLAUDE_MEMORY_DIR/feedback_agents_core_routing.md"
+            if [ "$CLAUDE_MD_CONFIGURED" = true ]; then
+                echo ""
+                echo -e "  ${CYAN}Agents-Core wants to configure its routing reminder:${NC}"
+                echo "    $MEMORY_FILE"
+                echo ""
+                read -p "  Allow? [Y/n]: " -r
+                echo ""
+                if [[ $REPLY =~ ^[Nn] ]]; then
+                    print_warn "Skipped memory file; align any old routing reminder with protocol $PERSONA_PROTOCOL manually"
+                else
+                    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/migrate_routing_memory.py" \
+                        "$CLAUDE_MEMORY_DIR" --protocol "$PERSONA_PROTOCOL" \
+                        || print_error "Memory migration failed; inspect $MEMORY_FILE manually"
+                fi
+                print_step "Check your project instructions and memory for conflicting 'always route_and_load' requirements."
+                print_step "Only the managed section and exact generated reminder are migrated; other project memory is preserved."
+            else
+                print_warn "Skipping memory setup — global CLAUDE.md routing section was not configured"
+            fi
 
         fi # end: ~/.claude is a directory check
     fi
