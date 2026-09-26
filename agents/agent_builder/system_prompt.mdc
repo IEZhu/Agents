@@ -29,7 +29,6 @@ capable_skills:
 - skill-prompt-techniques
 - skill-structured-output
 - skill-mcp-development
-- skill-token-economy
 preferred_implants:
 - implant-self-discover
 - implant-plan-and-solve-plus
