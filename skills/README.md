@@ -112,7 +112,7 @@ Persona for this skill.
 | `skill-mermaid-best-practices` | Diagram creation with Mermaid |
 | `skill-literary-devices` | Literary devices, tropes, sound symbolism |
 | `skill-narrative-craft` | Story building, voice, pacing, emotional arcs |
-| `skill-content-structure` | Form-matching: BLUF/headers/MECE for analytical & reference; plain prose for creative/conversational/manuscript |
+| `skill-content-structure` | Form-matching: reads the register first; plain prose for conversational, story, spoken-script, manuscript and age-targeted answers (verse form for poems and songs), with no headers, bold lead-ins or bullet lists; BLUF/headers/MECE for analytical & reference |
 
 > **Note**: `skill-content-structure` was briefly promoted to an always-on `rule-content-structure`, then demoted back to a skill — its behavior is per-context (analytical vs creative vs manuscript), not a flat universal directive, so it does not belong in the rules layer. It is now **opt-in via `core_skills`** on analytical/technical/reference agents and is excluded from pure-prose/therapeutic agents (e.g. `literary_writer`, `psychologist`).
 
