@@ -941,11 +941,13 @@ async def describe_repo(
     once write_repo_summary is called. Future Claude sessions read that
     section automatically and skip re-exploring the codebase.
 
-    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "rejected", "needs_summary", "error"}.
-
-    When sampling is unavailable, returns instead:
-      {status: "needs_summary", workspace_id, repo_hash, repo_path, prompt, instruction}.
+    Returns JSON whose fields depend on status:
+      refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected (sampled summary failed the sanity check):
+        {status, reason, word_count, has_heading, summary_preview}
+      needs_summary (no sampling; nothing written):
+        {status, workspace_id, repo_hash, repo_path, prompt, instruction}
+      error: {status, error}
     Pass workspace_id, repo_path and repo_hash unchanged to write_repo_summary;
     the key names intentionally match its parameters.
     """
@@ -1021,8 +1023,12 @@ async def write_repo_summary(
     workspace_id are optional over stdio; over HTTP pass both back from
     that response unchanged.
 
-    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "rejected", "error"}.
+    Returns JSON whose fields depend on status:
+      refreshed: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected, stale repo_hash: {status, reason}
+      rejected, summary failed the sanity check:
+        {status, reason, word_count, has_heading, summary_preview}
+      error: {status, error}
     """
     try:
         client = client_context(ctx)
