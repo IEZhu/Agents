@@ -37,6 +37,9 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
 | `list_agents()` | List all available agents |
 | `log_interaction(...)` | End-of-turn observability logger (Langfuse) |
 | `clear_session_cache()` | Clear routing cache (use when switching contexts) |
+| `describe_repo(repo_path?, force_refresh?)` | Bootstrap the Repository Memory section of CLAUDE.md; on `needs_summary` follow its `instruction` |
+| `write_repo_summary(summary, repo_hash, repo_path, workspace_id)` | Persist the summary after `needs_summary`, passing `repo_hash`, `repo_path` and `workspace_id` back unchanged |
+| `read_history(limit?, since?, query?)` | Recent or semantic lookup in the repo's `history.md` |
 
 ## Environment
 
