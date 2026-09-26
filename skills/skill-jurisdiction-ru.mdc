@@ -1,6 +1,6 @@
 ---
 description: "Russian Federation legal jurisdiction: civil, tax, corporate, labor, migration, criminal, family, administrative. Comprehensive code system, Plenums of Supreme Court, regional specificity. Role: RF legal advisor."
-compiled: "RU: Civil law. Codes: ГК (4 parts), НК (2), ТК, УК, КоАП, СК, ЖК, ЗК. SC Plenums binding interpretation. УСН/ПСН/самозанятые for SMB. УСН VAT exemption in year Y: prior-year AND running income ≤ 20M (Y=2026–2029, 228-ФЗ), 15M (2030), 10M (2031+); over it mid-year → VAT from the 1st of the next month; say whether a year is the income year or the exempt year. Regional variation by субъект."
+compiled: "RU: Civil law. Codes: ГК (4 parts), НК (2), ТК, УК, КоАП, СК, ЖК, ЗК. SC Plenums binding interpretation. УСН/ПСН/самозанятые for SMB. УСН VAT exemption in exempt year Y (tested on income of Y−1 AND running income of Y): ≤ 20M for Y=2026–2029 (228-ФЗ), 15M for Y=2030, 10M from Y=2031; over it mid-year → VAT from the 1st of the next month; say whether a year is the income year or the exempt year. Regional variation by субъект."
 keywords:
   - /ru_lawyer
   - ru_lawyer
