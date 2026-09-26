@@ -55,6 +55,7 @@ def _judged_run(tmp_path: Path) -> Path:
     {"winner": "C"},
     {"rubric": []},
     {"rubric": [{"item": 1, "A": "met", "B": "maybe"}]},
+    {"rubric": [{"item": True, "A": "met", "B": "met"}]},
     {"reasons": 3},
     {"factual_errors": {"A": [1], "B": []}},
     {"factual_errors": {"A": []}},

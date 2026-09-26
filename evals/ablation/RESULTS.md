@@ -8,11 +8,16 @@ Totals: 258 cases, 516 answers, 516 verdicts, 0 missing. Raw runs: `evals/ablati
 
 ## How to read this
 
+- **Implant rows compare the implant alone with no implant.** Other implants that production
+  retrieval would add are left out of both arms, so a row measures the implant on its own, not
+  its marginal effect inside the production implant set. Rule and skill rows keep the rest of the
+  production prompt and remove only the component.
 - **Judges favour the second answer.** Of the decisive verdicts, B won 284 and A won 157 (64% B).
   Each pair is judged in both orders for that reason, and the "robust" columns count only
   cases where the same arm won in both orders.
 - **Case level:** robust with 81, robust without 56, tie in both orders 13, order-dependent 108 (42%).
-- **Aggregate effect is modestly positive.** Decisive verdicts favour the component 59% of the time.
+- **Aggregate effect is modestly positive.** Decisive verdicts favour the component 57% of the time
+  (251 to 190, with 75 ties); among cases with the same winner in both orders it is 59% (81 to 56).
   17 components won both cases robustly, against 9.1 expected if no component mattered.
 - **Individual negatives are within noise.** 10 components lost both cases robustly, against 9.1
   expected by chance. Almost every one of those verdicts is "small" and says both answers met the

@@ -6,6 +6,11 @@ without it, and a blind pairwise judge in both orders. That gives 4 verdicts per
 component. This is a screening pass: components with a consistent
 with/without gap get a closer look afterwards.
 
+Rules and skills are removed from the production prompt, which otherwise stays as
+production builds it. Implants are tested alone: the with arm gets exactly that
+implant and the without arm gets none, so other implants production would retrieve
+are left out of both.
+
 The 2026-09-25 pilot already covered `rule-no-fabrication`,
 `skill-content-structure`, `implant-regression-first` and
 `implant-iteration-budget`. `components.json` lists the other 129 in 13

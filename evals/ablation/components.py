@@ -69,6 +69,9 @@ def main() -> None:
         print(f"{len(components)} components, {batches} batches of {BATCH_SIZE} -> {OUT}")
         return
     components = json.loads(OUT.read_text())
+    batches = -(-len(components) // BATCH_SIZE)
+    if not 1 <= args.batch <= batches:
+        parser.error(f"--batch must be between 1 and {batches}")
     start = (args.batch - 1) * BATCH_SIZE
     print(" ".join(c["id"] for c in components[start:start + BATCH_SIZE]))
 
