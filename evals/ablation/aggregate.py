@@ -49,13 +49,28 @@ def read_verdict(path: Path) -> tuple[dict, dict]:
     return v, errors
 
 
+def rubric_sizes(run_dir: Path) -> dict:
+    """Number of rubric items per (component, case id)."""
+    sizes = {}
+    for path in (run_dir / "cases").glob("*.json"):
+        spec = json.loads(path.read_text())
+        for case in spec.get("cases", []):
+            sizes[(spec["component"], case["id"])] = len(case["rubric"])
+    return sizes
+
+
 def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
     judge_plan = json.loads((run_dir / "judge_plan.json").read_text())
+    sizes = rubric_sizes(run_dir)
     rows, missing = [], []
     for stem, p in sorted(judge_plan.items()):
         path = run_dir / "judge" / f"{stem}.verdict.json"
         try:
             v, errors = read_verdict(path)
+            items = sorted(r["item"] for r in v["rubric"])
+            n = sizes.get((p["component"], p["case"]))
+            if n is not None and items != list(range(1, n + 1)):
+                raise ValueError(f"rubric items {items} do not cover the case's {n} items once each")
             winner = {"A": p["A"], "B": p["B"], "tie": "tie"}[v["winner"]]
         except (OSError, ValueError) as exc:
             missing.append({"stem": stem, "error": repr(exc)})
