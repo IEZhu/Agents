@@ -193,6 +193,14 @@ def test_unreadable_state_files_are_refused_not_rebuilt(tmp_path):
     with pytest.raises(SystemExit, match="not valid JSON"):
         pab.check_manifest(broken, {"mode": "implants", "arms": []})
     assert broken.read_text() == "{\"mode\": "
+    orphan = tmp_path / "orphan"
+    for record in ("answers.jsonl", "grades.jsonl", "prompts_none.json"):
+        orphan.mkdir(exist_ok=True)
+        (orphan / record).write_text("")
+        with pytest.raises(SystemExit, match="no manifest"):
+            pab.check_manifest(orphan / "manifest.json", {"mode": "implants", "arms": []})
+        (orphan / record).unlink()
+    pab.check_manifest(orphan / "manifest.json", {"mode": "implants", "arms": []})
     pab.write_json_atomic(broken, {"ok": 1})
     assert pab.read_json(broken) == {"ok": 1} and not (tmp_path / "manifest.json.tmp").exists()
 
@@ -615,7 +623,11 @@ def test_a_generated_agent_map_a_kill_left_unpinned_is_adopted(tmp_path, monkeyp
 def test_an_unpinned_agent_map_is_not_adopted_once_prompts_or_answers_exist(tmp_path):
     (tmp_path / "agents.json").write_text("{}")
     pinned = pab.sha256_file(tmp_path / "agents.json")
-    assert pab.agents_pin(tmp_path, None) == pinned  # no manifest yet: pinned as found
+    assert pab.agents_pin(tmp_path, None) == pinned  # no manifest: hashed as found
+    # ... but a directory with records and no manifest is refused outright.
+    with pytest.raises(SystemExit, match="no manifest"):
+        pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
+    assert not (tmp_path / "manifest.json").exists()
     pab.write_json_atomic(tmp_path / "manifest.json", {"agents_sha256": None})
     assert pab.agents_pin(tmp_path, None) is None
     for state in ("prompts_none.json", "answers.jsonl"):
