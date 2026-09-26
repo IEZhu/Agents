@@ -621,6 +621,9 @@ def test_an_unpinned_agent_map_is_not_adopted_once_prompts_or_answers_exist(tmp_
     for state in ("prompts_none.json", "answers.jsonl"):
         (tmp_path / state).write_text("")
         assert pab.agents_pin(tmp_path, None) == pinned
+        # The hash, not None, is what makes check_manifest refuse the unpinned map.
+        with pytest.raises(SystemExit, match="agents_sha256"):
+            pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
         (tmp_path / state).unlink()
     supplied = tmp_path / "mine.json"
     supplied.write_text('{"c0": "lawyer"}')

@@ -325,7 +325,8 @@ def agents_pin(out: Path, agents_file: Path | None) -> str | None:
 
     run() pins a generated map right after writing it. A kill in between leaves a
     map the manifest does not know; it is adopted while nothing was built from it,
-    since prompts are built only after the pin.
+    since prompts are built only after the pin. Once prompts or answers exist the
+    map's hash is returned, and check_manifest refuses it against the recorded None.
     """
     if agents_file is not None:
         return sha256_file(agents_file)
