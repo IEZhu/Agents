@@ -185,3 +185,24 @@ def test_export_stops_when_pagination_makes_no_progress(tmp_path, monkeypatch):
     export.main(tmp_path / "out", "2026-09-01")
     assert len((tmp_path / "out" / "observations.jsonl").read_text().splitlines()) == 2
 
+
+def test_protocol2_loads_are_read_from_the_persona_descriptor(tmp_path, capsys):
+    data = _export(tmp_path / "data")
+    v2 = _trace("get_agent_context", "2026-09-01T12:00:00Z", {"kwargs": {"agent_name": "sysadmin", "protocol_version": 2}},
+                {"status": "SUCCESS", "persona": {"agent": "sysadmin", "skills_loaded": ["skill-a", "skill-b"],
+                                                  "implants_loaded": ["implant-x"], "rules_loaded": ["r1", "r2"]},
+                 "persona_block": "p" * 100, "rules_block": "r" * 50, "skills_block": "s" * 30, "implants_block": "i" * 20})
+    with open(data / "traces.jsonl", "a") as f:
+        f.write(json.dumps(v2) + "\n")
+    extract.main(data)
+    row = [r for r in csv.DictReader(open(data / "gac.csv")) if r["protocol"] == "2"][0]
+    assert row["agent"] == "sysadmin" and row["skills"] == "skill-a|skill-b" and row["implants"] == "implant-x"
+    assert row["n_rules"] == "2" and row["prompt_chars"] == "200"
+
+
+def test_env_values_drop_quotes_and_inline_comments():
+    assert export.env_value('"pk-lf-1"  # project key') == "pk-lf-1"
+    assert export.env_value("sk-lf-2 # secret") == "sk-lf-2"
+    assert export.env_value("'https://cloud.langfuse.com'") == "https://cloud.langfuse.com"
+    assert export.env_value("https://host/#frag") == "https://host/#frag"  # no space before '#': part of the value
+

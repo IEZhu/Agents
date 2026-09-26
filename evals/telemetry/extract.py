@@ -23,6 +23,7 @@ CODE = re.compile(r"```.*?```", re.S)
 NOISE = re.compile(r"\*\*Agent\*\*:.*$|`[^`\n]*`|https?://\S+", re.M)
 # log_interaction stores response_content[:5000] (src/server.py), so a 5000-char answer was cut.
 LOG_CAP = 5000
+PROTOCOL2_BLOCKS = ("persona_block", "rules_block", "skills_block", "implants_block")
 
 
 def lang(text):
@@ -85,11 +86,15 @@ def main(D: Path) -> None:
         elif n == "get_agent_context":
             q = kw.get("query") or ""
             o = out if isinstance(out, dict) else {}
+            # Protocol 2 returns the descriptor under "persona" and the prompt as separate
+            # blocks instead of one system_prompt.
+            p = o.get("persona") if isinstance(o.get("persona"), dict) else o
+            prompt = o.get("system_prompt") or "".join(o.get(b) or "" for b in PROTOCOL2_BLOCKS)
             gac.append({**base, "q_len": len(q), "q_lang": lang(q), "requested": kw.get("agent_name"),
                         "protocol": kw.get("protocol_version"), "force_reload": kw.get("force_reload"),
-                        "status": o.get("status", "?" if out is None else "unparsed"), "agent": o.get("agent"),
-                        "skills": "|".join(o.get("skills_loaded") or []), "implants": "|".join(o.get("implants_loaded") or []),
-                        "n_rules": len(o.get("rules_loaded") or []), "prompt_chars": len(o.get("system_prompt") or ""),
+                        "status": o.get("status", "?" if out is None else "unparsed"), "agent": p.get("agent"),
+                        "skills": "|".join(p.get("skills_loaded") or []), "implants": "|".join(p.get("implants_loaded") or []),
+                        "n_rules": len(p.get("rules_loaded") or []), "prompt_chars": len(prompt),
                         "request_id": o.get("request_id")})
         elif n == "retrieve_skills":
             o = out if isinstance(out, list) else []
