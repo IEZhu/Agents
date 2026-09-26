@@ -300,3 +300,9 @@ def test_aggregate_stops_clearly_without_a_judge_plan(tmp_path):
     with pytest.raises(SystemExit, match="run build_judges.py first"):
         aggregate.main([tmp_path / "run"])
 
+
+def test_importing_build_contexts_leaves_the_environment_alone(monkeypatch):
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    _module("build_contexts")
+    assert "EMBEDDING_MODEL" not in __import__("os").environ
+
