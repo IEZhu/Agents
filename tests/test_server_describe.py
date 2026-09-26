@@ -4,7 +4,8 @@
 ``tests/test_describer.py`` covers ``RepoDescriber`` itself; these tests drive
 the MCP tools without sampling, the way a client without sampling support
 sees them: describe_repo hands back the prompt, and the client persists its
-summary through write_repo_summary.
+summary through write_repo_summary. Two tests stub sampling to cover the
+direct write and the fallback when sampling fails.
 """
 
 from __future__ import annotations
@@ -70,6 +71,33 @@ async def test_needs_summary_shape_without_sampling(repo):
     assert "write_repo_summary(" in needs["instruction"]
     assert f'repo_hash="{needs["repo_hash"]}"' in needs["instruction"]
     assert f"repo_path={json.dumps(needs['repo_path'])}" in needs["instruction"]
+
+
+@pytest.mark.asyncio
+async def test_sampled_summary_is_written_directly(repo, monkeypatch):
+    async def sample(ctx, prompt, query):
+        return _valid_summary("sampled")
+
+    monkeypatch.setattr(server, "_supports_sampling", lambda ctx: True)
+    monkeypatch.setattr(server, "_sample_with_agent", sample)
+    result = await _describe()
+    assert result["status"] == "refreshed"
+    section = _section(repo)
+    assert section is not None and "sampled" in section
+
+
+@pytest.mark.asyncio
+async def test_failed_sampling_falls_back_to_needs_summary_and_writes_nothing(repo, monkeypatch):
+    async def sample(ctx, prompt, query):
+        raise RuntimeError("client refused the sampling request")
+
+    monkeypatch.setattr(server, "_supports_sampling", lambda ctx: True)
+    monkeypatch.setattr(server, "_sample_with_agent", sample)
+    needs = await _describe()
+    assert needs["status"] == "needs_summary" and set(needs) == NEEDS_SUMMARY_KEYS
+    assert _section(repo) is None
+    # The fallback completes as it does without sampling.
+    assert (await _write(needs, _valid_summary("after failure")))["status"] == "refreshed"
 
 
 @pytest.mark.asyncio
