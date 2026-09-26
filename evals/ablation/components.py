@@ -1,7 +1,10 @@
 """List the prompt components the ablation sweep tests, with their owning agents.
 
-    python evals/ablation/components.py            # writes evals/ablation/components.json
     python evals/ablation/components.py --batch 3  # prints the component ids in batch 3
+    python evals/ablation/components.py --write    # regenerates evals/ablation/components.json
+
+components.json is the snapshot the 2026-09 sweep ran and RESULTS.md reports on;
+--write refuses to replace it unless --force is given as well.
 
 A component is one rule, skill or implant file. Owners are the agents that
 declare a skill (core/preferred/capable) or an implant (preferred_implants);
@@ -61,8 +64,14 @@ def build() -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch", type=int, help="print the ids in this 1-based batch")
+    parser.add_argument("--write", action="store_true", help="regenerate components.json from the repository")
+    parser.add_argument("--force", action="store_true", help="with --write: replace an existing snapshot")
     args = parser.parse_args()
-    if args.batch is None:
+    if args.batch is None and not args.write:
+        parser.error("pass --batch N, or --write to regenerate the snapshot")
+    if args.write:
+        if OUT.exists() and not args.force:
+            parser.error(f"{OUT.name} is the snapshot RESULTS.md reports on; add --force to replace it")
         components = build()
         OUT.write_text(json.dumps(components, ensure_ascii=False, indent=1) + "\n")
         batches = -(-len(components) // BATCH_SIZE)
