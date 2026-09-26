@@ -212,10 +212,13 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
 - **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
   budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local or SDK endpoint URL),
   dataset, agents file, each arm's commit and a hash of the harness code (`prompt_ab.py`,
-  `_prompt_builder.py`, `compare_rules.py`, `_providers.py`). A rerun with other settings
+  `_prompt_builder.py`, `compare_rules.py`, `_providers.py`, and `run_mcp_vs_vanilla.py`,
+  whose picker chooses the agents). A rerun with other settings
   or after an edit to that code is refused, and
   so is one that reorders the arms already run; adding arms is allowed, after the first
-  arm, which stays the baseline. Cached prompt
+  arm, which stays the baseline. A directory with an agent map, prompts, answers or
+  grades but no `manifest.json` is refused, unless the map is the `--agents` file itself.
+  Cached prompt
   files are reused only if they were built with the current embedding model.
 - Relative paths are resolved against the directory you run from.
 
