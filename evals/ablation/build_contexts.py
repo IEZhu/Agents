@@ -55,6 +55,17 @@ def drop_stale_answer(run_dir: Path, token: str, text: str, previous: dict) -> N
         (run_dir / "answers" / f"{token}.md").unlink(missing_ok=True)
 
 
+def skill_arm(retrieved: list[dict], filename: str, arm: str, forced: list[dict]) -> list[dict]:
+    """Production skills with the target skill forced in or out.
+
+    with: production retrieval unchanged when it already has the skill (same order
+    and position), otherwise the skill appended; without: the skill removed.
+    """
+    if arm == "without":
+        return [s for s in retrieved if s["filename"] != filename]
+    return retrieved if any(s["filename"] == filename for s in retrieved) else retrieved + forced
+
+
 def build_meta() -> dict:
     """The commit the contexts come from, and whether the tree differed from it."""
     import subprocess
@@ -151,8 +162,7 @@ async def main(run_dir: Path) -> None:
             forced = store_records(skills.store, [f"{component}.mdc"])
 
             def patched(*a, **k):
-                got = [s for s in orig_skill_retrieve(*a, **k) if s["filename"] != f"{component}.mdc"]
-                return got + forced if arm == "with" else got
+                return skill_arm(orig_skill_retrieve(*a, **k), f"{component}.mdc", arm, forced)
             skills.retrieve = patched
         elif kind == "implant":
             forced = store_records(implants.store, [f"{component}.mdc"]) if arm == "with" else []

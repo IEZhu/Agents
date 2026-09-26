@@ -237,3 +237,14 @@ def test_the_components_snapshot_is_not_replaced_by_accident(tmp_path, monkeypat
             components.main()
     assert len(json.loads(snapshot.read_text())) == 25
 
+
+def test_the_skill_arms_keep_production_order_and_change_only_the_target():
+    a, b, target = ({"filename": f"{n}.mdc"} for n in ("skill-a", "skill-b", "skill-t"))
+    forced = [{"filename": "skill-t.mdc", "forced": True}]
+    # Retrieval already has the skill: the with arm is production unchanged.
+    assert build_contexts.skill_arm([a, target, b], "skill-t.mdc", "with", forced) == [a, target, b]
+    assert build_contexts.skill_arm([a, target, b], "skill-t.mdc", "without", forced) == [a, b]
+    # Retrieval missed it: the with arm appends it.
+    assert build_contexts.skill_arm([a, b], "skill-t.mdc", "with", forced) == [a, b, *forced]
+    assert build_contexts.skill_arm([a, b], "skill-t.mdc", "without", forced) == [a, b]
+
