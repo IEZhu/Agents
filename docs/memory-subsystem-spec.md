@@ -27,7 +27,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. Already used in `route_and_load` (`src/server.py:196`). |
+| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. Already used in `route_and_load` (`src/server.py:196`). A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
 | `history.md` location | **Repo root, gitignored by default** | The file stays as local per-repo memory next to the code, but is gitignored by default to avoid polluting PRs and leaking secrets. Teams can remove it from `.gitignore` to opt into a versioned approach. |
 | History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
 | Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and incrementally refreshed by mtime. |
@@ -46,7 +46,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 ## 2. Goals & Non-Goals
 
 **Goals**
-- Two new MCP tools: `describe_repo`, `read_history`; history writing integrated into existing `log_interaction`.
+- New MCP tools: `describe_repo`, `write_repo_summary` (the fallback when there is no sampling or it fails), `read_history`; history writing integrated into existing `log_interaction`.
 - Idempotent, non-destructive editing of `CLAUDE.md` via a new marker pair (separate from the existing routing-protocol section).
 - Append-only `history.md` at the repo root with content-hash dedup, monthly rotation, optional semantic recall.
 - Tests in the style of existing ones (`pytest`, `tmp_path`, mock embedder).
@@ -71,10 +71,20 @@ describe_repo(repo_path?, force_refresh=False)
   ├─ if hash unchanged and not force → return {status:"up-to-date"}
   ├─ tree walk (depth ≤ 3, excluding vendor) + reading key files → CONTEXT_BUNDLE
   ├─ render DESCRIBE_PROMPT (template) with CONTEXT_BUNDLE
-  ├─ ctx.session.create_message(prompt)      # MCP sampling — Claude generates summary
+  ├─ if the client supports sampling:
+  │    ├─ ctx.session.create_message(prompt) # MCP sampling — Claude generates summary
+  │    ├─ managed_section.upsert(CLAUDE.md, DESCRIBE_MARKER_BEGIN/END, summary)
+  │    ├─ save hash → DESCRIBE_HASH_FILE
+  │    └─ return {status, path, hash, word_count, in_word_budget, summary_preview}
+  └─ else (or sampling fails) → write nothing, return
+       {status:"needs_summary", workspace_id, repo_hash, repo_path, prompt, instruction}
+
+write_repo_summary(summary, repo_hash, repo_path?, workspace_id?)
+  ├─ HTTP transport: error unless workspace_id matches and repo_path is passed back
+  ├─ {status:"rejected"} if compute_repo_hash() != repo_hash (the repo changed since describe_repo)
   ├─ managed_section.upsert(CLAUDE.md, DESCRIBE_MARKER_BEGIN/END, summary)
   ├─ save hash → DESCRIBE_HASH_FILE
-  └─ return {status, path, hash, word_count, summary_preview}
+  └─ return {status, path, hash, word_count, in_word_budget, summary_preview}
 
 log_interaction(..., intent, action, outcome, files?, tags?)
   ├─ HistoryWriter.compute_entry_hash()      # SHA256(intent+action+outcome)[:12]
@@ -99,15 +109,16 @@ read_history(limit=20, since?, query?)
 | `src/memory/__init__.py` | Package marker |
 | `src/memory/config.py` | Constants: markers, thresholds; path constants (`HISTORY_FILE`, `CLAUDE_MD_FILE`, `MEMORY_DATA_DIR`, `DESCRIBE_HASH_FILE`, `HISTORY_ARCHIVE_DIR`) are exposed via PEP 562 `__getattr__` so they resolve lazily against `get_client_repo_root()` / `get_client_data_dir()` — see issue #36. |
 | `src/memory/managed_section.py` | Pure Python port of the marker editor from `scripts/init_repo.sh:636-672`. Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
-| `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → sampling → upsert |
+| `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → upsert of the summary (sampled by the server, or sent back through `write_repo_summary`) |
 | `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (wrapper around NumpyVectorStore) |
 | `tests/test_managed_section.py` | Marker editor tests (style of `tests/test_vector_store.py`) |
 | `tests/test_describer.py` | Hash, refresh logic, mock sampling, upsert verification |
+| `tests/test_server_describe.py` | Tool level: `needs_summary` without sampling or when sampling fails, `write_repo_summary` persistence and rejection, the direct write when sampling succeeds |
 | `tests/test_history.py` | Append, dedup, rotation, recent read, semantic search (mock embedder) |
 
 | Modified file | What changes |
 |---|---|
-| `src/server.py` | Add `@mcp.tool()` for `describe_repo`, `read_history`; extend `log_interaction` with history append |
+| `src/server.py` | Add `@mcp.tool()` for `describe_repo`, `write_repo_summary`, `read_history`; extend `log_interaction` with history append |
 | `CLAUDE.md` (project root) | Add short instruction to routing protocol: after protocol steps the agent should call `log_interaction()` at the end of meaningful turns; on first session in an unfamiliar repo — call `describe_repo()` first |
 | `.gitignore` | Entries for `history.md` and `history/` |
 
@@ -116,7 +127,7 @@ read_history(limit=20, since?, query?)
 | Existing | Location | Where reused |
 |---|---|---|
 | FastMCP `@mcp.tool()` decorator + JSON-string returns | `src/server.py:70-608` | All new tools — same registration pattern |
-| MCP sampling via `ctx.session.create_message(...)` | `src/server.py:196` | `describe_repo` uses the same sampling call |
+| MCP sampling via `ctx.session.create_message(...)` | `src/server.py:196` | `describe_repo` uses the same sampling call when the client supports it; otherwise it returns `needs_summary` and `write_repo_summary` persists the result |
 | Marker editor for CLAUDE.md (inline Python) | `scripts/init_repo.sh:636-672` | Ported literally to `src/memory/managed_section.py` — bash installer and MCP tool share one implementation |
 | `SkillRetriever._compute_dir_hash` + `_needs_reindex` | `src/engine/skills.py:32-51` | `RepoDescriber._compute_repo_hash` + `_needs_refresh` |
 | `NumpyVectorStore` (atomic .npz+.json, thread-safe) | `src/engine/vector_store.py:39` | `HistoryStore` for semantic recall |
@@ -211,11 +222,39 @@ async def describe_repo(
     repo_path: str | None = None,
     force_refresh: bool = False,
 ) -> str:
-    """One-shot repo bootstrap. Generates a structured summary via MCP sampling
-    and writes it into the managed Repository Memory section of CLAUDE.md.
+    """One-shot repo bootstrap. When the client supports MCP sampling, generates
+    a structured summary and writes it into the managed Repository Memory
+    section of CLAUDE.md. Without sampling, or when the sampling call fails, it
+    writes nothing and returns needs_summary; write_repo_summary persists it.
 
-    Returns JSON: {status, path, hash, word_count, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
+    Returns JSON whose fields depend on status:
+      refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected, repo changed while sampling: {status, reason}
+      rejected, sampled summary failed the sanity check:
+        {status, reason, word_count, has_heading, summary_preview}
+      needs_summary (no sampling, or sampling failed; nothing written):
+        {status, workspace_id, repo_hash, repo_path, prompt, instruction}
+      error: {status, error}
+    """
+
+@mcp.tool()
+async def write_repo_summary(
+    summary: str,
+    repo_hash: str,
+    repo_path: str | None = None,
+    workspace_id: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Persist the summary after describe_repo returned needs_summary. Pass
+    repo_hash, repo_path and workspace_id back unchanged; a changed repo hash
+    is rejected (call describe_repo again).
+
+    Returns JSON whose fields depend on status:
+      refreshed: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected, stale repo_hash: {status, reason}
+      rejected, summary failed the sanity check:
+        {status, reason, word_count, has_heading, summary_preview}
+      error: {status, error}
     """
 
 @mcp.tool()
@@ -341,8 +380,8 @@ Table: term | definition. Domain-specific terms only. Max 15.
    - `_needs_refresh(force) → (bool, hash)` — pattern from `src/engine/skills.py:43-51`.
    - `_build_context_bundle() → str` — renders the `{{CONTEXT_BUNDLE}}` block: tree (`Path.rglob` with filters, depth ≤ 3, excluding `node_modules`, `.venv`, `__pycache__`, `.git`, `data/`), key file contents, sample `.mdc` frontmatter.
    - `_render_prompt(bundle, repo_name) → str` — substitutes placeholders in the describe prompt template (stored as a multiline constant in the module).
-   - `async describe(ctx, force=False) → dict` — orchestrator: if no refresh needed — return cached summary read via `managed_section.read_section`; otherwise build prompt, call `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, save hash, return status.
-6. Add `describe_repo` tool to `src/server.py`. Wrap with `@observe` if Langfuse is loaded. Return JSON.
+   - `async describe(ctx, force=False) → dict` — orchestrator: if no refresh needed — return cached summary read via `managed_section.read_section`; otherwise build prompt, call `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, save hash, return status. Without sampling, or when the sampling call fails, write nothing and return `needs_summary` with the prompt; `write_repo_summary` later persists the model's summary after re-checking the repo hash.
+6. Add `describe_repo` and `write_repo_summary` tools to `src/server.py`. Wrap with `@observe` if Langfuse is loaded. Return JSON.
 7. Write `tests/test_describer.py`: deterministic hash, refresh-on-change, refresh-skipped-when-unchanged, mocked `ctx.session.create_message` with a pre-built summary, upsert verification, word-count assertion (800–1500).
 
 ### Phase 3 — History (1 PR)
@@ -456,7 +495,7 @@ The implementation as of 2026-04-15 matches the spec. Clarifications that emerge
 
 2. **CLAUDE.md/history.md hashes are excluded from the repo hash** (`_HASH_EXCLUDED_FILES` in `describer.py`). Without this, `describe_repo` would invalidate its own cache on every run — the side effect of writing to CLAUDE.md changes the top-level filenames.
 
-3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**, and the `ctx.session.create_message(...)` call stays in `src/server.py`. This allows writing unit tests without an MCP context — tests do not use sampling.
+3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**, and the `ctx.session.create_message(...)` call stays in `src/server.py`. This allows writing unit tests without an MCP context — tests do not use sampling. `src/server.py` samples only when the client declares the capability (never over HTTP); when it does not, or the sampling call raises, `describe_repo` returns `needs_summary` and writes nothing.
 
 4. **`HistoryWriter`/`HistoryReader` are pure stdlib**, without numpy. `HistoryStore` (semantic recall) imports `NumpyVectorStore` and the embedder only on the first `search()`. This is critical for NixOS environments: writer/reader work even when numpy cannot load (semantic-store tests are marked `skipif` in that case).
 

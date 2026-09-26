@@ -154,7 +154,8 @@ The server exposes MCP tools that any compatible client can call:
 | `list_agents()` | Enumerate all available agents with metadata |
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
 | `clear_session_cache()` | Reset session cache |
-| `describe_repo(force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md |
+| `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling, or when the sampling call fails, it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
+| `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling, or sampling failed); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
 
 ### Persona continuity (protocol 2, opt-in)
@@ -355,7 +356,7 @@ The enrichment pipeline resolves capabilities to skill bundles via `agents/capab
 
 The server ships with a per-repo memory subsystem so each new Claude session does not have to re-explore the codebase from scratch:
 
-- **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Idempotent: re-runs are no-ops unless the repo manifest changes or `force_refresh=True`.
+- **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Without sampling, or when the sampling call fails, it writes nothing and returns `needs_summary` (the prompt plus `repo_hash`, `repo_path` and `workspace_id`), and the caller persists its own summary with `write_repo_summary`. Idempotent: re-runs are no-ops unless the repo manifest changes or `force_refresh=True`.
 - **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
 

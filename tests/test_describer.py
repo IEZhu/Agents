@@ -184,6 +184,16 @@ class TestWriteSummary:
         assert result["status"] == "rejected"
         assert result["has_heading"] is False
 
+    def test_stale_repo_hash_rejected(self, describer, tmp_path):
+        """A repo that changed after plan() must not get the old summary."""
+        decision = describer.plan()
+        (tmp_path / "Makefile").write_text("all:\n\techo hi\n")
+        result = describer.write_summary(_valid_summary(), decision.current_hash)
+        assert result["status"] == "rejected"
+        assert result["reason"].startswith("repo_hash changed")
+        assert not os.path.exists(describer.claude_md_path)
+        assert not os.path.exists(describer.hash_file)
+
     def test_rejected_summary_does_not_touch_cache(self, describer):
         """Sanity check failure must leave any existing cache intact."""
         decision = describer.plan()

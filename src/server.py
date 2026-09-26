@@ -933,14 +933,24 @@ async def describe_repo(
 ) -> str:
     """One-shot repo bootstrap.
 
-    Builds a deterministic context bundle from the repo, asks the calling
-    LLM (via MCP sampling) to distill it into a structured summary, and
-    writes the result into the managed Repository Memory section of
-    CLAUDE.md. Future Claude sessions read that section automatically and
-    skip re-exploring the codebase.
+    Builds a deterministic context bundle from the repo. When the client
+    supports MCP sampling, asks the calling LLM to distill it into a
+    structured summary and writes the result into the managed Repository
+    Memory section of CLAUDE.md. Otherwise (or when sampling fails) it
+    writes nothing and returns needs_summary; the summary is persisted only
+    once write_repo_summary is called. Future Claude sessions read that
+    section automatically and skip re-exploring the codebase.
 
-    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "rejected", "error"}.
+    Returns JSON whose fields depend on status:
+      refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected, repo changed while sampling: {status, reason}
+      rejected, sampled summary failed the sanity check:
+        {status, reason, word_count, has_heading, summary_preview}
+      needs_summary (no sampling, or sampling failed; nothing written):
+        {status, workspace_id, repo_hash, repo_path, prompt, instruction}
+      error: {status, error}
+    Pass workspace_id, repo_path and repo_hash unchanged to write_repo_summary;
+    the key names intentionally match its parameters.
     """
     try:
         client = client_context(ctx)
@@ -982,7 +992,7 @@ async def describe_repo(
             "repo_path": describer.repo_path,
             "prompt": prompt,
             "instruction": (
-                "Sampling is not available. Generate the repository overview by "
+                "Sampling is not available or failed. Generate the repository overview by "
                 "following the prompt above, then call write_repo_summary("
                 f'summary=<your output>, repo_hash="{decision.current_hash}", '
                 f'repo_path={json.dumps(repo_path)}, workspace_id={json.dumps(client.workspace_id)}'
@@ -1010,10 +1020,16 @@ async def write_repo_summary(
     """Persist a repository summary after describe_repo returned status='needs_summary'.
 
     Call this with the summary you generated from the prompt and the
-    repo_hash value from the describe_repo response.
+    repo_hash value from the describe_repo response. repo_path and
+    workspace_id are optional over stdio; over HTTP pass both back from
+    that response unchanged.
 
-    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "rejected", "error"}.
+    Returns JSON whose fields depend on status:
+      refreshed: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected, stale repo_hash: {status, reason}
+      rejected, summary failed the sanity check:
+        {status, reason, word_count, has_heading, summary_preview}
+      error: {status, error}
     """
     try:
         client = client_context(ctx)
@@ -1257,8 +1273,12 @@ def _register_memory_prompts():
         return [UserMessage(
             "Call the `describe_repo("
             f"force_refresh={force_arg})` MCP tool now as your only next action. "
-            "Then report the resulting status, hash, word count, and the summary "
-            "preview. Do not call any other tools first."
+            "Do not call any other tools first. If it returns status "
+            "`needs_summary`, nothing was written yet: generate the overview by "
+            "following its `prompt`, then call `write_repo_summary` with that "
+            "summary and the `repo_hash`, `repo_path` and `workspace_id` it "
+            "returned, unchanged. Then report the final status, hash, word count, "
+            "and the summary preview."
         )]
     describe_cmd.__name__ = "describe_repo"
     describe_cmd.__doc__ = (
