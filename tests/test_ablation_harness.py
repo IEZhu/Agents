@@ -162,6 +162,14 @@ def test_build_contexts_refuses_a_case_file_naming_another_component(tmp_path, s
         asyncio.run(build_contexts.main(run))
 
 
+def test_build_contexts_refuses_a_repeated_case_id(tmp_path, snapshot):
+    run = tmp_path / "run"
+    case = {"id": "c1", "user_message": "q", "rubric": ["a"]}
+    _write(run / "cases" / "skill-kept.json", {"component": "skill-kept", "cases": [case, {**case, "user_message": "r"}]})
+    with pytest.raises(SystemExit, match="repeated case id"):
+        asyncio.run(build_contexts.main(run))
+
+
 def test_build_contexts_records_a_removed_component_without_loading_the_model(tmp_path, snapshot, capsys):
     run = tmp_path / "run"
     (run / "cases").mkdir(parents=True)
