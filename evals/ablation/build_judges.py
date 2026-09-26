@@ -26,6 +26,10 @@ def main(run_dir: Path, allow_partial: bool = False) -> int:
     arms = {}
     for token, p in plan.items():
         arms.setdefault((p["component"], p["case"]), {})[p["arm"]] = token
+    # plan.json comes from build_contexts.py; a case since removed or renamed in cases/
+    # has no conversation or rubric to judge against.
+    if stale := sorted("/".join(key) for key in arms if key not in cases):
+        raise SystemExit(f"plan.json lists cases no longer in cases/: {stale}; rerun build_contexts.py")
     (run_dir / "judge").mkdir(exist_ok=True)
     judge_plan, skipped = {}, []
     for key, pair in sorted(arms.items()):

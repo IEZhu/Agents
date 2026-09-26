@@ -129,6 +129,11 @@ def test_build_judges_records_a_pair_with_a_missing_answer(tmp_path, capsys):
     assert json.loads((run / "judge_skipped.json").read_text()) == ["skill-x/c2"]
     assert len(json.loads((run / "judge_plan.json").read_text())) == 2
     assert build_judges.main(run, allow_partial=True) == 0
+    # A case removed from cases/ after the contexts were built stops the step with a hint.
+    _write(run / "cases" / "skill-x.json", {"component": "skill-x", "cases": [
+        {"id": "c1", "user_message": "q", "rubric": ["a"]}]})
+    with pytest.raises(SystemExit, match=r"no longer in cases/: \['skill-x/c2'\]"):
+        build_judges.main(run)
 
 
 def test_rebuilding_judges_drops_only_verdicts_whose_input_changed(tmp_path, capsys):
