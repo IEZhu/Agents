@@ -513,6 +513,15 @@ def test_a_truncated_last_record_is_dropped_but_a_bad_inner_one_is_an_error(tmp_
         pab.read_jsonl(path)
 
 
+def test_a_complete_last_record_without_its_newline_gets_one_before_the_next_append(tmp_path):
+    path = tmp_path / "answers.jsonl"
+    path.write_text('{"a": 1}')
+    assert pab.read_jsonl(path) == [{"a": 1}]
+    pab.append_jsonl(path, {"a": 2})
+    assert pab.read_jsonl(path) == [{"a": 1}, {"a": 2}]
+    assert path.read_text() == '{"a": 1}\n{"a": 2}\n'
+
+
 def test_a_generated_agent_map_is_pinned_like_a_supplied_one(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0")
     stub = tmp_path / "stub_builder.py"

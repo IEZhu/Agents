@@ -119,8 +119,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """Records of a JSONL state file.
 
     A kill during an append can leave a truncated last line with no newline; that
-    fragment is dropped from the file so the run resumes. Any other bad line is an
-    error.
+    fragment is dropped from the file so the run resumes. A complete last record
+    that lost only its newline gets it back, or the next append would continue
+    its line. Any other bad line is an error.
     """
     if not path.exists():
         return []
@@ -137,6 +138,11 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise
             log(f"dropping a truncated last record in {path}")
             path.write_text(text[:len(text) - len(line)], encoding="utf-8")
+            return rows
+    if text and not text.endswith("\n"):
+        log(f"ending the last record in {path} with its missing newline")
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n")
     return rows
 
 
