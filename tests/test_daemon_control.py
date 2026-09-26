@@ -68,3 +68,27 @@ def test_install_persists_node_path_for_other_working_directories(tmp_path, monk
             migration.bridge()
     else:
         assert migration.bridge()["command"] == expected
+
+
+def test_install_treats_blank_cache_dir_as_default(tmp_path, monkeypatch):
+    # `FASTEMBED_CACHE_DIR=` from env.example must not resolve to the working directory.
+    root = tmp_path / "install"
+    root.mkdir()
+    monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
+    monkeypatch.setattr(control.socket, "socket", MagicMock())
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
+    home = tmp_path / "home"
+    cache = home / ".cache/fastembed"
+    model = cache / "models--qdrant--multilingual-e5-large-onnx"
+    (model / "refs").mkdir(parents=True)
+    (model / "refs/main").write_text("cached-revision\n")
+    (model / "snapshots/cached-revision").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("FASTEMBED_CACHE_DIR", "")
+    monkeypatch.chdir(tmp_path)
+    controller = control.Controller(tmp_path / "state")
+
+    controller.install()
+
+    assert read_json(controller.directory / "service.json")["model_cache"] == str(cache)
