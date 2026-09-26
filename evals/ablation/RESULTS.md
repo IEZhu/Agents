@@ -11,7 +11,9 @@ Totals: 258 cases, 516 answers, 516 verdicts, 0 missing. Raw runs: `evals/ablati
 - **Implant rows compare the implant alone with no implant.** Other implants that production
   retrieval would add are left out of both arms, so a row measures the implant on its own, not
   its marginal effect inside the production implant set. Rule and skill rows keep the rest of the
-  production prompt and remove only the component.
+  production prompt and remove only the component. In these runs, a skill that production
+  retrieval had already picked was moved to the end of the skill block in the with arm; the
+  harness now leaves it where retrieval put it.
 - **Judges favour the second answer.** Of the decisive verdicts, B won 284 and A won 157 (64% B).
   Each pair is judged in both orders for that reason, and the "robust" columns count only
   cases where the same arm won in both orders.
