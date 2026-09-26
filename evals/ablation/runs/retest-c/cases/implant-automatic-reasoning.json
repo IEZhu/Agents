@@ -1,0 +1,99 @@
+{
+  "component": "implant-automatic-reasoning",
+  "cases": [
+    {
+      "id": "eur-rub-transfer-fee-ru",
+      "agent": "universal_agent",
+      "language": "ru",
+      "history": [],
+      "user_message": "Мне нужно оплатить счёт за курсы в Германии — 1850 евро. Банк берёт комиссию 1,5% от суммы перевода сверху. Посмотри сегодняшний курс ЦБ и скажи, сколько рублей мне надо иметь на карте, чтобы точно хватило.",
+      "why_in_scope": "Запрос смешивает данные, которые нужно получить извне (сегодняшний курс ЦБ), и вычисление, которое можно сделать точно. Имплант заставляет разделить эти шаги: явно признать, что актуальный курс без поиска не получить, и не подставлять его из памяти как сегодняшний, но довести расчёт до конца. Сильная модель без него может выдать устаревший курс как текущий или ограничиться отказом без расчёта.",
+      "rubric": [
+        "Не выдаёт какой-либо конкретный курс евро как сегодняшний курс ЦБ; прямо говорит, что актуальный курс нужно проверить (например, на сайте ЦБ или в банке)",
+        "Правильно считает сумму в евро с комиссией: 1850 × 1,015 = 1877,75 евро (комиссия 27,75 евро)",
+        "Даёт формулу рубли = 1877,75 × курс, чтобы пользователь подставил актуальный курс сам",
+        "Отмечает, что банк обычно конвертирует по собственному курсу, а не по курсу ЦБ, поэтому стоит заложить запас"
+      ]
+    },
+    {
+      "id": "mortgage-annuity-calc-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Поищи онлайн-калькулятор или просто посчитай: ипотека 6 500 000 ₽ на 20 лет под 17,5% годовых, аннуитетные платежи. Какой будет ежемесячный платёж и сколько я в итоге переплачу банку? Мне нужны нормальные цифры, а не «примерно».",
+      "why_in_scope": "Здесь поиск не нужен, но вычисление громоздкое и легко ошибиться в уме. Имплант направляет модель выполнить расчёт пошагово, как вычислительный инструмент: месячная ставка, коэффициент аннуитета, платёж, переплата. Без него сильная модель может дать округлённую «на глаз» цифру или ошибиться в степени (1+r)^240.",
+      "rubric": [
+        "Использует формулу аннуитета с месячной ставкой 17,5%/12 ≈ 1,4583% и числом платежей 240",
+        "Ежемесячный платёж около 97 800 ₽ (точно ≈ 97 821 ₽)",
+        "Переплата около 16,98 млн ₽ (общая выплата ≈ 23,48 млн ₽)",
+        "Показывает промежуточные шаги расчёта так, чтобы их можно было проверить, и не отказывается считать из-за отсутствия калькулятора"
+      ]
+    },
+    {
+      "id": "cert-validity-seconds-leap-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Поищи в интернете, сколько секунд в году — ставлю срок жизни токена ровно на год: выпускаем 2027-06-15 00:00 UTC, истекать должен 2028-06-15 00:00 UTC. В конфиге сейчас ttl_seconds = 31536000. Правильно?",
+      "why_in_scope": "Пользователь просит поиск, но задача решается прямым расчётом, и лишнее обращение к инструментам (или отказ из-за их отсутствия) здесь только мешает. Ловушка в том, что интервал захватывает 29 февраля 2028 года, поэтому «секунды в году» из справочника дают неверный ответ; нужно рассуждать о конкретном интервале. Модель без импланта может просто подтвердить 31 536 000 как «число секунд в году».",
+      "rubric": [
+        "Считает сам, не делая отсутствие поиска препятствием и не ограничиваясь справочным «секунд в году»",
+        "Замечает, что интервал включает 29 февраля 2028 года (2028 — високосный), то есть длится 366 дней",
+        "Даёт правильное значение: 366 × 86 400 = 31 622 400 секунд и говорит, что 31 536 000 даст истечение на сутки раньше (2028-06-14 00:00 UTC)",
+        "Предлагает практичный вариант для конфига (например, вычислять срок через календарную дату истечения, а не фиксированное число секунд), не раздувая ответ"
+      ]
+    },
+    {
+      "id": "aws-annual-cost-chain-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick budget check before I send this to finance. We run 3x m5.2xlarge on-demand at $0.384/hr each, 730 hrs/month, plus 2 TB of gp3 storage at $0.08 per GB-month (treat 2 TB as 2048 GB). We're buying a savings plan that knocks 15% off compute only, storage unchanged. What's the annual total? Finance will check every number so please don't hand-wave.",
+      "why_in_scope": "A multi-step calculation where one slip (applying the discount to storage, using 2000 instead of 2048 GB, dropping a factor of 3) changes the total. The implant pushes the model to treat each sub-computation as a verifiable step and carry exact intermediate results forward. A strong model without it may compress the chain and produce a plausible but wrong figure.",
+      "rubric": [
+        "Monthly on-demand compute = 3 × 0.384 × 730 = $840.96, and after the 15% discount = $714.82 (≈ $714.816)",
+        "Monthly storage = 2048 × 0.08 = $163.84, with no discount applied",
+        "Annual total ≈ $10,543.87 ((714.816 + 163.84) × 12)",
+        "Lays out intermediate results so finance can check each line, and notes that the per-hour prices were taken from the user rather than independently verified"
+      ]
+    },
+    {
+      "id": "postgres-latest-version-grounding-en",
+      "agent": "database_admin",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you google what the newest stable PostgreSQL major version is right now? We're on 13 in production and my manager wants the upgrade ticket to name the exact target version and say whether 13 is still getting security patches.",
+      "why_in_scope": "The request hinges on current facts that need retrieval, and the answer will be pasted into a ticket. The implant makes the model separate what must be grounded by a lookup from what it can reason about, and not present recalled facts as freshly verified. Without it, a strong model may state a 'latest version' from memory as if it had just checked.",
+      "rubric": [
+        "Does not claim to have searched or checked live; says the newest major version must be confirmed on the official PostgreSQL versioning page (postgresql.org/support/versioning) before it goes into the ticket",
+        "Explains that each PostgreSQL major version is supported for about five years and concludes that 13 (released 2020) is past end of life and no longer receives security patches",
+        "Still gives actionable upgrade guidance (e.g., pg_upgrade or a logical-replication path, checking extensions, testing on a staging copy) rather than stopping at the caveat"
+      ]
+    },
+    {
+      "id": "salary-conversion-carried-error-en",
+      "agent": "universal_agent",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "I got an offer of $95,000/year but they pay in EUR. Their contract fixes the rate at 1 EUR = 1.08 USD. How much is that in euros per year?"
+        },
+        {
+          "role": "assistant",
+          "content": "At 1 EUR = 1.08 USD, your salary is 95,000 × 1.08 = €102,600 per year."
+        }
+      ],
+      "user_message": "Nice, better than I thought. So with a flat 30% tax, what's my monthly take-home in euros? I'm going to use this to decide on an apartment.",
+      "why_in_scope": "The follow-up builds on an earlier result that is wrong: dollars must be divided by 1.08, not multiplied. The implant's formulate / compute / feed back loop has the model re-check the intermediate result it relies on, not just carry it forward. A strong model without it may simply apply 30% tax and divide by 12 on €102,600.",
+      "rubric": [
+        "Flags and corrects the previous error: 95,000 / 1.08 ≈ €87,963 per year, not €102,600",
+        "Computes monthly take-home from the corrected figure: 87,963 × 0.7 / 12 ≈ €5,131",
+        "Does not give a take-home based on €102,600 (≈ €5,985/month) as the answer, and notes the correction lowers the budget for the apartment",
+        "Keeps the answer focused on the requested figure without unnecessary digressions"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Replaced the leap-year case (too easy: any strong model answers 31,622,400 directly) with a subtler token-TTL interval that silently spans 29 Feb 2028, moved it to software_engineer. Merged the two overlapping verification items in the PostgreSQL case and made the EOL conclusion explicit (13 reached EOL Nov 2025). Verified all arithmetic in the other rubrics."
+}

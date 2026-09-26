@@ -1,0 +1,898 @@
+{
+ "a23361b8fc6e": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-onboarding-doc-ru",
+  "arm": "with",
+  "agent": "tech_writer",
+  "chars": 18247,
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-mermaid-best-practices",
+   "skill-dense-summarization",
+   "skill-structured-output",
+   "skill-git-conventions"
+  ],
+  "implants": [
+   "SoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "084d62950cfe": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-onboarding-doc-ru",
+  "arm": "without",
+  "agent": "tech_writer",
+  "chars": 16716,
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-mermaid-best-practices",
+   "skill-dense-summarization",
+   "skill-structured-output",
+   "skill-git-conventions"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "34e2dc016b73": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-conference-talk-plan-en",
+  "arm": "with",
+  "agent": "presentation_coach",
+  "chars": 27289,
+  "skills": [
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-creative-craft",
+   "skill-literary-devices"
+  ],
+  "implants": [
+   "SoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3dbe83f4abac": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-conference-talk-plan-en",
+  "arm": "without",
+  "agent": "presentation_coach",
+  "chars": 25758,
+  "skills": [
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-creative-craft",
+   "skill-literary-devices"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d4788ea067b5": {
+  "component": "implant-steel-man",
+  "case": "jwt-vs-redis-sessions-rebuttal-ru",
+  "arm": "with",
+  "agent": "security_expert",
+  "chars": 23572,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-security",
+   "skill-confidence-markers",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-clean-code",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SteelMan"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5b3c3e00ac32": {
+  "component": "implant-steel-man",
+  "case": "jwt-vs-redis-sessions-rebuttal-ru",
+  "arm": "without",
+  "agent": "security_expert",
+  "chars": 21463,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-security",
+   "skill-confidence-markers",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-clean-code",
+   "skill-analysis-critical"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "397660b722f9": {
+  "component": "implant-steel-man",
+  "case": "post-merge-review-retro-rebuttal-en",
+  "arm": "with",
+  "agent": "debate_moderator",
+  "chars": 21860,
+  "skills": [
+   "skill-decision-frameworks",
+   "skill-confidence-markers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [
+   "SteelMan"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "da1675dde2ef": {
+  "component": "implant-steel-man",
+  "case": "post-merge-review-retro-rebuttal-en",
+  "arm": "without",
+  "agent": "debate_moderator",
+  "chars": 19751,
+  "skills": [
+   "skill-decision-frameworks",
+   "skill-confidence-markers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "bdbecf716534": {
+  "component": "implant-step-back-prompting",
+  "case": "redis-lock-oversell-ru",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 25214,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0905eda6465b": {
+  "component": "implant-step-back-prompting",
+  "case": "redis-lock-oversell-ru",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 23571,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "233cae548835": {
+  "component": "implant-step-back-prompting",
+  "case": "hourglass-on-scale-en",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 21494,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-creative-craft",
+   "skill-fact-verification",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "55e42cab1b66": {
+  "component": "implant-step-back-prompting",
+  "case": "hourglass-on-scale-en",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 19851,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-creative-craft",
+   "skill-fact-verification",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "50f2d89b4870": {
+  "component": "implant-system-2-attention",
+  "case": "preschooler-adhd-anchoring-ru",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 21008,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-cbt",
+   "skill-psy-nvc",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "S2A"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4d958ae54897": {
+  "component": "implant-system-2-attention",
+  "case": "preschooler-adhd-anchoring-ru",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 19332,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-cbt",
+   "skill-psy-nvc",
+   "skill-consultative-intake"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b4c156191162": {
+  "component": "implant-system-2-attention",
+  "case": "partner-narcissist-validation-en",
+  "arm": "with",
+  "agent": "psychologist",
+  "chars": 18519,
+  "skills": [
+   "skill-psy-cbt",
+   "skill-psy-nvc",
+   "skill-psy-digital-wellbeing",
+   "skill-narrative-craft",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "S2A"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f941ec4132f7": {
+  "component": "implant-system-2-attention",
+  "case": "partner-narcissist-validation-en",
+  "arm": "without",
+  "agent": "psychologist",
+  "chars": 16843,
+  "skills": [
+   "skill-psy-cbt",
+   "skill-psy-nvc",
+   "skill-psy-digital-wellbeing",
+   "skill-narrative-craft",
+   "skill-pedagogy"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "27c005df6135": {
+  "component": "implant-take-a-deep-breath",
+  "case": "subscriber-churn-forecast-ru",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 29819,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-dense-summarization",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "DeepBreath"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a38bbe61b31a": {
+  "component": "implant-take-a-deep-breath",
+  "case": "subscriber-churn-forecast-ru",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 28444,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-dense-summarization",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-reasoning-logic"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "23a2dda5ec60": {
+  "component": "implant-take-a-deep-breath",
+  "case": "saas-upgrade-proration-leap-year-en",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 20022,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "DeepBreath"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "9aa6467734ba": {
+  "component": "implant-take-a-deep-breath",
+  "case": "saas-upgrade-proration-leap-year-en",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18647,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4aafe18283ed": {
+  "component": "implant-thread-of-thought",
+  "case": "release-call-reversed-decisions-ru",
+  "arm": "with",
+  "agent": "semantic_expert",
+  "chars": 20248,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-analysis-critical",
+   "skill-tech-writing",
+   "skill-reasoning-logic",
+   "skill-agnotology"
+  ],
+  "implants": [
+   "ThreadOfThought"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "300e4f1b1ce9": {
+  "component": "implant-thread-of-thought",
+  "case": "release-call-reversed-decisions-ru",
+  "arm": "without",
+  "agent": "semantic_expert",
+  "chars": 18624,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-analysis-critical",
+   "skill-tech-writing",
+   "skill-reasoning-logic",
+   "skill-agnotology"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d4711fea9315": {
+  "component": "implant-thread-of-thought",
+  "case": "incident-thread-postmortem-facts-en",
+  "arm": "with",
+  "agent": "semantic_expert",
+  "chars": 20248,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-tech-writing",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-agnotology"
+  ],
+  "implants": [
+   "ThreadOfThought"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "136120c86153": {
+  "component": "implant-thread-of-thought",
+  "case": "incident-thread-postmortem-facts-en",
+  "arm": "without",
+  "agent": "semantic_expert",
+  "chars": 18624,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-tech-writing",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-agnotology"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "747eea62d8fd": {
+  "component": "implant-tree-of-thought",
+  "case": "pg-db-shuffle-disk-space-ru",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 25326,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-analysis-critical",
+   "skill-dev-clean-code",
+   "skill-web-search",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [
+   "ToT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "54d4f9667c98": {
+  "component": "implant-tree-of-thought",
+  "case": "pg-db-shuffle-disk-space-ru",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 23345,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-analysis-critical",
+   "skill-dev-clean-code",
+   "skill-web-search",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "076155a30d70": {
+  "component": "implant-tree-of-thought",
+  "case": "internal-deps-version-backtrack-en",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 32084,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-api-design",
+   "skill-dev-debugging",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "ToT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "09aba0cfacc8": {
+  "component": "implant-tree-of-thought",
+  "case": "internal-deps-version-backtrack-en",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 30103,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-api-design",
+   "skill-dev-debugging",
+   "skill-dev-performance"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d7af420c219a": {
+  "component": "implant-uncertainty-quantification",
+  "case": "mrr-december-forecast-hiring-ru",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 30070,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-dense-summarization",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-forensic-process"
+  ],
+  "implants": [
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6dc26c9e968c": {
+  "component": "implant-uncertainty-quantification",
+  "case": "mrr-december-forecast-hiring-ru",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 27077,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-dense-summarization",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-forensic-process"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "01ef6b78473b": {
+  "component": "implant-uncertainty-quantification",
+  "case": "ibuprofen-early-pregnancy-risk-en",
+  "arm": "with",
+  "agent": "medical_expert",
+  "chars": 24908,
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-bio-mechanism",
+   "skill-source-trust-tiers",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4f893c1bfe18": {
+  "component": "implant-uncertainty-quantification",
+  "case": "ibuprofen-early-pregnancy-risk-en",
+  "arm": "without",
+  "agent": "medical_expert",
+  "chars": 21915,
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-bio-mechanism",
+   "skill-source-trust-tiers",
+   "skill-fact-verification"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2c79f1036344": {
+  "component": "implant-verify-assumptions",
+  "case": "pg-slow-query-clickhouse-vs-partitioning-ru",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 26385,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "711de08eb7ec": {
+  "component": "implant-verify-assumptions",
+  "case": "pg-slow-query-clickhouse-vs-partitioning-ru",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 22492,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "42872899d2eb": {
+  "component": "implant-verify-assumptions",
+  "case": "k8s-configmap-flag-switch-to-config-service-en",
+  "arm": "with",
+  "agent": "ai_senior_engineer",
+  "chars": 31581,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "399693ee4b9c": {
+  "component": "implant-verify-assumptions",
+  "case": "k8s-configmap-flag-switch-to-config-service-en",
+  "arm": "without",
+  "agent": "ai_senior_engineer",
+  "chars": 27688,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

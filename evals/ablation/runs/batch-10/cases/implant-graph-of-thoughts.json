@@ -1,0 +1,35 @@
+{
+  "component": "implant-graph-of-thoughts",
+  "cases": [
+    {
+      "id": "offline-inspector-app-design-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Проектируем мобильное приложение для инспекторов по охране труда (Android, около 400 пользователей). Нужна общая архитектура, но по частям у нас уже разные люди и у каждого своё мнение, а целиком никто не смотрел. Вводные:\n- Инспекторы работают на объектах без связи до 3 суток подряд, всё должно работать офлайн.\n- Авторизация через корпоративный Keycloak, access-токен живёт 1 час, refresh — 8 часов, ИБ удлинять не хочет.\n- В акт проверки входит 20–60 фото по 5–10 МБ, мобильный интернет на обратном пути слабый, часто рвётся.\n- Акт после подписи инспектором (простая ЭП) юридически нельзя менять, а юристы требуют достоверное время подписания — время на телефоне они не принимают.\n- Черновик одного акта могут править двое инспекторов с разных телефонов.\n- Бэкенд: Spring Boot + PostgreSQL + S3-совместимое хранилище.\n\nСейчас план такой: синхронизация раз в сутки целиком пакетом (акт + фото одним запросом), конфликты — last write wins по времени устройства, при протухшем токене — заново логин. Распишите, как это всё должно быть устроено, чтобы части стыковались между собой.",
+      "why_in_scope": "The implant makes the model design each subsystem (auth, sync, media upload, conflict resolution, legal signing) as separate nodes and then explicitly reconcile them where they collide. Several constraints only break at the seams: a 3-day offline window vs an 8-hour refresh token, device-time LWW vs untrusted device clocks and immutable signed acts, whole-package upload vs flaky networks. A strong model without the implant tends to answer section by section and leave these cross-component contradictions unresolved.",
+      "rubric": [
+        "Points out that with an 8-hour refresh token and up to 3 days offline the inspector cannot rely on the server session in the field, and proposes a coherent resolution (e.g. local work without server auth, a device-bound credential or offline grant agreed with security, re-authentication only at sync time) instead of just 'log in again'.",
+        "Resolves the interaction between conflict handling and signing: last-write-wins by device time is rejected or restricted because device clocks are untrusted, and signed acts are treated as immutable so they are never overwritten by merges (e.g. merge/versioning only for drafts, signing locks the record).",
+        "Handles legally reliable signing time by fixing it on the server side or via a trusted timestamp when the signed act reaches the backend, and states what the device-local time is still used for (if anything) consistently with the rest of the design.",
+        "Replaces the single all-in-one daily package with resumable or per-file photo upload (e.g. directly to S3 with multipart or presigned URLs) that is linked to the act, and keeps the overall design consistent across auth, sync, storage and signing rather than listing independent recommendations."
+      ]
+    },
+    {
+      "id": "product-search-two-proposals-en",
+      "agent": "system_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a tiebreaker on our product search redesign. Context: B2B parts catalog, ~2.1M SKUs, Postgres 15 is the source of truth, team is 3 backend devs, no dedicated ops person. Current search is ILIKE '%term%' and it's slow and useless for typos (people type 'bering' for 'bearing', part numbers like 6204-2RS vs 62042RS).\n\nEngineer A wants to stay in Postgres: tsvector + GIN for text, keep everything in one DB, filters by warehouse stock (14 warehouses) and customer-specific price lists (~1,800 contract price lists, customers filter and sort by their own net price) stay transactional and always correct.\n\nEngineer B wants Elasticsearch: fuzzy matching, better relevance, synonyms, faceted counts are fast. Faceted counts on brand/category/dimensions are a must-have for the new UI. But then stock and customer pricing have to be synced into the index, and stock changes ~40k times an hour. Sales has already complained twice about customers ordering items that showed 'in stock' in the old system.\n\nThey've been arguing for two weeks. Which one should we go with?",
+      "why_in_scope": "The implant pushes the model to treat each proposal as a set of partial solutions (text matching, typo/part-number handling, stock and price filtering, ops burden), score them per sub-problem, and merge the strongest parts across branches instead of picking one proposal wholesale. A strong model without it will often just choose A or B with pros/cons, leaving either the typo problem or the stock-freshness problem unsolved.",
+      "rubric": [
+        "Evaluates the proposals per sub-problem (at least text relevance/typo tolerance, part-number normalization, stock/price correctness, operational cost for a 3-person team) rather than only as two monolithic options.",
+        "Produces a combined design that takes strong parts from different options per sub-problem (e.g. fuzzy/trigram or search-engine matching and facets for text, while stock availability and customer-specific net prices come from Postgres at query or checkout time) and explains why it avoids denormalizing ~1,800 price lists and 40k stock changes/hour into a search index as the source of truth.",
+        "Addresses part-number variants like 6204-2RS vs 62042RS with a concrete technique (e.g. normalizing by stripping separators into a separate indexed field) and notes that plain tsvector full-text search alone does not give typo tolerance (pg_trgm or a fuzzy search engine is needed).",
+        "Ends with a clear recommendation the team can act on, including what to build first, rather than an undecided list of trade-offs."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 kept: seams (3-day offline vs 8h refresh, device-time LWW vs untrusted clock and immutable signed acts) are subtle and rubric facts are sound. Case 2 was too easy (a strong model picks Postgres+pg_trgm anyway), so added ~1,800 per-customer price lists with price sort and must-have facets, making neither proposal sufficient alone and forcing a per-sub-problem merge; rubric item 2 updated accordingly."
+}

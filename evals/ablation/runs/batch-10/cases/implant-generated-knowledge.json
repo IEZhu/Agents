@@ -1,0 +1,35 @@
+{
+  "component": "implant-generated-knowledge",
+  "cases": [
+    {
+      "id": "winter-beekeeper-scene-ru",
+      "agent": "literary_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу рассказ для областного сборника (до 20 тысяч знаков), герой — старый пасечник Семёныч, вдовец, живёт в деревне под Вологдой. Ключевая сцена: поздний вечер в конце декабря, мороз под тридцать, он идёт в омшаник к своим пчёлам и разговаривает с ними, как с покойной женой. Хочу, чтобы сцена была тёплая, немного горькая и без слащавости. Проблема в том, что я сама про пчёл вообще ничего не знаю, а в жюри точно будет пара пчеловодов, и я не хочу, чтобы они смеялись. Напишите, пожалуйста, эту сцену (примерно полторы-две страницы) и подскажите, на чём я могу проколоться.",
+      "why_in_scope": "The implant makes the writer first surface the background the scene depends on (how a bee colony overwinters: the colony sits in a cluster, does not fly or forage, workers are female, drones are gone by winter, hives are not opened in the cold) and then write the scene consistent with it, while not inventing specifics like exact temperatures, folk sayings or statistics presented as authentic. A strong model going straight to lyrical prose can plausibly write bees flying out or buzzing around him, the keeper opening a hive or taking honey in December, or 'working drones', exactly the errors the user fears.",
+      "rubric": [
+        "The scene is consistent with overwintering: bees stay clustered inside the hives and do not fly out or forage, and the keeper does not open the hives or harvest honey in the frost (listening to the hives' hum from outside is fine)",
+        "Any statements about bee biology (in the scene or the pitfalls list) are correct: no male worker bees, no drones active in the colony in December, and the winter cluster is not described as literally asleep or hibernating in the explanatory part (bees keep the cluster warm by muscle activity and feed on stored honey)",
+        "Separately from the scene, the answer lists the key points of bee winter life the author could get wrong, and does not present invented precise figures, dates or 'authentic' beekeepers' sayings as verified fact (such specifics are either absent or flagged for checking)",
+        "The scene fits the brief: roughly 1.5-2 pages, Semyonych speaks to the bees as to his late wife, tone warm and bitter without sentimentality, in Russian"
+      ]
+    },
+    {
+      "id": "tidal-causeway-full-moon-en",
+      "agent": "literary_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm writing a literary short story (around 6,000 words) set on a tidal island off the Northumberland coast, loosely based on Lindisfarne but I call it Saint Aidan's Holm. The climax: my protagonist, a grieving woman in her fifties, starts walking back across the causeway at dusk on the night of a full moon, gets distracted by a memory halfway, and the sea comes in around her. She survives by reaching one of the refuge boxes on stilts. I want the water to feel almost like a character, but I've never actually seen a tide come in and my writing group has a retired harbour master in it who will pick apart anything physically wrong. Can you draft this climax (about 800-1,000 words) and tell me what I need to understand about tides so the rest of the story holds up?",
+      "why_in_scope": "The implant pushes the model to lay out the underlying principles first (tides come in roughly twice a day and their timing shifts from day to day; full and new moon bring spring tides with a larger range, so the water floods further and faster; on flat sands the incoming sea spreads across a wide area rather than arriving as a wave) and to keep any real-world specifics, like Lindisfarne crossing times or distances, out of the 'facts' unless flagged. Without it, a strong model may go straight to atmospheric prose where the moon visibly 'pulls' the sea in at moonrise, a single towering wave rolls over her, or it asserts invented exact safe-crossing windows or speeds as real.",
+      "rubric": [
+        "The draft's water behaviour is physically plausible for a flat tidal causeway: the sea creeps in and spreads across the sands and channels, deepening quickly, rather than arriving as one large breaking wave",
+        "The explanation correctly ties the full moon to spring tides (larger tidal range than at neap tides, occurring around full and new moon) and uses that as a reason the flood is higher or faster that night, without claiming the moon visibly drags the water in at moonrise",
+        "The answer gives the author the general principles (e.g. roughly two high tides per day, tide times shifting from day to day) without stating invented precise numbers such as exact Lindisfarne crossing times, flood speeds or distances as fact; any such specifics are flagged to check against tide tables or local sources",
+        "The climax matches the brief: about 800-1,000 words, dusk and full moon, distraction by memory mid-crossing, rescue by reaching a raised refuge box, with the sea rendered as a presence rather than a plot device"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free, tool-less and use the owner agent literary_writer; facts in rubrics verified. Tightened RU item 2 to also catch the common 'bees hibernate' misconception in the explanatory part, and EN item 2 to penalise the 'moon pulls the sea in at moonrise' error named in why_in_scope."
+}

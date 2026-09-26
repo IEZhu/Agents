@@ -1,0 +1,784 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-roblox-development",
+   "case": "shop-client-price-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "02b9f6dbe2__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly move pricing and the VIP discount to the server, validate itemName, wrap UserOwnsGamePassAsync in pcall, and give valid Luau, so every rubric item is met by both. B has a slightly cleaner design: the server pushes VIP status to the client through an IsVIP attribute, so the GUI updates after an in-session gamepass purchase and the client makes no second network call, and B checks player.Parent after the yielding VIP call. A adds a useful purchase cooldown, but its client label never updates after an in-session purchase, and that small gap leaves B slightly ahead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "shop-client-price-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "02b9f6dbe2__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers explain the client-price exploit (including negative values), move pricing to a shared ShopConfig, validate itemName type and existence, and compute the VIP discount on the server via a pcall-wrapped, cached UserOwnsGamePassAsync. A adds a cleaner IsVIP attribute for client display and a player.Parent check after the yield, while B adds a purchase rate limit, explains math.floor rounding, and has the client make its own display-only gamepass check. These trade-offs balance out, and neither answer has a substantive error.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-catalan-marital-regime-en",
+   "A": "without",
+   "B": "with",
+   "stem": "0453b43ca5__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly identify the Catalan separation-of-property default, conclude that the apartment is his, explain the art. 232-5 compensation with its one-quarter cap and recommend a Catalan family lawyer while flagging the vecindad civil caveat. B also covers a claim based on her own contributions (payments toward the price, the mortgage or renovations) and the presumption that assets of unclear ownership are shared (art. 232-4), which fits the rubric's 'proof of her own contributions' more directly. A adds useful points of its own, the family-home disposal protection (art. 231-9) and the 'unless you prove more' exception to the cap, so the gap between them is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-catalan-marital-regime-en",
+   "A": "with",
+   "B": "without",
+   "stem": "0453b43ca5__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly identify Catalan separation of property as the default, explain that the flat is not automatically half hers, cover the art. 232-5 compensation, and recommend a Catalan family lawyer. B is somewhat more useful: it gives the exact vecindad-change tests (10 years of residence, the declaration after 2 years), states the one-quarter cap correctly with its 'unless you prove more' exception, and adds the art. 231-9 protection of the family home and a warning about time limits and waivers. A is equally accurate but a little less complete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "tdd-new-feature-plan-en",
+   "A": "without",
+   "B": "with",
+   "stem": "07bc4bcffb__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical designs: a refactor to an injectable client, httpx.MockTransport unit tests, clamping to 50, readable 400 errors, and an opt-in contract test. B has an internal inconsistency: it switches to r.json().get(\"items\", []), so a renamed items key would silently return an empty list, and its contract test explicitly accepts empty results, even though B says that test exists to catch exactly that rename. A keeps the strict key access and rejects a non-positive limit explicitly instead of silently coercing it to 1, which gives it a slight edge, although B does include runnable code for the contract test's 400 check.",
+   "errors_with": [
+    "Claims the contract test catches 'items' being renamed, but .get(\"items\", []) plus accepting empty results means it would not"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "tdd-new-feature-plan-en",
+   "A": "with",
+   "B": "without",
+   "stem": "07bc4bcffb__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers replace the staging test with httpx.MockTransport, refactor so a client can be injected, fix and test the page_size clamp and the 400 path, and add an opt-in contract test with honest caveats about FastMCP and anyio. A actually codes the contract test for the 400 on a bad status and checks that 50 is accepted, while B only describes that check but adds marker registration, a full params-dict assertion and parameterized HTTP-error cases. These trade-offs roughly cancel out, and neither has a substantive correctness flaw.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "flaky-celery-sleep-test-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "0fb6628c78__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A makes deterministic tests the main fix: the task body is called directly and the view test mocks delay with on_commit capture. It keeps polling only for a single integration smoke test, which matches rubric item 2. B's main rewrite and its final summary still put the polling e2e test at the center, and it gives no code for the unit tests, only a table. B also describes the race imprecisely: it says the view's commit overwrites the worker's 'done' back to 'pending'. That cannot happen from the code B shows, because the worker's update would wait for the row lock and then write after the commit.",
+   "errors_with": [
+    "Claims the view's commit can overwrite the worker's 'done' back to 'pending'. In the view B shows, the save happens before delay(), so the worker's later update waits for the row lock and wins."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "flaky-celery-sleep-test-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "0fb6628c78__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both reject sleep/reruns and flag the on_commit race, but A's final recommendation still makes the polling e2e test the primary fix and only describes the unit layers in a table. B restructures the test into a direct synchronous task test, a view test with mocked delay and on_commit capture, and a single polling smoke test. That matches the rubric's demand to remove the timing and worker dependency from the main check.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "transport-tax-regional-rate-en",
+   "A": "with",
+   "B": "without",
+   "stem": "1fa9905f9e__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both correct the premise, give the region-dependent formula with 15th-of-month proration, and correctly state the notice-based payment due by 1 December of the following year. B adds a worked proration example, explains that the band rate applies to all horsepower and that 251 hp would move the car into a higher band, and gives practical checks such as verifying the horsepower on the notice and regional exemptions. A flags the 2025 changes to art. 361 more specifically, but that does not outweigh B's more usable guidance.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "transport-tax-regional-rate-en",
+   "A": "without",
+   "B": "with",
+   "stem": "1fa9905f9e__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correct the flat-rate premise, give the same Moscow/SPb figures with appropriate hedging, explain the hp x rate x months/12 formula with the 15th-of-month rule, and state the notice-based 1 December deadline plus the self-reporting duty. A adds a worked proration example and the band-cliff point at 250 hp, while B adds the taxpayer article (357) and flags the 2025 base-rate reform more explicitly. Neither asks the user for their region directly; both only condition on it, so the differences roughly cancel out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "invoice-timeout-double-pay-en",
+   "A": "with",
+   "B": "without",
+   "stem": "22723a9841__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical structure (idempotency key, server-side state machine, typed 'unknown' results, reconciliation tool, downside of 'never retry'). B explicitly names the missing state re-check by the agent as a contributing factor and flags as an assumption to verify that pay_5498 came from the timed-out call, which A states as fact. B also sets retry_safe to false on an unknown outcome, which is clearer than A's safe_to_retry: true paired with 'reconcile first'.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "invoice-timeout-double-pay-en",
+   "A": "without",
+   "B": "with",
+   "stem": "22723a9841__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet all four rubric items with nearly identical structure: they say no, explain that the timeout meant the outcome was unknown, recommend idempotency keys, a state machine and reconciliation, and describe the missed-payment downside of the teammate's fix. B's example result is internally inconsistent: it marks an unknown outcome as \"safe_to_retry\": true and in the same breath tells the agent not to call again until it has reconciled. B also puts the unique constraint on invoice_id alone, which would block a legitimate re-payment after a definite failure. A keeps retry_safe false for unknown outcomes and keys the constraint on invoice plus approval version, so it is a bit more careful, while B's explicit bottom line for the teammate is a small point in its favour.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "trade-datastore-dupe-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "252d05e14d__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers explain the wipe cause and the cross-server dupe mechanism, and both give essentially the same fix: session locking through UpdateAsync, retries with a kick on failed load, autosave with BindToClose, immediate saves after a trade, and ProfileStore as an alternative. A's commit is slightly stricter, since it refuses to write when this server does not hold the lock, and it adds unique item IDs plus an audit for duplicates. B adds more trade-process safeguards (a Trading flag, resetting Accept, a trade journal), a separate Studio store and correctly stated DataStore limits, so the strengths offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "trade-datastore-dupe-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "252d05e14d__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose the 502 wipe and the rejoin dupe correctly, and both give session-locked UpdateAsync code with retries, a kick on failed load, autosave and BindToClose, so every rubric item is met by each. B's save refuses to write when the lock is missing, while A's writeProfile writes when there is no lock at all; a late autosave after release could then lock the data again or write stale data. B's unique item IDs make trades and dupe audits easier to check, and B marks its uncertain claims more carefully, which puts it slightly ahead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "mocked-private-methods-review-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "2c436f08c3__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover all four rubric items with correct fixes and example tests. B makes mocking the class's own private methods its lead BLOCKER, which matches the rubric's key problem, and it also adds a get_cart id check and an idempotency note. A rates that same problem MAJOR, below the assertion gaps, although its mutation table and mutmut suggestion are strong.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "mocked-private-methods-review-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "2c436f08c3__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet all rubric items with similar fixes and example tests; A ranks the private-method mocking as the top blocker, while B rates it only MAJOR but names it as the root cause. B better answers the user's 'I can't formulate it' with a concrete mutation table of surviving bugs, and it explicitly covers the fragility-on-refactor point and the mutmut suggestion. A covers the coverage-versus-verification point well but says less about how the test is coupled to the class's internal structure.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "e2e-everything-coverage-mandate-en",
+   "A": "without",
+   "B": "with",
+   "stem": "38162bf359__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are strong, cover every rubric item, and get the flake and runtime arithmetic right. B spells out the pyramid with an explicit test-mix table, adds an outcome scorecard (escaped defects, risk-module coverage), and includes a pre-mortem plus a one-slide summary, so the tech lead gets a bit more to present. A's feasibility estimate for the 90% target is a nice touch, but overall B is slightly more complete and easier to act on.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "e2e-everything-coverage-mandate-en",
+   "A": "with",
+   "B": "without",
+   "stem": "38162bf359__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct flake and runtime math, request/unit-spec shift, risk-based targets, diff-coverage gates and a quarantine-first Cypress plan. B edges ahead by grounding its claim that 90% is not reachable in an explicit throughput estimate and by giving a clearer per-metric target table and a step-by-step meeting script the tech lead can present directly. A's explicit pyramid-share table is a plus, but its 60-70% projection is less supported than B's.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "refund-bot-system-prompt-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "3a7188998e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both prompts are strong and cover every rubric item: they check the tool data first, enforce the remaining-balance and duplicate checks, send the email only after a successful refund, and apply the delivered status and 14-day rules. A handles an ambiguous or failed issue_refund more robustly: it forbids a retry and calls get_order again to see whether the refund actually went through, which guards against double payouts after a timeout. B adds useful handling for a send_email failure and an email template, but it needs more placeholders filled before use and includes the odd instruction to compare dates 'посимвольно'.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "refund-bot-system-prompt-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "3a7188998e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both prompts are paste-ready Russian prompts that get order data from get_order, check the remaining amount and existing refunds, enforce the delivered and 14-day rules, and send email only after a successful refund. B handles tool failure more robustly: it forbids retrying issue_refund after an error or unclear response and re-checks get_order to see whether the refund went through. It also covers an empty delivery date or email and includes a refusal example so the model does not learn to always refund. A is equally correct and handles session-based email and ownership well, but its error handling is thinner and its duplicate check is only a general rule.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-beckham-deadline-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "4a49d113e5__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers identify the Beckham regime, the six-month deadline from the Social Security alta, the likely missed deadline, and advise checking the Informe de Vida Laboral and consulting an asesor fiscal. A cites the correct regulation article (116 RIRPF) and adds the useful Modelo 720 point, but overstates the marginal rate at 140k as ~45%. B gives the more accurate ~43% marginal rate and extra legitimate tax-reduction options, but attributes the deadline to art. 119 RIRPF instead of 116 (hedged as from memory).",
+   "errors_with": [
+    "Combined marginal rate at 140,000 EUR in Madrid stated as around 45%; it is about 43% (22.5% state + 20.5% Madrid)"
+   ],
+   "errors_without": [
+    "Deadline provision attributed to art. 119 RIRPF; the six-month option rule is in art. 116 RIRPF"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-beckham-deadline-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "4a49d113e5__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: they give the six-month deadline counted from the Social Security alta, say it has likely lapsed, describe the regime correctly and recommend checking the vida laboral and seeing an asesor fiscal. B cites the correct regulation article (Art. 116 RIRPF), adds that the deadline can also run from a home-country Social Security coverage certificate, and adds practical points (the Modelo 720 obligation, the Madrid new-resident incentive, the risk of 24% withholding being clawed back). A cites the wrong regulation article (119), though it hedged that citation, and it adds a useful Art. 7.p pointer; on balance B is slightly more precise and complete.",
+   "errors_with": [
+    "Combined marginal rate at 140,000 EUR in Madrid given as about 45%; it is closer to 43% (22.5% state + 20.5% Madrid), though hedged as approximate"
+   ],
+   "errors_without": [
+    "Attributes the Modelo 149 six-month deadline to Art. 119 RIRPF; the provision is Art. 116 RIRPF (hedged as from memory)"
+   ]
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "invokeclient-confirm-dialog-en",
+   "A": "without",
+   "B": "with",
+   "stem": "56b54cf9d9__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose the unbounded InvokeClient yield and give a sound two-RemoteEvent pattern with per-player pending offers, expiry and PlayerRemoving cleanup. B also says outright that an InvokeClient error (such as on disconnect) skips the Busy reset because there is no pcall, and it calls out the pad-wide lock as a design flaw, which matches rubric item 1 more fully. B additionally supplies a working client UI script, an expiry and distance check, and a useful ProximityPrompt alternative, while A has a stronger ownership/purchased check but only a stub client.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "invokeclient-confirm-dialog-en",
+   "A": "with",
+   "B": "without",
+   "stem": "56b54cf9d9__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose the infinite yield and pad-wide lock correctly and propose nearly identical two-RemoteEvent, per-player pending-offer designs with expiry and PlayerRemoving cleanup. A explicitly notes that an InvokeClient error (disconnect) also skips the Busy reset because there is no pcall, while B only says it would show in Output without connecting it to the stuck flag. A also ships a complete working client script and a pad-proximity check, whereas B's client is a comment stub, though B adds useful ownership/purchased checks and a more robust character lookup.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "order-dependent-db-tests-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "571fc18adf__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct diagnosis and an equivalent, correct SQLAlchemy 2.0 per-test fixture that rolls back via join_transaction_mode='create_savepoint'. B ends by offering '-p no:randomly' as a temporary CI unblock, which softens rubric item 2, and its verification step 3 (compare the no:randomly run with --randomly-seed=last and expect matching results) is muddled. B's extra pitfalls, such as sequences not rolling back, are useful but do not outweigh this.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "order-dependent-db-tests-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "571fc18adf__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose shared module-scoped state correctly and give an equivalent, correct SQLAlchemy 2.0 rollback fixture using join_transaction_mode=\"create_savepoint\". B ends with a firm recommendation to keep randomization, gives a self-contained test example built through the repository API, and adds a more useful trade-off list (things a single transaction cannot test) plus a seed-loop verification. A endorses -p no:randomly as a temporary CI measure and its third verification step (comparing a no:randomly run with --randomly-seed=last) is muddled, so B has a small edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "ip-vs-ooo-forum-pretrial-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5830c211c8__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the court to the Arbitrazh Court of Moscow, explain the mandatory 30-day pretenziya under Art. 4(5) APK, keep the Art. 395 interest and a full attachment list, and explain that a district court would return or transfer the claim. The deciding difference is the state duty: A gives the correct post-176-FZ scale (55,000 + 3% over 1M, about 61,000 RUB), while B invents a 1-2M band at 1%, which would lead to underpaying and the claim being left without movement. B has a few extras (interim measures, online hearing, correct Art. 129(1)(5) return basis), but they do not outweigh the fee error, and its motion for 'scheduling preferences' is vague filler.",
+   "errors_with": [
+    "State duty under Art. 333.21 NK RF for claims of 1,000,001-10,000,000 RUB is 55,000 + 3% of the excess over 1M, not a 1,000,001-2,000,000 band at 1%; the fee on 1.2M is about 61,000 RUB, not 57,000"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "ip-vs-ooo-forum-pretrial-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5830c211c8__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the forum, explain the mandatory 30-day pretenziya and list the right attachments, so the rubric does not separate them. The difference is the state fee: B gives the post-176-FZ scale correctly (55,000 + 3% over 1M, about 61,000 RUB), while A states 1% and about 57,000 RUB, which would underpay the fee. B also cites the correct GPK transfer provision (Art. 33.1) and adds useful points on continuing interest, while A has a vague filler item about hearing scheduling.",
+   "errors_with": [
+    "State fee under NK RF Art. 333.21 for 1,000,001-10,000,000 RUB is 55,000 + 3% of the excess, not 1%; the fee on 1.2M is about 61,000 RUB, not 57,000",
+    "Cites GPK Art. 33 for transfer to the arbitrazh court; the specific provision is Art. 33.1"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "batched-tool-calls-review-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "59fec2d0ae__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the batched read and write, propose server-side precondition checks, taking user_id from the session, rejecting a write that shares a batch, an iteration limit and returning errors as observations. A's code is more complete and self-consistent: it has a concrete cancel_subscription with ownership and status checks, handles unknown tools, bad JSON and TypeError, and derives the idempotency key from tc.id. B's sketch relies on undefined helpers (ToolError, request_confirmation, escalate_to_human) and leaves has_write unused, though B usefully points out that the user may have been told the subscription was cancelled while sub_91 stays active.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "batched-tool-calls-review-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "59fec2d0ae__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers explain the same-batch dependency, propose batch-level rejection of mutations, server-side precondition checks, iteration limits and error-as-observation handling. B gives concrete, runnable code for the ownership/status check in cancel_subscription, injects user_id and idempotency keys in the executor, and shows parallel_tool_calls=False in the actual call, while A's sketch leaves an unused has_write variable and relies on undefined helpers (request_confirmation, ToolError, session kwarg). B also correctly flags the cross-customer risk more sharply; A's extra point about the model possibly misreporting success to the user is useful but speculative.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "gun-remote-hit-validation-en",
+   "A": "with",
+   "B": "without",
+   "stem": "73735fe400__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers propose nearly identical server-authoritative architectures (shared config, server cooldown, type checks, server raycast with pellet aggregation) and meet every rubric item. B adds a clearer today-vs-should-be table, spells out the hybrid client-hit validation (distance, position tolerance, LOS raycast) the rubric describes, and covers extra practical points (self-hit exclusion, team check, server-side ammo, replicating tracers). A is slightly tighter on NaN handling and per-weapon cooldowns, but B's broader concrete guidance serves the user a bit better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "gun-remote-hit-validation-en",
+   "A": "without",
+   "B": "with",
+   "stem": "73735fe400__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give nearly identical, correct architectures: server-side config, per-player fire-rate timestamps, type checks, origin check and server raycast. B is slightly more robust: it checks that the specific named Tool is equipped rather than any Tool, validates aim-vector length in a NaN-safe way, and gives more useful guidance on the camera-dependent origin tolerance, shared spread seeds and lag compensation, plus a clear order of work. B has one minor slip (suggesting the server-side command bar to fire a client remote), which does not outweigh its extra precision.",
+   "errors_with": [
+    "Suggests firing the RemoteEvent via FireServer from the server-side command bar, which is not possible; FireServer must be called from the client (it does also offer a test LocalScript)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "llc-osn-2026-rates-en",
+   "A": "with",
+   "B": "without",
+   "stem": "76ceb5de1d__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correct profit tax to 25% with the 8/17 split and VAT to 22%, flag the 30%/15.1% contributions, and give suitable verification advice and not-legal-advice caveats. A names the 10% reduced VAT rate as an exception, but neither answer mentions the 0% export rate. B adds useful practical detail such as monthly advance payments and the warranty-repair exemption, and it is careful about uncertainty, but on the main rubric item where they differ, A comes out slightly ahead despite a couple of minor inaccuracies.",
+   "errors_with": [
+    "States Russia terminated the Russia-Netherlands treaty; it was the Netherlands that terminated it",
+    "Says property tax up to 2.2% on cadastral value; the cadastral-value cap is generally 2%, 2.2% applies to average annual value"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "llc-osn-2026-rates-en",
+   "A": "without",
+   "B": "with",
+   "stem": "76ceb5de1d__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correct profit tax to 25% (8/17 split) and VAT to 22%, and both flag the 30%/15.1% contributions, dividend WHT and the risk that cash gets trapped. B mentions the 10% reduced VAT rate and makes the practical point about VAT-inclusive pricing losing margin, which gets it closer to rubric item 2; A mentions neither the 10% nor the 0% rate. Each answer has minor factual slips, so the difference is small.",
+   "errors_with": [
+    "Claims cross-border related-party transactions are controlled regardless of size; a 60M RUB threshold applies",
+    "Gives property tax up to 2.2% on cadastral value; the cadastral-value cap is 2%"
+   ],
+   "errors_without": [
+    "States the Netherlands terminated the treaty; it was Russia that denounced the Russia-Netherlands treaty effective 2022"
+   ]
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "deploy-agent-prompt-review-en",
+   "A": "with",
+   "B": "without",
+   "stem": "987d2335bb__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both prompts cover status-first checks, stop-and-ask on mismatches, post-only-on-success, time injection and the Friday rule within about 230 words. B has a slightly crisper STOP block with an explicit no-post instruction and a helpful other-env example, plus a useful semver caveat. A wins narrowly because it keeps the Friday rule faithful to the original (deploys only) and openly explains the rollback interpretation, while B silently widens it to 'any prod change', which could block incident rollbacks without telling the user.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "deploy-agent-prompt-review-en",
+   "A": "without",
+   "B": "with",
+   "stem": "987d2335bb__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical prompts: a status check first, stop-and-ask on mismatches, posting only after success, the Friday rule and about 230 words. A quietly widens the Friday rule to 'any prod change', which blocks rollbacks and does not say so. B names its reading of the rule (rollbacks allowed) and tells the user how to change it. B also includes a test where deploy() returns an error, which checks the rule against posting after a failure directly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "ooo-share-sale-notary-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "9b17c96e8d__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers catch the missing notarial form, explain that the deal is void, and say the notary files Р13014, re-execute the sale and account for the money already paid. B misstates п. 12 ст. 21 14-ФЗ: under the current text the share passes when the entry is made in the ЕГРЮЛ, not when the deal is notarized. B builds its central end-of-month advice on that error ('the share will pass to you in September'), while A correctly says the share passes only when the ЕГРЮЛ entry is made.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the share passes to the buyer when the deal is notarized (п. 12 ст. 21); under the current law it passes when the entry is made in the ЕГРЮЛ",
+    "Tariff cap of 20 000 rub. for a share sale under ст. 333.24 НК РФ is likely wrong (the cap for share deals is higher), though the approx. 5 000 rub. estimate for 1 mln is unaffected"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "ooo-share-sale-notary-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "9b17c96e8d__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers flag the notarial requirement, say the unnotarized deal is void, say the notary files Р13014, and handle the money already paid. A misstates п. 12 ст. 21: since 2016 the share passes when the ЕГРЮЛ entry is made, not when the deal is notarized. That error drives A's advice on the month-end deadline, telling the user the share will pass in September. B gets the transfer moment right, so its deadline assessment is realistic, and it adds useful points about the participants list and the pre-emptive right.",
+   "errors_with": [
+    "Cites ст. 333.24 НК РФ for the 1,500–150,000 tariff range; those limits come from ст. 22.1 of the Fundamentals of Notary Law (Основы о нотариате), a minor citation slip"
+   ],
+   "errors_without": [
+    "Claims the share passes to the buyer when the deal is notarized (п. 12 ст. 21); under the current law it passes when the ЕГРЮЛ entry is made, so the claim that the share will pass in September is wrong",
+    "Gives the notarial tariff as 0.5% with a 1,500 minimum and a 20,000 cap under the Tax Code; for share sales the usual cap is 150,000 (the ~5,000 estimate is still roughly correct)"
+   ]
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "cut-lookup-before-close-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a5e8f2350b__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers refuse to trust the customer-stated balance, list the right preconditions (ledger balance, pending transactions/holds, linked products, ownership), and propose moving validation into close_account with typed refusals. B adds substantive points A lacks: prompt instructions are not a control, the time-of-check/time-of-use gap that server-side validation closes, firing the email from the backend, and a useful caveat that the fee schedule in the prompt must stay in sync with the live source. A's fallback of a combined read tool and its summary table are good, but overall B gives slightly deeper and more actionable guidance.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "cut-lookup-before-close-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a5e8f2350b__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both refuse to trust the customer-stated balance, list the same concrete preconditions (ledger balance, pending transactions/holds, linked products, ownership), and propose moving validation server-side into close_account with a typed refusal. A adds the TOCTOU point, event-driven email and a caveat on its earlier fee advice, while B adds a fallback combined read tool if close_account can't change, a clear before/after table, and a note to check what the existing API already enforces. These strengths offset each other; A's opening line is slightly muddled but not wrong.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "retry-loop-same-error-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "b3e991c3c9__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly admit the earlier mistake, limit retries to transient errors, return the error to the model with schema help, and add a stop guard before recursion_limit. B gives a concrete, parameterized describe_table tool and LangGraph wiring that works (a routing function returning node names, a give_up node, conditional edges), plus regression tests. A's guard returns a state-update dict but is described as a conditional edge, which does not fit LangGraph semantics, though A adds a useful check on what the ToolMessage contains (RetryError swallowing the error text).",
+   "errors_with": [
+    "guard_repeated_calls returns a state-update dict yet is proposed as a conditional edge; LangGraph routing functions cannot update state, and a Counter kept in state would also need a reducer"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "retry-loop-same-error-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "b3e991c3c9__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers admit the earlier advice was wrong, limit retries to transient errors, return the error to the model with a way to see the schema, and add a loop guard while keeping recursion_limit as a backstop. B adds a useful diagnostic step: check what the ToolMessage actually contains, because without reraise tenacity can hide the original error inside a RetryError. B also puts the schema straight into the error message and uses a guard keyed on identical calls, which matches the trace more closely. A's error-budget guard and explicit describe_table tool are solid but slightly less targeted.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-madrid-solidarity-wealth-en",
+   "A": "with",
+   "B": "without",
+   "stem": "c575b6a82d__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the premise, explain the ITSGF with the same accurate estimate, cover Modelo 714/718/720, the overdue-filing risk and the Beckham caveat, and send the user to a Spanish adviser. B handles the 60% joint cap correctly: low taxable income from accumulating ETFs makes the cap more likely to cut the bill substantially. A says the cap usually doesn't help much with a low-income portfolio, which gets the mechanism backwards. B also adds useful detail on the full rate scale, Modelo 720 re-filing triggers and a practical action list.",
+   "errors_with": [
+    "Says the 60% IRPF+IP/ITSGF joint cap usually doesn't help much for a portfolio with modest income, when low taxable income is exactly when the cap bites most (up to an 80% reduction)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-madrid-solidarity-wealth-en",
+   "A": "without",
+   "B": "with",
+   "stem": "c575b6a82d__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the accountant, explain the IP filing duty and the ITSGF above 3M EUR, cover Modelo 720, the Beckham regime and overdue deadlines, and recommend a Spanish adviser, so every rubric item is met by both. B is slightly more thorough on residence-year timing and valuation, but it gets the joint 60% cap backwards: low taxable income from an ETF portfolio makes the cap more likely to cut the bill, not less. A describes the cap correctly and points out the practical mitigation, which gives it a small edge.",
+   "errors_with": [
+    "Claims the IRPF+IP/ITSGF 60% cap usually does not help much when the ETF portfolio produces modest income; low taxable income is exactly when the cap binds and can cut the wealth taxes by up to 80%"
+   ],
+   "errors_without": [
+    "Suggests quoted securities are valued at the Q4 average price for IP; ETFs as collective investment vehicles are generally valued at year-end liquidation or market value (minor)"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-golden-visa-apartment-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "cdec065241__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly say the Golden Visa was abolished by LO 1/2025 as of 3 April 2025, redirect to residencia no lucrativa with the no-work restriction, and give nearly identical, accurate steps, document lists and tax risks. Only B mentions getting an NIE, which covers rubric item 4, and it adds practical purchase advice: a Spanish bank account, compliance checks and an independent lawyer. A is slightly more direct about the date of the abolition, but that does not outweigh B's advantage on the rubric.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-golden-visa-apartment-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "cdec065241__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly say the real-estate Golden Visa was abolished by LO 1/2025 as of 3 April 2025, and both redirect to the residencia no lucrativa with the no-work restriction, accurate IPREM-based thresholds, and similar document lists. A explicitly covers getting an NIE (via the consulate or by power of attorney) and opening a bank account for the purchase, while B never mentions the NIE. Otherwise the two are close in quality, with B adding slightly more tax detail (Beckham regime, IVA/AJD on new builds).",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "usn-vat-threshold-prev-year-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "d4447d9b64__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both correctly say the 2026 exemption is decided by 2025 income, warn of mid-2026 loss of the exemption, and explain 5%/7% without deductions versus 22% with deductions, with correct breakeven math. B uses the outdated 425-FZ schedule (15M for 2027, 10M for 2028+), which Federal Law 228-FZ of 04.07.2026 replaced by keeping 20M through 2029; A reflects that change while still flagging it for verification. B is richer on practical details (deadlines, B2B buyer impact, seasonality), but the threshold error and its prominent place in B's table give A a small edge.",
+   "errors_with": [],
+   "errors_without": [
+    "States the exemption threshold is 15M for 2027 and 10M for 2028+; 228-FZ of 04.07.2026 kept it at 20M through 2029"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "usn-vat-threshold-prev-year-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "d4447d9b64__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both correctly say the accountant is wrong for 1 January 2026 and warn that the exemption will likely be lost in autumn 2026. A presents the 2027/2028 thresholds of 15M and 10M, but Federal Law 228-FZ of 04.07.2026 froze the threshold at 20M through 2029; B states this correctly and flags that it needs checking, and B also uses today's date (late September) to point out that the threshold may already have been crossed. A covers the 7% rate more fully, but this does not outweigh its outdated threshold schedule.",
+   "errors_with": [],
+   "errors_without": [
+    "States the VAT exemption threshold is 15M for 2027 and 10M from 2028; Federal Law 228-FZ of 04.07.2026 kept it at 20M through 2029"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-inheritance-ccaa-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "d64f5c757d__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give correct state-scale arithmetic per heir, explain the CCAA option after C-127/12 and ask for the region, and both omit NIE and notarial acceptance. A frames the state figure as probably not the amount to set aside and says the real amount may be far lower, while B's headline tells the user to set aside 68,000 EUR, which is closer to presenting one state-scale figure as the answer. B adds useful extras (modelo 650, the German reporting duty, a list of generous regions), but these do not outweigh A's better handling of the core rubric point.",
+   "errors_with": [],
+   "errors_without": [
+    "Describes the state scale as having rates 'up to 21.25%'; the scale runs up to 34%, and 21.25% is only the marginal bracket that applies here"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-inheritance-ccaa-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "d64f5c757d__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both lead with the correct state-scale figure (about 34,000 EUR per heir), calculate it per heir, explain that the autonomous community can cut it close to zero, and ask where the father lived, so they are nearly equal on the core rubric items. B states more strongly that the headline figure probably does not apply ('may be several times lower, down to nearly zero'). B also mentions notarial and registration costs and the German credit for Spanish tax (§ 21 ErbStG), while A mentions no practical steps such as the NIE or notarial acceptance.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "hud-leaderstats-race-en",
+   "A": "without",
+   "B": "with",
+   "stem": "dbd208e1bd__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the race, use WaitForChild, delete the loop and rely on replicated IntValue .Changed. B also covers batching into one payload and dirty-flag throttling, but its HUD code uses script.Parent, which in StarterPlayerScripts is PlayerScripts rather than a GUI. A uses a correct PlayerGui path and adds a sound point about building the structure before the slow DataStore load; these trade-offs balance out.",
+   "errors_with": [
+    "script.Parent:WaitForChild(\"CoinsLabel\") in a StarterPlayerScripts LocalScript points at PlayerScripts, not the GUI (though flagged 'adjust to your UI path')"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "hud-leaderstats-race-en",
+   "A": "with",
+   "B": "without",
+   "stem": "dbd208e1bd__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the replication race, use WaitForChild, and replace the polling remotes with replicated values and .Changed, with correct Luau. A also covers every option in rubric item 2: it batches the three events into one payload, fires only on change, and adds dirty-flag throttling, and it keeps the user's existing leaderstats structure. B gives useful DataStore timing advice, but it moves Gems and XP to attributes without being asked and never mentions combining the events into one payload, so A comes out slightly ahead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "coin-touched-leak-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "e0bacfebff__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose the multi-part Touched firing and the Parent=nil leak correctly, and both give nearly identical server-side code with a collected flag, GetPlayerFromCharacter and Destroy(). B is slightly more robust: it resolves the character with FindFirstAncestorOfClass, so accessory handles count, and it explains why check-and-set is atomic in single-threaded Luau. A presents its 'reference cycle blocks GC' explanation as fact and adds a dubious Transparency-before-Destroy replication tip, while B hedges the GC mechanism honestly.",
+   "errors_with": [],
+   "errors_without": [
+    "States the leak is caused by a closure/connection reference cycle the GC cannot free; the real cause is the engine-held connection keeping the instance alive, since Lua GC handles pure cycles"
+   ]
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "coin-touched-leak-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "e0bacfebff__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose both problems correctly and give nearly identical server-side fixes (collected flag set before any yield, Destroy instead of Parent = nil, GetPlayerFromCharacter, and a MAX_COINS check in code). A finds the character with FindFirstAncestorOfClass(\"Model\"), so touches from accessory handles still count, and it is appropriately cautious about the GC details. B uses hit.Parent, which is less robust, and adds a marginal Transparency tip, though its stress-test suggestion is useful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "rounding-bug-fix-regression-en",
+   "A": "without",
+   "B": "with",
+   "stem": "f6ad1e409b__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct divmod fix with input validation, regression tests for the reported case, and parametrized invariant tests on length, sum and max-min spread. B also names Hypothesis explicitly as the natural tool for the invariant test, covers a wider set of inputs and a second over-charge regression case, and suggests auditing the historical splits that were affected. A is equally correct but slightly less thorough, so B wins by a small margin.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "rounding-bug-fix-regression-en",
+   "A": "with",
+   "B": "without",
+   "stem": "f6ad1e409b__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct divmod fix, the same input validation and nearly the same regression and parametrized invariant tests. A also names Hypothesis and gives a concrete strategy for property-based invariant testing, which the rubric asks for, and it suggests auditing the historical splits. B's suggestion to look for callers that compensated for the old rounding is useful, but it does not close the Hypothesis gap.",
+   "errors_with": [
+    "Says past splits could be off by up to n - 1 cents. The old round() error is at most about n/2 cents, so this bound is loose, though not strictly false."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-sl-minimum-capital-en",
+   "A": "with",
+   "B": "without",
+   "stem": "fa70e23db3__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly cover the 1 EUR SL under Ley 18/2022, its safeguards, the work-permit issue and a reasoned autónomo vs SL comparison, and both mention notary and Registro Mercantil only in passing as setup costs. B adds practical points that A lacks: the Art. 62.2 LSC founders' declaration that replaces the bank certificate, a concrete profit threshold for switching, the Ley 7/2024 micro-company rates and the 2025 US change to GILTI. It also argues more clearly that autónomo fits the user's cash-tight situation.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-sl-minimum-capital-en",
+   "A": "without",
+   "B": "with",
+   "stem": "fa70e23db3__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are accurate and closely aligned on the EUR 1 SL, its below-3,000 safeguards, the immigration check and the autonomo comparison; both mention the notary and Registro Mercantil only in passing, as setup costs, rather than stating them as formal requirements. A adds the Art. 62.2 LSC founders' declaration as an alternative to the bank certificate, current Spanish corporate-tax detail (the Ley 7/2024 micro-company rates and the 2025 change to GILTI) and a concrete profit threshold for when an SL pays off, which makes it slightly more useful. B's FBAR/FATCA mention is a useful addition, but its hedged claim that autonomos societarios often cannot get the tarifa plana is doubtful.",
+   "errors_with": [
+    "Suggests autonomos societarios often cannot get the tarifa plana, although case law has recognised their access to it (hedged)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "ndfl-progressive-high-salary-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "ff484548c8__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers compute 6.6M income, the same bracket split and the 990,000 RUB total, and include the same cumulative monthly withholding table. Both call the '15% above 5M' claim the 2021-2024 rule. The remaining differences are small: A gives the 450,000 RUB child-deduction limit, B adds notes on advance payments and gross salary, and both hedge the deduction mechanics, so neither is clearly ahead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "ndfl-progressive-high-salary-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "ff484548c8__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers have the same correct calculation (990,000 RUB), correctly identify the '15% above 5M' rule as applying in 2021-2024, and give identical, correct cumulative monthly tables. The difference is in the side notes. B wrongly says property and social deductions refund tax at the taxpayer's top marginal rate, which would be 18% here, while A correctly recalls, with a hedge, that refunds use the 13/15% base rates. B's extra details (the 450k child-deduction limit and the note on vacation pay) are correct but do not outweigh that error.",
+   "errors_with": [
+    "Claims property/social deductions return tax at the taxpayer's top progressive rate; under 176-FZ refunds are limited to 13%/15%."
+   ],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

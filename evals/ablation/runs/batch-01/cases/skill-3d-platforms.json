@@ -1,0 +1,35 @@
+{
+  "component": "skill-3d-platforms",
+  "cases": [
+    {
+      "id": "sell-printed-organizers-market-ru",
+      "agent": "3d_print_finder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Купил Bambu Lab P1S, печатаю PETG, стол 256x256. Хочу набить руку на полезных мелочах для дома — органайзеры для проводов, держатели для наушников под стол, подставки под зарядки. Сам моделить пока не умею. Где лучше искать готовые модели под такое и как выбирать, чтобы не нарваться на кривые файлы, которые печатаются через раз? Если пойдёт хорошо, удачные вещи буду потом допечатывать партиями и выставлять на Авито, штук по 20-30 в месяц.",
+      "why_in_scope": "Selling is mentioned only as an afterthought, while the explicit question is where to find reliable files. The component requires always reporting the license and flagging that NC and personal-use-only models cannot be sold (CC0/CC-BY/CC-BY-SA can), so it should surface licensing even though the user did not ask; a strong model without it tends to answer only the search/quality question. It also steers functional parts to Printables/MakerWorld and quality checks toward makes and make photos rather than downloads.",
+      "rubric": [
+        "Explicitly warns that selling prints depends on the model's license and that CC-BY-NC / non-commercial or personal-use-only models cannot be sold, while CC0 and CC-BY (with attribution) permit commercial use.",
+        "Recommends concrete platforms suited to functional household parts (e.g. Printables and/or MakerWorld, with Thingiverse or a meta-search like Yeggi as secondary), not only art/miniature marketplaces.",
+        "Gives checkable quality signals for picking reliable files, such as number of makes and user make photos, documented print settings or 3MF profiles, and ratings, rather than download counts alone.",
+        "The answer is in Russian and fits the user's setup (FDM, PETG, Bambu P1S, 256x256 bed), e.g. mentions ready Bambu print profiles/3MF or PETG-specific considerations, without recommending resin-oriented sources as primary."
+      ]
+    },
+    {
+      "id": "thingiverse-knob-failed-downloads-en",
+      "agent": "3d_print_finder",
+      "language": "en",
+      "history": [],
+      "user_message": "Trying to find a replacement knob for an old Kenwood Chef A701 mixer speed control (the original cracked). I searched Thingiverse for \"kenwood knob\", sorted by most downloads and printed the top result in PLA on my Ender 3 V2. The D-shaft hole was way off and the model has zero comments or photos from anyone. There were like 40 more results. How should I go about finding one that actually fits instead of printing them all one by one?",
+      "why_in_scope": "The component says to sort Thingiverse by makes rather than downloads, to use make photos as evidence that a model actually works, and for obscure/vintage parts to fall back to Thingiverse plus meta-search (Yeggi) and Thangs' natural-language search. A strong model without it may focus only on measuring/remodeling the shaft or generic 'check comments' advice and not correct the downloads-vs-makes sorting or point to cross-platform search.",
+      "rubric": [
+        "Tells the user to sort or judge by number of makes (and look for user make photos/comments confirming fit) instead of downloads, explaining that downloads do not show that anyone printed it successfully.",
+        "Suggests searching beyond Thingiverse, e.g. a meta-search engine such as Yeggi and/or Printables or Thangs, with more specific queries including the model number (A701) or part name.",
+        "Gives practical fit advice: measure the D-shaft with calipers and prefer parametric/customizable knob models (e.g. OpenSCAD/Customizer) or ones listing shaft dimensions, and/or print a small test of just the hub before the full knob.",
+        "Stays focused on finding and verifying a fitting model for FDM printing on the Ender 3 V2, without padding unrelated to the request."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: moved the selling plan to a trailing afterthought so the license warning is not directly prompted and the component's always-report-license rule is what makes the difference; tightened the fit-to-setup rubric item. Case 2 kept as is: in scope (makes vs downloads, meta-search), no leak, rubric facts correct."
+}

@@ -1,0 +1,35 @@
+{
+  "component": "implant-recursion-of-thought",
+  "cases": [
+    {
+      "id": "budget-rollup-org-tree-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Финдиректор просит к завтрашнему утру свод бюджета на 2027 по всей структуре. Выгрузка из 1С пришла вот в таком виде (млн ₽, у каждого подразделения указан только его СОБСТВЕННЫЙ бюджет, без дочерних):\n\n```json\n{\"name\": \"Компания\", \"budget\": 0, \"children\": [\n  {\"name\": \"Продажи\", \"budget\": 120, \"children\": [\n    {\"name\": \"B2B\", \"budget\": 80, \"children\": [\n      {\"name\": \"Enterprise\", \"budget\": 45, \"children\": [\n        {\"name\": \"Ключевые клиенты\", \"budget\": 55, \"children\": []}\n      ]},\n      {\"name\": \"SMB\", \"budget\": 25, \"children\": []}\n    ]},\n    {\"name\": \"B2C\", \"budget\": 60, \"children\": []}\n  ]},\n  {\"name\": \"Разработка\", \"budget\": 200, \"children\": [\n    {\"name\": \"Backend\", \"budget\": 150, \"children\": [\n      {\"name\": \"Платёжный сервис\", \"budget\": 70, \"children\": [\n        {\"name\": \"Антифрод\", \"budget\": 40, \"children\": []}\n      ]}\n    ]},\n    {\"name\": \"Frontend\", \"budget\": 90, \"children\": [\n      {\"name\": \"Мобильное\", \"budget\": 55, \"children\": []}\n    ]},\n    {\"name\": \"QA\", \"budget\": 35, \"children\": []}\n  ]},\n  {\"name\": \"Маркетинг\", \"budget\": 50, \"children\": [\n    {\"name\": \"Контент\", \"budget\": 20, \"children\": []},\n    {\"name\": \"Performance\", \"budget\": 45, \"children\": [\n      {\"name\": \"Ретаргетинг\", \"budget\": 15, \"children\": []}\n    ]}\n  ]}\n]}\n```\n\nНужно: для КАЖДОГО подразделения (не только верхнего уровня) полный бюджет с учётом всех вложенных, общий итог по компании, и список подразделений, у которых полный бюджет строго больше 100 млн. Посчитай сам, скрипт писать не надо — Excel у меня под рукой нет.",
+      "why_in_scope": "The request is a roll-up over a 4-level nested tree where each node's total depends on its subtrees. The implant makes the model treat each child as a sub-problem (leaves as base case, parent = own + sum of children's totals) and combine bottom-up. Without it, a strong model often sums in one pass and double-counts or drops a deep node (e.g. forgets 'Ключевые клиенты' inside Enterprise or 'Антифрод' inside Платёжный сервис), producing wrong intermediate totals. Enterprise rolls up to exactly 100, so a dropped or double-counted deep node also flips the threshold list.",
+      "rubric": [
+        "Gives correct full totals for the intermediate nodes: Enterprise 100, B2B 205, Платёжный сервис 110, Backend 260, Frontend 145, Performance 60 (leaves equal their own budget).",
+        "Gives correct top-level totals Продажи 385, Разработка 640, Маркетинг 130, and company total 1155.",
+        "Lists exactly these units with full budget strictly over 100: Продажи, B2B, Разработка, Backend, Платёжный сервис, Frontend, Маркетинг (plus the company itself if it includes the root); Enterprise (exactly 100) is excluded.",
+        "Computes by hand as asked (no script as the main deliverable) and shows each parent's total as its own budget plus its children's totals, so the user can verify it."
+      ]
+    },
+    {
+      "id": "layered-config-extends-resolution-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our in-house config loader (Node service, v2.3) has these rules: a file may have an `extends` array; the listed files are each fully resolved first (including their own extends) and then applied left-to-right; after that the file's own keys are applied on top. Objects deep-merge, arrays replace wholesale, and a value of `null` deletes the key.\n\nbase.json\n```json\n{\"server\": {\"port\": 8080, \"host\": \"0.0.0.0\", \"tls\": {\"enabled\": false}}, \"features\": [\"auth\"], \"logLevel\": \"info\"}\n```\nsecure.json\n```json\n{\"extends\": [\"base.json\"], \"server\": {\"tls\": {\"enabled\": true, \"cert\": \"/etc/ssl/app.pem\"}}, \"logLevel\": \"warn\"}\n```\ndev.json\n```json\n{\"extends\": [\"base.json\"], \"server\": {\"port\": 3000}, \"features\": [\"auth\", \"debug-panel\"], \"logLevel\": \"debug\"}\n```\napp.json\n```json\n{\"extends\": [\"secure.json\", \"dev.json\"], \"server\": {\"host\": \"127.0.0.1\", \"tls\": {\"cert\": null}}, \"features\": [\"auth\", \"billing\"]}\n```\n\nWe boot staging with app.json and the health check says TLS is off and the debug panel route is 404. I thought secure.json would make TLS win. What exactly does app.json resolve to, and why?",
+      "why_in_scope": "Resolving app.json requires fully resolving each parent (secure.json and dev.json, each of which resolves base.json) before combining them, then applying app.json's own keys. The implant pushes the model to solve each nested extends as its own sub-problem and merge results in order. A model that merges the files in a flat pass tends to keep secure.json's tls.enabled=true, missing that resolved dev.json brings back base's tls.enabled=false and overrides it.",
+      "rubric": [
+        "States the final resolved config: server.port 3000, server.host \"127.0.0.1\", server.tls = {\"enabled\": false} with no cert key, features [\"auth\", \"billing\"], logLevel \"debug\".",
+        "Explains that TLS is off because resolved dev.json includes tls.enabled=false inherited from base.json, and dev.json is applied after secure.json, so it overrides secure's enabled=true.",
+        "Explains that the debug panel is missing because app.json's own features array replaces the inherited [\"auth\", \"debug-panel\"] wholesale.",
+        "Shows the intermediate resolved forms of secure.json and dev.json (or an equivalent step-by-step merge) and suggests a concrete fix, such as reordering extends or setting tls.enabled explicitly in app.json."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 made harder: 'Ключевые клиенты' raised to 55 so Enterprise rolls up to exactly 100, adding a strict-threshold trap that a missed or double-counted deep node breaks; rubric totals recomputed (B2B 205, Продажи 385, total 1155). Case 2 verified by hand (diamond extends via base.json) and kept unchanged."
+}

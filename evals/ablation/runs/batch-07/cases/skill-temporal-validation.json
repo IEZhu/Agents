@@ -1,0 +1,35 @@
+{
+  "component": "skill-temporal-validation",
+  "cases": [
+    {
+      "id": "morning-digest-mixed-dates-ru",
+      "agent": "daily_briefing",
+      "language": "ru",
+      "history": [],
+      "user_message": "Собери, пожалуйста, утренний дайджест для шефа — «что важного произошло за последние сутки», 4-5 пунктов, коротко. Сейчас 25 сентября 2026, 09:00 по Москве. Вот что я накидал из ленты и каналов:\n\n1) Интерфакс, 24.09.2026 18:40 МСК — Минфин разместил ОФЗ на 120 млрд руб., спрос превысил предложение почти вдвое.\n2) Скрин из телеграм-канала «Трейдерская кухня», даты на скрине нет: «Brent обвалилась на 30% за день, рынки в панике!!!»\n3) Ведомости, опубликовано 19.09.2026, обновлено 24.09.2026 22:10 — крупный ритейлер закрывает 40 магазинов в регионах. (Внизу приписка: «В заголовке исправлена опечатка».)\n4) Reuters, 23.09.2026 21:30 EDT — ФРС оставила ставку без изменений, в комментарии намекнули на снижение в декабре.\n5) Статья «Как купить облигации: пошаговый гид для новичков», даты не нашёл.\n6) Пост в канале РБК: «На этой неделе ЦБ может ужесточить требования к кредитам наличными».\n\nЕсли что-то лишнее — выкинь сам.",
+      "why_in_scope": "The component makes the model anchor to the stated current time, normalise every timestamp to one timezone, bucket items by age, discard stale ones, treat an undated dramatic anomaly as old until a dated source confirms it, distrust a cosmetic 'updated' stamp, drop evergreen content from news, and treat 'this week' as ambiguous. A strong model without it will likely just summarise all six items, include the Brent crash as headline news, count the Vedomosti piece as fresh because of its 24.09 update, and misjudge the Reuters item's age by not converting EDT.",
+      "rubric": [
+        "Does not present the undated 'Brent -30%' screenshot as a news item of the last day; explicitly says it has no date and must be confirmed by a dated source before being reported (or excludes it).",
+        "Excludes or clearly flags the Vedomosti retailer story as not from the last day, because it was published on 19.09 and the 24.09 update only fixed a typo in the headline; and excludes the undated 'how to buy bonds' guide as not news.",
+        "Converts the Reuters time correctly (23.09 21:30 EDT is 24.09 01:30 UTC / 04:30 MSK, roughly 28-29 hours before 09:00 MSK on 25.09), so it is just outside a strict 24-hour window and is either flagged as slightly older or included with that caveat rather than silently treated as either fresh or two days old; the Interfax OFZ item is included as within the last day.",
+        "Treats the 'this week' RBC post as unconfirmed/undated speculation (flagged or omitted) and delivers a short, usable digest of a few bullets as requested, without inventing extra details or figures."
+      ]
+    },
+    {
+      "id": "soc-status-timestamps-en",
+      "agent": "investigative_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Our SOC lead wants a quick 'what do we need to act on TODAY' note in the #sec-ops channel. It's Sep 25, 2026, 14:00 UTC right now. Here's what people dropped in the channel over the morning:\n\n- Vendor advisory for the VPN appliance we run: originally published March 12, 2024, with 'Last updated: Sep 24, 2026 18:05 UTC'. The changelog line says: 'Added: CISA reports active exploitation in the wild; new IOCs and patched build 9.4.7 now available.'\n- A screenshot someone forwarded from X: 'BREAKING: 500M accounts leaked from a major SSO provider, rotate everything NOW'. No date or link visible, just the image.\n- Blog post from our EDR vendor: 'Posted 11:50 PM PDT, Sep 24' — new detection rule pack for a ransomware loader.\n- Security news site article about a Linux kernel privilege-escalation bug, dated Sep 21, 2026.\n- A Reddit thread titled 'Anyone else seeing weird Okta MFA prompts this week?' — no timestamp in the paste.\n- A 'Hardening checklist for remote access gateways' PDF, undated.\n\nCan you write the note? Keep it tight: what's actionable today vs. what's just noise.",
+      "why_in_scope": "The component requires anchoring on the given UTC time, converting PDT to UTC, classifying items by age, treating an undated sensational claim as old or unverified until a dated source confirms it, honouring an 'updated' stamp only when the content materially changed, treating 'this week' as ambiguous, and excluding evergreen material from the news picture. A strong model without it may escalate the undated 500M-leak screenshot as a top action, dismiss the VPN advisory because it was 'published in 2024', or misplace the EDR post in time.",
+      "rubric": [
+        "Treats the VPN advisory as current and actionable because the Sep 24 update materially changed it (active exploitation reported, new IOCs, patched build), rather than dismissing it as a 2024 advisory; recommends patching/checking the IOCs as a today action.",
+        "Does not tell the team to 'rotate everything' based on the undated screenshot; states it has no date or source and must be confirmed against a dated, primary source (e.g. the provider's own status or advisory) before any action.",
+        "Places the EDR post correctly in time (11:50 PM PDT Sep 24 is 06:50 UTC Sep 25, about 7 hours before 14:00 UTC) and treats it as fresh; treats the Sep 21 kernel article as older than the last couple of days (backlog/triage, not a new today item); treats the 'this week' Reddit thread as unverified.",
+        "Keeps the undated hardening checklist out of the news/action list (reference material at most) and delivers a concise, channel-ready note with a clear split between act-today and noise/follow-up, without inventing CVE numbers or other specifics not given."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified timezone math (23.09 21:30 EDT = 04:30 MSK 24.09, ~28.5h old; 23:50 PDT 24.09 = 06:50 UTC 25.09), agents are owners, rubrics correct and checkable. Removed the 'чтобы шеф не получил тухляк' line from case 1 because it explicitly cued the model to screen for staleness, making the case too easy without the component."
+}

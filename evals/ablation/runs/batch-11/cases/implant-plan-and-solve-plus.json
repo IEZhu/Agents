@@ -1,0 +1,35 @@
+{
+  "component": "implant-plan-and-solve-plus",
+  "cases": [
+    {
+      "id": "pg-orders-int-to-bigint-logical-replica-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "PostgreSQL 15, таблица orders ~780 млн строк, id serial (int4), текущее значение последовательности уже 1 980 000 000, то есть до переполнения меньше 170 млн, а мы делаем ~1,2 млн заказов в день. На orders.id ссылаются внешние ключи из order_items.order_id, payments.order_id и shipments.order_id (все int4). Ещё orders и order_items публикуются через логическую репликацию (publication/subscription) в отдельный аналитический кластер, там таблицы созданы вручную с теми же типами. Бэкенд деплоится rolling-обновлением, простой больше пары минут недопустим, ALTER COLUMN TYPE в лоб на такой таблице не вариант. Распиши, пожалуйста, в каком порядке всё делать, чтобы перевести всё на bigint и ничего не сломать — включая репликацию и приложение. И посчитай, сколько у нас реально времени.",
+      "why_in_scope": "The implant makes the model decompose the migration into ordered atomic steps with explicit inputs/outputs and then verify the result against the goal, including the runway calculation. A strong model without it tends to give the generic add-column/backfill/swap recipe for orders only and misses ordering dependencies: the child FK columns, widening the sequence itself, and the fact that logical replication does not carry DDL, so the subscriber tables must be widened before the publisher can emit ids above the int4 range.",
+      "rubric": [
+        "Computes the runway correctly: 2 147 483 647 - 1 980 000 000 is about 167.5 million ids, which at ~1.2 million per day is roughly 140 days (about 4.5 months).",
+        "Presents an explicit ordered sequence of steps (e.g. new bigint columns plus sync trigger, batched backfill, concurrent unique index, swap in a short transaction) in which the order matters and each step's precondition is stated, rather than an unordered list of tips.",
+        "Covers the dependent pieces: the FK columns in order_items, payments and shipments must also become bigint, and the sequence itself must be altered to bigint (ALTER SEQUENCE ... AS bigint) because a serial sequence is created as integer.",
+        "States that logical replication does not replicate DDL, so every schema change (any new bigint column added on the publisher, and the type change itself) must be applied to the analytics-cluster subscriber tables first, before the publisher starts sending the new column or ids beyond the int4 range; and ends with a verification step or checklist tied back to the original goal."
+      ]
+    },
+    {
+      "id": "nas-12tb-migration-weekend-cutover-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "We're moving our file share (12 TB, lots of mid-sized files, NFS) from the old on-prem NAS to a new one in another building. The link between sites is 1 Gbps but we can only use about 40% of it during business hours without people complaining, and honestly nights aren't much better because backups run then, so assume 40% the whole time. The data changes by roughly 3% per day (people overwrite project files constantly). Management approved a maintenance window Sunday 01:00-03:00 for the cutover, and my manager's plan is: start the rsync Friday at 20:00 when everyone leaves, it'll be done by Sunday, then flip the DNS/mounts in the window. Is this plan OK? If not, what should the actual schedule look like? I need something I can take back to him with numbers.",
+      "why_in_scope": "The implant pushes the model to plan the migration as sequential steps (initial copy, repeated delta syncs, freeze, final sync, cutover, verification), compute each step's duration from the previous step's output, and verify the result against the fixed Sunday window. A strong model without it can easily sanity-check only the bandwidth loosely, forget that data keeps changing during the long initial copy, or fail to show that the Friday 20:00 start leaves only 29 hours, far less than the copy needs. The subtle check is verifying the last step against the window: a single day of changes already takes about 2 hours to transfer, so the final delta only fits if the previous pass runs just before the freeze.",
+      "rubric": [
+        "Computes the initial copy time correctly: 40% of 1 Gbps is about 50 MB/s, so 12 TB takes roughly 65-75 hours (about 67 h in decimal TB, about 73 h in TiB), concludes that the Friday 20:00 start (29 hours before the window) cannot finish, and says the initial copy must start roughly three or more days before the Sunday window.",
+        "Accounts for data changing during the long copy (about 360 GB/day at 3%) and proposes repeated incremental/delta sync passes that shrink the outstanding changes, with rough durations for those passes.",
+        "Checks the final step against the fixed 01:00-03:00 window: notes that one full day of changes (~360 GB) alone takes about 2 hours at 50 MB/s, i.e. the entire window, so a delta pass must run shortly before the write freeze and only a few hours of changes may remain for the final in-window sync.",
+        "Includes a verification step around the cutover (e.g. checksum or dry-run comparison, test mounts) and a rollback option if the final sync or checks do not complete inside the window."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: widened the replication rubric item to the correct and subtler point that any publisher-side DDL (including the new bigint column in an add/backfill/swap approach) must reach the subscriber first. Case 2: replaced the generic schedule item with a verify-against-goal item (360 GB/day ≈ 2 h at 50 MB/s fills the whole window), which a strong model without the implant can skip; the start-time requirement moved into item 1. Arithmetic in both rubrics re-checked."
+}

@@ -1,0 +1,35 @@
+{
+  "component": "skill-roblox-development",
+  "cases": [
+    {
+      "id": "roblox-shop-ui-not-updating-ru",
+      "agent": "roblox_studio_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "Делаю магазин в своей игре (симулятор, ~40 игроков на сервер). Проблема: после покупки меч появляется в рюкзаке, но число монет в GUI не обновляется, пока не перезайдёшь. Ещё пара игроков в дискорде писали, что им иногда выдаёт два меча за одну покупку, если быстро тыкать, но это вроде редко. Вот код.\n\nLocalScript в кнопке:\n```lua\nlocal rs = game.ReplicatedStorage\nscript.Parent.MouseButton1Click:Connect(function()\n    rs.BuyItem:FireServer(script.Parent.Name)\nend)\n```\n\nScript в ServerScriptService:\n```lua\nlocal ds = game:GetService(\"DataStoreService\"):GetDataStore(\"Coins\")\nlocal prices = game.ReplicatedStorage.Prices -- IntValue на каждый предмет\ngame.ReplicatedStorage.BuyItem.OnServerEvent:Connect(function(player, itemName)\n    local price = prices[itemName].Value\n    local coins = ds:GetAsync(player.UserId)\n    if coins >= price then\n        ds:SetAsync(player.UserId, coins - price)\n        game.ServerStorage.Items[itemName]:Clone().Parent = player.Backpack\n    end\nend)\n```\n\nGUI берёт монеты из leaderstats при старте. Как сделать, чтобы цифра обновлялась сразу?",
+      "why_in_scope": "The price is already looked up on the server, so the obvious exploit is gone; the remaining problems are the ones the skill drills: DataStore read/written on every click without pcall and with no nil default for new players, a yield between check and write that lets rapid clicks buy twice, and an unvalidated client-sent item name. A strong model answering only the GUI question tends to just update leaderstats and dismiss the double-sword report as a UI glitch.",
+      "rubric": [
+        "Explains that the GUI does not update because the server changes only the DataStore value and never touches leaderstats (or notifies the client), and shows the server updating leaderstats after the purchase",
+        "Connects the double-sword reports to the server handler: GetAsync yields, so two quick events can both pass the coin check before either write, and fixes it with a server-side per-player purchase lock/cooldown and/or deducting from an in-memory balance synchronously",
+        "Flags the DataStore usage: calls are not wrapped in pcall, a new player's GetAsync returns nil (so coins >= price errors), and coins should be kept in server memory with pcall-protected saves on leave/periodically rather than a DataStore round-trip per click",
+        "Answer is in Russian and the server code validates the client-sent itemName (type check and existence, e.g. FindFirstChild on Prices/Items) before indexing"
+      ]
+    },
+    {
+      "id": "roblox-fireball-lag-en",
+      "agent": "roblox_studio_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "My fireball ability feels laggy for other players - the projectile stutters and sometimes hits register way after it visually passed the target. Setup:\n\nLocalScript (StarterCharacterScripts):\n```lua\nlocal UIS = game:GetService(\"UserInputService\")\nlocal mouse = game.Players.LocalPlayer:GetMouse()\nUIS.InputBegan:Connect(function(input, gp)\n    if gp then return end\n    if input.KeyCode == Enum.KeyCode.Q then\n        game.ReplicatedStorage.CastFireball:FireServer(mouse.Hit.Position, 35)\n    end\nend)\n```\n\nServer:\n```lua\ngame.ReplicatedStorage.CastFireball.OnServerEvent:Connect(function(player, target, damage)\n    local ball = Instance.new(\"Part\")\n    ball.Size = Vector3.new(2,2,2)\n    ball.Position = player.Character.HumanoidRootPart.Position\n    ball.Parent = workspace\n    local bv = Instance.new(\"BodyVelocity\", ball)\n    bv.Velocity = (target - ball.Position).Unit * 80\n    ball.Touched:Connect(function(hit)\n        local hum = hit.Parent:FindFirstChild(\"Humanoid\")\n        if hum then hum:TakeDamage(damage) end\n        ball.Parent = nil\n    end)\nend)\n```\n\nHow do I make it smooth? About 25 players per server, people spam Q a lot.",
+      "why_in_scope": "The question is about visual lag, but the code trusts a client-sent damage value, has no server-side cooldown despite spam, damages the caster's own humanoid on touch, and cleans up with Parent = nil instead of Destroy, leaking parts and connections. The skill pushes the model to put damage and cooldown on the server, rate-limit the remote, and clean up properly. A strong model focused on the netcode question may give a good client-side-visuals answer and never mention the damage exploit or the leak.",
+      "rubric": [
+        "Addresses the actual lag question with a sound approach, e.g. rendering the projectile visually on clients while the server does its own hit detection (raycast/shapecast or position checks) instead of relying on a server-simulated physics part with Touched",
+        "Points out that damage is sent from the client and must be decided on the server, and removes the damage parameter from FireServer",
+        "Adds a server-side per-player cooldown/rate limit for casting, since the client can fire the remote as often as it wants",
+        "Notes the cleanup problems: the Touched handler can fire multiple times and hit the caster, and parts are removed with Parent = nil instead of :Destroy() (or Debris), leaving connections and instances around"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: moved price lookup to the server so the blatant client-price exploit no longer carries the case; added a realistic double-purchase report so the rubric now targets the DataStore race, missing pcall/nil default and item-name validation. Case 2: fixed invalid HumanoidRoot to HumanoidRootPart and dropped the network-ownership clause from rubric item 1 as a dubious fix for other players' view."
+}

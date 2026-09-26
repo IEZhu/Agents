@@ -1,0 +1,35 @@
+{
+  "component": "skill-tech-writing",
+  "cases": [
+    {
+      "id": "wal-disk-full-runbook-for-night-support-ru",
+      "agent": "sysadmin",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нужна инструкция для ночных дежурных. Контекст: PostgreSQL 15 на Ubuntu 22.04, данные в /var/lib/postgresql/15/main, отдельный диск 500 ГБ. В Zabbix срабатывает алерт «disk usage > 90%» на этом диске. За последние два месяца было три раза, и каждый раз причина одна: Debezium (CDC в Kafka) отваливается, его логический слот репликации debezium_slot становится неактивным, и WAL в pg_wal копится, пока диск не забьётся. Дежурят ребята из техподдержки: Linux на базовом уровне знают, по ssh зайдут, sudo есть, но они не DBA и в Postgres не разбираются. Днём этим занимаюсь я (Андрей, DBA), телефон +7 900 000-00-00, будить можно. Напиши так, чтобы человек в 3 ночи мог по ней пройти и ничего не сломать.",
+      "why_in_scope": "The skill makes the model shape this as an operator runbook (trigger, numbered steps, rollback, escalation), adapt depth and vocabulary to non-DBA support staff (minimal jargon, concrete CLI commands), and label every code block with its language. A strong model without it often writes a DBA-level explanation of WAL and replication slots, mixes background theory into the steps, or omits a clear rollback path and explicit escalation criteria for when the on-call person must stop and call the DBA.",
+      "rubric": [
+        "Structured as a runbook: states the trigger (the Zabbix disk-usage alert on this disk), then numbered sequential steps, then what to do if a step makes things worse or does not help (rollback/undo for any state-changing action such as a service restart), and an explicit escalation part saying under which conditions to call Andrey and at which number.",
+        "Written for non-DBA support staff: steps are concrete copy-paste commands with what output to expect, Postgres internals are either avoided or explained in one plain sentence, and background theory is not interleaved with the steps.",
+        "Technically safe and correct: explicitly forbids manually deleting files in pg_wal, uses pg_replication_slots (e.g. checking the active flag for debezium_slot) for diagnosis, and does not let the on-call person drop the slot on their own, since dropping it breaks Debezium's position and is a decision for the DBA.",
+        "Command snippets are in fenced code blocks marked with a language (e.g. bash, sql), and the whole answer is in Russian."
+      ]
+    },
+    {
+      "id": "search-migration-brief-for-finance-vp-en",
+      "agent": "tech_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you rewrite this for our VP of Finance? She has to sign off on it by Friday. Here is what engineering wrote:\n\n\"Proposal: migrate from self-managed Elasticsearch 7.10 (6x r5.2xlarge data nodes + 3 masters on EC2, ES pinned due to license change) to Amazon OpenSearch Service. Current TCO ~$14.2k/mo incl. EC2, EBS gp3, snapshots to S3, plus ~0.5 FTE SRE for patching, shard rebalancing and version upgrades. OpenSearch Service with 3-AZ, UltraWarm for logs older than 30d, estimated $11.8k/mo. One-time migration: ~6 engineer-weeks, reindex via snapshot/restore, dual-write for 2 weeks, cutover in a maintenance window. Risks: some Kibana dashboards need porting to OpenSearch Dashboards, 2 custom plugins not supported (we'd replace with ingest pipelines), p99 query latency may rise 10-15% on cold data in UltraWarm. ES 7.10 gets no more security patches from us unless we upgrade to 8.x which requires license review.\"\n\nKeep it to something she can read in a couple of minutes.",
+      "why_in_scope": "The skill's audience-adaptation rule says an executive reader gets outcomes and trade-offs in business language, not developer-level detail. The request only names the reader's role (VP of Finance), so a strong model without the skill tends to merely shorten the original and keep engineering vocabulary (shards, UltraWarm, ingest pipelines, p99, r5.2xlarge) instead of translating it into cost, effort, risk and what she is being asked to approve.",
+      "rubric": [
+        "States what she is being asked to approve and the bottom line early, in plain business language.",
+        "Money figures are carried over faithfully: about $14.2k/month now versus about $11.8k/month estimated after, i.e. roughly $2.4k/month (about $28.8k/year) lower, plus the one-time cost of about 6 engineer-weeks; it also mentions the ~0.5 FTE of ongoing maintenance effort in the current setup.",
+        "Translates the risks into business terms (e.g. some dashboards must be rebuilt, two add-ons need replacing, searches on logs older than 30 days may be somewhat slower, and staying put means running software without security updates) rather than leaving jargon like shards, UltraWarm, ingest pipelines or p99 unexplained.",
+        "Stays brief enough to read in a couple of minutes and does not invent numbers, dates or risks that are not in the engineering text."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2: removed 'she is not technical' so audience adaptation must be inferred from the role, and reworded the money item because the source is ambiguous about whether the 0.5 FTE is inside the $14.2k TCO (no longer labels the $2.4k as 'infrastructure' savings or asserts the FTE is freed). Case 1: clarified the rollback item to apply to state-changing steps; other items verified correct."
+}

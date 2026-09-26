@@ -1,0 +1,38 @@
+{
+  "component": "skill-error-recovery",
+  "cases": [
+    {
+      "id": "pg-backfill-crashed-continue-drop-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "history": [
+        {"role": "user", "content": "PostgreSQL 14, таблица orders ~40 млн строк. Хотим перейти с колонки amount numeric(12,2) на amount_cents bigint. Распиши план миграции по шагам без долгого даунтайма."},
+        {"role": "assistant", "content": "План:\n1) ALTER TABLE orders ADD COLUMN amount_cents bigint; (без DEFAULT — мгновенно).\n2) Приложение пишет в обе колонки (dual write).\n3) Бэкфилл батчами по диапазонам id, коммит после каждого батча:\n   UPDATE orders SET amount_cents = round(amount * 100) WHERE id BETWEEN $1 AND $2 AND amount_cents IS NULL;\n4) Проверка, что NULL не осталось, затем SET NOT NULL.\n5) Переключаем чтение на amount_cents, убираем dual write.\n6) DROP COLUMN amount."}
+      ],
+      "user_message": "Шаги 1 и 2 сделали. Бэкфилл гоняли питоновским скриптом по диапазонам id по 10 000, commit после каждого, строчку в лог скрипт пишет после коммита. Ночью упал, хвост лога такой:\n\ncommitted batch 2299 ids 22980001-22990000\npsycopg2.OperationalError: SSL SYSCALL error: EOF detected\n\nУтром перезапустили с --start-id 23000001 (2300-й батч он же уже начал), к обеду дошёл до конца, в логе \"done, last id 41873220\". Сегодня окно на релиз — дай, пожалуйста, одним блоком SQL шаги 4–6, админ просто выполнит и закроем задачу.",
+      "why_in_scope": "The component says not to proceed with corrupted intermediate results after a failure, to report the root cause and to summarise what was accomplished before offering next steps. Here the crash hit batch 2300 before its commit was logged, and the restart at 23000001 skipped ids 22990001-23000000, so those rows can still have amount_cents NULL; the user asks for a paste-and-run block that ends with an irreversible DROP COLUMN. A strong model without the component tends to take 'reached the end' at face value and hand over the block with at most a generic 'check NULLs first' line.",
+      "rubric": [
+        "Points out that the restart skipped batch 2300 (ids 22990001-23000000): there is no 'committed' log line for it, so it was most likely rolled back or at best has unknown commit status, and those rows may still have amount_cents NULL",
+        "Makes fixing and verifying this a precondition before SET NOT NULL or DROP: re-run the UPDATE for that range (safe to repeat thanks to the amount_cents IS NULL guard) and check that no rows in the whole table have amount_cents IS NULL; the SQL it gives does not run DROP COLUMN unconditionally",
+        "Notes that step 5 (switching reads, removing dual write) is an application deploy rather than SQL, so DROP COLUMN amount must run only after that deploy and steps 4-6 cannot be one block executed in one go",
+        "SQL shown is valid PostgreSQL, e.g. ALTER TABLE orders ALTER COLUMN amount_cents SET NOT NULL; and ALTER TABLE orders DROP COLUMN amount;"
+      ]
+    },
+    {
+      "id": "git-delete-merged-branches-ambiguous-base-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our monorepo on GitHub has ~400 stale branches and it's getting ridiculous. We use git-flow: main is production, develop is integration, feature/* get merged into develop, release/* and hotfix/* go into main. Right now release/2.14 was cut from develop yesterday and is sitting in QA, and hotfix/2.13.1 went to main last week (not 100% sure anyone back-merged it to develop). Can you give me a one-liner I can run from my laptop to delete every merged branch, both local and on origin? I'd like to just paste it and be done before standup.",
+      "why_in_scope": "The component says that when a request has several interpretations the model should state the ambiguity explicitly and ask, or clearly say which reading it uses, instead of silently guessing. In git-flow 'merged' can mean merged into develop, into main, or (git's default) into the current HEAD, and the choice changes what a destructive remote delete removes; e.g. a freshly cut release branch with no commits of its own counts as merged into develop. A strong model without the component often silently picks one base and hands over the paste-and-run command.",
+      "rubric": [
+        "Explicitly says that 'merged' is ambiguous here (into develop vs into main, or the current branch if no base is given) and either asks which is meant or states which base the command uses and what that choice implies",
+        "Keeps main, develop and the in-QA release/2.14 out of deletion, or warns that release/2.14 would show up as merged into develop if it has no commits beyond develop yet",
+        "Recommends a dry run that only lists the branches that would be deleted before actually deleting, especially on origin",
+        "Uses correct git commands, e.g. git branch --merged <base> / git branch -r --merged origin/<base> to list and git branch -d / git push origin --delete <branch> to delete"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy (user openly said the backfill was abandoned halfway), so it now has a restart that silently skips uncommitted batch 2300, the rubric targets catching that and gating DROP, and the unsettled 'optional' NOT NULL lock item was replaced with a check on step 5 being an app deploy. Case 2 got concrete in-flight release/hotfix branches so that silently choosing a base has visible consequences; the rubric was adjusted to match."
+}

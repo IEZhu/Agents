@@ -1,0 +1,35 @@
+{
+  "component": "skill-creative-craft",
+  "cases": [
+    {
+      "id": "estranged-father-hospital-scene-ru",
+      "agent": "literary_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу рассказ для конкурса журнала (лимит 20 тысяч знаков). Нужна ключевая сцена, примерно 2500-3000 знаков. Героиня, Лена, 34 года, приезжает в районную больницу в Твери к отцу после инсульта. Они не общались 11 лет: он ушёл из семьи, когда ей было 23, и не пришёл на похороны матери. Отец теперь говорит с трудом. В этой сцене они должны наконец поговорить о том, что он их бросил, и она должна понять, что всё ещё его любит, хотя злится. Повествование от третьего лица, но через Лену. Напиши сцену, пожалуйста.",
+      "why_in_scope": "The request literally spells out the emotions (anger, love) and the topic (abandonment), which pulls a model toward characters naming their feelings in dialogue ('Ты нас бросил!', 'Я всё ещё люблю тебя, папа') and the narrator labelling Lena's state. The skill pushes toward rendering anger and love through gesture, objects, avoidance and what is left unsaid, keeping a strict Lena-filtered POV, and anchoring beats in concrete sensory detail. Without it, a strong model often writes an on-the-nose confrontation with explicit emotional statements and a recap of the backstory at the start.",
+      "rubric": [
+        "Lena's anger and love are conveyed mainly through action, gesture, objects or what she avoids saying; neither character plainly declares the core feelings (e.g. no line like 'я всё ещё люблю тебя' or narration like 'она поняла, что любит его')",
+        "The narration stays in Lena's viewpoint throughout: there is no access to the father's thoughts or feelings except as Lena perceives or guesses them",
+        "The scene opens in the hospital moment rather than with a paragraph summarising the 11-year backstory; past events (leaving, missed funeral) enter only in fragments where the scene needs them",
+        "It is a single coherent scene in Russian of roughly the requested length (about 2500-3000 characters, not wildly over or under), consistent with the given facts: stroke, impaired speech, Tver district hospital, Lena aged 34"
+      ]
+    },
+    {
+      "id": "grandma-kitchen-paragraph-revision-en",
+      "agent": "literary_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "My writing group says this opening paragraph of my short story 'feels flat' but nobody could tell me why. Can you rewrite it so it's stronger? Keep it about the same length (under 180 words) and keep all the facts, including Dave being annoyed with her. Then tell me in 2-3 sentences what you changed.\n\n\"Maya walked into her grandmother's kitchen for the first time since the funeral. She felt very sad and a little guilty, because she hadn't visited much in the last two years since she moved to Chicago for her job at the consulting firm, which had been really demanding. Her grandmother had raised her after her parents divorced when she was seven, so they had been very close. Her uncle Dave, standing by the sink, thought Maya looked tired and was annoyed that she had come so late to help sort things out. Maya looked around the kitchen and felt overwhelmed by memories. Everything reminded her of her grandmother. She realized she would never cook with her again, and she started to cry.\"",
+      "why_in_scope": "The paragraph has three craft faults the skill targets: named emotions (sad, guilty, overwhelmed), a front-loaded backstory dump (Chicago job, divorce at seven), and a POV slip into Uncle Dave's head. The user does not flag the viewpoint problem and asks to keep Dave's annoyance as a fact, which tempts a model to keep his internal judgement; the skill's single-viewpoint rule pushes it to render that annoyance only through what Maya observes. Without the skill a model often polishes the prose while leaving the head-hop and some emotion labels.",
+      "rubric": [
+        "The rewrite stays in one viewpoint (Maya's): Uncle Dave's thoughts are not narrated from inside, and his annoyance is kept but shown only through what Maya can observe (his tone, gesture, a remark)",
+        "Maya's grief and guilt are conveyed through concrete detail (objects, sensory details, actions) rather than stated with labels like 'sad', 'guilty' or 'overwhelmed'",
+        "The backstory (Chicago job, being raised by her grandmother after the divorce) is compressed or folded into the scene rather than delivered as a block of explanation, while the facts are not contradicted",
+        "The rewrite stays under about 180 words and is followed by a short 2-3 sentence explanation that correctly names what was changed"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2: removed the explicit 'keep it close third on Maya' instruction and added 'keep Dave being annoyed' so the head-hop is no longer flagged by the user and a model must fix it unprompted; rubric item 1 adjusted to require keeping the annoyance via Maya's observation. Case 1 checked (scope, agent, rubric, language) and left unchanged."
+}

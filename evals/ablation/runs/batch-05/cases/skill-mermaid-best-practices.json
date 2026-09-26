@@ -1,0 +1,35 @@
+{
+  "component": "skill-mermaid-best-practices",
+  "cases": [
+    {
+      "id": "mermaid-payment-flow-type-ru",
+      "agent": "diagram_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нужна диаграмма в mermaid для Confluence, чтобы новым бэкендерам объяснить, как у нас проходит оплата картой. Как это работает сейчас: мобильное приложение шлёт POST /orders/{id}/pay на наш API (Go), API создаёт платёж в ЮKassa и получает confirmation_url, возвращает его приложению, приложение открывает 3DS-страницу банка в WebView, пользователь вводит код, банк редиректит обратно в ЮKassa, ЮKassa асинхронно шлёт вебхук payment.succeeded на наш /webhooks/yookassa, API проверяет подпись, обновляет заказ в PostgreSQL на status=paid и отправляет пуш через FCM. Если 3DS не прошёл, приходит payment.canceled и заказ уходит в status=payment_failed. Приложение параллельно раз в 3 секунды поллит GET /orders/{id}, пока статус не сменится. Нарисуй, пожалуйста, чтобы было понятно с первого взгляда.",
+      "why_in_scope": "The skill says to pick the diagram type by the data: interactions between parties (API calls, callbacks, message passing) belong in a sequenceDiagram with short participant aliases, sync calls as ->> and responses as -->>, notes for annotations, and short labels. Asked for 'a diagram of how payment works', a strong model without the skill often defaults to a flowchart (graph TD) with long sentence-like node labels, which hides who calls whom and the asynchronous webhook versus polling timing. With the skill it should produce a compact sequence diagram with the success/cancel branch.",
+      "rubric": [
+        "Uses a sequenceDiagram (not a flowchart) with separate participants for at least the app, the API, YooKassa and the database, declared with short IDs and readable names via 'participant X as Label'",
+        "Message labels are short (roughly endpoint or event names like 'POST /orders/{id}/pay', 'payment.succeeded', 'status=paid'), not full sentences",
+        "Shows both outcomes (payment.succeeded -> paid + FCM push, payment.canceled -> payment_failed), e.g. with alt/else, and represents the app's polling of GET /orders/{id} (e.g. with loop or a note)",
+        "The flow matches the description: the webhook goes from YooKassa to the API asynchronously after 3DS, the API verifies the signature before updating PostgreSQL, and the Mermaid code looks syntactically valid"
+      ]
+    },
+    {
+      "id": "mermaid-cleanup-ci-pipeline-en",
+      "agent": "diagram_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "This is the CI/CD diagram in our README and it renders as an unreadable mess on GitHub, the boxes are huge and the arrows cross everywhere. Can you clean it up? Don't lose any of the logic.\n\n```mermaid\ngraph\n  checkout_source_code[\"Checkout the source code from the GitHub repository\"] --> install_dependencies[\"Install npm dependencies using npm ci with the cache\"]\n  install_dependencies --> run_eslint[\"Run ESLint and Prettier checks on all TypeScript files\"]\n  install_dependencies --> run_unit_tests[\"Run the Jest unit tests with coverage report\"]\n  install_dependencies --> run_type_check[\"Run tsc --noEmit to type check the project\"]\n  run_eslint --> build_docker_image[\"Build the Docker image and tag it with the commit SHA\"]\n  run_unit_tests --> build_docker_image\n  run_type_check --> build_docker_image\n  build_docker_image --> push_to_ecr[\"Push the Docker image to Amazon ECR registry\"]\n  push_to_ecr --> is_main_branch{\"Is this a push to the main branch?\"}\n  is_main_branch -->|no| notify_slack_failure_or_done[\"Post a message to the #ci Slack channel\"]\n  is_main_branch -->|yes| deploy_to_staging[\"Deploy to the staging EKS cluster with Helm\"]\n  deploy_to_staging --> run_e2e_tests[\"Run Playwright end to end tests against staging\"]\n  run_e2e_tests --> e2e_passed{\"Did all the end to end tests pass?\"}\n  e2e_passed -->|no| rollback_staging[\"Roll back the staging Helm release\"]\n  rollback_staging --> notify_slack_failure_or_done\n  e2e_passed -->|yes| manual_approval[\"Wait for manual approval from a release manager\"]\n  manual_approval --> deploy_to_production[\"Deploy to the production EKS cluster with Helm\"]\n  deploy_to_production --> smoke_tests[\"Run smoke tests against production\"]\n  smoke_tests --> notify_slack_failure_or_done\n  style deploy_to_production fill:#f66\n  style deploy_to_staging fill:#fc6\n  style manual_approval fill:#6cf\n```",
+      "why_in_scope": "The skill's flowchart rules target exactly these problems: always state TD or LR, keep labels to 1-4 words (verb-noun), short IDs with labels carrying the meaning, group logical sections with subgraph when there are many nodes (this has 16), use fan-out/fan-in shorthand like 'A --> B & C & D' / 'B & C & D --> E', keep the happy path on one main line, and add a legend for color coding. A strong model without it may only shorten a few labels or tweak colors, leaving the direction unspecified, no grouping, and the unexplained colors.",
+      "rubric": [
+        "The cleaned diagram explicitly sets a direction (graph/flowchart TD or LR) and uses short node labels (about 1-4 words each) instead of the original full sentences",
+        "Groups the stages into logical sections (e.g. checks, build, staging, production) with subgraph, or splits the diagram, and uses compact syntax such as fan-out/fan-in with & or chained arrows",
+        "Keeps the colored nodes' meaning understandable by adding a legend or note explaining the colors, or explicitly explains why the styling was changed or dropped",
+        "Preserves all the original logic: the three parallel checks feeding the build, the main-branch decision, e2e pass/fail with rollback, manual approval before production, smoke tests, and the Slack notification paths; the code is valid-looking Mermaid a reader could paste back into the README"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Switched case 1 agent from system_architect (not an owner) to diagram_architect, dropped the mandatory bank/3DS participant from rubric item 1 since a bank lane is optional, and tightened item 4 wording. Fixed the node count in case 2's why_in_scope (16, not 19); the rest held up on scope, leak, and rubric checks."
+}

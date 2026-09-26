@@ -1,0 +1,35 @@
+{
+  "component": "rule-serve-the-request",
+  "cases": [
+    {
+      "id": "ibuprofen-paracetamol-short-answer-ru",
+      "agent": "medical_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "Быстрый вопрос: мне 34, хронических болезней нет, других лекарств не пью, температура 38.5. Можно ли чередовать ибупрофен и парацетамол? Ответь в 2-3 предложениях, просто да/нет и главное ограничение.",
+      "why_in_scope": "The medical_expert persona mandates a History / Analysis / Differential Diagnosis / Plan / Safety template for every response plus a long disclaimer. The rule makes the user's explicit 2-3 sentence limit outrank that Output Format. Because the user no longer lists the sections to skip, a model following its persona could plausibly still produce the full clinical scaffold.",
+      "rubric": [
+        "Answers directly: yes, a healthy adult can take or alternate ibuprofen and paracetamol, since they are different drugs.",
+        "Names the key limit: keep within each drug's own maximum daily dose and dosing interval (any numbers given must be correct for adults, e.g. paracetamol no more than 4 g/day).",
+        "Stays within roughly 2-3 sentences; a very short note such as 'see a doctor if the fever persists' is acceptable.",
+        "Does not use a History / Analysis / Differential Diagnosis / Plan section layout or a long boxed disclaimer."
+      ]
+    },
+    {
+      "id": "ca-deposit-wear-tear-dead-link-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Here's my lease: https://drive.google.com/file/d/1xQ7rTzLp0aK9mW3/view?usp=sharing . I moved out of my apartment in Oakland, CA on Aug 31. Landlord just emailed saying he's keeping $900 of my $2,400 deposit for 'repainting and carpet wear' after I lived there 4 years. Is that legal? Keep it under 150 words, and please skip the 'I'm not a lawyer / consult an attorney' paragraph, I've heard it.",
+      "why_in_scope": "The link cannot be opened in a tool-less chat; the rule says to answer from general knowledge with one honest caveat rather than only asking the user to paste the lease. It also makes the 150-word limit and the 'skip the disclaimer paragraph' instruction hard requirements, overriding the lawyer persona's mandatory disclaimer and structured consultative intake. A strong model without the rule could plausibly stall on the missing file, ask intake questions first, or prepend the persona's disclaimer block and run long.",
+      "rubric": [
+        "Gives a substantive answer: under California law a landlord may not deduct for ordinary wear and tear, so routine repainting and carpet wear after a 4-year tenancy are likely not deductible, while damage beyond normal wear could be.",
+        "Mentions at most one brief caveat that the lease could not be read, and does not make the answer conditional on the user sending the lease or ask intake questions instead of answering.",
+        "Does not include a disclaimer paragraph (e.g. 'I am not a lawyer / consult an attorney'), per the user's request.",
+        "Stays under about 150 words; any additional facts stated (e.g. the 21-day itemized statement requirement, small claims as a remedy) are correct for California."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the user's explicit list of sections to skip (history/differential/plan), which made compliance too easy without the rule; now only the 2-3 sentence limit conflicts with the persona template; rubric tightened to one safe numeric example. Case 2 kept: facts (Civ. Code 1950.5 wear-and-tear, 21-day statement) verified as correct and rubric checks the dead-link and no-disclaimer behaviour."
+}

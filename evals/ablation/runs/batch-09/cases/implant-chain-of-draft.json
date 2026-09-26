@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-draft",
+  "cases": [
+    {
+      "id": "saas-funnel-mrr-ltv-brief-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Кратко, без воды, мне надо в слайд вставить. Лендинг: 12 400 посетителей в месяц, конверсия посетитель → триал 3,5%, триал → платный 40%. ARPU 1 490 ₽/мес, месячный отток платящих 6%. Сколько новой MRR даёт один месяц трафика и какой LTV одного клиента (простая формула, без дисконтирования)?",
+      "why_in_scope": "The implant makes the model show its calculation as a compressed chain of short steps (e.g. 12 400 × 3,5% = 434 → × 40% ≈ 174 → × 1 490 ≈ 259 тыс. ₽) and then give the answer without re-explaining it. A strong model without it tends to write a full step-by-step explanation in sentences, restate the funnel logic and add caveats about LTV, even though the user asked for something brief to put on a slide.",
+      "rubric": [
+        "New MRR is about 258-259 thousand ₽ (12 400 × 0.035 = 434 trials, × 0.4 ≈ 173.6 paying, × 1 490 ≈ 258 664 ₽; rounding to 174 clients gives ≈ 259 260 ₽)",
+        "LTV is about 24 800-24 850 ₽ (1 490 / 0.06 ≈ 24 833 ₽)",
+        "Any reasoning shown is a short chain of terse steps or arrows (a few words each), not multi-sentence paragraphs explaining each step",
+        "After the calculation the final figures are stated once, without repeating the derivation or adding long general caveats about the LTV formula"
+      ]
+    },
+    {
+      "id": "gunicorn-sqlalchemy-pg-connections-short-en",
+      "agent": "database_admin",
+      "language": "en",
+      "history": [],
+      "user_message": "short answer pls, on call and in a hurry. 6 k8s pods, each runs gunicorn with 4 gthread workers, --threads 20. Each worker process creates its own SQLAlchemy engine (default QueuePool) with pool_size=5, max_overflow=10. Postgres 15, max_connections=200, superuser_reserved_connections left at default (3), nothing else connects. Can we blow through the connection limit under load, and what's the worst-case number?",
+      "why_in_scope": "The implant makes the model reason in terse steps (6 × 4 = 24 engines → × 15 = 360 peak vs 197 available) and state the verdict directly. A strong model without it often opens with a long walkthrough of how QueuePool, overflow, threads and reserved connections work before reaching the answer, which ignores the explicit request for a short answer from someone on call.",
+      "rubric": [
+        "Says yes, the limit can be exceeded: worst case is 360 connections (24 worker processes × (5 + 10)), versus about 197 available to non-superusers (200 − 3)",
+        "Does not multiply by the 20 threads: the per-process cap is pool_size + max_overflow = 15, extra threads wait on the pool instead of opening more connections",
+        "The arithmetic is shown as a compact chain of short steps or a single line, not as paragraphs explaining pooling concepts",
+        "The verdict comes directly after the compact calculation, and any fix suggestion (e.g. lowering max_overflow/pool_size or adding a pooler such as PgBouncer) is a line or two at most"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2 used sync workers, where one request at a time makes 360 concurrent connections unrealistic and the '24 × 5 = 120 steady state' item was wrong (pools open connections lazily). Switched to gthread workers with 20 threads so 15 per process is reachable, and replaced that item with a check that threads are not multiplied in. Case 1 arithmetic verified; left unchanged."
+}

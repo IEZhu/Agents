@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-code",
+  "cases": [
+    {
+      "id": "fifo-writeoff-rule-ru",
+      "agent": "math_scientist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите проверить расчёт по складу за январь, у меня с бухгалтером не сходится. Товар один, учёт по FIFO. Есть внутреннее правило: если после продажи в какой-то партии остаётся меньше 10 штук, этот хвост сразу списывают в брак по себестоимости партии.\n\nДвижение:\n- 1 янв: остаток 100 шт по 50 руб\n- 5 янв: закупили 60 шт по 55 руб\n- 8 янв: продали 93 шт\n- 12 янв: закупили 80 шт по 60 руб\n- 20 янв: продали 72 шт\n- 22 янв: закупили 40 шт по 52 руб\n- 28 янв: продали 60 шт\n- 29 янв: закупили 25 шт по 58 руб\n- 30 янв: продали 35 шт\n\nНужно: себестоимость продаж за январь, сколько штук и на какую сумму ушло в брак, и остаток на 31 января (шт и руб).",
+      "why_in_scope": "The implant makes the model lay the problem out as an explicit state (a queue of batches) and trace each operation, applying the write-off rule after every sale. The rule fires irregularly (after sales 1, 3 and 4 but not after sale 2, which spans two batches and leaves 68), and on 30 Jan it hits an older batch while a newer one still exists, so prose reasoning easily misses a write-off or pulls a sale from the wrong batch.",
+      "rubric": [
+        "Keeps an explicit batch-by-batch state after each operation and checks the under-10 rule after every sale (write-offs after the 8, 28 and 30 January sales; none after 20 January, when 68 units remain in the 60-руб batch)",
+        "Gives cost of goods sold for January as 14 090 руб (4 650 + 4 020 + 3 600 + 1 820), with the 20 January sale split as 60 шт по 55 + 12 шт по 60",
+        "Reports write-offs as 20 units totalling 1 090 руб (7 шт по 50, 8 шт по 60, 5 шт по 52)",
+        "Gives ending inventory on 31 January as 25 units worth 1 450 руб (the 29 January batch at 58 руб)"
+      ]
+    },
+    {
+      "id": "coin-passing-rounds-en",
+      "agent": "math_scientist",
+      "language": "en",
+      "history": [],
+      "user_message": "My kids made up a coin game and now they're arguing about the result, so I need a neutral referee. Four players: Anna 12 coins, Ben 7, Cleo 9, Dan 4.\n\nRules for one round: players act in order Anna, Ben, Cleo, Dan. On your turn you give half of your current coins (rounded down) to whichever other player has the fewest coins at that exact moment; if there's a tie for fewest, give to the one who comes first alphabetically. After all four have acted, whoever has the most coins pays 1 coin to the bank; if several are tied for most, each of them pays 1.\n\nThey played 3 rounds. How many coins does each kid have at the end, and how many are in the bank?",
+      "why_in_scope": "The implant pushes the model to write the rules as an algorithm and simulate turn by turn, recording every player's count after each transfer. The recipient changes as counts shift mid-round, and ties for most coins occur in rounds 2 and 3 (two and then three players pay), so prose reasoning that shortcuts a round or mishandles a tie easily drifts to a wrong final state.",
+      "rubric": [
+        "Shows the state of all four players after each individual turn (or at least after each round) so the trace can be checked",
+        "Correctly applies the tie rule at the bank step: after round 2 Anna and Cleo both pay (tied at 9), after round 3 Anna, Ben and Cleo all pay (tied at 8)",
+        "Final answer: Anna 7, Ben 7, Cleo 7, Dan 5, bank 6",
+        "Final totals are consistent (26 coins with players plus 6 in the bank equals the starting 32)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too regular (every sale drew from one batch and left exactly 5), so a strong model would get it without state tracking; rewrote the movements so one sale spans two batches, the rule fires irregularly (3 of 4 sales) and hits an older batch while a newer one exists, and recomputed the rubric (totals reconcile to 16 630 руб of purchases). Case 2 verified by simulation (final 7/7/7/5, bank 6) and kept unchanged."
+}

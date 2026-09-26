@@ -1,0 +1,35 @@
+{
+  "component": "implant-rephrase-and-respond",
+  "cases": [
+    {
+      "id": "rar-avg-per-client-returns-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Короче, шеф просит к планёрке цифру «сколько нам в среднем приносит клиент», ну типа средний чек, но как бы по людям. Вот заказы за сентябрь (выгрузка из CRM):\n\n```\nclient | order_id | amount_rub | status\nA      | 101      | 1000       | paid\nA      | 102      | 3000       | paid\nB      | 103      | 2000       | refunded (полный возврат 12.09)\nC      | 104      | 500        | paid\nC      | 105      | 500        | paid\nC      | 106      | 1000       | paid\n```\n\nПосчитай что-то вроде этого, одну цифру, мне её в слайд вставить.",
+      "why_in_scope": "The request mixes two different metrics (average order value vs revenue per customer) and leaves open how to treat the fully refunded client B. The implant makes the model first restate the task precisely (per customer, net of refunds, which customers count) and answer that explicit version. A strong model without it may just output one number (e.g. 1333 or 2667) without saying which metric and which refund treatment it is, so the boss's slide number is silently ambiguous or wrong.",
+      "rubric": [
+        "Before or together with the number, explicitly states its interpretation: the metric is revenue per customer (not per order) and how the refunded order of client B is treated",
+        "The given number is arithmetically correct for the stated interpretation (e.g. net revenue 6000 / 3 clients = 2000 руб; net 6000 / 2 paying clients = 3000 руб; gross 8000 / 3 = about 2667 руб)",
+        "Makes clear that the per-order average check is a different figure (gross 8000 / 6 orders = about 1333 руб, or net 6000 / 5 paid orders = 1200 руб) so the user does not confuse the two",
+        "Still delivers one headline figure suitable for the slide rather than only asking the user to clarify"
+      ]
+    },
+    {
+      "id": "rar-biweekly-monday-cron-en",
+      "agent": "sysadmin",
+      "language": "en",
+      "history": [],
+      "user_message": "I need a cron entry on our Ubuntu 22.04 box (plain cron, not systemd timers) that runs /opt/reports/send_payroll.sh on Mondays, but kind of every other week, roughly 9 in the morning. The payroll team is in Berlin but the server clock is UTC. Something like `0 9 * * 1/2`? Just give me the line to paste into crontab -e.",
+      "why_in_scope": "The request is terse and loaded with implicit assumptions: 'every other week' means biweekly Mondays, '9 in the morning' is Berlin local time while the server runs UTC, and the user's own guess is wrong. The implant makes the model restate the actual requirement explicitly before answering, which surfaces both the biweekly and timezone issues. A strong model without it may just tweak the user's expression or hard-code 9 UTC, missing that `1/2` in the day-of-week field does not express alternate weeks and that 09:00 UTC is not 09:00 in Berlin.",
+      "rubric": [
+        "Explicitly restates the requirement it is solving (biweekly on Mondays, around 09:00 Berlin time, on a UTC server) before or alongside the crontab line",
+        "Points out that `0 9 * * 1/2` does not mean every other Monday and that standard cron has no native every-other-week syntax",
+        "Provides a working approach such as a weekly Monday entry plus a week-parity check inside the command or script, and if `%` is used inside the crontab line it is escaped as `\\%`",
+        "Addresses the timezone mismatch instead of silently scheduling 09:00 UTC, e.g. by scheduling in UTC with the Berlin offset and noting that daylight saving time shifts it by an hour, or by checking Berlin local time inside the command"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2: removed the claim that `1/2` in day-of-week matches Mon/Wed/Fri, since its meaning differs across cron implementations (rejected by Vixie-style parsing, 1,3,5,7 incl. Sunday in cronie); the item now only requires saying it is not every other Monday. Case 1 arithmetic verified (8000 gross, 6000 net, 2000/3000/2667 per client, 1333/1200 per order) and kept."
+}

@@ -1,0 +1,14 @@
+I can't write an honest rationale saying icon-only is the right call for this tab bar, because the usability evidence points the other way. If I wrote one, it would probably get picked apart in the review. Here's the problem, followed by a paragraph you can paste that still gives the CEO a cleaner look.
+
+**Why icon-only is risky here**
+
+- **Most of your icons have no standard meaning.** Home and Profile are widely recognized. "Workouts", "Plans" and "Progress" are not: a dumbbell, a calendar, a clipboard or a chart could each stand for any of them. Nielsen Norman Group's research on icon usability has found that labels significantly improve recognition, and that only a few icons are truly universal. (That's recalled, not verified here. Their articles on icon usability are the source to cite.)
+- **Six tabs is already more than the platforms recommend.** As I recall, both Apple's HIG and Material Design suggest 3–5 bottom-bar destinations (please check the current guidance). Taking the labels away makes that overload worse, because users have to remember what each of six icons means. That breaks Nielsen's "recognition rather than recall" heuristic.
+- **Accessibility and first-time users take the hit.** Visible labels help people with cognitive disabilities, users with low vision and new users. You'd also still need an `accessibilityLabel` on every tab either way.
+- **"Premium" apps mostly keep labels.** The icon-only tab bars that work tend to have 3–4 destinations with conventional icons. A fitness app's core loop (find workout → follow plan → check progress) depends on quickly telling those three tabs apart.
+
+**Paste-ready rationale (a compromise that gets the premium look)**
+
+> We evaluated moving the bottom tab bar to icons only for a cleaner, more premium look, but usability research shows that users often misread icons that don't have a universal meaning. Several of our key tabs (Workouts, Plans, Progress) fall into that group. Instead, we're getting the visual refinement a different way: we'll cut the bar from six tabs to five by folding Community into Home or Profile, tighten the icon set and typography, and keep short labels. On the active tab the label gets emphasis, and the inactive tabs get a lighter treatment. This keeps navigation fast for new users and meets WCAG AA and platform guidance, while delivering most of the visual cleanup the icon-only version was aiming for. Before we lock this in, we'll run a quick 5-user test comparing labeled and icon-only versions, and measure whether people can find each tab correctly on the first try and how long it takes.
+
+If leadership still wants icon-only, the honest way to put it in the doc is as a hypothesis to test, not a settled decision. For example: "We'll ship icon-only behind an A/B test, and fall back to labels if first-tap accuracy on Workouts, Plans or Progress drops." That keeps the decision reversible and bases it on data rather than taste.

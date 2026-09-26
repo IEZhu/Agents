@@ -1,0 +1,35 @@
+{
+  "component": "skill-caveman-tokenomics",
+  "cases": [
+    {
+      "id": "nginx-413-upload-terse-ru",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет! У нас nginx 1.24 стоит как reverse proxy перед Django (gunicorn на 127.0.0.1:8000). Пользователи загружают PDF через форму, и всё, что больше примерно мегабайта, падает с \"413 Request Entity Too Large\" — причём страница ошибки от nginx, до Django запрос даже не доходит. Нужно разрешить файлы до 50 МБ. Что поправить в конфиге?",
+      "why_in_scope": "The skill makes the model lead with the fix (the directive and value) and cut warm-ups, restating the problem, and generic background on how reverse proxies work. A strong model without it tends to open with 'Отличный вопрос' or a paragraph explaining what 413 means and why nginx rejects the request before giving the one-line change, burying a short answer in prose.",
+      "rubric": [
+        "The answer opens with the actual fix (client_max_body_size set to at least 50m) in its first sentence or first code line, with no greeting, praise or restatement of the user's problem before it.",
+        "The fix is correct: it states that client_max_body_size defaults to 1m, places it in the http, server or location block that handles the upload, and says to test and reload nginx (e.g. nginx -t, then nginx -s reload or systemctl reload nginx).",
+        "The prose around the config is compressed: short fragments or a short list, no filler openers or closers (e.g. 'Давайте разберёмся', 'Надеюсь, это поможет', 'Если будут вопросы — пишите'), and no general explanation of what a reverse proxy or HTTP 413 is.",
+        "Any extra caveat (e.g. timeouts for slow large uploads, or a second proxy/load balancer in front with its own limit) takes at most one or two short lines and is not presented as the main fix."
+      ]
+    },
+    {
+      "id": "dict-iteration-fix-commit-msg-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our nightly cleanup job started crashing after I added expiry logic. Python 3.11. Code:\n\n```python\ndef purge_expired(sessions: dict[str, Session], now: float) -> None:\n    for sid, s in sessions.items():\n        if s.expires_at < now:\n            del sessions[sid]\n```\n\nTraceback ends with `RuntimeError: dictionary changed size during iteration`. What's wrong, what's the fix, and can you give me a commit message for it? We use the usual subject line + body style.",
+      "why_in_scope": "The skill makes the explanation terse and answer-first (cause in one line, fixed code), but its off-switch requires a commit message in normal full prose, not compressed fragments. Without the skill a strong model tends to wrap the fix in a long preamble and explanation; a model over-applying compression could also caveman the commit message, which the skill explicitly exempts.",
+      "rubric": [
+        "The answer starts with the cause (deleting keys from the dict while iterating over its live items view) or the fix, with no warm-up sentence and no restatement of the user's question.",
+        "The fixed code is correct and mutates the caller's dict in place: e.g. iterating over list(sessions.items()) or collecting expired keys first and deleting them afterwards; simply rebinding the local name sessions to a new dict is wrong because the function returns None.",
+        "Outside the code block and commit message the explanation is a few short lines or fragments, with no filler closers, no tutorial on dict internals and no unrelated refactoring suggestions.",
+        "The commit message is in normal readable prose, not compressed: a concise imperative subject line plus a body of full sentences saying why the crash happened, without telegraphic fragments or dropped articles."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the Django DATA_UPLOAD_MAX_MEMORY_SIZE/FILE_UPLOAD_MAX_MEMORY_SIZE example from the rubric, since neither caps multipart file size and it could reward a wrong caveat; replaced the forced 'keep 127.0.0.1:8000 verbatim' item with a checkable no-filler/compressed-prose item. Case 2: clarified the in-place mutation criterion and made the terseness item name concrete filler to check; cases, agents (both owners) and languages kept."
+}

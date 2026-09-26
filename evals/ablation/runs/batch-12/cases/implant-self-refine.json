@@ -1,0 +1,35 @@
+{
+  "component": "implant-self-refine",
+  "cases": [
+    {
+      "id": "self-refine-maintenance-notice-ru",
+      "agent": "tech_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Отполируй, пожалуйста, текст уведомления для клиентов, он пойдёт баннером в личном кабинете. Ограничения: не больше 500 символов с пробелами, без канцелярита, в конце один понятный призыв к действию. Все факты должны сохраниться.\n\nИсходник:\n\"Уважаемые клиенты! Доводим до вашего сведения, что в связи с проведением плановых технических работ по обновлению платформы до версии 4.2.1, 14 октября в период с 02:00 до 02:30 по московскому времени будет осуществляться простой сервиса продолжительностью до 30 минут. В рамках данного обновления будет произведено отключение API версии v1. Просим вас в срок до 1 ноября осуществить переход на API v2, документация по которому размещена в разделе «Разработчикам». Приносим извинения за доставленные неудобства.\"",
+      "why_in_scope": "A polish task with hard constraints (500 characters, all facts kept, one call to action) and a buried inconsistency: API v1 is switched off as part of the 14 October update, yet customers are asked to migrate to v2 by 1 November, after v1 is already gone. Critiquing the draft against the source makes the model notice that the rewritten notice tells customers something impossible. A strong model rewriting in one pass tends to compress both facts faithfully and ship the contradiction, or drop the deadline or the docs location to fit the limit.",
+      "rubric": [
+        "Points out to the user that API v1 is turned off during the 14 October update while the migration deadline is 1 November (after v1 is already off), and asks which is right or clearly marks the chosen wording as an assumption; it does not silently ship the contradiction",
+        "The rewritten notice keeps every fact: version 4.2.1, 14 October, 02:00-02:30 Moscow time, downtime of up to 30 minutes, API v1 being turned off, the move to API v2 with the 1 November deadline (or the user's clarified date), and the docs in the «Разработчикам» section",
+        "The notice is plausibly within 500 characters, drops bureaucratic phrasing (for example «доводим до вашего сведения», «осуществить переход»), and ends with exactly one clear call to action",
+        "The answer is in Russian and gives a ready-to-use final text, not just advice on how to rewrite it"
+      ]
+    },
+    {
+      "id": "self-refine-support-bot-prompt-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you clean up this system prompt for our support bot? It grew by committee and the bot's behavior is erratic. Keep every business rule, just make it tight and usable with GPT-4o-class models.\n\n---\nYou are Max, the helpful assistant for Brightline Routers. Always keep answers under 60 words so customers don't get overwhelmed. When a customer reports a connectivity problem, always walk them through the full troubleshooting checklist: 1) power-cycle the router for 30 seconds, 2) check the WAN light, 3) factory reset by holding the pinhole button for 10 seconds, 4) update firmware from the app, 5) check ISP outage page. Never mention competitors. If a customer asks how we compare to Netgear or TP-Link, give an honest comparison. Refunds are allowed within 30 days of purchase. Never promise refunds, escalate refund questions to billing@brightline.example. Be friendly and casual but always professional and formal. If you don't know something, say so.\n---",
+      "why_in_scope": "A good cleanup needs a draft and then a check of that draft against the original: the source has contradictions (under 60 words vs. a full five-step checklist; never mention competitors vs. honest comparisons with Netgear/TP-Link; casual vs. formal) and a risky step order where a factory reset comes before a firmware update and an ISP outage check. Critiquing the draft makes the model resolve or flag each conflict, reorder or gate the destructive step, and confirm no rule was lost. A one-pass rewrite often keeps the step order as given and silently drops one side of a conflict.",
+      "rubric": [
+        "Explicitly identifies the conflicting instructions (at least the 60-word limit vs. the full checklist, and never mentioning competitors vs. honest comparisons) and resolves each one in the rewritten prompt or asks the user to decide; it does not leave both sides in the prompt",
+        "The rewritten prompt keeps the business rules: the persona name Max and the Brightline Routers brand, the five troubleshooting steps, the 30-day refund window, escalating refund questions to billing@brightline.example without promising a refund, and admitting when it doesn't know",
+        "Flags or fixes the fact that a factory reset comes before the less destructive steps (firmware update, ISP outage check), for example by moving the reset last or requiring the customer to confirm first",
+        "Delivers a complete, copy-pasteable revised system prompt that is tighter than the original and contains no leftover contradictory instructions"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: the original 20-min-in-a-30-min-window 'contradiction' was not a real one (downtime inside a window is consistent), so replaced it with a genuine buried conflict (API v1 off on 14 Oct vs. 1 Nov migration deadline) and updated the facts rubric. Case 2: removed the rubric demand for a change list (format not requested) and dropped the non-contradiction refunds item from why_in_scope."
+}

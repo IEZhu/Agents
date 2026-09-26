@@ -1,0 +1,1118 @@
+{
+ "a7fb1666cb00": {
+  "component": "skill-purchase-research",
+  "case": "robot-vacuum-three-tiers-ru",
+  "arm": "with",
+  "agent": "purchase_researcher",
+  "chars": 42178,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-purchase-research"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "33296da1fe45": {
+  "component": "skill-purchase-research",
+  "case": "robot-vacuum-three-tiers-ru",
+  "arm": "without",
+  "agent": "purchase_researcher",
+  "chars": 33247,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "47535cc2ec0a": {
+  "component": "skill-purchase-research",
+  "case": "laptop-conflicting-reviews-en",
+  "arm": "with",
+  "agent": "purchase_researcher",
+  "chars": 42427,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-decision-frameworks",
+   "skill-source-trust-tiers",
+   "skill-consultative-intake",
+   "skill-purchase-research"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "ComplexityPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d1968ecc494a": {
+  "component": "skill-purchase-research",
+  "case": "laptop-conflicting-reviews-en",
+  "arm": "without",
+  "agent": "purchase_researcher",
+  "chars": 33496,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-decision-frameworks",
+   "skill-source-trust-tiers",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "ComplexityPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "391acc177445": {
+  "component": "skill-react-pattern",
+  "case": "agent-loop-swallowed-errors-ru",
+  "arm": "with",
+  "agent": "ai_senior_engineer",
+  "chars": 36170,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-analysis-critical",
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-error-recovery",
+   "skill-react-pattern"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "29f0d58bcb6f": {
+  "component": "skill-react-pattern",
+  "case": "agent-loop-swallowed-errors-ru",
+  "arm": "without",
+  "agent": "ai_senior_engineer",
+  "chars": 34248,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-analysis-critical",
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "8c6ba1291eeb": {
+  "component": "skill-react-pattern",
+  "case": "support-agent-prompt-premature-claims-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 26349,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-react-pattern"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "aa33c1753c6f": {
+  "component": "skill-react-pattern",
+  "case": "support-agent-prompt-premature-claims-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 24427,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5c815a25c21d": {
+  "component": "skill-reasoning-logic",
+  "case": "sso-priority-pitch-ru",
+  "arm": "with",
+  "agent": "product_manager",
+  "chars": 31915,
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "37aa3d039dbe": {
+  "component": "skill-reasoning-logic",
+  "case": "sso-priority-pitch-ru",
+  "arm": "without",
+  "agent": "product_manager",
+  "chars": 29448,
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2aab1c967d6b": {
+  "component": "skill-reasoning-logic",
+  "case": "rate-limiter-sabotage-accusation-en",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 32709,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-clean-code",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "bd5b340f342d": {
+  "component": "skill-reasoning-logic",
+  "case": "rate-limiter-sabotage-accusation-en",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 30242,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "46b58d8c6185": {
+  "component": "skill-report-formats",
+  "case": "crm-choice-memo-for-director-ru",
+  "arm": "with",
+  "agent": "deep_researcher",
+  "chars": 29432,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-report-formats"
+  ],
+  "implants": [
+   "CoV",
+   "StepBack",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1a76286102bd": {
+  "component": "skill-report-formats",
+  "case": "crm-choice-memo-for-director-ru",
+  "arm": "without",
+  "agent": "deep_researcher",
+  "chars": 27113,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV",
+   "StepBack",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b41cb14947cc": {
+  "component": "skill-report-formats",
+  "case": "ab-test-slack-one-liner-en",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 11683,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic",
+   "skill-report-formats"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "93aee7ea240f": {
+  "component": "skill-report-formats",
+  "case": "ab-test-slack-one-liner-en",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 11385,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "50625d9973ff": {
+  "component": "skill-roblox-development",
+  "case": "roblox-shop-ui-not-updating-ru",
+  "arm": "with",
+  "agent": "roblox_studio_expert",
+  "chars": 32520,
+  "skills": [
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-code-generation",
+   "skill-roblox-development"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "Reflexion"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "efcfe7d3007f": {
+  "component": "skill-roblox-development",
+  "case": "roblox-shop-ui-not-updating-ru",
+  "arm": "without",
+  "agent": "roblox_studio_expert",
+  "chars": 25753,
+  "skills": [
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-code-generation"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "Reflexion"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ff167b750486": {
+  "component": "skill-roblox-development",
+  "case": "roblox-fireball-lag-en",
+  "arm": "with",
+  "agent": "roblox_studio_expert",
+  "chars": 32940,
+  "skills": [
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-dev-performance",
+   "skill-error-recovery",
+   "skill-roblox-development"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "Reflexion"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "940d30637b38": {
+  "component": "skill-roblox-development",
+  "case": "roblox-fireball-lag-en",
+  "arm": "without",
+  "agent": "roblox_studio_expert",
+  "chars": 26173,
+  "skills": [
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-dev-performance",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "Reflexion"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "bcf1b4b2d636": {
+  "component": "skill-source-trust-tiers",
+  "case": "berberine-weightloss-sources-ru",
+  "arm": "with",
+  "agent": "bio_hacker",
+  "chars": 29760,
+  "skills": [
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-bio-mechanism",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "66ce3864e0d2": {
+  "component": "skill-source-trust-tiers",
+  "case": "berberine-weightloss-sources-ru",
+  "arm": "without",
+  "agent": "bio_hacker",
+  "chars": 28486,
+  "skills": [
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-bio-mechanism",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "64333509cbb8": {
+  "component": "skill-source-trust-tiers",
+  "case": "remote-work-13-percent-claim-en",
+  "arm": "with",
+  "agent": "deep_researcher",
+  "chars": 29809,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-dense-summarization",
+   "skill-temporal-validation",
+   "skill-report-formats",
+   "skill-web-search",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [
+   "CoV",
+   "StepBack",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "87462785e39f": {
+  "component": "skill-source-trust-tiers",
+  "case": "remote-work-13-percent-claim-en",
+  "arm": "without",
+  "agent": "deep_researcher",
+  "chars": 28535,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-dense-summarization",
+   "skill-temporal-validation",
+   "skill-report-formats",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CoV",
+   "StepBack",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "19adc896db83": {
+  "component": "skill-structured-output",
+  "case": "review-pipeline-strip-prefix-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 26309,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1ed04a675f70": {
+  "component": "skill-structured-output",
+  "case": "review-pipeline-strip-prefix-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 24628,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5e50c3a77f7e": {
+  "component": "skill-structured-output",
+  "case": "ticket-triage-output-parsing-en",
+  "arm": "with",
+  "agent": "agent_builder",
+  "chars": 23804,
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-prompt-techniques",
+   "skill-git-conventions",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "PlanSolvePlus",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2b6f90f88791": {
+  "component": "skill-structured-output",
+  "case": "ticket-triage-output-parsing-en",
+  "arm": "without",
+  "agent": "agent_builder",
+  "chars": 22123,
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-prompt-techniques",
+   "skill-git-conventions"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "PlanSolvePlus",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4217d0d89a3a": {
+  "component": "skill-system-design",
+  "case": "notification-service-kafka-overkill-ru",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 27659,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code",
+   "skill-system-design"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e31c86d7bcd5": {
+  "component": "skill-system-design",
+  "case": "notification-service-kafka-overkill-ru",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 25572,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c3920a2a8301": {
+  "component": "skill-system-design",
+  "case": "flash-sale-inventory-multi-region-en",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 27659,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code",
+   "skill-system-design"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f58e3aab5f8e": {
+  "component": "skill-system-design",
+  "case": "flash-sale-inventory-multi-region-en",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 25572,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7074d8f89082": {
+  "component": "skill-tech-writing",
+  "case": "wal-disk-full-runbook-for-night-support-ru",
+  "arm": "with",
+  "agent": "sysadmin",
+  "chars": 32895,
+  "skills": [
+   "skill-content-structure",
+   "skill-error-recovery",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-tech-writing"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2d2976f4e064": {
+  "component": "skill-tech-writing",
+  "case": "wal-disk-full-runbook-for-night-support-ru",
+  "arm": "without",
+  "agent": "sysadmin",
+  "chars": 31135,
+  "skills": [
+   "skill-content-structure",
+   "skill-error-recovery",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "597682696d89": {
+  "component": "skill-tech-writing",
+  "case": "search-migration-brief-for-finance-vp-en",
+  "arm": "with",
+  "agent": "tech_writer",
+  "chars": 21413,
+  "skills": [
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-mermaid-best-practices",
+   "skill-git-conventions",
+   "skill-structured-output",
+   "skill-tech-writing"
+  ],
+  "implants": [
+   "SoT",
+   "SelfRefine",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a4f55604e0f4": {
+  "component": "skill-tech-writing",
+  "case": "search-migration-brief-for-finance-vp-en",
+  "arm": "without",
+  "agent": "tech_writer",
+  "chars": 19653,
+  "skills": [
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-mermaid-best-practices",
+   "skill-git-conventions",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "SoT",
+   "SelfRefine",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1888ae955ac1": {
+  "component": "skill-temporal-validation",
+  "case": "morning-digest-mixed-dates-ru",
+  "arm": "with",
+  "agent": "daily_briefing",
+  "chars": 34965,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-temporal-validation"
+  ],
+  "implants": [
+   "CoV",
+   "ChainOfNote",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2b5bc11a6ca3": {
+  "component": "skill-temporal-validation",
+  "case": "morning-digest-mixed-dates-ru",
+  "arm": "without",
+  "agent": "daily_briefing",
+  "chars": 32914,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "CoV",
+   "ChainOfNote",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "520389f92f26": {
+  "component": "skill-temporal-validation",
+  "case": "soc-status-timestamps-en",
+  "arm": "with",
+  "agent": "investigative_analyst",
+  "chars": 27569,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-temporal-validation"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "658d10117ae4": {
+  "component": "skill-temporal-validation",
+  "case": "soc-status-timestamps-en",
+  "arm": "without",
+  "agent": "investigative_analyst",
+  "chars": 25518,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

@@ -1,0 +1,35 @@
+{
+  "component": "skill-structured-output",
+  "cases": [
+    {
+      "id": "review-pipeline-strip-prefix-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Есть пайплайн: отзывы с маркетплейса (~3000 в день) гоняем через LLM, результат пишем в Postgres (jsonb). Промпт сейчас такой:\n\n\"Проанализируй отзыв покупателя. Определи тональность, упомянутые товары, проблемы и нужен ли ответ поддержки. Верни результат в JSON.\"\n\nВ Python делаю json.loads(response), и примерно 7% падает с JSONDecodeError, потому что модель пишет \"Вот анализ отзыва:\" перед JSON или заворачивает всё в ```json. Напиши, пожалуйста, функцию, которая вырезает JSON из ответа, чтобы json.loads не падал.\n\nДля контекста, вот что сейчас лежит в базе (SELECT result->>'sentiment', count(*) ... GROUP BY 1):\nнегативная | 812\nNegative | 640\nотрицательный | 233\npositive | 1904\nПозитивный | 377\nnull | 96\n\nnull это, видимо, те, где поле назвалось \"tone\" вместо \"sentiment\". Ну это потом разберём.",
+      "why_in_scope": "The user only asks for a function that cuts JSON out of the reply; the real defect, visible only in the pasted GROUP BY output, is that the prompt requests JSON with no schema or example, so field names and sentiment values drift. The skill pushes the model to define the structure first (fixed keys, closed enum, types), embed an exact example, and validate against the schema with retry, instead of only patching the parse step. A strong model may just deliver the extraction function and treat the enum mess as out of scope, as the user suggests.",
+      "rubric": [
+        "Provides a working extraction/cleanup function for the prefix and ```json fences, as asked (e.g. strips fences or takes the substring between the first '{' and last '}').",
+        "Points out that the mixed sentiment values and the 'tone' vs 'sentiment' key come from the prompt not defining the output structure, and proposes a revised prompt with fixed field names, types and a closed set of sentiment values.",
+        "The revised prompt includes a concrete example of the exact expected JSON output.",
+        "Recommends validating each parsed object against the schema (e.g. Pydantic or jsonschema) before writing to Postgres, with a retry or reject path for failures; answer is in Russian."
+      ]
+    },
+    {
+      "id": "ticket-triage-output-parsing-en",
+      "agent": "agent_builder",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm building a support-ticket triage step for our helpdesk bot. The model reads a ticket and I need three things back: a short explanation of its reasoning (support leads read this), a priority (P1-P4), and the team to route to (billing, auth, infra, or other). Right now I just tell it \"Explain your reasoning and then give the priority and team\" and parse with regex like r\"Priority:\\s*(P\\d)\". It keeps breaking: sometimes it writes \"**Priority:** P2\", sometimes \"priority is high\", sometimes it mentions two priorities in the reasoning and my regex grabs the wrong one. A teammate suggested having it return one big JSON with the reasoning nested as ticket -> analysis -> reasoning -> steps -> text so it's \"organized\". What output format and instructions should I use so this parses reliably?",
+      "why_in_scope": "The skill directs the model to separate the free-text reasoning from the machine-read fields with clear delimiters (e.g. XML-style tags or a flat JSON object), define the allowed values for priority and team up front, show an example of the exact output, and validate with a retry on failure. It also flags over-nesting beyond about three levels as an anti-pattern. A strong model without it might tweak the regex or accept the teammate's deeply nested JSON, leaving the reasoning-vs-fields ambiguity or creating a fragile structure.",
+      "rubric": [
+        "Proposes an output format that clearly separates the prose reasoning from the priority and team fields (e.g. distinct tags or distinct flat JSON keys) so the parser never reads values out of the reasoning text.",
+        "The instructions constrain priority to exactly P1-P4 and team to exactly billing/auth/infra/other, and the answer shows a concrete example of the full expected output.",
+        "Recommends checking the parsed priority and team against the allowed values, with a retry or fallback when parsing or the check fails, rather than only tightening the regex.",
+        "Addresses the teammate's deeply nested proposal with a sound reason to keep the structure flat or shallow, keeps the reasoning available for support leads, and stays on the user's question."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy (asked outright to fix the prompt, so any strong model adds a schema); rewrote it so the user asks only for a JSON-stripping function and the enum/key drift shows only in pasted DB output, testing whether the model goes to schema-first plus example plus validation. Case 2 kept; rubric restructured so validation/retry is its own item and a clear general-quality item exists."
+}

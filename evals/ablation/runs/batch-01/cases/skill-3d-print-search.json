@@ -1,0 +1,35 @@
+{
+  "component": "skill-3d-print-search",
+  "cases": [
+    {
+      "id": "sell-headphone-hooks-license-ru",
+      "agent": "3d_print_finder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Выбираю модель настольного крючка для наушников (крепится струбциной на край стола, мои наушники ~350 г). Принтер Bambu P1S, сопло 0.4. Нашёл три варианта:\n\n1) Printables, «Desk Headphone Clamp v3» — 4.3★, 2100 скачиваний, 180 makes с фото, печатается без поддержек, лицензия CC BY-NC-SA 4.0.\n2) Thingiverse, «Minimal Headphone Hook» — 4.9★ (7 оценок), 45 скачиваний, 0 makes, в карточке только рендеры, последнее обновление 2020 год, в комментах один человек пишет, что слайсер что-то ругался при импорте.\n3) Maker.World, «Clamp-on Headphone Holder» — 4.6★, 950 скачиваний, 64 makes с фото, автор выложил 3MF с профилем, лицензия CC BY 4.0.\n\nСебе один сделаю, а если нормально выйдет — напечатаю штук 20 и выставлю на Авито. Склоняюсь ко второй, у неё рейтинг самый высокий. Какую берём? И настройки: я обычно печатаю PLA, 15% заполнения, 2 стенки, слой 0.2 — так нормально будет?",
+      "why_in_scope": "Компонент требует оценивать модели по сочетанию печатности, проверенности (makes, фото отпечатков) и лицензии, помечать красные флаги (только рендеры, 0 makes, заброшенность, ошибки сетки в комментариях) и давать для функциональных деталей более прочные настройки (PETG/ABS, 3-4 периметра, 30-50% заполнения). Продажа упомянута вскользь, а пользователь ориентируется на рейтинг и предлагает декоративные настройки; модель без компонента может ответить только про рейтинг и печать, не заметив, что NC-лицензия №1 запрещает продажу, что рейтинг №2 по 7 оценкам без makes ничего не доказывает, и одобрить 15%/2 стенки для нагруженной детали.",
+      "rubric": [
+        "Указывает, что модель №1 под CC BY-NC-SA нельзя использовать для продажи отпечатков на Авито без разрешения автора из-за условия NonCommercial",
+        "Отговаривает от модели №2, объясняя, что рейтинг 4.9 по 7 оценкам при 0 makes и только рендерах не подтверждает печатность, и упоминает хотя бы один из других признаков риска (давно не обновлялась, жалоба на проблемы при импорте в слайсер)",
+        "Рекомендует модель №3 как подходящую и для себя, и для продажи (лицензия CC BY допускает коммерческое использование, есть makes с фото и профиль)",
+        "Не одобряет 15% заполнения и 2 стенки для постоянно нагруженного крючка: предлагает больше периметров (3-4) и/или более высокое заполнение, либо более прочный материал вроде PETG"
+      ]
+    },
+    {
+      "id": "fdm-28mm-mini-thin-features-en",
+      "agent": "3d_print_finder",
+      "language": "en",
+      "history": [],
+      "user_message": "Found an awesome 28mm elf ranger on MyMiniFactory for my D&D group. Designer's spec sheet: base 25 mm, total height 34 mm, cloak min thickness 1.1 mm, bow string 0.3 mm, arrow shafts 0.35 mm, supplied pre-supported. 4.8 stars from 6 ratings, the gallery pics look incredible (they're renders, nobody's posted a make yet). I've got an Ender 3 V2, stock 0.4 nozzle, PLA. Already promised the group their minis for Saturday, so I need 5 printed by then. What Cura settings should I use so they come out clean?",
+      "why_in_scope": "The component flags features under 0.4 mm as risky on a 0.4 mm nozzle, says FDM struggles with fine detail at miniature scale and resin should be considered, gives miniature settings (0.08-0.12 mm layers, ~30 mm/s), and treats render-only, zero-make models as untested. The thin dimensions are buried in a spec list and the user only asks for settings under deadline pressure, so a model without the component may just list fine-detail Cura settings and promise a clean result without flagging the sub-nozzle bow string and arrows or the unproven model.",
+      "rubric": [
+        "Warns that the 0.3 mm bow string and 0.35 mm arrow shafts are thinner than the 0.4 mm nozzle and are likely to print poorly, break, or be dropped by the slicer",
+        "Suggests at least one realistic workaround: a smaller nozzle (e.g. 0.2 or 0.25 mm), thickening or removing the thin parts in the model, or printing on a resin printer",
+        "Notes that the model is unproven (only renders, no makes, few ratings) and suggests printing one test copy before committing to five",
+        "Gives settings appropriate to a small detailed PLA print in Cura, such as a low layer height roughly in the 0.08-0.12 mm range and a reduced print speed"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Made both cases subtler: case 1 now mentions selling only in passing, hides the mesh complaint behind a vague comment and asks the model to approve decorative settings (15%/2 walls), and the rubric item on CC BY attribution for physical prints was removed because it is legally debatable. Case 2 buries the sub-nozzle dimensions in a spec list and adds deadline pressure, and the support requirement was dropped from the rubric because the model is supplied pre-supported."
+}

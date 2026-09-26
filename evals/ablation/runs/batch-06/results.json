@@ -1,0 +1,505 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-prompt-techniques",
+   "case": "brand-voice-example-copying-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "32577cecbc__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose the problem the same way and propose the same fixes: describe the style explicitly, allow only facts from the source, give several varied examples including a sparse one, use a two-step pipeline and add automatic checks. B's generation prompt is more complete and ready to use: its examples are structured as facts-to-text pairs, one of them shows null fields staying unfilled, and it names the colloquial closing remark and warns against the 'Название из Региона.' opening. A offers a helpful concrete sparse example text, but its main prompt leaves the examples as a placeholder, so B edges it on usability.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-techniques",
+   "case": "brand-voice-example-copying-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "32577cecbc__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both diagnose the style/content confusion correctly and give the same core fix: extract facts first, describe the style explicitly, forbid carrying facts over, use several varied examples including a sparse one, and auto-check the output. A's generation prompt is more complete, with fact-to-text example pairs already in place, while B adds evidence quotes for code-level verification, a sample sparse-card text, a simpler single-call fallback and a prompt caching tip. These strengths roughly balance out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-digital-wellbeing",
+   "case": "teen-tiktok-spy-app-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "39501be8e9__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers reject covert message monitoring, set per-app limits (TikTok vs. Telegram), and make phone-outside-the-bedroom plus Downtime the core fix for sleep. B fully meets the agreement item: a written 3-4 week agreement with temporary loss-of-privilege consequences and a review date, and it lets the daughter propose her own TikTok number. A has a joint discussion and a review date but no written agreement and no stated consequences; B also adds useful steps such as checking with teachers and applying the night rule to the whole family.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-digital-wellbeing",
+   "case": "teen-tiktok-spy-app-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "39501be8e9__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers turn down covert message reading, focus on sleep with the phone charging outside the bedroom plus Downtime, and target TikTok rather than Telegram. A explicitly proposes a written agreement with a review date and a temporary loss of privileges for breaking it, which fully meets item 2. B has a joint discussion and a review date but no written agreement and no stated consequences.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-techniques",
+   "case": "text-to-sql-static-examples-en",
+   "A": "without",
+   "B": "with",
+   "stem": "3f13232bfd__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers reject the static-30 plan and recommend per-question retrieval from the verified pairs, with eval-set holdout, schema annotations and execution-based scoring. B ties its advice more directly to the failing patterns: it notes that current examples like 'revenue in March' pull complex questions toward the wrong shape, proposes pattern tagging so each prompt is guaranteed at least one anti-join or period-comparison example, and gives worked Postgres SQL for both failing question types. A is equally sound, and its literal-masking and NOT IN/NULL points are good, but it does less to ensure the selected examples cover the specific failing patterns.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-techniques",
+   "case": "text-to-sql-static-examples-en",
+   "A": "with",
+   "B": "without",
+   "stem": "3f13232bfd__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers recommend per-question retrieval from the verified pairs, explain the token cost and dilution downsides, and give Postgres-specific implementation steps. A deals more directly with the failing patterns: it tags examples by pattern, guarantees that at least one anti-join or period-comparison example is included, and shows concrete NOT EXISTS and FILTER-based period-comparison SQL. B adds useful nuance (literal masking, leakage, the NOT IN/NULL trap, sparse hard categories in the pool), but it ties the selected examples less explicitly to the failing patterns.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-nvc",
+   "case": "teen-late-curfew-talk-en",
+   "A": "with",
+   "B": "without",
+   "stem": "40e04ce495__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both give nearly identical non-labeling openings that state the facts, express fear tied to not knowing he was safe, ask what happened, and close with a concrete contact-before-the-deadline agreement plus a time-limited consequence. A is slightly more collaborative (asks what would make the plan easy for him, coaches him to find his own solution), while B offers fuller ready-made scripts for each reaction and an optional channel to renegotiate curfew. These offsetting strengths leave no meaningful difference against the rubric.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-nvc",
+   "case": "teen-late-curfew-talk-en",
+   "A": "without",
+   "B": "with",
+   "stem": "40e04ce495__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give nearly identical, non-labeling opening scripts built on fear and I-statements, plus a concrete plan and a time-limited consequence. B states the agreed time explicitly ('We agreed on ten'), ties the feeling more clearly to the need for trust, and frames the closing agreement as a joint problem ('What would make that easy for you to actually do?'). B also covers the headphones shutdown the parent mentioned, which fits this request slightly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-design-process",
+   "case": "ticket-classifier-json-drift-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "4339d7dca0__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers make essentially the same recommendations: strict JSON-schema Structured Outputs with enums, a note that the schema does not control the language of reason, a single English-ticket few-shot example rather than 2-3, a Cyrillic check in code, the 0.94^5 ≈ 73% argument, and a 100-200 ticket golden set with automated metrics. B is slightly more concrete: it gives the full API call, explains why json_object mode is not enough, and lists specific checks. A adds prompt-injection tagging and borderline tickets in the test set. The differences roughly cancel out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-design-process",
+   "case": "ticket-classifier-json-drift-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "4339d7dca0__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "The two answers are nearly identical in structure and substance: both use strict Structured Outputs with enums, note that the schema does not control the language of reason, do the 0.94^5 ≈ 73% calculation, and propose a 100-200 ticket labelled set, but both give only one few-shot example instead of 2-3. B is slightly stronger because it lists a Russian-reason rate as its own metric, explicitly includes borderline multi-category tickets in the golden set, and explains the reason behind the language rule. A is somewhat more careful about its API details (a full call and the strict-mode requirements), but that does not outweigh B's edge in evaluation design.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-cbt",
+   "case": "kid-im-stupid-after-test-en",
+   "A": "with",
+   "B": "without",
+   "stem": "474be7a129__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "A gives a richer set of self-checking questions (last grades, what she is good at outside math, whether 72% means 'bad at everything'), while B offers only the prior-grades question. B, however, explicitly links the all-or-nothing belief to the homework refusal as self-protection, which A names only as all-or-nothing thinking without tying it to 'there's no point'. Otherwise both are accurate, well structured and nearly identical in their advice, so the strengths offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-cbt",
+   "case": "kid-im-stupid-after-test-en",
+   "A": "without",
+   "B": "with",
+   "stem": "474be7a129__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both explain the backfire well, lead with validation, and give similar step-by-step scripts. B gives more self-checking questions (last grades, what she's good at outside math, whether 72% means 'bad at everything'), while A offers essentially one evidence question. A explicitly ties the all-or-nothing belief to the homework refusal as self-protection, which B never connects directly, so the strengths offset.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-child-dev",
+   "case": "preschooler-lying-interrogation-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "4cd19c752e__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item and give nearly the same advice: treat this as normal for his age, separate fantasy from blame-shifting, state what happened instead of interrogating, and use immediate natural consequences. B gives the mother more to work with in talking to her husband: a full script, a one-month trial and a clear point that the misdeed is punished, not the confession. B also shows how to label the dragon story gently as make-believe and how to steer the 'it was Mishka' story toward the truth. A attributes the Mishka technique to narrative therapy, a loose and unneeded label, but otherwise has no substantive errors.",
+   "errors_with": [
+    "Loosely calls the 'let's explain to Mishka' game a narrative therapy technique; this is a stretch"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-child-dev",
+   "case": "preschooler-lying-interrogation-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "4cd19c752e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are close in content and cover every rubric item: the behavior is age-typical, fantasy is separated from blame-shifting, the interrogation and delayed punishment are rejected, and both suggest stating facts, repairing together and praising honesty. B more explicitly addresses the consistent approach both parents should follow, including why inconsistency teaches selective lying, and it cites the Talwar & Lee punitive-school finding more concretely while flagging uncertainty. A's husband script and one-month trial are good but slightly less direct on the need for a single shared approach, and it has a minor grammatical slip.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-product-frameworks",
+   "case": "solution-first-spec-to-prd-en",
+   "A": "with",
+   "B": "without",
+   "stem": "527951be99__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. They share the same structure and the same scope cuts (currency and mark-as-paid), and both flag the thin evidence well. B pulls slightly ahead on coverage relevant to accounting: it adds acceptance criteria for locked or closed periods, a permissions story, background processing for large batches with 'select all' limited to the current page, and a focused list of engineering questions that includes what happens at invoice 501, although A's metrics table states more explicitly how each metric is measured.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-product-frameworks",
+   "case": "solution-first-spec-to-prd-en",
+   "A": "without",
+   "B": "with",
+   "stem": "527951be99__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are strong and nearly equivalent: each opens with a user-framed problem, flags the thin evidence, has an explicit out-of-scope list, and gives As a/I want/so that stories with Given/When/Then edge cases. B's success metrics add a 'Measured by' column (ticket tags, analytics, event/audit logs, usability test), so each metric has a clear way to be measured, while A leaves both baselines and targets as TBD with no measurement method. B also has slightly sharper acceptance criteria (a concrete 20/17/3 skip example, a selection-limit message, due date before issue date) and practical advice, such as warning the VP about the scope cut and noting that page size may make the 500 limit moot.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-digital-wellbeing",
+   "case": "fortnite-cold-turkey-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5a27df6545__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with accurate framing and similar advice. B pulls slightly ahead with a more concrete, transparent family agreement (natural-break stop with 10-15 minute warning, bounded consequence, 3-4 week review date) and a timely action that defuses the current season deadline directly. A is equally sound but its summer plan is less specific; B's assumption that the stop came 'apparently without warning' is a minor unsupported inference.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-digital-wellbeing",
+   "case": "fortnite-cold-turkey-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5a27df6545__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with accurate, well-organized advice, and B adds a useful ICD-11 anchor and a clear list of warning signs. A edges ahead by handling the actual pending season deadline, with a concrete before-Sunday plan to count the remaining challenges and agree on time, which defuses the immediate trigger. B's closing script refers to 'last Sunday' when the user only said the meltdown was last week, a small misreading of the facts.",
+   "errors_with": [],
+   "errors_without": [
+    "Refers to the meltdown as happening 'last Sunday', but the user said it happened last week, with the season ending on Sunday"
+   ]
+  },
+  {
+   "component": "skill-prompt-design-process",
+   "case": "nightly-incident-agent-prompt-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5e9ec4a144__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers push back on the persona, use evidence-labeled causes, fix the empty-night output, add pipeline checks and propose replay testing, so they meet every rubric item. B adds a useful 'symptoms are not causes' rule and a pass about impact, but its prompt contradicts itself ('at most 4 lines per incident' next to a five-bullet template) and its sample next check ('check cert expiry on api-gw LB') could steer the model back toward the TLS failure. A's prompt is internally consistent and includes a concrete bad-versus-good cause example built from the TLS incident.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-design-process",
+   "case": "nightly-incident-agent-prompt-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5e9ec4a144__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: they push back on the persona, add CONFIRMED/LIKELY/UNKNOWN labels with cited evidence, give a fixed empty-night message, and replay past nights before switching. B edges ahead with a concrete bad/good example built on the TLS failure, an 'unreviewed' footer inside the prompt, stripping @channel mentions, and a suggestion to use structured output with an old-vs-new comparison. A has an internal inconsistency: it says 'at most 4 lines per incident' but its template has a header plus 5 bullets. A's 'symptoms are not causes' rule is a good point that B lacks.",
+   "errors_with": [
+    "The 'at most 4 lines per incident' constraint contradicts its own 6-line per-incident template"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-security",
+   "case": "resume-screener-hidden-text-en",
+   "A": "with",
+   "B": "without",
+   "stem": "6f77312577__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly reject the plan as insufficient, give tagged untrusted-data prompts with do-not rules and manipulation flags, and recommend strong out-of-prompt controls such as hidden-text detection, code-computed scores and human review. A explicitly applies the sandwich pattern by restating after the resume block that the content is untrusted data and that the rubric applies, while B's post-resume line only says to extract per the system instructions. B has useful extras (a code sketch, re-screening past candidates, treating the summary as untrusted), but it misses that rubric item, so A edges ahead on the main standard.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-security",
+   "case": "resume-screener-hidden-text-en",
+   "A": "without",
+   "B": "with",
+   "stem": "6f77312577__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly call the plan insufficient, give strong red-team variants, and recommend hidden-text detection, evidence-gated scoring in code, and human review. B's revised prompt fully meets the sandwich requirement: after the resume block it reminds the model that the content is data and to apply the rubric, and it includes an explicit scoring rubric. A's post-resume line only says 'Extract the evidence per the system instructions' and leaves the scoring logic undefined. A's code sketch is incomplete, with an elided rebuild step and an undefined visible_text, while B's guidance is more directly usable.",
+   "errors_with": [
+    "Overclaims that OCR-vs-extraction diffing 'catches everything a human can't see'"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-security",
+   "case": "marketplace-review-moderator-override-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "792ade319e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers reject the regex-plus-quotes fix, use system/user role separation, nonce-tagged delimiters, a manipulation flag, a sandwich reminder, deterministic link/phone checks, fail-closed handling and honest limits. B's post-review reminder restates both the data-not-instructions rule and the JSON output requirement, and it keeps the user's JSON verdict format while adding a code-side override on flags, which fits the stated setup more closely; it also gives concrete, runnable normalization and regex code. A's verdict-in-code redesign is sound, but it strays further from the existing setup, and its reminder does not restate the output format.",
+   "errors_with": [
+    "Claims braces in user text would break f-string/.format() substitution; substituted values are not re-parsed, so this is not a real risk (harmless advice, wrong rationale)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-security",
+   "case": "marketplace-review-moderator-override-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "792ade319e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers reject the regex-plus-quotes idea, move the rules into the system role with nonce-tagged delimiters, add a manipulation flag, use deterministic link and phone checks, and say plainly that no prompt stops injection completely. A's post-review reminder repeats both the data-not-instructions rule and the output requirement (check the five items, return only JSON), and it keeps the JSON verdict the user asked for while adding code-side overrides. B's reminder is weaker (it does not restate the output contract), and moving the verdict into code departs somewhat from the stated setup, although B's architecture and evidence field are sound.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-engineering",
+   "case": "ticket-classifier-parser-breaks-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8a0016e15f__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical designs: Structured Outputs with an enum, reason separated from category, a tagged ticket, explicit data-not-instructions rules and a 30-50 ticket eval. B pulls slightly ahead with concrete validation-and-fallback code covering JSON and refusal failures, more examples (including a pure-injection case that maps to other) and a detailed test table covering tag-closing injection, English input, empty input and long input, plus a separate injection accuracy metric. A is tighter but gives the code-side fallback only as a one-line .get suggestion.",
+   "errors_with": [
+    "Overstates that with the enum there will be no arbitrary text output after injection; the free-form reason field can still carry attacker-influenced text."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-engineering",
+   "case": "ticket-classifier-parser-breaks-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8a0016e15f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly equivalent: Structured Outputs with an enum, a separate reason field, a tagged ticket in the user message, a data-not-instructions rule, a code fallback, and a 30-50 ticket evaluation with parse-rate and accuracy metrics. A edges ahead with more few-shot examples (including a pure-injection case mapped to other), explicit try/except validation code, and a concrete test table covering tag-closing injection, English input and empty input. B's main code snippet indexes data['category'] directly without the fallback it recommends in prose, although it adds a useful json_object fallback path and a clearer statement that the enum guarantees format but not correctness.",
+   "errors_with": [
+    "Claims injection cannot produce arbitrary text or leaks, but the free-form 'reason' string field can still carry attacker-influenced text"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-product-frameworks",
+   "case": "backlog-scoring-b2b-saas-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8df4f116b7__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give reproducible RICE tables with correct arithmetic and discount confidence for onboarding and 1C, and both flag that RICE undervalues the large 1C accounts. A answers 'what do we take this quarter' directly with a ranked list and a firm 40-45 person-day commitment plus a pre-agreed trigger for revisiting it, while B only commits to Excel and makes the main choice conditional on data gathered later. B is also internally inconsistent on the dark theme (Won't have, then included in Variant B); its stronger points are consistent quarterly reach for Excel and a worked money example.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-product-frameworks",
+   "case": "backlog-scoring-b2b-saas-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8df4f116b7__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers show a reproducible RICE table with correct arithmetic, lower the confidence for onboarding and 1C, and add a revenue-at-risk lens for 1C. B answers the user's actual question with a firm, capacity-fitting plan (Excel + onboarding with funnel check, 1C discovery, dark theme as Could), a MoSCoW ranking and an explicit revision trigger. A commits only to Excel and defers the main 1C-vs-onboarding choice to a later decision point, although its reach units are more consistent (it multiplies every monthly reach by 3, while B leaves Excel and dark theme at monthly figures next to quarterly onboarding reach).",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-pedagogy",
+   "case": "quadratic-inequality-self-check-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8f99e7c382__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly praise the roots, place the error at choosing the intervals, and explain it with the upward parabola and a test-point table. Neither leads with guiding questions: both give the full explanation first and only ask questions at the end. B's practice problems use new expressions with different roots and it asks the student to solve them without looking back, which is a better check before the test; A's first exercise reuses the same expression, so its answer is nearly given away by the explanation above it.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-pedagogy",
+   "case": "quadratic-inequality-self-check-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8f99e7c382__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly acknowledge the roots, place the error at interval selection, and explain it with the upward parabola and test points; neither actually leads the student there with questions before giving the full explanation. A's practice tasks use new inequalities with different roots (x^2-7x+10<=0, x^2-4>0) plus a conceptual self-check question, which is a stronger independent check than B's first task, a sign variant of the same inequality. A's ASCII sketch labels the sign regions directly, and its algorithm is slightly tighter, which makes it marginally easier for a 9th grader to use.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-pedagogy",
+   "case": "p-value-misconception-en",
+   "A": "with",
+   "B": "without",
+   "stem": "94a1e378e6__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the correct conditional definition, directly show the learner's P(H0|data) inversion is wrong, and use the same analogy plus a 1,000-A/B-test base-rate example. A's check (classify three statements, including the tricky 'due to chance alone' phrasing) closely targets the misconception, while B's two scenario questions are more applied and interview-like; neither is clearly better. A's line that the '97% real' rule 'would have predicted about 5% false alarms' is slightly loose, and B briefly points to Bayesian priors, but these differences are minor.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-pedagogy",
+   "case": "p-value-misconception-en",
+   "A": "without",
+   "B": "with",
+   "stem": "94a1e378e6__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly equivalent in content: correct definition, the conditional flip, and the same 1,000-test base-rate example with a check-of-understanding exercise. B works through its wet-ground analogy more fully (it explains why the reversed conditional differs), puts the learner's version beside the correct one in a table, and states outright that 1 - p is not the probability the effect is real. B's quiz also goes after a second common misreading ('due to chance alone'), while A's smoke-alarm analogy is stated more briefly and explained less.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-engineering",
+   "case": "extraction-prompt-rule-bloat-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a3e4e97c9d__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each flags the 38/40 contradiction with a resolved policy, gives a sound gross-total rule 44, raises the rule 31 ambiguity, and recommends a golden regression set plus arithmetic checks. B treats the patch-rule pile more directly as a root cause (grouping by field, moving deterministic logic such as rule 17 into code) and gives a more actionable regression procedure (baseline run, per-field scoring, every report becomes a test case). A's edge is that rule 44 explicitly returns null rather than computing a total, which keeps it consistent with rule 40, but that does not outweigh B's stronger structural guidance.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-prompt-engineering",
+   "case": "extraction-prompt-rule-bloat-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a3e4e97c9d__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each flags the 38/40 contradiction, recommends a golden regression set and consolidation by field, and gives a sound total definition. B is slightly more actionable: it proposes a concrete null-plus-flag currency schema with an explicit inference alternative, makes rule 44 consistent with rule 40 (null rather than computing), and supplies a reworded rule 31. A adds useful points on raw date extraction and per-field scoring, but its conflict handling is a little less concrete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-child-dev",
+   "case": "school-age-anger-bad-kid-en",
+   "A": "without",
+   "B": "with",
+   "stem": "cc0a3678e7__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers explain the chart's failure well, propose skill-based charts with small same-day rewards, and recommend evaluation without diagnosing. The deciding difference is item 3: B explicitly uses the named 'Volcano' in the bad-kid conversation to put parent and child on the same team against the problem, while A mostly separates behavior from identity and names the anger only in the calm-down plan. B also turns this into a concrete opening script that invites the child to help redesign the chart.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-child-dev",
+   "case": "school-age-anger-bad-kid-en",
+   "A": "with",
+   "B": "without",
+   "stem": "cc0a3678e7__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the chart's failure, propose skill-based small frequent rewards, and give well-hedged referral guidance without diagnosing. A explicitly ties the named problem ('the Volcano tricked you') to the bad-kid conversation and frames parent and child as a team against it, which is exactly what rubric item 3 asks for. B names the anger only in the calm-down plan, and its bad-kid script relies mainly on reassurance ('you're a good kid') plus thought-checking, so it only partly separates the child from the problem.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-nvc",
+   "case": "roommate-dishes-message-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "cf5a8a25fa__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are nearly equivalent: both give fact-based Russian Telegram drafts, both drop the insults, and both end with a yes/no request that has a deadline. A's request is slightly more precise ('до сна', and only soaking allowed until morning), and its short variant still names a feeling ('меня это прям задело'), while B's short variant only says 'для меня это правда важно'. B's extra practical advice (split the dishes, tailor the tone) is useful but does not outweigh this.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-nvc",
+   "case": "roommate-dishes-message-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "cf5a8a25fa__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in structure and meet every rubric item: concrete facts, feeling linked to a need, a yes/no request with a deadline, and no softened insults. A's main draft misreads 'в девятом часу' (between 8 and 9 pm) as 'после девяти', so the fact in the ready-to-send text is wrong, while B keeps the user's wording. B also adds useful follow-up advice (refer back to the agreement, vent here first) and a precise deadline ('до сна'), which gives it a slight edge.",
+   "errors_with": [
+    "Draft says 'пришла после девяти', but 'в девятом часу' means between 8 and 9 pm"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-psy-cbt",
+   "case": "code-review-fired-fear-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "f8d05e044e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B asks the user direct evidence-examining questions (which of the 23 comments are about architecture vs. naming; what evidence supports or contradicts the 'weakest' hypothesis), while A only states the explanations and routes fact-finding to the lead. A opens with a firm verdict ('нет, уходить сейчас я бы не стал'), whereas B hedges ('скорее всего') and sets out both options, framing irreversibility and sleep deprivation as reasons not to decide now. Both name catastrophizing and mind-reading and give similar practical steps, so the gap is small.",
+   "errors_with": [],
+   "errors_without": [
+    "Asserts that finding a job after an unpassed probation will be no harder than from the current position, which is an overconfident claim"
+   ]
+  },
+  {
+   "component": "skill-psy-cbt",
+   "case": "code-review-fired-fear-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "f8d05e044e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers name catastrophizing and mind-reading, link them to the user's own words, advise against deciding while sleep-deprived, and suggest a 1:1 with the lead. A puts evidence-examining questions directly to the user (which of the 23 comments are about architecture and which about style; what evidence supports the thought and what goes against it), while B only calls the thought a testable hypothesis and hands the checking to the lead. B validates the user's exhaustion more warmly, but it also claims that job hunting after a failed probation is no harder, which is overconfident.",
+   "errors_with": [],
+   "errors_without": [
+    "Asserts that searching for a job after not passing probation will be no harder than from the current position, an unsupported overgeneralization"
+   ]
+  }
+ ],
+ "missing": []
+}

@@ -1,0 +1,109 @@
+{
+  "component": "skill-react-pattern",
+  "cases": [
+    {
+      "id": "refund-bot-system-prompt-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу системный промпт для бота поддержки интернет-магазина на Claude с function calling. У бота есть инструменты: get_order(order_id) — возвращает статус, дату доставки, сумму, способ оплаты и список уже сделанных возвратов; issue_refund(order_id, amount, reason); send_email(to, subject, body). Сценарий: клиент пишет «верните деньги за заказ 48213, 3490 руб., товар пришёл битый», бот должен оформить возврат и отправить письмо-подтверждение. Возврат разрешён только для заказов в статусе delivered и не позже 14 дней с доставки. Напиши, пожалуйста, сам системный промпт целиком, на русском, чтобы я мог сразу вставить.",
+      "why_in_scope": "Компонент требует, чтобы перед необратимым действием (возврат, отправка письма) агент читал текущее состояние через инструмент поиска и проверял предусловия, не беря сумму и статус из слов пользователя; правило прямо распространяется на написание промптов для других агентов. Сильная модель без него легко напишет промпт, где бот сразу вызывает issue_refund с суммой из сообщения клиента или не проверяет, что возврат уже был сделан.",
+      "rubric": [
+        "Промпт требует вызвать get_order перед issue_refund и брать сумму, статус и дату доставки из результата инструмента, а не из сообщения клиента",
+        "Промпт требует проверить по данным get_order, что возврат по заказу ещё не оформлен (нет дублирующего возврата), и что сумма не превышает оплаченную",
+        "Промпт описывает поведение при ошибке или отказе инструмента (не сообщать клиенту об успехе, если issue_refund не подтвердил возврат; письмо отправляется только после успешного возврата)",
+        "Ответ — готовый к вставке системный промпт на русском, с учётом правил delivered и 14 дней"
+      ]
+    },
+    {
+      "id": "batched-tool-calls-review-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Сделал простой агентный цикл для биллинга, модель gpt-4.1 с parallel tool calls. Код цикла:\n\n```python\nwhile True:\n    resp = client.chat.completions.create(model=\"gpt-4.1\", messages=msgs, tools=TOOLS)\n    msg = resp.choices[0].message\n    msgs.append(msg)\n    if not msg.tool_calls:\n        break\n    for tc in msg.tool_calls:\n        result = TOOL_IMPL[tc.function.name](**json.loads(tc.function.arguments))\n        msgs.append({\"role\": \"tool\", \"tool_call_id\": tc.id, \"content\": json.dumps(result)})\n```\n\nВ логах вчера увидел, что модель в одном ответе выдала сразу get_subscription(user_id=812) и cancel_subscription(subscription_id=\"sub_77\"), и обе выполнились. Оказалось, у юзера активна sub_91, а sub_77 уже была отменена раньше, так что отмена ушла не туда (хорошо хоть ничего не сломалось). Что тут не так в архитектуре и как поправить?",
+      "why_in_scope": "Компонент требует одного действия за раз с наблюдением результата перед следующим и сверки состояния через lookup перед side-effect действием. Сильная модель без него может ограничиться советом «поправить промпт» или добавить try/except, не заметив главную проблему: мутирующий вызов был сгенерирован до того, как модель увидела результат get_subscription, и цикл никак не мешает этому.",
+      "rubric": [
+        "Объясняет, что cancel_subscription был сформирован в том же ответе, что и get_subscription, то есть без учёта его результата, и что цикл это допускает",
+        "Предлагает конкретную защиту на уровне кода: например, отключить parallel_tool_calls или не выполнять мутирующие инструменты в одном батче с lookup (выполнить только чтение и вернуть модели), и/или серверную проверку предусловий в cancel_subscription (подписка принадлежит user_id и активна)",
+        "Упоминает ограничение цикла (максимум итераций или иной выход) либо обработку ошибок инструментов, возвращаемых модели, а не падение цикла",
+        "Код или изменения корректны для OpenAI Chat Completions API и относятся к приведённому циклу"
+      ]
+    },
+    {
+      "id": "retry-loop-same-error-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [
+        {
+          "role": "user",
+          "content": "Мой агент на LangGraph иногда зависает и жжёт токены. Инструмент run_sql падает с ошибкой, и агент повторяет запрос."
+        },
+        {
+          "role": "assistant",
+          "content": "Самое простое — оберните вызов run_sql в retry с tenacity: stop_after_attempt(5), wait_exponential(multiplier=1, max=30). Тогда временные сбои будут переживаться автоматически."
+        }
+      ],
+      "user_message": "Поставил tenacity как ты сказал, стало хуже. Вот кусок трейса:\n\nrun_sql(\"SELECT usr_id, SUM(amount) FROM payments GROUP BY usr_id\") -> ERROR: column \"usr_id\" does not exist\nrun_sql(\"SELECT usr_id, SUM(amount) FROM payments GROUP BY usr_id\") -> ERROR: column \"usr_id\" does not exist\n... (так 5 раз из tenacity, потом агент ещё 9 раз вызывает то же самое)\n\nИ в итоге recursion_limit 25 и падение. Что делать?",
+      "why_in_scope": "Компонент требует при ошибке инструмента рассуждать о причине и менять подход, а не повторять то же действие, и иметь условие выхода. Предыдущий ответ ассистента дал слепой retry на детерминированную ошибку; сильная модель без компонента может продолжить подкручивать ретраи или просто поднять recursion_limit.",
+      "rubric": [
+        "Признаёт, что retry на детерминированную ошибку (несуществующая колонка) бесполезен, и советует ретраить только временные ошибки (таймауты, соединение)",
+        "Предлагает возвращать текст ошибки модели как наблюдение и дать ей способ узнать реальную схему (например, инструмент describe_table / запрос к information_schema) перед повтором",
+        "Предлагает детектор повторов или лимит одинаковых вызовов, после которого агент останавливается и сообщает о неудаче, вместо увеличения recursion_limit",
+        "Советы применимы к LangGraph и не противоречат фактам трейса"
+      ]
+    },
+    {
+      "id": "deploy-agent-prompt-review-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you tighten up this system prompt for our internal Slack deploy bot? It has tools: get_service_status(service, env), deploy(service, env, version), rollback(service, env, to_version), post_message(channel, text).\n\n---\nYou are DeployBot. Engineers will ask you to deploy or roll back services. The engineer will tell you the service, environment and version. Call deploy() or rollback() with those values, then post a confirmation to #deploys. Be concise and friendly. Never deploy to prod on Fridays after 15:00 UTC.\n---\n\nLast week someone asked it to \"roll back payments-api in prod to 3.14.2\" when prod was actually already on 3.14.2 (the bad version was on staging), and it happily ran a rollback + posted to #deploys, which confused everyone. I want it short, under ~250 words.",
+      "why_in_scope": "The component says to read current state with a lookup tool before a side-effecting action and confirm preconditions rather than trusting values from the conversation, including when writing rules for another agent. A strong model without it may just polish tone and structure, or add a vague 'confirm with the user' step, instead of requiring get_service_status before deploy/rollback and acting on what it returns.",
+      "rubric": [
+        "The revised prompt requires calling get_service_status before deploy or rollback and comparing the currently running version with the requested one",
+        "It says what to do when the observed state contradicts the request (e.g. already on the target version, or target env seems wrong): stop and ask instead of acting",
+        "It requires checking the result of deploy/rollback (success or error) before posting to #deploys, and not posting success on failure",
+        "It keeps the Friday prod rule and stays roughly within the requested ~250 words"
+      ]
+    },
+    {
+      "id": "invoice-timeout-double-pay-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Postmortem help. Our AP agent (Claude Sonnet, tool use) paid a vendor invoice twice. Trace:\n\n1. get_invoice(\"INV-20931\") -> {status: \"approved\", amount: 12400.00, currency: \"EUR\"}\n2. pay_invoice(\"INV-20931\", 12400.00) -> ToolError: upstream timeout after 30s\n3. [model thought] \"The payment failed due to a timeout. I'll retry.\"\n4. pay_invoice(\"INV-20931\", 12400.00) -> {ok: true, payment_id: \"pay_5512\"}\n\nBank shows two debits: pay_5498 and pay_5512. My teammate wants to just add \"never retry pay_invoice\" to the prompt. Is that the right fix? What would you change?",
+      "why_in_scope": "The component requires re-reading current state before a side-effecting action and treating unexpected tool results as observations to reason about, not assumptions. A timeout is not a failure; a strong model without the component might accept the 'never retry' band-aid or suggest blind retries with backoff, instead of requiring a state lookup (invoice/payment status) before any retry.",
+      "rubric": [
+        "Points out the model wrongly treated a timeout as a confirmed failure; the payment outcome was unknown",
+        "Recommends that after a timeout the agent re-check state via a lookup (e.g. get_invoice or a payment-status query) before deciding to pay again, rather than a blanket 'never retry'",
+        "Recommends a system-level safeguard such as an idempotency key on pay_invoice or a server-side check that rejects paying an already-paid invoice",
+        "Directly answers whether the teammate's fix is adequate and explains its downside (e.g. genuine failures are then never completed or need a human)"
+      ]
+    },
+    {
+      "id": "cut-lookup-before-close-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Our banking support agent makes too many tool calls, costs are up 40%. Typical account-closure flow: search_kb(\"close account policy\"), search_kb(\"close account fees\"), get_customer(id), get_account(acct_id), close_account(acct_id), send_email(...). Any ideas to trim it?"
+        },
+        {
+          "role": "assistant",
+          "content": "A few easy wins: (1) put the closure policy and fee schedule directly into the system prompt so both search_kb calls go away; (2) cache get_customer per session; (3) add a stop rule so the agent answers once it has what it needs instead of doing extra searches."
+        }
+      ],
+      "user_message": "Nice, that's 2-3 calls saved. One more: the customer almost always tells us their balance in chat (\"I've got $0.00 left, close it\") and the account id is in the session. Can we drop get_account too and have the agent call close_account directly? That'd get us down to basically 3 calls.",
+      "why_in_scope": "The component states a state check before a side-effecting action is never tool overuse and preconditions must not be taken from the conversation. Having just agreed with cost-cutting, a strong model without it could go along with dropping get_account, trusting the customer's stated balance for an irreversible closure.",
+      "rubric": [
+        "Advises against dropping get_account before close_account, because the balance and account status must come from the system, not from what the customer says",
+        "Names concrete preconditions to verify from get_account before closing (e.g. zero balance, no pending transactions or holds, account open and owned by this customer)",
+        "Offers alternative savings that keep the check (e.g. close_account validating preconditions server-side, or other redundant calls) rather than only refusing",
+        "Stays consistent with the earlier trimming suggestions and answers the question directly"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case refund-bot-system-prompt-ru: get_order in the user message did not return a delivery date, yet the rubric required the prompt to take it from the tool, so the tool description now includes the delivery date. The other five cases passed scope, leak, agent, rubric-accuracy (parallel_tool_calls, LangGraph recursion_limit 25, tenacity args) and distinctness checks unchanged."
+}

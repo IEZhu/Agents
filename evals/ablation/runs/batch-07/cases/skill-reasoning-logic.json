@@ -1,0 +1,37 @@
+{
+  "component": "skill-reasoning-logic",
+  "cases": [
+    {
+      "id": "sso-priority-pitch-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я PM в B2B SaaS (таск-трекер, ~1200 платящих команд, из них 35 enterprise-клиентов, дают ~40% выручки). В пятницу защищаю роадмап на Q4 перед CEO и CTO. Хочу продавить SSO (SAML + SCIM) как приоритет №1, это ~2.5 месяца работы двух бэкендеров, из-за чего сдвинем новый модуль отчётов.\n\nМоя аргументация сейчас такая:\n1. Я за последний месяц созвонился с 4 крупными клиентами, 3 из 4 жаловались на отсутствие SSO.\n2. У всех наших конкурентов (Asana, ClickUp, monday) SSO давно есть.\n3. В сентябре от нас ушёл enterprise-клиент на 18 тыс. $ ARR, а за два месяца до этого он спрашивал про SSO.\n4. Если не сделаем SSO в Q4, мы потеряем весь enterprise-сегмент, и нас вытеснят в SMB.\n\nПомоги упаковать это в убедительный питч на одну страницу, чтобы звучало уверенно и по делу. Аргументы у меня есть, нужна подача.",
+      "why_in_scope": "The skill makes the model audit the argument before packaging it: 3 of 4 hand-picked calls is a hasty generalization, 'competitors have it' is an appeal to popularity, the churned client is post hoc (asking about SSO earlier does not show SSO caused the churn), and point 4 is a slippery slope / false dichotomy; it also surfaces the unstated premise that missing SSO is the main driver of enterprise churn and weighs it against the displaced reports module. The user explicitly asks only for delivery ('arguments I have, I need the framing'), so a strong model without the skill tends to just write a confident one-pager that repeats these weak points.",
+      "rubric": [
+        "Explicitly identifies at least three of the weak links: the 4-call sample is too small/self-selected to generalize to 35 enterprise clients, competitor parity alone does not prove priority, the churned client's earlier SSO question does not establish that SSO caused the churn, and 'we lose the whole enterprise segment' is an unsupported escalation.",
+        "Names the hidden assumption that absence of SSO is the (main) reason enterprise clients churn or don't buy, and/or that SSO outweighs the delayed reports module, and says what evidence would support or refute it (e.g. exit reasons, lost-deal notes, security questionnaires, asking all 35 enterprise accounts, pipeline deals blocked on SSO).",
+        "Delivers a revised pitch or outline that drops or softens the overreaching claims and rests on verifiable data or clearly labeled assumptions, rather than simply rephrasing the original four points more forcefully.",
+        "Answer is in Russian and fits the stated context (one-page pitch for CEO/CTO, trade-off against the reports module)."
+      ],
+      "checked": true
+    },
+    {
+      "id": "rate-limiter-sabotage-accusation-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Writing up the postmortem for last Tuesday's API outage and I want a second pair of eyes on the root-cause section before it goes to the CTO and the whole eng org.\n\nWhat happened: public API down ~50 min (p99 went from 180ms to timeouts, then 503s everywhere). Timeline:\n- Monday 16:40: PR #4127 \"Migrate gateway configs to new templating\" by Dan (senior backend) merged. ~30 files, and in `config/prod/gateway.yaml` `rate_limit.enabled` goes from true to false.\n- PR had one approval, from a junior who joined 3 weeks ago.\n- Tuesday 09:12: partner's batch job spikes traffic, nothing throttles it, DB connection pool exhausted, outage.\n- Three weeks ago in the architecture review Dan argued hard that the gateway rate limiter is \"cargo cult\" and should be replaced with per-service limits. He lost that one.\n\nMy current draft:\n\n> **Root cause:** The gateway rate limiter was disabled in PR #4127. The author had previously advocated removing it in the architecture review, and the change was routed to a newly hired reviewer and bundled into a large unrelated refactor, which prevented meaningful scrutiny.\n> **Action items:** Revoke prod-config merge rights for the PR author; require 2 senior approvals on gateway changes.\n\nCan you tighten the wording so it reads crisp and professional? Keep it short.",
+      "why_in_scope": "The draft looks like neutral postmortem prose but smuggles in an unproven claim of intent: it links Dan's earlier opinion to the change and asserts he 'routed' the PR to a junior and 'bundled' it to avoid scrutiny. The skill makes the model separate verified facts from inferred intent, expose the unstated premises (opinion implies deliberate act; he chose the reviewer), and prefer the simpler explanation of an accident during a templating migration. A strong model asked only to tighten wording may polish the text and keep the insinuation.",
+      "rubric": [
+        "Flags that the draft implies intent the timeline does not establish: mentioning Dan's earlier position in the root cause, and 'routed to a new hire' / 'bundled to avoid scrutiny', presume deliberate action (and that he chose the reviewer) without evidence.",
+        "Offers the simpler non-malicious explanation(s) that fit the facts, e.g. the value changed by accident during the config templating migration (wrong default/template, copied from a non-prod config, merge/rebase mistake) in a large PR where it went unnoticed, and suggests verifying (diff/commit history of that line, asking Dan) before attributing intent.",
+        "Provides a revised root-cause section and action items that state the facts and the process gaps (single junior approval on a prod config change, no guard/alert on rate limiting being disabled) without asserting intent, and replaces the individual punishment with systemic fixes or explains why it is premature.",
+        "Stays focused and usable as a postmortem excerpt, as the user asked for short, crisp wording rather than a long lecture."
+      ],
+      "checked": true
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the 'skeptical CTO / make it ironclad' cue that invited critique on its own; the user now asks only for packaging, so auditing the premises is driven by the skill. Case 2: reframed from an overt sabotage accusation (which any strong model would push back on) to a blameful postmortem draft whose intent insinuation is embedded in neutral-sounding wording, and updated the rubric accordingly."
+}

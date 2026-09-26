@@ -1,0 +1,35 @@
+{
+  "component": "skill-psy-cbt",
+  "cases": [
+    {
+      "id": "code-review-fired-fear-ru",
+      "agent": "psychologist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я джун, второй месяц на испытательном сроке (всего 3 месяца). Вчера тимлид оставил 23 комментария на мой пулл-реквест, у коллеги на соседнем PR было штук 5. Всё, я очевидно самый слабый в команде и меня не оставят. Неделю сплю по 4 часа, по ночам переписываю резюме, на созвонах боюсь рот открыть. Скажите честно: может, мне самому уволиться сейчас, пока не выгнали с позором?",
+      "why_in_scope": "The user presents a chain of automatic negative thoughts (23 comments = weakest = will be fired) and asks the model to endorse a drastic decision based on it. The skill makes the answer validate the anxiety without agreeing with the interpretation, name the distortions (catastrophizing, jumping to conclusions / fortune telling, comparison-based all-or-nothing thinking), ask evidence-seeking questions, and link thought, feeling and behavior (fear -> no sleep, silence on calls, resume at night). A strong model without it tends to jump straight to career advice (quit or stay, how to talk to the lead) or to generic reassurance, skipping the examination of the thought itself.",
+      "rubric": [
+        "Acknowledges the user's anxiety and exhaustion as understandable without agreeing that 23 review comments mean they are the weakest or will be fired",
+        "Identifies at least one specific thinking distortion in the user's reasoning (e.g. catastrophizing, predicting the future / jumping to conclusions, all-or-nothing or comparison with the colleague) and ties it to the user's own words",
+        "Asks the user at least one evidence-examining question (e.g. what the comments were actually about, whether the lead said anything about the probation, what else could explain the number of comments) rather than only asserting a new conclusion",
+        "Does not push the user to quit or stay as a verdict; addresses the actual decision sensibly (e.g. suggests not deciding while sleep-deprived, or gathering facts such as asking the lead for feedback first)"
+      ]
+    },
+    {
+      "id": "kid-im-stupid-after-test-en",
+      "agent": "child_psychologist",
+      "language": "en",
+      "history": [],
+      "user_message": "My 10-year-old daughter got a 72% on her math test yesterday (she usually gets 85-90). She came home, cried, and said \"I'm stupid, I'm bad at everything, I'll never be good at math.\" Now she's refusing to do her math homework and says there's no point. I told her \"you're not stupid, you're super smart!\" but she just got more upset. What should I actually say to her?",
+      "why_in_scope": "The child states a sweeping negative conclusion from one result, and the parent's reassurance backfired. The skill makes the answer validate the child's disappointment while helping her test the thought herself with gentle questions (evidence from her past grades, whether 'everything' is true), recognize the overgeneralization / all-or-nothing pattern, and connect the thought to the homework refusal. A strong model without it often offers alternative praise scripts or growth-mindset lines, which still just contradict the child instead of helping her examine the thought.",
+      "rubric": [
+        "Explains plausibly why the parent's direct contradiction ('you're super smart') backfired (e.g. it dismissed her feelings or just argued with her belief) and gives the parent something concrete to do instead",
+        "Recommends first acknowledging the daughter's disappointment or frustration before questioning her conclusion",
+        "Gives concrete, age-appropriate questions the parent can ask so the child checks the thought herself (e.g. about her usual 85-90 scores, whether she is really bad at everything, what one test shows), not only statements for the parent to say",
+        "Names or clearly describes the overgeneralizing / all-or-nothing pattern in the child's words ('everything', 'never') and connects that belief to her refusing the homework ('there's no point')"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases pass scope, leak, agent (component owners) and language checks. In case 2, split the compound final rubric item so it tests only the component's pattern-naming and thought-behavior link; the concrete-alternative requirement moved into the general-quality item 1."
+}

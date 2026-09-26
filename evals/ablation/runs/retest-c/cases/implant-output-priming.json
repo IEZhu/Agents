@@ -1,0 +1,100 @@
+{
+  "component": "implant-output-priming",
+  "cases": [
+    {
+      "id": "prometheusrule-annotations-continue-ru",
+      "agent": "alerts_describer",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас runbook живёт прямо в annotations PrometheusRule, CI потом собирает из них страницу. Первый алерт я уже оформил, сделай остальные два ровно так же, я вставлю кусок прямо в файл под этим:\n\n```yaml\n    - alert: PaymentsApiHighErrorRate\n      expr: sum(rate(http_requests_total{job=\"payments-api\",code=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"payments-api\"}[5m])) > 0.05\n      for: 5m\n      labels:\n        severity: critical\n        team: payments\n      annotations:\n        summary: \"payments-api: >5% ответов 5xx\"\n        impact: \"Пользователи не могут оплатить заказ\"\n        mitigation: \"kubectl rollout undo deployment/payments-api -n payments\"\n        dashboard: \"https://grafana.internal/d/payments-api\"\n```\n\nОставшиеся: PaymentsApiPodCrashLooping (под перезапускается >3 раз за 15 минут, namespace payments) и PaymentsDbConnectionsExhausted (pgbouncer в payments-db, занято >90% пула клиентских соединений, метрика pgbouncer_pools_client_active_connections / pgbouncer_config_max_client_connections).",
+      "why_in_scope": "The user primes the exact structure (list-item indentation, key order, annotation keys, Russian summaries, single mitigation command) and wants a continuation to paste into the same file. Output priming makes the model continue that skeleton verbatim instead of switching to its own default markdown alert-card format. A strong model under the alerts_describer persona is plausibly pulled toward its mandatory card template or adds extra annotation keys, breaking the paste-in YAML.",
+      "rubric": [
+        "Returns two YAML rule entries that match the given entry's structure: same indentation level ('    - alert:'), same keys in the same order (alert, expr, for, labels{severity, team}, annotations{summary, impact, mitigation, dashboard}) with no extra or missing annotation keys",
+        "Does not replace the YAML with a markdown alert card or tables; any prose outside the YAML block is at most a short note",
+        "The CrashLooping expr plausibly uses a restart-count metric such as increase(kube_pod_container_status_restarts_total{namespace=\"payments\"}[15m]) > 3, and the DB expr uses the ratio of the two pgbouncer metrics named by the user compared with 0.9",
+        "Each mitigation is a single concrete command with the namespace set (e.g. a rollout undo/restart for the crash-looping pods), consistent with the style of the first entry"
+      ]
+    },
+    {
+      "id": "sequence-diagram-continue-branch-ru",
+      "agent": "diagram_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Начал рисовать sequence для оформления заказа, успешный путь готов. Допиши ветку, когда платёжный шлюз отвечает таймаутом: мы ретраим один раз через 2 секунды, если снова таймаут — заказ переводится в статус PENDING_PAYMENT, пользователю показываем «Проверяем оплату», а воркер reconciliation потом дергает шлюз по orderId. Стиль и обозначения не меняй, у нас так во всей доке.\n\n```mermaid\nsequenceDiagram\n    autonumber\n    actor U as Покупатель\n    participant FE as Web\n    participant OS as OrderSvc\n    participant PG as PayGateway\n    U->>FE: Нажимает «Оплатить»\n    FE->>OS: POST /orders/{id}/pay\n    OS->>PG: charge(orderId, amount)\n    alt успех\n        PG-->>OS: 200 OK (txId)\n        OS-->>FE: status=PAID\n        FE-->>U: «Заказ оплачен»\n```",
+      "why_in_scope": "The user provides an unfinished diagram as a primed prefix and explicitly asks to continue it in the same conventions. Output priming means extending the given structure (the open alt block gets an else branch and is closed with end, same aliases, Russian labels, autonumber) rather than redesigning. A strong model often rewrites the diagram, renames participants, switches to English labels, or forgets to close the already-open alt block.",
+      "rubric": [
+        "Keeps the existing header and all existing lines unchanged: autonumber, aliases U/FE/OS/PG, Russian message labels and the arrow styles already used (->> for requests, -->> for responses)",
+        "Adds the timeout branch as an else inside the already-open alt, closes it with end, and the resulting Mermaid is syntactically valid",
+        "Models the described logic: a single retry after 2 s (e.g. via a loop/opt or a Note), then PENDING_PAYMENT status, the «Проверяем оплату» message to the user, and a reconciliation worker participant querying the gateway by orderId",
+        "A new participant for the reconciliation worker follows the same 'participant XX as Name' convention; no unrelated restructuring of the success path"
+      ]
+    },
+    {
+      "id": "alerts-csv-semicolon-import-ru",
+      "agent": "alerts_describer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Надо быстро закинуть в Confluence-таблицу через импорт CSV, импортёр у нас понимает только точку с запятой как разделитель и двойные кавычки. Шапка и первая строка вот, заполни ещё для KubeNodeNotReady, KubePersistentVolumeFillingUp, KubeDeploymentReplicasMismatch и TargetDown. Только CSV, мне его скриптом скормить.\n\nalert;severity;what_it_means;first_action\nKubePodCrashLooping;warning;\"Контейнер пода постоянно рестартует\";\"kubectl logs <pod> -n <ns> --previous --tail=50\"",
+      "why_in_scope": "The header and first row act as a primed prefix that fixes delimiter, quoting convention, column order and the language of the description. Output priming makes the model continue exactly that structure with nothing else, while a strong model often converts it to a markdown table, switches to comma separators, drops the quoting, or wraps the rows in explanations the script would choke on.",
+      "rubric": [
+        "Output is CSV only (optionally in a single code block), starting with the exact given header line and first row, followed by four new rows, with no explanatory text mixed into the data",
+        "Every row uses ';' as the delimiter, has exactly four fields, and quotes the text fields with double quotes as in the example (any field containing ';' is quoted)",
+        "Descriptions are in Russian like the first row, and each first_action is a single concrete command with placeholders in the style of the example (e.g. kubectl describe node <node> for KubeNodeNotReady)",
+        "Severity values are plausible for each alert and consistent in form with the example (lowercase words such as warning/critical)"
+      ]
+    },
+    {
+      "id": "flowchart-raw-output-parser-en",
+      "agent": "diagram_architect",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Diagram our CI pipeline: push -> lint -> unit tests -> build image -> push to registry -> deploy to staging -> smoke tests -> manual approval -> deploy to prod. If lint or tests fail, notify Slack and stop."
+        },
+        {
+          "role": "assistant",
+          "content": "Here is the diagram:\n\n```mermaid\ngraph TD\n    A[Push] --> B[Lint]\n    B --> C[Unit Tests]\n    C --> D[Build Image]\n    D --> E[Push to Registry]\n    E --> F[Deploy Staging]\n    F --> G[Smoke Tests]\n    G --> H{Manual Approval}\n    H --> I[Deploy Prod]\n    B -- fail --> X[Notify Slack]\n    C -- fail --> X\n```\n\nLet me know if you'd like any changes!"
+        }
+      ],
+      "user_message": "Our docs bot pipes your reply straight into mmdc, and the wrapper checks that the text starts with `flowchart LR` on the very first line — it rejected that because of the intro sentence, the fence and graph TD. Also smoke test failure should roll back staging. Redo it so the reply is literally the diagram source and nothing else, first line `flowchart LR`.",
+      "why_in_scope": "The user fixes the exact opening of the desired output ('flowchart LR' on line one) and requires nothing before or after it. Output priming means the reply starts with that anchor and continues in pure diagram syntax. Strong models habitually add 'Here is the updated diagram:' or a mermaid fence out of chat habit or the persona's own style, which is exactly what the parser rejects.",
+      "rubric": [
+        "The reply's first line is exactly `flowchart LR`, with no preceding text and no code fence",
+        "The reply contains nothing but Mermaid source: no trailing prose, no closing fence, no offers of further changes",
+        "The diagram includes all pipeline stages in order, failure paths from lint and unit tests to a Slack notification, and a new failure path from smoke tests to a staging rollback",
+        "The Mermaid syntax is valid for flowchart (e.g. decision nodes with {}, labelled edges like -- fail --> or -->|fail|)"
+      ]
+    },
+    {
+      "id": "pagerduty-custom-details-json-en",
+      "agent": "alerts_describer",
+      "language": "en",
+      "history": [],
+      "user_message": "We attach a runbook blob to every PagerDuty incident via Alertmanager, and our enrichment service does json.loads on whatever you give me, so it has to be a single JSON object that matches this exactly. I've started it for KubePodCrashLooping, finish it (keep the Go template vars as-is, don't add keys):\n\n{\n  \"alert\": \"KubePodCrashLooping\",\n  \"severity\": \"warning\",\n  \"summary\": \"Pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting repeatedly\",\n  \"mitigation\": {\n    \"goal\":",
+      "why_in_scope": "The user hands over a partial JSON object and expects the model to continue from the exact cut point and close the structure, the core output-priming pattern. A strong model tends to restart the object with its own schema, add fields like diagnostics arrays or severity tables from its alert-card habit, or surround it with markdown and comments that break json.loads.",
+      "rubric": [
+        "Produces a single syntactically valid JSON object that keeps the four given lines verbatim (including the Go template variables) and properly closes the mitigation object and the outer object",
+        "Adds no top-level keys beyond alert, severity, summary and mitigation, keeps mitigation minimal (the started goal plus at most a small action field), and contains no comments, trailing commas or markdown inside the JSON",
+        "Mitigation content is sensible for CrashLooping: the goal is to get the pod running stably again, and any action given is appropriate (e.g. check previous container logs or roll back the deployment in {{ $labels.namespace }})",
+        "Any explanation, if present, is clearly outside the JSON and minimal, so the object can be copied as-is"
+      ]
+    },
+    {
+      "id": "small-model-erdiagram-consistency-en",
+      "agent": "diagram_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "We generate ER diagrams from DDL with a local 8B model (llama.cpp server, completion endpoint). System prompt says 'Output only a Mermaid erDiagram, no explanations', but maybe 1 in 5 outputs starts with 'Sure! Here's the diagram', or uses `classDiagram`, or writes attributes as `id: int` instead of `int id`. Upgrading the model isn't an option. How do I make it spit out a clean erDiagram every time? Show me the actual prompt I should send for this DDL:\n\nCREATE TABLE customers (id INT PRIMARY KEY, email VARCHAR(255));\nCREATE TABLE orders (id INT PRIMARY KEY, customer_id INT REFERENCES customers(id), total NUMERIC);",
+      "why_in_scope": "Format instructions alone are producing inconsistent output from a small model, the exact situation where output priming applies: end the raw completion prompt with the opening of the desired output (erDiagram line and the start of the first entity block in 'type name' form) so the model can only continue in that format. A strong model without the component often suggests more emphatic instructions, few-shot examples or a bigger model, and may not end the prompt with the primed prefix.",
+      "rubric": [
+        "Recommends ending the completion prompt with the beginning of the desired output (at least the `erDiagram` line, ideally the first entity opening in `type name` attribute form) so the model continues it",
+        "Provides a concrete prompt for the given DDL that actually ends with that primed fragment",
+        "Any sample erDiagram shown uses correct Mermaid syntax: attributes written as `type name` with PK/FK markers, and a one-to-many relationship between customers and orders (e.g. customers ||--o{ orders : places)",
+        "Notes that the application must prepend the primed prefix back onto the model's continuation (or equivalently reassemble the full diagram), and may add a stop sequence or validation as a secondary measure"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "All six cases pass scope, leak, agent and language checks. Loosened the CSV rubric so TargetDown is not forced into a kubectl command, and rewrote the JSON case's rubric so it no longer assumes an 'action' key the user never started, which could conflict with 'don't add keys'."
+}

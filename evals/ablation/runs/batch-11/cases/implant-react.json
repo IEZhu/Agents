@@ -1,0 +1,53 @@
+{
+  "component": "implant-react",
+  "cases": [
+    {
+      "id": "disk-full-after-rm-observations-ru",
+      "agent": "sysadmin",
+      "language": "ru",
+      "history": [
+        {
+          "role": "user",
+          "content": "Ubuntu 22.04, VPS на 80 ГБ, на нём nginx + docker (два контейнера с приложением). Сегодня утром df -h показывает / на 100%, приложение падает с \"No space left on device\". Что делать?"
+        },
+        {
+          "role": "assistant",
+          "content": "Скорее всего разрослись логи. Сделайте так:\n1. `sudo journalctl --vacuum-size=200M`\n2. Посмотрите самые большие файлы в /var/log: `sudo du -sh /var/log/* | sort -h`\n3. Удалите старые/большие логи nginx (access.log, error.log) через rm.\n4. Почистите docker: `docker system prune -a`.\nПосле этого место должно освободиться."
+        }
+      ],
+      "user_message": "Сделал всё по пунктам. journalctl освободил ~1.5 ГБ, docker system prune ещё ~3 ГБ. Самым большим был /var/log/nginx/access.log — 41 ГБ, удалил его через sudo rm. Но df -h всё равно показывает 97% занято, прибавилось только те 4.5 ГБ. При этом sudo du -sh / --exclude=/proc выдаёт всего 31G. Я погуглил, запустил lsof +L1 — вывод пустой. Не понимаю, куда делись 40 гигов. Может, файловая система побилась и надо fsck?",
+      "why_in_scope": "The user reports concrete observations from the previous step, and the answer depends on interpreting them rather than issuing another generic checklist: df did not drop after rm of a 41 GB file, du is far below df, and lsof +L1 came back empty but was run without sudo. The implant pushes the model to reason from each observation (deleted-but-open file still held by nginx; the empty lsof result is not trustworthy because it was not run as root) and pick the next check accordingly. A strong model without it may jump to the user's fsck idea, repeat cleanup advice, or ignore that the lsof run was unprivileged.",
+      "rubric": [
+        "Explains that df not dropping after rm of access.log means the file is most likely deleted but still held open by a running process (nginx), so its space is not freed until the file is closed",
+        "Points out that lsof +L1 must be run as root to see open files of other users' processes (nginx workers typically run as www-data), notes the user's run apparently lacked sudo so the empty output does not rule out a deleted-but-open file, and says to rerun it with sudo",
+        "Gives a concrete way to release the space without deleting more data, e.g. making nginx reopen its logs (nginx -s reopen / reload / restart) or truncating the file via /proc/<pid>/fd, and says how to confirm with df afterward",
+        "Does not recommend fsck as the next step (and does not suggest running it on the mounted root filesystem)"
+      ]
+    },
+    {
+      "id": "oomkilled-rss-vs-tracemalloc-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Our FastAPI service (Python 3.11, uvicorn, 1 worker per pod) keeps getting OOMKilled in Kubernetes. Memory limit is 512Mi. It happens roughly every 15 minutes under normal traffic. Any idea?"
+        },
+        {
+          "role": "assistant",
+          "content": "512Mi is fairly tight for a FastAPI app with a few dependencies loaded. The simplest fix is to raise the limit: set resources.limits.memory to 1Gi (and requests to around 768Mi) and see if the restarts stop. If they do, the pod was just undersized."
+        }
+      ],
+      "user_message": "Bumped it to 1Gi. Now it gets OOMKilled after ~40 minutes instead of 15. I watched container_memory_working_set_bytes in Grafana and it climbs pretty much linearly, around 20 MB/min, only while there's traffic; overnight it's flat. I also turned on tracemalloc and dumped snapshot.statistics('lineno') every 5 minutes: total traced stays around 110-130 MB the whole time and the top entries don't grow. The endpoints mostly take uploaded images, resize them with Pillow and return JPEGs. Should I just go to 2Gi and add a nightly restart?",
+      "why_in_scope": "The user brings back observations from the previous action that contradict the earlier diagnosis: raising the limit only delayed the kill, growth tracks traffic, and tracemalloc stays flat while container memory keeps climbing. The implant pushes the model to update its reasoning from these observations instead of continuing the 'undersized pod' line, and to choose the next diagnostic step based on what has been ruled out. A strong model without it may go along with the 2Gi plus nightly restart plan or give a generic Python leak checklist centered on tracemalloc and gc, which the user's data already excludes.",
+      "rubric": [
+        "States that the result of the 1Gi change (same failure, just later, with steady growth under traffic) shows unbounded growth rather than an undersized limit, and that 2Gi plus a nightly restart would only postpone it",
+        "Uses the gap between flat tracemalloc totals and growing container memory to conclude the growth is probably outside Python-object allocations tracked by tracemalloc, e.g. native memory from C extensions such as Pillow or glibc malloc fragmentation",
+        "Proposes at least one concrete next diagnostic or experiment tied to that conclusion (e.g. setting MALLOC_ARENA_MAX=2 or switching to jemalloc and comparing the growth rate, checking that Pillow Image objects are closed or used with a context manager, or inspecting process RSS / smaps) and says what result would confirm or rule out the hypothesis",
+        "Answers the user's direct question about 2Gi plus nightly restart (at most as a temporary mitigation, not the fix)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases pass scope, leak, tool-less and agent checks: each feeds back concrete results of the prior step that contradict the earlier advice, so the answer must reason from those results. Facts were verified (unprivileged lsof cannot see fds of other users' processes; tracemalloc does not trace Pillow's C-level malloc buffers). The only change was to reword case 1 rubric item 2 so it does not assume the user said outright that sudo was missing, since this is only implied."
+}

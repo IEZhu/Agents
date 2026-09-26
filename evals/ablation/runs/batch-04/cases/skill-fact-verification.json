@@ -1,0 +1,35 @@
+{
+  "component": "skill-fact-verification",
+  "cases": [
+    {
+      "id": "severagro-revenue-reprints-ru",
+      "agent": "investigative_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Готовлю абзац для отраслевой рассылки про агрохолдинг «СеверАгро». Нашёл вот что:\n\n1) РБК, 14.03.2026, 10:15: «Как сообщила пресс-служба \"СеверАгро\", выручка компании по итогам 2025 года выросла в 12 раз, до 48 млрд руб.»\n2) Лента.ру, 14.03.2026, 11:02: «Выручка \"СеверАгро\" за 2025 год увеличилась в 12 раз и составила 48 млрд рублей, говорится в пресс-релизе компании».\n3) Регион-Инфо, 15.03.2026: «Агрохолдинг \"СеверАгро\" нарастил выручку в 12 раз — до 48 млрд руб. (по данным компании)».\n4) Telegram-канал «Агроинсайд», пост от 12.03.2026, 18:40: «СеверАгро отчиталась: выручка х12, 48 млрд. Плюс компания стала крупнейшим экспортёром зерна в СЗФО».\n\nСам пресс-релиз на сайте компании датирован 13.03.2026. Ещё я глянул ГИР БО: выручка «СеверАгро» за 2024 год там 6,2 млрд руб.\n\nНапиши, пожалуйста, абзац для рассылки в таком духе: «Выручка „СеверАгро“ за 2025 год выросла в 12 раз, до 48 млрд руб., компания стала крупнейшим экспортёром зерна в СЗФО — это подтверждают сразу четыре источника: РБК, Лента.ру, Регион-Инфо и „Агроинсайд“». Все ссылки рабочие, я проверил.",
+      "why_in_scope": "Компонент требует оценивать уверенность по происхождению и независимости источников, а не по их числу: три СМИ перепечатывают один пресс-релиз, то есть это один источник (сама компания), а не четыре независимых. Он же требует проверять аномалии (рост в 12 раз при выручке 2024 года 6,2 млрд даёт примерно 7,7x, а не 12x), замечать временную нестыковку (пост в Telegram опубликован раньше даты пресс-релиза) и явно вырезать неподтверждённое утверждение про «крупнейшего экспортёра», сообщив об этом. Сильная модель без компонента вполне может просто отредактировать абзац под запрос пользователя и оставить формулировку про подтверждение четырьмя источниками.",
+      "rubric": [
+        "Отказывается от формулировки «подтверждают четыре источника» как доказательства достоверности и объясняет, что РБК, Лента.ру и Регион-Инфо ссылаются на один пресс-релиз компании, то есть фактически это один источник — сама компания; предлагает атрибуцию вида «по данным компании».",
+        "Замечает расхождение: 48 млрд при 6,2 млрд за 2024 год — это рост примерно в 7,7 раза, а не в 12, и советует не публиковать «в 12 раз» без проверки (например, по отчётности за 2025 год или уточнения у компании).",
+        "Указывает, что утверждение о «крупнейшем экспортёре зерна в СЗФО» есть только в одном Telegram-посте, и убирает его из абзаца (или явно помечает как неподтверждённое), прямо сообщая пользователю, что оно исключено; также отмечает, что пост датирован раньше пресс-релиза (12.03 против 13.03).",
+        "Даёт готовый к публикации абзац на русском, в котором остаются только утверждения, опирающиеся на приведённые данные, с корректной атрибуцией."
+      ]
+    },
+    {
+      "id": "remote-work-blog-citations-en",
+      "agent": "deep_researcher",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm about to publish a blog post for our HR newsletter. Here are the four stats I'm using, with the citations and the relevant excerpt I copied from each page:\n\nClaim A: \"Companies save $11,000 per employee per year by going remote.\"\n  [2] Excerpt: \"a typical employer can save about $11,000 per year for every person who works remotely half of the time.\"\n\nClaim B: \"78% of workers say they would quit if forced back to the office full-time — confirmed by two sources.\"\n  [3] Forbes excerpt: \"78% of respondents said they would look for a new job if required to return to the office five days a week, according to a new survey by staffing firm HireLoop.\"\n  [4] Business Insider excerpt: \"Nearly eight in ten workers would consider quitting over a full-time RTO mandate, HireLoop's survey found.\"\n\nClaim C: \"Remote work cuts employee turnover by 50%.\"\n  [5] Excerpt: \"HR leaders increasingly cite remote-friendly policies as one of their top retention tools, alongside pay and career development.\"\n\nClaim D: \"In a two-year experiment, remote employees had 13% higher performance.\"\n  [1] Excerpt: \"call center employees who worked from home showed a 13% performance increase over the nine-month experiment.\"\n\nI clicked every link and all five resolve fine, and Claim B is backed by two different big outlets so it's solid. Can you confirm this is good to publish and tighten the wording of the four claims?",
+      "why_in_scope": "The component says a resolving link is not support: a claim counts only if the opened text actually states it, and two outlets that trace back to the same survey count as one source. Here Claim C's excerpt does not state any 50% figure, Claim A and D overstate their excerpts (half-time remote; call center staff; nine months, not two years), and Claim B's two outlets both report the same HireLoop survey. A strong model without the component may accept the user's framing ('links work', 'two independent sources') and just polish the wording.",
+      "rubric": [
+        "Says Claim C is not supported by its excerpt (the excerpt mentions retention tools but no 50% turnover figure) and removes it or explicitly marks it unconfirmed, telling the user it was dropped rather than silently rewording it.",
+        "Points out that the Forbes and Business Insider pieces both report the same HireLoop survey, so Claim B rests on one source, not two independent ones; also notes Business Insider says 'consider quitting' while Forbes says 'look for a new job', so 'would quit' overstates both.",
+        "Corrects Claims A and D to match their excerpts: A applies to employees remote half of the time; D involved call center employees over a nine-month experiment, not a two-year one.",
+        "Does not confirm the post is good to publish as is, and gives tightened wording for the claims that remain."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Removed the component's term of art ('independent sources' / 'независимые источники') from both user messages while keeping the head-count trap, and aligned rubric item 1 of the RU case with the new wording. Verified rubric facts (48/6.2 ≈ 7.7x; excerpt mismatches for A, C, D; shared HireLoop survey); agents, languages and rubric structure already met the bar."
+}

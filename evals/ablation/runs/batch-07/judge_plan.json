@@ -1,0 +1,242 @@
+{
+ "4a55e83d49__o1": {
+  "component": "skill-purchase-research",
+  "case": "laptop-conflicting-reviews-en",
+  "A": "without",
+  "B": "with"
+ },
+ "4a55e83d49__o2": {
+  "component": "skill-purchase-research",
+  "case": "laptop-conflicting-reviews-en",
+  "A": "with",
+  "B": "without"
+ },
+ "4d85953749__o1": {
+  "component": "skill-purchase-research",
+  "case": "robot-vacuum-three-tiers-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "4d85953749__o2": {
+  "component": "skill-purchase-research",
+  "case": "robot-vacuum-three-tiers-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "20128eceec__o1": {
+  "component": "skill-react-pattern",
+  "case": "agent-loop-swallowed-errors-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "20128eceec__o2": {
+  "component": "skill-react-pattern",
+  "case": "agent-loop-swallowed-errors-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ced18b8873__o1": {
+  "component": "skill-react-pattern",
+  "case": "support-agent-prompt-premature-claims-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ced18b8873__o2": {
+  "component": "skill-react-pattern",
+  "case": "support-agent-prompt-premature-claims-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9654c12663__o1": {
+  "component": "skill-reasoning-logic",
+  "case": "rate-limiter-sabotage-accusation-en",
+  "A": "with",
+  "B": "without"
+ },
+ "9654c12663__o2": {
+  "component": "skill-reasoning-logic",
+  "case": "rate-limiter-sabotage-accusation-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c272d8f44c__o1": {
+  "component": "skill-reasoning-logic",
+  "case": "sso-priority-pitch-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "c272d8f44c__o2": {
+  "component": "skill-reasoning-logic",
+  "case": "sso-priority-pitch-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "7d67ce751c__o1": {
+  "component": "skill-report-formats",
+  "case": "ab-test-slack-one-liner-en",
+  "A": "without",
+  "B": "with"
+ },
+ "7d67ce751c__o2": {
+  "component": "skill-report-formats",
+  "case": "ab-test-slack-one-liner-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ff076c0a66__o1": {
+  "component": "skill-report-formats",
+  "case": "crm-choice-memo-for-director-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ff076c0a66__o2": {
+  "component": "skill-report-formats",
+  "case": "crm-choice-memo-for-director-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ae6233623c__o1": {
+  "component": "skill-roblox-development",
+  "case": "roblox-fireball-lag-en",
+  "A": "without",
+  "B": "with"
+ },
+ "ae6233623c__o2": {
+  "component": "skill-roblox-development",
+  "case": "roblox-fireball-lag-en",
+  "A": "with",
+  "B": "without"
+ },
+ "e3c7a31a67__o1": {
+  "component": "skill-roblox-development",
+  "case": "roblox-shop-ui-not-updating-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "e3c7a31a67__o2": {
+  "component": "skill-roblox-development",
+  "case": "roblox-shop-ui-not-updating-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "28d1a5c4ca__o1": {
+  "component": "skill-source-trust-tiers",
+  "case": "berberine-weightloss-sources-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "28d1a5c4ca__o2": {
+  "component": "skill-source-trust-tiers",
+  "case": "berberine-weightloss-sources-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8e06ebac4a__o1": {
+  "component": "skill-source-trust-tiers",
+  "case": "remote-work-13-percent-claim-en",
+  "A": "with",
+  "B": "without"
+ },
+ "8e06ebac4a__o2": {
+  "component": "skill-source-trust-tiers",
+  "case": "remote-work-13-percent-claim-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c67db7beea__o1": {
+  "component": "skill-structured-output",
+  "case": "review-pipeline-strip-prefix-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "c67db7beea__o2": {
+  "component": "skill-structured-output",
+  "case": "review-pipeline-strip-prefix-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "00351b135c__o1": {
+  "component": "skill-structured-output",
+  "case": "ticket-triage-output-parsing-en",
+  "A": "with",
+  "B": "without"
+ },
+ "00351b135c__o2": {
+  "component": "skill-structured-output",
+  "case": "ticket-triage-output-parsing-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8895b2d703__o1": {
+  "component": "skill-system-design",
+  "case": "flash-sale-inventory-multi-region-en",
+  "A": "with",
+  "B": "without"
+ },
+ "8895b2d703__o2": {
+  "component": "skill-system-design",
+  "case": "flash-sale-inventory-multi-region-en",
+  "A": "without",
+  "B": "with"
+ },
+ "117c24c8f6__o1": {
+  "component": "skill-system-design",
+  "case": "notification-service-kafka-overkill-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "117c24c8f6__o2": {
+  "component": "skill-system-design",
+  "case": "notification-service-kafka-overkill-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "4481671e00__o1": {
+  "component": "skill-tech-writing",
+  "case": "search-migration-brief-for-finance-vp-en",
+  "A": "with",
+  "B": "without"
+ },
+ "4481671e00__o2": {
+  "component": "skill-tech-writing",
+  "case": "search-migration-brief-for-finance-vp-en",
+  "A": "without",
+  "B": "with"
+ },
+ "4830d46662__o1": {
+  "component": "skill-tech-writing",
+  "case": "wal-disk-full-runbook-for-night-support-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "4830d46662__o2": {
+  "component": "skill-tech-writing",
+  "case": "wal-disk-full-runbook-for-night-support-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "38324c274c__o1": {
+  "component": "skill-temporal-validation",
+  "case": "morning-digest-mixed-dates-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "38324c274c__o2": {
+  "component": "skill-temporal-validation",
+  "case": "morning-digest-mixed-dates-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "d344bc1a14__o1": {
+  "component": "skill-temporal-validation",
+  "case": "soc-status-timestamps-en",
+  "A": "with",
+  "B": "without"
+ },
+ "d344bc1a14__o2": {
+  "component": "skill-temporal-validation",
+  "case": "soc-status-timestamps-en",
+  "A": "without",
+  "B": "with"
+ }
+}

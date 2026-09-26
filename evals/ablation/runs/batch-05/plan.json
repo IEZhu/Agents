@@ -1,0 +1,1092 @@
+{
+ "5d156c1708d8": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-pausal-single-client-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 30890,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-rs"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7c7247fdf1fe": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-pausal-single-client-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 26011,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d93220cfae13": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-apartment-unregistered-title-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 34865,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-rs"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "dbf6e9398cbc": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-apartment-unregistered-title-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b3bd8f33f6a0": {
+  "component": "skill-jurisdiction-ru",
+  "case": "usn-ip-vat-threshold-2026-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 35387,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-web-search",
+   "skill-jurisdiction-ru"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c76b8bfb4e4b": {
+  "component": "skill-jurisdiction-ru",
+  "case": "usn-ip-vat-threshold-2026-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d7d8b6a2b626": {
+  "component": "skill-jurisdiction-ru",
+  "case": "apartment-share-sale-notary-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 35387,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-ru"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ea2230b9e385": {
+  "component": "skill-jurisdiction-ru",
+  "case": "apartment-share-sale-notary-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "35883e01f9cd": {
+  "component": "skill-jurisdiction-us",
+  "case": "texas-noncompete-ftc-rule-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 36512,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-us"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "77fd2d7d2227": {
+  "component": "skill-jurisdiction-us",
+  "case": "texas-noncompete-ftc-rule-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3b02ca2a5c96": {
+  "component": "skill-jurisdiction-us",
+  "case": "montana-remote-employee-at-will-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 36512,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-web-search",
+   "skill-jurisdiction-us"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cb3ce3b6e031": {
+  "component": "skill-jurisdiction-us",
+  "case": "montana-remote-employee-at-will-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3fcceec25289": {
+  "component": "skill-legal-citation",
+  "case": "laptop-refund-claim-vs-citations-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-legal-citation"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2ce79b22e0f4": {
+  "component": "skill-legal-citation",
+  "case": "laptop-refund-claim-vs-citations-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 28801,
+  "skills": [
+   "skill-content-structure",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-decision-frameworks",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2cdb7b00aed1": {
+  "component": "skill-legal-citation",
+  "case": "california-noncompete-texas-clause-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-legal-citation"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a22a12b5a7c0": {
+  "component": "skill-legal-citation",
+  "case": "california-noncompete-texas-clause-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 28801,
+  "skills": [
+   "skill-content-structure",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a48a078767dc": {
+  "component": "skill-literary-devices",
+  "case": "literary-overloaded-paragraph-ru",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 24384,
+  "skills": [
+   "skill-creative-craft",
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-tech-writing",
+   "skill-literary-devices"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "60122b01eef2": {
+  "component": "skill-literary-devices",
+  "case": "literary-overloaded-paragraph-ru",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 20997,
+  "skills": [
+   "skill-creative-craft",
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-tech-writing"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "852e107c508a": {
+  "component": "skill-literary-devices",
+  "case": "talk-opening-mixed-metaphor-en",
+  "arm": "with",
+  "agent": "presentation_coach",
+  "chars": 29881,
+  "skills": [
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-creative-craft",
+   "skill-analysis-critical",
+   "skill-literary-devices"
+  ],
+  "implants": [
+   "SoT",
+   "PreMortem",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ca460e1d34aa": {
+  "component": "skill-literary-devices",
+  "case": "talk-opening-mixed-metaphor-en",
+  "arm": "without",
+  "agent": "presentation_coach",
+  "chars": 26494,
+  "skills": [
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-creative-craft",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SoT",
+   "PreMortem",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "aa7e25209def": {
+  "component": "skill-mathematical-reasoning",
+  "case": "pump-motor-sizing-unit-slip-ru",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 11511,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-mathematical-reasoning"
+  ],
+  "implants": [
+   "CoC",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "6ce4a1b131fa": {
+  "component": "skill-mathematical-reasoning",
+  "case": "pump-motor-sizing-unit-slip-ru",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 11356,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-debugging",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoC",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "52e4834a0b52": {
+  "component": "skill-mathematical-reasoning",
+  "case": "events-table-storage-estimate-en",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 18458,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-caveman-tokenomics",
+   "skill-mathematical-reasoning"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "7354af251f8a": {
+  "component": "skill-mathematical-reasoning",
+  "case": "events-table-storage-estimate-en",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 18303,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "e39025ade1ab": {
+  "component": "skill-mcp-development",
+  "case": "youtrack-tool-review-sync-requests-ru",
+  "arm": "with",
+  "agent": "mcp_builder",
+  "chars": 22298,
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-mcp-development"
+  ],
+  "implants": [
+   "VerifyAssumptions",
+   "PlanSolvePlus",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1f19ea732aa7": {
+  "component": "skill-mcp-development",
+  "case": "youtrack-tool-review-sync-requests-ru",
+  "arm": "without",
+  "agent": "mcp_builder",
+  "chars": 20859,
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "VerifyAssumptions",
+   "PlanSolvePlus",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4a88f550f68d": {
+  "component": "skill-mcp-development",
+  "case": "invoice-mcp-server-skeleton-en",
+  "arm": "with",
+  "agent": "mcp_builder",
+  "chars": 22298,
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-mcp-development"
+  ],
+  "implants": [
+   "VerifyAssumptions",
+   "PlanSolvePlus",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "de74ef97e951": {
+  "component": "skill-mcp-development",
+  "case": "invoice-mcp-server-skeleton-en",
+  "arm": "without",
+  "agent": "mcp_builder",
+  "chars": 20859,
+  "skills": [
+   "skill-tech-writing",
+   "skill-caveman-tokenomics",
+   "skill-dev-debugging",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "VerifyAssumptions",
+   "PlanSolvePlus",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "85016f678681": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-payment-flow-type-ru",
+  "arm": "with",
+  "agent": "diagram_architect",
+  "chars": 21969,
+  "skills": [
+   "skill-dense-summarization",
+   "skill-tech-writing",
+   "skill-dev-api-design",
+   "skill-system-design",
+   "skill-mermaid-best-practices"
+  ],
+  "implants": [
+   "SoT",
+   "OutputPriming",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7b31c12b2d20": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-payment-flow-type-ru",
+  "arm": "without",
+  "agent": "diagram_architect",
+  "chars": 19438,
+  "skills": [
+   "skill-dense-summarization",
+   "skill-tech-writing",
+   "skill-dev-api-design",
+   "skill-system-design"
+  ],
+  "implants": [
+   "SoT",
+   "OutputPriming",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2c8a2d404aa4": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-cleanup-ci-pipeline-en",
+  "arm": "with",
+  "agent": "diagram_architect",
+  "chars": 21477,
+  "skills": [
+   "skill-dense-summarization",
+   "skill-dev-api-design",
+   "skill-analysis-critical",
+   "skill-structured-output",
+   "skill-mermaid-best-practices"
+  ],
+  "implants": [
+   "SoT",
+   "OutputPriming",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "22e60ea7539c": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-cleanup-ci-pipeline-en",
+  "arm": "without",
+  "agent": "diagram_architect",
+  "chars": 18946,
+  "skills": [
+   "skill-dense-summarization",
+   "skill-dev-api-design",
+   "skill-analysis-critical",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "SoT",
+   "OutputPriming",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7850ef23a9be": {
+  "component": "skill-multi-step-planning",
+  "case": "heroku-to-yandex-cloud-migration-plan-ru",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 28962,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-mermaid-best-practices",
+   "skill-dev-api-design",
+   "skill-multi-step-planning"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fd97ff460ca4": {
+  "component": "skill-multi-step-planning",
+  "case": "heroku-to-yandex-cloud-migration-plan-ru",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 27659,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-mermaid-best-practices",
+   "skill-dev-api-design"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "469492d8c3fb": {
+  "component": "skill-multi-step-planning",
+  "case": "failed-backfill-statement-timeout-en",
+  "arm": "with",
+  "agent": "ai_senior_engineer",
+  "chars": 35109,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-analysis-critical",
+   "skill-agentic-loops",
+   "skill-multi-step-planning"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "bd5c2e2aebcb": {
+  "component": "skill-multi-step-planning",
+  "case": "failed-backfill-statement-timeout-en",
+  "arm": "without",
+  "agent": "ai_senior_engineer",
+  "chars": 33806,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-debugging",
+   "skill-dev-clean-code",
+   "skill-analysis-critical",
+   "skill-agentic-loops"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "05855f06c2d3": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-hospital-scene-ru",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 24384,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-dense-summarization",
+   "skill-tech-writing",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0faa680b4391": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-hospital-scene-ru",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 20102,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-dense-summarization",
+   "skill-tech-writing"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5cc3adb6128f": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-pacing-diagnosis-en",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 24384,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-dense-summarization",
+   "skill-tech-writing",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3dcb23372b77": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-pacing-diagnosis-en",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 20102,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-dense-summarization",
+   "skill-tech-writing"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge",
+   "SelfRefine"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

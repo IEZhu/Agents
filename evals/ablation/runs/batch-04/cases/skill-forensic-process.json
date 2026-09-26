@@ -1,0 +1,35 @@
+{
+  "component": "skill-forensic-process",
+  "cases": [
+    {
+      "id": "crm-leak-chronology-ru",
+      "agent": "investigative_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нужна помощь срочно. У нас утекла клиентская база, к 15:00 надо отдать в СБ хронологию и вывод. Что у меня есть:\n\n1) Лог VPN (FortiGate, время в UTC): 2026-09-14 21:47:12 — успешный вход под учёткой a.petrov с IP 185.220.101.34 (геолокация: Нидерланды).\n2) Алерт DLP (сервер в Москве, время МСК): 15.09.2026 00:52 — выгрузка из CRM 14 200 записей клиентов в CSV, пользователь a.petrov.\n3) СКУД: Петров вышел из офиса 14.09 в 19:05 (МСК).\n4) Петров в Slack 15.09 в 09:10 МСК: «я спал, никуда не заходил, ноут дома был выключен».\n5) В 11:30 МСК 15.09 телеграм-канал «Сливы и базы» выложил скриншот таблицы с нашими клиентами. В 11:45 и 12:20 тот же скрин опубликовали ещё два канала, так что факт утечки подтверждён тремя разными источниками.\n\nЯ так понимаю, картина ясная: Петров ночью из дома через VPN слил базу. Собери, пожалуйста, хронологию и сформулируй вывод для СБ.",
+      "why_in_scope": "The skill forces anchoring every event to one absolute time scale (the UTC VPN login 21:47 is 00:47 MSK on 15.09, five minutes before the MSK DLP export), deduplicating the three Telegram posts as one circulated source, separating fact (the a.petrov account was used) from inference (Petrov personally did it), and enumerating gaps instead of filling them. A strong model without it may mix the time zones, accept 'three independent sources', and endorse the user's conclusion that Petrov leaked the data.",
+      "rubric": [
+        "Converts times to a single zone correctly: the VPN login at 21:47:12 UTC on 14.09 is 00:47 MSK on 15.09, i.e. about 5 minutes before the 00:52 MSK DLP export, and orders the events accordingly.",
+        "Treats the three Telegram posts of the same screenshot as a single source (reposts), not as three independent confirmations.",
+        "Distinguishes the established fact (the a.petrov account logged in and exported the data) from the unproven inference that Petrov himself did it, and does not state the user's conclusion as fact; mentions account compromise as an alternative.",
+        "Explicitly lists the missing evidence and what would resolve it (e.g. MFA/authentication logs for the login, attribution of the IP 185.220.101.34, examination of Petrov's device, matching the leaked screenshot against the exported CSV)."
+      ]
+    },
+    {
+      "id": "payments-outage-postmortem-timeline-en",
+      "agent": "data_forensic",
+      "language": "en",
+      "history": [],
+      "user_message": "Writing the postmortem for Monday's checkout outage and my director wants it by EOD. Here's everything I pulled together:\n\n- GitHub Actions (UTC): 2026-09-22 16:58:40 deploy of payments-api v4.12.0 completed\n- Datadog (UTC): 16:55 monitor 'postgres-primary connection pool > 95%' triggered\n- Datadog (UTC): 17:03 p99 latency > 2s on payments-api\n- PagerDuty (my phone, PDT): 10:04 AM 'payments-api 5xx rate > 5%', 10:04 AM 'checkout-web error rate high', 10:05 AM 'synthetic checkout failed'\n- Slack message from Ravi in Bangalore (his client shows IST): '22:41 rolled back to v4.11.3'\n- Datadog (UTC): 17:26 error rate back under 1%\n- Status page: 'Investigating' posted 10:31 AM PDT, 'Resolved' 10:48 AM PDT\n\nCan you give me a clean timeline table and a one-line root cause? I'm planning to write 'Root cause: faulty deploy of payments-api v4.12.0, resolved by rollback.'",
+      "why_in_scope": "The skill makes the model put all events on one absolute clock (10:04 PDT = 17:04 UTC, 22:41 IST = 17:11 UTC, status page 17:31/17:48 UTC), collapse the three near-simultaneous pages into one detection event, keep the 'deploy caused it' claim in an interpretation layer, and enumerate gaps. A strong model without it may list the pages as separate events, miss that the DB pool alert (16:55) fired before the deploy completed and that recovery came 15 minutes after the rollback, and simply endorse the proposed root-cause line.",
+      "rubric": [
+        "Normalizes all timestamps to one zone correctly, including PagerDuty 10:04 AM PDT = 17:04 UTC, Ravi's rollback 22:41 IST = 17:11 UTC, and status page 10:31/10:48 AM PDT = 17:31/17:48 UTC, and orders them correctly.",
+        "Groups the three PagerDuty pages at 10:04-10:05 PDT as one detection event/symptom set rather than three separate incidents.",
+        "Points out that the postgres connection pool alert at 16:55 UTC precedes the deploy completion at 16:58:40 UTC and that recovery (17:26) came about 15 minutes after the rollback (17:11), so the proposed 'faulty deploy' root cause is an unconfirmed hypothesis rather than an established fact.",
+        "Lists concrete open questions and what would answer them (e.g. deploy start time, what drove the DB connection pool, what happened between 17:11 and 17:26 UTC) instead of filling them with assumptions."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified all time conversions (21:47 UTC = 00:47 MSK; 10:04 PDT = 17:04 UTC; 22:41 IST = 17:11 UTC) and rubric facts. Made the Russian case subtler by moving the 'three sources' claim from an explicitly flagged PR quote into the user's own framing, so dedup is not handed to the model; the English case was kept as is."
+}

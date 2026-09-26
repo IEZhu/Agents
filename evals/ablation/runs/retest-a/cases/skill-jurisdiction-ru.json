@@ -1,0 +1,100 @@
+{
+  "component": "skill-jurisdiction-ru",
+  "cases": [
+    {
+      "id": "usn-vat-threshold-prev-year-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я ИП на УСН 6%, торгую стройматериалами в Твери. Доход за 2025 год вышел 18,4 млн руб. Бухгалтер говорит, что с 1 января 2026 я уже обязан платить НДС, раз порог снизили. А в этом году, судя по всему, доход будет около 26 млн. Мне сейчас надо выставлять счета с НДС или нет? И что будет в 2027-м, какие там варианты по ставке?",
+      "why_in_scope": "The component states that the USN VAT exemption is tested against the previous calendar year's income (20M for 2025 income) and gives the 5%/7% special rates. Without it a strong model may apply the old 60M threshold, confuse the income year with the exempt year, or side with the accountant.",
+      "rubric": [
+        "States that the 2026 exemption is decided by 2025 income: 18.4M is below the 20M threshold, so no VAT is charged at the start of 2026 and the accountant's claim is wrong",
+        "Warns that if cumulative 2026 income passes the threshold during the year, the exemption is lost from the 1st day of the following month, so with ~26M projected VAT will likely be due already in late 2026, not only from 2027",
+        "For the period after the exemption ends, explains the choice between the special 5%/7% rates without input VAT deduction and the general rate with deductions",
+        "Keeps the income year and the year of the VAT obligation clearly separate throughout and does not present uncertain thresholds as settled without suggesting verification"
+      ]
+    },
+    {
+      "id": "ndfl-progressive-high-salary-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Мне предложили оклад 550 тыс. в месяц до вычета налога, трудовой договор в Москве, я резидент РФ. Хочу понять, сколько за 2026 год уйдёт НДФЛ, если премий не будет. Посчитайте по шагам, пожалуйста, а то в интернете кто пишет 13%, кто 15% только с суммы выше 5 млн.",
+      "why_in_scope": "The component gives the progressive NDFL scale in force since 2025 (13% to 2.4M, 15% 2.4-5M, 18% 5-20M). A strong model with older knowledge may apply the 2021-2024 rule (13%, then 15% above 5M) or miss the 18% band, giving a wrong total.",
+      "rubric": [
+        "Computes annual income as 6.6M RUB and applies 13% to the first 2.4M (312,000), 15% to 2.4-5M (390,000) and 18% to the remaining 1.6M (288,000)",
+        "Arrives at total NDFL of 990,000 RUB for the year",
+        "Explicitly identifies the '15% only above 5 million' claim as the pre-2025 rule",
+        "Notes that the employer withholds the tax monthly on a cumulative basis, so the higher rates start partway through the year and monthly take-home pay falls in later months"
+      ]
+    },
+    {
+      "id": "ooo-share-sale-notary-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нас двое учредителей ООО, по 50%. Партнёр выходит и продаёт мне свою долю за 1 млн. Договор купли-продажи доли мы уже подписали, деньги я перевёл. Теперь надо зарегистрировать изменения: кто у нас должен подписывать Р13014 — я или директор, нужно ли его заверять и сколько дней налоговая регистрирует? Хотим всё закрыть до конца месяца.",
+      "why_in_scope": "The user asks only a procedural question about the registration form and never mentions the form of the contract. The component flags notarial omissions as voiding the transaction; a model without it may simply answer who signs Р13014 and the 5-day term, missing that a share sale between participants must be notarized and that the notary, not the company, files for registration.",
+      "rubric": [
+        "Raises unprompted that a share sale contract between participants must be notarized (п. 11 ст. 21 ФЗ «Об ООО») and asks or flags whether theirs was, rather than only answering the Р13014 question",
+        "Explains that without notarial form the deal is void and the change will not be validly registered, and that in a notarized deal the notary submits the registration application",
+        "Gives a practical next step: re-execute the sale with a notary and account for the money already transferred",
+        "Answers the user's actual question in that light without inventing fees or deadlines it is unsure about"
+      ]
+    },
+    {
+      "id": "transport-tax-regional-rate-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm a foreign engineer on a work permit in Russia and just bought a used 2019 Toyota RAV4, 249 hp, registered in my name. A colleague said Russian car tax is a flat amount per horsepower nationwide. How much will I owe per year and when do I pay it?",
+      "why_in_scope": "The component stresses that transport tax rates are set by each subject of the RF and that the model must ask which region applies. Without it a strong model may quote a single rate (often Moscow's) as if national, accepting the colleague's premise.",
+      "rubric": [
+        "Corrects the premise: transport tax rates per horsepower are set by regional law, so the amount depends on the region where the car is registered",
+        "Asks for or conditions the answer on the specific region, rather than presenting one number as the national figure",
+        "Explains the calculation method (horsepower times the regional rate, prorated by months of ownership in the year of purchase)",
+        "Correctly states that individuals pay based on a tax notice from the tax service, due by 1 December of the year following the tax year"
+      ]
+    },
+    {
+      "id": "llc-osn-2026-rates-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "We're a Dutch company setting up a Russian OOO for B2B equipment servicing, projected revenue around 900M RUB in 2026, so no simplified regime. For our budget model I've put corporate income tax 20% and VAT 20%. Can you sanity-check those assumptions and tell me what else I'm missing on the tax side?",
+      "why_in_scope": "The component lists the 2025-2030 profit tax rate of 25% and the VAT increase to 22% from 1 January 2026. A strong model without it may confirm the user's outdated 20%/20% assumptions, and may miss that the reduced SME social contribution rate is now limited to priority sectors.",
+      "rubric": [
+        "Corrects the profit tax rate to 25% (from 2025), noting the federal/regional split",
+        "Corrects standard VAT to 22% from 1 January 2026, with the 10% reduced and 0% export rates as exceptions",
+        "Flags payroll insurance contributions (30% up to the annual base, 15.1% above) as a significant missing cost item",
+        "Advises confirming current rates with an official source or local adviser and includes a short not-legal-advice caveat"
+      ]
+    },
+    {
+      "id": "ip-vs-ooo-forum-pretrial-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "My client is an individual entrepreneur (IP) in Kazan. She delivered furniture to a Moscow OOO under a supply contract and they owe her 1.2M RUB, 45 days overdue. The contract says nothing about disputes."
+        },
+        {
+          "role": "assistant",
+          "content": "Since your client is an individual, she can file a claim in the district court (raionny sud) at the defendant's location in Moscow under the Civil Procedure Code. Include the contract, delivery notes and a calculation of interest under Article 395 of the Civil Code."
+        }
+      ],
+      "user_message": "Great, I'm drafting the statement of claim for the Moscow district court now. Anything else I should attach, and can we file tomorrow?",
+      "why_in_scope": "The component warns about mixing general-jurisdiction and arbitrazh forums and about mandatory pre-trial claims in commercial disputes. The prior assistant turn made exactly that mistake; a strong model without the component may simply answer the attachment question and not catch that an IP-vs-OOO commercial dispute belongs in the arbitrazh court and needs a pretenziya first.",
+      "rubric": [
+        "Corrects the earlier advice: a dispute between an IP and an OOO arising from business activity goes to the arbitrazh court under the APK, not a district court of general jurisdiction",
+        "States that a pre-trial claim (pretenziya) is mandatory and the claim can be filed only after 30 calendar days from sending it (unless the contract sets another period), so filing tomorrow is not possible if none was sent",
+        "Keeps the useful parts: interest under Art. 395 of the Civil Code and supporting documents (contract, delivery documents, proof of sending the pretenziya)",
+        "Explains the practical consequence of the wrong forum (the claim would be returned or transferred rather than heard as filed) without excessive hedging"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Fixed a factually wrong USN item (in-year excess ends the exemption from the next month, so VAT likely starts in late 2026, not 2027); made the NDFL case harder (6.6M, 18% band) and the OOO case subtler (user asks only about Р13014, never about notarization). Softened the forum-consequence wording in the arbitrazh case; other cases kept."
+}

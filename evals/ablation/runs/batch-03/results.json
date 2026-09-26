@@ -1,0 +1,529 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-dev-testing",
+   "case": "refactor-broke-mocked-private-methods-en",
+   "A": "with",
+   "B": "without",
+   "stem": "11a4bbb2a0__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers explain the coupling to internals and give a similar retargeting script, but B argues the brittleness point more sharply (the mocked VAT assertion passes whatever VAT comes out) and turns the Friday plan into concrete code: a golden-total regression test built from the 2,000-order comparison that can be written before release. B also adds useful safeguards (autospec=True, reporting unmapped names, catching class-decorator patches). A describes the behaviour-based VIP test only in prose, and its extra DIRECT_ACCESS regex rewrites any obj._attr too broadly; A does state the 'mock only real boundaries' principle more explicitly than B.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "refactor-broke-mocked-private-methods-en",
+   "A": "without",
+   "B": "with",
+   "stem": "11a4bbb2a0__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the coupling to internals, give a correct patch.object retargeting script as a Friday stopgap, and suggest behaviour-based tests afterwards. A includes concrete code for a behaviour test (a golden-total test plus an inline assertion that DiscountEngine.apply_tier returns Decimal('10.00')) and recommends autospec=True, while B describes the VIP behaviour test only in prose, though it is more explicit about mocking only real external boundaries. B's extra DIRECT_ACCESS regex also has a hazard: it rewrites strings such as 'OrderPricing._compute_vat' into invalid targets before the user runs the grep that B suggests for finding them.",
+   "errors_with": [
+    "The DIRECT_ACCESS regex also matches dotted names inside string patch targets (e.g. \"app.pricing.OrderPricing._compute_vat\" becomes \"...OrderPricing.taxes.compute_vat\"), which creates invalid targets and stops the suggested grep from finding them"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-decision-frameworks",
+   "case": "feature-store-justification-sunk-cost-en",
+   "A": "without",
+   "B": "with",
+   "stem": "1b25dbd21a__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both reject the sunk-cost lead, deliver a gated forward-looking draft, and honestly say to switch if the numbers favour managed. B sets out finance's strongest points explicitly (pace, a latency gap that finishing the build will not close, migration costs) and builds a side-by-side forward-cost table that includes ongoing maintenance FTE, so the memo answers finance directly. A's steelman of finance's case is thinner, and it overstates in-house economics by claiming ownership keeps marginal cost flat without accounting for maintenance headcount.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims owning the system 'keeps marginal cost flat', which overlooks ongoing maintenance and infrastructure scaling costs"
+   ]
+  },
+  {
+   "component": "skill-decision-frameworks",
+   "case": "feature-store-justification-sunk-cost-en",
+   "A": "with",
+   "B": "without",
+   "stem": "1b25dbd21a__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reject the sunk-cost lead, give gated forward-looking drafts, and say plainly that the case fails if the numbers favour managed. B makes finance's case stronger by noting that migration is cheapest now while only 2 models depend on the system, by proposing a parallel vendor evaluation against the same exit criteria, and by flagging a possible existing Databricks spend. A's forward cost table is more concrete, but B's framing better anticipates finance's strongest objection.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims owning the system 'keeps marginal cost flat', which is an overstatement because in-house infra and maintenance costs also grow with scale."
+   ]
+  },
+  {
+   "component": "skill-epistemic-method",
+   "case": "water-utility-pfas-notices-en",
+   "A": "without",
+   "B": "with",
+   "stem": "1ce7848679__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly explain the compliance-timing gap, point out that the newsletter reports no new results or treatment and that Well Field 2 is still in use, and give the same concrete questions to ask the utility. B comes a little closer on item 3: it says the wording avoids the question and that a real fix would have been announced, while A plays down any motive ('I don't think it's a cover-up'). B also adds useful, accurate points: compliance is based on running annual averages, and many 'RO pitchers' may not be certified for PFAS.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-epistemic-method",
+   "case": "water-utility-pfas-notices-en",
+   "A": "with",
+   "B": "without",
+   "stem": "1ce7848679__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly say the newsletter shows no fix and explain that the PFAS MCL compliance deadline has not arrived yet. B explicitly tells the user to keep filtering until the utility confirms results. A only implies this through its 'you can stop if' conditions. Neither fully covers the utility's incentive to use vague wording: A hints at it, and B partly dismisses it as ordinary compliance language, so A's extra averaging and pitcher-certification points do not outweigh B's clearer guidance.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-api-design",
+   "case": "payments-retry-and-field-rename-en",
+   "A": "without",
+   "B": "with",
+   "stem": "27dbc232be__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reject the heuristic, propose the same per-merchant Idempotency-Key table with a primary-key claim and 422/409 handling, and recommend an internal cents fix plus an additive amount_cents field with deprecation and separate deploys. B adds a useful pending-before-processor write with a reconciler, and A offers a clearer deploy table and a fuller test list that includes the in-flight 409 case. These strengths offset each other, and neither answer has a substantive error.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-api-design",
+   "case": "payments-retry-and-field-rename-en",
+   "A": "with",
+   "B": "without",
+   "stem": "27dbc232be__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reject the heuristic for the same reasons, including the in-flight race, and give the same Idempotency-Key design with 422 for a hash mismatch and 409 for an in-progress key. Both recommend an internal cents fix plus an additive amount_cents field, deprecation, and separate deploys. A adds a strong point about writing the charge as pending before calling the processor, with a reconciler; B adds a more complete test list, the 100x refund risk, a note on minor units for JPY and KWD, and a clear deploy table, so neither answer comes out ahead overall.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-security",
+   "case": "express-download-content-type-en",
+   "A": "with",
+   "B": "without",
+   "stem": "48f1d8d18e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers fix the headers with res.download, guard against traversal with a regex plus the root option, and remove the leaked path from the 404. A builds authentication and the ownership check into the fixed route and suggests an ID-based redesign, while B leaves the authorization check commented out. B adds useful extras (nosniff, dotfiles: 'deny', clearer curl tests), but these matter less than making authorization part of the code.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-security",
+   "case": "express-download-content-type-en",
+   "A": "without",
+   "B": "with",
+   "stem": "48f1d8d18e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both fix the headers with res.download, guard traversal with a regex whitelist plus root, and remove the path leak from the 404. B puts the ownership check into the route code as a real step, returns 404 to avoid confirming which invoices exist, and suggests looking invoices up by ID; A only mentions authorization in prose and leaves it commented out. B also explains the text/plain preview more honestly, while A adds nosniff, a small plus that does not close the gap.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-debugging",
+   "case": "keyerror-truncated-trace-get-default-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5ab2bb3b7b__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers make the same core points: the handler line is only a guess, the anonymous fallback is risky, and the helper that fails with a 401 and logs payload keys is almost identical. B goes further by shipping concrete code that captures the full traceback and by linking each possible top stack frame to a specific deploy hypothesis and how to check it, while A only describes the traceback step and also offers the fallback code it argues against. B's global KeyError handler would not catch errors raised inside user middleware such as the auth layer, which B does not mention, but overall B is still somewhat more actionable.",
+   "errors_with": [
+    "Implies the app-level KeyError exception handler will reveal errors from middleware or auth code, but Starlette's ExceptionMiddleware sits inside user middleware and does not catch exceptions raised there."
+   ],
+   "errors_without": [
+    "Says the 'first stack frame' will show the failing lookup; in a Python traceback the raising frame is the last (innermost) one."
+   ]
+  },
+  {
+   "component": "skill-dev-debugging",
+   "case": "keyerror-truncated-trace-get-default-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5ab2bb3b7b__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers question the handler guess, warn against the silent anonymous fallback, and tie hypotheses to the three deploy changes, so they are very close. A gives ready-to-ship code for a global KeyError handler that logs the full traceback, while B only describes that step. B's optional fallback section ends with a test line (resolve_user_id(...) == ANONYMOUS_USER_ID) that contradicts its own helper, which raises on a missing key; B's extras (the 401/422 guidance and flushing the cache as a mitigation) are useful but do not outweigh that inconsistency.",
+   "errors_with": [],
+   "errors_without": [
+    "The suggested fallback test asserts resolve_user_id returns ANONYMOUS_USER_ID, but the fallback code shown is inline handler code, not a change to resolve_user_id, which still raises HTTPException",
+    "States as fact that every client sent user_id before Tuesday, which is an unverified assumption"
+   ]
+  },
+  {
+   "component": "skill-error-recovery",
+   "case": "pg-backfill-crashed-continue-drop-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "5be6145a55__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers find the skipped batch 2300 range, re-run it idempotently, check the whole table for NULLs, use the NOT VALID CHECK approach, and separate the step 5 deploy and DROP COLUMN from the SQL block. B adds a practical catch that A misses: if amount is NOT NULL, it must be relaxed before dual write stops, or inserts will fail. B also combines the checks into one scan and gives a recoverable backup for the DROP. A's separate gap diagnostic and its view and trigger dependency checks are useful, but they do not quite offset B's advantages.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-error-recovery",
+   "case": "pg-backfill-crashed-continue-drop-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "5be6145a55__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers find the skipped batch 2300 range, re-run it idempotently, check the whole table before NOT NULL, and keep DROP COLUMN separate from the app deploy, all with valid SQL. B adds a read-only gap diagnostic that shows whether batch 2300 actually committed, gives a clearer ordered checklist for the admin, and explicitly resets timeouts and warns about prepared-statement breakage. A has one useful extra point (drop NOT NULL on amount before stopping writes to it), but overall B is slightly more complete and easier for the admin to follow.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-error-recovery",
+   "case": "git-delete-merged-branches-ambiguous-base-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5beeeb2c9a__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each explains the release/2.14 trap, uses origin/develop as the base, protects long-lived branches, gives a dry run and uses correct --merged / push --delete / branch -d commands. B is slightly safer: it limits the sweep to feature/*, saves a SHA backup file before deleting remote branches, and shows concretely how each base choice would hit the two risky branches. A's hotfix check (origin/develop..origin/main) can report false positives in git-flow because of release merge commits on main, and its chained single paste stops part way if any push batch is rejected.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-error-recovery",
+   "case": "git-delete-merged-branches-ambiguous-base-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5beeeb2c9a__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each uses origin/develop as the base, protects release/2.14, runs a dry run first, and uses correct git commands. A saves a real rollback backup file of branch SHAs and checks the hotfix precisely with git cherry against the hotfix branch. B's undo advice wrongly says the push --delete output contains SHAs, and its develop..main hotfix check can report false positives in git-flow because release merge commits on main are not in develop, although B names the ambiguity of 'merged' more explicitly and gives a guarded single-paste command.",
+   "errors_with": [
+    "Claims the SHA of a deleted branch appears in git push --delete output; it shows only '- [deleted] <branch>'",
+    "git log origin/develop..origin/main is presented as a clean test of the hotfix back-merge, but in git-flow it usually lists release merge commits even when everything has been back-merged"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-performance",
+   "case": "drf-orders-aggregate-orjson-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "844b93d864__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers find the per-order aggregate() queries, put measurement ahead of rewriting, treat orjson and hand-written dicts as optional follow-ups, and guard against regressions with assertNumQueries. B's query count matches its own code, because it switches to Prefetch with select_related. A keeps prefetch_related('orderitem_set__product'), which makes 4 queries, but still asserts 3. B also gives a concrete script that splits time into db and serialization, estimates how little the renderer would save, and suggests checking that page_size=200 is actually honored.",
+   "errors_with": [],
+   "errors_without": [
+    "The step-1 regression test asserts 3 queries and describes 'orderitems+product' as one query, but the unchanged prefetch_related('orderitem_set__product') makes separate queries for items and products (count + orders + items + products = 4)."
+   ]
+  },
+  {
+   "component": "skill-dev-performance",
+   "case": "drf-orders-aggregate-orjson-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "844b93d864__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers identify the per-order aggregate() queries as the likely bottleneck, fix them via the prefetch cache, add an assertNumQueries guard and make orjson and hand-written dicts optional follow-ups gated on profiling. A adds a concrete db-vs-serialize timing snippet and a useful page_size/max_page_size check, while B adds the COUNT/CursorPagination note, the multi-valued JOIN caveat for annotate and a safer datetime formatting via DRF's DateTimeField. B wrongly says DRF's JSONEncoder outputs Decimal as a string, and A's manual datetime formatter skips timezone conversion, though A flags it; these weaknesses roughly offset each other.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims DRF's standard JSONEncoder renders a Decimal returned by SerializerMethodField as a string; DRF's encoder converts Decimal to float, so returning str in the orjson default changes the contract rather than preserving it."
+   ]
+  },
+  {
+   "component": "skill-dev-debugging",
+   "case": "celery-duplicate-emails-three-changes-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8ed8cbf4ea__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers make the same core diagnosis: the test cannot tell which change helped, the likely cause is the visibility_timeout, and change #3 only masks the symptom. B adds cheap production diagnostics (checking whether duplicates share a task_id, looking at the intervals between them) and names an alternative cause (a double apply_async), which makes its reproduction plan more actionable. A is more explicit that the single-worker setup also invalidates the test. Neither answer suggests monitoring after the deploy or keeping the ticket open until the fix is confirmed.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-debugging",
+   "case": "celery-duplicate-emails-three-changes-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8ed8cbf4ea__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers make the same core diagnosis (Redis visibility_timeout redelivery of ETA tasks), refuse to credit any single change, and propose a reproduction with a shortened visibility_timeout followed by enabling the changes one at a time. B also names the single worker as a gap in the local test, includes several workers in its reproduction, runs a control on the old code with a raised timeout, and says the test was never run against the old commit, which covers rubric item 2 more fully. A adds a quick task_id log check, which is useful, but neither answer explicitly recommends deploying with monitoring for duplicate sends and keeping the ticket open until that is confirmed.",
+   "errors_with": [],
+   "errors_without": [
+    "Implies that a single worker cannot receive a redelivered task, but Redis can redeliver it to the same worker, so the single-worker point is overstated"
+   ]
+  },
+  {
+   "component": "skill-dense-summarization",
+   "case": "conflicting-studies-digest-en",
+   "A": "with",
+   "B": "without",
+   "stem": "9a03aa7333__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both lead with the same correct bottom line, attribute findings correctly, flag non-deficient populations and D2d relevance, and defer dosing to the doctor. B maps more cleanly onto the user's four notes, flags the VITAL cancer-death result as secondary, and gives a ready-to-use framing line for tonight's conversation. A adds a little more beyond the digest (metformin section, a broader safety list, a table column asserting most VITAL participants had normal levels), making it a slightly less condensed digest.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dense-summarization",
+   "case": "conflicting-studies-digest-en",
+   "A": "without",
+   "B": "with",
+   "stem": "9a03aa7333__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both lead with the same correct bottom line, attribute findings correctly, flag the non-deficient trial populations, name D2d as most relevant and defer dosing to the doctor. B is more condensed: its table puts each study's population, result and relevance to him side by side, and it is more careful about naming its limits (the subgroup cutoff, relying on notes plus memory). A loosely turns HR 0.88 into '12% fewer people progressing', and both add extra material (B12, safety) beyond a strict digest.",
+   "errors_with": [],
+   "errors_without": [
+    "Describes HR 0.88 as 'about 12% fewer people progressing', which conflates the hazard ratio with a proportion of people"
+   ]
+  },
+  {
+   "component": "skill-epistemic-method",
+   "case": "startup-press-releases-offer-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "9d13a8f337__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly the same analysis: metrics switched to cumulative ones, retention and revenue dropped, no default data, a biased source, and detailed questions about the options. A pulls slightly ahead with a worked expected-value estimate whose assumptions it labels, and with concrete independent checks (GIR BO/Rusprofile filings, arbitration cases, hiring trends) that move beyond the company's own claims. B's volume reconciliation and closing advice are good, but its EV formula is loose, since it subtracts the strike price as a separate term, and it offers no independent verification route.",
+   "errors_with": [
+    "Option value formula subtracts 'strike' as a standalone term after multiplying by exit probability, which does not correctly treat the exercise cost."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-epistemic-method",
+   "case": "startup-press-releases-offer-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "9d13a8f337__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with similar structure and appropriate hedging. B covers the missing BNPL-specific disclosures (delinquency, funding cost, unit economics) more explicitly, works through a concrete expected-value estimate, and adds independent checks such as official financial statements, court records and headcount trends. A catches the sharper 11 bn all-time vs 14 bn for 2025 inconsistency, but its option-value formula is slightly sloppy (strike is subtracted after the probability is applied), so B comes out slightly ahead overall.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dense-summarization",
+   "case": "vendor-call-notes-summary-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "9e1d9a6cb0__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are accurate, open with the bottom line, have a correct comparison table, and flag the DPA blocker, the Mindbox overrun and the owned action items. B clearly separates a forwardable block from notes to the user, and those notes raise two useful risks the notes leave implicit: implementation costs could push Sendsay past 2M, and there is no plan B if the DPA slips. B's 'маркетинг против' for Unisender slightly overstates Lena's view but does not mislead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dense-summarization",
+   "case": "vendor-call-notes-summary-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "9e1d9a6cb0__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are ready to forward, open with a bottom line, give an accurate comparison table, flag the DPA blocker and the Mindbox budget overrun needing CFO sign-off, and list the correct owners and deadlines. A adds useful private notes for the user: implementation costs could push Sendsay past 2M once TCO is in, and there is no plan B if the DPA does not arrive by Friday. B is slightly cleaner and names who holds each position, but it says less about risk, so A wins by a small margin.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-performance",
+   "case": "etl-customer-lookup-pypy-en",
+   "A": "without",
+   "B": "with",
+   "stem": "ae4194e13b__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly identify the per-row SELECT as the bottleneck, recommend profiling first, offer dict-prefetch and staging-join fixes, and advise against PyPy. B's smallest fix keeps the user's CPython loop and produces byte-identical output, adds a quick stub-and-time check plus the 'crept up' index insight, and flags semantic differences (btrim, numeric rounding, pandas rounding edge cases) more accurately. A says Python and pandas rounding 'should match', which is overstated, and neither answer explicitly re-times the job against the 50-minute baseline after the fix.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims Python round() and pandas .round() should produce matching results; numpy's scale-and-round approach can differ from Python's round() on some edge values."
+   ]
+  },
+  {
+   "component": "skill-dev-performance",
+   "case": "etl-customer-lookup-pypy-en",
+   "A": "with",
+   "B": "without",
+   "stem": "ae4194e13b__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers identify the 1.2M per-row lookups as the bottleneck, recommend profiling with cProfile, and give correct set-based fixes (a prefetched dict or a staging-table join). A defers vectorization and PyPy until profiling after the fix shows CPU matters, while B's priority list still runs vectorization unconditionally as step 3. B also overstates that Python round() and pandas .round() should match, whereas A correctly warns they can differ and gives a smallest-change fix that matches the current output byte for byte. Neither explicitly re-times the job against the 50-minute baseline; both only diff outputs.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims Python round() and pandas .round() both round half-to-even on binary floats so results should match; numpy's scale-and-round method can differ from Python's exact-value rounding on edge values."
+   ]
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "xdist-flaky-cache-order-dependency-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "b5daee9ff9__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the order and TTL dependency correctly, reject the grouping and reruns approach, isolate the cache and replace sleep with a controlled clock. A fixes the tests without changing production behavior and treats stale-if-error as a separate, optional product decision, which fits the user's request for a quick fix. B makes the production code change the default fix and rewrites the outage test around it, which assumes a business decision it only raises, and it adds some noise such as the irrelevant -p no:cacheprovider flag.",
+   "errors_with": [
+    "Says a rerun often won't help because the cache is probably older than a second by then; in a worker that fails, the cache is actually empty for USD, so age is not the reason"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-testing",
+   "case": "xdist-flaky-cache-order-dependency-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "b5daee9ff9__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the order and TTL dependency correctly, reject grouping and reruns, isolate the cache and replace sleep with a fake clock. B's test fix works against the existing code without changes and keeps the stale-if-error behavior change as a separate product decision, while A's test rewrite depends on first changing production behavior. B also explains more precisely why reruns fail and why loadgroup ordering is not a guarantee.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-api-design",
+   "case": "orders-feed-duplicates-review-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "b9101c999a__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover all four rubric items with similar depth: offset shift explanation, cursor pagination, token in header, REST paths and naming, proper status codes with a machine code, and versioned rollout that keeps legacy endpoints. A correctly notes that DRF CursorPagination positions the cursor only by the first ordering field and handles ties by offset, so it recommends '-id'; B presents ordering=('-created_at','-id') as a true (created_at,id) keyset with a unique tiebreaker, which is not how DRF's CursorPagination works. B is slightly richer on the status-code mapping and the indexing advice, but A's more accurate DRF guidance on the core complaint tips the balance.",
+   "errors_with": [
+    "Implies DRF CursorPagination with ordering=('-created_at','-id') uses id as a keyset tiebreaker (tuple comparison); DRF builds the cursor from the first ordering field only and resolves ties with an in-cursor offset."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-api-design",
+   "case": "orders-feed-duplicates-review-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "b9101c999a__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover all four rubric items with similar depth, including cursor pagination, the token in the header, REST paths with one naming convention, proper status codes with a machine-readable error code, and a versioned rollout that keeps the old endpoints. B correctly warns that DRF CursorPagination positions the cursor by the first ordering field and handles ties with an offset, so it recommends '-id'. A implies that ('-created_at', '-id') gives a true keyset tiebreaker in DRF. B also makes versioning an explicit blocker and adds concrete regression tests, which gives it a slight edge.",
+   "errors_with": [
+    "Implies DRF CursorPagination uses the second ordering field ('-id') as a keyset tiebreaker like the shown SQL row comparison; DRF builds the cursor position from the first ordering field only and handles ties with an offset (A does hedge that it is quoting from memory)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-clean-code",
+   "case": "order-reminder-review-en",
+   "A": "without",
+   "B": "with",
+   "stem": "c124dfcbc8__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly identify both behavioural bugs (repeat reminders and fail_silently marking reminded), the dead with_footer parameter, positional booleans, and context-free logging with logger.exception fixes. Neither names a constant for the magic 14 days, only for status 3. A adds the useful .days > 14 vs created__lt boundary nuance and explicitly ties the positional booleans to the unnoticed footer; B rates severity more appropriately (blocker for repeat sends, major for logging) and hedges honestly on the HTML assumption, so the differences offset.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-clean-code",
+   "case": "order-reminder-review-en",
+   "A": "with",
+   "B": "without",
+   "stem": "c124dfcbc8__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers catch the repeat-send bug, the fail_silently/reminded bug, the dead with_footer parameter, the positional booleans and the context-free logging, and both name only the status 3 magic value as a constant and not the 14 days. B is a little more precise: it notes that `.days > 14` and `created__lt=cutoff` mean different things, ties the positional booleans to the dead footer going unnoticed, and admits it cannot know whether status changes after a reminder. A's suggested query quietly changes the 14-day boundary, and its test for that boundary doesn't match either version.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-clean-code",
+   "case": "payment-provider-abstraction-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "c4d783c804__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B pushes back on the whole scaffold as premature, names concrete costs, and makes a simple YooKassaClient behind a FastAPI dependency its main recommendation, with a clear plan to extract a Protocol once a second provider exists. A names the same risks but still delivers the full ABC, registry, factory and env scaffold as its main output, and calls the ABC and DTOs useful now, so its lighter alternative is only partial. Both correctly flag float vs Decimal, the per-order idempotence key and the per-call client; B's webhook route mishandles refund events, which is a minor flaw.",
+   "errors_with": [
+    "Webhook route takes object.id as the payment id for every event, so for refund.* notifications it would query a refund id as a payment id"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-dev-clean-code",
+   "case": "payment-provider-abstraction-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "c4d783c804__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A says plainly that the whole scaffold is premature, names concrete costs (an abstraction guessed from one provider, a dead env switch), and delivers a complete lighter alternative with a clear path to extract a Protocol when a second provider arrives. B also criticizes the factory, registry and env switch, but it endorses the ABC and DTOs and then builds the full requested scaffold anyway, so the heavy structure remains the main deliverable. Both catch the same real bugs (float money, per-order idempotency key, a new client per call), but B's test code has a missing import.",
+   "errors_with": [],
+   "errors_without": [
+    "The test uses Decimal without importing it from decimal, so it fails with a NameError."
+   ]
+  },
+  {
+   "component": "skill-dev-security",
+   "case": "flask-dynamic-order-by-highlight-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "d4eb71a1aa__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in substance: correct literal-vs-identifier explanation, whitelist plus psycopg2.sql.Identifier with fixed ASC/DESC, escape_like, a case-insensitive Markup-based highlight that escapes before wrapping in <mark>, removal of |safe, the aborted-transaction warning and test lists. B adds a small public-name-to-column mapping and a slightly more concrete test expectation, while A has a marginally clearer loop-based highlight; neither difference is decisive. Both share the same minor inaccuracy about ORDER BY a string literal.",
+   "errors_with": [
+    "Claims ORDER BY 'price' silently sorts by a constant; PostgreSQL actually rejects a non-integer string constant in ORDER BY with an error."
+   ],
+   "errors_without": [
+    "Claims ORDER BY 'created_at' silently sorts by a constant; PostgreSQL actually rejects a non-integer string constant in ORDER BY with an error."
+   ]
+  },
+  {
+   "component": "skill-dev-security",
+   "case": "flask-dynamic-order-by-highlight-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "d4eb71a1aa__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain that %s binds literals (ORDER BY 'created_at' 'desc'), use an allow-list plus sql.Identifier with fixed ASC/DESC fragments, keep ILIKE parameterized with LIKE escaping, and fix XSS with an escaping, case-insensitive Markup-based highlight while dropping |safe. The code, side notes (tie-breaker id, aborted transaction on the shared conn) and test suggestions are nearly identical in substance and correctness. Remaining differences (A's mapping dict vs B's set, B's more specific 400 messages and an extra pg_trgm note) are minor and do not favor either side meaningfully.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-decision-frameworks",
+   "case": "onboarding-interviews-vs-pricing-email-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "f169b7d13d__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both recommend not waiting and doing a flagged partial rollout with metrics, rollback criteria and parallel interviews, in Russian, with strong Friday talking points. A states the reversibility principle more explicitly (a flag rather than a data migration, and waiting costs more than an error for reversible decisions), while B only notes that the flag limits risk and makes its main argument confounding. Neither flags the mass pricing email or the deletion of the old pricing page as the irreversible step that needs extra care; both treat pricing only as a confounder and support-load issue.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-decision-frameworks",
+   "case": "onboarding-interviews-vs-pricing-email-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "f169b7d13d__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers recommend a partial, flag-gated rollout with metrics and parallel interviews, in Russian, and both treat the pricing change only as something that muddies the data and adds support load; neither flags the mass email and page removal as the one step that cannot be undone. B makes reversibility an explicit argument (it is a flag, not a data migration, and for reversible decisions waiting costs more than a mistake), while A only mentions instant rollback in passing. B also adds useful practical checks, such as whether the flag can split traffic by percentage and whether each step is tracked, and gives a fallback plan, which makes it slightly more actionable.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

@@ -1,0 +1,35 @@
+{
+  "component": "implant-self-discover",
+  "cases": [
+    {
+      "id": "self-discover-classifier-paradox-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Странная ситуация, не знаю как подступиться. У нас LLM-классификатор обращений в поддержку (14 категорий, маршрутизация по очередям). Две недели назад переключили модель на новую версию: на нашем тестсете (2 400 размеченных тикетов, собран в феврале) accuracy выросла с 87% до 91%. А жалоб операторов «тикет пришёл не в ту очередь» за эти две недели стало на 30% больше, чем за две недели до переключения. Руководство спрашивает, откатывать ли модель. Как вообще к этому подойти, чтобы не гадать?",
+      "why_in_scope": "The implant makes the model first choose and adapt several reasoning strategies (decomposing the metric, causal analysis of the gap between offline and production, critical checking of the evidence itself) and compose them into an explicit investigation plan before answering. A strong model without it tends to grab one explanation, usually data drift, and give a generic checklist or a rollback verdict, missing that the complaint count is an unnormalized, noisy signal and that aggregate accuracy can rise while errors in high-traffic or high-cost categories get worse.",
+      "rubric": [
+        "Lays out an explicit multi-angle plan before concluding, combining at least: checking whether the complaint signal is valid, breaking accuracy down by category, and explaining the offline-versus-production gap, rather than betting on a single cause.",
+        "Points out that the 30% rise in complaints must be normalized by ticket volume and compared against the complaint baseline (e.g. seasonality, new operators, changes in how complaints are logged) before it is treated as evidence of worse routing.",
+        "Explains that aggregate accuracy on a February test set can go up while production routing gets worse, for example because category mix or ticket topics have shifted since February, or because errors moved into high-traffic or costly categories; and proposes a per-category comparison of confusion matrices or error rates between the two models.",
+        "Gives a concrete way to decide on rollback, such as labeling a fresh sample of recent production tickets, running both models on it or in shadow mode, and setting a decision criterion, rather than a verdict based on the given numbers alone."
+      ]
+    },
+    {
+      "id": "self-discover-agent-step-vs-e2e-en",
+      "agent": "agent_builder",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm stuck on how to even approach this. We have a tool-using agent that does a 40-step onboarding workflow (create accounts, set permissions, send invites, etc.). Our per-step eval says each step is correct 92% of the time. The eval replays recorded sessions: at each step we feed the agent the recorded state up to that point and check its next tool call. But in real end-to-end runs only about 20% of workflows finish correctly. My manager wants to double down on improving per-step accuracy to 97%+. Is that the right move? How should I figure out what's actually going on?",
+      "why_in_scope": "The implant makes the model pick and combine several reasoning strategies (a quick quantitative sanity check, causal analysis of how the eval is built, decomposition of where failures happen) into a plan before advising. Without it a strong model often applies only the familiar 'errors compound' story and endorses raising per-step accuracy, without noticing that 0.92^40 is about 3.6%, so 20% is actually better than independent compounding would predict, and without seeing that feeding recorded (gold) state at each step measures something different from the agent running on its own trajectory.",
+      "rubric": [
+        "Does the arithmetic: independent 92% steps over 40 steps give about 0.92^40 ≈ 3.6% end-to-end, and notes that the observed 20% does not fit a simple independent-compounding model (errors are correlated, concentrated in some steps, or partly recovered).",
+        "Identifies that the per-step eval feeds the agent the recorded state rather than its own previous outputs, so it does not measure how the agent behaves after its own mistakes or on real live state, and recommends evaluating on the agent's own trajectories.",
+        "Proposes localizing failures in real end-to-end runs (e.g. finding the first divergent step per failed run and clustering by step or error type) before investing in uniform per-step accuracy gains.",
+        "Answers the manager's question directly: a blanket push to 97% per-step accuracy is not justified until the failure analysis is done, and suggests alternatives such as targeted fixes at the few steps where failures cluster, verification or recovery checks, or checkpointing."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "No changes needed: both cases are in scope (multi-strategy investigation plans for metric paradoxes), leak-free (trigger-like phrasing is natural user voice, no technique terms), tool-less, use owner agents, and rubric facts verified (0.92^40 ≈ 3.56%). Each rubric has a component-targeted item and general-quality items; none reward length."
+}

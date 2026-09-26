@@ -1,0 +1,35 @@
+{
+  "component": "skill-agentic-loops",
+  "cases": [
+    {
+      "id": "overnight-test-fixer-burned-budget-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Сделал на Python агента, который сам чинит упавшие тесты: берёт вывод pytest, отдаёт его в Claude Sonnet через API, модель возвращает патч, агент применяет его и снова гоняет pytest. Всё крутится в `while True:` и выходит только когда `returncode == 0`. Оставил на ночь на репо с 14 падающими тестами — утром счёт на $63, в логах ~380 итераций, и последние часа три он раз за разом применял почти один и тот же патч к `test_invoice_rounding`, получал ту же `AssertionError: Decimal('10.01') != Decimal('10.00')` и шёл на новый круг. Ещё и 9 тестов, которые он уже починил, к утру снова падали. Думаю, Sonnet просто не тянет: хочу переключить на Opus и передавать ему в промпт всю историю предыдущих попыток, чтобы он не повторялся. Этого хватит? Хочу и дальше запускать его на ночь без присмотра.",
+      "why_in_scope": "The user proposes a model-quality fix (stronger model plus full attempt history) for what is really a loop-control failure. The component makes the model insist on a hard iteration cap, a token/time budget with graceful exit and partial result, a no-progress stop (no improvement for two consecutive iterations), checkpointing of good state, and changing approach or escalating instead of repeating the same action. A strong model without it may largely accept the user's framing and focus on prompt/model changes, adding at most a max-iterations limit.",
+      "rubric": [
+        "Says clearly that switching the model and adding attempt history is not sufficient on its own for unattended runs, because the loop itself has no stopping conditions besides full success.",
+        "Replaces `while True` with a bounded loop: an explicit maximum number of iterations plus a money/token and/or wall-clock budget, after which the agent stops and reports a partial result (which tests are fixed, which remain).",
+        "Adds a no-progress stop condition, e.g. stop or escalate when the number of failing tests has not decreased for a couple of consecutive iterations or when the same patch/same error repeats, and for a persistently failing test changes approach or skips/escalates it to a human instead of retrying the identical fix.",
+        "Proposes preserving already-achieved progress, e.g. a git commit/checkpoint after each iteration that reduces failures and rollback of any patch that makes previously passing tests fail; the answer is in Russian and gives concrete code or pseudocode fitting the described Python/pytest setup."
+      ]
+    },
+    {
+      "id": "essay-critic-refine-loop-never-ends-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "I have a writer/critic setup with GPT-4o for product descriptions. The writer drafts, the critic scores 1-10 and gives feedback, and the writer rewrites using that feedback, until the critic gives 9 or higher. On maybe 20% of products it never gets there: traces show scores like 6, 7, 8, 8, 7, 8, 8, 7, 8... for 40+ rounds, and the late drafts are honestly worse than round 3 (longer, more adjective soup). I'm pretty sure the critic is just miscalibrated and stingy. Can you rewrite the critic prompt so it scores fairly and gives a 9 when a description is actually good? Current critic prompt: \"You are a strict e-commerce copy editor. Score the product description from 1 to 10 and list everything that could be improved.\" (Side note: this runs as a nightly batch over ~2,000 SKUs, and every so often an OpenAI timeout kills the whole job and I lose the night's work, but that's a separate issue.)",
+      "why_in_scope": "The user asks only for a critic-prompt rewrite and frames the non-terminating loop as a calibration problem. The component makes the model also fix the loop: cap rounds, stop when the score plateaus (no improvement for two consecutive rounds), return the best result so far, checkpoint per-SKU state, and retry a failed call once with adjusted parameters before moving on. A strong model without it will likely deliver just a better critic prompt, perhaps lowering the bar, and leave the unbounded loop and the lost-work problem untouched.",
+      "rubric": [
+        "Delivers a concrete rewritten critic prompt that addresses the observed drift, e.g. explicit scoring criteria, penalizing added length/filler, and limiting feedback to a few specific actionable changes rather than 'everything that could be improved'.",
+        "Points out that a better critic alone does not guarantee termination and adds loop controls: a hard cap on rounds per SKU and a stop when the score has not improved over the best so far for about two consecutive rounds.",
+        "When stopping without reaching the threshold, keeps and returns the highest-scoring draft seen (not the latest one), and flags such SKUs for review.",
+        "Does not dismiss the timeout as unrelated: suggests saving per-SKU results as they complete so a failure does not lose finished work, and a bounded retry of the failed call before marking that SKU failed and continuing."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both originals asked directly 'how to fix the loop' and spelled out every symptom, so a strong model would add caps/checkpoints anyway; made them subtler by having the user misattribute the problem (case 1: switch to Opus plus attempt history; case 2: only rewrite a miscalibrated critic prompt, timeout mentioned as 'separate issue'). Rubrics updated to reward pushing back on that framing while keeping one general-quality item each."
+}

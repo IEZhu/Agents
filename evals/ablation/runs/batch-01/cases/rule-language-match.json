@@ -1,0 +1,52 @@
+{
+  "component": "rule-language-match",
+  "cases": [
+    {
+      "id": "switch-to-ru-commit-msg-stays-en-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [
+        {
+          "role": "user",
+          "content": "In our FastAPI service, get_user_orders() in app/services/orders.py does one SELECT per order to load its items (N+1). ~300 orders per user, endpoint takes 2.4s. SQLAlchemy 2.0, async session. How do I fix it?"
+        },
+        {
+          "role": "assistant",
+          "content": "Load the items eagerly in the same query with selectinload:\n\n```python\nfrom sqlalchemy import select\nfrom sqlalchemy.orm import selectinload\n\nstmt = (\n    select(Order)\n    .where(Order.user_id == user_id)\n    .options(selectinload(Order.items))\n)\nresult = await session.execute(stmt)\norders = result.scalars().all()\n```\n\nselectinload issues one extra SELECT ... WHERE order_id IN (...) for all items instead of one query per order, so you go from ~301 queries to 2. It also works with AsyncSession, unlike lazy loading, which would raise MissingGreenlet on attribute access in async code."
+        }
+      ],
+      "user_message": "Сработало, эндпоинт теперь отвечает за 180 мс. Объясни коротко, почему selectinload, а не joinedload в моём случае, и напиши мне сообщение коммита и название ветки под этот фикс, я сейчас пушу.",
+      "why_in_scope": "The conversation started in English and the last message switches to Russian, so the prose must switch to Russian rather than anchoring to the earlier English turns. At the same time the commit message and branch name must stay in English even though the user asked for them in Russian. A strong model without the rule may either keep answering in English out of continuity, or 'helpfully' write the commit message in Russian to match the user.",
+      "rubric": [
+        "The explanatory prose of the answer is written in Russian, not English.",
+        "The proposed commit message and branch name are in English (e.g. something like 'fix: eager-load order items with selectinload' and 'fix/orders-n-plus-one'), not in Russian or transliterated Russian.",
+        "The selectinload vs joinedload explanation is correct: joinedload uses a JOIN that repeats order columns for every item row (a one-to-many collection inflates the result set and needs unique() in 2.0), while selectinload runs a separate IN query, which usually suits one-to-many collections better.",
+        "Code identifiers such as selectinload, joinedload and get_user_orders are kept as-is and not translated."
+      ]
+    },
+    {
+      "id": "switch-to-en-after-ru-history-nginx-502-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "У нас nginx 1.24 проксирует на gunicorn (Django, 4 sync воркера). Периодически на отчётах /reports/export/ пользователи получают 502. Куда смотреть в первую очередь?"
+        },
+        {
+          "role": "assistant",
+          "content": "Начните с error.log nginx в момент ошибки: по тексту сообщения будет видно, кто закрыл соединение — upstream сам упал, не принял соединение или не успел ответить. Параллельно откройте лог gunicorn за то же время. Пришлите строку из error.log, разберём."
+        }
+      ],
+      "user_message": "got it, here's the line:\n\n2026/09/24 14:02:31 [error] 1187#1187: *48213 upstream prematurely closed connection while reading response header from upstream, client: 10.0.4.17, server: app.internal, request: \"GET /reports/export/?year=2025 HTTP/1.1\", upstream: \"http://127.0.0.1:8000/reports/export/?year=2025\"\n\nfull-year export takes ~45s to generate. gunicorn runs with defaults except --workers 4. what's wrong?",
+      "why_in_scope": "The earlier turns are in Russian and the last message is short English prose wrapped around an English log line, with no explicit request to switch languages. A model that anchors to the dominant conversation language, or treats the English text as just pasted output, may keep answering in Russian; the rule says to re-detect from the last message and reply in English.",
+      "rubric": [
+        "The entire reply is in English, with no Russian prose carried over from the earlier turns.",
+        "Correctly diagnoses that the gunicorn sync worker is killed by gunicorn's default 30-second worker timeout while the ~45s export is running, so nginx sees the upstream close the connection before sending response headers.",
+        "Proposes a sound fix: raising gunicorn --timeout above the export duration (and keeping nginx proxy_read_timeout, default 60s, above it) as a stopgap, and/or moving the export to a background job so the request does not block a sync worker."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2: removed the explicit 'switching to english so Dave can follow' line, which made replying in English trivial; the last message is now short English prose around a log line so language anchoring is actually tested. Dropped the rubric item about verbatim flags/log text, which any English reply passes trivially. Case 1 kept as is; facts verified (joinedload collections need unique() in 2.0, MissingGreenlet under async lazy load)."
+}

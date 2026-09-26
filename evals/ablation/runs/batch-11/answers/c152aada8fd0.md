@@ -1,0 +1,277 @@
+## Коротко
+
+- **Сколько осталось.** По номиналу около **140 дней**, то есть примерно до 11–12 февраля 2027. Но скорее всего реальный запас меньше, и его надо измерить до начала работ (см. ниже). Закладывайтесь на то, что всё должно быть переключено **до ноябрьских пиков и code freeze**.
+- **Как делать.** Теневые bigint-колонки, триггер синхронизации, батчевый backfill, индексы `CONCURRENTLY`, потом одна короткая транзакция swap на несколько секунд под `lock_timeout`. Приложение и подписчика готовят **до** изменений на publisher.
+- **Порядок критичен.** Сначала приложение (int64 везде), затем аналитический подписчик, затем publisher. Если сделать наоборот, логическая репликация упадёт на первой же колонке, которой нет у подписчика.
+
+---
+
+## 1. Сколько у вас реально времени
+
+**Номинал:**
+- Предел int4: 2 147 483 647
+- Осталось: 2 147 483 647 − 1 980 000 000 = **167 483 647**
+- 167,5 млн / 1,2 млн в день ≈ **139,6 дня**, это примерно 11–12.02.2027
+
+**Почему реально, скорее всего, меньше:**
+
+| Сценарий | Расход id/день | Дней | Переполнение ≈ |
+|---|---|---|---|
+| Ровно 1,2 млн/день | 1,2 млн | ~140 | 11.02.2027 |
+| Рост/сезонность +20% | 1,44 млн | ~116 | 19.01.2027 |
+| Последовательность «жжёт» в 2,5 раза больше заказов | ~3 млн | ~56 | **~20.11.2026** |
+
+Третья строка не выдуманная. Последовательность дошла почти до 2 млрд, а строк 780 млн. Если заказы не удаляются и не архивируются, значит около 60% значений ушло впустую: откаты транзакций, `INSERT ... ON CONFLICT`, кэш последовательности, ретраи. Тогда реальный расход id в 2–2,5 раза больше числа заказов, и у вас не 4,5 месяца, а меньше двух. Плюс Black Friday приходится ровно на этот период.
+
+**Проверьте прямо сегодня:**
+
+```sql
+-- фактический темп расхода id за неделю (включая «дыры»)
+SELECT (max(id) - min(id)) / 7.0 AS ids_per_day
+FROM orders WHERE created_at >= now() - interval '7 days';
+
+-- все int4-последовательности и степень их заполнения
+SELECT schemaname, sequencename, data_type, last_value,
+       round(100.0 * last_value / max_value, 1) AS pct_used
+FROM pg_sequences ORDER BY pct_used DESC NULLS LAST;
+```
+
+Обязательно посмотрите на `order_items.id`, `payments.id` и `shipments.id`. Если это тоже `serial`, то `order_items` (строк там обычно в разы больше, чем в `orders`) может переполниться **раньше**, чем `orders`. Тогда мигрировать нужно и собственные PK дочерних таблиц, по той же схеме.
+
+**Рабочий дедлайн.** Сама миграция займёт 3–5 недель календарного времени: аудит приложения, backfill сотен миллионов строк с троттлингом, построение индексов, наблюдение после swap. Цель: swap до середины ноября. Плюс сразу подготовленный Plan B (раздел 6).
+
+---
+
+## 2. Общий порядок
+
+```mermaid
+graph TD
+  A[0. Замер и инвентаризация] --> B[1. Sequence AS bigint + алерты]
+  B --> C[2. Приложение: int64 везде, rolling deploy]
+  C --> D[3. Подписчик: bigint + теневые колонки]
+  D --> E[4. Publisher: теневые колонки + триггеры]
+  E --> F[5. Backfill батчами]
+  F --> G[6. Индексы CONCURRENTLY + NOT NULL]
+  G --> H[7. Сверка]
+  H --> I[8. Swap-транзакция, секунды]
+  I --> J[9. VALIDATE FK, наблюдение]
+  J --> K[10. Удаление старых колонок]
+```
+
+Шаги 2 и 3 можно вести параллельно, но оба должны закончиться до шага 4.
+
+---
+
+## 3. Пошагово
+
+### Шаг 0. Инвентаризация (1–3 дня)
+
+- **Зависимые объекты.** Views и materialized views ссылаются на колонку по номеру атрибута (attnum), а не по имени. После переименования `id → id_old` они продолжат смотреть на **старую** колонку. Найдите их через `pg_depend`/`pg_rewrite` и заложите пересоздание. Тела plpgsql-функций разрешают имена при выполнении, так что это менее опасно, но проверьте их тоже.
+- **Подписка.** Проверьте `SELECT subname, subbinary FROM pg_subscription;` на аналитическом кластере. При `binary = true` типы на обеих сторонах должны совпадать (по памяти, не проверено: сверьтесь с документацией вашей версии), и int4 на publisher против int8 на подписчике может сломать apply. На время миграции переключите: `ALTER SUBSCRIPTION ... SET (binary = false)`.
+- **Тип публикации.** Это `FOR ALL TABLES` или явный список таблиц? От этого зависит вариант в шаге 3.
+- **Место на диске.** Backfill через UPDATE временно почти удваивает heap `orders` (без HOT: fillfactor обычно 100) и генерирует WAL порядка объёма таблицы или больше. Этот WAL удерживается слотом логической репликации, пока аналитика его не применит. Нужен запас примерно в размер таблицы плюс WAL, плюс место под архив WAL/PITR.
+
+### Шаг 1. Сразу, это дёшево
+
+```sql
+ALTER SEQUENCE orders_id_seq AS bigint;
+```
+
+Для `serial` в PG10+ последовательность создаётся `AS integer` с `MAXVALUE 2147483647`. Без этой команды последовательность упрётся в предел сама, даже когда колонка уже станет bigint. При смене типа `MAXVALUE` по умолчанию, насколько я помню, поднимается до предела bigint, но проверьте `pg_sequences.max_value` после команды. Сделайте то же для остальных int4-последовательностей.
+
+Поставьте алерт на `pct_used > 95%` по всем последовательностям.
+
+### Шаг 2. Приложение (до любых изменений схемы)
+
+После миграции значения ещё какое-то время останутся меньше 2³¹, поэтому баги с int32 проявятся не при swap, а в день перехода через 2 147 483 647. Искать их нужно заранее:
+- типы ID в коде: Java `int`/`Integer`, Go `int32`, C# `int`, поля в DTO, protobuf `int32`, **GraphQL `Int` (32-битный по спецификации)**, JSON-схемы, OpenAPI `format: int32`;
+- JavaScript: `number` безопасен до 2⁵³, но проверьте драйвер. Некоторые драйверы отдают int8 **строкой**, и сравнения `===` начнут ломаться;
+- ORM со строгим маппингом `SELECT *`: появление колонки `id_new` может сломать сканирование в struct (например, в Go sqlx есть ошибка missing destination). Лучше явные списки колонок;
+- позиционные `INSERT INTO orders VALUES (...)`;
+- потребители аналитики: ETL, BI, выгрузки.
+
+Выкатите это обычным rolling deploy. Код с int64 одинаково работает и до swap, и после, поэтому **в момент swap деплой не нужен**. Это ключевое свойство плана.
+
+Отдельный риск: server-side prepared statements (pgjdbc, пулы). После swap закэшированные планы `SELECT *` могут падать с `cached plan must not change result type`. Нужен ретрай на уровне запроса или пересоздание пула сразу после swap.
+
+### Шаг 3. Аналитический подписчик (до publisher)
+
+Логическая репликация сопоставляет колонки по **именам**. Если publisher шлёт колонку, которой нет у подписчика, apply падает. Если у подписчика есть лишние колонки, это нормально. Отсюда самый простой и устойчивый вариант, который работает и с `FOR ALL TABLES`:
+
+```sql
+-- на подписчике, для orders
+ALTER TABLE orders ALTER COLUMN id TYPE bigint;   -- переписывание таблицы, для аналитики допустимо
+ALTER TABLE orders ADD COLUMN id_new bigint, ADD COLUMN id_old bigint;
+
+-- для order_items
+ALTER TABLE order_items ALTER COLUMN order_id TYPE bigint;
+ALTER TABLE order_items ADD COLUMN order_id_new bigint, ADD COLUMN order_id_old bigint;
+```
+
+Такой подписчик примет изменения в любой фазе:
+- до swap publisher шлёт `id, id_new`, и обе колонки есть;
+- после swap publisher шлёт `id` (bigint) и `id_old`, и они тоже есть;
+- PK подписчика (`id`) в обеих фазах получает одно и то же число.
+
+Пока идёт `ALTER TYPE`, apply worker ждёт блокировку, а слот на publisher копит WAL. Для часов это нормально, но смотрите на `max_slot_wal_keep_size`: если лимит превышен, слот инвалидируется и понадобится полная пересинхронизация.
+
+*Альтернатива:* column lists в публикации (появились в PG15), чтобы спрятать `id_new` от подписчика. Тогда в swap-транзакции придётся менять и публикацию, а `ALTER PUBLICATION ... SET TABLE` заменяет **весь** список таблиц. Это больше движущихся частей ради того, чтобы не держать мусорные колонки. Не рекомендую.
+
+### Шаг 4. Publisher: теневые колонки и триггеры
+
+```sql
+SET lock_timeout = '2s';  -- с ретраями в скрипте
+ALTER TABLE orders      ADD COLUMN id_new bigint;        -- без DEFAULT: только метаданные (PG11+)
+ALTER TABLE order_items ADD COLUMN order_id_new bigint;
+ALTER TABLE payments    ADD COLUMN order_id_new bigint;
+ALTER TABLE shipments   ADD COLUMN order_id_new bigint;
+
+CREATE FUNCTION orders_sync_id() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.id_new := NEW.id; RETURN NEW; END $$;
+CREATE TRIGGER orders_sync_id BEFORE INSERT OR UPDATE ON orders
+  FOR EACH ROW EXECUTE FUNCTION orders_sync_id();
+
+-- аналогично для детей: NEW.order_id_new := NEW.order_id
+```
+
+DEFAULT подставляется до BEFORE-триггера, поэтому `NEW.id` в триггере уже заполнен. На подписчике триггеры при apply по умолчанию не срабатывают, туда значения придут от publisher.
+
+### Шаг 5. Backfill
+
+```sql
+UPDATE orders SET id_new = id
+WHERE id >= :lo AND id < :lo + 20000 AND id_new IS NULL;
+-- COMMIT после каждого батча
+```
+
+- Идите по диапазонам PK, 10–50 тыс. строк на батч, с паузами.
+- **Троттлинг по метрикам:** лаг логического слота (`pg_current_wal_lsn() - confirmed_flush_lsn`), лаг физических реплик, IO.
+- Периодически запускайте `VACUUM orders`, иначе раздуется.
+- Каждый UPDATE уйдёт в аналитику как обычный UPDATE. Это 780 млн+ изменений через репликацию, и именно это, скорее всего, будет узким местом, а не сам UPDATE.
+- Грубая прикидка: при 20–50 тыс. строк/с чистого времени 4–11 часов на `orders`. С троттлингом реалистично несколько дней. `order_items` вероятно в разы больше.
+
+### Шаг 6. Индексы и NOT NULL (всё неблокирующее)
+
+Индексы стройте **после** backfill и VACUUM: `CREATE INDEX CONCURRENTLY` удерживает xmin и мешает вакууму.
+
+```sql
+CREATE UNIQUE INDEX CONCURRENTLY orders_id_new_uidx ON orders (id_new);
+CREATE INDEX CONCURRENTLY order_items_order_id_new_idx ON order_items (order_id_new);
+-- то же для payments, shipments
+-- ВАЖНО: каждый существующий составной индекс с order_id продублируйте с order_id_new
+
+ALTER TABLE orders ADD CONSTRAINT orders_id_new_nn CHECK (id_new IS NOT NULL) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_id_new_nn;  -- SHARE UPDATE EXCLUSIVE, не блокирует DML
+ALTER TABLE orders ALTER COLUMN id_new SET NOT NULL;      -- PG12+: скан пропускается благодаря валидному CHECK
+ALTER TABLE orders DROP CONSTRAINT orders_id_new_nn;
+-- то же для order_id_new в дочерних таблицах
+```
+
+Если `CREATE INDEX CONCURRENTLY` упал, остаётся INVALID-индекс. Удалите его и повторите.
+
+### Шаг 7. Сверка
+
+```sql
+SELECT count(*) FROM orders WHERE id_new IS DISTINCT FROM id;                -- должно быть 0
+SELECT count(*) FROM order_items WHERE order_id_new IS DISTINCT FROM order_id;
+```
+
+Можно по диапазонам, чтобы не делать один гигантский скан.
+
+### Шаг 8. Swap: одна короткая транзакция в тихий час
+
+```sql
+BEGIN;
+SET LOCAL lock_timeout = '3s';
+LOCK TABLE orders, order_items, payments, shipments IN ACCESS EXCLUSIVE MODE;
+
+-- старые FK
+ALTER TABLE order_items DROP CONSTRAINT order_items_order_id_fkey;
+ALTER TABLE payments    DROP CONSTRAINT payments_order_id_fkey;
+ALTER TABLE shipments   DROP CONSTRAINT shipments_order_id_fkey;
+
+-- PK
+ALTER TABLE orders DROP CONSTRAINT orders_pkey;
+ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_new_uidx;
+
+-- default и владение последовательностью
+ALTER TABLE orders ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE orders ALTER COLUMN id_new SET DEFAULT nextval('orders_id_seq');
+ALTER SEQUENCE orders_id_seq OWNED BY orders.id_new;  -- иначе DROP COLUMN id_old удалит последовательность!
+
+-- переименование
+ALTER TABLE orders RENAME COLUMN id TO id_old;
+ALTER TABLE orders RENAME COLUMN id_new TO id;
+ALTER TABLE orders ALTER COLUMN id_old DROP NOT NULL;
+-- то же для order_id в трёх дочерних таблицах
+
+-- триггеры: убрать прямую синхронизацию (опционально поставить обратную, см. ниже)
+DROP TRIGGER orders_sync_id ON orders;  -- и на детях
+
+-- новые FK: NOT VALID, то есть без скана; новые строки проверяются сразу
+ALTER TABLE order_items ADD CONSTRAINT order_items_order_id_fkey
+  FOREIGN KEY (order_id) REFERENCES orders (id) NOT VALID;
+-- то же для payments, shipments
+
+-- пересоздать views, найденные на шаге 0
+COMMIT;
+```
+
+- Если `lock_timeout` сработал, откатываемся и повторяем. Ничего не сломано.
+- Под блокировкой транзакция держится секунды, так что ограничение «простой не больше пары минут» соблюдается с запасом.
+- Сразу после COMMIT пересоздайте пулы соединений или убедитесь, что ретраи отработали (про prepared statements см. шаг 2).
+- **Откат.** Если хотите возможность вернуться назад, вместо DROP поставьте обратный триггер `NEW.id_old := NEW.id` на 1–2 недели. Тогда обратный swap симметричен. Его **обязательно** нужно снять задолго до того, как id дойдёт до 2³¹, иначе упадут вставки.
+
+### Шаг 9. После swap
+
+```sql
+ALTER TABLE order_items VALIDATE CONSTRAINT order_items_order_id_fkey;  -- не блокирует запись
+-- payments, shipments
+```
+
+Следите за ошибками приложения, лагом репликации и тем, что в аналитике новые строки приходят с заполненным `id`.
+
+### Шаг 10. Уборка (через 1–2 недели)
+
+```sql
+DROP INDEX CONCURRENTLY <старые индексы по order_id_old>;
+ALTER TABLE orders DROP COLUMN id_old;   -- только метаданные, место вернётся при следующих перезаписях
+ALTER TABLE order_items DROP COLUMN order_id_old;  -- и т.д.
+```
+
+Затем на подписчике: `DROP COLUMN id_new, id_old` (publisher их уже не шлёт). Если меняли `binary`, верните его.
+
+---
+
+## 4. Почему этот вариант
+
+| Вариант | Плюсы | Минусы | Когда уместен |
+|---|---|---|---|
+| `ALTER COLUMN TYPE` в лоб | Одна команда | Переписывание 780 млн строк и детей под ACCESS EXCLUSIVE, часы простоя | Маленькие таблицы |
+| **Теневая колонка + swap** (рекомендую) | Простой в секундах, откатываемо на каждом шаге до swap, приложение не деплоится в момент swap | Много шагов, bloat и WAL от backfill, нагрузка на аналитику | Ваш случай |
+| Новая таблица / новый кластер через логическую репликацию, затем switchover | Чистые таблицы без bloat, можно заодно сменить что-то ещё | Сильно сложнее с FK и публикацией, switchover всего приложения | Если и так планировался переезд или апгрейд |
+| Отрицательный диапазон последовательности | Минуты работы, даёт ещё ~2,1 млрд | Не решает проблему, ломает логику `id > 0` и сортировку по id | Только аварийный Plan B |
+
+---
+
+## 5. Что сломается первым и как ловить
+
+- **Слот логической репликации копит WAL во время backfill.** Это главный риск для диска publisher. Троттлинг по лагу слота и алерт на `pg_replication_slots`.
+- **Bloat `orders`.** VACUUM между батчами. После уборки при необходимости `pg_repack`.
+- **Swap не может взять блокировку** из-за долгих транзакций. Перед swap проверьте `pg_stat_activity` на старые `xact_start`, у вас короткий `lock_timeout` и ретраи.
+- **int32 в коде или API** всплывёт только при id > 2³¹. Проверить заранее можно на staging: `setval` последовательности на 2 147 483 000 и прогон end-to-end тестов, включая аналитический ETL.
+- **Последовательность удалена вместе с `id_old`**, если забыть `OWNED BY`. Это есть в скрипте swap, не пропускайте.
+
+## 6. Plan B, если не успеваете
+
+Держите готовый runbook. Когда последовательность близка к пределу, а swap ещё не сделан:
+
+```sql
+ALTER SEQUENCE orders_id_seq MINVALUE -2147483648 RESTART WITH -2147483648;
+```
+
+Это даёт ещё ~2,1 млрд значений в int4 без изменения схемы. Цена: отрицательные id. Всё, что предполагает `id > 0`, «новее = больше id» или использует id в URL и валидациях, нужно проверить заранее. Это страховка, а не решение.
+
+---
+
+**Итог по времени.** Если замер покажет расход около 1,2 млн/день, у вас около 140 дней, и спокойно укладываетесь за 4–6 недель. Если расход последовательности примерно в 2,5 раза выше из-за «дыр», то у вас около 8 недель, и начинать нужно на этой неделе, начиная с шагов 0–2.

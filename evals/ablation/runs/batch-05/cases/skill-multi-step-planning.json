@@ -1,0 +1,44 @@
+{
+  "component": "skill-multi-step-planning",
+  "cases": [
+    {
+      "id": "heroku-to-yandex-cloud-migration-plan-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нам надо съехать с Heroku в Yandex Cloud до 15 ноября. Сейчас: Django 4.2 монолит на 4 web-дино + 2 worker (Celery), Heroku Postgres Standard (база ~40 ГБ), Heroku Redis для очередей и кэша, файлы пользователей лежат в AWS S3 (~300 ГБ). В Yandex Cloud хотим Managed PostgreSQL, Managed Redis, Object Storage и приложение в Managed Kubernetes. Бизнес разрешает простой максимум 30 минут, ночью с субботы на воскресенье. Нас трое бэкендеров, девопса нет. Распиши, пожалуйста, как это провести по шагам, чтобы в день переезда не было сюрпризов.",
+      "why_in_scope": "The skill makes the model turn the migration into a small number of concrete steps, each with an explicit way to verify it before moving on, marked dependencies and parallelizable work, overall done criteria and a fallback. Without it a strong model tends to produce a long checklist of things to do (set up k8s, copy data, switch DNS) with no per-step verification, no rehearsal gate and no rollback path, so failures surface only on migration night.",
+      "rubric": [
+        "Each major step comes with a concrete check that must pass before continuing (e.g. comparing row counts or checksums after the database copy, comparing object counts/sizes after the storage sync, a smoke test of the app in the new cluster against the new database), not just a list of actions.",
+        "States which work can run in parallel and which depends on earlier steps (e.g. the ~300 GB file sync and the cluster/app setup can proceed independently ahead of cutover, while the final database switch depends on the app already being verified in Yandex Cloud).",
+        "Defines what counts as a successful cutover and gives a rollback path for migration night (e.g. keeping Heroku intact and read-only-capable, lowering DNS TTL in advance, a go/no-go point with a time limit inside the 30-minute window).",
+        "Addresses whether moving a ~40 GB database fits into the 30-minute window (e.g. proposes timing a full dump/restore during a rehearsal on a copy of production data and setting a go/no-go threshold from that timing) instead of assuming it will fit."
+      ]
+    },
+    {
+      "id": "failed-backfill-statement-timeout-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "We need to add a normalized_email column to our users table (Postgres 15, ~18M rows) and eventually make it unique and NOT NULL. App is Rails 7. Can you give me a rollout plan?"
+        },
+        {
+          "role": "assistant",
+          "content": "Here's a safe rollout:\n\n1. Migration: `ALTER TABLE users ADD COLUMN normalized_email text;` (nullable, no default, so it's instant).\n2. Deploy app code that writes `normalized_email = email.strip.downcase` on every create/update.\n3. Backfill existing rows:\n```sql\nUPDATE users SET normalized_email = lower(trim(email)) WHERE normalized_email IS NULL;\n```\n4. `CREATE UNIQUE INDEX CONCURRENTLY index_users_on_normalized_email ON users (normalized_email);`\n5. Add a `CHECK (normalized_email IS NOT NULL) NOT VALID`, validate it, then set NOT NULL.\n\nSteps 1-2 are low risk; step 3 is the long one, run it off-peak."
+        }
+      ],
+      "user_message": "Steps 1 and 2 went out yesterday, fine. Ran step 3 last night from psql on the primary and after about 40 min it died with `ERROR: canceling statement due to statement timeout`. Our statement_timeout is 45min on that role. From pg_stat_progress stuff it looked like it was ~60% through. Should I just set statement_timeout = 0 for the session and rerun it tonight? Step 4 is already scheduled for right after, ops wants it done this week.",
+      "why_in_scope": "The skill tells the model to reassess the plan when a step fails rather than blindly retrying, and to put verification checkpoints between steps. A strong model without it may simply answer 'yes, disable the timeout and rerun', missing that the failed single-statement UPDATE rolled back entirely, that the backfill should be restructured, and that the unique index step should be gated on a verified backfill and a duplicate check.",
+      "rubric": [
+        "Explains that a single UPDATE statement is atomic, so the canceled statement rolled back and none of the ~60% progress was kept (only rows written by the new app code since step 2 have normalized_email set).",
+        "Recommends changing the approach instead of just removing the timeout and rerunning, e.g. backfilling in batches by primary-key ranges with a commit per batch, so progress persists and it can be resumed.",
+        "Gates step 4 on explicit checks: zero remaining rows with normalized_email IS NULL, and no duplicate lower(trim(email)) values, since duplicates would make the unique index creation fail (and a failed CREATE INDEX CONCURRENTLY leaves an INVALID index to drop).",
+        "Gives a direct answer to the user's question and a concrete revised sequence for tonight/this week rather than a generic discussion."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free, tool-less and use owner agents. In case 1 I removed the 'pre-copying/replicating' example from the 30-minute-window item, because Heroku Postgres generally does not allow replication to external targets, so that example could reward an infeasible plan. Case 2 was verified as is (UPDATE atomicity, INVALID index after a failed CONCURRENTLY build)."
+}

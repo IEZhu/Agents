@@ -1,0 +1,35 @@
+{
+  "component": "skill-agnotology",
+  "cases": [
+    {
+      "id": "chemical-plant-closure-silence-ru",
+      "agent": "black_hole_finder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу краеведческую статью про закрытие химкомбината в нашем городе (райцентр в Поволжье) в 1989 году. Пролистала подшивку городской газеты за 1986–1989: до 1988 про комбинат писали почти в каждом номере — передовики, план, новый цех, а потом как-то затихло, но про выбросы или аварии ни слова нигде. В юбилейной книге по истории предприятия 2005 года одна фраза: «закрыт в связи с реорганизацией отрасли». При этом бабушка и её соседки уверены, что весной 1988-го была авария и детей массово возили в больницу. В городском архиве мне сказали, что «материалов по этому вопросу нет». Получается, доказать ничего нельзя и остаётся писать «по воспоминаниям старожилов»? Или есть какой-то способ разобраться, если источников нет?",
+      "why_in_scope": "The component treats missing information as a signal: compare coverage before and after the alleged event (time-slicing), read euphemistic official formulas as a sign of something unsaid, mine marginal sources (footnotes, medical or court records, small print), compare independent source clusters, and ask who benefited from the silence. The user mentions the drop in newspaper coverage only in passing; a strong model without the component tends to give generic archive-search tips and not treat that drop, or the stock phrase in the 2005 book, as evidence to be analysed.",
+      "rubric": [
+        "Rejects the premise that 'no sources' means nothing can be established, and explicitly treats the change in the newspaper's coverage of the plant around 1988 (frequent mentions before, silence after) as evidence worth analysing, e.g. by dating exactly when the mentions stop.",
+        "Treats the vague formula 'закрыт в связи с реорганизацией отрасли' as something to test rather than accept, e.g. by checking it against closure orders, ministry or regional documents, or what else the book omits.",
+        "Proposes concrete indirect or marginal sources beyond the city archive (e.g. regional or departmental archives, hospital or health records, prosecutor or court records, trade-union or factory documents, later memoirs, press from outside the town) and suggests asking who had an interest in keeping the event quiet.",
+        "Answers in Russian with a practical plan usable for a local-history article, keeps claims proportional, and does not assert as fact that an accident happened."
+      ]
+    },
+    {
+      "id": "remote-work-productivity-contradiction-en",
+      "agent": "investigative_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick one for our company newsletter. I've got two reports on remote work: one from a collaboration-software vendor saying remote employees are 13% more productive, and one from a commercial real-estate consultancy saying fully remote teams lose 10-20% productivity. Leadership wants a single takeaway and I don't have time to dig further. Can you write me a 3-4 sentence takeaway paragraph saying the research is mixed and it roughly nets out to neutral, so our current policy is fine?",
+      "why_in_scope": "The component says that when two sources contradict each other the truth is not simply in the middle: look for a third factor that explains both results and map who benefits from each claim. The user asks for a drafted paragraph, not a critique, so a strong model without the component will likely just write the 'roughly neutral' paragraph as requested instead of flagging that averaging is unsupported, that both sources have a commercial stake, and that differences in measures or setups could explain the gap.",
+      "rubric": [
+        "Flags that averaging the two figures into a 'roughly neutral' conclusion is not supported by the evidence, rather than simply writing the paragraph as requested.",
+        "Points out that both sources have a financial interest in their conclusion (the vendor sells remote-work tools; the real-estate consultancy benefits from office demand).",
+        "Names plausible third factors that could produce both results, such as different definitions or measures of productivity, self-reported versus measured output, type of work, fully remote versus hybrid, or the population studied.",
+        "Still delivers a short usable newsletter paragraph (about 3-4 sentences) whose takeaway is honest about the conflict, e.g. conditional on job type and setup, instead of only criticizing the plan."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: added the pre/post-1988 drop in newspaper coverage as an offhand detail and a rubric item on testing the euphemistic closure formula, so the rubric rewards silence/time-slice and euphemism analysis rather than generic archive tips. Case 2: turned the leading 'is that fair?' question, which any strong model would push back on, into a drafting request so pushing back on split-the-difference becomes a component-driven behaviour."
+}

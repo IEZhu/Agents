@@ -1,0 +1,362 @@
+{
+ "38162bf359__o1": {
+  "component": "skill-dev-testing",
+  "case": "e2e-everything-coverage-mandate-en",
+  "A": "without",
+  "B": "with"
+ },
+ "38162bf359__o2": {
+  "component": "skill-dev-testing",
+  "case": "e2e-everything-coverage-mandate-en",
+  "A": "with",
+  "B": "without"
+ },
+ "0fb6628c78__o1": {
+  "component": "skill-dev-testing",
+  "case": "flaky-celery-sleep-test-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0fb6628c78__o2": {
+  "component": "skill-dev-testing",
+  "case": "flaky-celery-sleep-test-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "2c436f08c3__o1": {
+  "component": "skill-dev-testing",
+  "case": "mocked-private-methods-review-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "2c436f08c3__o2": {
+  "component": "skill-dev-testing",
+  "case": "mocked-private-methods-review-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "571fc18adf__o1": {
+  "component": "skill-dev-testing",
+  "case": "order-dependent-db-tests-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "571fc18adf__o2": {
+  "component": "skill-dev-testing",
+  "case": "order-dependent-db-tests-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f6ad1e409b__o1": {
+  "component": "skill-dev-testing",
+  "case": "rounding-bug-fix-regression-en",
+  "A": "without",
+  "B": "with"
+ },
+ "f6ad1e409b__o2": {
+  "component": "skill-dev-testing",
+  "case": "rounding-bug-fix-regression-en",
+  "A": "with",
+  "B": "without"
+ },
+ "07bc4bcffb__o1": {
+  "component": "skill-dev-testing",
+  "case": "tdd-new-feature-plan-en",
+  "A": "without",
+  "B": "with"
+ },
+ "07bc4bcffb__o2": {
+  "component": "skill-dev-testing",
+  "case": "tdd-new-feature-plan-en",
+  "A": "with",
+  "B": "without"
+ },
+ "4a49d113e5__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-beckham-deadline-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "4a49d113e5__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-beckham-deadline-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0453b43ca5__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-catalan-marital-regime-en",
+  "A": "without",
+  "B": "with"
+ },
+ "0453b43ca5__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-catalan-marital-regime-en",
+  "A": "with",
+  "B": "without"
+ },
+ "cdec065241__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-golden-visa-apartment-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "cdec065241__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-golden-visa-apartment-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "d64f5c757d__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-inheritance-ccaa-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "d64f5c757d__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-inheritance-ccaa-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "c575b6a82d__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-madrid-solidarity-wealth-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c575b6a82d__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-madrid-solidarity-wealth-en",
+  "A": "without",
+  "B": "with"
+ },
+ "fa70e23db3__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-sl-minimum-capital-en",
+  "A": "with",
+  "B": "without"
+ },
+ "fa70e23db3__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-sl-minimum-capital-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5830c211c8__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "ip-vs-ooo-forum-pretrial-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5830c211c8__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "ip-vs-ooo-forum-pretrial-en",
+  "A": "with",
+  "B": "without"
+ },
+ "76ceb5de1d__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "llc-osn-2026-rates-en",
+  "A": "with",
+  "B": "without"
+ },
+ "76ceb5de1d__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "llc-osn-2026-rates-en",
+  "A": "without",
+  "B": "with"
+ },
+ "ff484548c8__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "ndfl-progressive-high-salary-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ff484548c8__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "ndfl-progressive-high-salary-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "9b17c96e8d__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "ooo-share-sale-notary-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9b17c96e8d__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "ooo-share-sale-notary-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "1fa9905f9e__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "transport-tax-regional-rate-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1fa9905f9e__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "transport-tax-regional-rate-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d4447d9b64__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "usn-vat-threshold-prev-year-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "d4447d9b64__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "usn-vat-threshold-prev-year-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "59fec2d0ae__o1": {
+  "component": "skill-react-pattern",
+  "case": "batched-tool-calls-review-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "59fec2d0ae__o2": {
+  "component": "skill-react-pattern",
+  "case": "batched-tool-calls-review-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a5e8f2350b__o1": {
+  "component": "skill-react-pattern",
+  "case": "cut-lookup-before-close-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a5e8f2350b__o2": {
+  "component": "skill-react-pattern",
+  "case": "cut-lookup-before-close-en",
+  "A": "without",
+  "B": "with"
+ },
+ "987d2335bb__o1": {
+  "component": "skill-react-pattern",
+  "case": "deploy-agent-prompt-review-en",
+  "A": "with",
+  "B": "without"
+ },
+ "987d2335bb__o2": {
+  "component": "skill-react-pattern",
+  "case": "deploy-agent-prompt-review-en",
+  "A": "without",
+  "B": "with"
+ },
+ "22723a9841__o1": {
+  "component": "skill-react-pattern",
+  "case": "invoice-timeout-double-pay-en",
+  "A": "with",
+  "B": "without"
+ },
+ "22723a9841__o2": {
+  "component": "skill-react-pattern",
+  "case": "invoice-timeout-double-pay-en",
+  "A": "without",
+  "B": "with"
+ },
+ "3a7188998e__o1": {
+  "component": "skill-react-pattern",
+  "case": "refund-bot-system-prompt-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3a7188998e__o2": {
+  "component": "skill-react-pattern",
+  "case": "refund-bot-system-prompt-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b3e991c3c9__o1": {
+  "component": "skill-react-pattern",
+  "case": "retry-loop-same-error-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "b3e991c3c9__o2": {
+  "component": "skill-react-pattern",
+  "case": "retry-loop-same-error-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "e0bacfebff__o1": {
+  "component": "skill-roblox-development",
+  "case": "coin-touched-leak-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "e0bacfebff__o2": {
+  "component": "skill-roblox-development",
+  "case": "coin-touched-leak-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "73735fe400__o1": {
+  "component": "skill-roblox-development",
+  "case": "gun-remote-hit-validation-en",
+  "A": "with",
+  "B": "without"
+ },
+ "73735fe400__o2": {
+  "component": "skill-roblox-development",
+  "case": "gun-remote-hit-validation-en",
+  "A": "without",
+  "B": "with"
+ },
+ "dbd208e1bd__o1": {
+  "component": "skill-roblox-development",
+  "case": "hud-leaderstats-race-en",
+  "A": "without",
+  "B": "with"
+ },
+ "dbd208e1bd__o2": {
+  "component": "skill-roblox-development",
+  "case": "hud-leaderstats-race-en",
+  "A": "with",
+  "B": "without"
+ },
+ "56b54cf9d9__o1": {
+  "component": "skill-roblox-development",
+  "case": "invokeclient-confirm-dialog-en",
+  "A": "without",
+  "B": "with"
+ },
+ "56b54cf9d9__o2": {
+  "component": "skill-roblox-development",
+  "case": "invokeclient-confirm-dialog-en",
+  "A": "with",
+  "B": "without"
+ },
+ "02b9f6dbe2__o1": {
+  "component": "skill-roblox-development",
+  "case": "shop-client-price-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "02b9f6dbe2__o2": {
+  "component": "skill-roblox-development",
+  "case": "shop-client-price-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "252d05e14d__o1": {
+  "component": "skill-roblox-development",
+  "case": "trade-datastore-dupe-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "252d05e14d__o2": {
+  "component": "skill-roblox-development",
+  "case": "trade-datastore-dupe-ru",
+  "A": "without",
+  "B": "with"
+ }
+}

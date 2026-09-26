@@ -1,0 +1,35 @@
+{
+  "component": "skill-epistemic-method",
+  "cases": [
+    {
+      "id": "startup-press-releases-offer-ru",
+      "agent": "investigative_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Мне сделали оффер в финтех-стартап (приложение для рассрочек), senior backend, зарплата чуть ниже рынка, но обещают опционы 0,15%. Рекрутер скинул их пресс-релизы за последний год, чтобы показать, что компания на подъёме. Выписал ключевое:\n\nФевраль 2025: «1,2 млн активных пользователей в месяц (MAU), удержание на 30-й день — 41%, выручка выросла в 2,3 раза год к году. Закрыли раунд A на $18 млн от фонда N».\nИюнь 2025: «MAU достиг 1,5 млн. Запустили партнёрство с тремя маркетплейсами. Объём выданных рассрочек — 4,1 млрд руб.»\nОктябрь 2025: «Более 5 млн зарегистрированных пользователей! Объём выданных рассрочек за всё время превысил 11 млрд руб. Компания усиливает фокус на эффективности и приветствует нового CFO».\nЯнварь 2026: «Мы вошли в топ-10 финтех-приложений по версии рейтинга X. Оборот платформы за 2025 год — 14 млрд руб.»\n\nПо-моему, всё выглядит отлично, цифры только растут. Стоит соглашаться на меньшую зарплату ради опционов? Ответь по делу, на что тут смотреть.",
+      "why_in_scope": "The component makes the model compare the releases over time and notice what disappeared: MAU and 30-day retention vanish after June, revenue is never mentioned after February, metrics switch to cumulative 'registered users' and 'all-time volume' that can only grow, and 'focus on efficiency' plus a new CFO is a typical sign of cost cutting. It also asks who benefits from this framing (the company and recruiter selling the offer). A strong model without it may take the growing numbers at face value, or give generic advice about options (vesting, dilution) without spotting the dropped metrics.",
+      "rubric": [
+        "Points out that MAU and/or 30-day retention, reported in February and June, are absent from the October and January releases, and treats this as a warning sign.",
+        "Notes that the later figures are cumulative or vanity metrics (registered users, all-time volume, turnover/GMV, a ranking) that grow regardless of business health, and that revenue (mentioned only in February), losses or default rates on the installments are not disclosed later.",
+        "Notes that the releases are marketing material chosen by the company and passed on by the recruiter to close the offer, so they are not neutral evidence.",
+        "Gives concrete next steps before accepting, e.g. asking for current MAU/retention, revenue and runway, the latest valuation or preferred-share terms, strike price and vesting, and weighing a below-market salary against that."
+      ]
+    },
+    {
+      "id": "water-utility-pfas-notices-en",
+      "agent": "universal_agent",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick sanity check. Our town water utility sent two notices this year. March letter: \"Recent sampling detected PFOA at 11 ppt and PFOS at 9 ppt at Well Field 2, above the new federal maximum contaminant level. We are evaluating treatment options, including granular activated carbon, and will keep customers informed.\" Then the June newsletter just says: \"We're proud to report that your drinking water meets or exceeds all current state and federal drinking water standards. Well Field 2 remains part of our diversified supply portfolio. Thank you for your patience during our summer main-replacement project.\" I've been using a reverse osmosis pitcher since March and it's a pain. Sounds like they fixed it, so I can stop, right?",
+      "why_in_scope": "The component makes the model diff the March and June messages: the June one gives no PFAS numbers, does not mention the promised treatment, says 'current' standards (which can be true if the federal compliance deadline has not arrived yet), and says Well Field 2 is still in use. It also prompts asking who benefits from the reassuring framing. A strong model without it could read 'meets all standards' as meaning the problem was fixed and tell the user to stop filtering.",
+      "rubric": [
+        "Does not conclude that the PFAS problem is fixed; says the June newsletter gives no new PFAS results and does not say that treatment was installed.",
+        "Explains that 'meets current standards' can be true without PFAS levels having dropped, for example because compliance with the newer federal PFAS limits is not yet required, and notes that Well Field 2 is still in the supply.",
+        "Notes that the utility has a reason to use reassuring, vague wording (cost, liability, public image), so the newsletter alone is weak evidence.",
+        "Gives concrete next steps: ask the utility for the latest PFOA/PFOS sampling results for Well Field 2 and whether GAC treatment is actually running, and advises continuing to filter until those results confirm levels are below the limit."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free, tool-less and use owner agents; PFAS facts checked (EPA 2024 MCL of 4 ppt for PFOA/PFOS, compliance not due until 2029 or later). Clarified in case 1 rubric item 2 that revenue appeared only in February, and changed case 2 item 4 to accept advice to keep filtering until confirmed instead of requiring a specific threshold rule."
+}

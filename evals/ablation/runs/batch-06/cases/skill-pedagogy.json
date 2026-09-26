@@ -1,0 +1,35 @@
+{
+  "component": "skill-pedagogy",
+  "cases": [
+    {
+      "id": "quadratic-inequality-self-check-ru",
+      "agent": "education_tutor",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я в 9 классе, завтра контрольная по неравенствам. Решаю x^2 - 5x + 6 > 0. Нашёл корни 2 и 3, написал ответ 2 < x < 3, а в ответах учебника (-∞; 2) ∪ (3; +∞). Почему у меня не так? Боюсь на контрольной опять так же ошибиться.",
+      "why_in_scope": "The student has partial understanding (found the roots correctly) and wants not to repeat the mistake on tomorrow's test, but does not ask to be guided. The skill makes the tutor build from what he already knows, lead him to the sign/parabola step with a question or hint, and check understanding with a similar practice problem. A strong model without it tends to just explain the full method and restate the correct answer.",
+      "rubric": [
+        "Acknowledges the correct part of the student's work (roots 2 and 3) and locates the error at the step of choosing which intervals satisfy '> 0', without misstating the math (the parabola opens upward, so it is positive outside the roots)",
+        "Leads the student to the error with at least one guiding question or hint (e.g. asks what sign the expression has at a test point like x = 0 or x = 2.5, or which way the parabola opens) rather than only presenting the finished explanation",
+        "Gives the student a similar inequality to solve himself (e.g. one with '< 0' or different roots) or asks him to explain the rule back, as a check before the test",
+        "Stays focused on this one misconception and is readable for a 9th grader, without piling on unrelated methods or undefined terms"
+      ]
+    },
+    {
+      "id": "p-value-misconception-en",
+      "agent": "education_tutor",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm teaching myself stats for a data analyst job interview in two weeks. My current understanding: a p-value of 0.03 means there's a 3% chance the null hypothesis is true, so 97% chance my result is real. My friend says that's wrong but couldn't explain why. Can you help me actually get this so I don't blank in the interview?",
+      "why_in_scope": "The learner holds a specific, common misconception and wants durable understanding before an interview. The skill makes the tutor start from their current model, explain the correct idea in more than one way (concrete example plus analogy or plain definition), and end by checking understanding or asking them to restate it. A strong model without it typically just gives a correct definition plus a list of caveats, with no check that the learner has actually replaced the wrong model.",
+      "rubric": [
+        "Correctly states that a p-value is the probability of getting data at least as extreme as observed assuming the null hypothesis is true, and explicitly says it is not the probability that the null is true",
+        "Engages directly with the learner's stated interpretation and shows why it fails, rather than only giving the textbook definition",
+        "Explains the idea in at least two different ways (e.g. a concrete worked scenario such as coin flips plus an analogy or plain-language restatement)",
+        "Ends with a check of understanding: asks the learner to rephrase the definition, or poses a short scenario or interview-style question for them to answer"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the student's explicit request not to be given the solution, since it asked for the guided-discovery behaviour directly and made the case trivially in scope without the component. Case 2 and all rubric facts (parabola positive outside roots; p-value definition) verified correct and kept unchanged."
+}

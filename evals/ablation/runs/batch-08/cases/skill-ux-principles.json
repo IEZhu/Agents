@@ -1,0 +1,35 @@
+{
+  "component": "skill-ux-principles",
+  "cases": [
+    {
+      "id": "ux-gray-secondary-text-contrast-ru",
+      "agent": "ux_designer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Делаем редизайн личного кабинета банка (веб + мобилка). Фон карточек чисто белый #FFFFFF. Для второстепенного текста (даты операций, подписи под суммами, подсказки под полями ввода, 13px regular) выбираем между двумя серыми: #9E9E9E и #B0B0B0. Арт-директор топит за #B0B0B0, говорит что так интерфейс выглядит воздушнее и дороже, а #9E9E9E слишком грязный. Какой из двух берём? Нужен короткий ответ с аргументом, чтобы закрыть спор на созвоне.",
+      "why_in_scope": "The skill makes the model judge the choice by user needs and accessibility (WCAG AA, contrast >= 4.5:1 for normal text) rather than by the aesthetic framing the user sets up. Both greys on white are well below 4.5:1 (roughly 2.7:1 and 2.2:1), so the right answer is 'neither, pick a darker grey'. A strong model answering the question as posed could simply pick the less bad option or side with the art director on taste.",
+      "rubric": [
+        "States that neither #9E9E9E nor #B0B0B0 on white meets the WCAG AA contrast requirement of 4.5:1 for normal-size text such as 13px regular, rather than just picking one of the two",
+        "Recommends a concrete darker grey (e.g. around #767676, which is about 4.5:1 on white, or darker) or a way to find one that reaches at least 4.5:1, and does not claim that either original grey passes",
+        "Frames the argument around users' ability to read the text (e.g. low vision, mobile screens in bright light, banking context) rather than on which grey looks nicer",
+        "Stays short and usable as an argument for the call, as the user asked"
+      ]
+    },
+    {
+      "id": "ux-icon-only-bottom-tabs-en",
+      "agent": "ux_designer",
+      "language": "en",
+      "history": [],
+      "user_message": "We're redesigning the bottom tab bar in our React Native fitness app. Currently it has 6 tabs with icon + text label: Home, Workouts, Plans, Progress, Community, Profile. Our CEO wants to drop the labels and go icons-only because it looks cleaner and more premium, and the decision is basically made. Can you write me a 4-5 sentence rationale I can paste into our design review doc explaining why icon-only tabs are the right call?",
+      "why_in_scope": "The skill tells the model to justify design decisions by user needs, not aesthetics, and names mystery-meat navigation, recognition over recall, too many choices and screen-reader compatibility as things to guard against, plus validating assumptions with user testing. A strong model asked to write a persuasive rationale could plausibly just comply and write the justification. With the skill it should flag that icon-only labels for abstract destinations like Plans vs Workouts vs Progress hurt recognition and discoverability before or instead of writing a one-sided rationale.",
+      "rubric": [
+        "Raises the usability risk of removing labels, e.g. that icons for similar or abstract destinations (Workouts, Plans, Progress) are ambiguous and users have to guess or remember what they mean, instead of writing a purely one-sided endorsement",
+        "Mentions accessibility: icon-only tabs still need accessible names (e.g. accessibilityLabel in React Native) for screen reader users",
+        "Suggests validating the change with users (e.g. a quick usability test or A/B test on tab discovery/usage) or proposes a compromise such as keeping labels, fewer tabs, or labels on the active tab",
+        "Still gives the user something usable for the design review doc (a rationale, a balanced write-up, or a clear recommendation) that fits the requested length"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified contrast figures (#9E9E9E ~2.7:1, #B0B0B0 ~2.2:1 on white) and anchored rubric item 2 with a correct passing example (#767676 ~4.54:1). Case 2 kept as is: agent ux_designer exists, no leak, rubric items are checkable and factually sound."
+}

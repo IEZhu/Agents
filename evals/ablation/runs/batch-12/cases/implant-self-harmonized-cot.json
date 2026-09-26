@@ -1,0 +1,35 @@
+{
+  "component": "implant-self-harmonized-cot",
+  "cases": [
+    {
+      "id": "shcot-catalog-caching-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Интернет-магазин стройматериалов, ~2 млн SKU, PostgreSQL 15 + Django, Redis 7 уже есть. Страница категории (фильтры + 48 карточек) сейчас p95 ≈ 800 мс, нужно уложиться в 150 мс. Проблема в том, что данные меняются по-разному: описания и характеристики почти не меняются, цены приходят из 1С пакетом раз в 15 минут (обычно 30–50 тыс. изменений за раз), а остатки по 40 складам меняются постоянно, и показывать «в наличии», когда товара нет, нельзя — были жалобы и возвраты. Тимлид предлагает просто закешировать страницу категории целиком в Redis на 5 минут, бэкендер — кешировать отдельные товары с TTL 15 минут. Нас трое разработчиков, Kafka и прочую тяжёлую инфраструктуру заводить не хотим. Какую схему кеширования делать?",
+      "why_in_scope": "The implant makes the model work out several distinct approaches, compare their strengths and weaknesses against the constraints, and synthesize a combined design. Here each single proposal fails one constraint: a 5-minute full-page cache shows stale stock, a 15-minute per-item TTL misaligns with the 1C price batch and still shows stale stock. A strong model without the implant may simply endorse one of the two proposals with a tweak, instead of a layered scheme that treats static attributes, prices and stock differently.",
+      "rubric": [
+        "Explicitly evaluates both proposed options (full-page cache for 5 minutes, per-product cache with 15-minute TTL) and names a concrete weakness of each against the stated constraints (stale stock availability, price staleness or mismatch with the 1C batch).",
+        "Proposes a combined scheme that handles the three data types differently: long-lived cache for descriptions/attributes, invalidation or refresh of prices tied to the 1C batch import rather than a blind TTL, and stock availability that is either not cached or cached very briefly / overlaid fresh on top of cached content.",
+        "Addresses the rule that out-of-stock items must not appear as available, e.g. by rechecking stock at add-to-cart or checkout and/or fetching availability separately from the cached card data.",
+        "Keeps the design within the stated constraints (three developers, existing Redis and PostgreSQL, no Kafka or similar new heavy infrastructure) and gives actionable next steps for reaching the 150 ms target."
+      ]
+    },
+    {
+      "id": "shcot-outage-email-two-versions-en",
+      "agent": "tech_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "We had an outage yesterday and two people on my team wrote the customer email. I need to send one today. Facts: our invoicing API was down from 14:05 to 16:45 UTC, caused by an expired TLS certificate on our internal load balancer; about 1,900 customers couldn't generate invoices; no data was lost; we're giving every affected account a 10% credit on next month's bill; we've added automated cert-expiry alerts 30 days out.\n\nVersion 1 (Priya):\n\"Subject: Incident report INC-2291\nBetween 14:05 and 16:45 UTC on Sept 24, the /v2/invoices endpoint returned HTTP 503 due to TLS handshake failures between the edge LB and the upstream pool, caused by certificate expiry. Remediation: cert rotated at 16:41 UTC; expiry monitoring with a 30-day threshold has been deployed. No data loss occurred. Affected tenants: ~1,900.\"\n\nVersion 2 (Marcus):\n\"Subject: We're sorry about yesterday\nHi there, yesterday for about an hour some of you couldn't create invoices, and we know how frustrating that is when you're trying to get paid. This was a technical issue on our side and it's completely fixed. It will never happen again. As a thank-you for your patience, we'll take 10% off your next bill automatically - no need to do anything. Thanks for sticking with us!\"\n\nWhich one should I send?",
+      "why_in_scope": "The implant pushes the model to compare the candidate solutions, identify each one's strong and weak points, and synthesize a final version combining the best elements. Each draft has complementary strengths and real defects: Priya's is accurate but jargon-heavy, cold and omits the credit; Marcus's is warm and mentions the credit but misstates the duration, is vague about the cause and promises it will never happen again. A strong model answering 'which one' may just pick one and suggest light edits, carrying over a defect.",
+      "rubric": [
+        "Does not recommend sending either version unchanged, and identifies at least one concrete weakness of each (e.g. Version 1: internal jargon, no apology, no mention of the credit; Version 2: 'about an hour' contradicts the 14:05-16:45 window, vague cause, 'it will never happen again' is an overpromise).",
+        "Provides a final email that combines the warm, plain-language tone and automatic 10% credit from Version 2 with the accurate facts from Version 1.",
+        "The final email states the correct window (14:05 to 16:45 UTC, about 2 hours 40 minutes), that no data was lost, a plain-language cause (an expired security certificate), and the preventive step (alerts 30 days before expiry), and does not claim the problem can never recur.",
+        "The final email is concise and readable for non-technical customers, without internal terms like 'upstream pool', 'edge LB' or 'tenants'."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified scope, no-leak, agents (component has no owners; system_architect and tech_writer exist and fit) and facts (14:05-16:45 UTC = 2h40m; Sept 24 is consistent with 'yesterday'). Kept both cases; only tightened case 2 rubric item 1 to require at least one weakness per draft and to state why 'about an hour' is wrong, so it is checkable from the answer alone."
+}

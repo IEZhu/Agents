@@ -1,0 +1,35 @@
+{
+  "component": "skill-token-economy",
+  "cases": [
+    {
+      "id": "prompt-contradiction-fix-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Вот системный промпт нашего бота поддержки интернет-провайдера (крутится на GPT-4o-mini):\n\n```\nТы — Ассистент поддержки компании \"СеверНет\".\n\n## Роль\nТы помогаешь абонентам решать проблемы с домашним интернетом, ТВ и оплатой.\n\n## Тон\n- Вежливо, на \"вы\".\n- Без жаргона, объясняй простыми словами.\n- Не используй эмодзи.\n\n## Формат ответа\n- Отвечай кратко: не более 3 предложений.\n- Если проблема техническая, всегда приводи полный пошаговый список действий по диагностике (перезагрузка роутера, проверка кабеля, проверка индикаторов, проверка баланса, сброс настроек).\n- В конце каждого ответа предлагай перевести на оператора.\n\n## Ограничения\n- Не обещай компенсаций и перерасчётов.\n- Не называй сроки ремонта линии.\n- Не запрашивай пароль от личного кабинета.\n- Если абонент ругается, сохраняй спокойствие и не отвечай на оскорбления.\n\n## Эскалация\n- Если после диагностики проблема не решена — создай заявку через инструмент create_ticket.\n- Если абонент упоминает пожар, искрение или запах гари — сразу советуй обесточить оборудование и звонить 112.\n```\n\nПроблема: на технических вопросах бот то режет список шагов до трёх предложений, то выдаёт простыню и нарушает лимит. Как это починить? Остальное в промпте нас в целом устраивает.",
+      "why_in_scope": "The skill tells the model not to repeat context already in the conversation and to show only the changed lines of an edit, starting directly with the answer. A strong model without it very often reprints the entire system prompt with one bullet changed, plus a preamble and a recap, even though the user said the rest is fine.",
+      "rubric": [
+        "Shows only the replacement for the conflicting lines in the 'Формат ответа' section (optionally with a line or two of surrounding context), and does not reprint the whole system prompt",
+        "Actually resolves the conflict: e.g. makes the 3-sentence limit apply to non-technical answers, or allows a numbered list of diagnostic steps as an explicit exception with its own bound, so the two rules no longer contradict",
+        "Opens with the fix or a one-line diagnosis rather than filler or a restatement of the user's problem",
+        "Does not change the tone, restrictions or escalation sections"
+      ]
+    },
+    {
+      "id": "fastmcp-missing-await-en",
+      "agent": "mcp_builder",
+      "language": "en",
+      "history": [],
+      "user_message": "My MCP server (Python, `mcp` SDK 1.9, FastMCP) crashes on one tool. Full file:\n\n```python\nimport os\nimport httpx\nfrom mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP(\"weather\")\n\nAPI_KEY = os.environ[\"OWM_API_KEY\"]\nBASE = \"https://api.openweathermap.org/data/2.5\"\n\n\ndef _fmt(data: dict) -> str:\n    main = data[\"main\"]\n    wind = data[\"wind\"]\n    return (\n        f\"{data['name']}: {main['temp']}°C, feels like {main['feels_like']}°C, \"\n        f\"humidity {main['humidity']}%, wind {wind['speed']} m/s\"\n    )\n\n\n@mcp.tool()\ndef ping() -> str:\n    \"\"\"Health check.\"\"\"\n    return \"pong\"\n\n\n@mcp.tool()\nasync def current_weather(city: str) -> str:\n    \"\"\"Current weather for a city.\"\"\"\n    async with httpx.AsyncClient(timeout=10) as client:\n        resp = client.get(\n            f\"{BASE}/weather\",\n            params={\"q\": city, \"appid\": API_KEY, \"units\": \"metric\"},\n        )\n        resp.raise_for_status()\n        return _fmt(resp.json())\n\n\n@mcp.tool()\nasync def forecast(city: str, days: int = 3) -> str:\n    \"\"\"Forecast in 3-hour steps.\"\"\"\n    async with httpx.AsyncClient(timeout=10) as client:\n        resp = await client.get(\n            f\"{BASE}/forecast\",\n            params={\"q\": city, \"appid\": API_KEY, \"units\": \"metric\", \"cnt\": days * 8},\n        )\n        resp.raise_for_status()\n        items = resp.json()[\"list\"]\n        return \"\\n\".join(f\"{i['dt_txt']}: {i['main']['temp']}°C\" for i in items)\n\n\nif __name__ == \"__main__\":\n    mcp.run()\n```\n\nCalling `current_weather` from Claude Desktop gives:\n\n```\nError executing tool current_weather: 'coroutine' object has no attribute 'raise_for_status'\n```\n\n`forecast` and `ping` work fine. What's wrong? Also, once it works, when someone types a city OWM doesn't know I'd like the tool to return something like \"City not found: <name>\" instead of blowing up with an exception.",
+      "why_in_scope": "The skill makes the model lead with the diagnosis and show only the changed lines instead of echoing the user's code back. Because the request now needs two edits to current_weather, a strong model without it tends to open with filler and paste the whole server file back (including the untouched forecast/ping/_fmt), whereas the skill limits the output to the edited function.",
+      "rubric": [
+        "Identifies the cause: `client.get(...)` in `current_weather` is not awaited, so `resp` is a coroutine; the fix is `resp = await client.get(...)`",
+        "Handles the unknown-city case correctly: checks `resp.status_code == 404` before `raise_for_status()` (or catches `httpx.HTTPStatusError` with a 404 status) and returns a 'City not found' string instead of raising",
+        "Shows only the changed `current_weather` code (the function or the changed lines with brief context) and does not reprint the full file or the unchanged `forecast`/`ping`/`_fmt` code",
+        "Starts directly with the diagnosis or fix, without a preamble or a restatement of the error message"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: softened the user's explicit 'don't touch the rest' so the answer-only-the-diff behaviour is not spelled out in the prompt. Case 2 was too easy (a one-word fix most strong models answer tersely anyway): added a 404 'city not found' requirement so a second edit tempts full-file reprints, and rewrote the rubric to 4 items including correct 404 handling."
+}

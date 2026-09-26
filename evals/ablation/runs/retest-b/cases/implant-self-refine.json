@@ -1,0 +1,100 @@
+{
+  "component": "implant-self-refine",
+  "cases": [
+    {
+      "id": "readme-install-polish-contradiction-ru",
+      "agent": "tech_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Отполируй, пожалуйста, раздел README про запуск, а то читается коряво. Смысл и команды менять не надо, только текст сделать нормальным.\n\n## Запуск\nСначала надо запустить сервис, для этого выполнить `docker compose up -d`, но перед этим обязательно скопировать .env.example в .env командой `cp .env.example .env` иначе ничего не заработает. После запуска сервис будет доступен на http://localhost:8080. Проверить что всё ок можно командой `curl http://localhost:8000/health` она должна вернуть {\"status\":\"ok\"}. Если порт занят то его можно поменять в .env в переменной APP_PORT (по умолчанию 8000). Логи смотреть через `docker compose logs -f app`.",
+      "why_in_scope": "Просьба выглядит как чисто стилистическая, и первый черновик обычно просто переставляет шаги и гладко перефразирует. Проход самокритики над своим черновиком должен заметить, что в тексте одновременно указаны порт 8080 и 8000 (в URL, в curl и в значении по умолчанию APP_PORT), а причёсанный текст с таким противоречием хуже исходного, потому что выглядит авторитетно. Сильная модель без цикла критики легко отполирует противоречие вместе с остальным текстом.",
+      "rubric": [
+        "Явно указывает пользователю на несоответствие портов 8080 и 8000 и не выдаёт его молча за согласованный текст (либо просит уточнить, либо помечает, какое значение взято и почему)",
+        "Шаг копирования .env.example в .env стоит перед `docker compose up -d` в порядке действий",
+        "Все исходные команды (`cp .env.example .env`, `docker compose up -d`, `curl .../health`, `docker compose logs -f app`) и переменная APP_PORT сохранены без искажений",
+        "Текст раздела заметно читабельнее исходного (шаги разделены, нет сплошного абзаца с запятыми вместо точек)"
+      ]
+    },
+    {
+      "id": "slide-bullets-word-limit-ru",
+      "agent": "presentation_coach",
+      "language": "ru",
+      "history": [],
+      "user_message": "Завтра защита квартальных итогов перед правлением. На слайде «Итоги Q2» сейчас вот эта простыня, её никто читать не будет. Сделай ровно 3 буллета, каждый не длиннее 6 слов, цифры должны остаться точными.\n\n«Во втором квартале выручка выросла на 18% по сравнению с первым кварталом и составила 412 млн рублей, при этом нам удалось снизить отток клиентов с 7,4% до 5,1% за счёт новой программы лояльности, а также мы вышли в три новых региона — Казань, Екатеринбург и Новосибирск, где уже есть первые 1 200 клиентов.»",
+      "why_in_scope": "Задача с жёсткими проверяемыми ограничениями: ровно 3 пункта, до 6 слов каждый, точные цифры. Первый черновик почти всегда превышает лимит слов или теряет/искажает одну из цифр при сжатии; самокритика собственного варианта с подсчётом слов и сверкой чисел это ловит. Без цикла проверки сильная модель часто выдаёт буллеты на 7-9 слов или выбрасывает, например, 1 200 клиентов.",
+      "rubric": [
+        "Ровно 3 буллета, и в каждом не больше 6 слов (числа считаются как слова)",
+        "Цифры, которые попали в буллеты, совпадают с исходником (18%, 412 млн, 7,4% → 5,1%, 3 региона, 1 200 клиентов) и не округлены и не искажены",
+        "Буллеты покрывают три темы исходника: рост выручки, снижение оттока, выход в новые регионы",
+        "Формулировки подходят для слайда перед правлением (без канцелярита и лишних связок)"
+      ]
+    },
+    {
+      "id": "story-voice-light-edit-ru",
+      "agent": "literary_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Это начало моего рассказа, рассказчик — дед из деревни, говорит как говорит, это специально. Подчисти, пожалуйста, чтоб не стыдно было на конкурс отправить, но голос его не трогай.\n\n«Я ить тогда молодой был, дурной. Пошёл на реку, а там лёд уже тонкий, весна значит. Иду я, иду, и тут слышу — трещит. Я встал как вкопанный, стою и не дышу. А потом думаю: чего стоять, всё одно провалюсь. И пошёл дальше. И не провалился. Мать потом ругалась страшно, а я сидел на печке и смеялся, смеялся. Дурной был, говорю же. И тут вдруг сосед заходит, а мы его три года не видели, и говорит что щука в проруби застряла.»",
+      "why_in_scope": "Здесь цикл «черновик → критика → доработка» должен работать в обе стороны: заметить реальные недочёты (сбой пунктуации в прямой речи соседа «говорит что щука», внезапный скачок в последнем предложении) и при этом не «отполировать» намеренно шероховатый голос. Сильная модель без самокритики часто переписывает текст в литературно-нейтральный язык, убирая «ить», «всё одно», повторы «иду я, иду», «смеялся, смеялся», то есть уничтожает то, что автор просил сохранить.",
+      "rubric": [
+        "Сохранены характерные разговорные элементы голоса: «ить», «дурной», «всё одно», повторы «иду я, иду» и «смеялся, смеялся»",
+        "Правки точечные: большая часть предложений остаётся узнаваемой, текст не переписан заново нейтральным литературным языком",
+        "Исправлена пунктуация перед придаточным в «говорит что щука» (запятая перед «что») или речь соседа оформлена иначе грамматически корректно",
+        "Отмечено или сглажено резкое смысловое переключение к соседу в последнем предложении, без добавления новых сюжетных фактов"
+      ]
+    },
+    {
+      "id": "support-prompt-conflicting-rules-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you make this system prompt better? It's for our router support bot (runs on a small model, Llama 3.1 8B). Users complain the answers are weird sometimes.\n\n```\nYou are NetBox Support, a helpful assistant for NetBox R7 routers.\nAlways keep answers under 60 words so they fit in the chat widget.\nWhen a user reports a connection problem, always walk them through the full 9-step troubleshooting checklist below, explaining each step in detail.\n1. Check cables 2. Power-cycle router 3. Check LED status 4. Log in to 192.168.0.1 5. Check WAN settings 6. Update firmware 7. Check DNS 8. Factory reset 9. Contact ISP\nNever tell users to factory reset without warning them it erases all settings.\nBe friendly and upbeat, and add an emoji or two to keep it warm.\nThe chat widget only renders plain ASCII text, so never output any other characters.\n```",
+      "why_in_scope": "A first rewrite usually tidies structure and wording and keeps every rule. Critiquing that draft is what reveals the rules that can't all be followed together: a 60-word limit next to a detailed 9-step walkthrough, and a request for emojis next to a plain-ASCII-only output rule (emojis are not ASCII). These conflicts are the likely source of the \"weird\" answers. A strong model that just rewrites can polish the prompt and leave both conflicts in place, or quietly drop one side without telling the user.",
+      "rubric": [
+        "Identifies the conflict between the 60-word limit and the detailed 9-step walkthrough, and resolves it explicitly (e.g. one step at a time, or a clear priority rule) rather than keeping both as absolute requirements",
+        "Notices that asking for emojis conflicts with the plain-ASCII-only rule, and the revised prompt no longer asks for both",
+        "The revised prompt keeps the factory-reset warning requirement and the 9 checklist items (or states clearly why any was changed)",
+        "Briefly explains to the user what was changed and why, so they can check the edits against the complaints"
+      ]
+    },
+    {
+      "id": "docstring-mismatch-cleanup-en",
+      "agent": "tech_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "Clean up this docstring before we publish the SDK docs, it's messy. Don't touch the code.\n\n```python\ndef get_user(client, user_id, *, include_deleted=False, timeout=10):\n    \"\"\"gets a user. returns None if user not found. timeout is in ms.\n    include_deleted - also look at deleted users\n    \"\"\"\n    resp = client.request(\"GET\", f\"/users/{user_id}\",\n                          params={\"deleted\": include_deleted},\n                          timeout=timeout)  # requests-style timeout, seconds\n    if resp.status_code == 404:\n        raise UserNotFoundError(user_id)\n    resp.raise_for_status()\n    return User.from_json(resp.json())\n```",
+      "why_in_scope": "The request reads as a formatting job, and a first draft is usually a neat Google- or NumPy-style docstring that copies the original claims. Checking that draft against the code shows two of those claims are wrong: a 404 raises UserNotFoundError instead of returning None, and the inline comment says the timeout is in seconds, not ms. A strong model that doesn't critique its own draft will publish nicely formatted but incorrect docs.",
+      "rubric": [
+        "The docstring states that a missing user raises UserNotFoundError and does not claim it returns None",
+        "The docstring gives the timeout unit as seconds (consistent with the inline comment) or explicitly points out the ms/seconds discrepancy to the user",
+        "Documents all parameters (client, user_id, include_deleted, timeout) and the User return value, and mentions that other HTTP errors are raised via raise_for_status",
+        "The code itself is left unchanged"
+      ]
+    },
+    {
+      "id": "pitch-tighten-restore-figure-en",
+      "agent": "presentation_coach",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Here's my 60-second opener for a demo day. Make it punchier.\n\n\"Hi, I'm Dana from Stackwise. Every month, mid-size logistics companies lose hours reconciling invoices by hand. Our pilot customer, a 200-truck carrier in Ohio, used to spend 30 hours a week on it. With Stackwise they now spend 4. We use OCR plus a matching engine trained on freight invoice formats, and we plug straight into QuickBooks and NetSuite. We're raising a $1.5M seed to go from 3 customers to 40 in the next 18 months.\""
+        },
+        {
+          "role": "assistant",
+          "content": "\"Logistics companies are drowning in invoices. One 200-truck carrier in Ohio burned 30 hours a week reconciling them by hand. With Stackwise, that's down to 4 — a 10x cut. Our AI reads freight invoices and matches them automatically, straight into QuickBooks and NetSuite. We're raising $1.5M to grow from 3 customers to 40 in 18 months. I'm Dana, and Stackwise gives logistics teams their week back.\""
+        }
+      ],
+      "user_message": "Better! Can you tighten it a bit more? I'd like it around 60-70 words so I have room to breathe, and I want to end on the ask, not the tagline.",
+      "why_in_scope": "The earlier assistant draft added \"a 10x cut\", but going from 30 hours to 4 is about 7.5x, so the pitch now carries an overstated number in front of investors. A strong model that only compresses the latest draft will keep the error. Critiquing its own new draft against the original facts is what should catch it, along with checking the word count and the new ending.",
+      "rubric": [
+        "Does not repeat the \"10x\" claim; either drops the multiplier or states it accurately (roughly 7-7.5x, or \"30 hours down to 4\"), preferably pointing out the correction to the user",
+        "The pitch is roughly 60-70 words",
+        "The pitch ends on the funding ask ($1.5M, 3 to 40 customers, 18 months) rather than the tagline",
+        "Keeps the key facts from the original correct: 200-truck Ohio carrier, 30 to 4 hours per week, QuickBooks and NetSuite integration"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Made the emoji conflict in support-prompt-conflicting-rules-en subtle (emojis vs a plain-ASCII-only widget rule) instead of the blatant 'use emojis'/'do not use emojis' pair a strong model would catch anyway, and updated its rubric and why_in_scope. Other cases verified: facts (8080/8000, 30->4 hours = 7.5x, requests timeout in seconds, comma before 'что') are correct, agents are owners, 3 ru + 3 en."
+}

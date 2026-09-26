@@ -1,0 +1,35 @@
+{
+  "component": "skill-blender-scripting",
+  "cases": [
+    {
+      "id": "pegboard-slow-loop-thin-wall-ru",
+      "agent": "blender_scripter",
+      "language": "ru",
+      "history": [],
+      "user_message": "Делаю скриптом в Blender 4.1 органайзер-перфопанель под печать на Ender 3 (сопло 0.4, PLA). Панель 200x150 мм, толщина 3 мм, по сетке с шагом 8 мм торчат штырьки диаметром 3 мм и высотой 12 мм, это примерно 450 штук. Сделал так:\n\n```python\nfor i in range(cols):\n    for j in range(rows):\n        bpy.ops.mesh.primitive_cylinder_add(radius=1.5, depth=12, location=(i*8, j*8, 7.5))\n        pegs.append(bpy.context.active_object)\n# потом выделяю панель и все штырьки и делаю bpy.ops.object.join()\n```\n\nСкрипт отрабатывает минуты три, иногда Blender вообще подвисает. Ещё хочу, чтобы штырьки были полыми внутри (экономия пластика): внешний радиус 1.5, внутренний 1.1 мм. Как это ускорить и сделать полые штырьки?",
+      "why_in_scope": "The skill makes the model build the geometry with bmesh instead of calling bpy.ops in a loop, check wall thickness against the FDM minimum (1.2 mm), and avoid internal geometry. Here the requested hollow pegs have a 0.4 mm wall, which is a single nozzle width and far below the FDM minimum, and join() of cylinders that pass into the panel leaves overlapping, non-manifold internal faces. A strong model without the skill will likely just speed up the loop and write the hollow-peg code as asked, without questioning the wall thickness or the join.",
+      "rubric": [
+        "Replaces the per-peg bpy.ops calls with a faster approach (e.g. building all pegs in one bmesh / low-level mesh data, or duplicating mesh data without operators) and explains that operator calls in a loop are the bottleneck",
+        "Points out that a 1.5/1.1 mm radius hollow peg gives a 0.4 mm wall, which is too thin for FDM (below the ~1.2 mm minimum), and proposes keeping the pegs solid or changing the dimensions",
+        "Notes that join() leaves the pegs and panel as separate intersecting shells (internal faces inside the solid, non-manifold result) and recommends fusing them (boolean union or building connected geometry) so the exported mesh is a single watertight solid",
+        "The proposed code is plausible Blender Python for 4.x and keeps dimensions as parameters rather than hard-coding them in the loop"
+      ]
+    },
+    {
+      "id": "lampshade-solidify-custom-stl-en",
+      "agent": "blender_scripter",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm generating a twisted lampshade procedurally in Blender 4.2 for my Prusa MK4 (0.4 nozzle). The script builds a single-surface shell with bmesh (32 sides, 80 rings, each ring rotated a bit), then adds a Solidify modifier with thickness 0.6 so it's printable. Because I wanted batch export without touching selection, I wrote a small ASCII STL writer:\n\n```python\nme = obj.data\nwith open(path, 'w') as f:\n    f.write('solid shade\\n')\n    for p in me.polygons:\n        v = [me.vertices[i].co for i in p.vertices[:3]]\n        f.write(f'facet normal {p.normal.x} {p.normal.y} {p.normal.z}\\n outer loop\\n')\n        for c in v:\n            f.write(f'  vertex {c.x} {c.y} {c.z}\\n')\n        f.write(' endloop\\nendfacet\\n')\n    f.write('endsolid shade\\n')\n```\n\nPrusaSlicer imports it but shows it as paper-thin with a warning about open edges, and the surface is full of triangular gaps, like every other triangle is missing. In the viewport it looks perfectly solid. What's going on?",
+      "why_in_scope": "The skill requires applying modifiers before export, triangulating instead of emitting n-gons, keeping walls above the technology minimum and producing watertight geometry. The custom writer reads obj.data, which never contains the Solidify result, and it emits only the first three vertices of every quad, which leaves holes. The 0.6 mm thickness is also below the FDM minimum. A strong model may fix the export bugs but still accept the 0.6 mm wall, or diagnose only one of the two export bugs.",
+      "rubric": [
+        "Explains that obj.data is the base mesh without the Solidify modifier, and that the evaluated mesh (e.g. via evaluated_get(depsgraph) / to_mesh()) must be exported, or the modifier applied first",
+        "Identifies that writing only p.vertices[:3] drops half of every quad, which produces the holes, and fixes it by triangulating (e.g. loop_triangles or a bmesh triangulate step) before writing",
+        "Flags the 0.6 mm wall as too thin for reliable FDM printing (below the ~1.2 mm minimum, only about 1.5 extrusion widths at a 0.4 mm nozzle) and recommends a thicker wall",
+        "Suggests checking the result for manifold/watertight geometry and consistent outward normals before sending it to the slicer"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2: replaced the 'holes at the rims' symptom (inconsistent with dropping half of every quad, which leaves gaps across the whole surface) with a symptom that matches the bug; clarified the extrusion-width arithmetic. Case 1: tightened wording of the internal-geometry item; both cases otherwise in scope, leak-free, factually correct and owned by blender_scripter."
+}

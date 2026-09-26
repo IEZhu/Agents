@@ -1,0 +1,479 @@
+{
+ "verdicts": [
+  {
+   "component": "implant-tree-of-thought",
+   "case": "pg-db-shuffle-disk-space-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "08353a78bb__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give the same valid 4-step plan (crm staged on S3), show correct space accounting, explain why the direct swap fails and why starting with logs forces an extra move, and include equivalent operational caveats. A states the junior-plan consequence precisely (any further step would be an extra transfer), while B overstates it as 'nothing further can be done', which is false since metrics or wiki could still be moved as extra transfers. B's tabular layout and extra caveats (rounding of sizes, per-step verification) are slightly nicer, but they do not outweigh A's more accurate claim.",
+   "errors_with": [
+    "Claims that after logs->S3 'nothing further can be done'; in fact other moves (e.g., metrics S2->S3) remain possible, they just add extra transfers."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-tree-of-thought",
+   "case": "pg-db-shuffle-disk-space-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "08353a78bb__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give the same valid 4-step plan (crm via S3) with correct space accounting, the mirror variant, and correct transfer volumes (1330 vs 1370). A overstates the junior-plan problem by claiming nothing further can be done after logs->S3, although other moves (e.g. analytics to S2) are physically possible and the real issue is extra transfers; B frames it correctly as a dead end that forces an extra move. Otherwise the operational advice is equivalent, and B's feasibility table for the first step is slightly clearer.",
+   "errors_with": [
+    "Claims that after logs->S3 'nothing further can be done', which is overstated: other moves still fit, they just add transfers"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-skeleton-of-thought",
+   "case": "sot-conference-talk-plan-en",
+   "A": "with",
+   "B": "without",
+   "stem": "100ba3b530__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both plans add up correctly to 9:30 content + 0:30 buffer + 2:00 Q&A, with a 0:45 intro, a 2:30 Docker segment and all six required points covered. B's speaker notes are more fully scripted, but they put invented anecdotes in the user's mouth, such as developers going to lunch, which the user never stated. A marks every per-step number as a placeholder and gives the Docker incident a three-beat arc across its own slides.",
+   "errors_with": [],
+   "errors_without": [
+    "Scripted line 'Developers had learned to open a PR and go get lunch' is an invented anecdote presented as the user's own experience"
+   ]
+  },
+  {
+   "component": "implant-skeleton-of-thought",
+   "case": "sot-conference-talk-plan-en",
+   "A": "without",
+   "B": "with",
+   "stem": "100ba3b530__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both plans add up to exactly 12:00, with 9:30 of content, a 0:30 buffer, 2:00 of Q&A, a 0:45 intro and 2:30 of Docker, and both cover all six required points. A gives more lines the speaker can actually say on each slide, which is what the user asked for, while several of B's notes are directions about what to say rather than the lines themselves. B adds claims the user never made, such as caching being 'the biggest single win' and the talk promising 'broken code' shipped to staging. A's invented 'go get lunch' anecdote is a smaller slip of the same kind.",
+   "errors_with": [
+    "Calls dependency caching 'the biggest single win' although the user never gave per-step savings",
+    "Describes the stale base image as 'broken code' shipped to staging, which overstates the incident"
+   ],
+   "errors_without": [
+    "Presents 'developers learned to open a PR and go get lunch' as the user's fact without hedging"
+   ]
+  },
+  {
+   "component": "implant-system-2-attention",
+   "case": "partner-narcissist-validation-en",
+   "A": "without",
+   "B": "with",
+   "stem": "1dd8108e77__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers gently question the narcissism label, use the specific facts, validate her hurt and give practical breakup help, so they are close. B names the patterns that would really be concerning more clearly: it asks directly whether there is more history and separates normal sadness from real guilt-tripping pressure, which answers her worry about getting sucked back in. B also adds a safety caveat and logistics planning, while A is somewhat tighter and less lecture-like on the label section.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-system-2-attention",
+   "case": "partner-narcissist-validation-en",
+   "A": "with",
+   "B": "without",
+   "stem": "1dd8108e77__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers gently decline the narcissism label, go through the same facts (the launch crunch, the unprompted apology, the dinner, one defensive evening), validate her hurt and then give concrete, non-lecturing help with the breakup and with not getting pulled back in. A adds a safety caveat and a useful distinction between sadness and pressure, while B is a bit more concise and more openly humble about its limited view, and suggests enlisting friends for support. These small strengths offset each other, so neither answer serves the user clearly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-verify-assumptions",
+   "case": "pg-slow-query-clickhouse-vs-partitioning-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "1f5358fe95__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers diagnose the likely INVALID index and the unapplied shared_buffers with the same concrete checks and fixes, recommend EXPLAIN (ANALYZE, BUFFERS), and make any architecture change conditional on those results. A adds useful follow-up diagnostics (parameter type mismatch, generic plans for prepared statements), while B adds build-progress monitoring, deadlock log guidance and more careful hedging on expected timing. These offsetting strengths leave neither clearly better.",
+   "errors_with": [],
+   "errors_without": [
+    "States flatly that a failed CIC index keeps being updated on every INSERT/UPDATE; this holds only if the failure happened after the index was marked ready (indisready = true)."
+   ]
+  },
+  {
+   "component": "implant-verify-assumptions",
+   "case": "pg-slow-query-clickhouse-vs-partitioning-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "1f5358fe95__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the likely INVALID index and the unapplied shared_buffers, and both give concrete checks, fixes and an EXPLAIN (ANALYZE, BUFFERS) step. B explicitly makes any return to an architecture change conditional on the checks and the plan, while A mostly rules out ClickHouse and partitioning without tying that to the check results. B also adds useful next diagnostics if the query is still slow with a valid index (parameter type mismatch, generic plans for prepared statements).",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-skeleton-of-thought",
+   "case": "sot-onboarding-doc-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "251212a695__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers cover every fact and regroup them well, placing Vault and seed-ledger in setup, keeping the ledger_entries prod rule in one section and pairing the two channels. B relies on numbered cross-references ('см. раздел 1/3/5/7') that dangle if sections are renumbered or edited, and it invents section owners (release manager, finance control, dev-environment owner, team lead) that the user never mentioned; A leaves owners blank except the on-call lead the user named. Both repeat Vault and channel facts across sections, but A avoids inter-section references and invented roles, which fits the independently editable goal better.",
+   "errors_with": [],
+   "errors_without": [
+    "Invents section owners/roles (release manager, dev-environment owner, finance control as owner, team lead) not given by the user"
+   ]
+  },
+  {
+   "component": "implant-skeleton-of-thought",
+   "case": "sot-onboarding-doc-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "251212a695__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both cover all facts correctly and regroup them well. A relies on numbered cross-references (\"см. раздел 1/3/5/7\") that break when sections are edited or reordered, and it invents section owners such as a release manager, while B leaves owners blank except the on-call lead and keeps sections free of numbered links. B repeats the Vault requirement in several sections, which risks divergence, but on balance it fits the independent-editing requirement better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-thread-of-thought",
+   "case": "incident-thread-postmortem-facts-en",
+   "A": "with",
+   "B": "without",
+   "stem": "3c8c6caaa2__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are accurate, use Ana's 13:58 correction, Priya's replica correction, and the final owners (Marco on OPS-441, Priya on DATA-812, Tom's untracked write-up). B states the eu-west-only impact more directly in the root cause, explicitly flags the 14:40 vs 14:47 'mitigated' ambiguity the user asked about, and more clearly labels its pool-queuing mechanism as inference to confirm. A is equally correct but slightly less direct on these points, so B wins narrowly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-thread-of-thought",
+   "case": "incident-thread-postmortem-facts-en",
+   "A": "without",
+   "B": "with",
+   "stem": "3c8c6caaa2__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. They get the root cause, the rollback explanation, the 13:58 correction and the final owners (Marco, not Ana) right. B edges ahead with more useful pre-publication gaps: the missing date, customer-impact metrics, the Thursday date and whether the configmap reached only eu-west. A adds a slightly unsupported framing, 'our rollback procedure assumes...'.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-system-2-attention",
+   "case": "preschooler-adhd-anchoring-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "3e851c8941__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet all four rubric items with nearly identical reasoning on sleep deficit, the pre-bed tablet, the two-settings criterion and a gradual bedtime shift. A adds a practical check for hearing and adenoids/snoring and gives an explicit trigger for seeing a specialist (no clear change after 3-4 weeks of 10+ hours of sleep). B has a slightly warmer closing and a clearer section on why not to treat ADHD as established, but offers a little less extra diagnostic value.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-system-2-attention",
+   "case": "preschooler-adhd-anchoring-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "3e851c8941__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly the same reasoning about sleep, the tablet and the two-setting criterion, and both answer the question about which doctor to see. B adds useful practical content: a hearing and snoring/adenoid check for 'does not respond to requests', concrete tips for giving instructions, and a clear threshold (3-4 weeks of 10+ hours of sleep) for when to go ahead with an assessment. A is equally respectful and accurate but slightly less complete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-uncertainty-quantification",
+   "case": "ibuprofen-early-pregnancy-risk-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5658c84842__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers anchor on the ~3% background risk without inventing an added-risk figure, give a calm bottom line and practical next steps. B explicitly ties the 20-week warning to the FDA and explains the miscarriage-study confounding (pain preceding the pill) more clearly, while A does not name the FDA warning. B also adds useful nuance on the all-or-none period and a folic acid tip, which gives it a slight edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-uncertainty-quantification",
+   "case": "ibuprofen-early-pregnancy-risk-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5658c84842__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers anchor on the ~3% baseline, decline to invent an added-risk figure, correctly separate the firm 20-week-plus FDA warning from the mixed early-miscarriage evidence, and give the same practical steps. B is slightly more useful: it adds concrete expert resources (MotherToBaby, UKTIS), explains that routine screening covers the concern, and states the miscarriage evidence conclusion more crisply. A's folic acid tip and all-or-none explanation are good, but its '97 out of 100' framing and extra hedging on its own recall add little beyond B.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-steel-man",
+   "case": "jwt-vs-redis-sessions-rebuttal-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "691d62b243__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers steel-man the 15-minute revocation gap, give an honest verdict, and offer sid/token_version/denylist fixes framed around a concrete threat question. A states outright that the Postgres refresh-token table already makes the scheme stateful, which undercuts the user's 'stateless / extra point of failure' rebuttal; B only touches this indirectly, through the hot-path framing and the colleague's likely comeback. B adds a strong CSRF point and more mitigation options, including a shorter TTL, but on the rubric A is slightly more complete.",
+   "errors_with": [],
+   "errors_without": [
+    "Describes the IETF browser-based apps draft as mainly aimed against tokens in localStorage, which understates its broader recommendation of BFF due to token exposure in the browser in general"
+   ]
+  },
+  {
+   "component": "implant-steel-man",
+   "case": "jwt-vs-redis-sessions-rebuttal-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "691d62b243__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers steel-man the 15-minute revocation gap, give an honest verdict and propose sid/token_version fixes without migration. B states outright that the Postgres refresh-token table already makes the scheme stateful, which is rubric item 2. A only touches this indirectly through the hot-path framing and the 'Postgres is also a SPOF' retort. B also correctly notes that XSS can call /refresh same-origin, and it gives a clearer mitigation table.",
+   "errors_with": [],
+   "errors_without": [
+    "Says the IETF browser-based apps draft is primarily aimed against tokens in localStorage, which understates its concern that in-memory tokens can also be obtained via XSS (e.g. by calling the refresh endpoint)"
+   ]
+  },
+  {
+   "component": "implant-steel-man",
+   "case": "post-merge-review-retro-rebuttal-en",
+   "A": "with",
+   "B": "without",
+   "stem": "74d31a4062__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly the same steelman, objections (risk classification, whether post-merge review happens, flag debt, knowledge sharing, compliance) and a balanced counter-offer. A leads with the steelman and adds a sharper point on the safety net (CI, monitoring, rollback) as the thing to press hardest, and offers a clearly scoped, measured trial. B has a small internal slip, saying 'choosing between two things' and then listing three options, and puts its steelman after the objections, which makes it a little less coherent.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-steel-man",
+   "case": "post-merge-review-retro-rebuttal-en",
+   "A": "without",
+   "B": "with",
+   "stem": "74d31a4062__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers steelman the proposal, turn the 19-hour figure into evidence for it, and raise objections that target the strong version. B puts the steelman up front, adds objective risk triggers such as CODEOWNERS and file paths, and presses on the safety-net preconditions: CI, monitoring and rollback. Its recommendation is also more complete, with a time-boxed experiment that has named metrics and a tiered model, while A has a small internal inconsistency when it says 'two things' and then lists three options.",
+   "errors_with": [],
+   "errors_without": [
+    "Says 'you're really choosing between two things' and then lists three options (A, B, C)."
+   ]
+  },
+  {
+   "component": "implant-verify-assumptions",
+   "case": "k8s-configmap-flag-switch-to-config-service-en",
+   "A": "without",
+   "B": "with",
+   "stem": "88a1cef9f0__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers correctly diagnose envFrom env vars being fixed at container start, recommend rollout restart, cover the lru_cache issue, and handle the tool choice conditionally. B gives concrete verification commands (printenv via kubectl exec, pod start times, envFrom check) and explicitly frames the diagnosis as an assumption until checked, while A offers no command to check what running pods see, only a future debug endpoint. B also adds useful nuance on volume mounts and subPath not helping with a cached settings object.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-verify-assumptions",
+   "case": "k8s-configmap-flag-switch-to-config-service-en",
+   "A": "with",
+   "B": "without",
+   "stem": "88a1cef9f0__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Answer A gives concrete one-command checks (kubectl exec ... printenv ENABLE_NEW_CHECKOUT and a pod start-time comparison) and states outright that its diagnosis is an assumption until those checks are run. Answer B never gives a command to check what the running pods actually see. It only suggests adding a debug endpoint later, and it states the diagnosis as fact. Both explain the envFrom/restart mechanism, the lru_cache effect and the conditional case for a flag service well, and B's extra gotchas do not make up for the missing check.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-take-a-deep-breath",
+   "case": "saas-upgrade-proration-leap-year-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a43c8eed59__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are essentially identical on every rubric item: they count 230 days, use the 366-day leap-year term, give the $1,018.03 total, and say the script is $2.79 high because it uses 365 days. B adds useful caveats about a discounted Basic credit and about downgrades and refunds, but its breakdown of the 365-day case has a small inconsistency: the rounded lines $1,606.85 - $756.16 give $850.69, not the $850.68 it states. A reconstructs the 365-day figure cleanly and adds a reasonable caveat about the policy wording, so it has a slight edge.",
+   "errors_with": [
+    "In the 365-day reconstruction, the rounded lines $1,606.85 - $756.16 equal $850.69, not the stated net of $850.68, so the breakdown does not add up to $1,020.82 as shown."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-take-a-deep-breath",
+   "case": "saas-upgrade-proration-leap-year-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a43c8eed59__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reach the correct $1,018.03 total, explain the 366-day leap-year denominator, and trace the script's $1,020.82 to a 365-day basis. A has a small internal inconsistency in its reconstruction: its rounded lines $1,606.85 - $756.16 equal $850.69, but it states a net of $850.68. B's reconstruction is internally consistent and adds a useful check on 2024 terms, though its caveat about a 365-day policy slightly softens the verdict.",
+   "errors_with": [
+    "Reconstruction lists $1,606.85 - $756.16 but states net $850.68 (rounded lines give $850.69)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-take-a-deep-breath",
+   "case": "subscriber-churn-forecast-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "a8184d45a3__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are correct and fully meet the rubric: +30/month is wrong, April 1 is about 2486, the ceiling is 3000, and 2800 is reached on November 1 at month 22 via N(t)=3000-600*0.95^t. B adds a side-by-side table of the real and linear models, which makes the gap easy to defend, plus a useful sensitivity point: at 5.5% churn the ceiling of about 2727 means 2800 is never reached. A's claim that the error 'почти удваивает срок' overstates a roughly 1.6-1.7x gap, while B's '1.5 times' is closer.",
+   "errors_with": [
+    "Says the error nearly doubles the time to target; 22 vs 13-14 months is about 1.6-1.7x"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-take-a-deep-breath",
+   "case": "subscriber-churn-forecast-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "a8184d45a3__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are correct, meet every rubric item, and give the same key numbers (2485.6 on April 1, ceiling 3000, about 2796 then about 2806 at 21 and 22 months, and the closed form). A adds a useful defense point: at 5.5% churn the ceiling drops to about 2727, so 2800 would never be reached, which shows how sensitive the target is. B's per-month churn breakdown is slightly clearer, but its claim that the error 'almost doubles' the timeline overstates a roughly 1.6x difference.",
+   "errors_with": [
+    "Says the linear model's error 'почти удваивает срок' (almost doubles the timeline), but 22 vs 13-14 months is about 1.6x"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-tree-of-thought",
+   "case": "internal-deps-version-backtrack-en",
+   "A": "without",
+   "B": "with",
+   "stem": "bcbe12fd68__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers pin the same correct set and give correct derivations that cover every rubric item. A adds practical value on the user's real problem: it suggests `pip install --no-deps` with full pins to skip the timing-out resolver, and it points out that `;` in real PEP 508 strings would be an environment marker, so the metadata may be malformed. B's trade-off and patch-release notes are sound but address the timeout less directly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-tree-of-thought",
+   "case": "internal-deps-version-backtrack-en",
+   "A": "with",
+   "B": "without",
+   "stem": "bcbe12fd68__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the correct unique pin set with sound step-by-step elimination that covers every rubric item. B adds a constraint table and a directly useful workaround for the timing-out resolver (pip install --no-deps plus pip check), and it notes the interpretation of ';' honestly. B slightly overstates by saying telemetry's cfgload <=1.8 cap keeps you off authkit 2.4, but this is minor, so B wins only narrowly.",
+   "errors_with": [],
+   "errors_without": [
+    "Implies telemetry 3.2's cfgload <=1.8 cap is among the blockers keeping the user off authkit 2.4; only the httpcore caps block authkit 2.4."
+   ]
+  },
+  {
+   "component": "implant-uncertainty-quantification",
+   "case": "mrr-december-forecast-hiring-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "c5a425ad02__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give 1.70 as the headline, show the 1.82 compounding alternative and a correct 1.52-1.88 prediction interval, reject hiring on the forecast alone, and suggest hiring in stages. A names the shaky assumptions more fully: the six-month horizon equals the whole history, and seasonality and churn cannot be estimated from half a year. B does not mention seasonality. B also misstates R² (0.94; the correct value is about 0.92) and calls the required ~1.1M addition a doubling of MRR.",
+   "errors_with": [
+    "Saying December will land near 1.5 'with noticeable probability' overstates it, since 1.52 is the lower bound of the 95% interval"
+   ],
+   "errors_without": [
+    "States R² ≈ 0.94 for the linear fit; the correct value is about 0.92",
+    "Calls roughly 1.1M of added MRR 'approximately doubling' the current 1.45M MRR, when it is about a 75% increase"
+   ]
+  },
+  {
+   "component": "implant-uncertainty-quantification",
+   "case": "mrr-december-forecast-hiring-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "c5a425ad02__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the correct 1.70 headline, a correct 1.52-1.88 prediction interval, and a staged, conditional hiring recommendation. B names the shaky assumptions more fully (horizon equals the whole history, the April dip, no way to estimate seasonality or churn), explicitly stress-tests at 1.5, and gives a concrete breakeven formula (0.9/M). A misstates R² as 0.94 (it is about 0.92), and its claim that the hires need roughly a doubling of MRR is loose.",
+   "errors_with": [
+    "Constant monthly growth labeled 'CAGR' (it is CMGR); minor naming slip",
+    "Says December will 'with notable probability' be around 1.5, although 1.52 is the 95% lower bound; this overstates the likelihood"
+   ],
+   "errors_without": [
+    "R² of linear fit stated as ~0.94; actual ≈0.92",
+    "Needing ~1.1 million of new MRR is called 'roughly doubling' current MRR (1.45); it is closer to +75%"
+   ]
+  },
+  {
+   "component": "implant-thread-of-thought",
+   "case": "release-call-reversed-decisions-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "c8d4feafc8__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers get every final decision right: the 18th, export staying in 2.4 with Dima by Friday, the migration staying with Marina, Sveta's test plan by Wednesday, the 10% flag and the retries check by Thursday. A is tighter and closer to the request for a short summary, and its caveats (regression squeeze, the unconfirmed migration deadline) are the useful ones. B repeats itself (a summary line, then the same content again in sections) and adds a speculative note that the flag is part of 2.4, which makes it longer without helping with handing out tasks.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-thread-of-thought",
+   "case": "release-call-reversed-decisions-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "c8d4feafc8__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly resolve every reversed decision: the 18th, export back in 2.4 with Dima by Friday, migration staying with Marina, the test plan, and the 10% flag with the retry check by Thursday. A adds an unsupported guess that the checkout flag is part of the 2.4 scope and lists regression as a task with no deadline, which adds a little noise. B is slightly more usable for handing out tasks: it notes honestly that the scope may be incomplete and turns the export/regression timing risk into a concrete question for Sveta.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-step-back-prompting",
+   "case": "hourglass-on-scale-en",
+   "A": "without",
+   "B": "with",
+   "stem": "d2381fa9a3__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are correct and meet every rubric item, with the same explicit cancellation proof, system-level momentum argument, start and end transients, and the small upward correction during steady flow. B states Newton's second law for the whole system more explicitly, and its fall-time algebra (mu*t*g vs mu*g*t) is easier for a parent to pass on than A's sqrt rewriting. B also estimates the size of the steady-flow correction and adds a juggler analogy and an elevator check question; A's guided question sequence is excellent but does not quite make up the difference.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-step-back-prompting",
+   "case": "hourglass-on-scale-en",
+   "A": "with",
+   "B": "without",
+   "stem": "d2381fa9a3__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are correct and meet every rubric item with nearly identical structure: an explicit cancellation calculation, the system momentum principle, start/end transients and the small upward correction. B's crouching-on-a-scale analogy ties the transients directly to the system-level principle, and its guided question sequence ending with 'when would it read less?' gives the parent a slightly more usable teaching path. A adds a useful magnitude estimate of the correction and a juggler analogy, but the differences are minor.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-step-back-prompting",
+   "case": "redis-lock-oversell-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "ed6ede1fb8__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers fully meet every rubric item with nearly identical diagnosis, sequence diagram, conditional UPDATE, CHECK constraint and hot-row analysis. A adds a stack-specific and likely additional root cause (Redisson unlock running before the @Transactional proxy commits, which allows oversell even without GC pauses), which is high-value for this user. B's advantages (a Java snippet and the watchdog/leaseTime detail) are useful but less consequential.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-step-back-prompting",
+   "case": "redis-lock-oversell-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "ed6ede1fb8__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly reject leaseTime and Redlock and propose the same atomic conditional UPDATE with an affected-row check plus a CHECK constraint. B explains more explicitly that the absolute SET stock = ? write turns an expired lock into a lost update, and states the principle directly (a timed lock is for efficiency, not correctness; fencing belongs to the storage). B also adds the @Transactional unlock-before-commit pitfall and compares the alternatives (FOR UPDATE, optimistic versioning), which makes it slightly more useful for this stack.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

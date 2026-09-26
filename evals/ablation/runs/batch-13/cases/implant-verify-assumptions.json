@@ -1,0 +1,35 @@
+{
+  "component": "implant-verify-assumptions",
+  "cases": [
+    {
+      "id": "pg-slow-query-clickhouse-vs-partitioning-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "history": [],
+      "user_message": "PostgreSQL 14, таблица orders ~120 млн строк. Запрос вида SELECT ... FROM orders WHERE customer_id = $1 AND created_at >= now() - interval '30 days' ORDER BY created_at DESC LIMIT 50 выполняется ~4 секунды. Что уже сделали: 1) CREATE INDEX CONCURRENTLY idx_orders_cust_created ON orders (customer_id, created_at); в первый раз он упал с 'deadlock detected', запустили ещё раз — написало 'relation \"idx_orders_cust_created\" already exists', значит индекс есть. 2) Подняли shared_buffers с 128MB до 8GB в postgresql.conf (на сервере 32 GB RAM) и сделали SELECT pg_reload_conf(). Ничего не изменилось, всё те же 4 секунды. Похоже, Postgres упёрся в потолок. Сейчас выбираем между переездом этой таблицы в ClickHouse и партиционированием по месяцам. Что посоветуешь и как лучше мигрировать?",
+      "why_in_scope": "The user's plan rests on two unchecked premises: that the index exists and is usable, and that the new shared_buffers is in effect. Both are likely false: a failed CREATE INDEX CONCURRENTLY leaves an INVALID index behind (hence 'already exists'), and shared_buffers only changes on a server restart, not on pg_reload_conf(). The implant makes the model name these premises with one-command checks and make the migration advice conditional on them. A strong model without it could plausibly take 'Postgres hit its ceiling' at face value and go straight into a ClickHouse-vs-partitioning comparison.",
+      "rubric": [
+        "Points out that a failed CREATE INDEX CONCURRENTLY can leave an INVALID index, so 'already exists' does not prove the index is usable, and gives a concrete check (e.g. \\d orders, or querying pg_index.indisvalid) plus the fix (DROP INDEX CONCURRENTLY and recreate, or REINDEX).",
+        "Points out that shared_buffers requires a server restart and is not applied by pg_reload_conf(), with a concrete check such as SHOW shared_buffers or pending_restart in pg_settings.",
+        "Suggests running EXPLAIN (ANALYZE, BUFFERS) on the query to see whether the index is actually used before deciding on an architecture change, and notes that with a valid (customer_id, created_at) index this query shape should normally be fast.",
+        "Makes the ClickHouse/partitioning recommendation explicitly conditional on these checks (e.g. revisit only if the query is still slow with a valid index in use) rather than recommending a migration outright, and does not claim the check results are known."
+      ]
+    },
+    {
+      "id": "k8s-configmap-flag-switch-to-config-service-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our FastAPI service runs on Kubernetes (EKS, 6 replicas). Feature flags come from env vars that are populated from a ConfigMap via envFrom, and we read them through a pydantic BaseSettings object returned by get_settings(), which is wrapped in @lru_cache so we don't re-parse on every request. Yesterday I ran kubectl apply on the ConfigMap to set ENABLE_NEW_CHECKOUT=true, kubectl get configmap shows the new value, but 3 hours later the service still behaves like the flag is off. This is the second time config changes 'don't stick'. I'm thinking we should drop ConfigMaps and move flags to a proper config service — LaunchDarkly, Unleash, or Consul KV with a watcher. Which one would you pick for a team of 8, and how should we structure the migration?",
+      "why_in_scope": "The proposed architecture change rests on the assumption that ConfigMaps are unreliable, while the likely cause is that environment variables injected from a ConfigMap are fixed when the container starts and are not updated in running pods, and the lru_cache also pins the settings for the process lifetime. The implant makes the model list that premise with a one-command check (e.g. printenv inside a pod, pod age vs. the apply time) and make the vendor recommendation conditional. A strong model without it could plausibly answer the literal question and compare LaunchDarkly/Unleash/Consul, leaving the user to migrate for a problem a rollout restart would fix.",
+      "rubric": [
+        "Explains that env vars from a ConfigMap (envFrom/valueFrom) are set at container start and are not updated in already running pods, so pods need a restart (e.g. kubectl rollout restart deployment/<name>) to pick up the change.",
+        "Gives a concrete one-command check of what the running pods actually see, such as kubectl exec <pod> -- printenv ENABLE_NEW_CHECKOUT, or comparing pod start times with when the ConfigMap was applied.",
+        "Notes that @lru_cache on get_settings() keeps the settings object fixed for the life of the process, so as long as flags are read through that cached object, live flag changes will not be seen without a restart or cache invalidation.",
+        "Still addresses the tooling question but conditionally, e.g. a dedicated flag service is worth it if they need changes without restarts, per-user targeting or gradual rollouts, rather than presenting ConfigMaps as broken; does not claim to know the check results."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases verified in scope, leak-free, tool-less, with owner agents and correct facts (invalid index after failed CONCURRENTLY build, shared_buffers needs restart, envFrom vars fixed at container start). Reworded case 2 rubric item 3 so it does not wrongly imply a flag-service SDK would go through the cached settings, and sharpened case 1 item 3 to reward recognising the index should make this query fast."
+}

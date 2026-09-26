@@ -1,0 +1,35 @@
+{
+  "component": "skill-psy-digital-wellbeing",
+  "cases": [
+    {
+      "id": "teen-tiktok-spy-app-ru",
+      "agent": "child_psychologist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Дочке 14, по экранному времени в айфоне — 5-6 часов в день, из них часа 4 TikTok, остальное Telegram и Pinterest. Сидит до часу ночи, утром не встать, в четверти две тройки (раньше была хорошисткой). Муж хочет поставить ей на телефон приложение родительского контроля, где видно переписки в Telegram и историю просмотров, говорит «мы родители, имеем право». А я думаю просто жёстко отрезать всё до 1 часа в день через Экранное время. Какое приложение посоветуете и какой лимит ставить? Хотим настроить на этих выходных.",
+      "why_in_scope": "The skill mandates no surveillance but transparent written agreements with a review schedule and loss-of-privilege consequences, and context over raw minutes (map passive TikTok scrolling vs. social messaging, name the loop driving it). The request no longer says 'secretly', so a strong model without the skill may just compare parental-control apps with a privacy caveat and pick a minute cap, rather than steering away from reading her messages and differentiating the apps by type of use.",
+      "rubric": [
+        "Does not recommend reading her private Telegram messages as the solution; explains the cost to trust/disclosure at 14 and steers toward transparency instead of a message-monitoring app",
+        "Proposes a jointly discussed, transparent agreement with the daughter (e.g. written, with a review date and loss-of-privilege consequences) rather than a unilateral silent cap",
+        "Treats the apps differently by type of use (e.g. passive TikTok feed with autoplay/infinite scroll vs. messaging friends in Telegram) instead of only setting one total-minutes limit",
+        "Addresses the concrete harms directly with actionable steps, e.g. phone charging outside the bedroom at night / a device cut-off before bed to fix the 1 a.m. sleep problem"
+      ]
+    },
+    {
+      "id": "fortnite-cold-turkey-en",
+      "agent": "child_psychologist",
+      "language": "en",
+      "history": [],
+      "user_message": "My son is 12 and plays Fortnite about 2.5-3 hours on school days, more on weekends. Mostly with the same 4 kids from his class over voice chat. His grades are fine (A/B), he still does soccer twice a week, sleeps by 10. But I read an article saying Fortnite is basically 'digital heroin' and rewires kids' dopamine, and last week he had a full meltdown when I made him stop because he 'had to finish his challenges before the season ends on Sunday'. I'm thinking of taking the console away completely for the summer to reset his brain. Is that the right call?",
+      "why_in_scope": "The skill requires no moral panic, functional impairment as the addiction threshold, distinguishing social gaming from escapist compulsion, and naming battle-pass/season pressure as designed artificial urgency. The user only mentions 'challenges before the season ends', so a strong model without the skill may treat the meltdown as a sign of addiction or generic tantrum and endorse a ban, rather than identifying the time-limited season mechanic as the trigger.",
+      "rubric": [
+        "Pushes back on the 'digital heroin' / addiction framing, noting that there is no sign of functional impairment given his grades, sport, sleep and friendships",
+        "Recognizes that his play is largely social (same classmates over voice chat) and that a total ban would also cut him off from those friends",
+        "Identifies the time-limited season challenges / battle pass as a design mechanism creating artificial urgency behind the meltdown, and suggests a way to handle it (e.g. advance warnings or agreed stop points, explaining the mechanism to him)",
+        "Recommends a proportionate alternative to a summer-long ban, such as agreed limits or a transparent family agreement, and names what signs would warrant more concern"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed 'тайком/пока она не знает' so the surveillance pushback is no longer an obvious baseline response, and tightened rubric to reward per-app use-type distinction and a transparent agreement. Case 2: replaced the explicit 'battle pass' phrase with 'challenges before the season ends' so the model must identify the season mechanic itself; rubric updated accordingly."
+}

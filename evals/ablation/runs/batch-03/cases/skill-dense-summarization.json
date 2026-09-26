@@ -1,0 +1,35 @@
+{
+  "component": "skill-dense-summarization",
+  "cases": [
+    {
+      "id": "vendor-call-notes-summary-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет! Скинь, пожалуйста, выжимку по вчерашнему созвону для моего директора, у него есть минута между встречами. Вот мои сырые заметки:\n\n\"Обсуждали, на что переезжаем с самописной системы рассылок. Кандидаты: Mindbox, Unisender, Sendsay. Лена (маркетинг) за Mindbox: есть сегментация и триггеры из коробки, но цена ~310 тыс. руб/мес на нашей базе 1,2 млн контактов, внедрение 3-4 месяца по их оценке. Unisender — ~95 тыс/мес, внедрение 3-4 недели, но триггерных цепочек почти нет, Лена говорит что без них смысла переезжать мало. Sendsay — ~140 тыс/мес, внедрение ~6 недель, триггеры есть, но попроще чем в Mindbox. Паша (безопасность) в конце сказал, что у Sendsay пока нет подписанного DPA с нами и что без этого он юридически не согласует передачу персданных, это блокер пока не решится. Игорь (финансы) сказал бюджет на год — максимум 2 млн руб, всё что выше — через CFO. Договорились: Лена запрашивает у Sendsay DPA до пятницы, Игорь считает TCO на 2 года по Mindbox и Sendsay. Решение на следующей неделе в четверг.\"\n\nСпасибо!",
+      "why_in_scope": "The skill makes the model condense existing notes BLUF-first (what is being decided, current leaning, what blocks it), put the three vendors into a comparison table, keep the key counterpoints (Sendsay DPA blocker, budget ceiling that Mindbox exceeds) and attribute positions to their owners, with no filler. A strong model without it often retells the call chronologically in prose or bullet lists, buries the security blocker at the end, or drops that Mindbox at ~310k/month (~3.7M/year) is above the 2M annual budget.",
+      "rubric": [
+        "Opens with a bottom-line statement (decision pending until next Thursday, with the main open issue or leaning) rather than a greeting or a chronological retelling",
+        "Puts Mindbox, Unisender and Sendsay into one compact side-by-side comparison (e.g. a table) of monthly price, implementation time and trigger chains, with figures matching the notes (~310k/3-4 months, ~95k/3-4 weeks, ~140k/~6 weeks)",
+        "Surfaces the counterpoints the notes leave implicit or buried: the missing Sendsay DPA is a security blocker, and Mindbox at ~310k/month (~3.7M rub/year) exceeds the 2M annual budget and would need CFO sign-off",
+        "Lists the agreed action items with owners (Lena: DPA from Sendsay by Friday; Igor: 2-year TCO for Mindbox and Sendsay) and adds no facts not present in the notes"
+      ]
+    },
+    {
+      "id": "conflicting-studies-digest-en",
+      "agent": "medical_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "My dad (68, on metformin) keeps asking whether he should take vitamin D. I pulled these notes from a few papers his doctor mentioned and my brain is fried. Can you boil this down so I can talk it through with him tonight?\n\n1) VITAL trial (NEJM 2019): ~25,900 US adults 50+, 2000 IU/day vitamin D3 vs placebo, median 5.3 years. No significant reduction in invasive cancer or major cardiovascular events overall. Secondary analysis hinted at lower cancer death after excluding the first 1-2 years of follow-up.\n2) D2d trial (NEJM 2019): ~2,400 adults with prediabetes, 4000 IU/day vs placebo, median 2.5 years. Progression to diabetes 9.39 vs 10.66 events per 100 person-years, hazard ratio 0.88, not statistically significant.\n3) VITAL fracture ancillary (NEJM 2022): ~25,900 participants, vitamin D3 did not lower total, hip or non-vertebral fractures vs placebo in generally healthy midlife and older adults not selected for deficiency or osteoporosis.\n4) His last blood test: 25(OH)D = 14 ng/mL. Doctor wrote 'deficient, recheck in 3 months'.\n\nHe's not diabetic, just prediabetic, that's why he's on metformin.",
+      "why_in_scope": "The skill makes the model condense the user's notes into a bottom line first, then key findings each tied to its source trial, then the nuance: the trials enrolled people not selected for deficiency, while the father's own level (14 ng/mL) is deficient, and D2d is the trial closest to his situation because it enrolled people with prediabetes. Without it, a strong model tends to write a general vitamin D essay, blur which result came from which trial, or stop at 'the trials show it doesn't help' without separating those two caveats.",
+      "rubric": [
+        "Leads with a clear bottom line (e.g. the big trials found no broad benefit in unselected adults, but his measured deficiency is a separate reason to discuss supplementation with his doctor) before details",
+        "Attributes each finding to the correct study (VITAL: cancer/CVD null; D2d: HR 0.88 non-significant for diabetes progression; VITAL ancillary: no fracture reduction) without mixing up numbers",
+        "Names as key caveats both that the trial populations were not selected for vitamin D deficiency (unlike his 25(OH)D of 14 ng/mL) and that D2d, which enrolled people with prediabetes, is the trial most relevant to him",
+        "Stays a condensed digest of the provided notes, does not prescribe a specific dose, and defers dosing to his doctor"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: relaxed the table item to a side-by-side comparison (table as example) so it does not reward a format outright, and added the per-vendor figures for checkability. Case 2: sharpened the nuance item and why_in_scope to also require noting D2d's direct relevance (prediabetic population), which a strong model is less likely to raise unprompted; all trial figures verified."
+}

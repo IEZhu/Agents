@@ -1,0 +1,218 @@
+{
+ "100ba3b530__o1": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-conference-talk-plan-en",
+  "A": "with",
+  "B": "without"
+ },
+ "100ba3b530__o2": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-conference-talk-plan-en",
+  "A": "without",
+  "B": "with"
+ },
+ "251212a695__o1": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-onboarding-doc-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "251212a695__o2": {
+  "component": "implant-skeleton-of-thought",
+  "case": "sot-onboarding-doc-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "691d62b243__o1": {
+  "component": "implant-steel-man",
+  "case": "jwt-vs-redis-sessions-rebuttal-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "691d62b243__o2": {
+  "component": "implant-steel-man",
+  "case": "jwt-vs-redis-sessions-rebuttal-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "74d31a4062__o1": {
+  "component": "implant-steel-man",
+  "case": "post-merge-review-retro-rebuttal-en",
+  "A": "with",
+  "B": "without"
+ },
+ "74d31a4062__o2": {
+  "component": "implant-steel-man",
+  "case": "post-merge-review-retro-rebuttal-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d2381fa9a3__o1": {
+  "component": "implant-step-back-prompting",
+  "case": "hourglass-on-scale-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d2381fa9a3__o2": {
+  "component": "implant-step-back-prompting",
+  "case": "hourglass-on-scale-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ed6ede1fb8__o1": {
+  "component": "implant-step-back-prompting",
+  "case": "redis-lock-oversell-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ed6ede1fb8__o2": {
+  "component": "implant-step-back-prompting",
+  "case": "redis-lock-oversell-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "1dd8108e77__o1": {
+  "component": "implant-system-2-attention",
+  "case": "partner-narcissist-validation-en",
+  "A": "without",
+  "B": "with"
+ },
+ "1dd8108e77__o2": {
+  "component": "implant-system-2-attention",
+  "case": "partner-narcissist-validation-en",
+  "A": "with",
+  "B": "without"
+ },
+ "3e851c8941__o1": {
+  "component": "implant-system-2-attention",
+  "case": "preschooler-adhd-anchoring-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3e851c8941__o2": {
+  "component": "implant-system-2-attention",
+  "case": "preschooler-adhd-anchoring-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a43c8eed59__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "saas-upgrade-proration-leap-year-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a43c8eed59__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "saas-upgrade-proration-leap-year-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a8184d45a3__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "subscriber-churn-forecast-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "a8184d45a3__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "subscriber-churn-forecast-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "3c8c6caaa2__o1": {
+  "component": "implant-thread-of-thought",
+  "case": "incident-thread-postmortem-facts-en",
+  "A": "with",
+  "B": "without"
+ },
+ "3c8c6caaa2__o2": {
+  "component": "implant-thread-of-thought",
+  "case": "incident-thread-postmortem-facts-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c8d4feafc8__o1": {
+  "component": "implant-thread-of-thought",
+  "case": "release-call-reversed-decisions-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "c8d4feafc8__o2": {
+  "component": "implant-thread-of-thought",
+  "case": "release-call-reversed-decisions-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "bcbe12fd68__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "internal-deps-version-backtrack-en",
+  "A": "without",
+  "B": "with"
+ },
+ "bcbe12fd68__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "internal-deps-version-backtrack-en",
+  "A": "with",
+  "B": "without"
+ },
+ "08353a78bb__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "pg-db-shuffle-disk-space-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "08353a78bb__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "pg-db-shuffle-disk-space-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "5658c84842__o1": {
+  "component": "implant-uncertainty-quantification",
+  "case": "ibuprofen-early-pregnancy-risk-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5658c84842__o2": {
+  "component": "implant-uncertainty-quantification",
+  "case": "ibuprofen-early-pregnancy-risk-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c5a425ad02__o1": {
+  "component": "implant-uncertainty-quantification",
+  "case": "mrr-december-forecast-hiring-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "c5a425ad02__o2": {
+  "component": "implant-uncertainty-quantification",
+  "case": "mrr-december-forecast-hiring-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "88a1cef9f0__o1": {
+  "component": "implant-verify-assumptions",
+  "case": "k8s-configmap-flag-switch-to-config-service-en",
+  "A": "without",
+  "B": "with"
+ },
+ "88a1cef9f0__o2": {
+  "component": "implant-verify-assumptions",
+  "case": "k8s-configmap-flag-switch-to-config-service-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1f5358fe95__o1": {
+  "component": "implant-verify-assumptions",
+  "case": "pg-slow-query-clickhouse-vs-partitioning-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "1f5358fe95__o2": {
+  "component": "implant-verify-assumptions",
+  "case": "pg-slow-query-clickhouse-vs-partitioning-ru",
+  "A": "without",
+  "B": "with"
+ }
+}

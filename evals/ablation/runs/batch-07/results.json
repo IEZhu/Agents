@@ -1,0 +1,539 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-structured-output",
+   "case": "ticket-triage-output-parsing-en",
+   "A": "with",
+   "B": "without",
+   "stem": "00351b135c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers recommend the same flat reasoning-first JSON with enums, schema enforcement, Pydantic validation with a retry and human-review fallback, and a sound rejection of the deep nesting. A includes a concrete filled-in example output (an ambiguous multi-team ticket) inside the prompt, while B shows only a placeholder shape, so B only partly meets rubric item 2. B adds useful extras (code-fence stripping, reliability table, a downstream-consumer check), but these do not outweigh A's full concrete example.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-structured-output",
+   "case": "ticket-triage-output-parsing-en",
+   "A": "without",
+   "B": "with",
+   "stem": "00351b135c__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers propose the same flat JSON schema with enums, reasoning-first ordering, Pydantic validation with retry and human-review fallback, and a sound rejection of deep nesting. B includes a concrete filled-in example of a full output (an ambiguous multi-team ticket) in the prompt, which the rubric requires, while A only shows a placeholder shape. A has slightly more robust parsing (code-fence stripping, JSONDecodeError handling, and a complete fallback), but that does not outweigh B's missing-example advantage on the rubric.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-system-design",
+   "case": "notification-service-kafka-overkill-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "117c24c8f6__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. They give near-identical load and storage estimates, recommend a PG outbox with partitioned feed and Celery, add idempotency keys, a sweeper and 24-48h backoff, and give explicit triggers for revisiting Kafka or Cassandra. B edges ahead on honesty: it states outright that exactly-once external delivery is impossible, where A sets 'zero duplicates in a week' as its done criterion. B also adds a measure-first sprint, a 2-hour provider-outage chaos test as its acceptance criterion, and a single side-by-side comparison that includes the CTO's option, while A is slightly stronger on the Kubernetes point and on starting stabilization in the next sprint.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-system-design",
+   "case": "notification-service-kafka-overkill-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "117c24c8f6__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical load estimates, a Postgres outbox plus deliveries state machine, and explicit triggers for revisiting Kafka or Cassandra. B goes somewhat further: it treats Kubernetes as a separate risk, notes that Kafka still needs an outbox to avoid dual-write loss, gives concrete Celery retry defaults to explain the lost emails, adds a failure-mode table and a pre-mortem of its own plan, and says Stage 0 can start next sprint whatever architecture is chosen. A is equally sound but less complete, and its sweeper SQL has a precedence bug.",
+   "errors_with": [
+    "Sweeper SQL mixes AND/OR without parentheses, so the next_attempt_at condition binds only to the status IN branch; the query does not do what the text describes"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "agent-loop-swallowed-errors-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "20128eceec__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each explains the swallowed TimeoutError reaching the model as \"null\", adds step, cost and repeat caps, and blocks create_ticket in code, all without a framework. B is slightly more careful: it takes the evidence snapshot before running the batch so a search in the same response cannot unlock the ticket, hides create_ticket until evidence exists, asks for a grounded final summary when a limit is hit, and warns against truncating JSON strings. A's rewrite makes exactly that mistake with truncate(), which can hand the model invalid JSON.",
+   "errors_with": [
+    "truncate() cuts the serialized JSON tool result mid-string, producing invalid JSON for the model"
+   ],
+   "errors_without": [
+    "Code assumes search_logs returns a dict with a 'hits' key (out['result'].get('hits')) and uses an undefined log; these are minor placeholder issues"
+   ]
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "agent-loop-swallowed-errors-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "20128eceec__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the swallowed TimeoutError, add step/cost/duplicate caps, and block create_ticket from running in the same turn as search_logs or before it, all framework-free while keeping one tool message per tool_call_id. A's evidence gate is tighter: it requires non-empty search hits from a previous step and hides create_ticket until then, and it ends with a summarizing final call. B marks search_logs as successful even when it returns nothing, and its truncate() cuts the serialized JSON string, which yields invalid JSON (a pitfall A explicitly warns against).",
+   "errors_with": [
+    "truncate() slices the JSON-serialized tool result, producing invalid JSON when output exceeds the limit"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-source-trust-tiers",
+   "case": "berberine-weightloss-sources-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "28d1a5c4ca__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers dismantle the '3 vs 1' framing, flag the shared 2008 study, the conflict of interest and the anecdote, and give similar cautious practical advice. B explicitly declines false-precision percentages and uses a qualitative ranking, which the rubric asks for, while A supplies ~5-80% figures, though it hedges them. Both add recalled specifics (Yin et al. 2008, STEP-1 ~15%, meta-analysis figures) beyond what the user provided, with 'from memory' hedges, so neither fully meets item 4.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-source-trust-tiers",
+   "case": "berberine-weightloss-sources-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "28d1a5c4ca__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers correctly reject the '3 vs 1' framing, flag the shared 2008 study, the manufacturer's conflict of interest, the diabetic-population mismatch, and the anecdote. A explicitly declines the 0-100 percentages and gives a qualitative ranking as the rubric asks, while B supplies the requested percentages (though caveated), giving false precision. Both add memory-based specifics (Yin et al., STEP-1, meta-analysis figures), hedged as unverified; B adds somewhat more such invented numbers (BMI -0.5, dose ranges tied to meta-analyses), so neither fully meets item 4.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-temporal-validation",
+   "case": "morning-digest-mixed-dates-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "38324c274c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers handle every rubric item correctly: they convert the EDT time accurately, flag the Fed item as slightly older, drop the Brent screenshot, the Vedomosti story and the guide, and treat the RBC post as unconfirmed. B adds unsupported material, including an invented 'digest rule' requiring two independent sources, speculation about what the market is pricing in, and a detour into the FOMC calendar from memory. A delivers the same substance more tightly, with less fabricated framing.",
+   "errors_with": [
+    "Describes the OFZ demand as showing readiness to hold 'long' government debt, a maturity detail not in the source"
+   ],
+   "errors_without": [
+    "Asserts a nonexistent rule that every digest item must be confirmed by two independent sources",
+    "Speculative claim that the market is pricing in rate cuts, presented as interpretation of the OFZ auction without support"
+   ]
+  },
+  {
+   "component": "skill-temporal-validation",
+   "case": "morning-digest-mixed-dates-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "38324c274c__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers filter the items the same way and convert the Reuters time correctly, so on the rubric they are nearly identical. A adds unsupported claims: it cites a 'digest rule' requiring two independent sources that the user never set, and it speculates about market motives for the OFZ demand. B stays closer to the given facts, states the 28.5-hour age explicitly and is more concise.",
+   "errors_with": [],
+   "errors_without": [
+    "Refers to digest rules requiring two independent sources, which the user never stated",
+    "Presents speculative market interpretation (rate-cut pricing) as likely fact without support"
+   ]
+  },
+  {
+   "component": "skill-tech-writing",
+   "case": "search-migration-brief-for-finance-vp-en",
+   "A": "with",
+   "B": "without",
+   "stem": "4481671e00__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both memos state the ask early, carry the figures over correctly and put the risks in plain business terms. A's memo adds several claims the source does not support: the overlap 'doubles that month's bill', the rework is 'included in the 6-week estimate', the parallel run allows fallback, and the move 'does not reduce headcount'. B makes fewer unsupported additions (mainly 'all rated manageable by engineering'), is shorter and more readable in a couple of minutes, and puts the 0.5 FTE directly in the cost table.",
+   "errors_with": [
+    "Claims the 2-week overlap 'doubles that month's infrastructure bill' (not in the source)",
+    "Claims dashboard and plugin rework is 'included in the 6-week estimate' (not stated)",
+    "Claims the parallel run allows fallback and that the move 'does not reduce headcount' (invented)"
+   ],
+   "errors_without": [
+    "Says the risks are 'all rated manageable by engineering' (not in the source)",
+    "Says an upgrade 'would require a new license' and 'hasn't been priced'; the source says only that it requires license review"
+   ]
+  },
+  {
+   "component": "skill-tech-writing",
+   "case": "search-migration-brief-for-finance-vp-en",
+   "A": "without",
+   "B": "with",
+   "stem": "4481671e00__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both memos state the ask early, carry the figures over correctly and put the risks in business terms, and B's notes add useful checks on the cost basis and the security claim. However, B's memo text adds several claims the engineering text does not support: the rework is 'included in the 6-week estimate', the overlap 'doubles that month's bill', parallel running lets us 'fall back', and the change 'does not reduce headcount'. A embellishes less and is tighter, so it fits the brief better on faithfulness and length.",
+   "errors_with": [
+    "Claims the dashboard and add-on rework is included in the 6-week estimate (not stated)",
+    "Claims the 2-week overlap doubles that month's infrastructure bill (not stated)",
+    "Claims parallel running allows fallback and that recent data is unaffected (not stated)",
+    "Asserts no headcount reduction (not stated)"
+   ],
+   "errors_without": [
+    "Says the risks are 'all rated manageable by engineering', which the source does not say",
+    "Claims the cold-data tier is 'where much of the savings comes from', which is not supported by the source",
+    "Overstates the upgrade as requiring 'a new license' when the source says only that it requires a license review"
+   ]
+  },
+  {
+   "component": "skill-tech-writing",
+   "case": "wal-disk-full-runbook-for-night-support-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "4830d46662__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both are strong, near-equivalent runbooks: trigger, numbered steps, explicit ban on touching pg_wal, pg_replication_slots diagnosis, clear escalation to Andrey. Both also include an emergency pg_drop_replication_slot step for the on-call person, gated on Andrey's prior approval, so both only partly meet the no-drop requirement, and neither gives an explicit rollback for the connector restart. B edges ahead for non-DBA usability: it shows sample command output, uses a simple Use% severity table in place of A's rate arithmetic, explains why sudo -u postgres is needed and tells Andrey outright to delete the drop step if he does not approve it; its only weakness is an untagged output block.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-tech-writing",
+   "case": "wal-disk-full-runbook-for-night-support-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "4830d46662__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both runbooks are nearly equivalent in safety and structure, and both include a gated emergency slot drop left for Andrey to approve, so neither fully meets the rule that on-call staff must not drop the slot themselves. B has a dedicated escalation step that lists exactly what to report, a clearer diagnosis table (a pg_wal size check, a missing slot, an active but lagging slot) and handling for the 'is active for PID' error. A leaves its sample-output code block without a language tag.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-purchase-research",
+   "case": "laptop-conflicting-reviews-en",
+   "A": "without",
+   "B": "with",
+   "stem": "4a55e83d49__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers rank the sources the same way, weigh the $550 against the ~12% and ~2h gaps, and recommend Y with clear conditions for choosing X. B makes the trade-off more explicit: its side-by-side table ties each difference to the user's priorities, and it points out that the 30-minute test matches the user's 30-40 minute builds. B also adds a build-on-battery test that fits the travel use case, while A's claim that a GaN charger would make up the battery gap does not help when no outlet is available.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-purchase-research",
+   "case": "laptop-conflicting-reviews-en",
+   "A": "with",
+   "B": "without",
+   "stem": "4a55e83d49__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers rank the sources correctly, quantify the $550 premium against the ~12% and ~2h gaps, recommend Y, and state when X would win. B adds a few more useful, workload-specific points: I/O and linking may shrink the build gap, a check that the review tested the exact configuration, and spending the savings on travel charging gear to offset the battery gap. A's side-by-side table is slightly clearer, but B's extra practical guidance gives it a narrow edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-purchase-research",
+   "case": "robot-vacuum-three-tiers-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "4d85953749__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers exclude C on height, flag B's 1 mm margin, use correct weighted matrices and give a conditional recommendation (B, with A as the fallback), so both meet every rubric item. B goes further on item 3: it quantifies that B's +18,000 rubles buys gains in hair pickup and self-emptying, and that C's +37,000 rubles adds zero weighted benefit even if height is ignored. It also includes a weight-sensitivity check that makes the ranking more robust. A's approach of weighting clearance inside the matrix is sound, but its value-for-money reasoning is less explicit, and B's suggestion of furniture risers adds a practical workaround.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-purchase-research",
+   "case": "robot-vacuum-three-tiers-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "4d85953749__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers treat C's 10.3 cm height as disqualifying, flag B's 1 mm margin, use correct weighted matrices, and give a conditional B-then-A recommendation without invented test data. A goes a bit further on the rubric's cost-benefit point: it scores C in the matrix to show that the extra ~37,000 rubles buys zero net gain, attributes C's premium explicitly to mopping, the camera and the cosmetic colour, and adds a correctly computed weight-sensitivity check. B double-counts clearance, once as a filter and again as a weighted criterion, and includes an odd meta remark about source tiers, although its extra pre-purchase checks (rug under the sofa, bag costs) are useful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-report-formats",
+   "case": "ab-test-slack-one-liner-en",
+   "A": "without",
+   "B": "with",
+   "stem": "7d67ce751c__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers open with a direct yes and give correct statistics (z about 3.4, p about 0.0007, CI about +0.47 to +1.73pp), and both include a usable Slack draft. Both also add a table and a numbered caveat section, which goes beyond the brief-clause standard; B's section is longer, with four caveats, which adds more scaffolding. B's Slack draft also says 'Recommendation: ship B' while its own advice is to check revenue first, whereas A's draft and its follow-up note handle that pending check more consistently.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-report-formats",
+   "case": "ab-test-slack-one-liner-en",
+   "A": "with",
+   "B": "without",
+   "stem": "7d67ce751c__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answer yes up front with correct figures (6.1% vs 5.0%, +22%, z≈3.4, p≈0.0007, CI ~+0.47 to +1.73pp) and give a ready-to-paste Slack draft, but both add a numbered multi-item caveat section beyond a brief clause. B's caveat list is slightly shorter and its Slack draft is tighter, with a clear note on how to edit the 'checking' line once revenue is confirmed. A is a bit less consistent: it tells the user to check revenue before posting, yet its draft says the team will check revenue next.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-system-design",
+   "case": "flash-sale-inventory-multi-region-en",
+   "A": "with",
+   "B": "without",
+   "stem": "8895b2d703__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers identify overselling as the core risk, name the consistency-versus-latency trade-off, use the numbers, and propose reservation/escrow/single-owner alternatives with costs, so both meet every rubric item. B makes regional quotas the concrete design, explains the conflict mechanics more clearly (lost update under LWW, local-only conditional checks), and gives a fuller failure-mode table covering partitions, region outages, payment failures and retries, plus an order of work. A is equally correct and a bit more pragmatic, but its treatment of region unavailability and of the order-database question is thinner.",
+   "errors_with": [],
+   "errors_without": [
+    "Says EU reservations happen in 'Frankfurt/Dublin latency terms', but eu-west-1 is Ireland only; Frankfurt is eu-central-1 (minor)."
+   ]
+  },
+  {
+   "component": "skill-system-design",
+   "case": "flash-sale-inventory-multi-region-en",
+   "A": "without",
+   "B": "with",
+   "stem": "8895b2d703__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly identify oversell from async replicated decrements, note that strong consistency brings the latency back, propose per-region quotas, a reserve-then-pay flow and SKIP LOCKED, and cover failure modes. B states more clearly that the core problem is contention and fast rejection rather than raw throughput, and expects SKIP LOCKED on the existing RDS to handle these numbers, which fits rubric item 3 more closely. B also proposes a lower-risk phased path: keep a single owner and optimize the edge first, then move to escrow only if the remaining latency is shown to hurt. A goes straight to regional quotas.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-source-trust-tiers",
+   "case": "remote-work-13-percent-claim-en",
+   "A": "with",
+   "B": "without",
+   "stem": "8e06ebac4a__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers trace the figure to Bloom's Ctrip trial, say the five sources count as one, flag the limits of that one study, mark recalled details for checking, and give attributed rewrites. B rates every source explicitly, including Forbes contributor and Medium pieces as unedited opinion platforms, and says outright that the call-center setting does not transfer to knowledge work. A's second rewrite blends the 2015 and 2024 results into one 'no measurable productivity loss' claim, which is a little looser than B's single-study rewrite.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-source-trust-tiers",
+   "case": "remote-work-13-percent-claim-en",
+   "A": "without",
+   "B": "with",
+   "stem": "8e06ebac4a__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers trace the figure to Bloom's Ctrip experiment, reject 'multiple studies confirm', rank the sources by credibility, flag uncertain details as recalled from memory, and give accurate attributed rewrites. B states the limits on generalizing more fully: the participants were volunteers, the study ran in one company around 2010, and it did not test fully-remote work. A covers the single firm, the single job type and the hybrid setup but does not mention the pre-pandemic timing. B also gives a more usable CFO-oriented rewrite with placeholders for the company's own figures. The two answers are otherwise close in quality.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-reasoning-logic",
+   "case": "rate-limiter-sabotage-accusation-en",
+   "A": "with",
+   "B": "without",
+   "stem": "9654c12663__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers flag the implied intent, offer the accidental templating explanation, and replace the punishment with systemic fixes in a similar structure. A also points out that 'routed to a newly hired reviewer' implies Dan picked the reviewer, asks whether CODEOWNERS or round-robin assigned her, and adds an action item to confirm how the flag flipped. B treats that phrase only as blame on the junior and includes the unverified claim that the change 'was not called out in the PR'.",
+   "errors_with": [
+    "Refers to the reviewer as 'her'; the reviewer's gender is not given"
+   ],
+   "errors_without": [
+    "States as fact in the rewrite that the change 'was not called out in the PR', which the timeline does not establish"
+   ]
+  },
+  {
+   "component": "skill-reasoning-logic",
+   "case": "rate-limiter-sabotage-accusation-en",
+   "A": "without",
+   "B": "with",
+   "stem": "9654c12663__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers flag the unsupported intent, offer the accidental templating explanation, and give comparable blameless rewrites with systemic action items. B explicitly challenges the implication that Dan chose the new reviewer to avoid scrutiny and asks whether assignment was automatic, and it adds an action item to confirm how the flag flipped; A treats the reviewer point mainly as blaming the junior. Both run longer than the requested short tightening, so neither fully meets the brevity item.",
+   "errors_with": [
+    "Assumes the reviewer's gender ('her') and calls the gateway limiter 'the only thing protecting the DB', neither of which is established"
+   ],
+   "errors_without": [
+    "Asserts the approval went through 'our standard single-reviewer process', which the user did not state"
+   ]
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "roblox-fireball-lag-en",
+   "A": "without",
+   "B": "with",
+   "stem": "ae6233623c__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the problem the same way, meet every rubric item, and ship nearly identical server spherecast plus client-rendered architectures. A is slightly more robust: it tells the caster to remove the predicted visual when the server rejects a cast (B leaves a ghost fireball), caps active projectiles per player, notifies clients on range fizzle, and gives concrete exploit-test steps. B's quick-fix option (SetNetworkOwner(nil), Debris) and its note about mouse.Hit aiming are useful, but they don't outweigh A's more complete handling of edge cases.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "roblox-fireball-lag-en",
+   "A": "with",
+   "B": "without",
+   "stem": "ae6233623c__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the problem the same way and ship nearly identical server-spherecast plus client-rendered designs that meet every rubric item. B is somewhat more robust: when the server rejects a cast, it tells the caster to remove the predicted visual; it caps active projectiles per player, validates input more thoroughly, sends an explicit end event when a fireball misses, and filters the mouse from hitting its own FX. A's predicted visual stays on screen until timeout after a server-side cooldown rejection, and A gives a less thorough testing and exploit-check plan.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-reasoning-logic",
+   "case": "sso-priority-pitch-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "c272d8f44c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers identify all four weak links, replace the 'lose the whole enterprise segment' claim with measurable risk, and give a one-page Russian pitch with placeholders and the reports trade-off. B states the hidden assumption more directly: it lists 'SSO is not the main cause of churn' as a key risk with a way to test it, and puts an explicit '$ at risk from SSO > $ from reports' comparison in the pitch. B also raises build vs buy, which the CTO is likely to ask about. A's pitch wording is slightly more cautious ('SSO is becoming a condition'), but this does not outweigh B's more explicit treatment of the assumptions.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-reasoning-logic",
+   "case": "sso-priority-pitch-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "c272d8f44c__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers take apart all four arguments, list what data to gather, and give a one-page pitch with placeholders and the reports trade-off, so they are close. A states the hidden assumption outright ('SSO не главная причина оттока') as a named risk with a check, and it raises build vs buy, which is a likely CTO challenge; B handles the assumption only implicitly ('жаловались' ≠ 'уйдут'), though it offers SAML/SCIM phasing and a pilot. Both pitches still say, without support, that SSO blocks security review and that the 3 clients raised SSO on their own, so neither is clean on that point.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-structured-output",
+   "case": "review-pipeline-strip-prefix-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "c67db7beea__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers share an essentially identical, correct extract_json function, a schema-fixed prompt with enum and example, Pydantic validation with retry/error-table path, and are in Russian, so every rubric item is met by both. B edges ahead with a transitional normalization layer (tone->sentiment and value mapping) in the parsing path, a step to inspect actual 'tone' values before migrating, and a practical note to manually check needs_support_reply correctness. A's explicit BEGIN/COMMIT migration is slightly safer to run, but B's extra operational guidance serves the user a bit better overall.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-structured-output",
+   "case": "review-pipeline-strip-prefix-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "c67db7beea__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers are in Russian and share the same extract_json function, schema diagnosis, enum-based revised prompt with a concrete example, and pydantic validation with a retry-then-error-table path. A adds a transitional tone/sentiment normalization map in the validator; B adds an explicit note on what the extractor cannot fix, a clearer two-step transactional migration and an order of rollout. These offsetting strengths leave neither clearly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "support-agent-prompt-premature-claims-en",
+   "A": "with",
+   "B": "without",
+   "stem": "ced18b8873__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "B requires a get_order check of order total and existing refund status before issue_refund, which prevents both observed refund failures, while A lacks any pre-refund verification. Both prompts handle premature claims, invented IDs and 404 recovery well within the word limit. B also flags the real assumption that get_customer returns order IDs, and A's extra regression table does not make up for the missing pre-check.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-react-pattern",
+   "case": "support-agent-prompt-premature-claims-en",
+   "A": "without",
+   "B": "with",
+   "stem": "ced18b8873__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A's prompt explicitly requires calling get_order to check the order total and existing refund status before issue_refund, which prevents both observed refund failures; B omits this pre-check and only handles failures after the fact. Both handle premature claims, invented IDs via get_customer, and 404 recovery well, and B's extra regression table and code guards are useful but secondary. A also correctly flags the assumption that get_customer returns order IDs.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-temporal-validation",
+   "case": "soc-status-timestamps-en",
+   "A": "with",
+   "B": "without",
+   "stem": "d344bc1a14__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in structure and correctly handle the VPN update, the EDR time conversion, the unverified screenshot/Reddit items, and the older kernel article. A adds details that were not given: it calls the kernel bug 'local-only' and labels Sep 25, 2026 a Thursday, when it is actually a Friday. B avoids these, keeps the vendor's CISA claim attributed, and stays equally concise and ready to paste.",
+   "errors_with": [
+    "Header calls Sep 25, 2026 a Thursday; it is a Friday",
+    "Asserts the kernel bug is 'local-only', a detail not given in the source"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-temporal-validation",
+   "case": "soc-status-timestamps-en",
+   "A": "without",
+   "B": "with",
+   "stem": "d344bc1a14__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical triage, correct UTC conversion, and a clear act-today vs. noise split; B adds useful owner/ETA fields and a cleaner 'this week' tier. However, B labels Sep 25, 2026 as Thursday (it is a Friday) and asserts the kernel bug is 'local-only', a specific not given in the source. A stays strictly within the provided facts, which gives it a slight edge.",
+   "errors_with": [
+    "Header says 'Thu Sep 25' but Sep 25, 2026 is a Friday",
+    "Describes the kernel bug as 'local-only', which was not stated in the input"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "roblox-shop-ui-not-updating-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "e3c7a31a67__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the DataStore/leaderstats disconnect, explain the yield-based race, deduct synchronously from an in-memory balance, and validate itemName with typeof and FindFirstChild, all in Russian. B goes further on rubric item 3: it lists the pcall and nil-for-new-player problems explicitly and gives working load/save code with pcall, a loaded guard against overwriting data after a failed load, autosave and BindToClose, while A covers these only as brief bullets. A's extra points (the per-player cooldown and the warning that an existing leaderstats save could make purchases free) are useful but do not outweigh B's complete, safer implementation.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-roblox-development",
+   "case": "roblox-shop-ui-not-updating-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "e3c7a31a67__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the leaderstats/DataStore split and the yield race, and both validate itemName with typeof and FindFirstChild in Russian. A adds complete, working persistence code: pcall-protected load with a nil default, a loaded flag that blocks saving 0 over the real balance, autosave and BindToClose. B only describes these steps in prose, and its server script drops DataStore loading entirely, so the user still has to write it. B's extra points (the per-player cooldown, the 'Name' property pitfall and the warning that purchases may currently be free) are valuable, but they do not outweigh A's more complete and safer implementation.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-report-formats",
+   "case": "crm-choice-memo-for-director-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "ff076c0a66__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both compute the totals correctly and do the sensitivity analysis accurately, but both open with a deferred decision instead of naming amoCRM as the recommendation. B's memo is easier for a director to act on: it has a decision rule fixed in advance (amoCRM if it covers the required 1C scenarios, otherwise Bitrix24), an explicit ask of the director, and the ~29% 1C-weight tipping point. A's memo leans toward Bitrix24 conditionally inside the recommendation, which is vaguer, though its extra scenarios are also correct.",
+   "errors_with": [
+    "Claims Megaplan never reaches first place under reasonable weights, yet its own scenario (price 20%, 1C 35%) gives a three-way tie at 3.85"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-report-formats",
+   "case": "crm-choice-memo-for-director-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "ff076c0a66__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both compute the totals correctly, but both open by deferring the decision and neither leads with amoCRM, and both explain the leader's advantage only through strengths and weaknesses. B's sensitivity analysis goes further and is verified (a 2.5 pp shift ties the two leaders, at 1C 35% Bitrix24 wins 4.15 vs 3.85, and at price 20% / 1C 35% all three score 3.85), and its next steps name owners and give a fallback timeline. A's memo is tighter and has a clear pre-agreed decision rule, but it wrongly says Megaplan trails under any reasonable weights, and B's added depth outweighs that brevity.",
+   "errors_with": [
+    "States Megaplan never comes first at reasonable weights while also showing it ties for first at price 20% / 1C 35% (minor inconsistency)"
+   ],
+   "errors_without": [
+    "Claims Megaplan trails at any reasonable weights, but at price 20% / 1C 35% all three systems tie at 3.85"
+   ]
+  }
+ ],
+ "missing": []
+}

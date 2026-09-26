@@ -1,0 +1,35 @@
+{
+  "component": "implant-narrative-of-thought",
+  "cases": [
+    {
+      "id": "outage-root-cause-mixed-tz-ru",
+      "agent": "data_forensic",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишем постмортем по вчерашнему падению API, нужна вторая пара глаз. Черновик: \"Корневая причина — релиз payments-service v2.14.0. Откат выполнен, но ошибки держались ещё ~15 минут из-за медленного отката\". Ниже что насобирали, скидывали в чат кто что нашёл.\n\n- ArgoCD: payments-service v2.14.0 synced, 11:12:40 UTC\n- Slack, дежурный: \"алерт HighErrorRate api-gateway, 5xx 7%\" — 14:07 MSK\n- Postgres: FATAL: remaining connection slots are reserved for non-replication superuser connections — первое вхождение 11:02:31 UTC, дальше сотни в минуту\n- ArgoCD: rollback payments-service на v2.13.2, 11:25:10 UTC\n- k8s: CronJob report-export (schedule \"0 11 * * *\") pod started 11:00:04 UTC\n- Slack, Костя: \"убил под report-export, он висел дольше обычного\" — 14:40 MSK\n- Grafana: 5xx api-gateway вернулся ниже 0.5% в 14:41 MSK\n- Slack, дежурный: \"вижу свежий деплой payments, откатываю\" — 14:24 MSK\n\nНормальный черновик или я что-то упускаю?",
+      "why_in_scope": "The implant makes the model first normalize all events to one timeline and walk through them in order: report-export start 11:00 UTC, Postgres connection exhaustion 11:02, alert 11:07 UTC, deploy 11:12 UTC, rollback 11:25 with no effect, job killed 11:40, recovery 11:41. That ordering shows the errors began before the release and ended right after the job was killed, so the draft's root cause is wrong. A strong model without it tends to accept the salient 'fresh deploy' framing or reason about the bullet list without converting MSK to UTC.",
+      "rubric": [
+        "Converts MSK to UTC (MSK = UTC+3) and lays out the events in a single correct chronological order",
+        "States that the errors (Postgres connection exhaustion at 11:02 UTC, alert at 11:07 UTC) started before the v2.14.0 deploy at 11:12 UTC, so the release cannot be the root cause as drafted",
+        "Identifies the report-export CronJob exhausting Postgres connections as the most likely cause, citing that recovery at 11:41 UTC followed killing the job at 11:40 UTC and not the rollback at 11:25 UTC",
+        "Notes that this is a correlation to confirm (e.g. by checking which client held the connections, such as pg_stat_activity or connection counts by application) rather than asserting it as proven"
+      ]
+    },
+    {
+      "id": "scrambled-slack-final-decision-en",
+      "agent": "semantic_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "Copy-pasted this from our #launch-billing channel (thread replies included). My manager wants a 3-line answer I can forward: final launch date, is SSO in scope, and who owns the data migration.\n\n[Tue 16:45] Priya: ok final: we go Oct 21, SSO stays in, Marco owns migration\n[Tue 10:02] Dan: Legal flagged the DPA for EU customers, we can't enable SSO for EU tenants until it's signed\n[Wed 09:15] Priya (thread reply): after the call with legal - DPA won't be signed before November. Dropping SSO from v1, which means we can keep Oct 14. Migration moves to Aisha since Marco is taking the SSO follow-up\n[Tue 11:30] Marco: if SSO is in I need an extra week, realistically Oct 21\n[Mon 15:00] Priya: kickoff - launch Oct 14, SSO in scope, Marco on migration + SSO\n[Wed 09:40] Aisha: 👍 on migration, I'll need read access to the prod billing DB\n[Tue 16:50] Dan: fine by me",
+      "why_in_scope": "The implant makes the model reorder the messages by timestamp and follow how each decision caused the next: kickoff (Oct 14, SSO in), Marco's estimate pushes to Oct 21, the Tuesday 'ok final' message, then Wednesday's legal outcome drops SSO, restores Oct 14 and hands migration to Aisha. A strong model without it can latch onto the message explicitly labelled 'final' or the first line of the paste and report Oct 21 / SSO in / Marco.",
+      "rubric": [
+        "Reports the final state as: launch Oct 14, SSO not in v1, Aisha owns the migration",
+        "Explains or makes clear that the Tuesday 'ok final' message (Oct 21, SSO in, Marco) was superseded by Priya's Wednesday 09:15 message after the legal call",
+        "Gives the reason for the change (the EU DPA will not be signed before November, so SSO was dropped, which allowed keeping Oct 14)",
+        "Gives a forwardable answer of about three lines as requested; the answer must not report Oct 21, SSO in scope or Marco as the final state anywhere"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Removed the explicit hints that made both cases easy: case 1 no longer tells the model that Slack/Grafana are MSK and the rest UTC or that the list is unordered (per-line MSK/UTC labels remain, so it stays answerable); case 2 no longer says the paste is out of order. Tightened case 2 rubric item 4 to penalise reporting the superseded Tuesday decision; verified all timeline facts (MSK=UTC+3) and agents (owners data_forensic, semantic_expert)."
+}

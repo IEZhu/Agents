@@ -1,0 +1,35 @@
+{
+  "component": "implant-output-priming",
+  "cases": [
+    {
+      "id": "alert-card-llm-generator-drift-ru",
+      "agent": "alerts_describer",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас есть скрипт на Python, который проходит по всем правилам из prometheus-rules (их около 140) и для каждого алерта просит LLM сгенерить карточку для дежурных. Карточка должна быть строго в таком виде, потому что потом её парсит наш бот и заливает в Confluence:\n\n## <имя алерта>\n**Severity:** <critical|warning|info>\n**Что сломалось:** <1-2 предложения>\n**Первое действие:** <одна команда или действие>\n**Диагностика:**\n- `kubectl ...`\n**Grafana:** <ссылка или \"нет\">\n\nСейчас промпт такой: \"Ты SRE. Сделай карточку для алерта по шаблону выше. Строго соблюдай формат. Правило: {rule_yaml}\". Проблема: примерно в 15-20% случаев модель начинает с \"Конечно! Вот карточка для алерта ...\", иногда оборачивает всё в ```markdown, иногда пишет \"### KubePodCrashLooping\" вместо \"##\" или добавляет от себя раздел \"Возможные причины\" в конце. Бот на этом падает. Добавлял капсом \"НЕ ПИШИ НИЧЕГО КРОМЕ КАРТОЧКИ\" — стало чуть лучше, но не решило. Как переделать запрос к модели, чтобы формат держался стабильно? Покажи готовый вариант промпта для алерта KubePodCrashLooping.",
+      "why_in_scope": "The implant makes the model steer the generator by supplying the opening of the expected output itself (e.g. the prompt ends with, or the model's reply is pre-started with, '## KubePodCrashLooping\\n**Severity:**') so the model continues the structure instead of choosing how to begin, optionally with a closing marker or stop point after the last field. A strong model without it tends to give only more instructions, few-shot examples or post-processing regexes, which leave the preamble, heading-level and extra-section drift the user already saw with shouting in caps.",
+      "rubric": [
+        "The rewritten prompt already contains the first lines of the card filled in by the caller (at least the '## KubePodCrashLooping' heading and the start of the Severity line) and asks the model to continue from there, or the answer explicitly recommends starting the model's reply with that fragment.",
+        "The answer explains why pre-starting the output removes the preamble, code-fence and wrong-heading failures, and addresses how to stop the model from adding sections after the Grafana line (e.g. an end marker/stop point after the last field, or trimming everything after it).",
+        "The shown KubePodCrashLooping example keeps the user's exact field names, order and markup, and its content is plausible: a first action such as inspecting or rolling back the crashing deployment, and diagnostics like kubectl logs --previous and kubectl describe pod.",
+        "The answer stays focused on the user's generator and prompt, without replacing the user's card format with a different one."
+      ]
+    },
+    {
+      "id": "mermaid-generator-inconsistent-output-en",
+      "agent": "diagram_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "We have an internal docs tool: engineers paste a short plain-text description of a request flow between services, and we call an LLM to turn it into a Mermaid sequence diagram that gets rendered straight into the page with mermaid 10.9. Our prompt is basically \"Convert the following description into a Mermaid sequence diagram. Use participants with short aliases. Output only Mermaid code.\" + the description. Results are all over the place: sometimes it's wrapped in ```mermaid fences and sometimes not, sometimes it outputs `graph TD` instead of a sequence diagram, participant aliases change style between runs (`API`, `api_gw`, `ApiGateway`), and once in a while there's a sentence of explanation after the code, which makes the renderer throw a parse error. We want every diagram to start with `sequenceDiagram`, then `autonumber`, then participants declared as `participant GW as API Gateway` style, in the order they first appear. Can you rewrite the prompt so the output is consistent? Use this description as the example: \"Mobile app calls API Gateway, gateway validates the JWT with Auth Service, then forwards to Orders Service which reads from Postgres and returns the order; gateway returns 200 to the app.\"",
+      "why_in_scope": "The implant makes the model anchor the generator by writing the start of the desired output into the request itself, e.g. ending the prompt with 'sequenceDiagram\\n    autonumber\\n    participant' (or pre-starting the model's reply with it) so the model can only continue a sequence diagram in the fixed alias style. A strong model without it usually just piles on more format rules or a few-shot example, which still leaves room for fences, the wrong diagram type and trailing prose.",
+      "rubric": [
+        "The rewritten prompt ends with (or instructs pre-starting the model's reply with) the opening lines of the diagram itself, at least 'sequenceDiagram' and 'autonumber', and possibly the first participant line, for the model to continue.",
+        "The answer explains or handles how the output ends so no prose follows the diagram (e.g. a stop marker, or cutting after the last message line) and notes that the caller must prepend the pre-written opening back when assembling the final Mermaid text if the model only returns the continuation.",
+        "The example diagram for the given description is valid Mermaid sequence syntax, declares participants in first-appearance order (Mobile app, API Gateway, Auth Service, Orders Service, Postgres) using 'participant X as Name', and includes the JWT validation, forward to Orders, Postgres read and the 200 response back to the app.",
+        "The answer keeps to the user's required conventions and does not switch to a flowchart or a different alias scheme."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases verified: in scope (format drift persists after plain instructions, so pre-writing the output's opening is the rewarded fix), no leak of priming/prefill terms, tool-less, owner agents, factual items (kubectl logs --previous, Mermaid autonumber and 'participant X as Name' syntax, first-appearance order) correct. No edits needed beyond marking checked."
+}

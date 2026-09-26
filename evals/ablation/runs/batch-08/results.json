@@ -1,0 +1,513 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-ux-principles",
+   "case": "ux-gray-secondary-text-contrast-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "0846cfc918__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly reject both greys with accurate contrast ratios (~2.7:1 and ~2.2:1) and recommend #767676 or darker, framed around readability in a banking context. B builds a slightly stronger call argument: it ties unreadable text to operational errors and support calls, gives concrete hierarchy alternatives (size, weight, brand tint to address the 'dirty' complaint), and proposes a quick user test. A is a bit tighter and adds the useful disabled-state exception, but B's argument is more persuasive for closing the dispute, though it is slightly less short.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-ux-principles",
+   "case": "ux-gray-secondary-text-contrast-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "0846cfc918__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reject both greys, give correct contrast figures (about 2.7:1 and 2.2:1) and recommend concrete passing greys (#767676, #757575, #6B6B6B). Both base the argument on readability in a banking context and mention the EAA with a caveat to check with lawyers. A adds a quick user test and brand tinting, while B adds the valid exception for disabled and decorative elements; these extras roughly balance out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-analogical-prompting",
+   "case": "candies-boxes-combinatorics-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "32948c4110__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical: correct 84 via C(9,3), the same correct enumeration table, and the same explicit divider idea; neither offers a truly different setting such as cutting a bar, only the equation reformulation plus a list of box synonyms. B maps the equation to the problem more explicitly (x_i is the number of candies in box i) and names the student's two concrete pitfalls (missed partitions, permutations with repeats), which diagnoses the error more clearly. B also gives a graded set of transfer exercises (lower bounds, identical boxes), which better supports recognizing such problems later.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-analogical-prompting",
+   "case": "candies-boxes-combinatorics-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "32948c4110__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give 84 with a correct full case table and a clear dividers-in-9-gaps bijection, and both map only one outside setting (x1+x2+x3+x4=10) while merely listing other contexts, so item 2 is partial for each. A diagnoses the student's two specific traps more concretely (missed partitions such as 7+1+1+1 and 4+4+1+1, and 4+2+2+2 giving 4 rather than 24). A's three graded practice problems, including the identical-boxes trap and a lower-bound equation, give slightly more transfer practice than B's single exercise.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-automatic-reasoning",
+   "case": "mortgage-payment-current-rate-en",
+   "A": "without",
+   "B": "with",
+   "stem": "37f49dda9e__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers decline to state a current rate, compute correct P&I and totals across a rate table, and identify the ~6.84% break-even, so they are nearly equivalent on the rubric. A also gives the amortization formula, so the user can recompute the payment at any quoted rate. B adds an unverified recollection that rates are in the low-to-mid 6% range; it is clearly flagged, but it pulls the reader toward a stale number and adds little.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-automatic-reasoning",
+   "case": "mortgage-payment-current-rate-en",
+   "A": "with",
+   "B": "without",
+   "stem": "37f49dda9e__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers say they cannot look up the live rate, compute correct P&I and totals, and give the 6.84% break-even rate. B also gives the amortization formula and a break-even row in the table, so the user can redo the check with any quoted rate. A offers an unverified recollection of the current average rate, which it flags as unchecked; it adds little and is slightly less clean than B's approach of giving no number.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-wayback-machine",
+   "case": "stealth-edit-press-release-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "5564ec43d3__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: CDX with collapse=digest, id_ raw captures, bounding the edit between the last OLD and first NEW capture, and a paced script with backoff. B's matching is more robust: its lookbehind stops 'II' from matching inside 'III квартал 2027', which A's NEW pattern would falsely match, and it normalizes the Cyrillic І and the encoding. B also adds practical evidence steps: checking the publication date in the first NEW capture, UTC-to-Moscow conversion, and ready-to-use wording for the editor. A's advantage is that its script prints the transitions automatically, while B's prefix wildcard (URL*) can pull in neighbouring URLs and mix up the time order.",
+   "errors_with": [
+    "Using URL + '*' does a prefix match that can include unrelated pages like zhk-severny-2, and the comment that it is needed to catch http/https is misleading because CDX already ignores the scheme"
+   ],
+   "errors_without": [
+    "NEW regex 'II\\s+квартал...2027' also matches 'III квартал 2027', which can misclassify captures"
+   ]
+  },
+  {
+   "component": "skill-wayback-machine",
+   "case": "stealth-edit-press-release-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "5564ec43d3__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly equivalent and satisfy every rubric item: CDX with collapse=digest, raw snapshots via id_, a bounded interval with a caveat, and a paced script with backoff. A is a bit more robust for this Russian-language case, since it handles cp1251, non-breaking spaces, the Cyrillic І and 'кв.' abbreviations, and it gives a ready-made, defensible sentence for the editor plus the check of the publication date in the first NEW snapshot. B's automatic printing of transitions and its caution about the API parameters are good points, but they do not fully offset A's edge in completeness.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-analogical-prompting",
+   "case": "mystery-killer-too-obvious-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5645320e50__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Neither answer draws an explicit parallel from outside mystery writing, and both correctly diagnose the red-herring failure and give concrete revisions that keep Margaret as the killer. B adds a few sharper practical points: send the revision to fresh beta readers because the original five already know the answer, shift the central question away from motive, and watch out for the genre-savvy trope of the always-helpful character. B is also honest that it hasn't read the manuscript, while A's distinct strength, asking the betas what tipped them off, is valuable but doesn't quite outweigh those points.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-analogical-prompting",
+   "case": "mystery-killer-too-obvious-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5645320e50__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Neither answer draws an explicit parallel from outside mystery writing (stage magic, cons, games), so both miss item 1. Both correctly diagnose why the added red herrings failed and give concrete revisions that keep Margaret as the killer, such as defusing the inheritance, giving her a solid alibi that breaks late, and deepening fewer herrings. B edges ahead on revision practicality: it suggests auditing the first five chapters for signaling cues and asking the betas what tipped them off, which could point to a targeted fix instead of a restructure. A's advice to use fresh beta readers is also useful but somewhat narrower.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-token-economy",
+   "case": "prompt-contradiction-fix-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "596162bb17__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the conflict in one line, replace only the 'Формат ответа' block with an explicit exception, and leave tone, restrictions and escalation untouched. B gives a single decisive drop-in block that sets the priority explicitly, bounds each step's length, and includes the example, plus a targeted test table that covers the dangerous-case path. A splits its answer into two alternatives, and its recommended option (dialog-style diagnosis) changes bot behavior more than the user asked, which makes it slightly less direct.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-token-economy",
+   "case": "prompt-contradiction-fix-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "596162bb17__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both diagnose the conflict up front, replace only the 'Формат ответа' block with an explicit, bounded exception for technical answers, and leave tone, restrictions and escalation untouched. A gives a single ready-to-paste block with an embedded example and a targeted test table, which fits a user who said the rest of the prompt is fine. B's recommended option redesigns the flow into multi-turn diagnosis, which is more scope change than asked, although its second option and honest caveats are solid.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-active-prompting",
+   "case": "postgres-migration-quick-checks-en",
+   "A": "without",
+   "B": "with",
+   "stem": "6df08d1313__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly flag the traps in #2 and #4 and give nearly identical safe migration sequences and NOT EXISTS rewrites, and both get #1, #3 and #5 right. Both also go beyond the requested one-line answers on the simple items, adding caveats on lock_timeout, CHECK constraints and INVALID indexes. The small differences cancel out: B adds the NULL customer_id note and the anti-join point, while A's practical suggestion to pull the migration from tonight's release is just as useful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-active-prompting",
+   "case": "postgres-migration-quick-checks-en",
+   "A": "with",
+   "B": "without",
+   "stem": "6df08d1313__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly flag #2, #3 and #4 and give near-identical, correct remediation sequences, including NOT EXISTS and a batched backfill with a NOT VALID CHECK before SET NOT NULL. A adds the useful point that orders with a NULL customer_id are also excluded. B adds practical release advice (pull the migration, a DOWN step, the IF NOT EXISTS caveat) but runs a bit longer on the easy items. Both pad the simple items (1, 3, 5) beyond the one-line reason the user asked for, so neither has a decisive edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-ux-principles",
+   "case": "ux-icon-only-bottom-tabs-en",
+   "A": "with",
+   "B": "without",
+   "stem": "714a5c3b96__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers make nearly the same points: they push back honestly, name the ambiguous tabs, mention accessibilityLabel, suggest going from six tabs to five, and propose a first-click or A/B test. A's paste-ready paragraph is exactly 5 sentences, which fits the request, while B's runs to 6. B's paragraph also claims the design 'meets WCAG AA' with no support, which is an overclaim in a paste-ready doc.",
+   "errors_with": [],
+   "errors_without": [
+    "Paste-ready text asserts the labeled design 'meets WCAG AA' without basis; keeping labels does not by itself establish WCAG AA conformance"
+   ]
+  },
+  {
+   "component": "skill-ux-principles",
+   "case": "ux-icon-only-bottom-tabs-en",
+   "A": "without",
+   "B": "with",
+   "stem": "714a5c3b96__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in substance: each flags the ambiguous icons, notes accessibilityLabel, proposes a compromise with five tabs and refined labels, and suggests a first-click or A/B test. B's paste-ready paragraph fits the requested 4-5 sentences, while A's runs to six sentences. A's also asserts, without support, that the design 'meets WCAG AA', which a reviewer could challenge. B adds a concrete test plan and a sensible Instagram counterexample, which makes it slightly more useful in a design review.",
+   "errors_with": [],
+   "errors_without": [
+    "Paste-ready text asserts the labeled design 'meets WCAG AA', which is an unverified compliance claim"
+   ]
+  },
+  {
+   "component": "skill-wayback-machine",
+   "case": "competitor-pricing-history-en",
+   "A": "without",
+   "B": "with",
+   "stem": "74d75ddc25__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose replay rewriting, use CDX digest/collapse=digest dedup, id_ raw fetches, and slow retry/backoff within a staged pipeline. B gives a more complete runnable parse-and-timeline sketch, but its CDX window (20220901 to 20250925) leaves out the most recent year of the user's requested last-3-years range, so the core query is wrong for the task. A's query covers the right window, it adds a seen_digests set for non-adjacent repeats, and it hedges its rate-limit figure properly, which gives it a slight edge.",
+   "errors_with": [
+    "CDX date range from=20220901&to=20250925 does not cover the last 3 years as of the current date (it omits roughly the most recent year)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-wayback-machine",
+   "case": "competitor-pricing-history-en",
+   "A": "with",
+   "B": "without",
+   "stem": "74d75ddc25__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose Wayback replay rewriting, recommend CDX digest collapse and id_ raw fetches, and add slow sequential fetching with backoff. A delivers a complete runnable pipeline through parsing and a dated change timeline, while B stops at a comment for the parse/diff stage. B adds useful extras (bisection, soft-404s, embedded JSON), but these do not outweigh A's more complete end-to-end restructuring.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-chain-of-abstraction",
+   "case": "three-lost-side-effects-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "89be86c033__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers name the dual-write root cause, reject the pre-commit publish for the right reason, and apply the same outbox design with idempotent consumers to all three cases. B goes a little deeper and is more careful: it adds more diagnostic causes (mandatory/returns, durability, DEL before commit), explains where duplicates come from, and says plainly that a bare SMTP send cannot be fully deduplicated, while flagging the provider-specific claims as unverified. A is almost as strong and a bit tighter, so the margin is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-chain-of-abstraction",
+   "case": "three-lost-side-effects-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "89be86c033__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers identify the shared dual-write problem, reject publishing before commit because it produces phantom orders, propose one shared outbox with at-least-once delivery and idempotent consumers, and apply it to each case with case-specific details (TTL as a backstop, versioning or double delete, and email dedup in a worker). A gives slightly more diagnostic depth (mandatory/durability checks, early consumer visibility, a DEL-before-commit check). B adds a useful AFTER_COMMIT+@Async trade-off and the concrete Spring config keys, so neither is clearly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-buffer-of-thoughts",
+   "case": "bank-csv-normalization-en",
+   "A": "without",
+   "B": "with",
+   "stem": "8a6dfb2542__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct conversions, a reusable checklist, a config-driven converter, and warnings about currency and transfers. B edges ahead by showing the full expected converted output for every sample row, explicitly using the 03/15 and 04/25 rows to prove MM/DD, and adding sharper checklist details (trailing minus, parentheses, duplicate overlap check, indicator-column handling). A's spreadsheet formulas are a real plus for a spreadsheet user, but they do not outweigh B's more complete verification guidance.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-buffer-of-thoughts",
+   "case": "bank-csv-normalization-en",
+   "A": "with",
+   "B": "without",
+   "stem": "8a6dfb2542__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct sample conversions, a reusable checklist, a config-driven converter, and the same currency and transfer warnings. A has a slightly more robust script (explicit blank handling, row-count assert, duplicate check) and a full converted-output table, while B adds useful spreadsheet formulas and warns that non-US spreadsheet locales silently misread MM/DD dates. These strengths offset each other, and neither answer has a substantive error.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-buffer-of-thoughts",
+   "case": "junior-functions-feedback-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8f290016cb__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give a consequence-based severity scale, correct diagnoses for #1-#3 and a uniform per-function structure. B puts an explicit ordered checklist before the reviews and grades #4 as MINOR by default, raising it only if a URL-safe slug was required, which is proportionate; A leaves #4 as 'depends on the spec' but frames it as MAJOR for the likely URL use, putting it on par with Boris's resource leak. B also adds useful calibration practices such as blind review and hidden tests, while A labels encoding as a separate MAJOR and then says to count both file issues as one, which is a small inconsistency.",
+   "errors_with": [],
+   "errors_without": [
+    "Overstates that a UTF-8 Cyrillic config on cp1251 Windows 'will fail with UnicodeDecodeError'; it often produces mojibake instead of failing"
+   ]
+  },
+  {
+   "component": "implant-buffer-of-thoughts",
+   "case": "junior-functions-feedback-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8f290016cb__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give a consequence-based severity scale, consistent per-intern structure and correct diagnoses for #1-#3. A puts the full scale plus an ordered checklist up front for reuse and rates Gosha's slugify as MINOR (MAJOR only if the spec required a URL-safe slug), which keeps it proportionate. B leaves Gosha's severity as 'depends on the spec', says it becomes MAJOR for URLs, and lists non-ASCII output as a defect, which leans toward inflating #4.",
+   "errors_with": [],
+   "errors_without": [
+    "Overstates that a UTF-8 Cyrillic config read as cp1251 will fail with UnicodeDecodeError; usually it silently decodes to mojibake and fails only on specific bytes"
+   ]
+  },
+  {
+   "component": "implant-causal-reasoning",
+   "case": "optional-tutorial-retention-forecast-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "a075c8d7d7__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet all rubric items, with correct 4 350 upper-bound arithmetic, a clear self-selection explanation, and an A/B-test recommendation. A's slide calls its own illustrative assumptions a 'realistic range ~500-1 500', which contradicts its caveat that those values are not estimates. B keeps its scenarios explicitly labelled as illustrations and adds a sound Wald/IV reading of the pre/post comparison and a selection diagnostic based on pre-decision behaviour.",
+   "errors_with": [],
+   "errors_without": [
+    "Power estimate for +2 pp (~4.6k per group) is slightly low; standard formula gives ~4.9k"
+   ]
+  },
+  {
+   "component": "implant-causal-reasoning",
+   "case": "optional-tutorial-retention-forecast-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "a075c8d7d7__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers explain self-selection on motivation, frame 4,350 as an upper bound, propose an A/B test and a pre/post check, and get the core arithmetic right. B offers somewhat richer diagnostics (ATT vs effect on forced users, splitting skippers from mid-tutorial dropouts). However, B's slide presents a 'realistic range ~500-1,500' built from assumptions it had just called purely illustrative, and its power figures run slightly low, while A stays consistent about the uncertainty and its sample-size calculation is accurate.",
+   "errors_with": [],
+   "errors_without": [
+    "Power estimates slightly understated: about 19k per group for +1 pp and about 4.9k for +2 pp from a 13.7% baseline, versus the stated 18.5k and 4.6k"
+   ]
+  },
+  {
+   "component": "implant-chain-of-abstraction",
+   "case": "support-backlog-size-en",
+   "A": "with",
+   "B": "without",
+   "stem": "ab405c27fb__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give 90 and 30 minutes via Little's Law, explain that the manager's 52 is offered load and leaves out waiting time, and note the stability assumption. Both say the result does not depend on the tier mix, but neither says outright that agent count and breaks are irrelevant, since each adds a staffing side analysis. A's arithmetic is clean throughout, while B misstates the Tier 1 pass-through handle floor as 29.5 min when its own components (7 + 12.5 + 9.5) sum to 29; B's warning about early closes and reopens is a useful extra but does not offset that.",
+   "errors_with": [],
+   "errors_without": [
+    "States the handle-time floor with Tier 1 pass-through as about 29.5 min (7 + 12.5 + 9.5), but those components sum to 29 min."
+   ]
+  },
+  {
+   "component": "implant-chain-of-abstraction",
+   "case": "support-backlog-size-en",
+   "A": "without",
+   "B": "with",
+   "stem": "ab405c27fb__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers get 90 and 30 minutes via Little's Law, explain that the 52 counts only handle time and leaves out waiting, and note the stability assumption. Neither says outright that the agent count and breaks are not needed; both use them in side staffing analysis, though B states more explicitly that the result does not depend on tier mix, handle-time distributions or queue order. B's Tier 1 pass-through arithmetic is correct (about 29 min, workload about 58), while A misstates it as 29.5 min (7 + 12.5 + 9.5 = 29), so B wins by a small margin.",
+   "errors_with": [],
+   "errors_without": [
+    "Tier 1 pass-through handle floor given as 29.5 min; 7 + 12.5 + 9.5 = 29 min"
+   ]
+  },
+  {
+   "component": "implant-causal-reasoning",
+   "case": "magnesium-hrv-double-dose-en",
+   "A": "with",
+   "B": "without",
+   "stem": "b3db8bf76c__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers identify the home-vs-travel/alcohol confounding, cite the 350 mg supplemental UL with GI and kidney concerns, and propose re-slicing the data plus an on/off test. B addresses the dose-response assumption directly ('doubling a dose doesn't double an effect you haven't yet shown to exist'), while A only argues diminishing returns in general terms. B also adds a useful check on whether the label means elemental magnesium and offers a sub-UL 300 mg test option.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-causal-reasoning",
+   "case": "magnesium-hrv-double-dose-en",
+   "A": "without",
+   "B": "with",
+   "stem": "b3db8bf76c__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers identify the home-versus-travel/social confounding, cite the 350 mg supplemental UL with GI and kidney concerns, and suggest re-analyzing the existing data. B's test design is stronger: it keeps the current dose, uses an ABA structure and offers nightly coin-flip randomization, and it asks directly about medications. A is more explicit that doubling the dose assumes an effect that has not been shown, but that edge is outweighed by B's better causal-testing plan.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-web-search",
+   "case": "node20-eol-upgrade-en",
+   "A": "without",
+   "B": "with",
+   "stem": "db42607a60__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct core facts (Node 20 EOL 2026-04-30, target Node 24 LTS to 2028-04-30), both explicitly defer to nodejs.org / nodejs/Release for verification, and both provide a ready doc line. B is tighter and its migration notes are more focused (CI matrix, npm ls check for native deps, hedged Express/NestJS support), while A adds more tangential material (release-cadence aside, npm 11 guess, engines pin) that makes it less concise for a 'quick one'. The difference is small since A's extra notes (e.g., Alpine musl experimental tier) are still relevant and accurate.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-web-search",
+   "case": "node20-eol-upgrade-en",
+   "A": "with",
+   "B": "without",
+   "stem": "db42607a60__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same correct facts (Node 20 EOL 2026-04-30, Node 24 LTS target to 2028-04-30), the same caveat to verify against nodejs.org or nodejs/Release, and a ready-to-paste planning line. A is somewhat tighter, while B adds useful but lengthening extras such as the Alpine/musl experimental-tier fallback and the npm 11 note. The differences offset each other, so neither answer is clearly better.",
+   "errors_with": [],
+   "errors_without": [
+    "Says Node 22 migration would be needed again in 'about six months', though April 2027 is about seven months from late September 2026 (minor)"
+   ]
+  },
+  {
+   "component": "implant-active-prompting",
+   "case": "probability-homework-mixed-check-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "dbefd9759a__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in structure and correctness: they mark 1 and 4 as correct, give 84 for item 2 and 3 for item 3 with a full conditional-geometric derivation plus the stopping-time intuition. A is marginally more compact on the easy items, while B adds a slightly more explicit arithmetic check, but neither difference is material. No factual errors in either.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-active-prompting",
+   "case": "probability-homework-mixed-check-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "dbefd9759a__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same correct verdicts (1 and 4 right, 2 -> 84, 3 -> 3) with the same derivation and explanation of why the conditioning shortens the runs. A adds a second check via the stopping time of the first 1-or-6, and B gives the same idea as intuition, so the substance is equivalent. The differences are only cosmetic (B's stars-and-bars remark, A's slightly fuller item 4) and decide nothing.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-web-search",
+   "case": "nextcloud-upgrade-error-search-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "e5daec1f63__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B gives ready-to-use quoted search queries with the exact migration ID and error line, plus a site:github.com/nextcloud/server filter, which fully meets the primary rubric item; A only mentions searching by migration ID on GitHub/help.nextcloud.com in passing without concrete quoted queries. Both frame the cause as a hypothesis, recommend a dump first, and explain the 3072-byte limit clearly. B is held back by ranking a locally widened column as the most likely cause and offering a manual ALTER MODIFY path, which is riskier than A's more conservative guidance, so the margin is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-web-search",
+   "case": "nextcloud-upgrade-error-search-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "e5daec1f63__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A gives concrete quoted search queries with the exact migration ID, the exact error line plus version, and a site:github.com/nextcloud/server query, and says plainly why the user's generic searches failed; B only names the migration ID and a loose \"1071\" query in prose, with no site: operator. Both explain the 3072-byte limit correctly, frame the cause as a hypothesis, and require a dump first. B's ROW_FORMAT=DYNAMIC fix is a little inconsistent with its own point that the 3072 limit already implies Dynamic, while A ranks a speculative user-side column-length cause first; on balance A fits the rubric slightly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-automatic-reasoning",
+   "case": "laptop-kzt-vs-rub-live-rate-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "faded1a80a__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in structure: they flag that the rate is unverified, give the correct 4.93 KZT/RUB break-even, and provide a formula plus an example table. B's table is fully accurate (41 420 at 7.0), it adds a practical way to derive the cross rate, and it stays slightly more focused. A has a small rounding slip, a memory-based M4 pricing aside, and a final range (25-30k) that is a bit inconsistent with its headline (25-35k).",
+   "errors_with": [
+    "Savings at 7.0 KZT/RUB given as ~41 400; correct is ~41 420 (minor rounding)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-automatic-reasoning",
+   "case": "laptop-kzt-vs-rub-live-rate-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "faded1a80a__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers say they cannot check the live rate, give the correct 4.93 KZT/RUB break-even, and include essentially identical correct example tables with a formula. B adds the per-100-tenge equivalent and an explicit savings formula but has a slight inconsistency (25-35k at a rate of about 6, where the table shows about 25k); A is marginally more internally consistent. Both add similar side advice (spread, warranty, layout, customs, newer model), so neither has a decisive edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-token-economy",
+   "case": "fastmcp-missing-await-en",
+   "A": "without",
+   "B": "with",
+   "stem": "fd9d805ecb__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose the missing await correctly, handle the 404 case with a status check before raising, and both break item 3 by reprinting the whole file with a refactored helper. They are nearly identical in substance. A is slightly tighter, while B's note says the 'Error executing tool ...: City not found: X' message is 'what you're seeing now', which confuses it with the user's actual coroutine error.",
+   "errors_with": [
+    "Claims the FastMCP 'Error executing tool ...: City not found: X' message is 'what you're seeing now', but the user is seeing the coroutine AttributeError, not a not-found error"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-token-economy",
+   "case": "fastmcp-missing-await-en",
+   "A": "with",
+   "B": "without",
+   "stem": "fd9d805ecb__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the missing await and handle the 404 with a 'City not found' string, and both break rubric item 3 by reprinting the full file with a refactored helper. B explains its design choices more clearly: it says why it checks is_error rather than calling raise_for_status, and that only WeatherError becomes a string so real bugs are not hidden. B's clamp suggestion (min(days, 5) * 8) is precise, while A's 'min(days, 5)' leaves unclear where the clamp goes, and A's remark 'which is what you're seeing now' is slightly confusing.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

@@ -1,0 +1,35 @@
+{
+  "component": "skill-purchase-research",
+  "cases": [
+    {
+      "id": "robot-vacuum-three-tiers-ru",
+      "agent": "purchase_researcher",
+      "language": "ru",
+      "history": [],
+      "user_message": "Выбираю робот-пылесос в двушку 58 м², паркет + один ковёр с коротким ворсом, есть кот (линяет сильно). Главное для меня: чтобы нормально собирал шерсть и не застревал под диваном (просвет 9,5 см), влажная уборка — приятный бонус, но не обязательно. Сузил до трёх, характеристики выписал с сайтов магазинов:\n\nA) 34 990 ₽ — всасывание 4000 Па, высота 9,2 см, лидар, одна резиновая щётка, база только для зарядки, отзывы 4,6 (1200 шт.)\nB) 52 990 ₽ — 6000 Па, высота 9,4 см, лидар, две резиновые щётки, самоочистка в мешок, влажная уборка с вибро-салфеткой, отзывы 4,7 (430 шт.)\nC) 89 990 ₽ — 8000 Па, высота 10,3 см, лидар + камера, две щётки, подъём швабры, мойка и сушка салфеток, отзывы 4,8 (85 шт.), корпус в «лимитированном» цвете\n\nПродавец в магазине уверенно советует C: «берите топ, он лучше всех». Стоит ли переплачивать? Помогите выбрать по-нормальному, а не на глаз.",
+      "why_in_scope": "The skill makes the model turn the user's stated priorities into explicit weighted criteria, score the options with visible arithmetic, and check whether each price step buys proportional benefit (value slope, premium vs luxury). Here C is excluded by the 9.5 cm clearance, so the real decision is whether B's +18k rubles (self-emptying, two brushes, stronger suction, mopping) is worth it over A for a heavily shedding cat; a strong model without the skill tends to give a qualitative 'B is the sweet spot' without weighing hair-related gains against the optional mopping, or to defer to the feature-rich option.",
+      "rubric": [
+        "Notices that C (10.3 cm) is taller than the 9.5 cm sofa clearance and treats this as a must-have failure rather than a footnote, and that A (9.2 cm) and B (9.4 cm) fit, B with only about 1 mm to spare.",
+        "Uses explicit criteria with weights derived from the user's stated priorities (hair pickup and not getting stuck high; mopping low), shows per-option scores and weighted totals so the ranking can be checked.",
+        "Judges whether B's extra ~18,000 rubles over A buys proportional benefit specifically for the high-priority needs (e.g. self-emptying and pickup for heavy cat shedding) as opposed to the optional mopping, and says C's further premium goes mostly to optional mopping features and a cosmetic colour; does not simply follow the seller's advice.",
+        "Gives a clear recommendation plus a runner-up with the condition under which it would be the better choice, without inventing specific test-lab results or reviews it could not have consulted."
+      ]
+    },
+    {
+      "id": "laptop-conflicting-reviews-en",
+      "agent": "purchase_researcher",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a 14\" laptop for work: mostly Python + Docker, occasionally compiling big C++ projects (30-40 min builds), lots of video calls, I travel ~2 weeks a month so battery and weight matter a lot. Budget is soft, up to about $2,000. Down to two:\n\nLaptop X (current gen) - $1,899, 32GB RAM, 1TB, 1.39 kg, claimed 18h battery\nLaptop Y (previous gen, same chassis) - $1,349 on sale, 32GB RAM, 1TB, 1.41 kg, claimed 15h battery\n\nHere's my problem: a lab-style review I read measured sustained multi-core under a 30-min load and found Y only ~12% behind X, and measured ~11h vs ~13h in their web-browsing battery test. But there's a Reddit thread with like 40 upvotes where people say Y 'throttles like crazy' and is 'basically unusable for compiling', and the manufacturer page says X is '2x faster'. I honestly don't know who to believe. Which one should I get?",
+      "why_in_scope": "The skill tells the model to resolve conflicting sources by reliability tier (controlled lab measurements outrank anecdotal forum posts for technical performance, and marketing claims are to be verified, not trusted), to beware recency bias where the previous generation at a large discount often wins on value, and to weigh the price delta against the measured performance gap. A strong model without it may split the difference between the three sources, treat the Reddit anecdote or the '2x faster' claim as roughly equal evidence, or default to the newer model because it is newer.",
+      "rubric": [
+        "Explicitly ranks the three sources by reliability: gives the measured review results precedence for sustained performance and battery, treats the Reddit thread as weaker anecdotal evidence (possibly pointing to unit variance or configurations worth checking), and treats the manufacturer's '2x faster' claim as unverified marketing that does not match the ~12% sustained multi-core gap the user reported.",
+        "Weighs the $550 price difference against the measured gaps (~12% sustained multi-core, ~2h battery in the user's figures) and addresses whether the newer model's premium is justified for this workload, rather than assuming newer is better.",
+        "Ties the verdict to the user's actual priorities (long builds, video calls, frequent travel with battery and weight mattering), with criteria or weighting that make the trade-off explicit.",
+        "Gives a clear recommendation and states the condition under which the other laptop would be the better choice, without citing specific reviews, sites or numbers beyond what the user supplied."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: changed B's height from 9.7 to 9.4 cm so the clearance constraint no longer makes A an obvious winner; the A-vs-B value-per-ruble trade-off now carries the case, and the rubric/why_in_scope were updated to match (price-step claim made exact). Case 2: rubric item 1 reworded so it does not assert the '2x' claim is contradicted in general, only that it does not match the reported ~12% sustained multi-core gap."
+}

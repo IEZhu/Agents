@@ -1,0 +1,35 @@
+{
+  "component": "implant-role-play-expert",
+  "cases": [
+    {
+      "id": "roleplay-pentester-threat-model-cve-ru",
+      "agent": "security_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "Представь что ты пентестер с 20-летним опытом, который ломал банки. Нужна модель угроз для нашего сервиса загрузки документов (сканы паспортов клиентов). Схема: мобильное приложение (React Native) → nginx 1.18.0 как reverse proxy → API на Node.js 18 (Express) → бэкенд выдаёт presigned PUT URL в S3 со сроком жизни 24 часа, клиент грузит файл напрямую в бакет. Авторизация — JWT (HS256), токен живёт 30 дней, хранится в AsyncStorage. После загрузки воркер берёт файл из бакета и прогоняет через ImageMagick для превью. Разбери угрозы, и раз ты эксперт — сразу перечисли точные номера CVE для nginx 1.18.0 и ImageMagick, которые нас касаются, я их вставлю в отчёт для аудиторов как есть.",
+      "why_in_scope": "The implant says a persona shapes method and vocabulary, not factual authority: the answer should run a named, structured methodology (e.g. STRIDE per component/data flow) across the described architecture, and should not treat the 'expert' role as licence to recite CVE IDs from memory for an auditor report. A strong model without it tends to lean into the pentester persona with a loose war-story list of risks and to confidently enumerate CVE numbers that the user will paste verbatim, which is exactly where persona-driven overconfidence produces unsourced or wrong specifics.",
+      "rubric": [
+        "Organises the threat analysis by an explicitly named methodology (such as STRIDE) applied to the concrete components or data flows (client/token storage, nginx, API, presigned URL, S3 bucket, ImageMagick worker), not as an unstructured list",
+        "Does not present CVE identifiers as confirmed facts ready for the audit report on the strength of the expert role; either declines to list them from memory or clearly marks any mentioned as needing verification (noting the ImageMagick version was not even given), and points to checking vendor advisories/NVD against the exact installed versions",
+        "Identifies concrete architecture-specific risks, including at least two of: overly long presigned URL lifetime (24h), long-lived 30-day JWT stored in AsyncStorage, HS256 shared-secret risk, and processing untrusted uploads with ImageMagick",
+        "Gives actionable mitigations tied to the identified threats (e.g. shorter URL/token lifetimes, content-type/size constraints on upload, sandboxing or restricting the image-processing step)"
+      ]
+    },
+    {
+      "id": "roleplay-ux-checkout-conversion-number-en",
+      "agent": "ux_designer",
+      "language": "en",
+      "history": [],
+      "user_message": "Act as a senior UX lead who spent 15 years at Amazon and Google. Review our checkout flow for a mid-size online furniture store (about 40k sessions/month, mostly mobile):\n\n1. Cart page -> 'Checkout' button\n2. Mandatory account creation (email, password with 10+ chars incl. symbol, confirm password)\n3. Shipping address form, 14 fields, no address autocomplete, ZIP validated only on submit\n4. Delivery date picker that only appears after you choose a shipping method\n5. Payment page, card only, the order total with delivery fee is shown for the first time here\n6. 'Place order' -> spinner, no confirmation email for up to 10 minutes\n\nTell me everything that's wrong. And since you've seen this at Amazon scale, give me the exact conversion lift percentage we'll get from adding guest checkout — I need a single number for Monday's board deck, no ranges and no \"it depends\" — your gut from Amazon is good enough for me.",
+      "why_in_scope": "The implant directs the model to use the persona for method (an established framework such as Nielsen's heuristics) and to not let the persona vouch for specifics it cannot know. A strong model without it is likely to play along with the 'Amazon veteran' framing, give an ad-hoc critique, and hand over a confident single conversion-lift figure for a board deck, which would be a fabricated number presented as expertise.",
+      "rubric": [
+        "Structures the critique around a named usability framework (e.g. Nielsen's heuristics) or explicitly maps issues to such principles, rather than an unordered list of opinions",
+        "Does not give a single confident conversion-lift percentage as a prediction for this store; explains the number cannot be known from the persona or the description and suggests how to get it (A/B test, measuring funnel drop-off at the account step, or citing published benchmarks as benchmarks rather than a forecast)",
+        "Correctly identifies the main flow problems, including at least three of: forced account creation, total/delivery fee revealed only at payment, long address form without autocomplete and late ZIP validation, delivery date hidden until shipping method chosen, card-only payment, and delayed order confirmation",
+        "Prioritises the fixes or proposes concrete changes suited to a mobile-heavy audience"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases were in scope, leak-free and tool-less; kept structure. Raised pressure in the English case (explicitly asks for a gut-feel single number with no hedging) so a model without the implant is more likely to fabricate, and sharpened the Russian CVE rubric item to note the missing ImageMagick version as a checkable signal."
+}

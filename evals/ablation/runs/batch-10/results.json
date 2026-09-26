@@ -1,0 +1,515 @@
+{
+ "verdicts": [
+  {
+   "component": "implant-graph-of-thoughts",
+   "case": "offline-inspector-app-design-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "02af0176ae__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: local PIN/biometric unlock with re-login only at sync, field-level merge with server revisions, server/TSA signing time, and resumable presigned S3 multipart upload. B ties the parts together more explicitly with a shared act lifecycle state machine and a concrete server-side check that the signed version equals the current draft revision (SignConflict), which directly addresses the stated goal of making the parts fit together. B also covers presigned URL expiry during long uploads and an offline-duration limit as an alternative security control; A is equally correct but slightly less integrated.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-graph-of-thoughts",
+   "case": "offline-inspector-app-design-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "02af0176ae__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical designs: local-first work with PIN unlock, per-field merge with server revisions, server or TSA time, and multipart presigned upload. A ties the parts together more explicitly with a shared act lifecycle state machine, and it handles the case where a second inspector's unseen edits reach the server before the signature (SignConflict, re-sign). B's signing rule covers only edits that arrive after the signature, which leaves the ordering case less clear, though B adds useful extras such as the sub check and the device-time estimate option.",
+   "errors_with": [
+    "Claims a pessimistic check-out lock cannot work offline because it cannot be taken without network; it can be taken before going to the site, so this overstates the limitation."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-least-to-most-prompting",
+   "case": "queue-backlog-autoscale-incident-en",
+   "A": "without",
+   "B": "with",
+   "stem": "08e31f4a65__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers get the core timeline right: peak 5,000 at t=16, drain to zero at t≈24.6, and zero headroom. B's sensitivity numbers are correct: 33 jobs per wave for a 10 s boot delay, and a 2,300 peak when starting at 30 workers. A's boot-delay costs use the net rate instead of the lost capacity of 200/min, and it gives the 30-worker peak as 2,500–3,000. B also adds useful monitoring guidance and frames the disagreement more evenly with 'neither of you is really right'.",
+   "errors_with": [],
+   "errors_without": [
+    "Boot-delay sensitivity is computed from the net backlog rate (8, 5 and 1.7 jobs/s). The real cost of a delayed wave is the lost 200 jobs/min of capacity, about 3.3 jobs/s.",
+    "Says starting at 30 workers gives a peak of about 2,500–3,000. The correct peak is 2,300."
+   ]
+  },
+  {
+   "component": "implant-least-to-most-prompting",
+   "case": "queue-backlog-autoscale-incident-en",
+   "A": "with",
+   "B": "without",
+   "stem": "08e31f4a65__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers get the same correct timeline, a peak of 5,000 at t=16, a drain to zero at t=24.6 and a balanced verdict on the disagreement, so both meet every rubric item. A's sensitivity numbers are all correct, including about 33 jobs per 10 s of boot delay per wave and a peak of about 2,300 if the test starts at 30 workers. B's boot-delay costs are wrong because it uses net rates instead of the 200/min capacity difference, and its 30-worker peak estimate of 2,500-3,000 is off, though its throughput formula is correct and useful.",
+   "errors_with": [],
+   "errors_without": [
+    "Boot-delay cost per second is miscomputed: each delayed wave costs about 3.3 jobs/s (200/min capacity difference), not 1.7, 8 or 5 jobs/s",
+    "Starting at 30 workers gives a peak of about 2,300, not 2,500-3,000"
+   ]
+  },
+  {
+   "component": "implant-maieutic-prompting",
+   "case": "divisibility-answer-key-dispute-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "215b14ea59__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly side with the son, give the n = 6 counterexample with the repeated-prime-factor explanation, prove item 3 via n = 2k and note the n = 4 case for divisibility by 8. A adds a helpful summary table, while B states the key prime-divisor principle up front more cleanly and adds a sound extension exercise (72 -> 12). One phrase in B ('n обязан содержать лишь одну двойку') is slightly imprecise, but the difference is negligible overall.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-maieutic-prompting",
+   "case": "divisibility-answer-key-dispute-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "215b14ea59__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are mathematically correct and meet every rubric item, with the same counterexample, proof and explanation of the key's likely source of error. B speaks more directly to the parent's confusion by pointing out that the 4 comes from the problem statement itself, and it adds a clear summary table comparing key, son and truth. B also states the general principle (holds exactly for d with no repeated prime factors), which makes it slightly easier for the parent to show the son.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-maieutic-prompting",
+   "case": "melting-ice-worksheet-key-en",
+   "A": "with",
+   "B": "without",
+   "stem": "260e9c098e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly overturn the key, and both explain (a), (b) and (c) with sound worked numbers that match every rubric item. A is slightly more actionable: it tells the teacher outright to re-grade the whole class, since students who followed the key were affected, and it adds a useful cork check question. B is equally correct and gives a good in-class fix, but it is a little less direct about correcting grades across the class.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-maieutic-prompting",
+   "case": "melting-ice-worksheet-key-en",
+   "A": "without",
+   "B": "with",
+   "stem": "260e9c098e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correct the key to T/F/F and give the same sound worked examples for (a), (b) and (c), with no physics errors. B adds explicit before and after totals for (c) (15 cm3 versus 12 cm3), states that the density figure is recalled and not looked up, and says outright that the whole class needs re-grading, which the teacher has to do before grades go back. B's cork follow-up question is also correct and useful, so B edges ahead slightly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-least-to-most-prompting",
+   "case": "apples-backward-problem-kid-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "3f0e725b80__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the correct answer, 18, with a forward check, and both use the same bridge of splitting the equation into two variables, where y = 8 feeds the step before it. Neither answer starts by having the child solve the last step alone. B is more concrete about the parent's situation: it has a table of the child's likely bracket errors, the guiding question 'with which end of the story did you start?' that turns working backwards into his own discovery, and a hands-on reversal exercise that brings out the '+1 before x2' order. A's forward trial-and-error with numbers and its 'half minus one' insight are useful, but it gives fewer targeted guiding questions and relies somewhat more on the x-approach.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-least-to-most-prompting",
+   "case": "apples-backward-problem-kid-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "3f0e725b80__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give 18 with a forward check, and both use the two-variable bridge where y=8 feeds the equation for x. Both keep x equations instead of avoiding them, so neither fully meets item 4. A edges ahead with the hands-on play that asks the child about the last step first ('3 left, how many before Kolya?', +1 before x2) and a pinpoint table of likely bracket errors, while B's forward guessing is useful but further from a sub-problem-first build-up.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-dr-cot",
+   "case": "shipping-cost-nested-ifs-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "41a1ae2062__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give identical correct values, trace case 3 as a fall-through to the regular tariff, flag the 650-vs-300 contradiction and propose the same unconditional-300 fix. B edges ahead with a ready-to-use parametrized pytest block that encodes the corrected expectations and boundary cases, and it covers a few more real input-validation holes (NaN, inf, and whether amounts are rubles or kopecks). A is equally correct but slightly less directly actionable for someone writing tests.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-dr-cot",
+   "case": "shipping-cost-nested-ifs-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "41a1ae2062__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give identical correct values, trace case 3 the same way, and propose the same fix. B spells out the rubric's key absurdity directly (a 10 kg order pays 650 while a 12 kg one pays 300) and says the weight condition must be written into the spec if it was intended. A's extra points on NaN/inf and a ready pytest block are useful but do not outweigh B's slightly sharper framing of the main bug.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-layer-of-thoughts",
+   "case": "gdpr-erasure-vs-retention-en",
+   "A": "without",
+   "B": "with",
+   "stem": "449f80605d__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give nearly identical split outcomes citing Art. 17(3)(b) and (e), restricted retention, the correct 22 October deadline and marketing suppression, and neither mentions that an extension must be notified within the first month. B handles the privacy-policy conflict more fully, with a dedicated section and suggested replacement wording, and honestly notes the uncertainty over whether a chargeback counts as a 'legal claim'. A is slightly tighter but otherwise gives the user no more.",
+   "errors_with": [
+    "Cites s.282 Companies Act 2014 for record retention; the six-year retention requirement is in s.285 (flagged as unverified)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-layer-of-thoughts",
+   "case": "gdpr-erasure-vs-retention-en",
+   "A": "with",
+   "B": "without",
+   "stem": "449f80605d__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give nearly identical split outcomes and cite Art. 17(3)(b) and (e), restricted access, the privacy-policy fix, and a 22 October deadline. B quotes the 'without undue delay' standard in Art. 12(3), ties restricted retention explicitly to Art. 18, and adds a ready-to-use reply paragraph and an over-keeping risk. Neither says that an extension must be communicated within the first month, so B wins only narrowly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-layer-of-thoughts",
+   "case": "unused-vacation-local-act-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "61e851dcca__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reach the correct conclusion (all 58 days, Articles 127, 8, 9, 140), dismiss the signature argument, and give accurate, hedged figures for the Article 5.27 fines and the Article 236 interest. B is slightly more compact, which matters because the user asked for a short answer. It also adds a relevant (hedged) Constitutional Court ruling, the recoverable representation costs, and the practical alternative of leave followed by dismissal under Article 127(2). A's table is director-friendly, but its extra material, such as the largely theoretical criminal risk, adds length without much decision value.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-layer-of-thoughts",
+   "case": "unused-vacation-local-act-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "61e851dcca__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reach the correct conclusion of 58 days under Art. 127, reject both clauses under Arts. 8 and 9, give the Art. 140 deadline and accurate 5.27 KoAP fine ranges with appropriate hedging. A is slightly more compact for a director and adds the relevant Constitutional Court ruling of 25.10.2024 No. 48-P, correctly flagged as unverified, plus the option of leave followed by dismissal. B's table is clear, but its extra material (the Art. 145.1 criminal-risk item, the formula details) adds length without changing the bottom line.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-cumulative-reasoning",
+   "case": "duplicate-payments-login-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "6cdbed9b12__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly reject the intent claim, attribute the login to the module mechanics, isolate the 3 manual entries and propose concrete checks, including contractor logs and supplier recovery. B links the facts more explicitly: it points out that all 19 vacation-period duplicates must be exchange-sourced, and it sets out a clear differentiating test (background job vs interactive session). B also adds useful checks on recipient details, motive and benefit, plus immediate mitigations such as a technical user for the module, while A covers similar ground but ties the facts together less tightly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-cumulative-reasoning",
+   "case": "duplicate-payments-login-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "6cdbed9b12__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers reject the intent claim, attribute the login to the module mechanics, link the vacation entries to the exchange source, and propose concrete checks plus recovery of the 41 debited payments. B handles the 3 manual entries more thoroughly: it checks physical presence via access control, asks what each manual entry duplicates, and flags a possible re-entry after an exchange failure. B also adds evidence preservation. A's immediate stop-loss steps (a technical user for the module, a password change) are practical, but they do not outweigh B's more complete investigative plan.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-decomposed-prompting",
+   "case": "job-offer-switch-mixed-questions-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "7d90b496cb__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in structure and correctness: same notice arithmetic (6 Oct -> 20 Oct, 28 Sep -> 12 Oct), same commute figures (13 h 20 min vs 4 h), same vacation compensation estimate and similar manager scripts. B ties the vacation more concretely to the timing with a worked vacation-then-dismissal example, mentions shortening the notice period by employer consent in addition to agreement of the parties, and gives a clearer fallback if filing before 6 October fails. A is tighter, but its dismissal of vacation-then-dismissal as not fitting 13 October is less nuanced.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-decomposed-prompting",
+   "case": "job-offer-switch-mixed-questions-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "7d90b496cb__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly equivalent: each shows correctly that notice filed on 6 Oct ends on 20 Oct, suggests filing on 28 Sep through HR, and offers early release by agreement or a later start date, with correct commute arithmetic and a good script for the manager. A ties the vacation to the timing more fully, with a concrete vacation-then-dismissal schedule that ends on 12 Oct and compensation for the remaining days, while B flatly says vacation-then-dismissal cannot fit 13 Oct. B also has a small inconsistency: its script says 'заявление подам завтра', but its plan has the call and the filing on the same day.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims vacation followed by dismissal cannot fit the 13 Oct start, although a partial vacation (e.g. 14 days from 29.09 plus compensation for the rest) could fit"
+   ]
+  },
+  {
+   "component": "implant-logic-of-thought",
+   "case": "lease-notice-email-penalty-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "9236de622f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly read 12.3 as a safe harbor rather than an exclusive list, compute 26.7% and the expired 30 days, and recommend a fresh 12.3-compliant notice while preserving the March correspondence. B more clearly frames the director's position as strong but not certain, and adds the important point that the 3 March e-mail may not qualify as a notice demanding cure of a Substantial Defect under 7.1. A leans toward declaring the director 'right in substance', though it offers a useful combined-notice option.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-logic-of-thought",
+   "case": "lease-notice-email-penalty-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "9236de622f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet all rubric items with sound readings of 12.3, correct 26.7% and 30-day arithmetic, and a hedged view of the director's position. B adds more usable practical guidance: a clear recommendation for the fresh 12.3 notice, a combined refusal-plus-renotice option, return of the premises by act, the mandatory pre-trial claim, and the contra proferentem argument. A's point that the 3 March letter must actually demand remedy is a useful extra, but it does not outweigh B's broader and better-organized action plan.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-cumulative-reasoning",
+   "case": "memo-leak-timeline-en",
+   "A": "with",
+   "B": "without",
+   "stem": "9a2b3afb85__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers convert every time correctly, clear Dana's logged export and Tom, list Mark, Priya and Ortiz as having opportunity without naming a culprit, and recommend checking unlogged capture routes before any HR action. B adds the useful point that Ortiz's missing open event suggests the log is incomplete, but it overstates by calling Dana the 'least likely' user. A handles Dana more carefully by flagging her unknown session end time, but it mislabels the reasoning error as a 'base-rate trap'. These strengths and weaknesses roughly cancel out.",
+   "errors_with": [
+    "Calls the 'only one person exported' reasoning a 'base-rate trap', which is a mislabel",
+    "Says Mark's window was 'about 30 minutes after the comment', but it was 25 minutes to the leak and 35 minutes to the session end"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-cumulative-reasoning",
+   "case": "memo-leak-timeline-en",
+   "A": "without",
+   "B": "with",
+   "stem": "9a2b3afb85__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers convert the times correctly, rule out Dana's logged export and Tom, name Mark, Priya and Ortiz as having opportunity, and recommend checking unlogged capture routes before any HR action. B is more careful about Dana: it notes that her session end time is unknown, so she could have seen the commented version in a still-open session. A instead calls her the 'least likely' of the logged users, which overstates what the log supports.",
+   "errors_with": [
+    "Uses the term 'base-rate trap' loosely for what is really a salience or availability error"
+   ],
+   "errors_without": [
+    "Overstates Dana's exclusion by calling her the 'least likely' logged user without noting that her session end time is unknown and could extend past 13:55 UTC"
+   ]
+  },
+  {
+   "component": "implant-dr-cot",
+   "case": "pin-policy-overlapping-rules-en",
+   "A": "without",
+   "B": "with",
+   "stem": "9c780c2156__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reach 6466, give the 7290 figure, explain why rules 2 and 5 are redundant, and count 14/90/720 with explicit non-overlap notes. Both also give correct standalone counts and a valid independent check via the 6570 four-cycle count. B adds a correct entropy note and presents the per-rule one-liners more directly, while A adds a policy recommendation; neither difference decides the comparison.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-dr-cot",
+   "case": "pin-policy-overlapping-rules-en",
+   "A": "with",
+   "B": "without",
+   "stem": "9c780c2156__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reach 6,466, derive 7,290 from 10*9^3, give correct reasons why rules 2 and 5 add nothing, and count 14/90/720 with explicit non-overlap statements. Both also supply correct standalone counts and an independent cross-check (B adds the 4-cycle colouring formula, A adds an entropy note), so neither is materially stronger. Neither contains a factual error, and the presentation differences are a matter of style.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-logic-of-thought",
+   "case": "saas-termination-sla-refund-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a434f66c5e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are correct on every rubric point and reach the same conclusions with similar next steps. B goes slightly further: it names a likely for-cause clause with a cure period as the proper route for a breach theory, suggests checking whether May really met the SLA, and ends with a clear bottom line the user can pass to the CFO. A is equally accurate and a little tighter, so the margin is small.",
+   "errors_with": [
+    "Overgeneralizes that 'most SaaS agreements' make service credits the sole and exclusive remedy (hedged but stated as typical)",
+    "Suggests a fallback could let the customer stop paying the support add-on, although that invoice is already accrued and disputed"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-logic-of-thought",
+   "case": "saas-termination-sla-refund-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a434f66c5e__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly reject 9.5 because the misses are not consecutive, flag the 9.2 payment-breach condition caused by the disputed invoice, explain why 9.6 is unlikely to attach to a convenience termination, and note that 9.2 gives no refund of prepaid fees. Both give concrete next steps: check July and August, resolve the invoice, read the SLA exhibit and the for-cause clause, and negotiate an exit. A adds a check on whether May really met the SLA, and B adds a warning about wrongful termination and asks for the governing law; these extras roughly balance out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-decomposed-prompting",
+   "case": "interleaved-release-meeting-transcript-en",
+   "A": "with",
+   "B": "without",
+   "stem": "b3142fe301__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers flag the release/audit conflict, attribute Dan's and Marco's actions correctly, and leave the legal follow-up unassigned. A hedges the unstated month right where it states the conflict and says more fully why Lena is not the owner (Priya asked her, she declined, Priya deferred). B states the one-week breach before it hedges the month further down, so A's handling of uncertainty is a little more careful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-decomposed-prompting",
+   "case": "interleaved-release-meeting-transcript-en",
+   "A": "without",
+   "B": "with",
+   "stem": "b3142fe301__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers lead with the release versus audit-report conflict, tell Marco to hold the customer email, attribute Dan's and Marco's actions correctly, and leave the legal follow-up unassigned. B adds timestamps and a clearly labeled suggested (not assigned) reconciliation task, while A notes the missing on-call start date; neither difference is significant. Neither answer invents owners or deadlines, and both flag the unstated month for the 12th.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-graph-of-thoughts",
+   "case": "product-search-two-proposals-en",
+   "A": "with",
+   "B": "without",
+   "stem": "b512f60c77__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reach the same well-reasoned recommendation: Postgres with pg_trgm, a normalized part-number column, live stock and price joins, a transactional check at checkout, and a timeboxed spike with pass/fail gates. B is more actionable because it gives concrete DDL (a generated pn_norm column, trigram and weighted tsvector indexes), a query strategy, and a correct trigram similarity calculation for 'bering'. B also covers an extra failure mode, search load competing with OLTP (read replica, statement_timeout), and gives both engineers a role in the spike.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-graph-of-thoughts",
+   "case": "product-search-two-proposals-en",
+   "A": "without",
+   "B": "with",
+   "stem": "b512f60c77__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers pick Postgres with pg_trgm and a normalized part-number column, correctly note that tsvector alone gives no typo tolerance, keep stock and price live in Postgres, and treat Elasticsearch only as a later fallback for text rather than a combined design built now. A is slightly more actionable: it gives concrete DDL for the generated pn_norm, trigram and weighted tsvector indexes, a correct trigram similarity calculation for 'bering' vs 'bearing', a read-replica mitigation, and a role split for both engineers in the spike. B is more candid about facet-count latency and sets out the hybrid option explicitly, but its build guidance is less concrete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-dynamic-few-shot",
+   "case": "support-ticket-classifier-rare-categories-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "d508c90fc1__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers recommend embedding-based dynamic few-shot with contrastive pairs, rewritten category boundaries, cost math of 600M tokens/day, caching caveats and a held-out stratified evaluation with the retrieval pool excluded. A adds explicit advice to put the most similar examples next to the ticket and a retrieval recall@k check with a hybrid BM25 fallback, while B gives a tighter example count (6-10) and a useful caveat about small per-class test sizes. The difference is slight; A's extra practical retrieval guidance edges it ahead, although its 10-15 examples sit a bit above the rubric's range.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-dynamic-few-shot",
+   "case": "support-ticket-classifier-rare-categories-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "d508c90fc1__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers recommend embedding-based dynamic few-shot with diversification and contrast pairs, rewritten boundary descriptions, cost analysis of the 600M tokens/day, and a held-out per-category evaluation. B additionally tells the user to put the most similar examples closest to the ticket, adds a retrieval recall@k check with a BM25 hybrid fallback, and covers the cache warm-rate, prompt injection and two-stage classification. A's k of 6-10 fits the rubric range more tightly than B's 10-15, and its warning about small-sample noise is a good point, but B's extra practical checks give it a slight edge overall.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-generated-knowledge",
+   "case": "tidal-causeway-full-moon-en",
+   "A": "without",
+   "B": "with",
+   "stem": "d9dda7acaa__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both drafts render the flood as a creeping, channel-filling rise rather than a wave, hit every brief element at roughly the right length, and flag recalled Lindisfarne specifics for checking. B explicitly separates moonrise from the tidal mechanism ('keep the moon as image and the tide as mechanism'), explains the rule of twelfths more precisely, and ties the memory trigger and ending image tightly to the moon's path, giving it a slight edge on rubric item 2 and on usefulness. A is equally strong prose and similarly careful with numbers, so the margin is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-generated-knowledge",
+   "case": "tidal-causeway-full-moon-en",
+   "A": "with",
+   "B": "without",
+   "stem": "d9dda7acaa__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both drafts render a creeping, channel-first flood, tie full moon to spring tides correctly, and flag Lindisfarne specifics for checking. B adds more guidance a harbour master would probe: why she is out there at all (published safe-crossing windows, leaving late), the galloping-horse myth, the choice between road and Pilgrims' Way, and daily tide shifts for consistency across the rest of the story. A is equally sound and slightly more restrained with numbers, but covers less of what keeps the wider story plausible.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-dynamic-few-shot",
+   "case": "multilingual-intent-router-confusions-en",
+   "A": "without",
+   "B": "with",
+   "stem": "e822003336__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers recommend multilingual kNN retrieval from the 9k set with a same-language preference, contrastive neighbors, tie-break rules, eval-leakage removal and per-language evaluation, so they meet the rubric about equally. B also places the closest neighbor nearest the query, starts with an intent-by-language diagnosis and label audit, and lays out a clearer experiment ladder that keeps the user's static plan as a baseline. A's disambiguation rules contradict themselves: cancel_booking applies 'ONLY when the user... does not ask about money', then cancel plus a refund question also maps to cancel_booking.",
+   "errors_with": [],
+   "errors_without": [
+    "Its tie-break rules contradict themselves on the cancel-plus-refund case"
+   ]
+  },
+  {
+   "component": "implant-dynamic-few-shot",
+   "case": "multilingual-intent-router-confusions-en",
+   "A": "with",
+   "B": "without",
+   "stem": "e822003336__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers recommend per-call retrieval from the 9k pool with multilingual embeddings, same-language preference, eval-set deduplication, disambiguation rules and per-language evaluation, so both meet every rubric item. A matches the rubric's example more closely by placing the closest neighbor nearest the query, and it adds a useful label-audit diagnostic and a cheap kNN-only baseline. B is equally solid in practice (enum-constrained output, a per-pair breakdown, an embedding classifier) but includes an unsupported '~80% of calls' figure and a slightly convoluted cancel/refund rule.",
+   "errors_with": [],
+   "errors_without": [
+    "Unsupported claim that roughly 80% of calls are nowhere near a confused pair; the user gave no such figure"
+   ]
+  },
+  {
+   "component": "implant-generated-knowledge",
+   "case": "winter-beekeeper-scene-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "f439ab3a77__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both scenes are accurate about overwintering and both flag uncertain figures, so they are close. B's pitfalls list is more complete and better organised: it states outright that hives are not opened, that bees do not fly in December, and that the hive walls stay cold, and it explains that the cluster is warm because the bees move and swap places. A contains a couple of dubious generalisations ('bees don't sting or hum' in winter) that a beekeeper could pick at.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims bees in winter 'не жалят и не «гудят»' — overstated; disturbed bees can sting and beekeepers commonly describe the winter sound as гул"
+   ]
+  },
+  {
+   "component": "implant-generated-knowledge",
+   "case": "winter-beekeeper-scene-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "f439ab3a77__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both scenes are accurate on overwintering, restrained in tone and in Russian, and both list the pitfalls with figures flagged as from memory. B's list is broader (kandy, brood timing, the custom of telling the bees, hive types) and flags uncertainty carefully, but it adds questionable claims such as that bees in winter 'do not sting and do not hum', which beekeepers could dispute. A's list is tighter and has no such slips, so A wins narrowly.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims bees in winter 'не жалят и не гудят'; wintering bees can sting when disturbed, and the cluster's hum is the standard term and sound beekeepers listen for"
+   ]
+  }
+ ],
+ "missing": []
+}

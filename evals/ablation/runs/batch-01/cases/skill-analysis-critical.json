@@ -1,0 +1,35 @@
+{
+  "component": "skill-analysis-critical",
+  "cases": [
+    {
+      "id": "remote-comp-probation-clause-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите разобраться с положением о компенсациях у нас в компании (ООО, Москва). Пункт 4.2 дословно: «Компенсация расходов на связь и электроэнергию в размере 3 000 руб. в месяц выплачивается работникам, выполняющим работу дистанционно не менее трёх рабочих дней в неделю, за исключением работников, проходящих испытательный срок, если только они не приняты на руководящую должность либо их трудовым договором не предусмотрено иное». Моя ситуация: принят 16 июля старшим разработчиком (не руководитель, подчинённых нет), испытательный срок 3 месяца. Работаю из дома понедельник и пятницу полностью, плюс вторник и четверг до обеда, после обеда в офисе. В трудовом договоре про компенсацию одна фраза: «Работнику выплачиваются компенсации в порядке и размере, установленных Положением о компенсациях». Коллега из HR сказал неофициально, что раз в договоре есть пункт про компенсации, значит «договором предусмотрено иное» и мне положено уже сейчас. Бухгалтерия за август не заплатила. Кто прав, и что будет после окончания испытательного срока? Хочу написать заявление, но не хочу выглядеть глупо.",
+      "why_in_scope": "The request hinges on a nested rule with an exception to an exception; the component tells the model to formalize such a rule (Logic of Thought) before applying it, and to identify which facts the conclusion actually rests on. A strong model without it can easily accept the HR colleague's reading, blur the 'unless' branch, or spend the answer on the half-day question even though it is irrelevant during probation and only becomes decisive after it ends. It should also verify rather than assume the legality of excluding probationers, since that claim is what an application would rest on.",
+      "rubric": [
+        "Breaks clause 4.2 into explicit conditions (remote at least 3 days AND (not on probation OR managerial post OR contract provides otherwise)) and applies them to the user's facts, concluding that under the clause as written he is not entitled during probation because he is not a manager and a contract term that merely refers back to the Положение does not 'provide otherwise'.",
+        "Points out that whether the two half-days count toward the three remote days does not matter during probation but becomes the deciding issue once probation ends, notes that under the clause's wording this is unclear (he has only two full remote days) and recommends getting the employer's position on it.",
+        "Flags that the exclusion of probationers in a local act may conflict with labor law (employees on probation generally have the same rights as other employees) as a separate argument, and distinguishes that argument from what the clause itself says rather than mixing the two.",
+        "Gives practical next steps that fit the request (e.g. what to base a written request on, or asking HR/the employer for a written clarification) and is written in Russian."
+      ]
+    },
+    {
+      "id": "cfo-churn-ltv-paragraph-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick favor before I send this to our CFO tomorrow morning. Can you tighten up this paragraph? It's the justification for the headcount ask in our Q2 plan.\n\n\"Since launching guided onboarding on March 1, monthly logo churn fell from 5.0% (Jan-Feb average) to 4.0% (March). With ARPU of $40/month, customer LTV rises from $800 to $1,000, a 25% increase. Across our 12,000 active customers that is $2.4M in additional annual revenue, which more than covers the proposed 3 CSM hires ($270k fully loaded per year).\"\n\nJust want it punchier, it feels a bit clunky.",
+      "why_in_scope": "The user asks only for a wording polish, but the paragraph drives a hiring decision and contains a load-bearing number built on a wrong step; the component tells the model to verify the claims a decision rests on, scaled to the stakes, instead of polishing them. A strong model without it will plausibly rewrite the prose and keep '$2.4M in additional annual revenue', missing that $200 x 12,000 is an undiscounted lifetime figure, not annual revenue, and that one month of churn data is thin evidence for a causal claim.",
+      "rubric": [
+        "Confirms the parts that check out (LTV = ARPU / churn gives $800 and $1,000, a 25% increase) and flags that the $2.4M figure is a change in total lifetime value across customers, not additional annual revenue.",
+        "Gives or sketches a corrected first-year revenue impact that is far smaller than $2.4M (e.g. 1 percentage point of 12,000 = about 120 fewer customers lost per month, accumulating over the year; a simple cumulative estimate is roughly $0.3-0.4M, an end-of-year run rate under $0.7M) and notes that the margin over the $270k hire cost is much thinner than the paragraph implies.",
+        "Notes that one month of post-launch churn against a two-month baseline is weak evidence that onboarding caused the drop (noise, seasonality, other changes) and suggests softening the causal wording or adding more months of data.",
+        "Still delivers the requested tighter paragraph, rewritten so it no longer states the incorrect annual figure, and keeps it short enough for a CFO note."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free and tool-less, and their facts check out (LTV math; art. 70 TK RF on probationers' rights). I loosened case 2 rubric item 2 so that any valid first-year method passes (cumulative or run rate) instead of one number range, and I made case 1 item 2 less prescriptive about calling the half-day reading ambiguous."
+}

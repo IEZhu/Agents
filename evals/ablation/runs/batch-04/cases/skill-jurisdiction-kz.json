@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-kz",
+  "cases": [
+    {
+      "id": "almaty-too-2026-payroll-vat-budget-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Здравствуйте. У меня ТОО в Алматы, общеустановленный режим, плательщик НДС, я единственный участник и директор. Бухгалтер ушла в декретный, пытаюсь сам прикинуть налоги на 2026 год, чтобы понять, сколько откладывать каждый месяц.\n\nИсходные данные:\n- выручка от местных клиентов около 600 млн тенге в год, договоры долгосрочные, цены в них прописаны «включая НДС 12%», так что НДС для меня по сути транзитный;\n- в штате 8 сотрудников, ФОТ примерно 4 млн тенге в месяц;\n- себе хочу платить зарплату 4 млн тенге в месяц (48 млн в год).\n\nСтавки беру как в прошлые годы: НДС 12%, соцналог 9,5%, ИПН 10% со всех. Посчитайте, пожалуйста, примерно по годам и по месяцам, сколько уйдёт на НДС (без учёта зачёта входящего, его посчитаю отдельно), на налоги с зарплат сотрудников и с моей зарплаты.",
+      "why_in_scope": "The skill encodes the 2026 Kazakhstan Tax Code changes: VAT 16%, social tax 6% plus employer pension contributions, and progressive ИПН (10% up to 8,500 МРП a year, 15% above). The user confidently states pre-2026 rates and only asks for arithmetic, so a model without the skill is likely to compute with 12% / 9.5% / flat 10% and miss that the 'including 12% VAT' contract prices now cost the company margin.",
+      "rubric": [
+        "Corrects the VAT rate to 16% from 2026 (not 12%) and flags that long-term contracts priced 'including 12% VAT' need review or renegotiation, because otherwise the higher VAT reduces the company's net revenue rather than being neutral.",
+        "Corrects social tax to 6% from 2026 (not 9.5%) and mentions employer pension contributions (ОПВР) as a separate payroll cost.",
+        "Explains that ИПН is no longer flat: 10% on annual income up to 8,500 МРП and 15% on the part above, and notes that the director's 48 million tenge salary is likely to exceed that threshold.",
+        "Gives approximate annual and monthly figures for the user's own data computed with the corrected rates, framed as estimates to confirm with an accountant or official source."
+      ]
+    },
+    {
+      "id": "aifc-private-company-shareholder-exit-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm a German investor. Two years ago I put $400k into a fintech startup in Astana for a 30% stake. It's set up as a private company in the AIFC because the founders said it looks better to foreign VCs. The Kazakh founder who holds the other 70% has stopped sharing financials and just approved a new share issue to himself that dilutes me to about 12%, without offering me any shares.\n\nA local lawyer I spoke to said I can simply withdraw as a participant under the Civil Code and the Law on LLPs and demand payment of the actual value of my share within a year, and that we'd file in the Astana specialized inter-district economic court. That sounds easy, but is it right? What should my actual strategy be, and where would the dispute be heard? Our shareholders' agreement is in English and I don't have it in front of me right now.",
+      "why_in_scope": "The skill's key pitfall is confusing the AIFC with the main Kazakhstan jurisdiction: an AIFC company is governed by AIFC Acts and Regulations (AIFC Companies Regulations), not the Civil Code of RK or the LLP law, and disputes go to the AIFC Court or AIFC IAC arbitration. The AIFC detail is mentioned only in passing, so a model without the skill could accept the local lawyer's TOO-style framing (statutory withdrawal and payout, state economic court).",
+      "rubric": [
+        "Explains that a company incorporated in the AIFC is governed by AIFC Acts and Regulations (such as the AIFC Companies Regulations), not the Civil Code of RK or the Law on LLPs, so the local lawyer's TOO-style withdrawal-and-payout route likely does not apply.",
+        "Identifies the AIFC Court, or AIFC International Arbitration Centre arbitration if the shareholders' agreement provides for it, as the likely forum rather than the state specialized economic court.",
+        "Gives a practical strategy tied to the facts: check the shareholders' agreement and articles for pre-emption, information, exit and dispute-resolution clauses, and consider challenging the dilutive share issue or seeking minority-protection remedies.",
+        "Recommends engaging counsel experienced in AIFC matters and gives immediate steps such as preserving evidence and formally requesting the company's financial information."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the 'has anything changed?' prompt and the explicit contract question so the user confidently asserts old rates and only asks for arithmetic; replaced the 'new 3.5% pension contribution' claim (ОПВР predates 2026) with a hedged mention and swapped the uncheckable 'does not invent' item for a figures-with-corrected-rates item. Case 2: removed 'registered with the AIFC Registrar, not a regular TOO' hint, dropped the 'pre-emption rights' term, and replaced the uncheckable citation-hedging item with a practical-steps item."
+}

@@ -1,0 +1,35 @@
+{
+  "component": "skill-bio-mechanism",
+  "cases": [
+    {
+      "id": "melatonin-dose-vs-preworkout-ru",
+      "agent": "bio_hacker",
+      "language": "ru",
+      "history": [],
+      "user_message": "Уже третью неделю не могу нормально уснуть: ложусь в 23:30, засыпаю к часу-полвторого. В 22:30 пью мелатонин 3 мг, эффекта почти ноль. Кофе я специально урезал: одна чашка в 7:30 и одна в 12:00, после обеда уже ничего не пью. Встаю в 7:00, тренировка в зале 19:00–20:30, перед ней около 18:45 выпиваю скуп предтрена, без него просто не вытягиваю рабочие веса. Думаю поднять мелатонин до 10 мг или добавить к нему что-то ещё, типа глицина или фенибута. Какую дозу мелатонина брать и что лучше добавить?",
+      "why_in_scope": "The skill forces the model to trace the pathway before recommending supplements: most pre-workout products contain a substantial caffeine dose, which blocks adenosine receptors, and with a caffeine half-life of roughly 5 hours about half of an 18:45 dose is still active at 23:30. Because the user says he already cut coffee, a strong model without the skill may take that at face value and answer the literal dose/stack question, missing the hidden caffeine source and treating melatonin as a sedative.",
+      "rubric": [
+        "Identifies the 18:45 pre-workout as a probable cause because such products usually contain a sizeable dose of caffeine (and often other stimulants), and explains that caffeine blocks adenosine receptors, masking sleep pressure",
+        "Uses caffeine's half-life (roughly 5 hours, with wide individual variation) to show that a substantial fraction is still present around 23:30, and recommends a stimulant-free pre-workout or moving/removing the caffeine rather than raising the melatonin dose",
+        "Explains that melatonin mainly acts as a circadian timing signal rather than a sedative, so going from 3 mg to 10 mg is unlikely to fix the problem",
+        "Does not endorse adding phenibut as a sleep aid, or flags its dependence and withdrawal risk"
+      ]
+    },
+    {
+      "id": "iron-ferritin-not-rising-en",
+      "agent": "fitness_coach",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm a 29F marathoner, about 60 km/week. Ferritin came back at 14 ng/mL in March, doc said take iron. I've been taking 65 mg elemental iron (ferrous sulfate) every morning with my breakfast, which is a latte and Greek yogurt with granola, plus my calcium+D tablet at the same time since that's when I remember pills. Retested last week: ferritin 17. Barely moved after 5 months and I still feel flat on long runs. Should I just double it to 130 mg a day, morning and night?",
+      "why_in_scope": "The skill makes the model reason from the absorption pathway before touching the dose: an oral iron dose raises hepcidin for roughly a day, which blocks further absorption, so twice-daily dosing tends to lower fractional absorption, and calcium, dairy and coffee polyphenols taken at the same time further inhibit uptake of non-heme iron. A strong model without it may just approve a higher dose or offer generic 'take with vitamin C' advice without explaining why her current routine is failing.",
+      "rubric": [
+        "Points out that taking iron together with coffee, dairy/yogurt and a calcium supplement substantially reduces non-heme iron absorption, and advises separating them",
+        "Explains the hepcidin mechanism: an iron dose raises hepcidin for about 24 hours, reducing absorption of subsequent doses, so splitting into twice-daily doses is counterproductive and once-daily or alternate-day dosing is preferable",
+        "Advises against self-escalating to 130 mg/day without her doctor, and suggests discussing further workup (e.g. checking for ongoing losses) or IV iron if oral iron keeps failing",
+        "Connects endurance training to the problem accurately without overclaiming, e.g. exercise can transiently raise hepcidin, so the timing of the dose relative to hard sessions may matter"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 made subtler: the obvious 16:30 double espresso was replaced by a caffeinated pre-workout at 18:45 while the user claims to have cut coffee, so a strong model can no longer spot the cause at a glance; rubric updated accordingly. Case 2 kept as is after checking the hepcidin, absorption-inhibitor and exercise-hepcidin facts; the owner agents exist."
+}

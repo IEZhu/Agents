@@ -1,0 +1,520 @@
+{
+ "verdicts": [
+  {
+   "component": "implant-self-harmonized-cot",
+   "case": "shcot-catalog-caching-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "0d13f10948__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers critique the two proposals correctly and propose essentially the same layered scheme: long-lived static cards, a listing key versioned by price_ver, and live price and stock from PostgreSQL, with a checkout check and a stampede lock. B adds more practical detail for a three-person team: it names N+1 as a likely cause, warns that Django signals don't fire on bulk_update, over-fetches IDs to handle the in-stock filter, falls back to 'уточните наличие' when stock can't be read, warms caches after import and gives a rough timeline. A's unique strengths (a safety_stock threshold and checking the lag of the stock source) are valuable but slightly narrower, so B wins by a small margin.",
+   "errors_with": [],
+   "errors_without": [
+    "Lists 'почти 100% попаданий' as a plus for full-page caching while also stating the long tail of filter combinations barely hits cache (internal inconsistency)."
+   ]
+  },
+  {
+   "component": "implant-self-harmonized-cot",
+   "case": "shcot-catalog-caching-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "0d13f10948__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are near-equivalent layered designs that reject both proposals for concrete reasons, keep stock and prices live from PostgreSQL, version listing keys by the price batch and stay within Redis/PG/Django. B edges ahead on the must-not-show-false-availability constraint: it uses a safety_stock display threshold, makes a checkout recheck mandatory, and flags that stock data may itself arrive late (for example from 1C), which no cache scheme could fix. A has its own strong points, including fail-closed display on a stock-read timeout and over-fetching IDs for live filtering, but these make a slightly smaller difference.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-recursion-of-thought",
+   "case": "budget-rollup-org-tree-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "208fe43a54__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers get every total, the company total of 1155 and the >100 list right, and both correctly leave out Enterprise at exactly 100 and treat the root as optional. B writes out each parent's total as its own budget plus its children's totals (for example B2B: 80 + 100 + 25), so the user can check it by hand, which rubric item 4 asks for. A shows only the table, and its check line calls 385 + 640 + 130 the sum of own budgets, which just repeats the top-level totals and proves nothing.",
+   "errors_with": [],
+   "errors_without": [
+    "The verification line says the sum of all own budgets = 385 + 640 + 130, but those are top-level totals, not own budgets, so the check is mislabeled and circular."
+   ]
+  },
+  {
+   "component": "implant-recursion-of-thought",
+   "case": "budget-rollup-org-tree-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "208fe43a54__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers have all totals, the company total of 1155 and the >100 list right, and both handle Enterprise at exactly 100 and the root correctly. A also writes out each parent's total as its own budget plus its children's totals (e.g. B2B: 80 + 100 + 25 = 205), so the user can check the numbers by hand. B gives only the final table and an overall sum check, so the per-parent working that rubric item 4 asks for is missing.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-recursion-of-thought",
+   "case": "layered-config-extends-resolution-en",
+   "A": "without",
+   "B": "with",
+   "stem": "277a14352f__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same correct resolved config, the same correct intermediate forms of secure.json and dev.json, and the same diamond-inheritance and array-replacement explanations. Both flag the deleted cert, the debug logLevel and port 3000, and recommend the same explicit app.json fix while explaining why reordering is a poor fix. B adds a small caveat that leaving debug-panel off may be safer, and A has a slightly clearer confidence and verification note, so neither is meaningfully better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-recursion-of-thought",
+   "case": "layered-config-extends-resolution-en",
+   "A": "with",
+   "B": "without",
+   "stem": "277a14352f__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same correct resolved config, the same intermediate forms for secure.json and dev.json, the same diamond-inheritance and array-replacement explanations, and the same explicit-leaf fix, and both flag the deleted cert. A says reordering would reset features to [\"auth\"], which is true only of the merged parents, because app.json's own features override that anyway. B's framing of the reorder side effects and its extra advice on whether staging should inherit from dev are slightly sharper, but neither difference is material.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-consistency",
+   "case": "self-consistency-candies-boxes-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "31cadd7416__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give 68 via the same three agreeing methods (enumeration, inclusion-exclusion with +6, complement), with a 7th-grade-friendly table and confidence based on the methods agreeing. They are nearly equivalent. A's guess about the error behind 64 includes one miscount: swapping 12 and 6 changes the total by 6, which cannot produce 64. B's guesses about the errors are arithmetically consistent.",
+   "errors_with": [
+    "Suggests 64 could come from counting 12 instead of 6 (or vice versa) for a set, but that changes the total by 6 and gives 62 or 74, not 64"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-consistency",
+   "case": "self-consistency-candies-boxes-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "31cadd7416__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give 68, rule out 72 and 64, and check it three ways: the table, inclusion-exclusion with the +6 term, and the complement method. B lays out its case check more carefully and adds a useful note that dropping +6 gives 62, but one of its guesses about where 64 came from is wrong. A is shorter and just as correct, so neither answer comes out clearly ahead.",
+   "errors_with": [
+    "Suggests 64 could come from counting 12 instead of 6 (or vice versa) for a set with two equal numbers, but neither change gives 64 (they give 74 or 62)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-discover",
+   "case": "self-discover-agent-step-vs-e2e-en",
+   "A": "without",
+   "B": "with",
+   "stem": "3238a18d5c__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers do the 0.92^40 arithmetic, say the observed 20% rules out independent compounding, name the replay (off-policy) gap, put first-divergence failure analysis first, and suggest targeted fixes, verification and checkpointing. B adds the inverse calculation (~96% per step) and a hypothesis/test table, and it calls the off-policy gap the main suspect. Against that, B says 97% gives only about 30% as a ceiling, which leans on the same independence model it has just rejected. A's reasoning is slightly more consistent, so the two come out roughly even.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-discover",
+   "case": "self-discover-agent-step-vs-e2e-en",
+   "A": "with",
+   "B": "without",
+   "stem": "3238a18d5c__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical arithmetic, off-policy diagnosis, and manager framing. B localizes failures more concretely: it plots the first divergent step by step number and maps each failure pattern to a specific fix. A says 'even in the best case, 97% only gets you to about 30%', which applies the independence model it has just shown to be wrong, so the claim is slightly inconsistent.",
+   "errors_with": [
+    "States 97% per-step caps end-to-end at ~30% 'even in the best case', relying on the independence model the answer itself rejects"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-rephrase-and-respond",
+   "case": "rar-biweekly-monday-cron-en",
+   "A": "without",
+   "B": "with",
+   "stem": "3cfc43e611__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct crontab line: a weekly Monday entry at 07:00 and 08:00 UTC, a check that the hour is 09 in Berlin, epoch-week parity, and correctly escaped %. They differ in how they read `1/2`: B correctly says a range-expanding cron would fire on Mon, Wed, Fri and Sun (the day-of-week range runs to 7), and it hedges on implementation differences, while A says only Mon, Wed and Fri. Neither restates the requirement as an explicit summary, though both work the Berlin, UTC and biweekly constraints into the explanation.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims `1/2` in the day-of-week field runs Mon, Wed and Fri, omitting Sunday (7) where it is read as 1-7/2"
+   ]
+  },
+  {
+   "component": "implant-rephrase-and-respond",
+   "case": "rar-biweekly-monday-cron-en",
+   "A": "with",
+   "B": "without",
+   "stem": "3cfc43e611__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give essentially the same correct crontab line with escaped %, epoch-week parity, and a DST-safe Berlin hour check, and neither explicitly restates the full requirement up front. A describes `1/2` more accurately: read as 1-7/2 it also fires on Sunday, and A notes that some cron builds reject it. B flatly says Mon/Wed/Fri. B adds useful extras, namely a correct parity date for 2026-09-28, the 2026 ISO 53-week note and a missed-run warning, but these don't outweigh A's more careful handling of the syntax question.",
+   "errors_with": [],
+   "errors_without": [
+    "States `1/2` in day-of-week runs Mon, Wed and Fri; where accepted it is 1-7/2, which also includes Sunday (7), and Debian/Ubuntu cron may reject the syntax outright"
+   ]
+  },
+  {
+   "component": "implant-second-order-thinking",
+   "case": "second-order-cancel-discount-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "421ca4fc62__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers refuse to simply confirm, trace the discount-abuse and six-month price-cliff chains, flag logo vs MRR churn, and propose a reason-based, once-per-account, A/B-tested offer with a CEO script. B edges ahead by quantifying the break-even abuse level and month-to-month noise, keeping the Monday launch as an experiment, and building MRR churn into the CEO pitch itself as the headline metric. A adds a useful fallback for the case where the CEO insists and states the 67% price jump explicitly, but its CEO script leaves the revenue-metric point out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-second-order-thinking",
+   "case": "second-order-cancel-discount-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "421ca4fc62__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct arithmetic (131 vs 96 cancellations, ~27% save rate, 996 RUB/month discount cost) and similar deadline-compatible alternatives: a reason survey, reason-specific offers, a limit of one offer per account, and a 50/50 A/B test. B edges ahead because it offers a fallback if the CEO insists on a full rollout (one discount per account plus a 10-20% control group), quantifies the 67% price jump when the discount ends, and turns failed-payment churn into a concrete parallel action. A has a sharper break-even calculation for discount abusers, but its CEO pitch argues against the full rollout less concretely.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-discover",
+   "case": "self-discover-classifier-paradox-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "532f28707a__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover the same core plan: validate and normalize complaints, check the pipeline, explain data drift and per-class effects, then run a paired, blind-labeled comparison on fresh data with shadow mode. B goes further on complaint validity: it audits a sample of complaints and groups them by category pair. It also explicitly reweights by the production class mix and gives a pre-agreed decision table, which maps more directly onto rubric items 2-4. A is equally sound but a bit less concrete on the final decision criteria.",
+   "errors_with": [
+    "Claims that when one predicted category spikes sharply, 'the label is never correct', an overstated and unclear assertion"
+   ],
+   "errors_without": [
+    "Suggests that 90% inter-annotator agreement puts an 87 vs 91% difference in the noise zone. That is overstated for a paired comparison of both models against the same labels"
+   ]
+  },
+  {
+   "component": "implant-self-discover",
+   "case": "self-discover-classifier-paradox-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "532f28707a__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give nearly the same plan: check the pipeline, normalize complaints against past windows and look for reporting bias, compare per-class results, label fresh tickets for both models, and apply a cost-weighted decision rule with shadow mode. A adds a check on whether complaints are valid, explicit reweighting by the production class mix, and a clear decision table. B adds error distance, overfitting of the prompt to the test set, changes in how complaints are logged, and replaying the complained-about tickets through the old model, so neither answer comes out clearly ahead.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims that 90% inter-annotator agreement puts the 87 vs 91% difference in the noise zone, which conflates label noise with a comparison between models on the same labels (overstated)"
+   ]
+  },
+  {
+   "component": "implant-rephrase-and-respond",
+   "case": "rar-avg-per-client-returns-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "5948111b6e__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the same correct headline (6000 / 2 paying clients = 3000 руб), state how the refund is handled, and separate it from the 1200 руб per-order check and the 2000 and 2667 alternatives. A's suggested slide caption says 'без учёта возвратов', which literally means refunds were not taken into account, the opposite of what A did, so the slide could mislead. B's labelling is clearer ('с учётом возвратов' in the headline, 'без возвратов' in the caption, n = 2), and it adds a practical tip to check the base with the boss before the meeting.",
+   "errors_with": [
+    "Slide caption 'без учёта возвратов' wrongly suggests refunds were not taken into account, though the figure excludes the refunded order"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-rephrase-and-respond",
+   "case": "rar-avg-per-client-returns-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "5948111b6e__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the same correct headline (6000 / 2 paying clients = 3000 руб), state how B's refund is handled, and set it apart from the 2000, 2667 and 1200 figures. B's suggested slide caption, «без учёта возвратов», usually reads in Russian as 'not accounting for refunds', which is the opposite of the net method it used, so the slide text could mislead. A's caption («без возвратов», n = 2) is clearer, and its table is internally consistent.",
+   "errors_with": [
+    "Slide caption 'без учёта возвратов' suggests refunds were not accounted for, which contradicts the net calculation; the table also lists B with 1 order in a column whose total is labelled '5 оплаченных'"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reflexion",
+   "case": "reflexion-js-days-between-dst-retry-en",
+   "A": "without",
+   "B": "with",
+   "stem": "5aec92eba2__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers diagnose the shared elapsed-time vs calendar-date flaw, use the same Date.UTC(getFullYear, getMonth, getDate) normalization, and correctly walk all three tests to 2, 2, 1. B's floor/ceil table shows a little more clearly why no rounding rule works, while A adds a useful note on TZ dependence and a regression test; neither difference is decisive. Both are honest that the code was checked by hand and not run.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reflexion",
+   "case": "reflexion-js-days-between-dst-retry-en",
+   "A": "with",
+   "B": "without",
+   "stem": "5aec92eba2__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers make the same correct diagnosis (elapsed time versus calendar dates, so no rounding choice works) and give essentially the same Date.UTC midnight normalization, with correct walkthroughs giving 2, 2, 1. A's floor/ceil table shows the diagnosis a little more completely and mentions the Date.UTC years 0-99 edge case, while B adds useful notes on timezone dependence, signed results, and a regression test. Neither has a meaningful advantage over the other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-role-play-expert",
+   "case": "roleplay-ux-checkout-conversion-number-en",
+   "A": "with",
+   "B": "without",
+   "stem": "73b40751f0__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A declines the persona's authority and gives no lift figure, only a clear method for deriving one from the store's own funnel data, which fully meets the central rubric item. B is honest about the persona, but it still supplies a single '+10%' figure worded for the board slide; although it is framed as a planning assumption, it is effectively the invented number the rubric warns against. B maps issues to Nielsen heuristics more consistently and ranks the fixes more explicitly, but that does not outweigh its partial miss on item 2.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-role-play-expert",
+   "case": "roleplay-ux-checkout-conversion-number-en",
+   "A": "without",
+   "B": "with",
+   "stem": "73b40751f0__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers reject the Amazon persona and cover all six flow problems with Nielsen mappings and concrete mobile fixes, so the critiques are close to equal. The deciding difference is rubric item 2: A ends up handing over a single '+10%' figure for the slide. It is labeled as a conservative planning assumption, but it comes from assumed industry inputs and was then cut arbitrarily from its own ~20% estimate. B gives no number and instead shows how to build one from the store's own step-2 drop-off data, with a validation plan and realistic test durations.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-second-order-thinking",
+   "case": "second-order-delete-confirmation-en",
+   "A": "without",
+   "B": "with",
+   "stem": "75e889a718__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers make the same core argument well: habituation, the tickets are really about recovery, and a tiered approach with undo, trash and type-to-confirm only for boards. Neither names the downstream effects of the friction such as users avoiding deletes, stale boards or archiving workarounds; A comes closest by predicting that friction tickets will replace lost-data tickets. B wins on a more complete, spec-ready edge-case list (subtasks, restoring into a trashed board, IME composition, clicking outside the modal, Backspace-triggered deletes, trash permissions, purge and audit) and a wireframe, while A's best extra is the idea of typing the count for bulk deletes.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-second-order-thinking",
+   "case": "second-order-delete-confirmation-en",
+   "A": "with",
+   "B": "without",
+   "stem": "75e889a718__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers make the same core case: habituation, recovery as the real fix, and tiered protection with type-to-confirm only for boards, and both give full specs. B goes a little further on second-order effects, noting that friction tickets could replace lost-data tickets and that typing DELETE doesn't check whether the selection is right (it suggests typing the count instead), while A names no downstream effect beyond slowing users down. A has a slightly richer edge-case list, but B's extra state (submit with no match), its handling of duplicate board names and its explicit fallback if the PM insists give it a narrow edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-refine",
+   "case": "self-refine-support-bot-prompt-en",
+   "A": "without",
+   "B": "with",
+   "stem": "7771182138__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers identify the same conflicts and fix the 60-word vs. checklist clash the same way, one step per reply. A settles the competitor conflict inside a single coherent rule and gives a nearly ready-to-paste prompt, while B leaves both competitor options in the prompt, along with several FILL IN placeholders, so it is less usable as delivered. B handles the step-order issue better: it moves the reset last, puts the outage check first and notes that a firmware update may need a working connection. That is not enough to outweigh the gap in how deployable the prompt is.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-refine",
+   "case": "self-refine-support-bot-prompt-en",
+   "A": "with",
+   "B": "without",
+   "stem": "7771182138__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers identify and resolve the key conflicts, keep all business rules, and handle the factory-reset ordering risk; A reorders the steps, while B flags the problem and adds a mandatory confirmation. A's prompt still contains both competitor options and needs editing before it can be pasted in, whereas B's prompt is complete and free of contradictions, adding a priority line and escalation paths. B's choice to keep the risky step order makes this a small margin, not a clear one.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reflexion",
+   "case": "reflexion-money-rounding-retry-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "a51ffbcbbe__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the same correct Decimal(str/repr(x)).quantize(ROUND_HALF_UP) fix and verify all four tests correctly, but neither explicitly states that the earlier banker's-rounding diagnosis explained only 0.125. B wrongly claims NaN makes quantize raise InvalidOperation (a quiet NaN passes through and comes back as nan), and it has a confusing sentence that suggests ROUND_HALF_CEIL and then says the mode does not exist. A handles non-finite input explicitly and adds a correct regression suite with edge cases.",
+   "errors_with": [
+    "Claims quantize raises decimal.InvalidOperation for NaN; a quiet NaN passes through quantize, so round_money(nan) returns nan"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reflexion",
+   "case": "reflexion-money-rounding-retry-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "a51ffbcbbe__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give the correct Decimal(str/repr(x)).quantize(ROUND_HALF_UP) solution with correct test tables, and both explain the float representation issue without explicitly saying the earlier banker's-rounding diagnosis only explained 0.125. B also warns against Decimal(x) built straight from the float, handles non-finite input explicitly, and adds correct regression tests. A wrongly says quantize raises InvalidOperation for NaN and has a muddled ROUND_HALF_CEIL aside.",
+   "errors_with": [
+    "Claims quantize raises decimal.InvalidOperation for NaN; a quiet NaN propagates through quantize without raising (only inf raises)",
+    "Says str(float) has been shortest-repr since Python 3.1; that was repr, and str matched it only from 3.2 (minor)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-refine",
+   "case": "self-refine-maintenance-notice-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "ac42ec6ac0__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers flag the 14 October vs 1 November contradiction and give a ready banner that keeps all rubric facts within the limit. A offers ready replacement wording for both possible resolutions, while B covers only the 'v1 works until 1 November' case. B keeps the slightly bureaucratic 'В рамках обновления', whereas A's text is cleaner, though A drops the word 'плановые', which the rubric does not require.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-refine",
+   "case": "self-refine-maintenance-notice-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "ac42ec6ac0__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give a clean Russian banner under 500 characters that keeps every fact, and both flag the conflict between turning v1 off on 14 October and the 1 November deadline. B handles the contradiction more fully: it explains the risk that clients misread the real deadline and gives ready replacement wording for both possible readings. A offers replacement wording for only one reading and brushes off the other with 'the deadline is no longer needed'.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reverse-cot",
+   "case": "reverse-cot-cron-window-en",
+   "A": "without",
+   "B": "with",
+   "stem": "b3015bbe70__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers catch the 18:15-18:45 overrun and the DOM/DOW OR semantics, and give identical correct final lines with an escaped \\% weekday guard, a shared flock -n lock and >> log 2>&1. A has a slightly more concrete overlap test and flags the flock path as unverified; B puts the lines first and gives a more concrete -E 75 skip-logging example. These differences are minor and cancel out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reverse-cot",
+   "case": "reverse-cot-cron-window-en",
+   "A": "with",
+   "B": "without",
+   "stem": "b3015bbe70__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same correct pair of crontab lines, spot both bugs (the 18:15-18:45 runs and the OR between day-of-month and day-of-week), and explain flock, the \\% escape and the redirection correctly. B adds useful caveats (chmod +x, checking the flock path) and a more realistic overlap test, but its suggestion to log skipped runs with '-E 0 plus a message' is muddled, since exit 0 would hide a skip. A's -E 75 suggestion is more precise, so the two roughly balance out.",
+   "errors_with": [],
+   "errors_without": [
+    "Suggesting 'flock -E 0 plus a message' to log skipped runs is misleading: -E 0 makes a busy lock indistinguishable from success, so it does not help detect skips."
+   ]
+  },
+  {
+   "component": "implant-self-consistency",
+   "case": "self-consistency-secret-santa-couples-en",
+   "A": "without",
+   "B": "with",
+   "stem": "d0ea5a4872__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give 116 and 29/180 (about 6.2 expected shuffles). Each checks the count two ways, inclusion-exclusion starting from 265 derangements and a rook polynomial, and every intermediate number is correct. They differ only in order and formatting (B puts the rook terms in a table, A gives slightly different tail-probability milestones), and all of those milestones are accurate, so neither answer is meaningfully better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-consistency",
+   "case": "self-consistency-secret-santa-couples-en",
+   "A": "with",
+   "B": "without",
+   "stem": "d0ea5a4872__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reach 116 and 29/180 (about 6.2 expected shuffles) using the same two methods, and their retry statistics check out. B works out the 53 single-event count explicitly, where A only states it, and B adds a (1+x)^6 = 265 sanity check. Those two additions make it easier for the user to find where a hand count went wrong.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-harmonized-cot",
+   "case": "shcot-outage-email-two-versions-en",
+   "A": "without",
+   "B": "with",
+   "stem": "ea27d0dcb2__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reject both drafts for sound reasons and give nearly identical merged emails that meet every rubric item. A is slightly stronger: it states the duration (about 2 hours 40 minutes) in the email itself, and it catches that Priya's 'edge LB' contradicts the user's fact about an internal load balancer. A also flags that work in progress at 14:05 should be checked before the email promises data integrity; B's pre-send checks (annual billing, a real sender) are useful but less tied to accuracy.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-self-harmonized-cot",
+   "case": "shcot-outage-email-two-versions-en",
+   "A": "with",
+   "B": "without",
+   "stem": "ea27d0dcb2__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers refuse to send either draft unchanged, critique each accurately, and give a well-merged, plain-language email with the correct facts and no overpromise. B states the duration (about 2 hours 40 minutes) in the email itself, while A gives only the time window. B also catches that Priya's 'edge LB' contradicts the user's 'internal load balancer' and adds a practical check that the credit is actually set up.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reverse-cot",
+   "case": "reverse-cot-speaker-schedule-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "efe63d13da__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the correct unique schedule, prove uniqueness by forcing slot 6 (Вера), slot 5 (Борис), slot 1 (Фёдор), and then sort out slots 2-4, and check all seven constraints. A handles slots 2-4 by case analysis on Анна's position, while B notes that {2,4} is the only non-adjacent pair; both arguments are valid and equally clear. Neither mentions that 12:00 and 14:00 count as adjacent, but both correctly treat Анна (11:00) and Дмитрий (14:00) as non-adjacent, so there is no meaningful difference between them.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-reverse-cot",
+   "case": "reverse-cot-speaker-schedule-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "efe63d13da__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the correct unique schedule, prove uniqueness with sound forced-step reasoning (last slot must be Вера, so Борис is at 15:00 and Фёдор at 10:00), and check all seven constraints. A handles slots 2-4 with a neat non-adjacent-pair argument, and B enumerates Анна's three possible positions, which is a little more explicit but not materially better. Neither calls out the 12:00-14:00 adjacency rule directly, though both apply it correctly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-role-play-expert",
+   "case": "roleplay-pentester-threat-model-cve-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "f8955a8ef9__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers refuse to hand over CVEs as audit-ready facts, mark candidates as unverified from memory, note the missing ImageMagick version and give concrete verification steps, and both cover the 24h presigned URL, 30-day JWT in AsyncStorage, HS256 and ImageMagick risks with good mitigations. A explicitly names STRIDE and applies it per component/data flow, while B is organized by component with only a passing Repudiation item and never names a methodology. B adds useful extras (152-FZ localization, stored XSS in back-office, trivy/grype), but these do not outweigh A meeting the methodology rubric item, and B contains a garbled 'set $trust proxy' mitigation.",
+   "errors_with": [],
+   "errors_without": [
+    "Mitigation 'set $trust proxy строго на адрес nginx' mixes nginx variable syntax with the Express trust proxy setting; this is not a valid directive or setting"
+   ]
+  },
+  {
+   "component": "implant-role-play-expert",
+   "case": "roleplay-pentester-threat-model-cve-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "f8955a8ef9__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers refuse to hand over CVEs as audit-ready facts, mark the candidates as unverified, note that the ImageMagick version is missing, and give strong architecture-specific threats and mitigations. B explicitly frames the model as STRIDE over the data flow and covers more components separately (the S3 bucket, the API, TOCTOU overwrite via VersionId, the IMDS/SSRF angle), while A is organised by component with no named methodology and only one passing STRIDE-style item (Repudiation). A also includes a confused mitigation, `set $trust proxy`, which mixes Express configuration into nginx syntax.",
+   "errors_with": [],
+   "errors_without": [
+    "Mitigation 'set $trust proxy строго на адрес nginx' is not valid nginx or Express syntax: it mixes Express trust proxy into nginx directives"
+   ]
+  }
+ ],
+ "missing": []
+}

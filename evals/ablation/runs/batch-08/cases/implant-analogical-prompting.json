@@ -1,0 +1,35 @@
+{
+  "component": "implant-analogical-prompting",
+  "cases": [
+    {
+      "id": "candies-boxes-combinatorics-ru",
+      "agent": "education_tutor",
+      "language": "ru",
+      "history": [],
+      "user_message": "Готовлюсь к олимпиаде, 9 класс. Задача: сколькими способами можно разложить 10 одинаковых конфет по 4 разным коробкам, если в каждой коробке должна быть хотя бы одна конфета? Я пробовал перебирать случаи (4+2+2+2, 3+3+2+2 и т.д.) и считать перестановки, но каждый раз получаю разный ответ и путаюсь. Учитель сказал «там есть красивая идея», но какая — не сказал. Объясните так, чтобы я потом сам узнавал такие задачи, а не просто запомнил формулу.",
+      "why_in_scope": "The implant makes the tutor classify the problem structurally, bring in similar problems from different settings (cutting a stick or a queue with dividers, splitting a number into ordered positive parts) with their solutions, extract the shared strategy and then apply it here. A strong model without it tends to state the stars-and-bars formula C(n-1,k-1) and plug in numbers, which is exactly what the student said they do not want.",
+      "rubric": [
+        "Gives the correct answer 84 (C(9,3)).",
+        "Presents at least two analogous problems from settings other than candies and boxes (for example cutting a bar or a row of objects with partitions, writing a number as an ordered sum of positive parts, distributing identical items among people) and explicitly maps at least one of them onto candies and boxes.",
+        "States the common idea explicitly (placing 3 dividers into the 9 gaps between 10 items) as a reusable way to recognize such problems, rather than only quoting a formula.",
+        "Explains why the student's case-by-case enumeration went wrong or how it connects to the answer; any case counts it gives are correct (e.g. 4+2+2+2 gives 4 arrangements, 3+3+2+2 gives 6, and all cases together sum to 84)."
+      ]
+    },
+    {
+      "id": "mystery-killer-too-obvious-en",
+      "agent": "literary_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm revising a cozy mystery (about 80k words). The killer is Margaret, the victim's older sister. Problem: all five of my beta readers guessed her by chapter 5 of 22. She's the only one with a real inheritance motive and she has a shaky alibi for the night of the murder. I already added three more red herrings (a gardener with a grudge, a business partner, a jilted ex) and it didn't help at all, two readers said the red herrings felt 'obviously fake'. I don't want to change who the killer is. How do I fix this?",
+      "why_in_scope": "The standard fix (more red herrings) has already failed, which is where the implant pushes the model to borrow solutions from structurally similar problems in other fields, such as a stage magician's misdirection, a con artist's setup, or a chess sacrifice that looks like a mistake, and extract a common strategy to apply to Margaret. A strong model without it is likely to give generic genre advice (more suspects, better clues, pacing) that repeats what the writer already tried.",
+      "rubric": [
+        "Draws on at least one explicit parallel from outside mystery writing (e.g. stage magic, cons, games, sports) and says what principle carries over.",
+        "Diagnoses why adding red herrings failed (e.g. Margaret's motive and alibi still stand out as the only real ones, or the herrings get less attention than she does), instead of recommending still more suspects.",
+        "Gives concrete revisions that keep Margaret as the killer and use the given details (inheritance motive, shaky alibi, chapter 5 timing), such as clearing her early with a false alibi or giving other characters equally real motives.",
+        "The advice stays practical for a revision of an existing manuscript rather than proposing a total rewrite."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified 84 = C(9,3) by enumerating ordered partitions. Case 1 rubric item 2 tightened to require at least two cross-setting analogues with an explicit mapping, since a strong model explains the dividers idea anyway; item 4 made checkable with correct sample counts. Case 2 kept: it is in scope, has no leak, and its rubric is sound."
+}

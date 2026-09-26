@@ -1,0 +1,91 @@
+{
+  "component": "skill-jurisdiction-es",
+  "cases": [
+    {
+      "id": "es-golden-visa-apartment-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Мы с женой граждане Казахстана, хотим переехать в Испанию. План такой: покупаем квартиру в Валенсии примерно за 550 тысяч евро (больше 500к, как требуется) и получаем ВНЖ за инвестиции для всей семьи, работать там не собираемся, живём на доход от сдачи квартиры в Алматы. Подскажите по шагам, что нужно сделать и какие документы собрать для подачи на этот ВНЖ.",
+      "why_in_scope": "The skill states the Spanish Golden Visa was abolished by LO 1/2025 effective 3 April 2025 and lists the residencia no lucrativa as the passive-income route. A strong model with older training data may confidently walk the user through the real-estate investor visa steps, which no longer exist for new applicants.",
+      "rubric": [
+        "States that the residence-by-real-estate-investment route (Golden Visa) was abolished in 2025 and is no longer available for new applicants",
+        "Does not give a step-by-step application procedure for the investor visa as if it were still open",
+        "Points to a realistic alternative for a couple living on passive income, such as the non-lucrative residence permit (residencia no lucrativa), and notes it does not allow working in Spain",
+        "Mentions practical prerequisites like obtaining an NIE for the purchase or residence process"
+      ]
+    },
+    {
+      "id": "es-inheritance-ccaa-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Отец умер в прошлом месяце, он последние 12 лет жил в Испании как резидент. Наследство — его квартира (оценка около 380 000 €) и счёт в испанском банке на 60 000 €. Наследников двое: я и сестра, мы обе живём в Германии. Сколько примерно налога на наследство мы заплатим в Испании? Нюансы не нужны, просто прикиньте по общей испанской шкале одну цифру, чтобы понимать, сколько откладывать.",
+      "why_in_scope": "The skill flags ignoring the Comunidad Autónoma for inheritance tax as the first common pitfall and says to always identify the CCAA. The user explicitly asks for one number on the general Spanish scale, so a strong model without the skill may comply and produce a misleading state-scale figure instead of insisting the region decides the outcome.",
+      "rubric": [
+        "Explains that the inheritance tax amount depends heavily on the autonomous community where the deceased was resident, whose reductions/bonuses can change the result drastically (from near zero to tens of thousands of euros)",
+        "Does not present a single state-scale-only figure as the answer despite the user's request; asks for the region or gives clearly region-conditional estimates",
+        "Notes that the tax is assessed per heir on each heir's own share (about 220,000 EUR each here), not on the estate as a whole",
+        "Mentions practical steps such as obtaining an NIE and/or notarial acceptance of the inheritance"
+      ]
+    },
+    {
+      "id": "es-beckham-deadline-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я переехал в Мадрид из Сербии по контракту с испанской IT-компанией, работаю с 1 февраля 2026, зарплата 140 000 € в год. Коллега сказал, что для приезжих есть режим с фиксированным налогом 24% вместо обычной шкалы. Сейчас конец сентября — хочу подать заявление на этот режим, чтобы за 2026 год уже платить по нему. Как это сделать? До этого в Испании я никогда не жил.",
+      "why_in_scope": "The skill specifies that the inpatriate (Ley Beckham) regime must be requested within 6 months of registering with Spanish Social Security. A strong model may happily explain the application form and the 24% benefit without noticing that a start on 1 February puts the deadline around early August, already passed.",
+      "rubric": [
+        "States that the option must be exercised within six months of starting the activity / registering with Spanish Social Security",
+        "Flags that with a 1 February 2026 start that deadline has very likely already passed, so applying now is likely not possible",
+        "Correctly describes the regime as a flat 24% on employment income up to 600,000 EUR for a limited number of years, with a prior non-residence requirement the user appears to meet",
+        "Suggests verifying the exact Social Security registration date and consulting a tax adviser (asesor fiscal) rather than assuming"
+      ]
+    },
+    {
+      "id": "es-sl-minimum-capital-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm a US citizen with a Spanish NIE, living in Málaga. I want to set up a Spanish SL for my small web design business. Every guide I read says I need to deposit €3,000 share capital in a bank before the notary appointment, but cash is tight right now. Is there any legal way around that minimum, or should I just register as autónomo until I've saved up?",
+      "why_in_scope": "The skill records that since Ley 18/2022 an SL can be formed with €1 capital, with the condition that below €3,000 20% of profits go to legal reserve and partners are liable for the shortfall. Many online guides and a strong model's priors still state €3,000 as a hard minimum, leading to wrong advice to wait or go autónomo.",
+      "rubric": [
+        "States that since the 2022 reform (Ley 18/2022, 'Crea y Crece') an SL can be incorporated with a minimum capital of 1 EUR",
+        "Mentions the conditions attached to capital below 3,000 EUR, such as allocating 20% of profits to the legal reserve and/or partner liability for the shortfall in case of liquidation",
+        "Notes that incorporation still requires a public deed before a notary and registration in the Registro Mercantil",
+        "Gives a reasoned comparison with autónomo (IRPF plus RETA quota vs corporate tax plus salary/dividends) rather than a blanket recommendation"
+      ]
+    },
+    {
+      "id": "es-madrid-solidarity-wealth-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I moved to Madrid last year and am now tax resident. Net worth is roughly €4.8M (mostly an ETF portfolio held with a Swiss bank plus my flat in Chamberí). My accountant back home says Madrid has zero wealth tax so I don't have to file anything wealth-related in Spain. Can you confirm so I can stop worrying about it?",
+      "why_in_scope": "The skill states the state solidarity tax on large fortunes applies to net wealth above 3M EUR even where the CCAA grants a 100% wealth-tax bonificación like Madrid, and lists Modelo 720 for foreign assets above 50,000 EUR. A strong model may simply confirm the popular 'Madrid has no wealth tax' belief and miss both obligations.",
+      "rubric": [
+        "Does not confirm that there is nothing to file; corrects the accountant's premise",
+        "Explains that although Madrid applies a 100% bonus on the regional wealth tax, the state solidarity tax on large fortunes still applies to large net wealth (tariff starting above 3M EUR of taxable base), so the user is likely within scope",
+        "Mentions the Modelo 720 informative declaration for foreign assets (e.g. the Swiss-held portfolio) above 50,000 EUR",
+        "Recommends confirming current thresholds and exemptions (such as the main-residence exemption) with a Spanish tax adviser"
+      ]
+    },
+    {
+      "id": "es-catalan-marital-regime-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "My husband and I are both from Girona originally and got married in Barcelona in 2014 with no prenup. In 2019 he bought an apartment in Sitges, only in his name, paid from his salary. We're now separating. Under Spanish law everything bought during the marriage is 50/50 community property, right? So I'm entitled to half the apartment?",
+      "why_in_scope": "The skill stresses that Catalan civil law (Codi Civil de Catalunya) governs family matters for those with Catalan civil status and differs from the state Código Civil. A strong model may apply the state default of gananciales (community property) and confirm the 50/50 assumption, whereas the Catalan default regime is separation of property.",
+      "rubric": [
+        "Identifies that for spouses with Catalan civil status (veïnatge/vecindad civil catalana) and no marriage contract, the default regime is separation of property under Catalan civil law, not the state community-property regime (gananciales)",
+        "Explains that consequently the apartment in the husband's sole name is not automatically half hers",
+        "Mentions possible remedies under Catalan law, such as the economic compensation for work for the household (compensació econòmica per raó de treball) and/or proof of her own contributions",
+        "Advises consulting a lawyer practicing Catalan family law and does not state a definitive entitlement without more facts"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Made the inheritance case subtler by having the user demand a single state-scale figure, and replaced its redundant rubric item with a per-heir taxation check. Softened the Madrid solidarity-tax rubric wording since the 3M EUR figure is the tariff start on taxable base (after allowances); other cases passed scope, leak, agent and factual checks unchanged."
+}

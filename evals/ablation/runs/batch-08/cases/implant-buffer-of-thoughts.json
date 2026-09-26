@@ -1,0 +1,35 @@
+{
+  "component": "implant-buffer-of-thoughts",
+  "cases": [
+    {
+      "id": "junior-functions-feedback-ru",
+      "agent": "code_reviewer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я тимлид, у меня стажёры прислали маленькие функции на Python 3.11 для тестового задания. Нужно дать каждому фидбек, и по одной мерке, чтобы никто не сказал, что к нему придирались больше, чем к другим. Вот четыре штуки:\n\n```python\n# 1 (Аня)\ndef add_tag(tag, tags=[]):\n    tags.append(tag)\n    return tags\n\n# 2 (Борис)\nimport json\ndef read_config(path):\n    f = open(path)\n    data = json.load(f)\n    return data\n\n# 3 (Вика)\ndef average(nums):\n    return sum(nums) / len(nums)\n\n# 4 (Гоша)\ndef slugify(title: str) -> str:\n    return \"-\".join(title.lower().split())\n```\n\nНа следующей неделе придёт ещё штук 20 таких же, и проверять их буду уже не я, а двое сеньоров. Сделай разбор этих четырёх.",
+      "why_in_scope": "The implant makes the model recognize a batch of same-type items, first extract an explicit reusable review template (fixed criteria and output structure), then instantiate it for each function and adapt it where an item does not fit (function 4 has no real bug). A strong model without it tends to write four free-form reviews with different depth and structure and never hands over the reusable checklist the user needs for the next 20 submissions and the two other reviewers, which the user only implies rather than asks for.",
+      "rubric": [
+        "States an explicit, reusable review template or checklist (the same criteria and the same output structure) before or alongside the individual reviews, usable by other reviewers on future submissions.",
+        "Applies that same structure to all four functions, so each review covers the same criteria in the same order.",
+        "Correctly identifies the issues: #1 mutable default argument shared between calls; #2 file is not closed (should use a with block, optionally specify encoding); #3 ZeroDivisionError on an empty sequence.",
+        "Does not inflate #4 into a serious bug to match the others: recognizes it works for simple titles, and any remarks (e.g. punctuation is kept, so 'Hello, World!' becomes 'hello,-world!') are presented as proportionate, minor issues."
+      ]
+    },
+    {
+      "id": "bank-csv-normalization-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm consolidating my household finances into one spreadsheet. Target format: date as YYYY-MM-DD, description, amount where negative = money leaving me, positive = money coming in. I have exports from 4 accounts, here's the header plus one or two sample rows from each:\n\nA) US checking:\nDate,Description,Amount\n03/04/2024,GROCERY OUTLET,-54.20\n03/15/2024,PAYROLL,2450.00\n\nB) German current account:\nBuchungstag;Verwendungszweck;Betrag\n03.04.2024;Miete April;-1.150,00\n\nC) UK credit card:\nTransaction Date,Details,Debit,Credit\n2024-04-03,TESCO STORES,23.10,\n2024-04-20,PAYMENT RECEIVED,,300.00\n\nD) US credit card:\nPosted Date,Payee,Amount\n04/05/2024,AMAZON MKTP,45.99\n04/25/2024,AUTOPAY PAYMENT,-500.00\n\nFor each one tell me exactly how to convert it. I'm also adding two more accounts next month and a friend wants to do the same with her banks, so I'd rather not have to puzzle out each new bank's format from zero.",
+      "why_in_scope": "The implant pushes the model to abstract the repeated task into an explicit per-export checklist (delimiter, date format, decimal/thousands separator, one or two amount columns, sign convention) and then instantiate it for each bank, adapting where a variant differs. Without it a strong model usually gives four ad-hoc conversion notes and easily misses a variant-specific trap such as the inverted sign on credit card D, and does not give the user the reusable procedure they explicitly asked for.",
+      "rubric": [
+        "Provides a reusable, bank-independent checklist or procedure for any new export (covering at least delimiter, date format, number format and sign convention) that the user and friend can apply to future accounts.",
+        "Handles B correctly: semicolon delimiter, DD.MM.YYYY dates, period as thousands separator and comma as decimal, so -1.150,00 becomes -1150.00 on 2024-04-03.",
+        "Handles the sign conventions correctly: for C amount = Credit minus Debit (Tesco -23.10, payment +300.00); for D the sign must be flipped (Amazon -45.99, autopay +500.00), while A is already in the target convention.",
+        "Converts the US MM/DD/YYYY dates correctly (e.g. A 03/04/2024 -> 2024-03-04) and does not silently treat them as DD/MM."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the implant trigger word 'единообразно' and the explicit request to make seniors review 'the same way as you', so the reusable template is implied rather than requested; rewrote the #4 rubric item because slugify does have a real minor flaw (punctuation kept), so 'essentially correct' needed a proportionate, factually accurate wording. Case 2: softened the 'handle every export the same way' phrasing (close to trigger 'same for each'); rubric facts verified."
+}

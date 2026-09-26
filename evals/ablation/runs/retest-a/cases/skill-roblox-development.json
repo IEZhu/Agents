@@ -1,0 +1,91 @@
+{
+  "component": "skill-roblox-development",
+  "cases": [
+    {
+      "id": "shop-client-price-ru",
+      "agent": "roblox_studio_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "Делаю магазин мечей в Roblox. В LocalScript на кнопке \"Купить\" делаю так: BuyEvent:FireServer(\"FireSword\", 250), где 250 это цена из GUI. На сервере:\n\nBuyEvent.OnServerEvent:Connect(function(player, itemName, price)\n    local coins = player.leaderstats.Coins\n    if coins.Value >= price then\n        coins.Value -= price\n        game.ServerStorage.Swords[itemName]:Clone().Parent = player.Backpack\n    end\nend)\n\nВсё работает, но хочу ещё добавить скидку 20% для VIP (у меня есть gamepass). Куда лучше вставить проверку скидки — в LocalScript при отображении цены или на сервере? Скинь исправленный код.",
+      "why_in_scope": "Компонент требует серверной авторитетности и никогда не доверять данным клиента: цена приходит с клиента, и эксплойтер может отправить price = 0 или отрицательное число и получить монеты. Сильная модель без компонента может просто ответить на вопрос про скидку и добавить её на сервере, оставив price из FireServer и не проверив itemName.",
+      "rubric": [
+        "Указывает, что цену нельзя принимать от клиента (эксплойтер может отправить 0 или отрицательное значение), и в коде сервер берёт цену из собственной таблицы/конфига по имени предмета",
+        "Проверяет на сервере itemName (тип string и существование предмета в каталоге/ServerStorage) до выдачи",
+        "Скидка VIP вычисляется на сервере через проверку gamepass (например, MarketplaceService:UserOwnsGamePassAsync, обёрнутую в pcall), а клиент лишь отображает цену",
+        "Приведённый код корректен для Luau и отвечает на заданный вопрос о месте проверки скидки"
+      ]
+    },
+    {
+      "id": "trade-datastore-dupe-ru",
+      "agent": "roblox_studio_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас в игре есть обмен предметами между игроками, около 40 CCU. Сохраняю так: в PlayerRemoving делаю store:SetAsync(player.UserId, data), загружаю через store:GetAsync(player.UserId) в PlayerAdded. Иногда игроки жалуются, что после обмена предмет остался у обоих, а пару раз у человека вообще обнулился инвентарь после захода (в Output видел ошибку 502 от DataStore). Что тут не так и как переписать сохранение/загрузку?",
+      "why_in_scope": "Компонент требует оборачивать все вызовы DataStore в pcall, корректно обрабатывать nil/ошибку загрузки, использовать UpdateAsync для экономики против дюпа и периодическое автосохранение. Сильная модель без компонента может ограничиться советом добавить pcall и упустить, что при неудачной загрузке нельзя затирать данные дефолтом, или не предложить UpdateAsync/автосохранение.",
+      "rubric": [
+        "Оборачивает GetAsync и сохранение в pcall и объясняет, что при неудачной загрузке нельзя давать игроку пустой инвентарь и потом сохранять его поверх настоящих данных (нужен флаг/повторные попытки/кик)",
+        "Рекомендует UpdateAsync вместо SetAsync для сохранения экономики/инвентаря",
+        "Предлагает периодическое автосохранение и сохранение при закрытии сервера (game:BindToClose), а не только в PlayerRemoving",
+        "Объясняет механизм дюпа при обмене (например, сохранение одного игрока прошло, другого нет, или обмен не сохраняется атомарно) и даёт осмысленное направление решения"
+      ]
+    },
+    {
+      "id": "coin-touched-leak-ru",
+      "agent": "roblox_studio_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "Сделал спавн монеток на карте: каждые 2 секунды серверный скрипт создаёт Part, вешает coin.Touched:Connect(...) который даёт +1 монету игроку, и потом делает coin.Parent = nil. Проблемы: 1) иногда за одну монетку дают 3-4 монеты; 2) через полчаса игры сервер начинает лагать и память растёт. Карта маленькая, монеток на карте одновременно максимум штук 30. Почему так и как поправить?",
+      "why_in_scope": "Компонент прямо указывает: для Touched нужен debounce, а удаление через Parent = nil вместо :Destroy() не очищает соединения и приводит к утечке памяти; также предлагает переиспользование объектов. Сильная модель без компонента может исправить только двойное начисление и не связать рост памяти с Parent = nil.",
+      "rubric": [
+        "Объясняет, что Touched срабатывает многократно (несколько частей персонажа), и добавляет защиту от повторного сбора (флаг/атрибут собранности на монетке, проверяемый до начисления)",
+        "Указывает, что Parent = nil не уничтожает объект и оставляет подключения, и заменяет это на coin:Destroy() (или явный Disconnect) либо на корректный пул с переиспользованием",
+        "Начисление монеты происходит на сервере с проверкой, что коснулся персонаж игрока (Players:GetPlayerFromCharacter)",
+        "Предложенный код согласован с описанным сценарием (серверный спавн, до 30 монет) и исправляет обе проблемы"
+      ]
+    },
+    {
+      "id": "gun-remote-hit-validation-en",
+      "agent": "roblox_studio_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "Working on a simple hitscan pistol for my Roblox FPS. The LocalScript raycasts from the camera on mouse click, and if it hits a Humanoid it does ShootEvent:FireServer(hitHumanoid, 25). Server script just does hitHumanoid:TakeDamage(dmg). Fire rate is supposed to be 4 shots/sec, the LocalScript has a task.wait(0.25) cooldown. Playtesting with friends feels good. Before I add a shotgun and a sniper using the same system, anything I should change in the architecture?",
+      "why_in_scope": "The component insists on server authority for damage, rate limiting on the server, distance/sanity checks and never trusting client values. A strong model without it might focus on extensibility (weapon config modules, shared raycast code) and underplay that the current remote lets exploiters send arbitrary damage, fire unlimited shots and hit any humanoid on the map.",
+      "rubric": [
+        "Flags that the client-sent damage value and client-side cooldown can be bypassed by exploiters, and moves damage lookup and fire-rate enforcement to the server (per-player last-shot timestamp)",
+        "Adds server-side validation of the hit: argument type check, target is a live Humanoid, and a range/line-of-sight or distance check from the shooter",
+        "Proposes a weapon stats table/ModuleScript held on the server so shotgun and sniper reuse the system without trusting client numbers",
+        "Advice is concrete and fits the stated hitscan design rather than generic Roblox tips"
+      ]
+    },
+    {
+      "id": "invokeclient-confirm-dialog-en",
+      "agent": "roblox_studio_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "In my tycoon, when a player steps on an upgrade pad the server needs to ask them \"Buy Dropper Lv2 for 500 cash?\" and wait for Yes/No. The pad's Touched handler sets pad.Busy = true (so it doesn't trigger 10 times), then does local answer = ConfirmRF:InvokeClient(player, \"Dropper Lv2\", 500), and if answer == true I deduct cash, then pad.Busy = false. Sometimes the whole pad stops working for everyone until the server restarts, no errors in output. What's going on and what's the right pattern here?",
+      "why_in_scope": "The component says server-to-client communication should use RemoteEvents and client-to-server requests with responses use RemoteFunctions, plus debounce and server-side validation. A strong model without it may try to patch InvokeClient with timeouts instead of restructuring to FireClient plus a validated client-to-server reply, and may miss the shared debounce/yield causing the pad to lock.",
+      "rubric": [
+        "Explains that InvokeClient yields until the client returns, so a client that never answers (closes the UI, exploiter) hangs the handler forever, and that the pad-wide Busy flag held across that yield (never reset, also if InvokeClient errors e.g. on disconnect) is why the pad gets stuck for everyone",
+        "Recommends replacing InvokeClient with a RemoteEvent to show the prompt (FireClient) and a client-to-server request that the server validates (pending offer for that player, enough cash, pad still valid) before deducting",
+        "Uses per-player pending state/cooldown instead of a single pad-wide flag held across a client round-trip, with a timeout or cleanup on PlayerRemoving",
+        "Code or pseudocode is coherent Luau and matches the tycoon pad scenario"
+      ]
+    },
+    {
+      "id": "hud-leaderstats-race-en",
+      "agent": "roblox_studio_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "My HUD LocalScript in StarterPlayerScripts starts with:\n\nlocal stats = game.Players.LocalPlayer.leaderstats\nlocal coins = stats.Coins\n\nAbout 1 in 5 joins I get \"leaderstats is not a valid member of Player\" and the HUD stays blank. Also on the server I have a loop that every 0.1s does CoinsEvent:FireClient(p, coins), GemsEvent:FireClient(p, gems), XPEvent:FireClient(p, xp) for every player, and the mobile players say the game feels laggy. How do I fix both?",
+      "why_in_scope": "The component calls for WaitForChild to avoid replication race conditions and for batching remote traffic into a single payload instead of several events. A strong model without it may fix the error but keep the per-stat 10 Hz remote spam, or suggest batching without also sending only on change.",
+      "rubric": [
+        "Explains the error as a replication/load-order race (leaderstats created by a server script after the LocalScript runs) and fixes it with WaitForChild for leaderstats and its children",
+        "Recommends combining the three events into one payload and/or sending only when values change (or using .Changed on leaderstats values) instead of firing every 0.1s",
+        "Notes that values stored in leaderstats (like Coins) already replicate to the client, so the HUD can listen to their .Changed directly instead of receiving them via remotes",
+        "Answer addresses both problems with correct Luau code"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Tightened invokeclient case: user message now states the pad-wide Busy flag (the rubric previously assumed an unmentioned shared lock) and the rubric no longer claims a leaving client hangs InvokeClient (it errors), which also leaves the flag stuck. Narrowed the HUD replication item to leaderstats values only, since gems/xp may not live there; other cases were in scope, leak-free and factually sound."
+}

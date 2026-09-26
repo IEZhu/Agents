@@ -1,0 +1,35 @@
+{
+  "component": "implant-causal-reasoning",
+  "cases": [
+    {
+      "id": "optional-tutorial-retention-forecast-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет. У нас мобильное приложение для изучения языков. В феврале выкатили новый интерактивный туториал на 5 шагов, он необязательный — есть кнопка «Пропустить» на первом экране. Данные за февраль–апрель по новым пользователям: прошли туториал до конца 31% (примерно 42 тыс. человек), у них retention D30 = 24%. Кто пропустил или бросил на середине — retention D30 = 9%. Я уже прогнал логистическую регрессию с контролем по стране, платформе (iOS/Android), каналу привлечения и возрасту — разница почти не сжалась, скорректированный эффект около +14 п.п., так что это не просто микс аудитории. Продакт хочет в следующем релизе убрать кнопку «Пропустить» и сделать туториал обязательным для всех. Мне нужно к пятнице посчитать ожидаемый эффект: сколько дополнительных удержанных пользователей на D30 мы получим в месяц, если сейчас приходит ~45 тыс. новых пользователей в месяц. Помоги с расчётом и формулировкой для слайда.",
+      "why_in_scope": "The request invites a straight arithmetic forecast, and the user pre-empts the obvious objection by controlling for observable covariates, which makes the gap look causal. But motivation/intent is unobserved and drives both finishing an optional tutorial and staying, so the adjusted 14 pp is still self-selection, not the tutorial's effect. The implant pushes the model to see that controlling for observables does not remove selection on unobservables and to ask for an intervention test; a strong model eager to deliver the slide could accept the regression as sufficient.",
+      "rubric": [
+        "Explains that users who voluntarily completed the optional tutorial are self-selected (e.g. more motivated), and that controlling for country, platform, channel and age does not remove this, because motivation is not among the controls; so the 14 pp gap cannot be read as the tutorial's effect.",
+        "Does not present the naive forecast as the expected effect; frames it at most as an upper bound or clearly labelled optimistic scenario.",
+        "Proposes measuring the real effect before a full rollout, e.g. an A/B test with a forced-tutorial arm vs the current optional flow.",
+        "Arithmetic shown is correct: applying the gap to the ~69% who currently do not finish gives roughly 45 000 x 0.69 x 0.14 = about 4 350 extra retained users per month (or about 4 650 with the raw 15 pp), and the slide wording reflects the uncertainty."
+      ]
+    },
+    {
+      "id": "magnesium-hrv-double-dose-en",
+      "agent": "bio_hacker",
+      "language": "en",
+      "history": [],
+      "user_message": "I've been tracking with my Oura ring for ~3 months. I take magnesium glycinate (the capsules say 200 mg elemental Mg per serving, I take 2 servings = 400 mg) before bed, but honestly only when I remember - mostly when I'm home in the evening, I usually forget when I travel for work or go out with friends. I exported the data: on the 41 nights I took it my average nightly HRV is 58 ms, on the 47 nights I didn't it's 46 ms. That's a 26% jump which is way bigger than anything else I've tried. Thinking of going to 800 mg every night to push HRV even higher. Any reason not to?",
+      "why_in_scope": "The user describes an observational comparison where the nights with magnesium systematically differ (at home vs travel and nights out, which usually means less alcohol, better sleep timing, no jet lag), and then assumes a dose-response that has not been observed. The implant makes the model separate correlation from causation, name these confounders and suggest an intervention-style test; a strong model might focus only on dose safety and accept the 12 ms effect as real.",
+      "rubric": [
+        "Points out that the magnesium nights are confounded by context the user described (home vs travel/going out, with likely differences in alcohol, sleep timing, stress or jet lag) and that these alone could explain much of the HRV gap.",
+        "Notes that a bigger effect at double the dose is an assumption not supported by the data (only one dose was ever tried), so 'more Mg -> more HRV' is not established.",
+        "Suggests a way to test causation personally, such as taking it on a fixed or randomized schedule regardless of context and comparing like-for-like nights, or excluding travel and alcohol nights from the comparison.",
+        "Advises against going to 800 mg of supplemental magnesium, mentioning a relevant safety concern (e.g. it is well above the 350 mg/day tolerable upper intake level for supplemental magnesium in adults, and GI side effects such as diarrhea)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy (raw completer vs non-completer gap is a textbook selection trap), so the user now reports a regression controlling for observables; the rubric targets selection on unobservables and arithmetic was updated to 14 pp (~4 350, raw ~4 650); dropped the speculative forced-tutorial drop-off requirement. Case 2 verified (350 mg supplemental Mg UL is correct) and kept."
+}

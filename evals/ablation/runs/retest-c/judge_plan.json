@@ -1,0 +1,290 @@
+{
+ "35aae6105e__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "aws-annual-cost-chain-en",
+  "A": "with",
+  "B": "without"
+ },
+ "35aae6105e__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "aws-annual-cost-chain-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5d3f1b65a4__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "cert-validity-seconds-leap-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "5d3f1b65a4__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "cert-validity-seconds-leap-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "606b10e611__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "eur-rub-transfer-fee-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "606b10e611__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "eur-rub-transfer-fee-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "5893af03a4__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "mortgage-annuity-calc-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "5893af03a4__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "mortgage-annuity-calc-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "89fc16343d__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "postgres-latest-version-grounding-en",
+  "A": "with",
+  "B": "without"
+ },
+ "89fc16343d__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "postgres-latest-version-grounding-en",
+  "A": "without",
+  "B": "with"
+ },
+ "ceacb8e089__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "salary-conversion-carried-error-en",
+  "A": "without",
+  "B": "with"
+ },
+ "ceacb8e089__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "salary-conversion-carried-error-en",
+  "A": "with",
+  "B": "without"
+ },
+ "b2ac3282f3__o1": {
+  "component": "implant-output-priming",
+  "case": "alerts-csv-semicolon-import-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b2ac3282f3__o2": {
+  "component": "implant-output-priming",
+  "case": "alerts-csv-semicolon-import-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "2eb4862d32__o1": {
+  "component": "implant-output-priming",
+  "case": "flowchart-raw-output-parser-en",
+  "A": "without",
+  "B": "with"
+ },
+ "2eb4862d32__o2": {
+  "component": "implant-output-priming",
+  "case": "flowchart-raw-output-parser-en",
+  "A": "with",
+  "B": "without"
+ },
+ "22cea21b81__o1": {
+  "component": "implant-output-priming",
+  "case": "pagerduty-custom-details-json-en",
+  "A": "without",
+  "B": "with"
+ },
+ "22cea21b81__o2": {
+  "component": "implant-output-priming",
+  "case": "pagerduty-custom-details-json-en",
+  "A": "with",
+  "B": "without"
+ },
+ "27345aa795__o1": {
+  "component": "implant-output-priming",
+  "case": "prometheusrule-annotations-continue-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "27345aa795__o2": {
+  "component": "implant-output-priming",
+  "case": "prometheusrule-annotations-continue-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "8597cd174f__o1": {
+  "component": "implant-output-priming",
+  "case": "sequence-diagram-continue-branch-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8597cd174f__o2": {
+  "component": "implant-output-priming",
+  "case": "sequence-diagram-continue-branch-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "6f8d655123__o1": {
+  "component": "implant-output-priming",
+  "case": "small-model-erdiagram-consistency-en",
+  "A": "without",
+  "B": "with"
+ },
+ "6f8d655123__o2": {
+  "component": "implant-output-priming",
+  "case": "small-model-erdiagram-consistency-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ac37ec9dc0__o1": {
+  "component": "implant-react",
+  "case": "boto3-memory-growth-refuted-cache-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ac37ec9dc0__o2": {
+  "component": "implant-react",
+  "case": "boto3-memory-growth-refuted-cache-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "87bea3dbbf__o1": {
+  "component": "implant-react",
+  "case": "conversion-drop-mix-shift-en",
+  "A": "with",
+  "B": "without"
+ },
+ "87bea3dbbf__o2": {
+  "component": "implant-react",
+  "case": "conversion-drop-mix-shift-en",
+  "A": "without",
+  "B": "with"
+ },
+ "fb7b715183__o1": {
+  "component": "implant-react",
+  "case": "disk-full-df-du-mismatch-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "fb7b715183__o2": {
+  "component": "implant-react",
+  "case": "disk-full-df-du-mismatch-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ea1f201777__o1": {
+  "component": "implant-react",
+  "case": "k8s-crashloop-liveness-startup-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ea1f201777__o2": {
+  "component": "implant-react",
+  "case": "k8s-crashloop-liveness-startup-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "2eced75107__o1": {
+  "component": "implant-react",
+  "case": "replica-lag-nightly-maintenance-window-en",
+  "A": "without",
+  "B": "with"
+ },
+ "2eced75107__o2": {
+  "component": "implant-react",
+  "case": "replica-lag-nightly-maintenance-window-en",
+  "A": "with",
+  "B": "without"
+ },
+ "0d4b5fccfc__o1": {
+  "component": "implant-react",
+  "case": "tls-verify-code-21-not-expiry-en",
+  "A": "without",
+  "B": "with"
+ },
+ "0d4b5fccfc__o2": {
+  "component": "implant-react",
+  "case": "tls-verify-code-21-not-expiry-en",
+  "A": "with",
+  "B": "without"
+ },
+ "39764fb629__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "ab-test-segment-reversal-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "39764fb629__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "ab-test-segment-reversal-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ead0252166__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "average-speed-round-trip-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ead0252166__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "average-speed-round-trip-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "c8bbd644a0__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "fanout-tail-latency-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c8bbd644a0__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "fanout-tail-latency-en",
+  "A": "with",
+  "B": "without"
+ },
+ "0faf5b7691__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "fraud-flag-base-rate-en",
+  "A": "with",
+  "B": "without"
+ },
+ "0faf5b7691__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "fraud-flag-base-rate-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d0bf8b9d3e__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "mutable-default-trace-en",
+  "A": "with",
+  "B": "without"
+ },
+ "d0bf8b9d3e__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "mutable-default-trace-en",
+  "A": "without",
+  "B": "with"
+ },
+ "df151d5a8b__o1": {
+  "component": "implant-take-a-deep-breath",
+  "case": "stacked-discounts-cashback-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "df151d5a8b__o2": {
+  "component": "implant-take-a-deep-breath",
+  "case": "stacked-discounts-cashback-ru",
+  "A": "without",
+  "B": "with"
+ }
+}

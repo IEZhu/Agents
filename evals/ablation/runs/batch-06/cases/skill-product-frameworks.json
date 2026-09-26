@@ -1,0 +1,35 @@
+{
+  "component": "skill-product-frameworks",
+  "cases": [
+    {
+      "id": "backlog-scoring-b2b-saas-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я PM в B2B SaaS для складского учёта. На следующий квартал у команды реально свободно около 70 чел-дней под крупные фичи, остальное съедают баги и техдолг. В бэклоге 4 кандидата, и каждый тянет своё: сейлз орёт про 1С, CEO хочет онбординг, поддержка — экспорт. Что знаю по каждому:\n\n1) Экспорт отчётов в Excel — просят примерно 1200 активных пользователей в месяц (тикеты + опрос, цифрам верю). Людям сэкономит время, но не game changer. Разработка ~10 чел-дней.\n2) Интеграция с 1С — это ~300 клиентов, зато самые крупные аккаунты, двое уже грозятся уйти. Удержит ли их это на самом деле — не уверен, по ощущениям 50/50. Разработка ~60 чел-дней.\n3) Редизайн онбординга — через онбординг проходит ~5000 новых регистраций в месяц, CEO уверен, что конверсия в оплату вырастет сильно. Но никаких исследований не было, это его интуиция. Разработка ~30 чел-дней.\n4) Тёмная тема — ~800 пользователей в месяц включили бы, на деньги почти не влияет, зато делается за ~5 чел-дней.\n\nМне на планёрке надо защитить выбор так, чтобы это не выглядело как моё личное мнение против CEO и сейлза. Что берём в квартал?",
+      "why_in_scope": "The skill makes the model rank the backlog with an explicit RICE score (Reach x Impact x Confidence / Effort) on a fixed impact scale and 100/80/50% confidence levels, with consistent units. The user only asks for a defensible choice and never names a method, so a strong model without the skill may give a qualitative pros/cons argument or an impact/effort matrix, or let the CEO's untested onboarding hypothesis count at full confidence. The 70 person-day capacity also forces the ranking to be turned into a feasible set.",
+      "rubric": [
+        "Gives each of the 4 items a numeric score from an explicitly stated formula of the form Reach x Impact x Confidence / Effort, showing the value chosen for every factor so the calculation can be reproduced.",
+        "Translates the user's verbal assessments into explicit numeric impact and confidence values, and gives the onboarding redesign a reduced confidence because it rests on the CEO's untested intuition, and the 1C integration a reduced confidence because the retention effect is uncertain.",
+        "Uses the same units for reach and for effort across all items, the arithmetic in the shown calculations is correct for the chosen inputs, and the recommended set of items fits within the stated ~70 person-days.",
+        "Ends with a concrete ranked list and a clear recommendation of what goes into the quarter, and names at least one factor the score does not capture (e.g. churn risk of the two large accounts, or cheaply validating the onboarding hypothesis before building)."
+      ]
+    },
+    {
+      "id": "solution-first-spec-to-prd-en",
+      "agent": "product_manager",
+      "language": "en",
+      "history": [],
+      "user_message": "Our VP asked me to write up the spec for the eng team by Friday. Here's what I have so far:\n\n\"Feature: Bulk invoice editing. Add checkboxes to the invoice list so users can select multiple invoices and change due date, currency, or status in one go. Add a 'Bulk actions' dropdown above the table. Should support up to 500 invoices at once.\"\n\nContext: we're a small-business accounting app (~18k paying accounts). The idea came from two enterprise-ish customers on a call last month, and our support lead says there are 'a bunch' of tickets about editing invoices one by one, but I haven't pulled numbers. Can you turn this into a proper spec I can hand to engineering?",
+      "why_in_scope": "The skill makes the model start from the user problem and follow a PRD structure: problem statement with evidence, proposed solution, measurable success metrics, explicit in/out of scope, user stories in As a / I want / so that form with Given/When/Then acceptance criteria, and technical considerations. The user's draft is solution-first with unquantified evidence. A strong model without the skill may simply expand the UI description into a feature spec, omitting a problem statement, measurable success metrics, or explicit out-of-scope boundaries, and not flag the weak evidence.",
+      "rubric": [
+        "Opens with a problem statement framed around the user's problem (who is affected and what pain editing invoices one by one causes) before describing the bulk-edit solution, and flags that the evidence is thin (two customers plus unquantified tickets) and should be quantified, e.g. by pulling the support ticket count.",
+        "Includes success metrics that are measurable (a concrete metric with a target or a clear way to measure it), not only vague goals like 'improve efficiency'.",
+        "Contains an explicit out-of-scope list (for example bulk editing of other fields or objects, or undo history) alongside what is in scope.",
+        "Provides user stories in the 'As a ..., I want ..., so that ...' form with testable acceptance criteria (e.g. Given/When/Then) covering at least one edge case relevant to the request, such as the 500-invoice limit, partial failures, or editing invoices whose status should not allow changes."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the explicit request to 'show a calculation' and the RICE-like wording ('эффект средний', 'данные надёжные') that leaked the method, and replaced the unrealistic 'max two fit' with an explicit ~70 person-day capacity (4 devs could otherwise fit all 105 person-days); rubric now checks the recommendation fits capacity. Case 2 left as is: solution-first draft with thin evidence is a fair PRD test and rubric items are checkable."
+}

@@ -1,0 +1,35 @@
+{
+  "component": "implant-steel-man",
+  "cases": [
+    {
+      "id": "jwt-vs-redis-sessions-rebuttal-ru",
+      "agent": "security_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас B2B SaaS, бэкенд на Node 20 + Express, фронт SPA на React. Авторизация сейчас такая: access JWT на 15 минут, RS256, ключи через JWKS, на фронте токен держим только в памяти. Refresh-токен в httpOnly Secure SameSite=Strict куке, ротируется при каждом обновлении, хэши refresh-токенов лежат в таблице в Postgres. Новый сеньор на ревью архитектуры предлагает всё это выкинуть и переехать на классические серверные сессии в Redis. По-моему это вкусовщина: схема у нас нормальная, Redis — ещё одна точка отказа, а переезд — месяц работы. В четверг планерка, помоги подготовить контраргументы, чтобы разнести его предложение.",
+      "why_in_scope": "The user's setup is reasonable, so a strong model can easily comply and write one-sided rebuttals ('your scheme is modern, Redis is a SPOF, migration is costly'). The implant makes the model first build the colleague's strongest case from the user's own details: they already keep server-side state for refresh tokens in Postgres (so the 'stateless, no extra dependency' argument is mostly gone and they run two mechanisms), and an issued access token stays valid for up to 15 minutes after a user is removed or loses a role, which matters in B2B. Only then does it judge which of the user's counterarguments actually hold.",
+      "rubric": [
+        "Reconstructs the colleague's strongest argument from the user's setup: an already issued access JWT remains valid until it expires (up to 15 minutes) after a user is deactivated or their role/tenant access changes, unless extra server-side checks are added.",
+        "Points out that the current scheme already depends on server-side state (the refresh-token table in Postgres), so 'stateless' and 'no extra point of failure' are weaker rebuttals than the user thinks, since refresh already needs that database.",
+        "Gives an honest verdict rather than pure ammunition: acknowledges the valid parts of the user's position (the current scheme is not insecure as such; migration cost is real) while saying which of the colleague's points the user should concede or be ready to answer.",
+        "Frames the decision around a concrete requirement (e.g. how quickly access must be revoked) and/or offers targeted options that close the gap without a full migration, such as a token-version or denylist check, or a shorter access-token lifetime."
+      ]
+    },
+    {
+      "id": "post-merge-review-retro-rebuttal-en",
+      "agent": "debate_moderator",
+      "language": "en",
+      "history": [],
+      "user_message": "One of the devs on my team keeps pushing to drop mandatory pre-merge code review and switch to 'review after merge' for most changes (small PRs merged straight to main behind feature flags, reviewed within a day afterwards, only risky stuff like migrations or auth gets a blocking review). Honestly I don't get the appeal of merging unreviewed code. We're 6 backend devs, ~25 PRs a week, and our median time from PR opened to first review is about 19 hours. It's coming up at Thursday's retro and I want a list of points to shut it down.",
+      "why_in_scope": "The user dismisses the proposal and asks only for ammunition against it. The implant pushes the model to reconstruct the proposal's strongest case, which the user's own numbers support (a 19-hour median review wait on small PRs, feature flags limiting blast radius, a carve-out for risky changes), before critiquing it. A strong model without it could plausibly write a straw-man list ('no review means bugs in production') that ignores that review still happens and that the risky categories stay gated.",
+      "rubric": [
+        "Presents the proposal's strongest version fairly, including that review still happens post-merge, risky changes keep blocking review, and feature flags reduce the blast radius; does not treat it as 'no review'.",
+        "Uses the user's own figure (about 19 hours median wait to first review) as evidence in favor of the proposal, e.g. as a cost of waiting that the dev is trying to remove.",
+        "Gives substantive objections aimed at that strong version rather than a straw man, e.g. who decides what counts as 'risky', whether post-merge reviews actually happen or get skipped, flag debt, and knowledge-sharing effects.",
+        "Ends with a balanced recommendation for the retro (such as a time-boxed trial with explicit criteria, or fixing review latency first) instead of only a list of points to shut the idea down."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy: the old setup (24h JWT in localStorage, shared HS256 secret) was so obviously weak any strong security model would push back without the implant, so I rewrote it around a reasonable JWT+rotating-refresh setup where the colleague's strongest case (revocation latency, existing server-side state) must be actively constructed, and rewrote the rubric accordingly. Case 2's user message used the implant's trigger phrase 'why would anyone think', so it was rephrased to avoid the leak."
+}

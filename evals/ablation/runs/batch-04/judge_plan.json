@@ -1,0 +1,242 @@
+{
+ "407740c6ac__o1": {
+  "component": "skill-fact-verification",
+  "case": "remote-work-blog-citations-en",
+  "A": "without",
+  "B": "with"
+ },
+ "407740c6ac__o2": {
+  "component": "skill-fact-verification",
+  "case": "remote-work-blog-citations-en",
+  "A": "with",
+  "B": "without"
+ },
+ "6836aecfa8__o1": {
+  "component": "skill-fact-verification",
+  "case": "severagro-revenue-reprints-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6836aecfa8__o2": {
+  "component": "skill-fact-verification",
+  "case": "severagro-revenue-reprints-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "4364fe31b6__o1": {
+  "component": "skill-fitness-programming",
+  "case": "bench-block-after-plateau-en",
+  "A": "with",
+  "B": "without"
+ },
+ "4364fe31b6__o2": {
+  "component": "skill-fitness-programming",
+  "case": "bench-block-after-plateau-en",
+  "A": "without",
+  "B": "with"
+ },
+ "3b7005d408__o1": {
+  "component": "skill-fitness-programming",
+  "case": "l5s1-protrusion-return-plan-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3b7005d408__o2": {
+  "component": "skill-fitness-programming",
+  "case": "l5s1-protrusion-return-plan-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "35c5f4e3f0__o1": {
+  "component": "skill-forensic-process",
+  "case": "crm-leak-chronology-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "35c5f4e3f0__o2": {
+  "component": "skill-forensic-process",
+  "case": "crm-leak-chronology-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "06fc533e7c__o1": {
+  "component": "skill-forensic-process",
+  "case": "payments-outage-postmortem-timeline-en",
+  "A": "with",
+  "B": "without"
+ },
+ "06fc533e7c__o2": {
+  "component": "skill-forensic-process",
+  "case": "payments-outage-postmortem-timeline-en",
+  "A": "without",
+  "B": "with"
+ },
+ "4622fd4393__o1": {
+  "component": "skill-git-conventions",
+  "case": "perf-with-reformat-commit-en",
+  "A": "without",
+  "B": "with"
+ },
+ "4622fd4393__o2": {
+  "component": "skill-git-conventions",
+  "case": "perf-with-reformat-commit-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a3f12a4af3__o1": {
+  "component": "skill-git-conventions",
+  "case": "staged-mixed-changes-commit-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "a3f12a4af3__o2": {
+  "component": "skill-git-conventions",
+  "case": "staged-mixed-changes-commit-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0e616ec13b__o1": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-apartment-contribution-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "0e616ec13b__o2": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-apartment-contribution-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "79e02f4388__o1": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-contractor-withholding-move-en",
+  "A": "with",
+  "B": "without"
+ },
+ "79e02f4388__o2": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-contractor-withholding-move-en",
+  "A": "without",
+  "B": "with"
+ },
+ "6c79f0e160__o1": {
+  "component": "skill-jurisdiction-cy",
+  "case": "cypriot-domiciled-holdco-dividend-rent-en",
+  "A": "with",
+  "B": "without"
+ },
+ "6c79f0e160__o2": {
+  "component": "skill-jurisdiction-cy",
+  "case": "cypriot-domiciled-holdco-dividend-rent-en",
+  "A": "without",
+  "B": "with"
+ },
+ "3065677f83__o1": {
+  "component": "skill-jurisdiction-cy",
+  "case": "limassol-it-founder-salary-dividends-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3065677f83__o2": {
+  "component": "skill-jurisdiction-cy",
+  "case": "limassol-it-founder-salary-dividends-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bb2facece9__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-golden-visa-valencia-apartment-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "bb2facece9__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-golden-visa-valencia-apartment-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f827c0d16a__o1": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-sl-minimum-capital-madrid-en",
+  "A": "without",
+  "B": "with"
+ },
+ "f827c0d16a__o2": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-sl-minimum-capital-madrid-en",
+  "A": "with",
+  "B": "without"
+ },
+ "b9c6417907__o1": {
+  "component": "skill-jurisdiction-ge",
+  "case": "georgian-llc-retained-profit-dividend-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b9c6417907__o2": {
+  "component": "skill-jurisdiction-ge",
+  "case": "georgian-llc-retained-profit-dividend-en",
+  "A": "with",
+  "B": "without"
+ },
+ "bcaf6803c9__o1": {
+  "component": "skill-jurisdiction-ge",
+  "case": "tbilisi-it-llc-virtual-zone-rate-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bcaf6803c9__o2": {
+  "component": "skill-jurisdiction-ge",
+  "case": "tbilisi-it-llc-virtual-zone-rate-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "97936dc978__o1": {
+  "component": "skill-jurisdiction-kz",
+  "case": "aifc-private-company-shareholder-exit-en",
+  "A": "without",
+  "B": "with"
+ },
+ "97936dc978__o2": {
+  "component": "skill-jurisdiction-kz",
+  "case": "aifc-private-company-shareholder-exit-en",
+  "A": "with",
+  "B": "without"
+ },
+ "cf0673ac87__o1": {
+  "component": "skill-jurisdiction-kz",
+  "case": "almaty-too-2026-payroll-vat-budget-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "cf0673ac87__o2": {
+  "component": "skill-jurisdiction-kz",
+  "case": "almaty-too-2026-payroll-vat-budget-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "262876d437__o1": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-it-company-dividends-staff-transfer-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "262876d437__o2": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-it-company-dividends-staff-transfer-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "2355c2faa7__o1": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-puerto-vallarta-condo-title-en",
+  "A": "with",
+  "B": "without"
+ },
+ "2355c2faa7__o2": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-puerto-vallarta-condo-title-en",
+  "A": "without",
+  "B": "with"
+ }
+}

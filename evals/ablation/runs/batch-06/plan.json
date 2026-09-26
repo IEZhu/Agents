@@ -1,0 +1,1070 @@
+{
+ "198927d2ceab": {
+  "component": "skill-pedagogy",
+  "case": "quadratic-inequality-self-check-ru",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 14507,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "b0e1cbb06fdc": {
+  "component": "skill-pedagogy",
+  "case": "quadratic-inequality-self-check-ru",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 14341,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "cf8a5d8e2210": {
+  "component": "skill-pedagogy",
+  "case": "p-value-misconception-en",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 23875,
+  "skills": [
+   "skill-content-structure",
+   "skill-source-trust-tiers",
+   "skill-consultative-intake",
+   "skill-fact-verification",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "66f405476210": {
+  "component": "skill-pedagogy",
+  "case": "p-value-misconception-en",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 22017,
+  "skills": [
+   "skill-content-structure",
+   "skill-source-trust-tiers",
+   "skill-consultative-intake",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1e2375902598": {
+  "component": "skill-product-frameworks",
+  "case": "backlog-scoring-b2b-saas-ru",
+  "arm": "with",
+  "agent": "product_manager",
+  "chars": 29448,
+  "skills": [
+   "skill-content-structure",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-product-frameworks"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b0989356057f": {
+  "component": "skill-product-frameworks",
+  "case": "backlog-scoring-b2b-saas-ru",
+  "arm": "without",
+  "agent": "product_manager",
+  "chars": 27268,
+  "skills": [
+   "skill-content-structure",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-web-search"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e324580913c4": {
+  "component": "skill-product-frameworks",
+  "case": "solution-first-spec-to-prd-en",
+  "arm": "with",
+  "agent": "product_manager",
+  "chars": 29448,
+  "skills": [
+   "skill-content-structure",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-product-frameworks"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f20c2dc92d9a": {
+  "component": "skill-product-frameworks",
+  "case": "solution-first-spec-to-prd-en",
+  "arm": "without",
+  "agent": "product_manager",
+  "chars": 27268,
+  "skills": [
+   "skill-content-structure",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-web-search"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f9af46e0482f": {
+  "component": "skill-prompt-design-process",
+  "case": "ticket-classifier-json-drift-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 24628,
+  "skills": [
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical",
+   "skill-prompt-design-process"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a6f46cbe4e83": {
+  "component": "skill-prompt-design-process",
+  "case": "ticket-classifier-json-drift-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 23332,
+  "skills": [
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b694c23a200a": {
+  "component": "skill-prompt-design-process",
+  "case": "nightly-incident-agent-prompt-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 24427,
+  "skills": [
+   "skill-caveman-tokenomics",
+   "skill-prompt-techniques",
+   "skill-dense-summarization",
+   "skill-prompt-engineering",
+   "skill-prompt-design-process"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "80e5e6aa77b2": {
+  "component": "skill-prompt-design-process",
+  "case": "nightly-incident-agent-prompt-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 23131,
+  "skills": [
+   "skill-caveman-tokenomics",
+   "skill-prompt-techniques",
+   "skill-dense-summarization",
+   "skill-prompt-engineering"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f8f1a65753fb": {
+  "component": "skill-prompt-engineering",
+  "case": "ticket-classifier-parser-breaks-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 24628,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical",
+   "skill-prompt-engineering"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c14f139f021f": {
+  "component": "skill-prompt-engineering",
+  "case": "ticket-classifier-parser-breaks-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 21993,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "65330ed88e9c": {
+  "component": "skill-prompt-engineering",
+  "case": "extraction-prompt-rule-bloat-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 23864,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-reasoning-logic",
+   "skill-prompt-engineering"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ba00fce20508": {
+  "component": "skill-prompt-engineering",
+  "case": "extraction-prompt-rule-bloat-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 21229,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b875fd9e4550": {
+  "component": "skill-prompt-security",
+  "case": "marketplace-review-moderator-override-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 26819,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-caveman-tokenomics",
+   "skill-prompt-engineering",
+   "skill-analysis-critical",
+   "skill-prompt-security"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "435f89364e6a": {
+  "component": "skill-prompt-security",
+  "case": "marketplace-review-moderator-override-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 24628,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-caveman-tokenomics",
+   "skill-prompt-engineering",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "58a9f1fd6b33": {
+  "component": "skill-prompt-security",
+  "case": "resume-screener-hidden-text-en",
+  "arm": "with",
+  "agent": "security_expert",
+  "chars": 29773,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-security",
+   "skill-confidence-markers",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-clean-code",
+   "skill-reasoning-logic",
+   "skill-prompt-security"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "PreMortem",
+   "SteelMan"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "96797147bd17": {
+  "component": "skill-prompt-security",
+  "case": "resume-screener-hidden-text-en",
+  "arm": "without",
+  "agent": "security_expert",
+  "chars": 27582,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-security",
+   "skill-confidence-markers",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-clean-code",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "PreMortem",
+   "SteelMan"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fb290ce4fcea": {
+  "component": "skill-prompt-techniques",
+  "case": "brand-voice-example-copying-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 24427,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-prompt-engineering",
+   "skill-prompt-techniques"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "8abc7e3544cc": {
+  "component": "skill-prompt-techniques",
+  "case": "brand-voice-example-copying-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 21397,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-prompt-engineering"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "69b2eb65018f": {
+  "component": "skill-prompt-techniques",
+  "case": "text-to-sql-static-examples-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 24427,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-prompt-techniques"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ba8de8e0cd65": {
+  "component": "skill-prompt-techniques",
+  "case": "text-to-sql-static-examples-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 21397,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "16b48c09449b": {
+  "component": "skill-psy-cbt",
+  "case": "code-review-fired-fear-ru",
+  "arm": "with",
+  "agent": "psychologist",
+  "chars": 17608,
+  "skills": [
+   "skill-psy-nvc",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-reasoning-logic",
+   "skill-psy-cbt"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "S2A",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0822580d1398": {
+  "component": "skill-psy-cbt",
+  "case": "code-review-fired-fear-ru",
+  "arm": "without",
+  "agent": "psychologist",
+  "chars": 16953,
+  "skills": [
+   "skill-psy-nvc",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "S2A",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e392c992017a": {
+  "component": "skill-psy-cbt",
+  "case": "kid-im-stupid-after-test-en",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 23953,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-nvc",
+   "skill-pedagogy",
+   "skill-psy-cbt"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "935633732dba": {
+  "component": "skill-psy-cbt",
+  "case": "kid-im-stupid-after-test-en",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 23298,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-nvc",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a9f1d92efc63": {
+  "component": "skill-psy-child-dev",
+  "case": "preschooler-lying-interrogation-ru",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 23148,
+  "skills": [
+   "skill-psy-cbt",
+   "skill-psy-nvc",
+   "skill-psy-digital-wellbeing",
+   "skill-consultative-intake",
+   "skill-psy-child-dev"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c058d9ba513c": {
+  "component": "skill-psy-child-dev",
+  "case": "preschooler-lying-interrogation-ru",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 21255,
+  "skills": [
+   "skill-psy-cbt",
+   "skill-psy-nvc",
+   "skill-psy-digital-wellbeing",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "97ffadf6231d": {
+  "component": "skill-psy-child-dev",
+  "case": "school-age-anger-bad-kid-en",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 24135,
+  "skills": [
+   "skill-psy-nvc",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-cbt",
+   "skill-decision-frameworks",
+   "skill-psy-child-dev"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "defc4743157c": {
+  "component": "skill-psy-child-dev",
+  "case": "school-age-anger-bad-kid-en",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 22242,
+  "skills": [
+   "skill-psy-nvc",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-cbt",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cd3f24de1b26": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "teen-tiktok-spy-app-ru",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 23148,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-nvc",
+   "skill-psy-cbt",
+   "skill-consultative-intake",
+   "skill-psy-digital-wellbeing"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4582c09aaa78": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "teen-tiktok-spy-app-ru",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 20677,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-nvc",
+   "skill-psy-cbt",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "77a8ef639f2a": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "fortnite-cold-turkey-en",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 23953,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-nvc",
+   "skill-psy-cbt",
+   "skill-pedagogy",
+   "skill-psy-digital-wellbeing"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fa6254ecb614": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "fortnite-cold-turkey-en",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 21482,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-nvc",
+   "skill-psy-cbt",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "da665ccb19bd": {
+  "component": "skill-psy-nvc",
+  "case": "roommate-dishes-message-ru",
+  "arm": "with",
+  "agent": "psychologist",
+  "chars": 16999,
+  "skills": [
+   "skill-psy-cbt",
+   "skill-pedagogy",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-psy-nvc"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "S2A",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a770560d0894": {
+  "component": "skill-psy-nvc",
+  "case": "roommate-dishes-message-ru",
+  "arm": "without",
+  "agent": "psychologist",
+  "chars": 16439,
+  "skills": [
+   "skill-psy-cbt",
+   "skill-pedagogy",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "S2A",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7c445f7150d0": {
+  "component": "skill-psy-nvc",
+  "case": "teen-late-curfew-talk-en",
+  "arm": "with",
+  "agent": "child_psychologist",
+  "chars": 24135,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-cbt",
+   "skill-decision-frameworks",
+   "skill-psy-nvc"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "88d089860f68": {
+  "component": "skill-psy-nvc",
+  "case": "teen-late-curfew-talk-en",
+  "arm": "without",
+  "agent": "child_psychologist",
+  "chars": 23575,
+  "skills": [
+   "skill-psy-child-dev",
+   "skill-psy-digital-wellbeing",
+   "skill-psy-cbt",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "StepBack",
+   "S2A",
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

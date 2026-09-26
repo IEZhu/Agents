@@ -1,0 +1,35 @@
+{
+  "component": "implant-skeleton-of-thought",
+  "cases": [
+    {
+      "id": "sot-onboarding-doc-ru",
+      "agent": "tech_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нужен онбординг-документ для новых бэкендеров в нашу команду платежей. Пишу вперемешку, что надо покрыть, разберись сам: как поднять локально (docker compose, у нас Postgres 15 и Redis 7, сид данных через make seed), что у нас код-ревью минимум от двух человек и один обязательно из core-команды, про дежурства — первые два месяца новичок только в shadow-режиме, потом в ротацию раз в 6 недель. Ещё обязательно про то, что на проде нельзя руками трогать таблицу ledger_entries, только через миграции с ревью от финконтроля. Кстати, локально тоже есть нюанс с ledger — сид не создаёт ledger, его надо отдельно make seed-ledger. Про деплой: мёрж в main → стейджинг автоматически, в прод — только по вторникам и четвергам через релизный чат (а, и доступ в Vault к секретам стейджинга новичок запрашивает тикетом в первый же день, иначе ничего не задеплоит и локально платёжный шлюз-заглушку не поднимет). И куда писать вопросы: #payments-dev, а про инциденты — #payments-oncall, не путать. Объём — чтобы читалось минут за 10, не простыня. Потом разные люди будут править его кусками — например, лид дежурств будет менять только своё, — так что надо, чтобы каждую часть можно было поправить, не перечитывая и не трогая остальное.",
+      "why_in_scope": "The request is a structured document built from a scattered brain-dump where facts are misplaced (the Vault first-day access is buried inside the deploy remark, ledger appears in both local and prod contexts, two channels are mentioned apart). Drafting the section outline before writing makes each fact land in exactly one self-contained section, which the user needs for piecemeal maintenance. Without an upfront outline a model tends to follow the stream order, leaving the Vault item under deploy or duplicating ledger/channel details.",
+      "rubric": [
+        "Every fact from the message is present and correct: Postgres 15/Redis 7 via docker compose, make seed plus separate make seed-ledger, Vault access requested by ticket on day one, two reviewers with one from core, shadow on-call for the first two months then rotation every 6 weeks, no manual prod edits to ledger_entries (only migrations reviewed by finance control), main→staging automatic and prod only Tue/Thu via the release chat, #payments-dev for questions vs #payments-oncall for incidents.",
+        "Facts are regrouped by topic rather than following the user's stream order: make seed-ledger and the Vault ticket appear in the setup/first-day part (not left inside the deploy section), the ledger_entries prod rule sits in one production/data-rules place, and the two channels are stated together with their distinction.",
+        "Each section is self-contained: e.g. the on-call section or deploy section can be edited on its own without dangling references to other sections, and no fact is repeated in two places with risk of divergence.",
+        "Fits the stated ~10-minute read and does not invent processes, tools or rules the user did not mention."
+      ]
+    },
+    {
+      "id": "sot-conference-talk-plan-en",
+      "agent": "presentation_coach",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm giving a 12-minute lightning-plus talk at a local DevOps meetup next Thursday about how we cut our CI pipeline from 41 minutes to 9. Things I definitely want in there: the before state (monorepo, 1,800 tests run serially on every PR), test sharding across 8 runners, dependency caching (saved about 6 min alone), only running affected packages via change detection, the flaky-test quarantine we set up, and the one thing that backfired — we cached Docker layers too aggressively and shipped a stale base image to staging once. I also want 2 minutes of Q&A inside the 12, the intro can't be more than a minute (organizers asked), and the Docker story needs at least 2 minutes because it's the part people will remember. Can you lay out the whole talk slide by slide with a time budget per slide and a couple of lines of what I should say on each? I tend to run over, so the timing has to actually add up.",
+      "why_in_scope": "A multi-section deliverable with a hard global budget (12 min incl. 2 min Q&A) plus per-section constraints (intro <=1 min, Docker story >=2 min) and six required points. Allocating the full slide skeleton with times before writing notes is what makes the budget add up; writing slide by slide, a model commonly drifts over 12 minutes, shortchanges the Docker story, or drops a point like flaky-test quarantine.",
+      "rubric": [
+        "Per-slide time budgets sum to 12 minutes or less, with about 2 minutes reserved for Q&A, the intro/opening at 1 minute or less, and the stale Docker base image story given at least 2 minutes.",
+        "All six required points each appear on an identifiable slide: the before state (monorepo, 1,800 serial tests, 41 min), sharding across 8 runners, dependency caching (~6 min saved), affected-packages change detection, flaky-test quarantine, and the stale Docker base image incident.",
+        "Speaker notes on each slide are short enough to be delivered in that slide's allotted time (no multi-paragraph notes for a 30-60 second slide).",
+        "The talk has a coherent arc (setup, the improvements, the backfire lesson, a closing takeaway) and uses the user's numbers consistently (41 to 9 minutes) without inventing additional metrics presented as the user's."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: replaced the leaky 'independent sections' phrasing with a realistic maintenance need, buried an extra misplaced fact (Vault ticket inside the deploy remark) so regrouping by an upfront outline is actually tested, and de-duplicated rubric items 2/3. Case 2: added intro<=1 min and Docker story>=2 min constraints so the time allocation is harder without planning, and tightened the rubric accordingly."
+}

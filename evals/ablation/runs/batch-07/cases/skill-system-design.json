@@ -1,0 +1,35 @@
+{
+  "component": "skill-system-design",
+  "cases": [
+    {
+      "id": "notification-service-kafka-overkill-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нужен совет по архитектуре. У нас B2B SaaS: монолит на Django 4.2, PostgreSQL 15 (один primary + одна реплика), Redis, Celery. Около 3000 компаний-клиентов, ~150 тыс. активных пользователей. Хотим переделать уведомления (email через внешнего провайдера, web-push, in-app): сейчас в среднем ~20 уведомлений на пользователя в день, пики утром по будням. Храним историю in-app уведомлений 90 дней, чтобы показывать ленту. Сейчас это пачка Celery-тасков прямо в монолите, иногда письма дублируются, а когда у email-провайдера была авария на 2 часа, часть писем просто потерялась.\n\nCTO предлагает выделить отдельный notification-сервис на Go, поставить Kafka как шину событий и Cassandra для хранения ленты, всё в Kubernetes. Команда бэкенда 4 человека, Kafka и Cassandra никто в проде не эксплуатировал. Он хочет начать уже в следующем спринте. Набросай, пожалуйста, архитектуру и план перехода.",
+      "why_in_scope": "The skill makes the model clarify requirements, run back-of-envelope numbers (about 3M notifications/day, i.e. tens per second on average and a few hundred at peak, a few hundred GB of feed history over 90 days), start with the simplest design that meets them, and walk through failure modes. The user asks for an architecture and migration plan for the CTO's stack rather than whether it is needed, so a strong model without the skill may simply accept the Kafka/Cassandra/Go proposal or reject it on vibes, without quantifying the load or addressing the actual failures (duplicates and lost emails during a provider outage), which are about idempotency and retries rather than throughput.",
+      "rubric": [
+        "Does an explicit load estimate from the given figures: roughly 3M notifications/day, which is on the order of tens per second on average and at most hundreds per second at peak, plus a storage estimate for the 90-day feed; and uses these numbers to judge whether the proposed stack is needed.",
+        "Recommends starting from a simpler design built on the existing stack (e.g. PostgreSQL with a partitioned or time-bounded notifications table, outbox pattern and/or the existing Celery/Redis) and states the conditions under which Kafka or a separate store would become justified, instead of adopting the Kafka+Cassandra+Kubernetes proposal as is.",
+        "Addresses the stated failures directly: idempotency or deduplication keys to stop duplicate emails, and durable persistence with retries/backoff (or a dead-letter path) so messages survive a multi-hour email provider outage instead of being lost.",
+        "Makes the trade-offs explicit, including the operational cost for a 4-person team with no production Kafka/Cassandra experience, rather than listing only benefits of either option."
+      ]
+    },
+    {
+      "id": "flash-sale-inventory-multi-region-en",
+      "agent": "system_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "We run an e-commerce platform serving mostly US and EU customers, currently single region (us-east-1), Postgres on RDS for orders and inventory. Next quarter we're doing limited-edition sneaker drops: typically 5,000 pairs per drop, and based on the last test drop we expect ~30k checkout attempts in the first 2 minutes, roughly split 60/40 US/EU. EU users complained about ~250 ms extra latency on checkout.\n\nOur plan: go active-active in us-east-1 and eu-west-1, move the inventory counter into a multi-region replicated table so each region can decrement stock locally with low latency, and keep orders in each region's own database. Does this plan hold up? What would you change?",
+      "why_in_scope": "The skill makes the model reason about distributed consistency explicitly (CAP/PACELC: under partition choose availability or consistency, otherwise latency or consistency), quantify the load, and ask what happens when each component fails. A strong model without it may endorse the active-active plan and focus on latency and caching, missing that concurrent local decrements of the same counter replicated asynchronously across regions can oversell a 5,000-unit drop, especially during a cross-region network partition.",
+      "rubric": [
+        "Identifies that letting both regions decrement one shared stock counter with asynchronous (or last-writer-wins) cross-region replication can sell more than 5,000 pairs (concurrent or conflicting updates, and a partition between regions), notes that making the replication strongly consistent would bring back the cross-region latency, and treats overselling as the core risk of the plan.",
+        "Frames the choice as an explicit consistency-versus-latency/availability trade-off and proposes at least one concrete alternative that prevents overselling, such as a single authoritative write region for inventory reservations, pre-allocating stock quotas per region (e.g. roughly 3,000/2,000 with rebalancing), or a strongly consistent reservation step, stating what each option costs.",
+        "Uses the given numbers: about 30k attempts in 2 minutes is about 250 requests per second on average, with a higher burst at the start, and notes this is modest for a single well-indexed inventory write path, so the bottleneck is contention on one hot row or counter rather than raw throughput.",
+        "Covers at least one failure mode beyond overselling, such as abandoned carts or reservation expiry returning stock, payment failure after reservation, or behaviour when one region is unavailable during the drop."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the leading 'do we even need this stack?' question and framed it as a request to plan the CTO's design, so pushing back using load numbers and a start-simple approach is not handed to the model; the math was checked (3M/day, about 35/s average). Case 2: the oversell rubric item now covers the strongly consistent replication option and its latency cost, so the item stays correct whatever replication mode is assumed; 250 rps and the 3,000/2,000 split were checked."
+}

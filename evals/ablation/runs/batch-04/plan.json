@@ -1,0 +1,1124 @@
+{
+ "3a8b10d6581b": {
+  "component": "skill-fact-verification",
+  "case": "severagro-revenue-reprints-ru",
+  "arm": "with",
+  "agent": "investigative_analyst",
+  "chars": 27169,
+  "skills": [
+   "skill-content-structure",
+   "skill-forensic-process",
+   "skill-temporal-validation",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers",
+   "skill-web-search",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "798b1cc69907": {
+  "component": "skill-fact-verification",
+  "case": "severagro-revenue-reprints-ru",
+  "arm": "without",
+  "agent": "investigative_analyst",
+  "chars": 24520,
+  "skills": [
+   "skill-content-structure",
+   "skill-forensic-process",
+   "skill-temporal-validation",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5484892304cf": {
+  "component": "skill-fact-verification",
+  "case": "remote-work-blog-citations-en",
+  "arm": "with",
+  "agent": "deep_researcher",
+  "chars": 29809,
+  "skills": [
+   "skill-content-structure",
+   "skill-source-trust-tiers",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-report-formats",
+   "skill-temporal-validation",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "CoV",
+   "StepBack",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ff3f6debf8df": {
+  "component": "skill-fact-verification",
+  "case": "remote-work-blog-citations-en",
+  "arm": "without",
+  "agent": "deep_researcher",
+  "chars": 27160,
+  "skills": [
+   "skill-content-structure",
+   "skill-source-trust-tiers",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-report-formats",
+   "skill-temporal-validation"
+  ],
+  "implants": [
+   "CoV",
+   "StepBack",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f5bc90884892": {
+  "component": "skill-fitness-programming",
+  "case": "l5s1-protrusion-return-plan-ru",
+  "arm": "with",
+  "agent": "fitness_coach",
+  "chars": 23981,
+  "skills": [
+   "skill-bio-protocols",
+   "skill-bio-protocol-design",
+   "skill-bio-mechanism",
+   "skill-analysis-critical",
+   "skill-fitness-programming"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2672e166b9c3": {
+  "component": "skill-fitness-programming",
+  "case": "l5s1-protrusion-return-plan-ru",
+  "arm": "without",
+  "agent": "fitness_coach",
+  "chars": 21037,
+  "skills": [
+   "skill-bio-protocols",
+   "skill-bio-protocol-design",
+   "skill-bio-mechanism",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "71c9bf63c5d3": {
+  "component": "skill-fitness-programming",
+  "case": "bench-block-after-plateau-en",
+  "arm": "with",
+  "agent": "fitness_coach",
+  "chars": 22358,
+  "skills": [
+   "skill-bio-mechanism",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-analysis-critical",
+   "skill-fitness-programming"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "dfeb8f02878a": {
+  "component": "skill-fitness-programming",
+  "case": "bench-block-after-plateau-en",
+  "arm": "without",
+  "agent": "fitness_coach",
+  "chars": 19414,
+  "skills": [
+   "skill-bio-mechanism",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5bdbc49291a8": {
+  "component": "skill-forensic-process",
+  "case": "crm-leak-chronology-ru",
+  "arm": "with",
+  "agent": "investigative_analyst",
+  "chars": 27569,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-temporal-validation",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-forensic-process"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b0ac73b0d8dd": {
+  "component": "skill-forensic-process",
+  "case": "crm-leak-chronology-ru",
+  "arm": "without",
+  "agent": "investigative_analyst",
+  "chars": 26469,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-temporal-validation",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2c94f1729cd5": {
+  "component": "skill-forensic-process",
+  "case": "payments-outage-postmortem-timeline-en",
+  "arm": "with",
+  "agent": "data_forensic",
+  "chars": 25000,
+  "skills": [
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-temporal-validation",
+   "skill-web-search",
+   "skill-forensic-process"
+  ],
+  "implants": [
+   "NoT",
+   "CumulReason",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "52f7d5cd67e4": {
+  "component": "skill-forensic-process",
+  "case": "payments-outage-postmortem-timeline-en",
+  "arm": "without",
+  "agent": "data_forensic",
+  "chars": 23900,
+  "skills": [
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-temporal-validation",
+   "skill-web-search"
+  ],
+  "implants": [
+   "NoT",
+   "CumulReason",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d3e5c8197d73": {
+  "component": "skill-git-conventions",
+  "case": "staged-mixed-changes-commit-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 36467,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-error-recovery",
+   "skill-git-conventions"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "69eb8974f213": {
+  "component": "skill-git-conventions",
+  "case": "staged-mixed-changes-commit-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 35990,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "60092782d272": {
+  "component": "skill-git-conventions",
+  "case": "perf-with-reformat-commit-en",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 36591,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-error-recovery",
+   "skill-git-conventions"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "SecondOrder"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "8f4084ccbbcb": {
+  "component": "skill-git-conventions",
+  "case": "perf-with-reformat-commit-en",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 36114,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "SecondOrder"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e271ccb46f87": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-apartment-contribution-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 37462,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-consultative-intake",
+   "skill-jurisdiction-ru",
+   "skill-jurisdiction-co"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "59393db1b2a6": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-apartment-contribution-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 33347,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-consultative-intake",
+   "skill-jurisdiction-ru"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d425c6433a87": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-contractor-withholding-move-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 34101,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-co"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "63a8ccad17d1": {
+  "component": "skill-jurisdiction-co",
+  "case": "co-sas-contractor-withholding-move-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f7c6a976b42a": {
+  "component": "skill-jurisdiction-cy",
+  "case": "limassol-it-founder-salary-dividends-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 37140,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-jurisdiction-ge",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-jurisdiction-cy"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "16f5f1b323fd": {
+  "component": "skill-jurisdiction-cy",
+  "case": "limassol-it-founder-salary-dividends-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 32501,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-jurisdiction-ge",
+   "skill-consultative-intake",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7b5b40224608": {
+  "component": "skill-jurisdiction-cy",
+  "case": "cypriot-domiciled-holdco-dividend-rent-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 36087,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-jurisdiction-ge",
+   "skill-web-search",
+   "skill-jurisdiction-cy"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4fc42bba80a5": {
+  "component": "skill-jurisdiction-cy",
+  "case": "cypriot-domiciled-holdco-dividend-rent-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 31448,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-jurisdiction-ge",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "9fc0bd57b27a": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-golden-visa-valencia-apartment-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 35563,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-jurisdiction-es"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "319acde15e86": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-golden-visa-valencia-apartment-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29620,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "695f76331842": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-sl-minimum-capital-madrid-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 33889,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-jurisdiction-es"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "47ac00c0fd04": {
+  "component": "skill-jurisdiction-es",
+  "case": "es-sl-minimum-capital-madrid-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 27946,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "86e292057cb4": {
+  "component": "skill-jurisdiction-ge",
+  "case": "tbilisi-it-llc-virtual-zone-rate-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 32501,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-jurisdiction-ge"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "55589df31f49": {
+  "component": "skill-jurisdiction-ge",
+  "case": "tbilisi-it-llc-virtual-zone-rate-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 27946,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d5ecbaeac8c3": {
+  "component": "skill-jurisdiction-ge",
+  "case": "georgian-llc-retained-profit-dividend-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 32501,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-jurisdiction-ge"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "75a3e01c67f5": {
+  "component": "skill-jurisdiction-ge",
+  "case": "georgian-llc-retained-profit-dividend-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 27946,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cb19f0f72b3e": {
+  "component": "skill-jurisdiction-kz",
+  "case": "almaty-too-2026-payroll-vat-budget-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 30676,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-jurisdiction-kz"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3a72e0df6aee": {
+  "component": "skill-jurisdiction-kz",
+  "case": "almaty-too-2026-payroll-vat-budget-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 25645,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fb64b1aba5d2": {
+  "component": "skill-jurisdiction-kz",
+  "case": "aifc-private-company-shareholder-exit-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 31042,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-kz"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f263286efa7c": {
+  "component": "skill-jurisdiction-kz",
+  "case": "aifc-private-company-shareholder-exit-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 26011,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c548f956faaa": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-it-company-dividends-staff-transfer-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 32422,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-decision-frameworks",
+   "skill-analysis-critical",
+   "skill-jurisdiction-mx"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "35182ead6605": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-it-company-dividends-staff-transfer-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 27685,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-decision-frameworks",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a6d5f5383574": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-puerto-vallarta-condo-title-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 34723,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-jurisdiction-mx"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5223e37e5dbe": {
+  "component": "skill-jurisdiction-mx",
+  "case": "mx-puerto-vallarta-condo-title-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

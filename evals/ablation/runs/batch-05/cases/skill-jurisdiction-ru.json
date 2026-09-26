@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-ru",
+  "cases": [
+    {
+      "id": "usn-ip-vat-threshold-2026-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Добрый день. Я ИП на УСН «доходы» 6%, делаю мебель на заказ в Екатеринбурге. За 2025 год выручка была 18 млн, в 2026 уже к сентябрю вышло около 23 млн, до конца года рассчитываю на 32-35 млн. Бухгалтер-фрилансер говорит, что НДС на упрощёнке платить надо только после 60 млн и мне беспокоиться не о чем. Это правда? Если всё-таки надо, то с какого момента и по какой ставке, и что мне выгоднее выбрать?",
+      "why_in_scope": "The skill carries the 2026 RF tax parameters: the УСН VAT exemption threshold dropped to 20M RUB for 2026 (60M applied in 2025), the special 5% rate applies in the 20-272.5M band, and the general VAT rate is 22% since 01.01.2026. A strong model relying on older knowledge may confirm the bookkeeper's 60M figure or quote a 20% general rate. The skill also requires the RF-advisor disclaimer and a caveat that yearly figures should be verified.",
+      "rubric": [
+        "Says the 60M threshold is out of date for 2026: with income already around 23M the entrepreneur has passed the 2026 threshold of 20M RUB and now owes VAT",
+        "Explains the choice between the special reduced VAT rate (5% in this income range, with no input VAT deductions) and the general regime at 22% with deductions, and ties the choice to the share of VAT-paying B2B customers or deductible purchases",
+        "Says the VAT obligation starts from the first day of the month after the month in which 2026 income passed 20M RUB, not retroactively from the start of the year, so sales from that month onward must carry VAT",
+        "Includes a disclaimer that this is informational and not legal or tax advice, and suggests confirming current thresholds and rates with the ФНС or a tax advisor"
+      ]
+    },
+    {
+      "id": "apartment-share-sale-notary-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Hi, I live in Germany now but I still own a 1/3 share in a flat in Kazan (my mom and my sister own the other two thirds, we inherited it from my dad in 2019). My cousin wants to buy my share for 2.1 million rubles. To save money we want to just sign a simple written purchase agreement ourselves, he'll take it to the MFC and register it with Rosreestr. I'll give him a power of attorney done here at a German notary. Is this plan OK, or am I missing something?",
+      "why_in_scope": "The skill flags mandatory notarization as a common pitfall that can void a transaction, and says to check the list of mandatory notarial acts. Selling a share in the common ownership of real estate generally has to be notarized in Russia, and co-owners have a pre-emptive right. A strong generalist model may accept the do-it-yourself written contract and only discuss registration and tax.",
+      "rubric": [
+        "States that a contract selling a share in the common ownership of real estate generally needs Russian notarial certification, so a simple written agreement filed at the MFC will be refused registration",
+        "Explains that the mother and sister have a pre-emptive right to buy the share (art. 250 of the Civil Code) because the cousin is not a co-owner, and that they must be notified in writing, or waive the right, before the sale to him",
+        "Flags that a power of attorney certified by a German notary needs an apostille and a certified Russian translation to be used in Russia",
+        "Includes a disclaimer that this is informational and not legal advice, and recommends a Russian notary or advocate for the transaction"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified both cases against the skill (2026 USN VAT threshold 20M, 5%/22% rates, mandatory notarization of share sales) and general RF law; cases are in scope, leak-free and tool-less. Only tightened case 1 rubric item 3, replacing the vague 'check months already invoiced' with a checkable consequence."
+}

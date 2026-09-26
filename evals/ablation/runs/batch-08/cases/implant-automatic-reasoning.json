@@ -1,0 +1,35 @@
+{
+  "component": "implant-automatic-reasoning",
+  "cases": [
+    {
+      "id": "laptop-kzt-vs-rub-live-rate-ru",
+      "agent": "purchase_researcher",
+      "language": "ru",
+      "history": [],
+      "user_message": "Еду на следующей неделе в Алматы, хочу там взять MacBook Air M3 15\" 16/512. В Алматы в iSpace он стоит 689 990 тенге, в Москве у нормального реселлера с гарантией — 139 990 руб. По текущему курсу где выгоднее и на сколько рублей? Tax free не учитываем, платить буду рублёвой картой через обменник, то есть по сути по биржевому курсу.",
+      "why_in_scope": "The request silently depends on live data (today's KZT/RUB rate) chained with arithmetic. The implant makes the model separate what needs external grounding from what it can compute and, having no tool, degrade gracefully: say it cannot fetch today's rate, then compute the break-even rate and the difference as explicit steps. Since the user does not explicitly ask for a lookup, a strong model without it may just plug in a remembered rate as if current and give one verdict built on it.",
+      "rubric": [
+        "States explicitly that it cannot check today's exchange rate in this conversation (or that any rate it cites is an approximate/remembered figure the user must verify), rather than presenting a specific rate as today's actual rate",
+        "Computes the break-even point correctly: about 4.93 tenge per ruble (equivalently about 0.203 rubles per tenge); above that KZT-per-RUB rate Almaty is cheaper, below it Moscow is cheaper",
+        "Gives the user a way to finish the comparison with the real rate, e.g. the formula 689 990 / rate (KZT per RUB) versus 139 990, or the ruble difference worked out for one or more clearly labelled example rates with arithmetic that is correct for those rates",
+        "Answers the actual question (where it is cheaper and by how much) in a direct way, without drifting into unrelated advice"
+      ]
+    },
+    {
+      "id": "mortgage-payment-current-rate-en",
+      "agent": "universal_agent",
+      "language": "en",
+      "history": [],
+      "user_message": "We're about to make an offer on a house. Loan would be $420,000, 30-year fixed. What would my monthly payment be at today's average 30-year fixed rate? Also add property tax ($6,000/yr) and homeowners insurance ($1,800/yr) so I see the full monthly number. I want to know if we stay under $3,400/month total.",
+      "why_in_scope": "The request silently needs a live figure (today's average mortgage rate) chained with an error-prone amortization calculation. The implant makes the model identify which step needs external grounding and which is computation, and without tools say it cannot fetch the current rate instead of inventing one, then do the payment math carefully for explicit rates. Because the user never says 'look it up', a strong model without it could quote a stale rate as current and give a single payment figure, or slip on the arithmetic.",
+      "rubric": [
+        "Says it cannot look up today's rate in this conversation (or clearly flags any rate it mentions as an assumption to verify), rather than presenting a specific number as the current average",
+        "Computes principal and interest correctly for any rate it uses (e.g. about $2,518 at 6.0%, $2,655 at 6.5%, $2,794 at 7.0% for $420,000 over 360 months), within a few dollars",
+        "Adds $650/month for tax and insurance ($6,000 + $1,800 = $7,800 per year) to get the full monthly figure, and answers the $3,400 question against those totals (e.g. at 6.5% the total is about $3,305, under the limit; at 7.0% about $3,444, over it)",
+        "Gives the user a way to redo the check with the real rate, such as the amortization formula or the rate at which the total crosses $3,400"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Removed the explicit 'look up / посмотри актуальный курс' requests from both user messages so the model must itself notice the live-data dependency (the original phrasing made the no-tools disclaimer near-automatic for any strong model). Verified all arithmetic (break-even 4.93 KZT/RUB; P&I $2,518/$2,655/$2,794 at 6/6.5/7%; totals $3,168/$3,305/$3,444); rubrics and agents kept."
+}

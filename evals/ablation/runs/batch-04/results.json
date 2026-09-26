@@ -1,0 +1,542 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-forensic-process",
+   "case": "payments-outage-postmortem-timeline-en",
+   "A": "with",
+   "B": "without",
+   "stem": "06fc533e7c__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers convert and order every timestamp correctly, point out that the pool alert came before the deploy completed and that recovery took 15 minutes after the rollback, and correctly flag that 2026-09-22 is a Tuesday. Neither groups the three PagerDuty pages as a single detection event. B wins narrowly on item 4: it pairs its open questions with concrete checks (deploy start and end times, the raw pool metric from about 16:40, clients connected to postgres-primary) and adds the point that Datadog trigger times lag the actual onset.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-forensic-process",
+   "case": "payments-outage-postmortem-timeline-en",
+   "A": "without",
+   "B": "with",
+   "stem": "06fc533e7c__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers convert and order the timestamps correctly, challenge the 'faulty deploy' claim for the same reasons, and list each PagerDuty page as its own row instead of grouping them into one detection event. B sets out its open questions more fully (when the pool alert cleared, the actual rollback start and finish times, an explicit explanation needed for the 17:11-17:26 gap) and advises that a confirmed root cause should name the mechanism. A adds a useful point about the Datadog monitor evaluation window, but overall B's gap analysis is a little more complete and easier to act on.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-co",
+   "case": "co-sas-apartment-contribution-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "0e616ec13b__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly overturn the 'no notary' claim by citing the Ley 1258 art. 5 exception for real-estate contributions, and both cover RUT, Bogotá ICA, the risks of contributing the apartment and a referral to a lawyer, in Russian. B explicitly confirms that a single-shareholder SAS is allowed and adds a clearer step-by-step procedure, useful points on phased capital payment and on RST eligibility depending on residency, and hedges its ICA figure as unverified. A leaves the single-founder point implicit and describes the RUT process with the outdated provisional/definitive split.",
+   "errors_with": [
+    "Describes a preliminary RUT that is 'activated' only after the company opens a bank account; this reflects the older procedure, since the NIT is now normally assigned when the company registers with the Cámara de Comercio."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-co",
+   "case": "co-sas-apartment-contribution-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "0e616ec13b__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover all rubric items well: single-shareholder SAS by private document, the escritura pública requirement triggered by the apartment, RUT and Bogotá ICA registration, Russian language and a referral to a lawyer. B adds useful extras (timeline, Russian-side obligations, visa-investor angle) but frames the art. 319 contribution as an alienation 'by general rule' and suggests an M visa may be tied to an employer, both of which are doubtful. A is slightly more precise on the legal mechanics and hedges its rates, which gives it the edge.",
+   "errors_with": [
+    "States that contributing property to capital is by general rule treated as an alienation, the opposite of how ET art. 319 frames it",
+    "Suggests an M visa may be tied to a specific employer, which describes a V-type work visa rather than M categories"
+   ],
+   "errors_without": [
+    "Calls impuesto de registro a departmental tax without noting that in Bogotá it is collected at the district level (minor)"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-mx",
+   "case": "mx-puerto-vallarta-condo-title-en",
+   "A": "with",
+   "B": "without",
+   "stem": "2355c2faa7__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly reject direct title in the restricted zone, recommend a bank fideicomiso with SRE permit while ruling out a company for a residence, flag Jalisco vs CDMX civil law and notarial formalization, and give concrete December steps with an independent attorney. A adds the useful Jalisco/Nayarit location check, ZOFEMAT, and the future-sale tax-residency point; B adds the Calvo-clause explanation for the agent's confusion, a detailed conditions-precedent list, and the mid-December slowdown warning. These strengths offset each other, and both hedge recalled figures honestly without clear factual errors.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-mx",
+   "case": "mx-puerto-vallarta-condo-title-en",
+   "A": "without",
+   "B": "with",
+   "stem": "2355c2faa7__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: they correctly reject direct title in the restricted zone, recommend a bank fideicomiso rather than a company, and flag the Jalisco-vs-CDMX law and notary issue. B is a little stronger on the Jalisco point: it names the Jalisco Civil Code, requires a Jalisco notary, and warns that nearby Nuevo Vallarta and Bucerías fall under Nayarit. It also adds relevant due-diligence items (ZOFEMAT, the seller's ISR, tax residency for a future sale) and gives a clear timeline table, while A's advice is equally accurate but slightly less complete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-mx",
+   "case": "mx-it-company-dividends-staff-transfer-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "262876d437__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are substantively very similar and cover all rubric items, including PTU, the 2021 subcontracting ban with REPSE, dividend formalities, CUFIN and the 10% withholding. B defines the PTU base correctly as renta gravable (taxable income), and adds a clear step sequence with the withholding payment deadline and the RESICO regime check. A applies PTU to pre-tax accounting profit without noting the taxable-income base, and it calls the 10% withholding a final tax while also saying it is credited in the annual return, which is slightly contradictory.",
+   "errors_with": [
+    "Presents PTU as 10% of pre-tax profit without specifying the taxable-income (renta gravable) base",
+    "Calls the 10% dividend withholding a final tax and then describes crediting it in the individual annual return, which is internally inconsistent"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-mx",
+   "case": "mx-it-company-dividends-staff-transfer-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "262876d437__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical legal content: PTU flagged with the first-year exemption logic, the 2021 subcontracting ban with REPSE/core-activity conditions and consequences, and CUFIN, 10% withholding, and shareholder-resolution steps. B adds more decision-relevant insight: it explains that changing employer does not reduce IMSS contributions and that the real 'savings' in such schemes come from diverting PTU or under-reporting wages. It also covers working-capital needs and ends with targeted clarifying questions, which makes it somewhat more useful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-cy",
+   "case": "limassol-it-founder-salary-dividends-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "3065677f83__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the rate to 15%, apply the non-dom SDC exemption with the GESY cap, and apply the 50% salary exemption, with internally consistent figures and clear caveats. B goes further by showing a side-by-side comparison with a lower salary and by flagging how the €55k threshold applies to a partial first year. B also covers Russian currency-control obligations, while A hedges on the look-back period (10 vs 15 years) and says non-dom status must be formally claimed, which is doubtful.",
+   "errors_with": [
+    "Implies non-dom status must be formally applied for with the Tax Department to take effect, which overstates the requirement"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-cy",
+   "case": "limassol-it-founder-salary-dividends-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "3065677f83__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover every rubric item: 15% CIT on about €167k, 0% SDC for a non-dom, the 50% salary exemption applied to €120k, clear caveats and substance notes, and both do the arithmetic correctly. A is slightly more precise: it states the 10-year non-residence condition exactly, dates the Russia-Cyprus treaty suspension correctly (2023), and quantifies the salary-level alternative with a side-by-side table. B adds useful practical points (declaring non-dom status, the 60-day rule), but it hedges on 10 vs 15 years and misdates the treaty suspension to 2022.",
+   "errors_with": [
+    "States the Russia-Cyprus DTT has not applied since 2022; Russia suspended it in August 2023",
+    "Suggests the 50% exemption's prior non-residence period may be 15 years; it is 10 consecutive years"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-forensic-process",
+   "case": "crm-leak-chronology-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "35c5f4e3f0__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers convert 21:47 UTC to 00:47 MSK and note the 5-minute gap, treat the Telegram posts as one source plus reposts, separate account use from personal attribution with compromise as an alternative, and list MFA, IP/Tor attribution, device examination and screenshot-to-CSV matching as the checks to run. B is slightly more thorough on VPN device binding and forensic steps, but its chronology table states 'не домашнего IP' as established and its draft says 'учётная запись заблокирована' as done. A keeps its claims hedged and leaves a placeholder for measures actually taken. Overall the differences offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-forensic-process",
+   "case": "crm-leak-chronology-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "35c5f4e3f0__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: they convert times correctly, treat the Telegram posts as reposts of one source, separate account use from personal attribution, and list concrete checks. B edges ahead because it shows both time zones side by side, notes that the 19:05 office exit proves little, explains what a screenshot and CSV mismatch would imply, and its draft conclusion names what is still needed to establish who acted. A's draft calls the export 'несанкционированной', which is slightly presumptive, while B's wording stays more neutral.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fitness-programming",
+   "case": "l5s1-protrusion-return-plan-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "3b7005d408__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give sound pattern-preserving substitutions, McGill-style core work, RPE-based calibration, double progression and a 24-hour pain rule. A fits 'без фанатизма' better: its deload falls inside the month and trap bar deadlifts wait until the second block, while B pushes to RPE 8 in week 4, adds axially loaded trap bar pulls from week 3 and leaves the deload until after the month. A also names saddle/groin numbness as an urgent red flag, which B omits, though B's week-by-week set scheme is slightly clearer.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fitness-programming",
+   "case": "l5s1-protrusion-return-plan-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "3b7005d408__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give a sound upper/lower 4-day plan with pattern-preserving substitutes, McGill-style core work, RPE-based double progression, a 24-hour pain rule and red flags. A explicitly refuses to derive loads from the old maxes and starts with 2 sets at RPE 6, while B says its starting weights were estimated from the 120/150 kg lifts and suggests a heavier leg press start (100-140 kg), which fits the conservative-start criterion less well. B gains some ground by putting the full McGill Big 3 in every warm-up and building a deload into week 4, but A's deload after week 4 and its trap-bar ceiling are still adequate, so A wins narrowly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fact-verification",
+   "case": "remote-work-blog-citations-en",
+   "A": "without",
+   "B": "with",
+   "stem": "407740c6ac__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical diagnoses and rewrites: C is cut, B is shown to rest on one HireLoop survey with inflated 'quit' wording, and A and D are corrected to match their excerpts. B edges ahead by giving a clearly hedged possible replacement source for Claim C (the Bloom et al. 2024 Nature hybrid-work trial, which found a roughly one-third drop in quit rates) and more useful context on the Ctrip result. It also gives a checklist that maps directly to each fix.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fact-verification",
+   "case": "remote-work-blog-citations-en",
+   "A": "with",
+   "B": "without",
+   "stem": "407740c6ac__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical corrections: they refuse to publish as is, cut C, collapse B to one HireLoop source and fix the quit wording, and correct A and D. A adds a clearly hedged, accurate lead for a real turnover figure (Bloom et al., Nature 2024, hybrid cut quits by about a third) and useful context on the Ctrip result, which gives the user a practical way to replace C. B's extra checklist items (date checks, re-reading excerpts) are good but less substantive, so A wins by a small margin.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fitness-programming",
+   "case": "bench-block-after-plateau-en",
+   "A": "with",
+   "B": "without",
+   "stem": "4364fe31b6__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both answers meet every rubric item with nearly identical diagnoses, volume cuts to about 17 sets, RPE targets, and heavy/paused day splits. Answer A refers to an 'L5-S1 history' that the user never mentioned, which is a fabricated detail, while B stays grounded in what the user said. B also adds an explicit autoregulation rule, clearer after-week-4 branching, and a more complete list of shoulder red flags.",
+   "errors_with": [
+    "References the user's 'L5-S1 history', which does not appear anywhere in the conversation"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fitness-programming",
+   "case": "bench-block-after-plateau-en",
+   "A": "without",
+   "B": "with",
+   "stem": "4364fe31b6__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cut volume from ~32 to ~17 sets, set RPE 7-8 targets with failure only on the last fly set, split heavy and paused-bench days with a 4-week progression and lighter/test week, remove dips and give shoulder stop rules. B invents an 'L5-S1 history' that the user never mentioned, which is a hallucination and undermines trust. A adds clear autoregulation rules, an explicit accessory progression rule and after-block branching, so it comes out slightly ahead.",
+   "errors_with": [
+    "References the user's 'L5-S1 history', which does not appear anywhere in the conversation (hallucinated context)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-git-conventions",
+   "case": "perf-with-reformat-commit-en",
+   "A": "without",
+   "B": "with",
+   "stem": "4622fd4393__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers identify the mixed commit as the main problem, fix the subject and wrapping, and give two well-formed commit messages. B's split procedure is safer: it restores and reformats only dedupe.ts and leaves the other 13 formatting-only files alone, and it adds a diff sanity check. A's procedure discards every uncommitted change under src/search/, although it warns about this. B slightly overstates that the Conventional Commits spec requires a lowercase subject, while A hedges the same point correctly by pointing to commitlint config.",
+   "errors_with": [
+    "Claims the Conventional Commits style requires a lowercase subject; the spec itself does not mandate case (commitlint config-conventional does)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-git-conventions",
+   "case": "perf-with-reformat-commit-en",
+   "A": "with",
+   "B": "without",
+   "stem": "4622fd4393__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers identify the mixed commit as the main problem, fix the subject and body wrapping, give workable split steps, and write good style and perf messages. B adds a diff check before the destructive checkout with an explicit warning, re-runs prettier on dedupe.ts after restoring it, and gives post-split verification commands. B also admits that it invented the 'seen ids' detail, which makes its split slightly safer and its handling of uncertainty more honest.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fact-verification",
+   "case": "severagro-revenue-reprints-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "6836aecfa8__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly collapse the four sources into one press release, compute the 7.7x discrepancy, drop the unverified exporter claim, and flag the Telegram post predating the release. A's ready paragraph leads with the attributable 48 bn figure and presents 'x12' only as a contested company claim, while B's paragraph headlines 'в 12 раз' and even suggests dropping the caveat sentence, which would leave the unverified multiplier standing. B adds a useful concrete verification step via 2025 GIR BO filings, but this does not outweigh the weaker handling of the 12x claim in the publishable text.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-fact-verification",
+   "case": "severagro-revenue-reprints-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "6836aecfa8__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers make the same diagnosis: one source rather than four, 48/6.2 ≈ 7.7x, and an export claim that rests only on an earlier-dated Telegram post. A's paragraph opens with 'рост в 12 раз' and offers a fallback that keeps only that first sentence, so it could publish the unverified multiplier, which weakens its advice not to use x12 until it is checked. B's paragraph leads with the 48 bn figure, presents x12 clearly as the company's claim alongside the 7.7x contradiction, and ties the fixes to what verification finds, though its remark that the 2025 filing will appear in ГИР БО 'позже' is slightly dubious.",
+   "errors_with": [
+    "Implies 2025 annual statements are not yet in ГИР БО, although they are normally filed by end of March of the following year"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-cy",
+   "case": "cypriot-domiciled-holdco-dividend-rent-en",
+   "A": "with",
+   "B": "without",
+   "stem": "6c79f0e160__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item and reach the same €43,270 total, with appropriate caveats and a recommendation to verify with an adviser. B adds useful points on provisional tax cash flow and salary versus dividend, but it contradicts itself on the GHS cap ('there is no cap in your case' after it has just applied the cap) and on which old profits the deemed distribution rules still catch. A is more internally consistent and hedges the transitional points more carefully.",
+   "errors_with": [],
+   "errors_without": [
+    "Says there is 'no cap in your case' for GHS on rents, which contradicts its own calculation where the €180,000 cap applies to the combined income",
+    "Says profits from 2024 and 2025 are 'still within' the deemed distribution rules, which is loosely stated and inconsistent with its earlier line that 2025-and-earlier profits are 'still caught'"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-cy",
+   "case": "cypriot-domiciled-holdco-dividend-rent-en",
+   "A": "without",
+   "B": "with",
+   "stem": "6c79f0e160__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with the same figures, the same €43,270 total and the same advice to verify with an adviser. B contains an arithmetic error: it says about €150,700 net remains from €224,000, but €224,000 minus €43,270 is about €180,730. B also states flatly that 2026 dividends from pre-2026 profits get 5% SDC, whereas A correctly flags uncertainty about transitional rules.",
+   "errors_with": [
+    "Net amount after tax given as ~€150,700; €224,000 - €43,270 = ~€180,730"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-co",
+   "case": "co-sas-contractor-withholding-move-en",
+   "A": "with",
+   "B": "without",
+   "stem": "79e02f4388__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. Each flags the retención problem and the SAS's liability, covers ICA closure in Medellín and RIT registration in Bogotá, handles the domicile amendment and the RUT update, hedges its percentages and recommends a contador. B adds useful items A misses: withholding on the El Poblado rent, the establecimiento de comercio, the fact that the NIT stays the same, cesantías deadlines around the move and the territorial ICA question for digital services. Its assumptions about the current year and month count (2025, March through December) are a minor weakness.",
+   "errors_with": [],
+   "errors_without": [
+    "Assumes tax year 2025 and 10 months of payments through December (about COP 50M), which the user did not state and which is inconsistent with the timeline"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-co",
+   "case": "co-sas-contractor-withholding-move-en",
+   "A": "without",
+   "B": "with",
+   "stem": "79e02f4388__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers flag the designer withholding and documento soporte problem, cover the Cámara de Comercio and RUT, hedge their percentages and recommend a contador. B says explicitly that ICA rates and rules differ by city and adds a useful check of filings missed since the accountant left in June. A overstates the exposure: it counts payments through December (about COP 50M, '10 months') that have not happened yet, and its year references (2025 statements and exógena) are inconsistent with the timeline.",
+   "errors_with": [],
+   "errors_without": [
+    "Counts the designer's payments as March through December (about COP 50M, 10 months), although the payments to date since March are fewer",
+    "Year references (2025 declaración de renta and financial statements for the upcoming March) are likely off by one year for the timeline of a January move"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-kz",
+   "case": "aifc-private-company-shareholder-exit-en",
+   "A": "without",
+   "B": "with",
+   "stem": "97936dc978__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly identify AIFC law and the AIFC Court or IAC as the forum, and both flag the possibility that the company is really a TOO. B explicitly recommends preserving evidence and gives a timed action plan, which A does not. B also adds useful analysis A lacks, such as the point that a 75% special-resolution threshold could be decisive against a 70% holder and a clear choice between staying in and exiting.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-kz",
+   "case": "aifc-private-company-shareholder-exit-en",
+   "A": "with",
+   "B": "without",
+   "stem": "97936dc978__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. They correct the governing law and the forum, flag that the company might really be a TOO, and set out unfair prejudice and pre-emption remedies with concrete next steps. A edges ahead with its fact-specific point that a 75% special-resolution threshold could exceed the founder's 70% stake, its explicit list of reserved-matter and director's-duty arguments, and its warning not to acquiesce; B's own useful points (the payout would be based on financials the majority is hiding, and the tax check) are slightly less decisive.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-git-conventions",
+   "case": "staged-mixed-changes-commit-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "a3f12a4af3__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers lead with a single-commit message and only then suggest splitting with reasons and commands, so neither fully makes splitting the primary recommendation; B's wording ('лучше всё же разбить') is slightly firmer and its git add -p sequence handles the invoice/utils dependency better. A uses the expected types throughout (fix, refactor, chore(deps), docs), while B uses the non-standard 'deps:' type for the requests bump. A also adds a hedged and accurate note about requests 2.32.x changes, which tips the balance in A's favour.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-git-conventions",
+   "case": "staged-mixed-changes-commit-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "a3f12a4af3__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers lead with a single-commit message and put splitting second, with a reason and commands, so neither fully makes splitting the main recommendation; A says 'лучше всё же разбить' a little more directly, and its split order (refactor before fix, using add -p) is sounder. B uses the rubric's types throughout (chore(deps) for the requests bump), while A uses a nonstandard 'deps:' type in both the message body and the split commands. B also adds a useful, openly hedged note about the requests 2.32.x changes, and it flags the ordering problem in its own split sequence.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ge",
+   "case": "georgian-llc-retained-profit-dividend-en",
+   "A": "without",
+   "B": "with",
+   "stem": "b9c6417907__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with the same correct numbers (about 35,294 GEL profit tax plus 10,000 GEL withholding) and give the same correct conclusions. B describes the deemed-distribution rules more accurately, since it names loans to individuals as a taxable object. It also describes the over-cap consequence of the small business regime more accurately, and it adds useful next steps such as getting the bookkeeper's written basis and the refund risk. A says the 3% rate applies only to the excess over the cap, which is less accurate, and its article and chapter references are looser.",
+   "errors_with": [],
+   "errors_without": [
+    "States the higher ~3% small-business rate applies only to the excess over the 500,000 GEL cap; it applies to income from the point of exceedance, not just the excess."
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-ge",
+   "case": "georgian-llc-retained-profit-dividend-en",
+   "A": "with",
+   "B": "without",
+   "stem": "b9c6417907__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers get all four rubric points right, with the same correct gross-up arithmetic (about 35,294 + 10,000 GEL), the same finding that the 1% regime is for individual entrepreneurs only with a 500k cap, and hedged advice to check with an adviser. B adds useful points that fit this user's facts: the warehouse must be registered to the LLC, the VAT registration persists for an individual entrepreneur above 100k, some activities are excluded from small business status, and the practical steps and timing for declaring the dividend. A's description of the over-cap rule (3% on all income from the month the cap is exceeded, and loss of status the following year) is less accurate than B's statement that the higher rate applies to the excess.",
+   "errors_with": [
+    "Says that above the 500k cap the 3% rate applies to all income from the month of exceedance to year-end and that status is lost the next year; the 3% rate generally applies to the income above the threshold."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-golden-visa-valencia-apartment-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "bb2facece9__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet all rubric items with similar depth and accuracy. A makes a concrete arithmetic error in the income requirement (2,400 + 600 stated as 3,600/month and 43,200/year), while B computes it correctly. B also gives a sequence that better protects the user's deposit: confirm the visa first, and if the deposit comes before that, add a condición suspensiva tied to the visa. It also adds useful points such as valor de referencia as the ITP base and the Valencia wealth-tax minimum.",
+   "errors_with": [
+    "Income requirement arithmetic: 400% IPREM (~2,400) + 100% IPREM (~600) is ~3,000/month (~36,000/year), not 3,600/month (~43,200/year)"
+   ],
+   "errors_without": [
+    "Describes the work prohibition as covering remote work 'for Spanish clients', which understates it: the prohibition is broader"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-golden-visa-valencia-apartment-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "bb2facece9__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each debunks the golden visa, proposes residencia no lucrativa, covers NIE/notary/registry with Valencia-specific ITP, and explains worldwide IRPF plus Modelo 720. B goes deeper on double-tax credit mechanics and filing details, but it makes an arithmetic error on the core income requirement (2,400 + 600 stated as 3,600/month), while A computes it correctly. A also gives a clearer, safer order of steps (visa first, then commit money, with a condición suspensiva tied to the visa).",
+   "errors_with": [
+    "Income requirement arithmetic: 400% IPREM (~2,400) + 100% IPREM (~600) is ~3,000/month (~36,000/yr), not 3,600/month (~43,200/yr)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ge",
+   "case": "tbilisi-it-llc-virtual-zone-rate-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "bcaf6803c9__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the 5% misconception, explain the distribution-based (Estonian) model, carve out the Tbilisi cafe income, and give a hedged how-much/when answer with referrals to matsne.gov.ge or a local advisor. A's full-distribution scenario is internally consistent: 15% on 55,000 of profit gives 8,250, and 5% withholding applies to the amounts actually paid out. B grosses up 55,000 as if it were the net dividend (about 9,700) and charges 5% on the full 550,000, including money that went to profit tax, so its illustrative total is slightly overstated.",
+   "errors_with": [
+    "Full-distribution scenario: B grosses up 55,000/0.85 as though the net payout were 55,000, when the available local profit is 55,000, so the profit tax should be about 8,250, not 9,700.",
+    "B applies 5% dividend withholding to the full 550,000, even though part of that amount was paid as profit tax and was never distributed."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ge",
+   "case": "tbilisi-it-llc-virtual-zone-rate-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "bcaf6803c9__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: 0% vs the IC 5% rate, profit taxed only on distribution, the local cafe income outside the exemption, and a clear answer of 0 GEL for 2026 with caveats. B's distribution scenario is internally consistent: it taxes the 55,000 local profit at 15% and then applies 5% only to the net dividends. A grosses up 55,000 as if it were the net dividend and also applies 5% to the full 550,000, so its total is inflated. B also adds a useful point that the 5% dividend withholding is itself a likely source of the chat confusion, and it sets out the scenarios in a clearer table.",
+   "errors_with": [
+    "Scenario B grosses up the 55,000 local profit (55,000/0.85*0.15 ≈ 9,700) as though it were the net dividend, and applies 5% dividend tax to the full 550,000 without deducting the profit tax already paid, which overstates the total."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-kz",
+   "case": "almaty-too-2026-payroll-vat-budget-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "cf0673ac87__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers correctly move VAT to 16%, flag the fixed-price contracts, apply the 10%/15% IIT split at 8,500 MRP, and include ОПВР. Answer A states social tax is 11% in 2026, which is wrong, so its payroll figures and totals are overstated by about 5.6 million tenge a year. Answer B uses the correct 6%, and its computed figures stay internally consistent and carry appropriate caveats.",
+   "errors_with": [],
+   "errors_without": [
+    "Social tax rate for 2026 stated as 11% instead of 6%, inflating employer payroll tax figures and the overall total"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-kz",
+   "case": "almaty-too-2026-payroll-vat-budget-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "cf0673ac87__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers correct VAT to 16%, flag the fixed-price contract risk, and apply the 10%/15% IPN progression above 8,500 MRP to the director's salary. B gives the 2026 social tax rate as 11% instead of 6%, so its payroll figures and overall total are overstated (it claims social tax rises about 2.5x). A uses the correct 6%, includes OPVR, and frames all figures as estimates to verify.",
+   "errors_with": [],
+   "errors_without": [
+    "Social tax rate from 2026 stated as 11% instead of 6%, which inflates employer payroll costs and the summary total"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-sl-minimum-capital-madrid-en",
+   "A": "without",
+   "B": "with",
+   "stem": "f827c0d16a__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with accurate, well-hedged detail, and both make a clear recommendation to form the SL. A addresses the user's stated pain point more directly by noting that founders can declare joint liability in the deed in place of the bank deposit certificate (Art. 62 LSC), and it flags a residence-permit work-authorization check that could be the user's biggest risk. B adds useful depth (Art. 305 LGSS control thresholds, non-monetary contributions, Beckham Law, solvency perception), but it presents the bank certificate as required for cash contributions and omits the permit issue.",
+   "errors_with": [
+    "Cites the low-capital conditions as 'Art. 4 bis LSC'; Ley 18/2022 placed them in Art. 4 itself (the answer does mark the citation as unverified)",
+    "Presents the bank certificate as required before the notary for cash contributions, which omits the Art. 62.2 LSC option for SL founders to declare joint liability instead"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-es",
+   "case": "es-sl-minimum-capital-madrid-en",
+   "A": "with",
+   "B": "without",
+   "stem": "f827c0d16a__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover all four rubric items accurately, recommend the SL, and correctly note that RETA is likely to apply either way. B adds two points that matter for this user: it flags checking whether the residence permit authorizes self-employment or director work, and it notes the Art. 62 LSC option of a founders' liability declaration instead of a bank certificate, which directly eases the cash concern. A's extra detail (Art. 305 LGSS thresholds, sociedad civil taxation) is correct but less decisive, and it implies that a bank certificate is always needed for cash contributions.",
+   "errors_with": [],
+   "errors_without": [
+    "Describes liquidation liability as at most about EUR 3,000 'split between the two of you', but the liability is joint and several, so either partner can be pursued for the full shortfall"
+   ]
+  }
+ ],
+ "missing": []
+}
