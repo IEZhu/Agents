@@ -221,7 +221,6 @@ Agents/
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
 │   ├── common/           # Shared agent resources
-│   ├── capabilities/     # Capability compositions (registry.yaml)
 │   └── schemas/          # Validation schemas
 ├── skills/               # Reusable knowledge chunks (RAG)
 │   └── skill-*.mdc
@@ -237,7 +236,6 @@ Agents/
 │   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
-│   │   ├── capabilities.py # Capability registry resolution
 │   │   ├── context.py    # Context retrieval (history formatting)
 │   │   └── language.py   # Language detection
 │   └── utils/
@@ -340,15 +338,21 @@ You are an expert in X...
 
 The agent will be auto-discovered by the MCP server on next startup.
 
-### Capabilities System
+### Skill tiers
 
-Instead of listing skills per agent, you can declare high-level capabilities:
+Each agent picks its skills explicitly in frontmatter, in three tiers:
 
 ```yaml
-capabilities: [development, dev-security]
+core_skills: [skill-content-structure, skill-dev-clean-code]
+preferred_skills: [skill-dev-debugging, skill-dev-performance]
+capable_skills: [skill-dev-testing, skill-git-conventions]
 ```
 
-The enrichment pipeline resolves capabilities to skill bundles via `agents/capabilities/registry.yaml`. Available capabilities: `critical-analysis`, `content-structure`, `development`, `dense-summary`, `trust-weighted-research`, `bio-health`, `tech-documentation`, `dev-security`, `consultative-intake`, `creative-writing`, `psychology`, `3d-printing`, `data-investigation`, `epistemic-analysis`, `code-review`, `decision-making`, `product-thinking`, `temporal-research`, `performance-engineering`, `prompt-design`, `prompt-security`, `roblox-development`, `dev-tools`, `blender-scripting`, `health-optimization`, `consumer-research`, `visualization`, `child-psychology`.
+- `core_skills` are loaded unconditionally.
+- `preferred_skills` join the semantic pool with their distance multiplied by a boost factor (0.7), so they win close matches.
+- `capable_skills` join the same pool at their base distance.
+
+Skills outside the three lists are never loaded for that agent. Guidance that applies to every agent belongs in `rules/`, not in a skill.
 
 ---
 

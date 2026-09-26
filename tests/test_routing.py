@@ -895,6 +895,16 @@ class TestKeywordBoosting:
         matches = r.match_keywords("Use auxiliary tools for the project")
         assert matches == []
 
+    def test_software_engineer_matches_versioned_gtk(self):
+        """'GTK' is short, so the word boundary keeps it out of 'gtk4'; the
+        versioned keywords are long enough for substring matching."""
+        from src.utils.prompt_loader import get_agent_metadata
+
+        keywords = get_agent_metadata("software_engineer")["routing"]["domain_keywords"]
+        r = self._make_router_with_keywords({"software_engineer": keywords})
+        for query in ("gtk4 widget sizing", "port the app to gtk4-rs", "GTK3 css theming"):
+            assert r.match_keywords(query) == [("software_engineer", 1)], query
+
     # --- keyword_veto ---
 
     def test_keyword_veto_confirms_cache(self):

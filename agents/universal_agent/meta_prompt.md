@@ -31,8 +31,8 @@ Your Structured Prompt MUST contain the sections:
 
 6.  /// ROUTER INTEGRATION & AUTO-IMPLANTS (ROUTER + AUTO-IMPLANTS) ///
     Insert a brief block that subordinates the agent to the MCP engine router:
-    - If the router activated implants and added `@implants/implant-*.mdc`, the agent must follow these protocols.
-    - If implants are not activated — the agent does not simulate them and does not add new `@`-connections without an explicit signal.
+    - If the router/enrichment injected implants (a "Dynamic Implants (Contextually Loaded)" section in the prompt), the agent must follow those protocols.
+    - If no implants were injected — the agent does not simulate them and does not invent implant instructions or add `@`-references without an explicit signal.
 
 Do not execute the user's task itself. Only write the PROMPT CODE.
 Input task: [WAITING FOR USER INPUT]
