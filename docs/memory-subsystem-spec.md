@@ -225,11 +225,13 @@ async def describe_repo(
     """One-shot repo bootstrap. Generates a structured summary via MCP sampling
     and writes it into the managed Repository Memory section of CLAUDE.md.
 
-    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "up-to-date", "rejected", "needs_summary", "error"}.
-
-    Without sampling nothing is written; it returns
-    {status: "needs_summary", workspace_id, repo_hash, repo_path, prompt, instruction}.
+    Returns JSON whose fields depend on status:
+      refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected (sampled summary failed the sanity check):
+        {status, reason, word_count, has_heading, summary_preview}
+      needs_summary (no sampling; nothing written):
+        {status, workspace_id, repo_hash, repo_path, prompt, instruction}
+      error: {status, error}
     """
 
 @mcp.tool()
@@ -244,8 +246,12 @@ async def write_repo_summary(
     repo_hash, repo_path and workspace_id back unchanged; a changed repo hash
     is rejected (call describe_repo again).
 
-    Returns JSON: {status, path, hash, word_count, in_word_budget, summary_preview}.
-    status ∈ {"refreshed", "rejected", "error"}.
+    Returns JSON whose fields depend on status:
+      refreshed: {status, path, hash, word_count, in_word_budget, summary_preview}
+      rejected, stale repo_hash: {status, reason}
+      rejected, summary failed the sanity check:
+        {status, reason, word_count, has_heading, summary_preview}
+      error: {status, error}
     """
 
 @mcp.tool()

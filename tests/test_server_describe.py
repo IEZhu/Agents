@@ -122,6 +122,7 @@ async def test_write_rejects_stale_repo_hash(repo):
     # was writing its summary.
     (repo / "README.md").write_text("# Demo, renamed\n\nChanged after describe.\n")
     result = await _write(needs, _valid_summary())
+    assert set(result) == {"status", "reason"}  # the documented shape
     assert result["status"] == "rejected"
     assert result["reason"].startswith("repo_hash changed")
     assert not (repo / "CLAUDE.md").exists()
@@ -131,6 +132,7 @@ async def test_write_rejects_stale_repo_hash(repo):
 async def test_write_rejects_short_summary(repo):
     needs = await _describe()
     result = await _write(needs, "## Heading\n\nonly a few words")
+    assert set(result) == {"status", "reason", "word_count", "has_heading", "summary_preview"}  # the documented shape
     assert result["status"] == "rejected"
     assert result["word_count"] < RepoDescriber.MIN_PERSIST_WORD_COUNT
     assert not (repo / "CLAUDE.md").exists()
