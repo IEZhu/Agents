@@ -193,7 +193,7 @@ def test_unreadable_state_files_are_refused_not_rebuilt(tmp_path):
     with pytest.raises(SystemExit, match="not valid JSON"):
         pab.check_manifest(broken, {"mode": "implants", "arms": []})
     assert broken.read_text() == "{\"mode\": "
-    for not_an_object in ("[]", "\"manifest\"", "3"):
+    for not_an_object in ("[]", "\"manifest\"", "3", "null"):
         broken.write_text(not_an_object)
         with pytest.raises(SystemExit, match="not a JSON object"):
             pab.check_manifest(broken, {"mode": "implants", "arms": []})
