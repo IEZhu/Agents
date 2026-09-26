@@ -1,10 +1,12 @@
 """Build blind pairwise judge inputs from a run's answers.
 
-    python evals/ablation/build_judges.py RUN_DIR
+    python evals/ablation/build_judges.py RUN_DIR [--allow-partial]
 
 For every case whose two answers exist, writes RUN_DIR/judge/<stem>.md for both
 orders and RUN_DIR/judge_plan.json (stem -> component, case, which arm is A/B).
 Stems carry no arm names. Arm order in o1 is fixed per case by a hash; o2 swaps it.
+Pairs with a missing answer go to RUN_DIR/judge_skipped.json, which aggregate.py
+reports as missing; the script exits 1 on any skipped pair unless --allow-partial.
 """
 import hashlib
 import json
@@ -12,7 +14,7 @@ import sys
 from pathlib import Path
 
 
-def main(run_dir: Path) -> None:
+def main(run_dir: Path, allow_partial: bool = False) -> int:
     plan = json.loads((run_dir / "plan.json").read_text())
     cases = {}
     for path in (run_dir / "cases").glob("*.json"):
@@ -44,8 +46,11 @@ def main(run_dir: Path) -> None:
             (run_dir / "judge" / f"{stem}.md").write_text(body, encoding="utf-8")
             judge_plan[stem] = {"component": component, "case": case_id, "A": a, "B": b}
     (run_dir / "judge_plan.json").write_text(json.dumps(judge_plan, indent=1) + "\n")
+    (run_dir / "judge_skipped.json").write_text(json.dumps(skipped, indent=1) + "\n")
     print(f"{len(judge_plan)} judge files, {len(skipped)} pairs skipped (missing answers): {skipped}")
+    return 1 if skipped and not allow_partial else 0
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]).resolve())
+    args = [a for a in sys.argv[1:] if a != "--allow-partial"]
+    sys.exit(main(Path(args[0]).resolve(), allow_partial="--allow-partial" in sys.argv[1:]))

@@ -1,12 +1,14 @@
 """Summarise ablation verdicts per component.
 
-    python evals/ablation/aggregate.py RUN_DIR [RUN_DIR ...]
+    python evals/ablation/aggregate.py RUN_DIR [RUN_DIR ...] [--allow-partial]
 
 Reads each run's judge_plan.json and judge/<stem>.verdict.json, maps A/B back to
 with/without, and writes RUN_DIR/results.json and RUN_DIR/RESULTS.md for a single
 run, or prints the combined table for several runs.
 net = verdicts won with the component minus verdicts won without it; "robust"
 counts only cases where the same arm won in both orders.
+Missing verdicts, and answer pairs build_judges.py skipped, are listed as missing;
+the script exits 1 when any are missing unless --allow-partial.
 """
 import json
 import sys
@@ -29,6 +31,9 @@ def load(run_dir: Path) -> tuple[list[dict], list[dict]]:
                      "reasons": v.get("reasons", ""),
                      "errors_with": v.get("factual_errors", {}).get("A" if p["A"] == "with" else "B", []),
                      "errors_without": v.get("factual_errors", {}).get("A" if p["A"] == "without" else "B", [])})
+    skipped = run_dir / "judge_skipped.json"
+    if skipped.exists():
+        missing += [{"pair": pair, "error": "answer missing, not judged"} for pair in json.loads(skipped.read_text())]
     return rows, missing
 
 
@@ -68,7 +73,7 @@ def table(rows: list[dict], skipped: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(run_dirs: list[Path]) -> None:
+def main(run_dirs: list[Path], allow_partial: bool = False) -> int:
     all_rows, all_skipped, all_missing = [], {}, []
     for run_dir in run_dirs:
         rows, missing = load(run_dir)
@@ -80,7 +85,9 @@ def main(run_dirs: list[Path]) -> None:
             (run_dir / "RESULTS.md").write_text(f"# Ablation results: {run_dir.name}\n\n" + table(rows, all_skipped))
     print(table(all_rows, all_skipped))
     print(f"{len(all_rows)} verdicts, {len(all_missing)} missing")
+    return 1 if all_missing and not allow_partial else 0
 
 
 if __name__ == "__main__":
-    main([Path(p).resolve() for p in sys.argv[1:]])
+    sys.exit(main([Path(p).resolve() for p in sys.argv[1:] if p != "--allow-partial"],
+                  allow_partial="--allow-partial" in sys.argv[1:]))
