@@ -8,7 +8,8 @@ component, agent, context hash). Each context is the production enrichment for t
 case's agent and latest message, with platform instructions stripped.
 
 Refuses a run with no case files, a case file whose component differs from its
-file name, that repeats a case id or that has no cases and no untestable reason,
+file name, that the checker did not mark, that repeats a case id or that has no
+cases and no untestable reason,
 and, when RUN_DIR/ids.txt exists, a listed
 component without a case file or a case file for a component it does not list.
 RUN_DIR/build_meta.json records the commit the contexts were built from, so they
@@ -122,6 +123,10 @@ async def main(run_dir: Path) -> None:
     if unexplained := [path.name for path, spec in specs.items() if not spec.get("cases") and not (
             isinstance(spec.get("untestable"), str) and spec["untestable"].strip())]:
         raise SystemExit(f"case files with no cases and no untestable reason: {unexplained}; "
+                         "rerun the cases step for them")
+    # cases.js has a skeptic fix each file and mark it; an unmarked file skipped that step.
+    if unchecked := [path.name for path, spec in specs.items() if spec.get("checked") is not True]:
+        raise SystemExit(f"case files the checker did not mark (checked: true): {unchecked}; "
                          "rerun the cases step for them")
     # Tokens come from component, case id and arm, so a repeated id would overwrite a case.
     if repeated := [path.name for path, spec in specs.items()
