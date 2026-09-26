@@ -23,7 +23,7 @@ Implants are **cognitive patterns** that enhance how agents think and reason. Un
 - Prompt engineering techniques (how to write prompts) → `skill-prompt-techniques`
 - Security practices (sandwich defense, delimiters) → `skill-prompt-security`
 - Domain-specific protocols (fact verification) → `skill-fact-verification`
-- Token usage rules → `skill-token-economy`
+- Output brevity rules → `skill-caveman-tokenomics`
 
 ## Structure
 
@@ -158,7 +158,7 @@ Techniques for breaking down complex problems:
 
 ### Efficiency
 
-> **Moved to skills**: `token-economy` → `skill-token-economy`
+> **Moved to skills**: output brevity → `skill-caveman-tokenomics`
 
 ## Activation Methods
 

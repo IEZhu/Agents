@@ -45,7 +45,6 @@ capable_skills:
 - skill-multi-step-planning
 - skill-agentic-loops
 - skill-structured-output
-- skill-token-economy
 preferred_implants:
 - implant-chain-of-verification
 - implant-contrastive-cot
