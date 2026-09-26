@@ -12,8 +12,9 @@ reassessed from their retained traces: 437 attempted turns. The corrected result
 below include the newly detected logging failures and preserve prior verdicts in
 the JSON audit. No new model runs were performed.
 
-Version 2 remains an explicit opt-in through `AGENTS_PERSONA_PROTOCOL=2`; the
-installer defaults to version 1. Claude v2 does not pass the full attribution
+At the time of these runs version 2 was an explicit opt-in and the installer
+defaulted to version 1; it defaults to version 2 since 2026-09-26
+([routing_flow.md](routing_flow.md)). Claude v2 does not pass the full attribution
 rubric on these traces: some logs paraphrase the current request.
 These results apply to the recorded CLIs and models, not to every MCP client.
 Codex has not completed acceptance testing: the account usage limit interrupted
