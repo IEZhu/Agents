@@ -62,10 +62,11 @@ if str(REPO_ROOT) not in sys.path:
 from evals.scripts import compare_rules as cr  # noqa: E402
 
 BUILDER = Path(__file__).resolve().parent / "_prompt_builder.py"
-# Code from this checkout, not the arms' revisions, that builds prompts, sends
-# requests and grades answers, in a fixed order.
+# Code from this checkout, not the arms' revisions, that builds prompts, picks
+# agents, sends requests and grades answers, in a fixed order. The builder imports
+# its own helpers from each revision; pick_agents uses this checkout's picker.
 HARNESS_FILES = (Path(__file__).resolve(), BUILDER, Path(cr.__file__).resolve(),
-                 REPO_ROOT / "evals/runners/_providers.py")
+                 REPO_ROOT / "evals/runners/_providers.py", REPO_ROOT / "evals/runners/run_mcp_vs_vanilla.py")
 DEFAULT_DATASET = cr.DEFAULT_DATASET
 MAX_TOKENS = 800  # default answer budget; a thinking model spends part of it reasoning
 DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-large"  # picks skills and implants in the builds
@@ -576,13 +577,14 @@ async def run(args) -> int:
             await run_builder(["--catalog-out", str(catalog)], first, builder_env({}))
         agents_path = agents_file or out / "agents.json"
         agents = await pick_agents(cases, provider, client, model, catalog, agents_path)
+        # A case without an agent would be routed by each revision on its own.
+        # Checked before the pin, so an incomplete map is never recorded as the run's.
+        if missing := [c["id"] for c in cases if c["id"] not in agents]:
+            raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         if agents_file is None:
             manifest = read_json(out / "manifest.json")
             if manifest.get("agents_sha256") is None:
                 write_json_atomic(out / "manifest.json", {**manifest, "agents_sha256": sha256_file(generated)})
-        # A case without an agent would be routed by each revision on its own.
-        if missing := [c["id"] for c in cases if c["id"] not in agents]:
-            raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         free_answer_model()
         prompts = {}
         for arm in arms:
