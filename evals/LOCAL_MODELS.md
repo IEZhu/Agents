@@ -217,7 +217,8 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   or after an edit to that code is refused, and
   so is one that reorders the arms already run; adding arms is allowed, after the first
   arm, which stays the baseline. A directory with an agent map, prompts, answers or
-  grades but no `manifest.json` is refused, unless the map is the `--agents` file itself.
+  grades but no `manifest.json` is refused, unless the map is the `--agents` file itself,
+  and so are prompts, answers or grades whose generated agent map is missing.
   Cached prompt
   files are reused only if they were built with the current embedding model.
 - Relative paths are resolved against the directory you run from.

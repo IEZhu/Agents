@@ -666,4 +666,12 @@ def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
     supplied = tmp_path / "mine.json"
     supplied.write_text('{"c0": "lawyer"}')
     assert pab.agents_pin(tmp_path, supplied) == pab.sha256_file(supplied)
+    # Records whose generated map is gone are refused, pinned or not.
+    (tmp_path / "agents.json").unlink()
+    for state in ("prompts_none.json", "answers.jsonl", "grades.jsonl"):
+        (tmp_path / state).write_text("")
+        with pytest.raises(SystemExit, match="no agents.json"):
+            pab.agents_pin(tmp_path, None)
+        (tmp_path / state).unlink()
+    assert pab.agents_pin(tmp_path, None) is None
 
