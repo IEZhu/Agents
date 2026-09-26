@@ -344,6 +344,11 @@ async def pick_agents(cases, provider, client, model, catalog_path: Path, out: P
     return agents
 
 
+def missing_agents(cases: list[dict[str, Any]], agents: dict[str, str]) -> list[str]:
+    """Ids of the cases the map gives no agent; each revision would route those on its own."""
+    return [c["id"] for c in cases if not agents.get(c["id"])]
+
+
 def agents_pin(out: Path, agents_file: Path | None) -> str | None:
     """The agent map's hash for the manifest; None while a generated map is not pinned yet.
 
@@ -572,6 +577,14 @@ async def run(args) -> int:
             unload(os.environ.get(LOCAL_BASE_URL_ENV, LOCAL_DEFAULT_BASE_URL).rstrip("/").removesuffix("/v1"), model)
 
     generated = out / "agents.json"
+    if agents_file is not None:
+        # Checked before the manifest records its hash: a map fixed after a failed
+        # check must not find the out dir pinned to the incomplete one.
+        supplied = read_json(agents_file)
+        if not isinstance(supplied, dict):
+            raise SystemExit(f"--agents {agents_file} does not exist or is not a JSON object")
+        if missing := missing_agents(cases, supplied):
+            raise SystemExit(f"{agents_file} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
     with Worktrees(REPO_ROOT) as trees:
         # Resolve each revision once: a branch that moves mid-run must not build
         # prompts from a commit other than the one the manifest records.
@@ -592,9 +605,12 @@ async def run(args) -> int:
             await run_builder(["--catalog-out", str(catalog)], first, builder_env({}))
         agents_path = agents_file or out / "agents.json"
         agents = await pick_agents(cases, provider, client, model, catalog, agents_path)
-        # A case without an agent would be routed by each revision on its own.
         # Checked before the pin, so an incomplete map is never recorded as the run's.
-        if missing := [c["id"] for c in cases if c["id"] not in agents]:
+        if missing := missing_agents(cases, agents):
+            if agents_file is None and read_manifest(out / "manifest.json").get("agents_sha256") is None:
+                # Never pinned and nothing built from it: the next run picks the map anew
+                # instead of failing on this one again.
+                generated.unlink()
             raise SystemExit(f"{agents_path} has no agent for {len(missing)} cases, e.g. {missing[:5]}")
         if agents_file is None:
             manifest = read_manifest(out / "manifest.json")
