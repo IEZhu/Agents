@@ -992,7 +992,7 @@ async def describe_repo(
             "repo_path": describer.repo_path,
             "prompt": prompt,
             "instruction": (
-                "Sampling is not available. Generate the repository overview by "
+                "Sampling is not available or failed. Generate the repository overview by "
                 "following the prompt above, then call write_repo_summary("
                 f'summary=<your output>, repo_hash="{decision.current_hash}", '
                 f'repo_path={json.dumps(repo_path)}, workspace_id={json.dumps(client.workspace_id)}'
