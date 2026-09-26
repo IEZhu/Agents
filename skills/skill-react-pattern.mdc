@@ -1,6 +1,6 @@
 ---
 description: "ReAct pattern for tool-using agents. Thought-Action-Observation loops, tool selection, grounding, error recovery. Role: Agent Operator."
-compiled: "Think before acting. Act with tools. Observe results. Loop until goal met. Never act blindly. Recover from tool errors."
+compiled: "Think before acting. Act with tools. Observe results. Before any irreversible or side-effecting action (refund, payment, delete, send), read the current state with a lookup tool and confirm its preconditions, including when you write the rules for another agent. Loop until goal met. Never act blindly. Recover from tool errors."
 keywords:
   - think before acting
   - act with tools
@@ -28,6 +28,7 @@ while goal not met:
 - **Think First**: Every action must be preceded by explicit reasoning about why this action.
 - **One Action at a Time**: Don't chain multiple tool calls without observing each result.
 - **Ground in Observations**: Update your understanding after every observation. Don't carry stale assumptions.
+- **Check Before You Commit**: Before an irreversible or side-effecting action (refund, payment, delete, send, deploy), read the current state with a lookup tool and confirm the preconditions: the amount, the status, that it was not already done. Don't take them from the conversation or from memory. This also applies when you write the rules for another agent.
 - **Error Recovery**: If a tool fails, reason about why, try alternative approach.
 - **Know When to Stop**: If the observation answers the question, stop. Don't over-iterate.
 
@@ -45,7 +46,7 @@ while goal not met:
 - **Blind Action**: Calling tools without reasoning about what you expect.
 - **Ignoring Observations**: Plowing ahead after a tool returns unexpected results.
 - **Infinite Loops**: No convergence criteria — always have an exit condition.
-- **Tool Overuse**: Using tools when reasoning alone would suffice.
+- **Tool Overuse**: Using tools when reasoning alone would suffice. A state check before a side-effecting action is never overuse.
 - **Premature Conclusion**: Answering before sufficient observations.
 
 ## Actions
