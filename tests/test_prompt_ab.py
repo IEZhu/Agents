@@ -639,6 +639,11 @@ def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
     # A generated map with no manifest was made under settings nothing recorded.
     with pytest.raises(SystemExit, match="no manifest"):
         pab.agents_pin(tmp_path, None)
+    # ... even when --agents supplies another map, which would leave it lying there.
+    supplied = tmp_path / "mine.json"
+    supplied.write_text('{"c0": "lawyer"}')
+    with pytest.raises(SystemExit, match="no manifest"):
+        pab.agents_pin(tmp_path, supplied)
     # A map supplied with --agents may live in the out dir of a fresh run.
     assert pab.agents_pin(tmp_path, tmp_path / "agents.json") == pinned
     pab.check_manifest(tmp_path / "manifest.json", {"agents_sha256": pinned})
