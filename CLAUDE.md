@@ -39,6 +39,9 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
 | `list_agents()` | List all available agents |
 | `log_interaction(...)` | End-of-turn observability logger (Langfuse) |
 | `clear_session_cache()` | Clear routing cache (use when switching contexts) |
+| `describe_repo(repo_path?, force_refresh?)` | Bootstrap the Repository Memory section of CLAUDE.md; on `needs_summary` follow its `instruction` |
+| `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persist the summary after `needs_summary`, passing `repo_hash`, `repo_path` and `workspace_id` back unchanged |
+| `read_history(limit?, since?, query?)` | Recent or semantic lookup in the repo's `history.md` |
 
 ## Environment
 
@@ -161,8 +164,8 @@ notes outside the markers so future protocol changes preserve them.
 - Agent metadata declares core, preferred and capable skills, plus preferred
   implants. General rules are versioned bundle content, governed by
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`.
-- `describe_repo()` bootstraps repository memory. When sampling is unavailable,
-  `write_repo_summary(...)` completes the managed summary. `read_history(...)`
+- `describe_repo()` bootstraps repository memory. When sampling is unavailable or
+  fails, `write_repo_summary(...)` completes the managed summary. `read_history(...)`
   retrieves existing entries; `log_interaction(...)` records turn attribution.
 - Preserve unrelated Repository Memory sections and user instructions when
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
