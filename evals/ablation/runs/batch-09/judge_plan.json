@@ -1,0 +1,242 @@
+{
+ "e7ea515489__o1": {
+  "component": "implant-chain-of-code",
+  "case": "coin-passing-rounds-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e7ea515489__o2": {
+  "component": "implant-chain-of-code",
+  "case": "coin-passing-rounds-en",
+  "A": "with",
+  "B": "without"
+ },
+ "2f9e396974__o1": {
+  "component": "implant-chain-of-code",
+  "case": "fifo-writeoff-rule-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "2f9e396974__o2": {
+  "component": "implant-chain-of-code",
+  "case": "fifo-writeoff-rule-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "45506a6b24__o1": {
+  "component": "implant-chain-of-draft",
+  "case": "gunicorn-sqlalchemy-pg-connections-short-en",
+  "A": "without",
+  "B": "with"
+ },
+ "45506a6b24__o2": {
+  "component": "implant-chain-of-draft",
+  "case": "gunicorn-sqlalchemy-pg-connections-short-en",
+  "A": "with",
+  "B": "without"
+ },
+ "3985680f42__o1": {
+  "component": "implant-chain-of-draft",
+  "case": "saas-funnel-mrr-ltv-brief-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3985680f42__o2": {
+  "component": "implant-chain-of-draft",
+  "case": "saas-funnel-mrr-ltv-brief-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "20acfb0e6c__o1": {
+  "component": "implant-chain-of-note",
+  "case": "dividend-snippets-distractors-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "20acfb0e6c__o2": {
+  "component": "implant-chain-of-note",
+  "case": "dividend-snippets-distractors-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "e71eeb70f2__o1": {
+  "component": "implant-chain-of-note",
+  "case": "port-strike-clippings-stale-and-irrelevant-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e71eeb70f2__o2": {
+  "component": "implant-chain-of-note",
+  "case": "port-strike-clippings-stale-and-irrelevant-en",
+  "A": "with",
+  "B": "without"
+ },
+ "2b052c4ea9__o1": {
+  "component": "implant-chain-of-symbol",
+  "case": "office-desk-seating-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "2b052c4ea9__o2": {
+  "component": "implant-chain-of-symbol",
+  "case": "office-desk-seating-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "96fb970a3f__o1": {
+  "component": "implant-chain-of-symbol",
+  "case": "tool-survey-overlap-en",
+  "A": "without",
+  "B": "with"
+ },
+ "96fb970a3f__o2": {
+  "component": "implant-chain-of-symbol",
+  "case": "tool-survey-overlap-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1cdde067cf__o1": {
+  "component": "implant-chain-of-table",
+  "case": "laptop-scattered-specs-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "1cdde067cf__o2": {
+  "component": "implant-chain-of-table",
+  "case": "laptop-scattered-specs-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "baed7ed9a9__o1": {
+  "component": "implant-chain-of-table",
+  "case": "managed-postgres-quotes-en",
+  "A": "with",
+  "B": "without"
+ },
+ "baed7ed9a9__o2": {
+  "component": "implant-chain-of-table",
+  "case": "managed-postgres-quotes-en",
+  "A": "without",
+  "B": "with"
+ },
+ "62ed9259cb__o1": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-gdpr-onepager-en",
+  "A": "with",
+  "B": "without"
+ },
+ "62ed9259cb__o2": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-gdpr-onepager-en",
+  "A": "without",
+  "B": "with"
+ },
+ "f902d88a3a__o1": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-python-versions-wiki-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f902d88a3a__o2": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-python-versions-wiki-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "691685beaf__o1": {
+  "component": "implant-complexity-based-prompting",
+  "case": "die-until-six-all-even-en",
+  "A": "without",
+  "B": "with"
+ },
+ "691685beaf__o2": {
+  "component": "implant-complexity-based-prompting",
+  "case": "die-until-six-all-even-en",
+  "A": "with",
+  "B": "without"
+ },
+ "dff2bbece1__o1": {
+  "component": "implant-complexity-based-prompting",
+  "case": "four-doors-random-host-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "dff2bbece1__o2": {
+  "component": "implant-complexity-based-prompting",
+  "case": "four-doors-random-host-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "56e2bdae5a__o1": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-cleaning-lifehacks-post-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "56e2bdae5a__o2": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-cleaning-lifehacks-post-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "20bd1ba3b8__o1": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-new-parents-sleep-handout-en",
+  "A": "with",
+  "B": "without"
+ },
+ "20bd1ba3b8__o2": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-new-parents-sleep-handout-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a84e55e959__o1": {
+  "component": "implant-contextual-compression",
+  "case": "handwritten-meeting-notes-condense-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a84e55e959__o2": {
+  "component": "implant-contextual-compression",
+  "case": "handwritten-meeting-notes-condense-en",
+  "A": "with",
+  "B": "without"
+ },
+ "2f4145f09c__o1": {
+  "component": "implant-contextual-compression",
+  "case": "ocr-supply-letter-condense-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "2f4145f09c__o2": {
+  "component": "implant-contextual-compression",
+  "case": "ocr-supply-letter-condense-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "1958b68677__o1": {
+  "component": "implant-contrastive-cot",
+  "case": "kpi-summary-percent-vs-points-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1958b68677__o2": {
+  "component": "implant-contrastive-cot",
+  "case": "kpi-summary-percent-vs-points-en",
+  "A": "without",
+  "B": "with"
+ },
+ "bd6ba27376__o1": {
+  "component": "implant-contrastive-cot",
+  "case": "ticket-classifier-boundary-errors-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bd6ba27376__o2": {
+  "component": "implant-contrastive-cot",
+  "case": "ticket-classifier-boundary-errors-ru",
+  "A": "with",
+  "B": "without"
+ }
+}

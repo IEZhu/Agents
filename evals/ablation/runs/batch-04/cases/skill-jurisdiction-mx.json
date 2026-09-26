@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-mx",
+  "cases": [
+    {
+      "id": "mx-it-company-dividends-staff-transfer-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Добрый день! У меня небольшая IT-компания в Мексике (S.A.S., я единственный акционер, зарегистрировали в феврале 2024, офис в Мериде). В штате 4 разработчика-мексиканца, всё официально, IMSS платим, агинальдо в декабре выплатили. 2025 год закрыли с прибылью около 2,8 млн песо до налогов. Два вопроса. 1) Хочу весной 2026, сразу после подачи годовой декларации, вывести всю чистую прибыль себе дивидендами — как это правильно оформить и что учесть? 2) Бухгалтер из Гвадалахары советует открыть вторую фирму на моё имя, перевести всех четверых разработчиков туда, а первая компания будет платить второй по счёту за «услуги разработки» — люди работают как раньше, а мы оптимизируем нагрузку по IMSS и прочему. Это нормальная схема?",
+      "why_in_scope": "The component makes the model treat mandatory PTU (10% profit sharing with employees) as a standing obligation of a profitable Mexican employer and flags the 2021 labor reform that bans subcontracting of personnel except registered specialized services (REPSE). The user never asks about employee payments and frames the question as distributing 'all' profit as dividends, so a model without the component can explain dividend mechanics and forget that employees are owed their PTU share first; the sister-company arrangement looks like ordinary group structuring and may be treated as a tax-optimisation question rather than prohibited subcontracting of the company's core staff.",
+      "rubric": [
+        "Proactively warns that before distributing all the profit the company must pay mandatory employee profit sharing (PTU/reparto de utilidades) of 10% of its annual profit (taxable-income base) for 2025, since the company is past its first year of operation.",
+        "States that moving the company's own developers to a related company that bills the first company for their same core work is prohibited subcontracting of personnel under the 2021 labor reform; only specialized services outside the client's core activity by a REPSE-registered provider are permitted, and warns of consequences such as fines, loss of tax deductibility/IVA credit, or joint liability.",
+        "Gives usable guidance on the dividend question itself (e.g., shareholder resolution approving the distribution, distribution from after-tax profit, tax/withholding treatment of dividends to an individual) without contradicting Mexican rules.",
+        "Answers in Russian, addresses both questions directly, and recommends confirming with a licensed Mexican contador or attorney."
+      ]
+    },
+    {
+      "id": "mx-puerto-vallarta-condo-title-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Hi, I'm a US citizen (retired, 64) and I got my temporary resident card in Mexico last spring. I've found a 2-bedroom oceanfront condo in Puerto Vallarta for about $385k USD that I plan to live in. The seller's agent says that since I'm now a legal resident I can just put the title directly in my name and skip the bank trust thing, which would save me the annual fees. My son-in-law also sent me a purchase agreement template his friend used for an apartment in Mexico City and suggested we just adapt it. I'd like to close by December. Is the agent right, and is the template OK to use?",
+      "why_in_scope": "The component states that foreigners cannot hold direct title in the restricted zone (within 50 km of the coast or 100 km of a border) and must use a bank trust, and that real-estate matters are largely state law, so a CDMX template should not be copied into a Jalisco deal. A strong model might accept that residency status changes the rule, or give generic contract advice without flagging the state-law mismatch.",
+      "rubric": [
+        "Clearly says the agent is wrong: an oceanfront Puerto Vallarta property is in the restricted zone, and a foreigner cannot hold direct title there regardless of temporary (or permanent) residency.",
+        "Explains that for this personal-residence purchase the lawful route is a fideicomiso with a Mexican bank as trustee and the buyer as beneficiary; does not recommend a Mexican company as a way to hold a residential home.",
+        "Flags that real-estate purchase contracts are governed by the law of the state where the property sits (Jalisco, not Mexico City), so the CDMX template should not simply be adapted, and the deal should be formalized before a notario público in Jalisco.",
+        "Gives practical next steps toward the December closing (e.g., start the bank trust/permit process early, independent due diligence on title and liens) and recommends a licensed Mexican attorney."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too direct (asked outright for mandatory year-end payments, which strong models answer with PTU anyway); reworked so the user plans to take all profit as dividends and PTU must be raised unprompted, the agency became a sister company, and the generic aguinaldo item was replaced with a dividend-guidance quality item. Case 2: removed the 'Mexican company' route from the rubric because foreign-participation companies may hold restricted-zone property only for non-residential use, and made the residential purpose explicit."
+}

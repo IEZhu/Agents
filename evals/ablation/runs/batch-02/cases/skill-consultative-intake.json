@@ -1,0 +1,35 @@
+{
+  "component": "skill-consultative-intake",
+  "cases": [
+    {
+      "id": "laptop-for-student-daughter-ru",
+      "agent": "purchase_researcher",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет! Дочка поступила в вуз, хочу подарить ей ноутбук. Бюджет до 90 тысяч рублей, можно чуть больше если реально стоит того. Что посоветуешь взять? Хочу заказать на этой неделе, пока скидки.",
+      "why_in_scope": "The request hides the facts that decide the purchase: what she is studying (design or programming versus humanities), whether she needs Windows or would take a Mac, and how often she will carry it. The component makes the model ask a few targeted questions and restate its understanding before recommending anything. A strong model without it usually lists 3-5 'universal' models built on guesses it doesn't mention, and the list may suit the wrong major.",
+      "rubric": [
+        "Asks at most 3 specific clarifying questions, and they target the deciding unknowns (e.g. field of study or software she will run, OS preference or constraint, portability/battery needs), not generic filler",
+        "Restates its understanding of the request in its own words (gift for a first-year student, budget around 90k RUB with some flexibility, order this week) and invites correction",
+        "Does not present a final specific-model recommendation as if the unknowns were settled; any preliminary direction is clearly labelled as depending on the answers",
+        "Stays practical for a parent ordering this week: explains briefly why the answers matter (e.g. they narrow the choice quickly) and any preliminary pointers are realistic for a ~90k RUB budget, without a long generic buyer's guide"
+      ]
+    },
+    {
+      "id": "notifications-prd-dental-saas-en",
+      "agent": "product_manager",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you write me a PRD for adding notifications to our product? Context: we're a B2B SaaS for dental clinics in the US, ~400 clinics on the platform, front desk staff and dentists use it daily for scheduling and charting. Leadership just said \"we need notifications\" in the quarterly review and I have to bring something to sprint planning on Monday.",
+      "why_in_scope": "\"Notifications\" could mean patient-facing appointment reminders over SMS/email, in-app alerts for clinic staff, or both, and each one leads to a very different PRD with its own scope, compliance exposure and success metrics. The component makes the model ask a few targeted questions and confirm its reading before drafting. A strong model without it usually writes a full PRD for whichever reading it picks, and that PRD may not match what leadership meant.",
+      "rubric": [
+        "Surfaces the core ambiguity explicitly: who receives the notifications (patients vs clinic staff) and via which channels, and asks about it rather than silently choosing",
+        "Asks no more than 3 targeted questions, which may include the business problem behind leadership's request (e.g. no-shows, missed tasks) or success metric, and restates its understanding for the user to confirm or correct",
+        "If patient-facing messaging is on the table, flags that it involves patient health information and HIPAA considerations for US clinics",
+        "Does not deliver a complete PRD built on unstated assumptions; any skeleton or outline offered is explicitly conditional, and the reply respects the Monday deadline (e.g. says a draft can follow quickly once the answers are in)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope (underspecified requests where strong models typically answer on silent assumptions), leak-free, tool-less, and use owner agents. Only change: made case 1's last rubric item a clearer general-quality check (realistic pointers for the budget, why answers matter) instead of vague conciseness; HIPAA item in case 2 verified as correct and kept."
+}

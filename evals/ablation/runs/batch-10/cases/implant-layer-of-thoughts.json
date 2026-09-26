@@ -1,0 +1,35 @@
+{
+  "component": "implant-layer-of-thoughts",
+  "cases": [
+    {
+      "id": "unused-vacation-local-act-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Добрый день. Я HR в небольшой IT-компании (ООО, Россия). Увольняется разработчик по собственному желанию, последний день 14 октября. По нашему учёту у него накопилось 58 дней неиспользованного отпуска за три года: он постоянно переносил, мы не настаивали. Из них 9 дней — дополнительный отпуск за ненормированный рабочий день (по 3 дня в год, прописано в трудовом договоре).\n\nНюансы:\n1) В нашем Положении об отпусках (утверждено приказом директора в 2023 г., сотрудник с ним ознакомлен под подпись) написано: «неиспользованные дни ежегодного отпуска сверх 28 календарных дней сгорают по окончании календарного года».\n2) В его трудовом договоре есть пункт: «при увольнении работнику выплачивается компенсация за неиспользованный отпуск только за текущий рабочий год». Договор он сам подписал.\n3) Директор хочет заплатить компенсацию только за 28 дней и говорит, что раз сотрудник всё подписал, претензий быть не может.\n\nВопрос: сколько дней мы обязаны компенсировать по закону и чем рискуем, если заплатим только за 28? Нужен короткий, но обоснованный ответ, чтобы показать директору.",
+      "why_in_scope": "The request stacks three levels of norms (Labor Code, a local regulation, an individual employment contract) against several distinct facts (main vs additional leave days, multiple years, the employee's signatures). The implant makes the model first fix the governing rules and their hierarchy, then map each fact to them, and only then conclude, explicitly resolving the conflict between the lower-level documents and the Code. A strong model without it may answer '58 days' correctly but skip why the signed contract clause and the acknowledged local act do not bind, or treat the employee's signature as a real counter-argument, which is exactly what the director needs refuted.",
+      "rubric": [
+        "Concludes that compensation is owed for all 58 unused days, including the 9 days of additional leave for irregular working hours, citing Article 127 of the Russian Labor Code (compensation for all unused vacations on dismissal).",
+        "Explains that both the local regulation clause and the employment-contract clause worsen the employee's position compared with the Labor Code and therefore are not applied (Articles 8 and/or 9 of the Labor Code), and that the employee's signature or acknowledgement does not change this.",
+        "Walks through the specific facts (years of accumulation, main vs additional days, the 'burning' clause, the contract clause) against the rules rather than giving only a bare conclusion, and names the practical risks of paying only for 28 days (e.g. a labor inspection or court claim, liability under Article 236 for late payment, administrative liability).",
+        "Gives the director a clear bottom line (all 58 days, paid on the last working day per Article 140 of the Labor Code) in a compact form; does not present the employee's signature or the 'burning' clause as a real legal counter-argument, and any fine amounts or deadlines it cites are accurate rather than invented."
+      ]
+    },
+    {
+      "id": "gdpr-erasure-vs-retention-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Hi, quick one. We're a small B2B SaaS (Irish entity, customers mostly in DE/FR). A former customer, a sole trader in Munich, emailed support on Sept 22 saying: \"Delete everything you have about me, immediately, I withdraw all consents.\" What we hold on him:\n\n- account profile (name, email, phone, billing address)\n- 14 invoices from 2023-2025\n- marketing newsletter subscription (consent-based)\n- ~40 support tickets\n- product usage analytics tied to his user ID\n- an open chargeback he filed with his card issuer in August for his last invoice, still unresolved\n\nOur own privacy policy, which is public on our site, says: \"When you ask us to delete your data, we will delete all of it within 30 days.\" My CEO says just nuke the whole account today to be safe. Our finance lead says we can't touch invoices. Who's right, what exactly should we delete vs keep, and what do we tell him and by when?",
+      "why_in_scope": "The answer depends on applying GDPR's erasure right and its exceptions item by item to six different data categories, plus reconciling a conflict between the company's own public privacy policy and legal retention and defence-of-claims needs. The implant pushes the model to set out the governing rules first, map each data category to them, and then synthesise a split decision while flagging the policy conflict. A strong model without it tends to give a generic 'erasure has exceptions' answer, side with one of the two executives wholesale, or miss the chargeback as a separate legal-claims basis and the need to fix the misleading privacy-policy wording.",
+      "rubric": [
+        "Gives a split outcome rather than siding wholesale with either the CEO or the finance lead: invoices (and data needed for them) are kept under the legal-obligation exception of Article 17(3)(b), while data without a retention basis (newsletter/marketing data, analytics tied to him, and support tickets not needed for a claim or legal duty) is deleted or anonymised.",
+        "Identifies the unresolved chargeback as a separate reason to retain the related records for establishing, exercising or defending legal claims (Article 17(3)(e)), and suggests restricting or limiting access to retained data rather than keeping it in active use.",
+        "Flags that the public privacy policy promising deletion of 'all' data conflicts with the retention obligations and should be corrected, and that the customer should be told which data is kept and why.",
+        "States the response deadline correctly: without undue delay and at the latest within one month of receipt, extendable by two further months where necessary, with the customer informed of any extension within the first month (Article 12(3)); withdrawal of consent means marketing emails must stop."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases kept: in scope, no leak, tool-less, owner agent lawyer, legal facts verified (TK RF Art. 127/8/9/236/140; GDPR Art. 17(3)(b),(e), 12(3)). Rewrote case 1 rubric item 4, which relied on the vague and uncheckable 'numbers that are not supported', into a concrete check: bottom line, Art. 140 payment timing, and no treatment of the signatures as a valid defence."
+}

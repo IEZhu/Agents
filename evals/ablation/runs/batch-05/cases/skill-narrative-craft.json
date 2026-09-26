@@ -1,0 +1,35 @@
+{
+  "component": "skill-narrative-craft",
+  "cases": [
+    {
+      "id": "narrative-hospital-scene-ru",
+      "agent": "literary_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу рассказ для сборника, застряла на ключевой сцене. Расклад такой: Андрей, 38 лет, восемь лет не разговаривал с отцом — тот ушёл из семьи, когда Андрею было пятнадцать. Сейчас мать умирает в областной больнице, Андрей приезжает ночным поездом и в коридоре отделения встречает отца. Андрей злится и одновременно чувствует вину, что сам столько лет не приезжал. Отец сильно постарел, ему стыдно. Андрей спрашивает про маму, отец говорит, что врачи дают несколько дней. К концу сцены должно стать ясно, что Андрей готов хотя бы начать прощать отца, но без слащавости. Напиши эту сцену, пожалуйста, слов на 350-450, от третьего лица, прошедшее время.",
+      "why_in_scope": "The synopsis hands the model the emotions as labels (anger, guilt, shame, readiness to forgive), and models writing from such a brief tend to transcribe them: narration naming feelings, characters voicing grievances and apologies outright, emotional adverbs on speech tags, and a closing epiphany line. The skill pushes feeling into gesture and one precise detail, dialogue into subtext, indirect answers and silence, plain attributions or action beats, and a grounded setting instead of talking heads.",
+      "rubric": [
+        "Narration does not name the characters' emotions (no equivalents of 'он чувствовал злость/вину', 'ему было стыдно', 'он понял, что готов простить'); anger, guilt, shame and the shift toward forgiveness are conveyed through actions, gestures, physical details or what is left unsaid",
+        "Dialogue carries subtext: neither character directly states the grievance or an apology (no 'я злюсь на тебя', 'прости, я был неправ' or equivalent), and at least one exchange uses an indirect answer, a deflection or a meaningful silence",
+        "Speech is attributed with plain 'сказал' or action beats rather than emotional adverbs such as 'холодно', 'сердито', 'виновато', 'печально'",
+        "The scene contains the brief's events (corridor meeting, question about the mother, prognosis of a few days, a restrained hint of reconciliation), is in third person past tense, roughly within the requested length, and includes at least one concrete sensory detail of the hospital setting"
+      ]
+    },
+    {
+      "id": "narrative-pacing-diagnosis-en",
+      "agent": "literary_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "I have a 6,000-word short story going out to a lit mag in two weeks. Beta readers keep saying \"the middle drags and the ending falls flat\" but nobody can tell me why. Here's the breakdown with rough word counts:\n\n1. (800w) Maya, a hospice nurse, wakes up, makes coffee, drives to work. Lots of texture: her apartment, the traffic, the radio. Two readers said this was the best-written part.\n2. (1,200w) Backstory: how she became a nurse, her divorce, her estranged sister Lena, and why they stopped talking, told by the narrator in one continuous stretch.\n3. (1,500w) Maya's shift: she checks charts, talks with coworkers about the new scheduling software, eats lunch in the break room.\n4. (900w) She's assigned a new patient and realizes it's Lena, dying of cancer.\n5. (400w) The two weeks at Lena's bedside, where they gradually make peace. Then Lena dies.\n6. (1,200w) At the funeral a lawyer Maya's never met hands her a letter Lena wrote years ago explaining the fight was all a misunderstanding, and Maya finally feels at peace.\n\nThe letter is honestly the part I'm proudest of, it's the twist the whole story builds to, so I'd rather keep it. What's actually wrong and how should I restructure? I can't go over 6,000.",
+      "why_in_scope": "The skill's pacing model (scene slows time for what matters, summary speeds through transitions) and its anti-patterns (info-dump, deus ex machina) diagnose this outline: routine gets full scene treatment while the emotional core is compressed to 400 words, the backstory is a 1,200-word exposition block, and the ending is resolved by a stranger delivering a letter. The user's praise for the opening and attachment to the letter make it easy for a model to give generic 'trim the middle' advice and leave the letter untouched rather than name the inverted scene/summary allocation and the externally imposed resolution.",
+      "rubric": [
+        "Identifies that time allocation is inverted: low-stakes routine (sections 1 and 3) gets scene-level treatment while the sisters' reconciliation (section 5) is compressed, and recommends dramatizing the reconciliation in scene(s) while compressing or cutting routine material, including section 1 despite the readers' praise",
+        "Flags section 2 as a block of front-loaded backstory/exposition and suggests cutting it or distributing it into later scenes, e.g. surfacing through the sisters' conversations",
+        "Explains honestly that the letter delivered by a stranger resolves the conflict from outside, bypassing Maya's own choices and making the reconciliation matter less, and proposes a concrete fix (resolution driven by the sisters' interaction or Maya's decision, or reworking how and when the letter enters so it complicates rather than settles things) instead of simply keeping it as is",
+        "Gives a concrete restructured outline with approximate word counts totaling no more than 6,000"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 turned from rewriting a blatantly flat draft (any strong model fixes that) into writing the scene from a synopsis that labels the emotions, which is where models tend to spell feelings out, and its id was renamed to match. Case 2 dropped the quoted 'they cried, they laughed' line that gave the problem away, and added pressure from the user (readers liked the opening, the user is proud of the letter) so the diagnosis has to push back. The rubrics were adjusted to match."
+}

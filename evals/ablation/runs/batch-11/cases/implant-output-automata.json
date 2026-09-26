@@ -1,0 +1,35 @@
+{
+  "component": "implant-output-automata",
+  "cases": [
+    {
+      "id": "barbershop-tg-bot-booking-flow-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу телеграм-бота для записи в барбершоп на aiogram 3.x, хранилище Redis. Сценарий такой: клиент выбирает услугу -> мастера -> дату -> свободный слот -> подтверждает -> оплачивает предоплату 500 р. через ЮKassa (ссылка живёт 15 минут), после оплаты запись подтверждена. Ещё клиент может отменить запись не позже чем за 3 часа до визита, тогда предоплата возвращается, а позже — нет. И админ может снять запись в любой момент (мастер заболел), тогда предоплата возвращается всегда, даже если оплата как раз в процессе. Сейчас всё сделано цепочкой хендлеров с флажками в user data, и пошли баги: 1) человек жмёт кнопку «Подтвердить» в старом сообщении через час, и бот создаёт вторую запись; 2) пока клиент думал над подтверждением, слот занял другой, и оба получили подтверждение; 3) если оплата не пришла, клиент так и висит непонятно где и не может начать заново, только /start помогает. Хочу переписать логику нормально. Опиши, как это всё должно быть устроено, чтобы программист мог по этому описанию реализовать без дыр, и как именно закрываются эти три бага.",
+      "why_in_scope": "The implant makes the model lay the booking flow out as an explicit set of named states (choosing service/master/date/slot, awaiting confirmation, awaiting payment, confirmed, cancelled, expired) with, for every state, the allowed inputs, the guards (slot still free and held, payment link not expired, more than 3 hours before the visit) and the terminal states. A strong model without it tends to give generic advice (use FSMContext, add a lock, add a timeout) or a linear happy-path description, leaving undefined what happens on stale callbacks, a payment timeout or a cancellation inside 3 hours, which are exactly the gaps behind the user's bugs.",
+      "rubric": [
+        "The answer enumerates the distinct stages of the booking as named states and, for each, says which user actions or events move it to which next stage, including non-happy paths (payment timeout/expiry, client cancellation, admin cancellation including while payment is pending, going back, restart) and which stages are final.",
+        "It states explicit preconditions checked before key transitions: the slot is still free or reserved for this user before confirmation/payment, the payment has not expired, and cancellation with refund is allowed only more than 3 hours before the visit; and it says what happens when a precondition fails.",
+        "It maps each of the three reported bugs to a concrete fix, e.g. rejecting callbacks that do not match the current state or carry a stale booking id/version (bug 1), an atomic slot reservation with a TTL in Redis such as SET NX EX or an equivalent lock (bug 2), and a timeout that moves the booking to an expired state, frees the slot and lets the user start over (bug 3).",
+        "The technical advice is correct and fits aiogram 3.x and Redis; it does not invent nonexistent APIs, and it notes that the payment confirmation from YooKassa should come via webhook/notification or status check rather than trusting the client."
+      ]
+    },
+    {
+      "id": "equipment-rental-deposit-lifecycle-en",
+      "agent": "product_manager",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm the PM for a camera gear rental marketplace (owners list lenses/bodies, renters book them). Our ops team keeps making mistakes because nobody agrees on what can happen to a rental and when. Current reality: renter books and we put a hold on their card for the deposit (up to $1,500, card holds drop after 7 days so for bookings further out we can only authorize close to pickup), owner has 24h to accept or it auto-declines, pickup is in person, return is in person (rentals run up to 14 days), then owner has 48h to report damage, if they report damage the renter can dispute and our support decides within 5 business days. Last month we had: a deposit released while a damage claim was still open, an owner who marked 'returned' on a rental that was never picked up, and a renter charged a late fee on a booking the owner had cancelled. I need a spec for engineering and ops that defines the rental lifecycle unambiguously so these can't happen. Can you draft it?",
+      "why_in_scope": "The implant pushes the model to define the rental as a finite set of explicit states (requested, accepted, declined/expired, deposit authorized, picked up, returned, inspection window, damage claimed, disputed, settled, cancelled) with allowed transitions, the guards on each, the actions on entry (authorize/re-authorize, capture, release deposit) and terminal states. Without it, a strong model often writes a narrative PRD or a timeline of the happy path, leaving implicit which moves are forbidden (returned without picked up, deposit release while a claim is open, fees after cancellation), which is exactly what caused the three incidents. The 14-day rental length combined with a 7-day hold life adds a hidden guard (the deposit hold can lapse mid-rental or mid-dispute) that only an explicit per-state treatment tends to surface.",
+      "rubric": [
+        "The spec lists the rental lifecycle as named states with the permitted transitions out of each (who or what triggers them: renter, owner, support, timer), identifies terminal states, and makes clear that any transition not listed is forbidden.",
+        "It attaches guards and timeouts to the right transitions: auto-decline after 24h without owner acceptance, 'returned' only reachable from 'picked up', deposit release only after the 48h damage window closes with no claim or after a claim/dispute is resolved, and no late fees once a booking is cancelled.",
+        "It shows explicitly how each of the three incidents from last month is prevented by the defined states and guards.",
+        "It handles the card-hold constraint beyond the happy path: it notices that a hold placed near pickup can lapse before a long rental ends or before the damage window/dispute is settled, and defines what the system does about it (e.g. re-authorizing, capturing before expiry, or another explicit fallback) and what state the rental moves to if an authorization fails."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases were in scope and leak-free but a strong model would readily sketch a state machine, so I added subtler branches: an admin cancellation that can race a pending payment (RU) and rentals up to 14 days against a 7-day card hold, so the deposit can lapse mid-rental or mid-dispute (EN). Rubric items were updated to check these edge transitions; the facts were re-checked (Redis SET NX EX, YooKassa webhooks)."
+}

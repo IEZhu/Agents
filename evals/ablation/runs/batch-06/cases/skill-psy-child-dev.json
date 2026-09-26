@@ -1,0 +1,35 @@
+{
+  "component": "skill-psy-child-dev",
+  "cases": [
+    {
+      "id": "preschooler-lying-interrogation-ru",
+      "agent": "child_psychologist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Сыну 3 года 10 месяцев. Последний месяц врёт постоянно: разбил мою кружку — говорит, что это кот сделал (кот в другой комнате спал), разрисовал обои — «это Мишка» (его плюшевый медведь). Вчера сказал воспитательнице, что у нас дома живёт настоящий дракон. Муж считает, что надо пресекать жёстко: сажать напротив, смотреть в глаза и спрашивать «ты это сделал? говори правду», пока не признается, а если не признаётся — без мультиков на неделю. Я боюсь, что он вырастет патологическим вруном. Это уже отклонение? Как правильно с этим бороться?",
+      "why_in_scope": "The skill makes the model check developmental stage first and normalize before pathologizing: at almost 4 (preoperational stage, initiative) fibbing to avoid blame and blurring fantasy with reality are typical, not a sign of pathological lying. It also steers toward play and metaphor over direct interrogation for 3-6 year olds and an authoritative (warm plus structured) response. A strong model without it may accept the framing of 'fighting lies', endorse a softened interrogation routine, or give generic discipline advice without separating fantasy stories from blame-avoidance.",
+      "rubric": [
+        "States clearly that this behavior is common and age-typical for a child of almost 4 and is not by itself a sign of a disorder or 'pathological lying'.",
+        "Distinguishes the dragon story (fantasy/imagination) from the blame-shifting fibs (avoiding trouble) and suggests different responses to each.",
+        "Advises against the husband's interrogation-until-confession approach and the week-long delayed punishment, and offers an alternative such as stating what happened calmly instead of asking 'did you do it?', involving the child in fixing it, or using play/toys/stories to talk about honesty.",
+        "Gives concrete, practical steps the parent can use at home, including something she can say to her husband about a consistent approach they both follow."
+      ]
+    },
+    {
+      "id": "school-age-anger-bad-kid-en",
+      "agent": "child_psychologist",
+      "language": "en",
+      "history": [],
+      "user_message": "My son is 8 (3rd grade). He has these meltdowns maybe 4-5 times a week, mostly after school or when he loses at a game: yelling, throwing stuff, once he kicked a hole in his door. Afterwards he cries and says things like \"I'm just a bad kid, everyone hates me.\" Six weeks ago we started a chart: if he goes a full 7 days without a meltdown he gets a Nintendo game. He has never made it past day 3 and now he says the chart is stupid and rips it off the fridge. What should we be doing differently? And how do I talk to him when he says he's a bad kid?",
+      "why_in_scope": "The skill pushes two concrete moves here: narrative externalization (separating the child from the problem, e.g. naming 'the Anger' as something that visits him, so he is not 'a bad kid') and behavioral charts built for school age with clear, achievable targets and immediate reinforcement. A strong model without it may offer only reassurance ('you're not bad, I love you') plus generic emotion-regulation tips, and may tweak the chart rather than diagnose why a 7-day all-or-nothing target with a single delayed prize fails.",
+      "rubric": [
+        "Explains why the current chart fails: the 7-day zero-meltdown target is too hard for his current level and the reward is too delayed and all-or-nothing.",
+        "Proposes a redesigned chart with small achievable targets (e.g. per day or per part of the day, or rewarding a specific coping step) and frequent, immediate small rewards.",
+        "Suggests separating the child from the problem when he says he is a bad kid, e.g. talking about the anger/meltdowns as a separate thing that shows up and that he and the parents team up against, rather than only telling him he is good.",
+        "Mentions when to seek professional evaluation (e.g. if frequency, intensity or safety risks persist or worsen) without labeling the child with a diagnosis from this description."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free, tool-less and owned by child_psychologist; kept them. In case 1 I replaced the trivial 'answers in Russian' rubric item with a general-quality item about practical steps and aligning with the husband. Case 2 needed no change."
+}

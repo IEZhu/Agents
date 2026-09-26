@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-table",
+  "cases": [
+    {
+      "id": "laptop-scattered-specs-ru",
+      "agent": "purchase_researcher",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помоги выбрать ноут для жены, она преподаёт и таскает его каждый день. Условия жёсткие: бюджет до 90 000 ₽, вес не больше 1,5 кг, оперативки минимум 16 ГБ, HDMI прямо в корпусе (переходники она теряет, проектор в аудитории только HDMI), и батарея от 9 часов по обзорам.\n\nЯ накидал себе заметки пока лазил по магазинам, извини что сумбурно:\n\n- Вариант A: 87 990 ₽, 16 ГБ, HDMI есть, весит 1,45 кг. Очень понравилась клавиатура.\n- Вариант B: самый лёгкий, 1,38 кг, 16 ГБ, 79 990 ₽, батарею хвалят, 12 часов.\n- Вариант C: 84 500 ₽, 1,49 кг, HDMI есть, в обзорах 11 часов автономности.\n- Вариант D: 88 900 ₽, 1420 г, 16 ГБ, HDMI есть.\n- Вариант E: 69 990 ₽, 16 ГБ, HDMI есть, батарея 10 ч, вес 1,6 кг.\n\nЕщё дописал потом: у B из портов только два USB-C и джек. У A в тесте батареи вышло около 8 часов, в магазине сказали столько же. C за 84 500 — это версия на 8 ГБ, с 16 ГБ он стоит 92 000. D по обзору держит 10 часов.\n\nКакой брать? Склоняюсь к A или C, они вроде самые сбалансированные.",
+      "why_in_scope": "The facts for each laptop are split between the first list and the later notes, and the user leans toward A and C. The implant has the model lay out every option against all five requirements before it answers, which shows that only D meets them all. Without that step, a strong model can stop at the first list, where A and C look fine, and miss that A's battery is about 8 hours and that the 16 GB version of C costs 92 000 ₽.",
+      "rubric": [
+        "Recommends D as the only option that meets all five requirements (88 900 ₽, 1.42 kg, 16 GB, built-in HDMI, about 10 hours of battery).",
+        "Says A fails on battery life (about 8 hours, below 9) and C fails on budget or RAM (the 16 GB version costs 92 000 ₽, and the 84 500 ₽ version has only 8 GB), and so pushes back on the user's preference.",
+        "Gives the disqualifying reason for B (no built-in HDMI, only USB-C) and for E (1.6 kg, over the 1.5 kg limit).",
+        "Checks every option against every requirement and uses the later notes, not just the first list."
+      ]
+    },
+    {
+      "id": "managed-postgres-quotes-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a sanity check before I reply to my CTO. We're moving our Postgres off a self-managed VM to a managed provider. Hard requirements: total under $400/month including everything we need, at least 200 GB storage, point-in-time recovery with at least 7 days retention, one read replica for the analytics team, and data has to stay in the EU (Frankfurt would be nice but legal says any EU region is fine).\n\nHere are my notes from the sales calls, pasted as-is:\n\nVendor A - $360/mo, 250 GB, PITR 7 days, Frankfurt. Solid support.\nVendor B - $310/mo, 200 GB, Frankfurt, read replica included in the price. PITR mentioned.\nVendor C - $295/mo, 500 GB, PITR 7 days, region is Amsterdam.\nVendor D - $240/mo, 300 GB, PITR 30 days, replicas +$100/mo. Cheapest by far.\n\nFollow-ups from email:\n- A: read replicas are billed as a separate instance, +$120/mo. Rep also offered 15% off the whole bill if we sign an annual commit.\n- B: on the $310 tier PITR is 3 days; 14 days needs the Pro tier at $450/mo.\n- C: read replica is +$90/mo.\n- D: only us-east-1 and us-west-2 right now, EU region is \"planned for Q1 2027\".\n\nMy gut says A since it's Frankfurt, and with the annual discount it should land under budget anyway. Am I missing something?",
+      "why_in_scope": "Each vendor's price, PITR retention, replica cost and region are split between the call notes and the email follow-ups, and A carries a discount that looks like it rescues the budget. The implant has the model fill a vendor-by-requirement grid with full totals, which shows that C is the only vendor meeting every requirement, at $385 a month. Without that grid, a strong model can accept the user's claim that A's discounted price fits, and miss that A with the replica is $480, or $408 even after 15% off, still over $400.",
+      "rubric": [
+        "Identifies Vendor C as the only option meeting all hard requirements, with a total of $385/month ($295 + $90 replica), and notes that Amsterdam is in the EU and so is acceptable.",
+        "Explains that A stays over budget once the $120 replica is added ($480/month, and about $408/month even with the 15% annual discount applied to the whole bill), which directly corrects the user's gut choice.",
+        "Gives the disqualifying reason for B (3-day PITR on the $310 tier, and the $450 tier is over budget) and for D (no EU region yet).",
+        "Checks every vendor against every requirement, including replica cost in the total, and does not judge on the base price alone."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified both cases' arithmetic and that D (case 1) and C (case 2) are the only compliant options; agents exist and there is no leak. Case 2 was too easy, so I added a 15% annual-commit discount on A as a trap ($480 becomes $408, still over $400) and updated the user voice, why_in_scope and rubric item 2 to match."
+}

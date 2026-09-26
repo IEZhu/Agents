@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-cy",
+  "cases": [
+    {
+      "id": "limassol-it-founder-salary-dividends-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Добрый день. Я гражданин РФ, в марте 2026 переехал в Лимассол по рабочей визе, до этого на Кипре никогда не жил. Здесь у меня своя Ltd (я единственный акционер и директор), разрабатываем софт, клиенты в ЕС. Ожидаемая прибыль компании за 2026 год до моей зарплаты — около €300 000. Бухгалтер предлагает: платить мне зарплату €120 000 в год, а остаток прибыли после налога выводить дивидендами.\n\nПодскажите, пожалуйста:\n1) Какой корпоративный налог заплатит компания с остатка? Бухгалтер закладывает 12,5%.\n2) Сколько налога будет на дивиденды лично у меня? Слышал про какой-то «defence» 17%.\n3) Есть ли какие-то льготы на саму зарплату для таких, как я?\n\nПрикиньте, пожалуйста, цифры примерно.",
+      "why_in_scope": "The skill supplies Cyprus-specific 2026 reference points: corporate tax is 15% from 01.01.2026 (not 12.5%), a non-domiciled resident is exempt from SDC on dividends for 17 years, and new residents earning over €55,000 get a 50% employment income exemption. A strong model without it is likely to repeat the widely published 12.5% rate the user cites, may treat the 17% SDC as applying to him, and may omit or misstate the 50% salary exemption.",
+      "rubric": [
+        "States that the Cyprus corporate income tax rate is 15% from 2026 (correcting the user's 12.5%) and applies it to the roughly €180,000 remaining after salary (about €27,000), or flags clearly that the rate rose in 2026.",
+        "Explains that as a tax resident who is not Cyprus-domiciled he is exempt from Special Defence Contribution on dividends (for up to 17 years), so the 17% SDC the user mentions does not apply to him.",
+        "Identifies the 50% exemption on employment income for new Cyprus tax residents whose salary exceeds €55,000 and who were not Cyprus resident for a long period beforehand, and applies it to the €120,000 salary (roughly half taxable).",
+        "Presents figures as approximate and recommends confirming current rates and his specific position with a Cyprus-qualified advisor, and/or notes substance requirements for the company."
+      ]
+    },
+    {
+      "id": "cypriot-domiciled-holdco-dividend-rent-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm Cypriot-born, always lived in Nicosia, so I'm tax resident and domiciled here. I own 100% of a trading Ltd that should make about €200,000 profit in 2026, and I also personally rent out two flats in Larnaca for €24,000 a year in total. My old accountant retired and I'm trying to budget for 2026 myself. From what I remember: company pays 12.5%, then I pay 17% defence on the dividend, plus 3% defence on the rents. If I take everything out as a dividend this year, what's my total tax bill roughly? Anything that changed that I should know about?",
+      "why_in_scope": "The skill encodes the 2026 Cyprus reform: corporate tax rose to 15%, SDC on dividends for domiciled residents fell from 17% to 5%, and SDC on rental income was abolished. A strong model without it would likely validate the user's remembered pre-2026 figures (12.5%, 17%, 3%) and compute a wrong total, missing that the user explicitly asked what changed.",
+      "rubric": [
+        "Uses a 15% corporate tax rate for 2026 (about €30,000 on €200,000 profit) and says it was increased from 12.5%.",
+        "States that SDC on dividends for a domiciled resident is now 5% (down from 17%), giving roughly €8,500 on a €170,000 dividend.",
+        "States that SDC on rental income no longer applies from 2026 (the 3% charge the user remembers was abolished), while the rent remains subject to personal income tax.",
+        "Gives a coherent approximate total consistent with those figures and advises verifying current rates and any other levies with a Cyprus tax advisor rather than presenting the numbers as final."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Removed the leading 'is 12.5% still current?' question in case 1 so the model must spot the 2026 rate change itself rather than being prompted; loosened the 50% exemption rubric item to avoid pinning the prior-non-residence period (10 vs 15 years is uncertain). Verified other rubric figures (15% CIT, 5% SDC for domiciled, SDC on rent abolished, non-dom SDC exemption) against the component; case 2 left as is."
+}

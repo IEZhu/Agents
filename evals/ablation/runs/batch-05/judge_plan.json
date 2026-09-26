@@ -1,0 +1,242 @@
+{
+ "1b9aa2ee8d__o1": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-apartment-unregistered-title-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1b9aa2ee8d__o2": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-apartment-unregistered-title-en",
+  "A": "without",
+  "B": "with"
+ },
+ "7485623297__o1": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-pausal-single-client-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "7485623297__o2": {
+  "component": "skill-jurisdiction-rs",
+  "case": "rs-pausal-single-client-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "6780739a8d__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "apartment-share-sale-notary-en",
+  "A": "with",
+  "B": "without"
+ },
+ "6780739a8d__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "apartment-share-sale-notary-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b0096c430f__o1": {
+  "component": "skill-jurisdiction-ru",
+  "case": "usn-ip-vat-threshold-2026-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "b0096c430f__o2": {
+  "component": "skill-jurisdiction-ru",
+  "case": "usn-ip-vat-threshold-2026-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "89b5ae4a24__o1": {
+  "component": "skill-jurisdiction-us",
+  "case": "montana-remote-employee-at-will-en",
+  "A": "with",
+  "B": "without"
+ },
+ "89b5ae4a24__o2": {
+  "component": "skill-jurisdiction-us",
+  "case": "montana-remote-employee-at-will-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9c15d5fe58__o1": {
+  "component": "skill-jurisdiction-us",
+  "case": "texas-noncompete-ftc-rule-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "9c15d5fe58__o2": {
+  "component": "skill-jurisdiction-us",
+  "case": "texas-noncompete-ftc-rule-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "a8ba84f738__o1": {
+  "component": "skill-legal-citation",
+  "case": "california-noncompete-texas-clause-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a8ba84f738__o2": {
+  "component": "skill-legal-citation",
+  "case": "california-noncompete-texas-clause-en",
+  "A": "with",
+  "B": "without"
+ },
+ "8915d1584d__o1": {
+  "component": "skill-legal-citation",
+  "case": "laptop-refund-claim-vs-citations-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "8915d1584d__o2": {
+  "component": "skill-legal-citation",
+  "case": "laptop-refund-claim-vs-citations-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6609b0c165__o1": {
+  "component": "skill-literary-devices",
+  "case": "literary-overloaded-paragraph-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6609b0c165__o2": {
+  "component": "skill-literary-devices",
+  "case": "literary-overloaded-paragraph-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0a269a2de7__o1": {
+  "component": "skill-literary-devices",
+  "case": "talk-opening-mixed-metaphor-en",
+  "A": "with",
+  "B": "without"
+ },
+ "0a269a2de7__o2": {
+  "component": "skill-literary-devices",
+  "case": "talk-opening-mixed-metaphor-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c17ddf19e8__o1": {
+  "component": "skill-mathematical-reasoning",
+  "case": "events-table-storage-estimate-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c17ddf19e8__o2": {
+  "component": "skill-mathematical-reasoning",
+  "case": "events-table-storage-estimate-en",
+  "A": "with",
+  "B": "without"
+ },
+ "06d4e10ae4__o1": {
+  "component": "skill-mathematical-reasoning",
+  "case": "pump-motor-sizing-unit-slip-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "06d4e10ae4__o2": {
+  "component": "skill-mathematical-reasoning",
+  "case": "pump-motor-sizing-unit-slip-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "344e602791__o1": {
+  "component": "skill-mcp-development",
+  "case": "invoice-mcp-server-skeleton-en",
+  "A": "without",
+  "B": "with"
+ },
+ "344e602791__o2": {
+  "component": "skill-mcp-development",
+  "case": "invoice-mcp-server-skeleton-en",
+  "A": "with",
+  "B": "without"
+ },
+ "40c3de3eab__o1": {
+  "component": "skill-mcp-development",
+  "case": "youtrack-tool-review-sync-requests-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "40c3de3eab__o2": {
+  "component": "skill-mcp-development",
+  "case": "youtrack-tool-review-sync-requests-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "f13a42fa9f__o1": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-cleanup-ci-pipeline-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f13a42fa9f__o2": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-cleanup-ci-pipeline-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b6079fcd93__o1": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-payment-flow-type-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b6079fcd93__o2": {
+  "component": "skill-mermaid-best-practices",
+  "case": "mermaid-payment-flow-type-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "838c66ac7b__o1": {
+  "component": "skill-multi-step-planning",
+  "case": "failed-backfill-statement-timeout-en",
+  "A": "without",
+  "B": "with"
+ },
+ "838c66ac7b__o2": {
+  "component": "skill-multi-step-planning",
+  "case": "failed-backfill-statement-timeout-en",
+  "A": "with",
+  "B": "without"
+ },
+ "e323c83431__o1": {
+  "component": "skill-multi-step-planning",
+  "case": "heroku-to-yandex-cloud-migration-plan-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "e323c83431__o2": {
+  "component": "skill-multi-step-planning",
+  "case": "heroku-to-yandex-cloud-migration-plan-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "0f30834071__o1": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-hospital-scene-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0f30834071__o2": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-hospital-scene-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "0f62876735__o1": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-pacing-diagnosis-en",
+  "A": "without",
+  "B": "with"
+ },
+ "0f62876735__o2": {
+  "component": "skill-narrative-craft",
+  "case": "narrative-pacing-diagnosis-en",
+  "A": "with",
+  "B": "without"
+ }
+}

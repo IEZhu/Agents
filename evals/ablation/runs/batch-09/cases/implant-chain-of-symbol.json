@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-symbol",
+  "cases": [
+    {
+      "id": "office-desk-seating-ru",
+      "agent": "universal_agent",
+      "language": "ru",
+      "history": [],
+      "user_message": "Переезжаем в новый опенспейс, мне надо рассадить шестерых в один ряд столов вдоль стены, столы пронумерованы 1–6 слева направо, если стоять лицом к ряду. Люди: Аня, Борис, Вика, Гоша, Дима, Елена.\n\nПожелания, которые я собрала:\n- Дима хочет крайний стол (1 или 6), там окно.\n- Елена должна сидеть сразу справа от Ани, вплотную (они пара по проекту).\n- Борис где-то левее Гоши, не обязательно рядом.\n- Гоша не хочет сидеть с краю.\n- Вику и Диму рядом не сажать, они вечно спорят.\n- Между Борисом и Викой ровно один стол (у них общий принтер посередине).\n- Аня где-то правее Вики.\n\nВопросы: какие вообще есть варианты рассадки, которые удовлетворяют всему сразу? И кого точно получится посадить рядом с Гошей при любом из этих вариантов? Хочу заранее сказать Гоше, с кем он будет соседствовать.",
+      "why_in_scope": "The implant makes the model encode people as symbols with position variables and relations (D in {1,6}, E = A+1, B < G, |B-V| = 2, A > V), solve in symbols, then decode. Solving this in prose, a strong model tends to stop at the first arrangement it finds or to misread 'сразу справа' / 'где-то левее', and so misses that exactly two arrangements exist, which is the thing needed to answer who is always next to Гоша.",
+      "rubric": [
+        "Gives exactly two valid arrangements (desks 1-6): Борис, Гоша, Вика, Аня, Елена, Дима and Дима, Борис, Гоша, Вика, Аня, Елена; lists no invalid arrangement and misses neither",
+        "Concludes that Гоша sits between Борис and Вика in both arrangements, so both are his guaranteed neighbours",
+        "Shows the reasoning in a checkable form, e.g. writes the constraints as compact relations on positions and checks each candidate against all seven wishes, instead of only asserting the result",
+        "Answers both questions directly and does not add or drop any of the user's constraints"
+      ]
+    },
+    {
+      "id": "tool-survey-overlap-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick sanity check before I send numbers to finance. We surveyed all 120 engineers about which of our three trackers they actively use: Jira, Linear, Notion. Results as they came back from the survey tool:\n\n- 70 use Jira\n- 45 use Linear\n- 50 use Notion\n- 20 use both Jira and Linear\n- 17 use Jira and Notion but not Linear\n- 15 use both Linear and Notion\n- 8 use all three\n\nI need: (1) how many people use exactly one of the three tools, (2) how many use none of them, and (3) if we kill Linear and move everyone on it to Jira, how many new Jira seats do we need to buy? The \"both\" counts include people who use all three.",
+      "why_in_scope": "The implant makes the model encode the tools as sets J, L, N, write each figure as a region (|J∩L| = 20 including the triple, |J∩N∖L| = 17 so |J∩N| = 25), do the set arithmetic, then translate back. Without an explicit encoding, a strong model easily treats the mixed-wording 17 as the full Jira-Notion overlap, which throws off every downstream count.",
+      "rubric": [
+        "Converts the 17 'Jira and Notion but not Linear' into a full Jira-Notion overlap of 25 (17 + 8) rather than using 17 as |J∩N|",
+        "Reports 69 people using exactly one tool (33 only Jira, 18 only Linear, 18 only Notion) and 7 using none (union of 113)",
+        "Reports 25 new Jira seats (45 Linear users minus the 20 who already use Jira)",
+        "Shows the region breakdown or set formulas so finance can check the numbers, and the regions sum to 120"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Brute-forced case 1: exactly the two listed arrangements satisfy all seven wishes, and Гоша sits between Борис and Вика in both; case 2 arithmetic verified (25 J∩N, 69 exactly one, 7 none, 25 seats). Made case 2 subtler by removing the user's apology/caps that flagged the 'not Linear' wording as different, so the trap is no longer pointed out."
+}

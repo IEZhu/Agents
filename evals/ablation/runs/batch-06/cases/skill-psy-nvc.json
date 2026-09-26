@@ -1,0 +1,35 @@
+{
+  "component": "skill-psy-nvc",
+  "cases": [
+    {
+      "id": "roommate-dishes-message-ru",
+      "agent": "psychologist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Снимаем двушку с соседкой уже полгода. Она постоянно оставляет грязную посуду в раковине, иногда по 2-3 дня. Я просила уже раза три, она говорит «ой, да, помою» и ничего. В пятницу я пришла с работы в девятом часу, хотела приготовить ужин, а её сковородка с присохшим жиром стоит в раковине — пришлось сначала её отмывать. Меня это бесит до трясучки. Помогите написать ей сообщение в телеграм, чтобы до неё наконец дошло, что она ведёт себя как свинья и ей на всех плевать, но чтобы не было скандала — нам ещё полгода жить вместе по договору.",
+      "why_in_scope": "The user wants to deliver a judgment (\"свинья\", \"ей на всех плевать\") without a fight. The skill makes the model translate that judgment into a factual observation (dishes left 2-3 days, the Friday pan, three prior requests), the user's own feeling, the underlying need, and a concrete doable request, phrased as I-statements. A strong model without it often writes a softened but still evaluative message (\"ты всегда\", \"тебе всё равно\", \"я чувствую, что ты меня не уважаешь\") or ends with a vague wish like \"давай будем аккуратнее\" instead of a specific request.",
+      "rubric": [
+        "The drafted message describes specific observable facts (e.g. dishes staying 2-3 days, the pan on Friday evening, having asked before) instead of generalizations or labels like \"всегда\", \"никогда\", \"свинья\", \"тебе плевать\".",
+        "The message names the sender's own feeling (e.g. раздражение, усталость) and connects it to her need (e.g. чистая кухня после работы, предсказуемость, уважение к общему пространству), rather than a disguised accusation such as \"я чувствую, что ты меня не уважаешь\".",
+        "The message ends with a concrete, actionable request the roommate can say yes or no to (e.g. мыть свою посуду в тот же вечер / до утра, или договориться о графике), not a vague demand to \"быть аккуратнее\".",
+        "The answer gives a ready-to-send Telegram-style text in Russian that fits the goal of avoiding a scandal and does not pass on the insults (\"свинья\", \"плевать\") in softened form."
+      ]
+    },
+    {
+      "id": "teen-late-curfew-talk-en",
+      "agent": "child_psychologist",
+      "language": "en",
+      "history": [],
+      "user_message": "My son is 14. We agreed he'd be home from his friend's place by 10pm on Saturday. He walked in at 11:40, his phone was off the whole time, and I'd called him 6 times and was about to start phoning other parents. When he came in I was so wound up I just said 'go to your room, we'll talk tomorrow.' Now it's tomorrow. I want him to really get how selfish and irresponsible that was, but last time I lectured him he just shut down and put his headphones on. What exactly should I say to open the conversation? Give me the actual words.",
+      "why_in_scope": "The parent wants to convey a character judgment (\"selfish and irresponsible\") to a teenager who shuts down under lectures. The skill makes the model turn that judgment into a plain observation (agreed 10pm, arrived 11:40, phone off, 6 calls), the parent's real feeling (scared, worried) linked to the need (knowing he is safe, trust in agreements), and a specific request going forward, in I-statements. A strong model without it frequently scripts openers that still carry the verdict (\"you were irresponsible\", \"you made me feel\", \"you never think about us\") or ends with an abstract ask like \"be more responsible\" rather than a concrete agreement.",
+      "rubric": [
+        "The suggested opening words state what happened factually (agreed time vs. 11:40, phone off, the unanswered calls) without labeling the son as selfish, irresponsible or thoughtless.",
+        "The script expresses the parent's own feeling (e.g. scared, worried, panicked) and ties it to a need such as knowing he is safe or being able to trust agreements, phrased as I-statements rather than \"you made me feel...\".",
+        "The script includes a concrete forward-looking request or proposed agreement (e.g. text or call if he will be late, phone kept charged/on, a check-in time), not only a general demand to be more responsible.",
+        "The answer gives actual words for opening the conversation as asked, avoids turning them into a lecture, and leaves room for the son to respond (e.g. asks what happened)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope (the user asks outright to get a judgment across, which pushes toward evaluative wording), have no leaks, fit owner agents, and have correct, checkable rubrics. I only reworded the general-quality items so they no longer reward shortness and so case 1 also penalises softened insults."
+}

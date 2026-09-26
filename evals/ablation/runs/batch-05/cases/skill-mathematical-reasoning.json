@@ -1,0 +1,53 @@
+{
+  "component": "skill-mathematical-reasoning",
+  "cases": [
+    {
+      "id": "pump-motor-sizing-unit-slip-ru",
+      "agent": "math_scientist",
+      "language": "ru",
+      "history": [
+        {
+          "role": "user",
+          "content": "Подбираю насос для контура охлаждения небольшого станка. Нужен расход 18 м³/ч, напор 32 м, вода. Какая гидравлическая мощность получается?"
+        },
+        {
+          "role": "assistant",
+          "content": "Гидравлическая мощность считается по формуле P = ρ·g·Q·H.\n\nПереводим расход: Q = 18 м³/ч = 18 / 60 = 0,3 м³/с.\n\nP = 1000 · 9,81 · 0,3 · 32 = 94 176 Вт ≈ 94 кВт.\n\nИтого гидравлическая мощность около 94 кВт."
+        }
+      ],
+      "user_message": "Спасибо. Дальше: КПД насоса по паспорту 0,65, запас по мощности хочу 15%. Какой двигатель брать из стандартного ряда? И прикинь, сколько это будет стоить по электричеству в год: работает примерно 6000 часов, тариф 7,2 руб/кВт·ч. Мне это завтра в смету вставлять.",
+      "why_in_scope": "The prior assistant turn converted m³/h to m³/s by dividing by 60 instead of 3600, inflating the power 60-fold. The skill requires tracking units through every step, estimating the order of magnitude first and verifying results, which should make the model recheck the inherited 94 kW figure before building on it. A strong model without it may simply divide 94 kW by 0.65, add 15% and cost it out, sending a wildly wrong number into an estimate.",
+      "rubric": [
+        "Catches and explicitly corrects the earlier conversion error: 18 m³/h = 0.005 m³/s (divide by 3600), so hydraulic power is about 1.57 kW, not 94 kW",
+        "Computes shaft power as roughly 1.57 / 0.65 ≈ 2.4 kW, about 2.8 kW with the 15% margin, and recommends a 3 kW motor from the standard range",
+        "Gives an annual energy cost of the right order: roughly 14-18 thousand kWh per year and roughly 100-130 thousand rubles (depending on whether motor efficiency or nameplate power is used), not millions",
+        "Shows the calculation steps with units so the user can reuse them in the estimate, and states assumptions such as ignoring or including motor efficiency"
+      ]
+    },
+    {
+      "id": "events-table-storage-estimate-en",
+      "agent": "database_admin",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "We're adding a Postgres 16 table for clickstream events. Expected steady ingest is about 2,000 events/sec, average row size around 200 bytes on disk, and we keep 90 days. Roughly how much raw storage is that?"
+        },
+        {
+          "role": "assistant",
+          "content": "Let's work it out:\n\n- Per second: 2,000 × 200 B = 400 KB/s\n- Per day: 400 KB/s × 8,640 s = 3.46 GB/day\n- 90 days: 3.46 GB × 90 ≈ 311 GB\n\nSo you're looking at roughly 311 GB of raw table data for 90 days of retention."
+        }
+      ],
+      "user_message": "Nice. So if I budget ~40% on top for indexes and bloat, a single 500 GB gp3 volume should cover it, right? Also, how many rows will the table hold at steady state? I want to decide whether monthly partitioning is enough or I should go daily.",
+      "why_in_scope": "The earlier turn used 8,640 seconds per day instead of 86,400, understating storage tenfold. The skill's insistence on showing every step, tracking units and verifying by an independent route (here, row count times row size) should expose the inconsistency once the model computes the row count. A strong model without it may answer the row question and approve the 500 GB volume in the same reply without reconciling the two figures.",
+      "rubric": [
+        "Identifies that a day has 86,400 seconds, so raw data is about 34.6 GB/day and about 3.1 TB for 90 days, and says the earlier 311 GB figure was wrong",
+        "States the steady-state row count as about 15.5 billion rows (2,000 × 86,400 × 90) and checks that this matches the corrected storage figure (15.5 billion × 200 B ≈ 3.1 TB)",
+        "Concludes that a 500 GB volume is far too small; with about 40% overhead the need is roughly 4.3-4.4 TB",
+        "Gives a reasoned partitioning recommendation based on the corrected volume of about 173 million rows (about 35 GB) per day, roughly 5.2 billion rows per monthly partition, fitting the user's question"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Fixed a factual error in case 2's partitioning item (it said 1.3 billion rows/day; 2,000 x 86,400 is about 173 million/day) and removed the implied preferred answer. Widened case 1's energy-cost range to 14-18 thousand kWh / 100-130 thousand rubles so it covers the valid motor-efficiency and nameplate assumptions; everything else checked out (0.005 m3/s, 1.57 kW, 2.8 kW -> 3 kW, 15.5 billion rows, 3.1 TB, about 4.35 TB)."
+}

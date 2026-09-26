@@ -1,0 +1,35 @@
+{
+  "component": "skill-react-pattern",
+  "cases": [
+    {
+      "id": "agent-loop-swallowed-errors-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу своего агента на Python без фреймворков, модель через API с function calling. Цикл такой:\n\n```python\ndef run_tool(tc):\n    try:\n        return TOOLS_IMPL[tc.name](**json.loads(tc.arguments))\n    except Exception:\n        log.exception(\"tool failed\")\n        return None\n\nwhile True:\n    resp = llm(messages, tools=TOOLS)\n    messages.append(resp.message)\n    if not resp.tool_calls:\n        return resp.content\n    for tc in resp.tool_calls:\n        out = run_tool(tc)\n        messages.append({\"role\": \"tool\", \"tool_call_id\": tc.id, \"content\": json.dumps(out)})\n```\n\nРезультаты инструментов вроде бы возвращаю как положено. Но на задаче \"найди в логах за вчера причину 500-ок и открой тикет\" две проблемы: 1) иногда агент крутится по 40+ итераций, вызывая search_logs с одним и тем же запросом, и сжигает ~$3 за запуск. В наших логах в это время куча TimeoutError от search_logs (за сутки логов много). 2) иногда уже в первом ответе вызывает search_logs и create_ticket одновременно, и в тикете выдуманная причина. Модель тупит или у меня что-то не так? Как переписать? LangChain тащить не хочу.",
+      "why_in_scope": "The component makes the model treat tool errors as observations the agent must see and recover from, require an exit condition, and forbid dependent actions before the prior result is observed. Unlike the earlier draft the results are fed back correctly, so the subtle cause is that exceptions become the JSON string \"null\": the model sees an empty observation, has no reason to change its query, and repeats it. A strong model without the component may blame the model or just add a retry/max_iterations and miss the swallowed-error link and the dependent parallel call.",
+      "rubric": [
+        "Connects the repeated identical search_logs calls to run_tool swallowing the TimeoutError: the model receives \"null\" with no error information, so it cannot tell the call failed or change the query; the fix returns the error text (e.g. timeout and a hint such as narrowing the time range) as the tool result.",
+        "Adds an explicit exit condition such as a step or cost cap and/or detection of repeated identical calls, so the loop cannot run indefinitely.",
+        "Addresses the simultaneous search_logs + create_ticket call: the ticket must be created only after the log search result has been received and must be based on it (e.g. instruct the model accordingly, disable parallel tool calls, or reject create_ticket in a turn that also searches), rather than blaming only the model.",
+        "The proposed rewrite stays framework-free and keeps the existing correct parts (appending the assistant message and one tool message per tool_call_id)."
+      ]
+    },
+    {
+      "id": "support-agent-prompt-premature-claims-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "I own the system prompt for our customer support bot (GPT-4o class model, tools: get_order(order_id), get_customer(email), issue_refund(order_id, amount), escalate_to_human(reason)). Current instructions section is basically: \"You are a helpful support agent. Use the tools to resolve customer issues quickly. Be concise.\"\n\nThree failure modes from last week's transcript review:\n- It tells customers \"Your refund of $49.99 has been processed\" in the same message where it calls issue_refund, before the result comes back. Twice the refund actually failed (order already refunded / amount exceeds order total) and the customer was never told.\n- When the customer gives only an email, it sometimes calls get_order with a made-up order id instead of looking the customer up first.\n- When get_order returns 404, it apologizes and ends the conversation.\n\nCan you rewrite the instructions section to fix these? Keep it under ~250 words, it goes into the prompt as-is.",
+      "why_in_scope": "The component pushes the model to encode a disciplined tool loop: reason about what to check before acting, wait for and read each result before any dependent call or claim, recover from errors, and conclude only from observed results. The listed symptoms are fixable one by one; the harder part is noticing that the failed refunds (already refunded / amount exceeds total) mean the order must be checked via get_order before issue_refund is called, which a symptom-by-symptom rewrite without the component can miss.",
+      "rubric": [
+        "The rewritten prompt forbids stating that a refund (or any action) succeeded until the tool result has been received, and requires telling the customer the actual outcome, including failure reasons.",
+        "It requires checking the order with get_order (e.g. existing refund status and order total) before calling issue_refund, and resolving a missing order id via get_customer by email rather than inventing one.",
+        "It gives a recovery path for tool errors, e.g. after a get_order 404 confirm the id with the customer, look up by email, or escalate_to_human, instead of ending the conversation.",
+        "The deliverable is a usable prompt section of roughly 250 words or fewer that uses only the four stated tools and keeps a concise support tone."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy (the placeholder \"done\" message made the dropped-results bug obvious); rewrote the loop so results are fed back correctly and the subtle cause is exceptions turned into \"null\", with rubric updated and new id. Case 2 kept but its rubric now rewards checking the order before issuing a refund (the non-obvious fix implied by the failure reasons) instead of restating the listed symptoms."
+}

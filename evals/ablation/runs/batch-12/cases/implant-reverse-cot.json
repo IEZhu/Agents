@@ -1,0 +1,35 @@
+{
+  "component": "implant-reverse-cot",
+  "cases": [
+    {
+      "id": "reverse-cot-speaker-schedule-ru",
+      "agent": "math_scientist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите составить порядок докладов на внутреннюю конференцию, я уже час кручу на бумажке и всё время что-то ломается. Шесть докладчиков: Анна, Борис, Вера, Дмитрий, Елена, Фёдор. Слоты: 10:00, 11:00, 12:00, потом обед, 14:00, 15:00, 16:00. Ограничения:\n1. Анна не может выступать ни первой, ни последней.\n2. Борис выступает строго непосредственно перед Верой (у них общая демка).\n3. Дмитрий выступает позже Елены (он ссылается на её доклад), но не может быть последним — в 16:00 у него созвон.\n4. Елена не может в 10:00 — приезжает поездом.\n5. Анна и Дмитрий не должны стоять в соседних слотах (они публично спорят, не хочу подряд).\n6. Фёдор только до обеда.\n7. Фёдор и Борис тоже не в соседних слотах.\n«Соседние» — это соседние по порядку слоты, обед разрывом не считается (12:00 и 14:00 соседние).\nДайте итоговую расстановку по времени и скажите, единственный ли это вариант или есть другие.",
+      "why_in_scope": "The puzzle has exactly one valid order (10:00 Фёдор, 11:00 Анна, 12:00 Елена, 14:00 Дмитрий, 15:00 Борис, 16:00 Вера), and seven interacting constraints make it easy to output a schedule that silently breaks one of them (e.g. Dmitry last, Anna next to Dmitry across the lunch break, Fyodor next to Boris). The implant makes the model take its proposed schedule and re-derive each original condition from it, catching violations; without that pass a strong model may present a plausible but invalid order or wrongly claim several solutions exist.",
+      "rubric": [
+        "The final schedule is exactly: 10:00 Фёдор, 11:00 Анна, 12:00 Елена, 14:00 Дмитрий, 15:00 Борис, 16:00 Вера.",
+        "The answer explicitly checks the final schedule against each of the seven constraints (including the adjacency of 12:00 and 14:00) rather than only asserting it works.",
+        "The answer states that this is the only valid arrangement and gives a reason (e.g. case analysis on where Борис–Вера can go) rather than just asserting it.",
+        "No schedule presented as final in the answer violates any of the stated constraints."
+      ]
+    },
+    {
+      "id": "reverse-cot-cron-window-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Adding a sync job to root's crontab on Ubuntu 22.04 (stock cron package). Requirements: every 15 minutes, first run of the day at 08:00 and last run at exactly 18:00 (nothing after 18:00), Monday to Friday only, and only during the first 7 days of each month. Script is /opt/sync/run.sh. The schedule part I already have: `*/15 8-18 1-7 * 1-5`. What I need help with is wrapping it so two runs never overlap if one takes longer than 15 minutes, and so stdout+stderr get appended to /var/log/sync.log. Give me the final line(s) to paste.",
+      "why_in_scope": "The user presents the schedule as settled and asks only about overlap protection and logging, so a model can easily wrap the given line without re-checking it. Reconstructing the requirements from the proposed entry exposes two flaws: hour range 8-18 with */15 also fires at 18:15, 18:30 and 18:45, and in Vixie-derived cron (Ubuntu's default) restricting both day-of-month and day-of-week means either one matching (OR), so it runs every weekday of the month plus weekend days 1-7.",
+      "rubric": [
+        "Points out that the hour field 8-18 with */15 also produces runs at 18:15, 18:30 and 18:45, and fixes it (e.g. an 8-17 line plus a separate `0 18` line).",
+        "Points out that when both day-of-month and day-of-week are restricted, cron runs the job when either one matches (OR), so `1-7 * 1-5` does not mean 'weekdays within days 1-7', and fixes it with a guard (e.g. day-of-week `*` plus `[ \"$(date +\\%u)\" -le 5 ] &&`), escaping any `%` as `\\%` inside the crontab line.",
+        "The final lines, taken together, fire at 08:00 through 18:00 inclusive every 15 minutes on Monday-Friday of days 1-7 only, and at no other times.",
+        "The final lines prevent overlapping runs (e.g. `flock -n` on a lock file) and append both stdout and stderr to /var/log/sync.log (e.g. `>> /var/log/sync.log 2>&1`)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 verified by brute force: the schedule is the unique solution, kept as is. Case 2 made subtler: the user now presents the flawed schedule as settled and asks only for flock and logging, so the model has to re-check the requirements itself instead of being asked to; the rubric merges the DOM/DOW fix items and adds a general-quality item for the overlap/logging request."
+}

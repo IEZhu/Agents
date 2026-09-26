@@ -1,0 +1,35 @@
+{
+  "component": "skill-clickup-markdown",
+  "cases": [
+    {
+      "id": "clickup-release-checklist-ru",
+      "agent": "tech_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет! Нужно описание задачи в ClickUp для релиза 2.14 нашего бэкенда, я вставлю его прямо в поле Description. Что должно быть: короткий раздел с целью релиза (переезд с PostgreSQL 13 на 15 + новый эндпоинт /api/v2/invoices), чек-лист для QA, который тестировщики будут отмечать галочками прямо в задаче (миграции на стейдже, регресс по счетам, нагрузочный тест 500 RPS, проверка алертов в Grafana, откат по runbook), и отдельный блок про риски. Важные вещи выдели жирным. Раньше я вставлял текст, который мне генерил другой ассистент, и галочки не кликались, а между пунктами были огромные дыры — хочу, чтобы в этот раз выглядело нормально.",
+      "why_in_scope": "The skill tells the model that ClickUp needs `[] ` checkboxes without a leading dash, single-asterisk bold, bold lines instead of `#` headers, single newlines between list items and `---` separated by blank lines. A strong model without it will usually write standard GitHub-flavoured Markdown (`- [ ]`, `**bold**`, `## Header`, blank lines between items), which reproduces exactly the broken checkboxes and large gaps the user complains about.",
+      "rubric": [
+        "QA checklist items are written as `[] item` with no leading dash; no `- [ ]` or `* [ ]` appears anywhere",
+        "Bold emphasis and section titles use single asterisks (`*текст*`); there are no `**...**` and no `#`/`##` headers",
+        "Checklist items follow each other on consecutive lines with no blank lines between them, and any `---` separator has a blank line above and below",
+        "The description covers the goal (PostgreSQL 13 to 15, /api/v2/invoices), all five QA items and a risks section, and is written in Russian"
+      ]
+    },
+    {
+      "id": "clickup-bug-comment-en",
+      "agent": "tech_writer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you draft a comment I'll paste into a ClickUp task for our mobile team? Context: the Android app 5.8.1 crashes on launch for users on Android 9 because `WorkManager` is initialized twice (once in `App.onCreate`, once via the default initializer in the manifest). Fix is in PR #482: in `AndroidManifest.xml` it adds `<meta-data android:name=\"androidx.work.WorkManagerInitializer\" tools:node=\"remove\" />` under the `InitializationProvider` entry. I want the comment to have a short summary, the manifest change quoted so reviewers see exactly what was removed, a list of follow-up actions the assignee can tick off in ClickUp (merge #482, ship 5.8.2 to 10% rollout, watch Crashlytics for 48h, close the Sentry issue), and the key file names highlighted. Please make it look clean in ClickUp, not like a raw markdown dump.",
+      "why_in_scope": "The comment is destined for ClickUp, so the skill makes the model use `[] ` interactive checkboxes (no dash), `*bold*` for titles instead of `##` or `**`, compact single-newline lists and inline backticks instead of fenced code blocks. Without it a strong model will likely produce GitHub-style `- [ ]` tasks, `**Summary**` or `### Summary` headings, and a fenced ```xml block for the quoted manifest change the user asks for.",
+      "rubric": [
+        "Follow-up actions are written as `[] action` lines with no leading dash; no `- [ ]` appears",
+        "Headings and emphasis use single asterisks (`*Summary*`), with no `**...**` and no `#`-style headers",
+        "The quoted manifest change and file/class names (e.g. `AndroidManifest.xml`, `App.onCreate`, `WorkManager`) are in inline backticks, and there is no triple-backtick fenced code block anywhere",
+        "The comment correctly states the cause (double WorkManager initialization on Android 9 in 5.8.1), references PR #482, and lists all four follow-up actions"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2 was weak on the code-block rule because nothing in the request invited a fenced block; added a request to quote the one-line manifest change (supplied by the user, so no facts need inventing) and updated the backtick rubric item accordingly. Case 1 passed all checks unchanged."
+}

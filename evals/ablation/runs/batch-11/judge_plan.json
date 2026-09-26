@@ -1,0 +1,242 @@
+{
+ "58b1e6072f__o1": {
+  "component": "implant-metacognitive-prompting",
+  "case": "black-friday-pod-scaling-en",
+  "A": "without",
+  "B": "with"
+ },
+ "58b1e6072f__o2": {
+  "component": "implant-metacognitive-prompting",
+  "case": "black-friday-pod-scaling-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5a3623d231__o1": {
+  "component": "implant-metacognitive-prompting",
+  "case": "redesign-conversion-revenue-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "5a3623d231__o2": {
+  "component": "implant-metacognitive-prompting",
+  "case": "redesign-conversion-revenue-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "dd4edb91f5__o1": {
+  "component": "implant-multi-agent-debate",
+  "case": "job-offer-equity-debate-en",
+  "A": "without",
+  "B": "with"
+ },
+ "dd4edb91f5__o2": {
+  "component": "implant-multi-agent-debate",
+  "case": "job-offer-equity-debate-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c60c8c296d__o1": {
+  "component": "implant-multi-agent-debate",
+  "case": "monolith-split-cross-exam-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "c60c8c296d__o2": {
+  "component": "implant-multi-agent-debate",
+  "case": "monolith-split-cross-exam-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "0c64c37e33__o1": {
+  "component": "implant-narrative-of-thought",
+  "case": "outage-root-cause-mixed-tz-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0c64c37e33__o2": {
+  "component": "implant-narrative-of-thought",
+  "case": "outage-root-cause-mixed-tz-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "c69ae01b6c__o1": {
+  "component": "implant-narrative-of-thought",
+  "case": "scrambled-slack-final-decision-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c69ae01b6c__o2": {
+  "component": "implant-narrative-of-thought",
+  "case": "scrambled-slack-final-decision-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8caa9aaaf8__o1": {
+  "component": "implant-output-automata",
+  "case": "barbershop-tg-bot-booking-flow-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8caa9aaaf8__o2": {
+  "component": "implant-output-automata",
+  "case": "barbershop-tg-bot-booking-flow-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a41f9ca0ac__o1": {
+  "component": "implant-output-automata",
+  "case": "equipment-rental-deposit-lifecycle-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a41f9ca0ac__o2": {
+  "component": "implant-output-automata",
+  "case": "equipment-rental-deposit-lifecycle-en",
+  "A": "without",
+  "B": "with"
+ },
+ "675143419e__o1": {
+  "component": "implant-output-priming",
+  "case": "alert-card-llm-generator-drift-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "675143419e__o2": {
+  "component": "implant-output-priming",
+  "case": "alert-card-llm-generator-drift-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "4cceb184e7__o1": {
+  "component": "implant-output-priming",
+  "case": "mermaid-generator-inconsistent-output-en",
+  "A": "with",
+  "B": "without"
+ },
+ "4cceb184e7__o2": {
+  "component": "implant-output-priming",
+  "case": "mermaid-generator-inconsistent-output-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e75d47071a__o1": {
+  "component": "implant-plan-and-solve-plus",
+  "case": "nas-12tb-migration-weekend-cutover-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e75d47071a__o2": {
+  "component": "implant-plan-and-solve-plus",
+  "case": "nas-12tb-migration-weekend-cutover-en",
+  "A": "with",
+  "B": "without"
+ },
+ "afa247870c__o1": {
+  "component": "implant-plan-and-solve-plus",
+  "case": "pg-orders-int-to-bigint-logical-replica-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "afa247870c__o2": {
+  "component": "implant-plan-and-solve-plus",
+  "case": "pg-orders-int-to-bigint-logical-replica-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "da175dbbcd__o1": {
+  "component": "implant-premortem",
+  "case": "freemium-shutdown-launch-plan-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "da175dbbcd__o2": {
+  "component": "implant-premortem",
+  "case": "freemium-shutdown-launch-plan-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "521fcd0565__o1": {
+  "component": "implant-premortem",
+  "case": "postgres-weekend-cutover-runbook-en",
+  "A": "with",
+  "B": "without"
+ },
+ "521fcd0565__o2": {
+  "component": "implant-premortem",
+  "case": "postgres-weekend-cutover-runbook-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5e750780fb__o1": {
+  "component": "implant-program-of-thoughts",
+  "case": "deposit-rate-step-topups-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "5e750780fb__o2": {
+  "component": "implant-program-of-thoughts",
+  "case": "deposit-rate-step-topups-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "e542c51378__o1": {
+  "component": "implant-program-of-thoughts",
+  "case": "orders-revenue-breakdown-en",
+  "A": "with",
+  "B": "without"
+ },
+ "e542c51378__o2": {
+  "component": "implant-program-of-thoughts",
+  "case": "orders-revenue-breakdown-en",
+  "A": "without",
+  "B": "with"
+ },
+ "920171465e__o1": {
+  "component": "implant-prompt-chaining",
+  "case": "call-transcript-megaprompt-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "920171465e__o2": {
+  "component": "implant-prompt-chaining",
+  "case": "call-transcript-megaprompt-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "f61bf3485b__o1": {
+  "component": "implant-prompt-chaining",
+  "case": "release-notes-from-commits-en",
+  "A": "without",
+  "B": "with"
+ },
+ "f61bf3485b__o2": {
+  "component": "implant-prompt-chaining",
+  "case": "release-notes-from-commits-en",
+  "A": "with",
+  "B": "without"
+ },
+ "fdd32a0392__o1": {
+  "component": "implant-react",
+  "case": "disk-full-after-rm-observations-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "fdd32a0392__o2": {
+  "component": "implant-react",
+  "case": "disk-full-after-rm-observations-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "8b25e22789__o1": {
+  "component": "implant-react",
+  "case": "oomkilled-rss-vs-tracemalloc-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8b25e22789__o2": {
+  "component": "implant-react",
+  "case": "oomkilled-rss-vs-tracemalloc-en",
+  "A": "with",
+  "B": "without"
+ }
+}

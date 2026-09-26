@@ -1,0 +1,35 @@
+{
+  "component": "implant-take-a-deep-breath",
+  "cases": [
+    {
+      "id": "subscriber-churn-forecast-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите проверить прогноз, завтра защищаю его перед фаундером. На 1 января у нас 2400 платящих подписчиков. Каждый месяц отваливается 5% от тех, кто был на начало месяца, и приходит 150 новых (они приходят в конце месяца, так что в отток этого месяца не попадают). Руководитель продаж считает так: 5% от 2400 это 120, новых 150, значит база растёт на 30 в месяц, на 1 апреля будет 2490, а до 2800 дойдём примерно за 13–14 месяцев. Это правильно? Если нет, то сколько реально будет на 1 апреля и к какому месяцу мы выйдем на 2800?",
+      "why_in_scope": "The request invites a quick linear answer: the manager's reasoning sounds plausible and the April number is close to the correct one. Working step by step through the monthly recurrence shows that churn grows with the base, so growth slows and the base approaches a ceiling of 150 / 0.05 = 3000. A model that answers fast can confirm the ~2490 figure or the 13-14 month estimate, while careful stepwise work gives about 2486 on April 1 and roughly 22 months to reach 2800.",
+      "rubric": [
+        "States that the linear +30/month model is wrong because 5% churn is taken from a growing base, so net growth shrinks every month",
+        "Gives about 2486 subscribers on April 1 (2430 -> 2458.5 -> 2485.6), not 2490",
+        "Identifies the ceiling of 3000 subscribers (150 / 0.05) and that 2800 is first reached after 22 months, i.e. on November 1 of the following year (about 2796 after 21 months, about 2806 after 22)",
+        "Shows the month-by-month computation or the closed form N_t = 3000 - 600 * 0.95^t so the user can defend the numbers"
+      ]
+    },
+    {
+      "id": "saas-upgrade-proration-leap-year-en",
+      "agent": "universal_agent",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a sanity check before I send an invoice. Customer is on our annual Basic plan, $1,200/yr, term started March 1, 2027 and runs until March 1, 2028. On July 15, 2027 they upgrade to Pro at $3,000/yr. Our policy: we prorate by actual days left in the current term (upgrade day counts as a Pro day), they get a credit for the unused Basic days, they have a 15% discount that applies to Pro only, and 20% VAT goes on top of the net amount. What exactly should the July 15 invoice total be? Our billing script says $1,020.82 and I just want to make sure.",
+      "why_in_scope": "The calculation has several steps where a hasty answer breaks: counting the remaining days, noticing the term contains February 29, 2028 (366 days, not 365), applying the discount only to Pro, and adding VAT to the net. The script's $1,020.82 is exactly what a 365-day basis gives, so a model that doesn't work through each step can confirm it. Careful stepwise work gives 230 remaining days out of 366 and a total of about $1,018.03.",
+      "rubric": [
+        "Counts 230 remaining days from July 15, 2027 (inclusive) to March 1, 2028 (exclusive)",
+        "Notes that the term includes February 29, 2028, so it has 366 days, and flags that the script's $1,020.82 matches a 365-day basis",
+        "Computes Pro charge 2550 * 230/366 = about $1,602.46, Basic credit 1200 * 230/366 = about $754.10, net about $848.36, total with 20% VAT about $1,018.03",
+        "Gives a clear verdict that the script's figure is off by about $2.79 and should be corrected"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Checked both cases and changed nothing. I recomputed every rubric number (churn recurrence 2430/2458.5/2485.6, 2795.7 at 21 months and 2805.9 at 22, ceiling 3000; 230 days, 366-day term, $1,018.03 vs the script's 365-day $1,020.82, a $2.79 gap) and all are correct. Neither message leaks the implant's trigger phrases, both lure the model into a quick wrong answer, and the component has no owners, so data_analyst and universal_agent fit."
+}

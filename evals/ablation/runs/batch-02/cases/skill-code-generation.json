@@ -1,0 +1,35 @@
+{
+  "component": "skill-code-generation",
+  "cases": [
+    {
+      "id": "config-duration-parser-existing-style-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Python 3.11, у нас модуль app/config.py, он читает настройки из env. Вот кусок как сейчас устроено:\n\n```python\nimport os\n\nclass ConfigError(Exception):\n    \"\"\"Raised when a config value is missing or malformed.\"\"\"\n\n\ndef get_int(key: str, default: int | None = None) -> int:\n    raw = os.environ.get(key)\n    if raw is None:\n        if default is None:\n            raise ConfigError(f\"{key} is required\")\n        return default\n    try:\n        return int(raw)\n    except ValueError:\n        raise ConfigError(f\"{key}: expected integer, got {raw!r}\") from None\n\n\ndef get_bool(key: str, default: bool = False) -> bool:\n    raw = os.environ.get(key)\n    if raw is None:\n        return default\n    if raw.lower() in (\"1\", \"true\", \"yes\"):\n        return True\n    if raw.lower() in (\"0\", \"false\", \"no\"):\n        return False\n    raise ConfigError(f\"{key}: expected boolean, got {raw!r}\")\n```\n\nТесты лежат в tests/test_config.py на pytest, там через monkeypatch.setenv. Нужно добавить get_duration, чтобы можно было писать REQUEST_TIMEOUT=1h30m, 45s, 2m, 500ms, и получать секунды как float. Напиши функцию, пожалуйста.",
+      "why_in_scope": "The skill makes the model follow the existing module's conventions (same signature shape with key/default, raising ConfigError with the key name and the raw value instead of ValueError), handle edge cases such as an empty string, unknown units or duplicated/garbled parts, keep the unit table as a constant, and write pytest tests alongside the function. The user only asked for the function, so a strong model without the skill will plausibly write a standalone regex parser that raises ValueError or returns None, and skip tests entirely.",
+      "rubric": [
+        "get_duration mirrors the existing helpers: it takes the env key and an optional default, raises ConfigError (not a bare ValueError) whose message names the key and the offending raw value, and raises ConfigError when the variable is missing and no default is given",
+        "Includes pytest tests using monkeypatch.setenv that cover at least one valid compound value (e.g. 1h30m -> 5400.0), a milliseconds value (500ms -> 0.5), and at least one invalid input that must raise ConfigError",
+        "The parser rejects malformed input with ConfigError, at least an empty string and an unknown unit, and does not silently accept a string with leftover garbage (e.g. '1h30x' or 'abc')",
+        "The code is correct Python 3.11: 'ms' is not mis-parsed as minutes plus seconds, and the unit multipliers are defined once (e.g. a module-level mapping) rather than scattered through the function"
+      ]
+    },
+    {
+      "id": "batch-helper-bulk-api-limit-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "TypeScript 5.4, Node 20, tests are vitest. We have src/lib/arrays.ts with a few helpers, they all look like this:\n\n```ts\nimport { InvalidArgumentError } from './errors';\n\n/** Returns the unique items, preserving first-seen order. */\nexport function uniqueBy<T, K>(items: readonly T[], key: (item: T) => K): T[] {\n  const seen = new Set<K>();\n  const out: T[] = [];\n  for (const item of items) {\n    const k = key(item);\n    if (!seen.has(k)) {\n      seen.add(k);\n      out.push(item);\n    }\n  }\n  return out;\n}\n```\n\nI'm pushing contacts to HubSpot's batch endpoint which takes at most 100 records per call. Right now someone wrote `for (let i = 0; i < contacts.length; i += 100) send(contacts.slice(i, i + 100))` inline in three different services. Can you add a `chunk` helper to arrays.ts so we can replace those loops? Size should be passable but default to the HubSpot limit.",
+      "why_in_scope": "The skill makes the model match the existing helper style (readonly input, JSDoc, InvalidArgumentError from ./errors), validate the size argument (0, negative, non-integer, NaN would otherwise loop forever or behave oddly), put the 100 limit in a named constant instead of a magic number, keep the change minimal, and ship vitest tests with the helper. A strong model without it will plausibly write a three-line chunk function with a hardcoded default of 100, no argument validation and no tests.",
+      "rubric": [
+        "The chunk helper validates size and throws InvalidArgumentError (imported from ./errors, as the existing code does) for 0, negative or non-integer values, instead of looping forever or returning a surprising result",
+        "Provides vitest tests covering at least an even split, a remainder chunk, an empty input array returning [], and an invalid size throwing",
+        "The default size comes from a named constant (e.g. HUBSPOT_BATCH_LIMIT or a similar exported constant) rather than a bare 100 literal in the signature, and the helper accepts a readonly T[] and returns T[][] in the same JSDoc-commented style as uniqueBy",
+        "The implementation is correct TypeScript and stays small: it does not introduce extra abstractions (classes, generators, async batching/retry logic) that the user did not ask for"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases pass scope, leak, tool-less, agent (software_engineer is an owner) and language checks. Case 1 rubric item 3 no longer requires rejecting a unit-less number, since treating a bare number as seconds is a defensible design the user never ruled out; it now also requires ConfigError for malformed input. Case 2 left unchanged."
+}

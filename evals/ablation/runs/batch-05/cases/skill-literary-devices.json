@@ -1,0 +1,35 @@
+{
+  "component": "skill-literary-devices",
+  "cases": [
+    {
+      "id": "literary-overloaded-paragraph-ru",
+      "agent": "literary_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу рассказ для конкурса (лимит 20 тыс. знаков), это финальный абзац, героиня возвращается в дом умершей бабушки. Мне кажется, он какой-то бледный. Сделай его ярче, добавь образов и красок, чтобы читатель прям прочувствовал:\n\n«Она открыла дверь, и на неё обрушился океан воспоминаний. Дом стоял тихий, как могила, пыль лежала золотым покрывалом на старом комоде, а в груди горел ледяной ком тоски, который тонул в огне сожалений. Она села на бабушкину кровать. Пахло яблоками и чем-то ещё. Часы на стене не шли».",
+      "why_in_scope": "The skill tells the model that one precise image beats three blurred ones, that piling up and mixed metaphors are anti-patterns, and that cliches like 'океан воспоминаний' or 'тихий, как могила' should be avoided. A strong model taking the request literally ('ярче, добавь образов') will likely add more metaphors and keep or multiply the cliches and the mixed 'ледяной ком ... тонул в огне', making the paragraph worse. With the skill it should cut back, fix the mixed metaphor, and keep or strengthen the plain concrete details (apples, stopped clock) that already work.",
+      "rubric": [
+        "Points out that the paragraph's weakness comes from stale or overloaded imagery rather than too little imagery, and explicitly flags at least one of the cliches ('океан воспоминаний', 'тихий, как могила', 'золотым покрывалом')",
+        "Identifies 'ледяной ком тоски, который тонул в огне сожалений' as a contradictory or mixed image (ice/fire, drowning in fire) and removes or replaces it with one coherent image",
+        "The rewritten paragraph does not add new stacked metaphors; it keeps or builds on the concrete details already present (the smell of apples, the stopped clock, the bed) rather than replacing them with decoration",
+        "The rewrite stays in Russian, keeps the scene's events (opening the door, sitting on the grandmother's bed, the stopped clock) and its quiet elegiac tone, and does not add new plot events or explanations of the heroine's feelings"
+      ]
+    },
+    {
+      "id": "talk-opening-mixed-metaphor-en",
+      "agent": "presentation_coach",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm giving a 10-minute talk to our exec team next Thursday asking for about $400k for year one of a proper data platform. Context: our numbers live in roughly 140 spreadsheets across sales, ops and finance, and closing the quarterly report takes finance about three weeks of reconciling them by hand. Here's my opening line, can you make it punchier and more memorable? I want them hooked from the first sentence and I'd like a couple of options.\n\n\"Our data is an untapped goldmine, and this platform is the bridge that will finally unlock its full potential and fuel our next wave of growth.\"",
+      "why_in_scope": "The line quietly mixes images (a goldmine reached by a bridge that unlocks and fuels a wave) and leans on dead business metaphors ('untapped goldmine', 'unlock potential', 'fuel growth'). The mix is less glaring than an obvious pile-up, so a strong model asked for 'punchier and more memorable' tends to keep the goldmine and intensify the imagery. The skill's principles (one precise image over several, no mixed metaphors or cliches, devices must serve the meaning) push toward diagnosing the mix and building the opening on one image or on the concrete facts the user supplied, e.g. with a short hard sentence for rhythm.",
+      "rubric": [
+        "Points out that the current line combines several images that do not fit together (e.g. goldmine, bridge, unlock, fuel, wave) and/or relies on stock business phrases, and says this weakens it",
+        "Each proposed opening uses at most one image or none, and none relies on 'goldmine', 'unlock potential', 'fuel growth' or similar stock phrases",
+        "At least one proposed opening is built on the concrete facts the user gave (about 140 spreadsheets, about three weeks of manual reconciliation for the quarterly report) rather than on imagery",
+        "The options are short enough to say aloud at the start of a talk and keep the core message for execs: the data exists but is fragmented and slow to use, and fixing it needs investment"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2's original line was a blatant five-way mixed metaphor any strong model would flag, so it was replaced with a subtler mix of dead business metaphors plus concrete facts (140 spreadsheets, 3-week close) the rubric now rewards using. Case 1's length item was replaced with a scene/tone fidelity check, since a 20k-character limit does not make one paragraph's length meaningful and the item leaned toward rewarding brevity."
+}

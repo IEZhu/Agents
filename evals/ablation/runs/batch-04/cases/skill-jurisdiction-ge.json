@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-ge",
+  "cases": [
+    {
+      "id": "tbilisi-it-llc-virtual-zone-rate-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Здравствуйте. Я разработчик, живу в Тбилиси с 2024 года. Есть грузинская ООО (я единственный учредитель и директор), недавно получили статус Виртуальной зоны. Делаем бэкенд для клиентов из США и Германии, плюс один небольшой заказчик в Тбилиси (местная сеть кафе, примерно 10% выручки). В 2026 ожидаем около 550 000 GEL прибыли. Во всех русскоязычных чатах пишут, что у Виртуальной зоны налог на прибыль 5%, поэтому я закладываю 5% и хочу в конце года просто заплатить налог со всей прибыли разом, а деньги оставить на счёте компании на найм.\n\nПравильно ли я считаю? Сколько примерно налога заплатит компания за 2026 год и когда?",
+      "why_in_scope": "The skill states that Virtual Zone gives 0% profit tax on IT services supplied outside Georgia, that the 5% rate belongs to International Company status, and that Georgian profit tax follows the Estonian model (taxed only on distribution). A strong model without it may accept the user's widely repeated 5% figure, may compute tax on the whole annual profit, and may miss that the local Tbilisi client's income falls outside the Virtual Zone exemption.",
+      "rubric": [
+        "Corrects the user: Virtual Zone status means 0% profit tax (not 5%) on profit from IT services supplied to clients outside Georgia; the 5% rate relates to a different regime (International Company status).",
+        "Explains that Georgian corporate profit tax (15%) is levied on distribution of profit rather than on profit retained in the company, so keeping money in the company for hiring does not by itself trigger a year-end profit tax payment.",
+        "Flags that income from the Tbilisi cafe chain (a Georgian client) is not covered by the Virtual Zone exemption and is subject to the standard regime.",
+        "Presents figures as approximate, advises confirming current rules with the Revenue Service or a Georgian-qualified advisor, and answers the user's actual question (how much and when) rather than giving only generic background."
+      ]
+    },
+    {
+      "id": "georgian-llc-retained-profit-dividend-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I run a Georgian LLC in Batumi (wholesale building materials, standard tax regime, VAT registered). I'm the sole owner and a Georgian tax resident. For 2025 we made about 600,000 GEL profit and kept all of it in the company to buy a warehouse. Our new bookkeeper says we now owe 15% on that 600k for 2025, i.e. 90,000 GEL, and that's money I don't have spare right now. On top of that I want to pay myself a 200,000 GEL dividend in mid-2026.\n\nIs the bookkeeper right about the 90k? And roughly what does the 200k dividend cost me in tax overall? A friend also said I could move the company to the 1% small business regime next year — is that realistic?",
+      "why_in_scope": "The skill encodes Georgia's Estonian-model profit tax: retained earnings are not taxed and 15% applies only on distribution (and deemed distributions/excessive expenses), and that the 1% small business status is capped at 500,000 GEL annual income. A strong model without it may accept the bookkeeper's classic annual-profit logic and confirm the 90,000 GEL bill, and may not rule out the small business regime on the turnover ceiling.",
+      "rubric": [
+        "States that the bookkeeper is wrong in principle: under Georgia's distribution-based profit tax, profit retained in the company (including for buying a warehouse) is not taxed, so no 15% charge arises on the 600,000 GEL simply for 2025, subject to deemed-distribution rules such as non-business expenses.",
+        "Explains that the 15% profit tax is triggered when the 200,000 GEL dividend is paid and is computed on the grossed-up amount (200,000 / 0.85 x 15%, about 35,300 GEL), and notes the separate 5% dividend withholding tax on the individual (about 10,000 GEL).",
+        "Explains that the 1% small business regime is not realistic here: it applies only while annual income stays within 500,000 GEL and is a status for individual entrepreneurs, not an LLC with this turnover.",
+        "Frames the numbers as approximate and recommends confirming with a Georgian tax advisor or the Revenue Service."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified both cases against the skill and Georgian tax rules; kept agent (lawyer, the owner), languages and case structure. Tightened case 2 rubric item 2 by removing the incorrect '30,000 GEL simplified' alternative and stating the grossed-up profit tax (~35,300 GEL) and 5% dividend WHT explicitly."
+}

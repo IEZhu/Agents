@@ -1,0 +1,35 @@
+{
+  "component": "implant-metacognitive-prompting",
+  "cases": [
+    {
+      "id": "redesign-conversion-revenue-ru",
+      "agent": "data_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет. Мы выкатили новый дизайн карточки товара 20 ноября. Сравнила три недели до и три недели после запуска (30 окт – 19 ноя против 20 ноя – 10 дек): конверсия выросла с 3,1% до 3,6%. Трафик примерно одинаковый, ~120 тыс. сессий в месяц, средний чек 4 200 ₽. Директор просит к понедельнику одну цифру: сколько дополнительной выручки в год даёт редизайн. Посчитай, пожалуйста, и напиши, как это сформулировать в отчёте.",
+      "why_in_scope": "The arithmetic is trivial (0.5 pp x 120k x 4 200 RUB = ~2.52M RUB/month, ~30M/year), and the symmetric 3-week before/after windows look methodologically tidy, so a strong model tends to compute and write a confident sentence. The implant makes the model rate each step and find the weakest one: attributing the whole lift to the redesign when the 'after' window contains Black Friday / pre-holiday demand and there is no control group, plus annualizing a short-window effect. The answer should flag that step as low-confidence instead of presenting ~30M RUB as the redesign's effect.",
+      "rubric": [
+        "Computes the naive figure correctly: about 600 extra orders and about 2.5M RUB per month, about 30M RUB per year, under the stated assumptions.",
+        "Explicitly identifies attributing the whole lift to the redesign as the weakest or least reliable step, noting that the 'after' window (20 Nov - 10 Dec) includes Black Friday or pre-holiday seasonal demand and that there is no control group.",
+        "States the uncertainty of the final number rather than presenting it as a firm effect of the redesign, and suggests report wording that reflects this (e.g. an upper bound or 'observed change, not a proven effect').",
+        "Proposes at least one concrete way to get a better estimate (e.g. compare with the same period last year, an A/B test or holdout, or compare with pages/categories that did not get the redesign)."
+      ]
+    },
+    {
+      "id": "black-friday-pod-scaling-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick capacity question. Our checkout API runs on 4 pods on EKS, handles ~400 rps at peak with p95 around 180 ms, pod CPU sits at ~60%. Each pod has a HikariCP pool of 50 connections to a single Postgres primary (RDS, max_connections = 400, CPU ~45% at peak). Marketing says Black Friday will be 3x normal peak. How many pods should I set minReplicas to? I need a number for the change request today.",
+      "why_in_scope": "The obvious answer is linear scaling: 3x traffic means ~12 pods (or a bit more for headroom). The implant makes the model evaluate its confidence in each step and find the weakest assumption, which is that the API tier scales linearly while everything behind it is fixed: 12 pods x 50 connections = 600 exceeds max_connections = 400, and the single primary at ~45% CPU would be driven far past its capacity at 3x load. A strong model focused on giving 'a number' can easily miss the connection math and the shared-database bottleneck.",
+      "rubric": [
+        "Gives a concrete pod-count answer (e.g. around 12, or somewhat more with headroom) derived from the 3x traffic figure, so the request for a number is met.",
+        "Notices that scaling to ~12 pods with 50-connection pools gives about 600 connections, which exceeds Postgres max_connections = 400, and proposes a fix (smaller per-pod pool, a pooler such as PgBouncer/RDS Proxy, or raising the limit).",
+        "Flags the linear-scaling assumption, and in particular the single Postgres primary (about 45% CPU now, far beyond capacity at 3x if load scales with traffic), as the weakest or most uncertain part of the estimate rather than presenting the pod count with unqualified confidence.",
+        "Recommends validating the estimate before Black Friday, e.g. a load test at 3x traffic against a production-like database."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 made subtler: replaced the obvious October-vs-December comparison with symmetric 3-week before/after windows whose 'after' period silently contains Black Friday, so the seasonality confound is less likely to be flagged without the implant; rubric item 2 updated accordingly. Case 2 verified (12x50=600 > 400 connections, 3x45% DB CPU) and kept unchanged."
+}

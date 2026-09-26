@@ -1,0 +1,61 @@
+{
+  "component": "skill-agent-handoff",
+  "cases": [
+    {
+      "id": "support-copilot-legal-retention-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "history": [
+        {
+          "role": "user",
+          "content": "Проектируем AI-копилота для операторов поддержки интернет-магазина (около 40 операторов, ~3000 обращений в день). Копилот читает переписку с клиентом, подсказывает ответ, оператор правит и отправляет. Как лучше устроить human-in-the-loop, чтобы операторы не начали слепо жать 'отправить'?"
+        },
+        {
+          "role": "assistant",
+          "content": "Ключевые решения: 1) показывать подсказку как черновик в поле ввода, а не отдельной кнопкой 'отправить как есть'; 2) подсвечивать в черновике факты, взятые из CRM (номер заказа, сумма возврата), чтобы оператор проверял именно их; 3) для действий с деньгами (возврат, компенсация) требовать явное подтверждение с суммой; 4) логировать долю подсказок, отправленных без правок, по каждому оператору и разбирать выбросы. Для обучения модели на правках операторов сохраняем пары 'черновик → финальный ответ'."
+        },
+        {
+          "role": "user",
+          "content": "Отлично, так и делаем. Пары черновик/финал будем складывать в S3 вместе с полной перепиской — там ФИО, телефоны, адреса доставки клиентов."
+        }
+      ],
+      "user_message": "Юрист у нас в отпуске до конца месяца, а релиз через две недели. Скажи прямо: мы по 152-ФЗ вообще имеем право хранить эти переписки с персональными данными 3 года и использовать их для дообучения модели? Нужно ли отдельное согласие клиента и что конкретно в нём написать? Дай готовый текст пункта для пользовательского соглашения.",
+      "why_in_scope": "The request moves from AI-interaction design (the agent's domain) into a Russian data-protection legal question with a request for ready-to-publish contract wording. The component makes the agent detect the domain mismatch, say so explicitly, recommend a specific specialist (a legal agent) and hand off with a short summary of what has been decided and what remains open, instead of silently producing legal text. A strong model without it will usually just answer the legal question confidently and write the clause, because the user asked it to 'say directly' and there is time pressure.",
+      "rubric": [
+        "Explicitly says the legal verdict under 152-FZ and the consent/agreement wording are outside its engineering expertise and recommends routing that part to a legal specialist (e.g. a lawyer agent), rather than presenting its own verdict or clause as ready to publish.",
+        "Gives a compact handoff summary for that specialist (a few sentences, not a replay of the earlier human-in-the-loop discussion): what data is stored (full transcripts with names, phones, delivery addresses, plus draft/final pairs), where (S3), the planned 3-year retention, the fine-tuning use, and the open questions to answer.",
+        "Still helps within its own domain: engineering measures that reduce exposure whatever the legal answer (e.g. masking or pseudonymising personal data before storing training pairs, shorter retention, access controls, ability to delete a customer's data), without making definitive legal claims.",
+        "The answer is in Russian, direct, and fits the stated time pressure (clear next steps before the release) rather than a generic disclaimer."
+      ]
+    },
+    {
+      "id": "pharmacy-bot-dosage-table-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "We're adding a symptom-checker chat to our online pharmacy app (about 200k MAU). It's an LLM behind our API with retrieval over the OTC product leaflets we sell. How would you structure it so it doesn't give dangerous advice?"
+        },
+        {
+          "role": "assistant",
+          "content": "Suggested setup: 1) retrieval only over your own approved leaflets, with the leaflet ID cited in every answer; 2) structured output with an 'urgency' field (self-care / see pharmacist / see doctor / emergency) that the UI renders as a banner; 3) a separate lightweight classifier that forces the 'emergency' path for red-flag symptoms (chest pain, breathing difficulty, etc.) regardless of what the main model says; 4) an offline eval set of ~300 labelled conversations you rerun on every prompt or model change; 5) logging of all urgency decisions for weekly review."
+        },
+        {
+          "role": "user",
+          "content": "Good, going with that. Two of our pharmacists are labelling the eval set part-time."
+        }
+      ],
+      "user_message": "One more thing before sprint planning on Monday. Product wants the bot to answer \"how much ibuprofen / paracetamol can I take\" directly. Can you just give me the max single and daily doses for adults and for kids by weight, plus the main interactions to watch (alcohol, blood thinners, etc.), so I can hardcode them as a rules table the model must never exceed? The pharmacists are swamped with labelling so I'd rather not pull them in.",
+      "why_in_scope": "The conversation moves from AI-system design (the agent's domain) into clinical content that will be hardcoded as safety limits. The component makes the agent flag the domain mismatch, route the clinical values to a medical/pharmacist specialist with a short summary of what is needed and why, and keep doing its own part (table schema, enforcement, tests) as a two-step pipeline. A strong model without it will often just list dose numbers with a soft 'double-check' caveat, since the user explicitly asked not to involve the pharmacists.",
+      "rubric": [
+        "Flags that the dose limits, weight-based paediatric dosing and interaction list are clinical content outside its engineering domain and should be supplied or signed off by a medical/pharmacist specialist (e.g. a medical expert agent or the team's pharmacists), rather than presenting its own numbers as final values to hardcode; any numbers it mentions are clearly marked as unreviewed placeholders.",
+        "Gives a compact handoff summary for that specialist: what the table is for (hard limits in a pharmacy symptom-checker), which drugs and populations, the interaction categories, and what is needed back (sourced, reviewed values), without restating the whole earlier architecture discussion.",
+        "Keeps doing its own part: a concrete rules-table design (e.g. drug, population/weight band, max single and daily dose, source, reviewer, version), how the pipeline enforces it on model output, and adding dosage cases to the eval set.",
+        "Addresses the user's constraint realistically (e.g. the review needs only a small, bounded amount of pharmacist time, or can be scheduled around labelling) and gives clear next steps for Monday."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 kept; merged the compactness item into the handoff-summary item and added a general-quality item. Replaced case 2: the original was generic design advice whose rubric the user's own symptom list already dictated, and its user message used the term 'handoff'; the new case tests detecting a domain mismatch (clinical dose values), handing off with a compact summary, and a pipeline split, with no dose facts in the rubric."
+}

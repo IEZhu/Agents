@@ -1,0 +1,35 @@
+{
+  "component": "skill-bio-protocol-design",
+  "cases": [
+    {
+      "id": "levothyroxine-ashwagandha-magnesium-sleep-ru",
+      "agent": "bio_hacker",
+      "language": "ru",
+      "history": [],
+      "user_message": "Мне 38, женщина, гипотиреоз (Хашимото), пью L-тироксин 75 мкг утром натощак в 6:30, последний ТТГ 2,1 месяц назад. Последние полгода плохо засыпаю, просыпаюсь в 3-4 ночи и не могу уснуть, днём на нервах. Подруга советует ашваганду и магний, в аптеке есть магний B6 (лактат) и ашваганда KSM-66 по 600 мг. Хочу начать с понедельника. Распиши, как и когда это всё пить, чтобы реально помогло со сном?",
+      "why_in_scope": "The component forces a protocol with a stated mechanism for each intervention, concrete dose/form/timing relative to meals and sleep, a defined evaluation period, and explicit stop conditions including interaction checks. Here the critical parts are the interaction with levothyroxine (magnesium absorption interference; ashwagandha's reported effect of raising thyroid hormone levels) and pre-defined exit criteria such as a TSH recheck. A strong model without the component may just give a friendly 'magnesium at night, ashwagandha twice a day' schedule and omit spacing from levothyroxine, a TSH recheck, or when to stop.",
+      "rubric": [
+        "Explains for each supplement the mechanism it is expected to act through for sleep/stress (e.g. ashwagandha via the stress/cortisol response, magnesium via its role in neuromuscular/nervous-system function), rather than just listing products",
+        "Addresses the interaction with levothyroxine: magnesium should be taken several hours apart from L-thyroxine (e.g. in the evening), and notes that ashwagandha can raise thyroid hormone levels, so TSH/fT4 should be rechecked after starting or the endocrinologist consulted",
+        "Gives a concrete schedule with dose and timing relative to meals/bedtime that is consistent with her 6:30 fasting L-thyroxine intake (no supplement taken in the morning window around it)",
+        "Defines a trial period after which the effect on sleep is evaluated, and explicit stop conditions, e.g. symptoms of excess thyroid hormone (palpitations, tremor, weight loss), abnormal TSH on recheck, or signs of liver injury (jaundice, dark urine) with ashwagandha"
+      ]
+    },
+    {
+      "id": "evening-preworkout-caffeine-beta-alanine-en",
+      "agent": "fitness_coach",
+      "language": "en",
+      "history": [],
+      "user_message": "82 kg guy, lifting 5x/week at 6:30pm after work, lights out around 11pm. I already drink 2 regular coffees before noon. Just bought a pre-workout: one scoop = 350 mg caffeine + 3.2 g beta-alanine + 6 g citrulline malate. Label says 1 scoop 30 min before training. Plan is to take a full scoop before every session. Anything I should change? Want the best performance but I also don't want to wreck my sleep.",
+      "why_in_scope": "The component requires reasoning from mechanism before dosing, and then specifying timing, duration/cycling and stop conditions. Mechanism matters here because caffeine acts acutely while beta-alanine works by chronically raising muscle carnosine, so it needs daily intake including rest days and its timing before training does not matter. Total daily caffeine is also above the usual 400 mg guideline, and a dose close to bedtime conflicts with sleep. A strong model without the component may only say 'take half a scoop' and miss the acute vs chronic split, the tolerance/cycling point, or explicit stop criteria.",
+      "rubric": [
+        "Computes or flags total daily caffeine (about 350 mg plus two coffees, i.e. over roughly 400 mg/day) and relates the per-session dose to body weight (commonly cited effective range about 3-6 mg/kg) or suggests a reduced dose",
+        "Addresses timing relative to sleep: caffeine taken around 6pm with an 11pm bedtime can impair sleep given its multi-hour half-life, and proposes a concrete change (lower dose, half scoop, caffeine-free training days or earlier cut-off)",
+        "Explains that beta-alanine works through chronic muscle carnosine loading rather than acutely, so consistent daily intake (including rest days) matters more than pre-workout timing, and that tingling (paresthesia) is harmless and can be reduced by splitting doses",
+        "Gives explicit stop or adjust conditions (e.g. worsening sleep, palpitations, jitteriness, elevated blood pressure) and/or addresses caffeine tolerance with periodic breaks or cycling"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: reworded the magnesium mechanism example to avoid an overstated GABA claim, made item 3 a general fit-to-request check (schedule compatible with her 6:30 levothyroxine), and merged the trial period with the stop conditions. Case 2 kept: its facts check out (~540 mg/day caffeine, ~4.3 mg/kg per scoop, beta-alanine works by chronic carnosine loading) and it already targets the component."
+}

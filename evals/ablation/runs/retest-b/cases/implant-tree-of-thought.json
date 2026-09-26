@@ -1,0 +1,100 @@
+{
+  "component": "implant-tree-of-thought",
+  "cases": [
+    {
+      "id": "box-packing-exact-count-ru",
+      "agent": "math_scientist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Работаю на складе, отгружаем крепёж только целыми коробками, вскрывать нельзя. Коробки бывают трёх видов: по 12, по 18 и по 25 штук. Сегодня два заказа: одному клиенту нужно ровно 97 штук, другому ровно 131. Хочу для каждого заказа минимальное число коробок, и чтобы штук было ровно столько, сколько заказали, без лишних. Кладовщик начал набирать с самых больших коробок по 25 и застрял. Как собрать оба заказа?",
+      "why_in_scope": "Жадный путь «сначала максимум коробок по 25» заходит в тупик (для 97: 3×25 и 2×25 не добираются), и нужно вернуться к точке ветвления и перебрать другие числа больших коробок. Для 131 все ветви тупиковые, и правильный ответ: ровно собрать нельзя. Сильная модель без систематического перебора ветвей легко выдаст неверную комбинацию или натянет решение для 131.",
+      "rubric": [
+        "Для 97 штук даёт 1 коробку по 25 и 4 по 18 (5 коробок) и указывает, что это минимум",
+        "Для 131 штуки прямо говорит, что ровно 131 из коробок по 12, 18 и 25 собрать невозможно, и не выдаёт ложную комбинацию",
+        "Показывает, почему старт с максимума коробок по 25 не работает, и перебирает варианты с меньшим их числом, а не останавливается на первом",
+        "Все приведённые суммы арифметически верны"
+      ]
+    },
+    {
+      "id": "meeting-slots-two-rooms-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите разложить встречи на четверг, я уже полчаса мучаюсь. Есть слоты 10:00, 11:00 и 12:00 (по часу) и две переговорки, то есть в каждом слоте максимум две встречи параллельно. Шесть встреч:\n- Планирование спринта: Анна, Борис\n- Дизайн-ревью: Вера, Глеб\n- Бюджет: Анна, Дина\n- Найм: Борис, Глеб\n- Ретро: Вера, Егор, Дина\n- Звонок клиенту: Борис, Егор\n\nОграничения: один человек не может быть на двух встречах одновременно; звонок клиенту не раньше 11:00 (у них разница во времени); Егор уходит в 12:00, так что его встречи только в 10 или 11; планирование обязательно раньше бюджета. Я поставила в 10:00 планирование и дизайн-ревью, как мы обычно делаем, а дальше ничего не сходится. Есть вообще решение?",
+      "why_in_scope": "Пользователь уже зашёл в тупиковую ветку (планирование + дизайн в 10:00), из которой решения нет. Компонент заставляет явно отбросить эту ветку, вернуться к точке выбора и перебрать альтернативы, пока не найдётся единственное допустимое расписание. Без этого модель может пытаться «чинить» исходный вариант или выдать расписание с конфликтом.",
+      "rubric": [
+        "Даёт расписание: 10:00 планирование и ретро; 11:00 дизайн-ревью и звонок клиенту; 12:00 бюджет и найм",
+        "Объясняет, почему вариант «планирование + дизайн в 10:00» тупиковый (ретро и звонок клиенту конфликтуют по Егору, и один из них попадает на 12:00)",
+        "Итоговое расписание не нарушает ни одного из ограничений (проверка по людям и по времени)",
+        "Отвечает на вопрос «есть ли решение» прямо"
+      ]
+    },
+    {
+      "id": "make-24-from-1346-ru",
+      "agent": "education_tutor",
+      "language": "ru",
+      "history": [],
+      "user_message": "Сыну (5 класс) на олимпиаде дали задачу: из чисел 1, 3, 4 и 6, используя каждое ровно один раз, знаки +, −, ×, ÷ и скобки, получить 24. Мы вдвоём сидим уже час: 6×4=24, но тогда 1 и 3 некуда деть; 3×(6+...) тоже не выходит. В ответах в конце сборника написано, что решение есть. Помогите найти и объясните, как до такого вообще можно додуматься, чтобы я мог сыну рассказать.",
+      "why_in_scope": "Задача имеет единственное решение через дробь, а все «естественные» целочисленные ветки тупиковые. Компонент ведёт к перебору нескольких направлений, их оценке и отказу от тупиков, что и нужно показать ребёнку. Сильная модель без этого может ошибиться в арифметике, выдать неверное выражение или объявить, что решения нет.",
+      "rubric": [
+        "Даёт верное выражение 6 ÷ (1 − 3/4) = 24 (или эквивалентную запись) с проверкой вычисления",
+        "Использует каждое из чисел 1, 3, 4, 6 ровно один раз",
+        "Объясняет ход поиска: какие очевидные пути (целочисленные произведения) ведут в тупик и почему стоит попробовать деление на дробь",
+        "Объяснение доступно для пересказа пятикласснику"
+      ]
+    },
+    {
+      "id": "saturday-errands-time-windows-en",
+      "agent": "universal_agent",
+      "language": "en",
+      "history": [],
+      "user_message": "Need help planning Saturday errands. I leave home at 9:00 and have to be back by 12:00 sharp for my kid's pickup. Stops and how long each takes once I'm there:\n- Dry cleaner: 10 min, closes at 10:00\n- Hardware store: 20 min, open all morning\n- Pharmacy (prescription pickup): 10 min, closes at 11:00\n- Farmers market: 20 min, closes at 11:30\n- Post office: 15 min, opens at 10:30, open until 2pm\n\nDriving times in minutes: home-pharmacy 10, home-post 15, home-cleaner 20, home-hardware 25, home-market 12, pharmacy-post 10, pharmacy-cleaner 25, pharmacy-hardware 20, pharmacy-market 15, post-cleaner 15, post-hardware 10, post-market 20, cleaner-hardware 15, cleaner-market 30, hardware-market 25.\n\nI have to finish each errand before the place closes. My usual plan is to hit the closest place first and keep going to whatever's nearest, but that never seems to work out. What order gets everything done and me home by noon? If it's impossible, tell me what to drop.",
+      "why_in_scope": "Nearest-first (pharmacy, then post office) is a dead end: the post office isn't open yet and the dry cleaner is missed. Exactly one order meets all windows and the noon deadline, so the model has to branch over starting choices, discard infeasible ones and backtrack. A strong model that commits to one plausible order and doesn't check the timeline can easily give an order that breaks a window or the deadline.",
+      "rubric": [
+        "Recommends the order dry cleaner -> hardware store -> pharmacy -> farmers market -> post office -> home",
+        "Gives a timeline consistent with the stated times (e.g. done at the cleaner 9:30, hardware 10:05, pharmacy 10:35, market 11:10, post office 11:45, home 12:00)",
+        "Explains why nearest-first or starting at the pharmacy fails (the cleaner's 10:00 close and/or the post office not being open yet)",
+        "Does not tell the user to drop an errand, since all five fit"
+      ]
+    },
+    {
+      "id": "internal-lib-version-resolution-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Dependency hell on our Python service, need a sanity check before I spend another day on it. We use three internal libs plus our shared protobuf runtime (acme-proto), and only one acme-proto major can be installed. Compatibility from the internal docs:\n\nacme-auth 3.0 -> acme-proto 3.x\nacme-auth 3.1 -> acme-proto 3.x or 4.x\nacme-auth 3.2 -> acme-proto 4.x or 5.x\n\nacme-billing 5.0 -> acme-proto 3.x, acme-events 1.x\nacme-billing 5.1 -> acme-proto 3.x or 4.x, acme-events 2.x\nacme-billing 6.0 -> acme-proto 4.x or 5.x, acme-events >=2.1\n\nacme-events 1.4 -> acme-proto 3.x\nacme-events 2.0 -> acme-proto 3.x or 4.x\nacme-events 2.1 -> acme-proto 5.x\n\nHard requirements: we must be on acme-auth 3.2 (security fix), we need acme-billing >= 5.1 for the refunds API, and acme-proto 5.x is off the table for now because it needs a Python version our base image doesn't have. My plan was to just bump everything to latest (auth 3.2, billing 6.0, events 2.1) and pin proto accordingly, but pip keeps failing. Which exact combo should I pin, or is there none?",
+      "why_in_scope": "The user's 'everything latest' path is a dead end (billing 6.0 forces events 2.1, which forces proto 5). The component makes the model back up to the billing choice, try the alternative and check it against every constraint, which yields a single valid combination. Without that, a model may suggest an invalid mix or loosen a hard requirement.",
+      "rubric": [
+        "Recommends acme-auth 3.2, acme-billing 5.1, acme-events 2.0, acme-proto 4.x",
+        "Explains that billing 6.0 is the dead end because it needs events >= 2.1, which requires proto 5.x",
+        "Keeps all stated hard requirements (auth 3.2, billing >= 5.1, no proto 5.x) and does not propose relaxing them",
+        "Shows that the recommended combination meets every pairwise constraint"
+      ]
+    },
+    {
+      "id": "carpool-rota-after-change-en",
+      "agent": "universal_agent",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Five of us parents share the school run, each of us drives exactly one weekday. Availability: Alice Mon/Tue/Thu, Ben Tue/Wed, Chloe Mon/Wed/Fri, Dev Thu/Fri, Emma Mon/Tue. Can you make a rota?"
+        },
+        {
+          "role": "assistant",
+          "content": "Here's a rota that works for everyone:\n- Mon: Alice\n- Tue: Emma\n- Wed: Ben\n- Thu: Dev\n- Fri: Chloe\n\nEveryone drives exactly once and only on a day they're available."
+        }
+      ],
+      "user_message": "Ugh, change of plans. Dev just told me he can't do Thursdays anymore, only Friday. And Ben says Tuesday is a hard no for him too, so he's Wednesday only. Can you just swap Dev and Chloe? I need to send this to the group chat tonight.",
+      "why_in_scope": "The user's proposed patch (swap Dev and Chloe) is a dead end because Chloe can't drive Thursday, and no single swap fixes it. The component pushes the model to reject that branch, go back and re-solve, which leads to a three-way rotation (Chloe Mon, Alice Thu, Dev Fri). A strong model may go along with the swap or give another invalid rota.",
+      "rubric": [
+        "Says clearly that swapping Dev and Chloe doesn't work because Chloe isn't available Thursday",
+        "Gives the rota Mon Chloe, Tue Emma, Wed Ben, Thu Alice, Fri Dev",
+        "The rota has each parent exactly once and respects every availability, including the two new restrictions",
+        "Output is ready to paste into a group chat without extra work"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "No changes: brute-force checks confirmed every rubric answer (97=25+4x18 min 5 boxes, 131 impossible; unique meeting schedule; 6/(1-3/4); unique errand order ending 12:00; auth 3.2/billing 5.1/events 2.0/proto 4.x; unique carpool rota), user messages contain no leak of the technique's terms, agents exist, and there are 3 ru + 3 en cases, each a distinct situation. Noted risk: the 1-3-4-6 puzzle is well known, so its case relies mainly on the rubric item about explaining the search process."
+}

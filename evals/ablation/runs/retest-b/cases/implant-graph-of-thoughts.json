@@ -1,0 +1,91 @@
+{
+  "component": "implant-graph-of-thoughts",
+  "cases": [
+    {
+      "id": "two-architects-notifications-merge-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас сервис доставки еды, ~150k DAU, пики в обед и вечером до 400 заказов/мин. Нужно переделать уведомления (push, SMS, email). Два сеньора принесли два разных дизайна и спорят уже неделю:\n\nВариант Димы: один общий Kafka-топик notifications, один notification-service, который сам решает канал, ретраи через отдельный retry-топик с задержкой, шаблоны в Postgres. Плюс: всё в одном месте. Минус (по мнению Кати): SMS-провайдер тормозит и в пике забивает весь консьюмер, push опаздывают.\n\nВариант Кати: отдельный сервис на каждый канал со своей очередью (RabbitMQ), приоритеты через разные очереди, шаблоны в каждом сервисе свои. Плюс: изоляция каналов. Минус (по мнению Димы): дедупликация и \"тихие часы\" пользователя придётся реализовывать трижды, шаблоны разъедутся.\n\nОграничения: SMS стоят денег, бюджет жёсткий; OTP-коды должны уходить за секунды даже в пике; маркетинговые рассылки не должны приходить ночью. Команда 4 бэкендера. Чей вариант брать?",
+      "why_in_scope": "The implant makes the model split the design into sub-problems (routing/policy, per-channel delivery, retries, dedup and quiet hours, templates), weigh both proposals per sub-problem and merge the stronger parts into one design instead of declaring a winner. A strong model without it tends to pick one proposal with caveats, missing that each proposal is better on different nodes (Katya's isolation for delivery, Dima's centralization for policy and templates).",
+      "rubric": [
+        "Does not simply pick Dima's or Katya's design; proposes a combined design that takes specific parts from both (e.g. centralized preference/dedup/quiet-hours/template logic plus per-channel isolated delivery queues or workers)",
+        "Evaluates the proposals per concern (e.g. channel isolation, dedup, quiet hours, templates, retries) rather than only as whole packages",
+        "Addresses the stated constraints concretely: OTP isolated or prioritized so a slow SMS provider cannot delay it, quiet hours applied to marketing but not to OTP/transactional messages, SMS cost control",
+        "Points out at least one point where the merged parts could conflict (e.g. where dedup/idempotency lives when retries happen in per-channel workers) and says how to resolve it, keeping scope realistic for 4 backend engineers"
+      ]
+    },
+    {
+      "id": "onboarding-doc-three-drafts-ru",
+      "agent": "tech_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Пишу onboarding-гайд для новых бэкендеров (Go, k8s, у нас ~30 микросервисов). Трое коллег набросали черновики оглавления, и все разные:\n\nАня (по дням): День 1 — доступы и ноутбук; День 2 — поднять локально 3 основных сервиса; День 3 — первый PR с good-first-issue; Неделя 2 — дежурство в тени.\n\nОлег (по архитектуре): 1. Общая схема сервисов; 2. Как ходят запросы (gateway → auth → сервисы); 3. Данные: Postgres, Kafka, Redis; 4. Деплой и мониторинг; 5. Глоссарий.\n\nСвета (FAQ): \"Где взять доступ к Vault?\", \"Почему локально не стартует billing?\", \"Кого пинговать по инцидентам?\", \"Как завести фиче-флаг?\" — 25 таких вопросов из Slack.\n\nХочу один документ, а не три. Предложи итоговую структуру — что откуда брать и в каком виде.",
+      "why_in_scope": "This is document writing where sections can be developed independently and then merged, the exact case the implant targets. With it the model treats each draft as a partial solution with distinct strengths (Anya: sequencing, Oleg: mental model, Sveta: real pain points) and builds a structure that interleaves them. Without it a model often picks one skeleton and appends the others as appendices, losing the dependencies between them.",
+      "rubric": [
+        "Proposes a single concrete structure (section list) that uses material from all three drafts, stating which parts come from which draft",
+        "Integrates rather than concatenates: e.g. places relevant architecture or FAQ items inside the day-by-day steps where the newcomer needs them, instead of three separate blocks glued together",
+        "Notes a conflict or overlap between drafts (e.g. FAQ items duplicating architecture or setup content, or FAQ answers that go stale) and says how to handle it",
+        "Keeps the result practical for the stated audience (new Go backend engineers, ~30 services); no unrelated generic advice dominating the answer"
+      ]
+    },
+    {
+      "id": "ci-pipeline-interacting-fixes-ru",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Монорепо: 12 сервисов на Go + фронт на Next.js, GitHub Actions, self-hosted раннеры (8 штук). Пайплайн на каждый PR идёт 38 минут, из них: go test ./... ~17 мин, сборка docker-образов всех сервисов ~12 мин, e2e на Playwright ~7 мин, остальное линтеры. Флейки в e2e примерно в 1 из 6 прогонов, люди жмут re-run all. Цель — медиана до 12 минут без потери покрытия перед мёржем в main. Что конкретно менять и в каком порядке?",
+      "why_in_scope": "The problem has several sub-problems (test selection, image builds, e2e flakiness, runner capacity) whose fixes interact: path-based affected-service detection feeds both test selection and image builds, and retries or re-runs change runner load. The implant pushes the model to generate options per sub-problem and merge them through shared pieces rather than listing independent tips. A strong model without it typically outputs a flat checklist of optimizations without noticing the shared dependency or the interaction with the coverage constraint.",
+      "rubric": [
+        "Covers each major time sink separately (Go tests, docker builds, e2e) with concrete options, not a generic list",
+        "Identifies a shared building block across sub-problems (e.g. one change-detection/affected-services step reused for test selection and image builds) and builds the plan around it",
+        "Reconciles the 'no loss of coverage before merge to main' constraint with PR-level speedups (e.g. full suite in merge queue or on main, selective runs on PRs) instead of silently dropping tests",
+        "Handles flakiness in a way that fits the plan (e.g. retrying only failed tests or quarantining known flaky ones rather than re-running the whole pipeline) and gives an ordering of steps"
+      ]
+    },
+    {
+      "id": "forecast-two-models-segment-merge-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "We forecast weekly demand for ~4,000 SKUs at a grocery chain. Two analysts built competing models and I have to choose one for next quarter:\n\n- Model A (seasonal naive + promo uplift multipliers): overall WAPE 21%. On long-running staple SKUs it's 14%, but on SKUs launched in the last 6 months it's 48%.\n- Model B (LightGBM global model with price, promo, weather, holiday features): overall WAPE 19%. On staples it's 17%, on new SKUs 29%. During the two Christmas weeks it was 40% vs A's 26%.\n\nStaples are ~70% of volume, new SKUs ~10%, the rest is in between. Leadership wants \"one model\". Which one do we ship?",
+      "why_in_scope": "The best answer combines the partial strengths of both models (A on staples and holiday peaks, B on new SKUs) via segment routing or a blend, which is a merge of partial solutions across branches. Without the implant a strong model often answers the literal question by picking B on overall WAPE, maybe with caveats, instead of constructing a combined system.",
+      "rubric": [
+        "Does not just pick the model with the lower overall WAPE; proposes combining them (e.g. routing by SKU segment and/or period, or a weighted ensemble) and explains which model covers which segment using the numbers given",
+        "Handles the 'one model' constraint, e.g. by framing the combination as one forecasting system/pipeline or explaining the trade-off to leadership",
+        "Flags a risk of the merge, such as overfitting segment rules to one backtest, SKUs moving between segments over time, or needing to validate the combined approach on a holdout period",
+        "Numerical reasoning is consistent with the provided figures (does not misstate which model wins on which segment)"
+      ]
+    },
+    {
+      "id": "db-split-migration-plans-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "We're pulling the `orders` domain out of our Django monolith (Postgres 15, orders table ~900M rows, ~2k writes/s peak) into a separate service with its own Postgres. Two plans on the table:\n\nPlan 1 (dual-write): monolith writes to both DBs in the request path behind a flag, backfill old rows with a batch script, flip reads when counts match.\nPlan 2 (CDC): Debezium on the monolith DB streams orders changes to Kafka, new service consumes and writes its DB; flip writes to the new service later with a short write freeze.\n\nPlan 1 people say CDC is too much infra for us. Plan 2 people say dual-write will drift. We can't take more than ~2 minutes of write downtime. What would you do?",
+      "why_in_scope": "The migration decomposes into backfill, ongoing sync, verification and cutover, and each plan is stronger on different nodes; a good answer merges pieces (e.g. CDC or batch backfill plus a verification step and a short freeze cutover) and checks that the merged pieces don't conflict (e.g. dual-write plus CDC double-applying). Without the implant, a strong model tends to argue for one plan wholesale.",
+      "rubric": [
+        "Breaks the migration into phases/sub-problems (e.g. backfill, ongoing sync, verification, read cutover, write cutover) and evaluates the options per phase",
+        "Explains the concrete failure mode of request-path dual-write (the two writes are not atomic, so a failure between them causes silent drift) rather than just asserting it drifts",
+        "Proposes a plan that combines elements from both proposals or justifies per phase which approach is used, and addresses the 2-minute write-downtime limit in the cutover step",
+        "Identifies a conflict to avoid when mixing approaches (e.g. running dual-write and CDC into the same target at once causing duplicate or out-of-order writes) or states how idempotency/ordering is ensured"
+      ]
+    },
+    {
+      "id": "roadmap-three-team-proposals-en",
+      "agent": "product_manager",
+      "language": "en",
+      "history": [],
+      "user_message": "B2B invoicing SaaS, ~1,200 paying customers, churn went from 1.8% to 3.1% monthly over two quarters. I have 3 squads, roughly 18 engineer-weeks each for Q4 (~54 total, and people can move between squads), and three proposals that together need way more than that:\n\n- Growth squad: rebuild onboarding (setup wizard + bank import) — 30 eng-weeks. Data: 40% of churned accounts never connected a bank.\n- Core squad: performance + reliability — invoice PDF generation p95 is 9s, plus 3 outages this quarter. 24 eng-weeks.\n- Integrations squad: QuickBooks two-way sync, top request in sales calls, 36 eng-weeks.\n\nExit surveys: 35% \"too hard to set up\", 25% \"missing integrations\", 20% \"slow/unreliable\", 20% price. The CEO wants me to back one flagship bet for Q4. Which one?",
+      "why_in_scope": "The proposals total ~90 eng-weeks against ~54, so no single proposal plus 'the rest as usual' works. Treating each proposal as a partial solution to churn, the implant leads the model to decompose them, find overlaps (bank import and QuickBooks sync both touch setup/integration pain; reliability affects any new flow) and merge scoped-down pieces into one coherent plan that fits capacity. A strong model without it often answers the literal 'which one' and ranks the rest as secondary without re-scoping them.",
+      "rubric": [
+        "Maps each proposal to the churn evidence (exit survey shares, 40% never connected a bank) rather than judging proposals in isolation",
+        "Proposes a combined Q4 plan that takes scoped-down parts from more than one proposal (e.g. onboarding with bank import as the flagship, a narrowed reliability fix, a first slice of QuickBooks sync) and checks that the total fits the ~54 eng-weeks available",
+        "Notes a dependency or overlap between proposals (e.g. integration work overlapping with onboarding/bank import, or reliability problems undermining a new onboarding flow) and uses it in the plan",
+        "Still gives the CEO a clear answer on the flagship bet and how the rest is framed, and suggests how to measure whether churn improves"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case roadmap-three-team-proposals-en was too easy: the original estimates (16+14+20=50) fit within total capacity (54), so no merge/re-scoping was needed and its capacity rubric item was misleading; raised estimates to 30/24/36 so the plan must merge scoped parts to fit, and updated why_in_scope and rubric. Other five cases passed scope, leak, agent, rubric-fact and language checks unchanged."
+}

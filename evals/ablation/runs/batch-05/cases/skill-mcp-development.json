@@ -1,0 +1,35 @@
+{
+  "component": "skill-mcp-development",
+  "cases": [
+    {
+      "id": "youtrack-tool-review-sync-requests-ru",
+      "agent": "mcp_builder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет. Пишу на Python свой MCP-сервер, чтобы Claude мог заводить задачи в наш YouTrack (self-hosted, REST API). Вот что есть сейчас, работает, но криво:\n\n```python\nimport requests\nfrom mcp.server.fastmcp import FastMCP\n\nmcp = FastMCP(\"youtrack\")\nTOKEN = \"perm:YWxleGV5.NjEtMTI=.x8Jd93kLqPz\"\nBASE = \"https://yt.company.local/api\"\n\n@mcp.tool()\ndef create_issue(data: dict) -> dict:\n    \"\"\"Create issue\"\"\"\n    r = requests.post(f\"{BASE}/issues\", json=data,\n                      headers={\"Authorization\": f\"Bearer {TOKEN}\"}, timeout=30)\n    r.raise_for_status()\n    return r.json()\n\nif __name__ == \"__main__\":\n    mcp.run()\n```\n\nПроблемы: 1) модель постоянно шлёт в data что попало — то summary нет, то project передаёт строкой \"BACKEND\" вместо {\"id\": \"0-3\"}, и YouTrack отвечает 400; 2) при 400 в чате просто что-то невнятное про ошибку, модель не понимает, что исправить. Код в репозиторий хочу закоммитить на этой неделе. Перепиши нормально и скажи, что поменял и почему.",
+      "why_in_scope": "The skill prescribes async tools with httpx.AsyncClient, secrets from os.getenv, try/except returning a meaningful error string plus logger.error, a descriptive docstring because it is the model's prompt, and pydantic for complex inputs. The user no longer mentions stalling, so switching the sync requests call to async is driven by the skill rather than by an explicit complaint; a strong model may also patch the visible 400 symptom while keeping the untyped dict and one-line docstring.",
+      "rubric": [
+        "Replaces the untyped `data: dict` with an explicit typed input (named typed parameters or a pydantic BaseModel with field descriptions) and expands the docstring to describe what the tool does and what each argument means, including the project identifier format, explaining that the model sees this schema and docstring when choosing arguments",
+        "Makes the tool async and uses an async HTTP client (e.g. `async with httpx.AsyncClient(...)`) instead of the blocking `requests` call, noting that a synchronous HTTP call inside the tool blocks the server while it waits",
+        "Wraps the API call in error handling that returns or reports a clear, actionable message including the YouTrack status code and response body (e.g. which field was invalid) instead of letting a bare raise_for_status exception surface, and logs the error (to stderr/logger, not stdout, since stdio carries the protocol)",
+        "Removes the hardcoded token, reads it (and ideally the base URL) from environment variables via os.getenv or similar, and warns that the already-exposed token should be revoked/rotated before committing"
+      ]
+    },
+    {
+      "id": "invoice-mcp-server-skeleton-en",
+      "agent": "mcp_builder",
+      "language": "en",
+      "history": [],
+      "user_message": "I need to expose our internal billing service to Claude Code as an MCP server, Python 3.12, `mcp` package 1.x, deps live in a venv at the repo root (`.venv`). The billing API is plain REST: `POST https://billing.internal/v2/invoices` with a JSON body like `{\"customer_id\": \"cus_123\", \"currency\": \"EUR\", \"due_days\": 30, \"lines\": [{\"sku\": \"SUP-PRO\", \"qty\": 2, \"unit_price_cents\": 4900}]}`, auth is an `X-Api-Key` header. I followed a tutorial that uses `Server()` with `@server.list_tools()` and `@server.call_tool()` and I wrote the inputSchema by hand. Problem: Claude keeps sending `lines` as a JSON string instead of an array, and sometimes omits `currency`, so I think my schema is wrong somewhere. Can you give me a working server.py for a `create_invoice` tool and tell me exactly what to put in the project config so Claude Code launches it? The server file will live at src/mcp_servers/billing/server.py.",
+      "why_in_scope": "The skill says to use the decorator-based FastMCP API instead of the low-level server, write async tools with httpx.AsyncClient, take secrets from os.getenv, model nested inputs with pydantic BaseModel, return meaningful error strings, and register the server with the venv python and server path. The user no longer asks for an easier approach, so a strong model without the skill may just patch the hand-written low-level schema instead of switching to FastMCP with typed models.",
+      "rubric": [
+        "Uses the FastMCP decorator API (`from mcp.server.fastmcp import FastMCP`, `@mcp.tool()`) instead of patching the low-level Server with a hand-written inputSchema, and explains that FastMCP generates the input schema from the type hints (and the tool description from the docstring)",
+        "Models the nested invoice lines with a pydantic BaseModel (or equivalent typed structure) with typed fields such as sku, qty and unit_price_cents, rather than an untyped dict or JSON string",
+        "The tool is async, calls the API with an async HTTP client such as httpx.AsyncClient, reads the API key from an environment variable rather than hardcoding it, and handles HTTP/network failures by returning a readable error message to the model",
+        "Gives a project config entry (e.g. `.mcp.json` / `mcp.json` `mcpServers`) that runs the server over stdio with the repo's `.venv/bin/python` (or its absolute path) and `src/mcp_servers/billing/server.py` as the argument, with the API key supplied via the env block or the environment rather than in the code"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the explicit 'other calls stall' complaint so the async switch is skill-driven, and reworded the async rubric item accordingly. Case 2: replaced 'is there a less painful way?' with a concrete schema bug so recommending FastMCP is no longer prompted by the user, and corrected the rubric claim that the schema comes from the docstring (it comes from type hints; the docstring gives the description)."
+}

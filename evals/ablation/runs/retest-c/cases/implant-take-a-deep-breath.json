@@ -1,0 +1,91 @@
+{
+  "component": "implant-take-a-deep-breath",
+  "cases": [
+    {
+      "id": "ab-test-segment-reversal-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Итоги A/B теста нового онбординга за 2 недели. Вариант A (старый): мобайл — 100 юзеров, 30 конверсий; десктоп — 1000 юзеров, 400 конверсий. Вариант B (новый): мобайл — 1000 юзеров, 330 конверсий; десктоп — 100 юзеров, 45 конверсий. В сумме A: 430/1100 = 39%, B: 375/1100 = 34%. Хочу завтра на планёрке сказать, что B проиграл 5 п.п. и мы его выключаем. Норм вывод?",
+      "why_in_scope": "The overall totals hide a segment reversal: B wins in both mobile (33% vs 30%) and desktop (45% vs 40%) and loses in aggregate only because its traffic is mostly the low-converting mobile segment. Working through the numbers step by step exposes this; a model that accepts the user's already-computed totals and confirms the conclusion misses both the reversal and the broken traffic split.",
+      "rubric": [
+        "Computes per-segment conversion rates and states that B is higher in both segments (mobile 33% vs 30%, desktop 45% vs 40%)",
+        "Explains that the aggregate gap comes from the different segment mix between variants, not from B being worse",
+        "Flags that the traffic mix is badly unbalanced between variants (B mostly mobile, A mostly desktop), points to a likely traffic-allocation or randomization problem, and says the test result should not be taken at face value",
+        "Does not endorse turning off B based on the aggregate 39% vs 34% comparison"
+      ]
+    },
+    {
+      "id": "average-speed-round-trip-ru",
+      "agent": "education_tutor",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите проверить задачу у сына (7 класс). Машина проехала 120 км от города до дачи со скоростью 60 км/ч. С какой скоростью она должна ехать обратно (те же 120 км), чтобы средняя скорость за всю поездку туда-обратно была 100 км/ч? Сын написал 140 км/ч — типа (60 + 140) / 2 = 100. Мне кажется логично, но учительница зачеркнула. Кто прав и как объяснить ребёнку?",
+      "why_in_scope": "The intuitive arithmetic-mean answer (140 km/h) is badly wrong; reasoning through total distance and total time gives 240 km in 2.4 h, 2 h already spent, so 120 km in 0.4 h = 300 km/h. The numbers were chosen so the correct answer is far from the intuitive one, which punishes a quick answer that accepts the parent's framing or does the time step carelessly.",
+      "rubric": [
+        "Gives 300 km/h as the correct answer",
+        "Shows the reasoning via total time: 240 km at 100 km/h = 2.4 h, the first leg took 2 h, so the return must take 0.4 h (24 min)",
+        "Explains why averaging the two speeds is wrong (average speed is total distance over total time; the car spends more time at the lower speed)",
+        "Confirms the teacher was right to mark 140 wrong, in wording a parent can relay to a 7th grader"
+      ]
+    },
+    {
+      "id": "stacked-discounts-cashback-ru",
+      "agent": "universal_agent",
+      "language": "ru",
+      "history": [],
+      "user_message": "Выбираю, где брать наушники. Магазин 1: цена 1000 ₽, скидка 30%, плюс промокод ещё -10% (применяется к цене после скидки), плюс кэшбэк 5% от оплаченной суммы баллами. Магазин 2: те же наушники 1000 ₽, просто скидка 40%, без промокода и кэшбэка. По-моему в первом 30+10+5 = 45%, это явно выгоднее, чем 40%. Или я что-то путаю?",
+      "why_in_scope": "Percentages applied sequentially do not add up; stepping through gives 700, then 630 paid, then 31.5 cashback, i.e. about 40.15% effective, nearly identical to store 2 rather than 45%. A fast answer can confirm the 45% sum or only partly correct it; the step-by-step calculation reveals the near tie and the caveat that cashback is points, not cash.",
+      "rubric": [
+        "Computes the sequence correctly: 1000 -> 700 after 30% -> 630 after promo code -> 31.5 ₽ cashback",
+        "States the effective discount in store 1 is about 40.15% (net about 598.5 ₽), not 45%",
+        "Concludes the difference versus store 2 (600 ₽) is only about 1.5 ₽ and only if the cashback points are actually used",
+        "Points out that store 2 requires paying less money upfront (600 vs 630 ₽), so store 1 is not clearly better"
+      ]
+    },
+    {
+      "id": "fanout-tail-latency-en",
+      "agent": "system_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick sanity check before a design review. Our /feed endpoint fans out to 5 backend services in parallel and waits for all of them before responding. Each backend has p99 latency of 100ms (measured independently). So the /feed p99 should also be about 100ms plus a bit of aggregation overhead, right? We're planning to grow the fan-out to 40 shards next quarter, and I want to put the expected latency numbers on a slide.",
+      "why_in_scope": "When a request waits on all of N parallel calls, the chance at least one exceeds its p99 is 1 - 0.99^N: about 4.9% for 5 calls and about 33% for 40, so 100ms becomes roughly a p95 at 5 and far lower at 40. The user's premise sounds reasonable and a quick answer may just agree; reasoning it through step by step exposes the tail amplification.",
+      "rubric": [
+        "Rejects the premise that the endpoint p99 stays around 100ms",
+        "Computes that with 5 independent calls about 4.9% of requests (1 - 0.99^5) wait on at least one call slower than 100ms, and about 33% with 40 calls (1 - 0.99^40)",
+        "Notes the independence assumption (correlated slowness changes the numbers)",
+        "Suggests at least one concrete mitigation relevant to fan-out tail latency, such as hedged or backup requests, timeouts with partial results, or reducing the fan-out"
+      ]
+    },
+    {
+      "id": "mutable-default-trace-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Interview prep, no interpreter handy. What does this print in Python 3.12, exactly?\n\n```python\ndef add(item, bucket=[]):\n    bucket.append(item)\n    return bucket\n\na = add(1)\nb = add(2, [])\nc = add(3)\na += [4]\nprint(a, b, c, a is c)\n```\n\nMy guess is `[1] [2] [3] False`.",
+      "why_in_scope": "Tracing line by line shows the default list is shared by the first and third calls, and that `a += [4]` mutates that shared list in place rather than rebinding a to a new list, so c also shows the 4 and identity stays True. A quick answer can catch the default-argument trap but treat += like a = a + [...], giving c as [1, 3] and False.",
+      "rubric": [
+        "Gives the exact output `[1, 3, 4] [2] [1, 3, 4] True`",
+        "Explains that the default argument list is evaluated once at function definition and shared across calls that omit bucket, while b gets its own explicitly passed list",
+        "Explains that `a += [4]` extends the list in place (unlike `a = a + [4]`), so the change is visible through c and a is c remains True",
+        "Says the user's guess is wrong"
+      ]
+    },
+    {
+      "id": "fraud-flag-base-rate-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Our new fraud model catches 99% of fraudulent transactions and only flags 2% of legit ones. About 0.5% of our transactions are fraud. Product wants to switch from manual review to auto-blocking every flagged transaction, since with 99% accuracy basically everything flagged is fraud. I'm writing the go/no-go note — can you confirm roughly what share of flagged transactions will actually be fraud?",
+      "why_in_scope": "With a 0.5% base rate, flagged transactions are about 0.495% true positives vs 1.99% false positives, so only about 20% of flagged transactions are fraud. The request invites confirming the premise; working through the conditional probability step by step gives the counterintuitive answer that should drive a no-go.",
+      "rubric": [
+        "States that only about 20% (roughly 19.9%) of flagged transactions are fraud",
+        "Shows the calculation, e.g. per 100,000 transactions about 495 true positives vs about 1,990 false positives",
+        "Explains that the low fraud base rate is why the flagged set is dominated by legitimate transactions, and that recall/false-positive rate are not the same as precision",
+        "Advises against blanket auto-blocking on this basis, e.g. about 4 of 5 blocked transactions would be legitimate customers"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Reworked the average-speed case to numbers where the correct answer (300 km/h) is far from the intuitive 140, and added an in-place `a += [4]` step to the Python trace so the mutable-default trap alone no longer suffices (output verified by running it). Softened the A/B rubric item on randomization to a checkable claim about unbalanced traffic mix; other cases' arithmetic verified and kept."
+}

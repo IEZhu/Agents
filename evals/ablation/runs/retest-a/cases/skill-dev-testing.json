@@ -1,0 +1,100 @@
+{
+  "component": "skill-dev-testing",
+  "cases": [
+    {
+      "id": "flaky-celery-sleep-test-ru",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас в GitLab CI примерно раз в 5-6 прогонов падает тест, и все уже привыкли жать retry. Тест такой (pytest, Django 4.2, Celery 5.3, в CI поднят реальный redis и воркер в соседнем контейнере):\n\n```python\ndef test_invoice_pdf_generated(client, invoice):\n    client.post(f\"/api/invoices/{invoice.id}/render/\")\n    time.sleep(3)\n    invoice.refresh_from_db()\n    assert invoice.pdf_status == \"done\"\n    assert invoice.pdf_file.name.endswith(\".pdf\")\n```\n\nЛокально всегда зелёный. Тимлид предлагает поднять sleep до 10 секунд и добавить pytest-rerunfailures с --reruns 2. Я против, хочу вместо sleep сделать polling: крутить refresh_from_db() каждые 200 мс до статуса done, максимум 30 секунд. Это же правильный вариант? Напиши, как бы ты переделал.",
+      "why_in_scope": "Компонент требует детерминированных тестов без sleep/таймингов, устранения первопричины флаки, а не ретраев, и разделения уровней: логику рендера проверять юнит-тестом, а границу с очередью — отдельно. Пользователь сам предлагает polling с таймаутом, и сильная модель без компонента, скорее всего, одобрит его как «правильное» решение, оставив зависимость от времени и реального воркера в каждом тесте.",
+      "rubric": [
+        "Отвергает увеличение sleep и reruns, объясняя, что это маскирует недетерминизм, а не устраняет его",
+        "Не принимает polling с таймаутом как основное решение: указывает, что тест по-прежнему зависит от времени и реального воркера, и предлагает убрать эту зависимость (синхронный вызов задачи, например CELERY_TASK_ALWAYS_EAGER или прямой вызов функции задачи, либо проверка постановки задачи в очередь отдельно от логики рендера)",
+        "Разделяет проверки по уровням: логика генерации PDF тестируется отдельно (юнит), а полная связка с брокером и воркером, если нужна, — в небольшом числе интеграционных тестов",
+        "Приводит переписанный код теста, корректный для pytest/Django/Celery"
+      ]
+    },
+    {
+      "id": "mocked-private-methods-review-ru",
+      "agent": "code_reviewer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Сделай ревью тестов, пожалуйста. Джун написал, покрытие 100% по этому файлу, но мне что-то не нравится, а сформулировать не могу.\n\n```python\n# services/checkout.py\nclass CheckoutService:\n    def __init__(self, repo, payment_gateway):\n        self.repo = repo\n        self.gw = payment_gateway\n\n    def checkout(self, cart_id):\n        cart = self.repo.get_cart(cart_id)\n        total = self._calc_total(cart)\n        total = self._apply_discount(cart, total)\n        charge = self.gw.charge(cart.user_id, total)\n        self.repo.mark_paid(cart_id, charge.id)\n        return total\n\n# tests/test_checkout.py\ndef test_checkout():\n    svc = CheckoutService(MagicMock(), MagicMock())\n    svc._calc_total = MagicMock(return_value=1000)\n    svc._apply_discount = MagicMock(return_value=900)\n    result = svc.checkout(42)\n    svc._calc_total.assert_called_once()\n    svc._apply_discount.assert_called_once_with(svc.repo.get_cart.return_value, 1000)\n    svc.gw.charge.assert_called_once()\n    assert result == 900\n```",
+      "why_in_scope": "Компонент требует мокать только внешние границы (репозиторий, платёжный шлюз), а не внутренние методы, тестировать поведение, а не реализацию, и не считать покрытие мерой качества. Без него сильная модель может ограничиться косметикой (имена, assert_called_once_with для charge) и не назвать главную проблему: тест подменяет саму проверяемую логику и сломается при рефакторинге, не поймав ошибок в расчёте суммы и скидки.",
+      "rubric": [
+        "Называет ключевую проблему: мокаются приватные методы _calc_total и _apply_discount самого тестируемого класса, поэтому расчёт суммы и скидки фактически не проверяется",
+        "Рекомендует мокать/подменять только зависимости repo и payment_gateway (например, фейковой корзиной с реальными позициями) и проверять результат: итоговую сумму, сумму, переданную в charge, и вызов mark_paid с id платежа",
+        "Отмечает, что 100% покрытия строк здесь не означает проверку поведения, и/или что тест завязан на внутреннюю структуру и сломается при рефакторинге без изменения поведения",
+        "Предлагает отдельные тесты на граничные и ошибочные случаи (например, отказ шлюза — mark_paid не вызывается, пустая корзина или скидка)"
+      ]
+    },
+    {
+      "id": "order-dependent-db-tests-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "history": [],
+      "user_message": "Странная штука. Тесты на репозиторий пользователей (pytest + SQLAlchemy 2.0 + PostgreSQL 15 в docker) по одному проходят все, `pytest tests/test_users_repo.py` целиком тоже зелёный. Но как только включили pytest-randomly, стабильно валятся 3-4 теста: то `UniqueViolation: duplicate key value violates unique constraint \"users_email_key\"`, то `assert len(repo.list_active()) == 2` получает 3. Фикстура сессии у нас такая:\n\n```python\n@pytest.fixture(scope=\"module\")\ndef session():\n    engine = create_engine(DB_URL)\n    Base.metadata.create_all(engine)\n    with Session(engine) as s:\n        yield s\n    Base.metadata.drop_all(engine)\n```\n\nА тест test_create_user создаёт alice@example.com, и test_list_active на него рассчитывает. Может, просто выключить pytest-randomly для этого файла?",
+      "why_in_scope": "Компонент требует, чтобы тесты были независимы и проходили в любом порядке, а случайный порядок воспринимался как детектор проблемы, а не как её причина. Сильная модель без него может согласиться отключить рандомизацию или предложить упорядочить тесты (pytest-order), вместо того чтобы изолировать состояние БД на уровне каждого теста.",
+      "rubric": [
+        "Объясняет, что причина — общее состояние: сессия/данные на уровне модуля и зависимость test_list_active от данных, созданных test_create_user; pytest-randomly лишь выявил это",
+        "Не рекомендует отключать рандомизацию или фиксировать порядок тестов как решение",
+        "Предлагает изоляцию на каждый тест, например function-scoped сессию внутри транзакции с откатом после теста (engine/таблицы можно оставить на уровне session/module), и чтобы каждый тест сам создавал нужные ему данные",
+        "Приводит корректный пример фикстуры для SQLAlchemy 2.0 с откатом транзакции"
+      ]
+    },
+    {
+      "id": "e2e-everything-coverage-mandate-en",
+      "agent": "system_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "Our VP of Eng just mandated 90% coverage on our main Rails 7 monolith (~180k LOC, currently at 31%) by end of Q1. The QA lead's plan: hire two contractors to write Cypress tests for every screen in the app, since \"that exercises the most code per test and it's what users actually see\". We already have ~120 Cypress specs that take 47 minutes in CI and fail randomly maybe 1 in 8 runs. I'm the tech lead and I need to either back this plan or push back with something better in Thursday's meeting. What should I propose?",
+      "why_in_scope": "The component prescribes a test pyramid (many unit, fewer integration, E2E only for critical journeys), risk-based strategy over line coverage, and treating flaky tests as defects to fix at the root. Without it, a strong model may give a generic balanced answer that still accepts broad E2E expansion or the coverage number as the goal, instead of clearly reframing the plan.",
+      "rubric": [
+        "Pushes back on expanding Cypress to every screen: explains cost in CI time, flakiness and maintenance, and recommends keeping E2E to a small set of critical user journeys (e.g. signup/login, checkout or the core workflow)",
+        "Proposes shifting most new tests down to model/service-level unit tests and request/integration tests at boundaries (DB, external APIs), consistent with a pyramid shape",
+        "Argues that a line-coverage target alone does not measure test quality and suggests risk- or criticality-based targets (e.g. prioritising high-change or high-incident code, or checking whether tests catch faults) instead of or alongside the 90% number",
+        "Addresses the existing flaky 1-in-8 suite as a problem to fix (root cause, quarantine) rather than grow, and gives an actionable plan the tech lead can present"
+      ]
+    },
+    {
+      "id": "rounding-bug-fix-regression-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Customer support flagged that some split payments are off by a cent. This is our function (Python 3.11):\n\n```python\ndef split_amount(total_cents: int, n: int) -> list[int]:\n    share = round(total_cents / n)\n    return [share] * n\n```\n\ne.g. split_amount(1000, 3) gives [333, 333, 333] = 999. Can you give me a fixed version? We want the leftover cents to go to the first people in the list. Tests for this module currently only check split_amount(900, 3) == [300, 300, 300].",
+      "why_in_scope": "The component calls for a regression test with every bug fix, written to fail first, and for property-based testing to verify invariants over generated inputs. A strong model without it will likely just hand back a corrected function, maybe with a couple of example asserts, and miss the invariant-based tests (sum equals total, shares differ by at most one) that would have caught this class of bug.",
+      "rubric": [
+        "Provides a correct fix, e.g. using divmod so the first `remainder` people get one extra cent (split_amount(1000, 3) == [334, 333, 333])",
+        "Adds a regression test reproducing the reported case (1000 split 3 ways) that fails on the old code and passes on the new",
+        "Proposes invariant-based tests over many inputs (e.g. with Hypothesis): the parts sum to total_cents, list length equals n, and max minus min is at most 1",
+        "Mentions or handles invalid input such as n <= 0 (raise or document) rather than silently ignoring it"
+      ]
+    },
+    {
+      "id": "tdd-new-feature-plan-en",
+      "agent": "mcp_builder",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "I'm adding a `search_tickets(query: str, status: str | None, limit: int = 20)` tool to our MCP server (Python, FastMCP). It calls our internal Jira-like REST API at /api/v2/tickets?q=...&status=...&page_size=... and returns a compact list of {id, title, status}. The API caps page_size at 50 and returns 400 on unknown status values."
+        },
+        {
+          "role": "assistant",
+          "content": "Here's an implementation:\n\n```python\n@mcp.tool()\nasync def search_tickets(query: str, status: str | None = None, limit: int = 20) -> list[dict]:\n    params = {\"q\": query, \"page_size\": limit}\n    if status:\n        params[\"status\"] = status\n    async with httpx.AsyncClient(base_url=API_URL) as c:\n        r = await c.get(\"/api/v2/tickets\", params=params)\n        r.raise_for_status()\n    return [{\"id\": t[\"id\"], \"title\": t[\"title\"], \"status\": t[\"status\"]} for t in r.json()[\"items\"]]\n```\n\nThen add a quick test that calls the tool against staging and checks it returns a non-empty list."
+        }
+      ],
+      "user_message": "Hmm, the staging test is going to be annoying, staging data changes every day and the API is down during deploys. How should I actually test this thing? Show me the tests.",
+      "why_in_scope": "The component requires deterministic tests that mock at the boundary (the HTTP API) rather than hitting a live shared environment, AAA-structured tests with one concept each, and coverage of edge and error paths. Without it, a strong model may produce a single happy-path mocked test, mock internal pieces like the tool function itself, or keep a live staging dependency, and miss the limit>50 and bad-status cases the user described.",
+      "rubric": [
+        "Replaces the live staging call with a mock/fake at the HTTP boundary (e.g. respx, pytest-httpx, or httpx.MockTransport) so tests are deterministic and do not depend on staging data or uptime",
+        "Includes separate tests for distinct behaviours: request params built correctly (status omitted when None), response mapped to {id, title, status}, and the 400-on-unknown-status path",
+        "Notices that limit above 50 is not handled by the current implementation and either tests for/proposes clamping or validation, or flags it as a bug the tests should catch",
+        "Test code is valid for async Python (e.g. pytest-asyncio or anyio marker) and each test is independently runnable with clear arrange/act/assert steps"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 made subtler: the user now proposes polling with a 30s timeout as the 'right' fix, which a strong model would likely endorse without the component; rubric updated to reward rejecting timing-based waits. Other cases passed scope, leak, agent, rubric-fact and language checks and were kept."
+}

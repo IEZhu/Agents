@@ -1,0 +1,522 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-bio-protocol-design",
+   "case": "levothyroxine-ashwagandha-magnesium-sleep-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "022ae6eeca__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers correctly separate magnesium from L-thyroxine, flag ashwagandha's thyroid effect with a TSH/fT4 recheck, and give a sound evening schedule; neither explains ashwagandha's stress/cortisol mechanism for sleep. B gives explicit stop conditions for ashwagandha (palpitations, tremor, sweating, weight loss, dark urine, jaundice) and mentions liver risk, while A only has stop signs for B6 neuropathy and a vague 'see a doctor if no improvement'. B also adds a staged start plan and useful workup suggestions (ferritin, fT4), which makes it the more complete and actionable answer.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-protocol-design",
+   "case": "levothyroxine-ashwagandha-magnesium-sleep-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "022ae6eeca__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers explain magnesium's mechanism but give no stress/cortisol mechanism for ashwagandha, and both correctly separate magnesium from L-thyroxine and require a TSH/fT4 recheck. A gives explicit stop conditions for ashwagandha covering thyroid-excess symptoms (palpitations, tremor, weight loss) and liver injury (dark urine, jaundice), and it raises the liver risk at all, whereas B mentions neither thyroid-excess stop signs nor liver risk. Both set a trial period of about 2-4 weeks and include CBT-I advice, so rubric item 4 is what separates them.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-clickup-markdown",
+   "case": "clickup-release-checklist-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "03add422b5__o1",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "A writes the QA checklist as `[] item` with no dash, uses single-asterisk bold and no headers, and puts blank lines around each `---`, which directly addresses the user's complaint about checkboxes that could not be clicked. B uses `- [ ]`, `**bold**` and `##` headers, the same kind of formatting that caused the user's earlier problem, and only offers after-the-fact workarounds. Both answers cover the goal, all five QA items and the risks in Russian, but A's odd reference to 'our notes on ClickUp' is a small flaw next to B's formatting failures.",
+   "errors_with": [
+    "Refers to 'наших заметок по ClickUp' (our notes on ClickUp), which suggests a source the assistant does not have"
+   ],
+   "errors_without": [
+    "Uses `- [ ]`, `**` and `##` in a text meant for pasting into ClickUp, even though it notes itself that `- [ ]` may not render as a checkbox"
+   ]
+  },
+  {
+   "component": "skill-clickup-markdown",
+   "case": "clickup-release-checklist-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "03add422b5__o2",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "B writes the checklist as `[] item` with no dash, uses single-asterisk bold and no # headers, and puts blank lines around every --- separator, so it follows the ClickUp formatting the rubric asks for. A repeats the exact `- [ ]`, `**` and `##` markup that likely caused the user's earlier problem with checkboxes that could not be clicked, and it only explains a manual fix afterward. B has small weaknesses: it cites 'our ClickUp notes' as a source it could not have, and it states flatly that `- [ ]` does not work, but these do not outweigh A's formatting failures.",
+   "errors_with": [
+    "Refers to 'наших заметок по ClickUp' as a source, which the assistant did not have"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-code-generation",
+   "case": "config-duration-parser-existing-style-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "081ec9d435__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are correct, mirror the existing helpers, and include thorough monkeypatch tests, so every rubric item is met by both. B also raises the practical backward-compatibility risk of switching an existing get_int value like '30' to get_duration, and it tests '1m500ms', the case most likely to trip the m/ms parse. A's optional bare-seconds snippet uses float() directly, so it would silently accept values like '-5', 'nan' or 'inf', which weakens its validation story.",
+   "errors_with": [],
+   "errors_without": [
+    "Optional bare-seconds fallback via float(stripped) would accept negative, 'nan' and 'inf' values, which contradicts the stated 'no negatives' rule"
+   ]
+  },
+  {
+   "component": "skill-code-generation",
+   "case": "config-duration-parser-existing-style-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "081ec9d435__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct regex-based parsers, ConfigError messages that name the key and raw value, and thorough monkeypatch tests. A is slightly cleaner: it keeps the existing no-normalization style and explains the backward-compatibility risk for bare numbers precisely. B's optional bare-seconds snippet uses float() and so would silently accept 'nan', 'inf' and negative values, and its float-precision remark is loosely stated.",
+   "errors_with": [],
+   "errors_without": [
+    "Optional bare-seconds fallback via float() would accept 'nan', 'inf' and negative numbers, contradicting its stated 'no negatives' rule"
+   ]
+  },
+  {
+   "component": "skill-bio-protocols",
+   "case": "sauna-longevity-on-amlodipine-en",
+   "A": "without",
+   "B": "with",
+   "stem": "158422b399__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give nearly identical conservative ramp-up protocols, flag the amlodipine and heat interaction, and describe the study as observational. B states outright that the user should skip the sauna if they have already started drinking and explains why alcohol adds to the risk, which fully meets the central safety item; A only reorders the Saturday routine. A's stop signals are a little better (it includes an irregular or pounding heartbeat), but neither answer mentions chest pain, and B's numeric heart-rate cutoff partly makes up for that.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-protocols",
+   "case": "sauna-longevity-on-amlodipine-en",
+   "A": "with",
+   "B": "without",
+   "stem": "158422b399__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give nearly identical conservative ramp-ups, flag the amlodipine and alcohol interaction with a clear 'skip sauna if drinking' rule, and call the Finnish data observational. B's stop signals are a little more complete because they include an irregular or pounding heartbeat (palpitations), and B asks about other medications that would change the advice; A's exit rule covers only lightheadedness, nausea and HR above 150. Neither lists chest pain, and A's extra study figures add detail without deciding the comparison.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-consultative-intake",
+   "case": "laptop-for-student-daughter-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "302cd8fcbe__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Neither answer restates the request, and both front-load a long buyer's guide before asking questions, so both miss the rubric's core clarify-first shape. B makes its recommendations explicitly conditional on the deciding unknowns (a table by specialty, candidates split by macOS, Windows and discrete GPU) and asks a third question about portability, which fits item 3 somewhat better. A is a bit more concise, but it presents a flat model list and a leaning toward specific models before the key answers are known.",
+   "errors_with": [],
+   "errors_without": [
+    "Recommending Ryzen '7000-8000 series and newer' without caveat ignores that some Ryzen 7000 mobile chips (e.g., 7x20U) are weak rebranded older designs"
+   ]
+  },
+  {
+   "component": "skill-consultative-intake",
+   "case": "laptop-for-student-daughter-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "302cd8fcbe__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give a sizeable buyer's guide before asking questions, and neither restates the request or invites correction. A organizes its candidates explicitly by specialty and OS, so its pointers read more clearly as conditional, and its three questions also cover portability versus power. B presents a ranked model list with a named 'most balanced' pick before asking, so it comes closer to settling on a recommendation before the unknowns are resolved.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-mechanism",
+   "case": "iron-ferritin-not-rising-en",
+   "A": "without",
+   "B": "with",
+   "stem": "4b6a0a3eb6__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers cover all four rubric items accurately. Each flags the co-ingested inhibitors, explains hepcidin with alternate-day dosing, defers escalation and IV iron to the doctor, and times the dose around training. A adds the circadian hepcidin point and H. pylori/PPI causes, while B adds clearer warning symptoms and training guidance; these small differences offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-mechanism",
+   "case": "iron-ferritin-not-rising-en",
+   "A": "with",
+   "B": "without",
+   "stem": "4b6a0a3eb6__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover all four rubric items with nearly identical, accurate content: the absorption blockers, the 24-hour hepcidin rise favouring alternate-day dosing, deferring to the doctor with workup and IV iron, and the post-exercise hepcidin timing. B adds useful extras: the daily hepcidin rhythm that makes evening doses worse, H. pylori and PPI use as causes of poor absorption, an explicit warning not to keep raising the oral dose, and concrete RED-S signs. A's advice to act only on black stools when abdominal pain is also present is slightly weaker safety guidance, though B's is similar.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-clickup-markdown",
+   "case": "clickup-bug-comment-en",
+   "A": "with",
+   "B": "without",
+   "stem": "6bf8787dab__o1",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "A's comment uses ClickUp-native formatting throughout: `[]` checkboxes, single-asterisk bold headings, and inline code with no fenced block inside the comment (the outer fence only marks the text to copy). B uses `**bold**`, `- [ ]` checklists and a fenced xml code block, which is the raw-markdown style the user asked to avoid. B only partly makes up for this with a paste-time workaround. Both state the cause, PR #482 and all four follow-ups correctly, so the formatting items decided it.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims ClickUp's comment editor normally converts pasted Markdown (bold, checklists) to rich text. This is hedged but likely unreliable, especially for `- [ ]` lines."
+   ]
+  },
+  {
+   "component": "skill-clickup-markdown",
+   "case": "clickup-bug-comment-en",
+   "A": "without",
+   "B": "with",
+   "stem": "6bf8787dab__o2",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "B uses ClickUp-native formatting throughout the comment: `[]` checkboxes, single-asterisk headings, and the manifest line and file names in inline code. A uses `- [ ]`, `**bold**`, and a fenced ```xml block, so it fails the first three rubric items even though its content is accurate. B only loses a little on item 3 because it wraps the whole comment in a triple-backtick block for copying, but the comment inside has no fenced block.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-blender-scripting",
+   "case": "lampshade-solidify-custom-stl-en",
+   "A": "without",
+   "B": "with",
+   "stem": "8c8d31fc51__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the base-mesh and quad-truncation bugs and give working evaluated-mesh, loop_triangles writers. B states plainly that 0.6 mm is too thin and cites 0.8 to 1.2 mm, while A calls it only borderline. B also covers the manifold check and normal orientation (the negative-scale winding flip), where A checks watertightness only. B's sanity check that compares the triangle count with base polygons is muddled, but that is a minor slip.",
+   "errors_with": [
+    "Says a triangle count of about 1x len(obj.data.polygons) means the modifier is missing; without Solidify the triangulated base mesh would still give about 2x"
+   ],
+   "errors_without": [
+    "Suggests exporting a closed-bottom single surface for spiral vase mode; vase mode expects a closed solid, so a zero-thickness surface is not the right input"
+   ]
+  },
+  {
+   "component": "skill-blender-scripting",
+   "case": "lampshade-solidify-custom-stl-en",
+   "A": "with",
+   "B": "without",
+   "stem": "8c8d31fc51__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the base-mesh vs evaluated-mesh problem and the quad truncation, and both give sound corrected writers. A calls the 0.6 mm wall too thin and mentions 1.2 mm for stiffness, while B only calls it borderline. A also gives a concrete bmesh manifold check and warns about inward normals from negative scale, where B covers manifold checking only through the 3D-Print Toolbox and never addresses normal orientation.",
+   "errors_with": [
+    "Sanity check saying a triangle count of about 1x len(obj.data.polygons) means the modifier is missing is misleading: triangulating without Solidify already gives about 2x, and the correct result is about 4x plus rim triangles."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-creative-craft",
+   "case": "estranged-father-hospital-scene-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "a0184c242b__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both scenes open in the ward, stay in Lena's viewpoint, fit the given facts and come in at roughly the requested length. A comes close to stating the realization outright ('С мокрым рукавом она и поняла... под гнётом было что-то ещё'), while B lets love surface only through the involuntary 'пап', the napkin and the hand she cannot pull away. A does have strong touches (the father secretly at the funeral, the bag motif), but B handles the core rubric requirement of unstated feeling more consistently.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-creative-craft",
+   "case": "estranged-father-hospital-scene-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "a0184c242b__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A carries the love almost entirely through the slipped 'пап', the napkin and the hand she cannot withdraw, while B's narration spells out the realization ('С мокрым рукавом она и поняла... под гнётом было что-то ещё') and has Lena state her anger outright, which weakens rubric item 1. B's length (about 2470 characters) fits the requested range better than A's (about 2300), and both overstate their length as about 2800, though both hedge and tell the user to check. On balance, A's stronger subtext on the rubric's main craft item outweighs its slight shortfall in length.",
+   "errors_with": [
+    "Claims about 2800 characters; the scene is about 2300"
+   ],
+   "errors_without": [
+    "Claims about 2800 characters; the scene is about 2470"
+   ]
+  },
+  {
+   "component": "skill-confidence-markers",
+   "case": "node20-rss-growth-oom-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a708728aab__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both answers cover the off-heap diagnosis, the count-bounded lru-cache, and sharp/glibc fragmentation with the same mitigations, in a sensible time-boxed order. B gives each hypothesis its own justified likelihood (High/High/Medium/Low, with reasons) and says clearly that the cause is unconfirmed until the A/B runs, while A gives only one overall MEDIUM confidence plus loose ordering hints. B also adds useful concrete details: ready-to-paste instrumentation code, cache-key normalization, and a clear way to read the A/B results.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-confidence-markers",
+   "case": "node20-rss-growth-oom-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a708728aab__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers cover the off-heap diagnosis, the count-bounded lru-cache, and the sharp/glibc fragmentation mitigations with nearly identical, correct substance and a sensible time-boxed order. A goes further on rubric item 4 with a per-hypothesis likelihood table (High/High/Medium/Low) plus its reasoning, while B gives mostly one overall MEDIUM confidence and only loose in-text likelihood wording. B adds useful extras (the rss minus (heapTotal+external) split, a cache-disable env flag, the CDN note), but these do not outweigh A's clearer calibration per hypothesis.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-creative-craft",
+   "case": "grandma-kitchen-paragraph-revision-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a7c0fc9fb2__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both rewrites keep Maya's viewpoint, replace the feeling labels with concrete objects, stay under 180 words and give an accurate 3-sentence explanation. In A, Dave says Maya looks tired while he 'didn't turn around', which does not make sense, whereas B has him look her over first and shows his annoyance through a gesture as well as a line. A's advantage is that it openly flags the details it invented, but B's explanation also names the backstory restructuring, which A's does not.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-creative-craft",
+   "case": "grandma-kitchen-paragraph-revision-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a7c0fc9fb2__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both rewrites remove the feeling labels, stay under 180 words (about 170 each), fold in the backstory and keep a 3-sentence explanation. In B, Dave says 'You look tired' while he 'didn't turn around', which contradicts the fact that he judged how she looked and weakens the Maya-POV handling of his observation; A keeps it consistent ('He looked her over'). B's note flagging its invented details is a plus, but A's explanation also covers the backstory restructuring, and A has no continuity slip.",
+   "errors_with": [],
+   "errors_without": [
+    "Dave comments that Maya looks tired while explicitly not turning around to look at her"
+   ]
+  },
+  {
+   "component": "skill-confidence-markers",
+   "case": "flask-orders-review-before-release-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "af871f2ba4__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly block on SQL injection and IDOR, cover the X-Forwarded-For and SECRET_KEY issues, and give concrete checks for nginx, the middleware and the prod env. A differentiates confidence as the rubric asks: LOW on middleware coverage and MEDIUM on SECRET_KEY because it depends on the prod env. B labels SECRET_KEY [CONF: HIGH] even though its risk depends on the unseen environment. B is more thorough, with its devops question list and the grep for other f-string queries, but that does not make up for the weaker calibration.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-confidence-markers",
+   "case": "flask-orders-review-before-release-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "af871f2ba4__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers treat SQL injection as a blocker with parameterized queries and cover IDOR, the X-Forwarded-For rate-limit key and the SECRET_KEY fallback, with concrete checks for devops and staging. B assigns differentiated confidence as the rubric asks: SECRET_KEY is MEDIUM because it depends on the prod environment, and auth coverage is LOW because the middleware was not seen. A labels SECRET_KEY as HIGH, even though its severity text makes it conditional. A has a slightly better consolidated list of devops questions, but this does not outweigh B's closer fit to the calibration criterion.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-code-generation",
+   "case": "batch-helper-bulk-api-limit-en",
+   "A": "without",
+   "B": "with",
+   "stem": "b0cd2e0762__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "The implementations and tests are essentially identical, and both fully meet every rubric item. B's call-site example uses the default as the user asked, while A redefines a separate local HUBSPOT_BATCH_LIMIT = 100, which duplicates the value the default was meant to centralize. B also points out that un-awaited sends can cause unhandled rejections and gives a Promise.all alternative for parallel sends, which makes its migration guidance a little more useful.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-code-generation",
+   "case": "batch-helper-bulk-api-limit-en",
+   "A": "with",
+   "B": "without",
+   "stem": "b0cd2e0762__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct implementation and essentially the same test suite, so every rubric item is met by both. A matches the request more closely: its call-site example uses the default the user asked for, and it gives useful advice about the unawaited send (unhandled rejections, plus Promise.all if parallel calls are intended). B's call sites instead redefine a local HUBSPOT_BATCH_LIMIT = 100 and pass it explicitly, which duplicates the constant and partly works against the default the user requested.",
+   "errors_with": [
+    "Says that with a negative size the inline loop 'keeps pushing empty slices'; the loop does run forever, but the first slices are not necessarily empty (e.g. slice(0, -1) on a non-empty array)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-blender-scripting",
+   "case": "pegboard-slow-loop-thin-wall-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "bdb1dac8eb__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly identify the bpy.ops-in-a-loop bottleneck, flag the 0.4 mm single-perimeter wall and recommend solid pegs or a 0.8 mm wall, note that join() is not a union, and provide parameterized bmesh code. B builds one connected, watertight mesh directly (shared cell-edge vertices, no boolean) and validates manifoldness with a hard error, which avoids A's potentially slow EXACT boolean over roughly 27k faces and its fallback to overlapping shells. B also adds useful extras (volume and mass estimate, Z-hop, export scale check), while A has a slightly inflated claim that two perimeters make up about 90% of the peg cross-section.",
+   "errors_with": [
+    "Claims two perimeters cover ~90% of a 3 mm peg's cross-section; with 0.4 mm lines it is closer to ~78%"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-blender-scripting",
+   "case": "pegboard-slow-loop-thin-wall-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "bdb1dac8eb__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both replace the per-peg operators with one bmesh, flag the 0.4 mm single-perimeter wall with correct material-savings math, and explain that join() leaves intersecting shells. A builds the panel and pegs as connected, shared-vertex geometry that is watertight by construction and checks it in code, so it needs no boolean. B relies on one EXACT boolean union over about 27k faces, which is heavier and less certain, and it slightly overstates how much of a solid peg two perimeters fill.",
+   "errors_with": [
+    "Claims two 0.4 mm perimeters make up ~90% of a 3 mm solid peg cross-section; the annulus from r=0.7 to r=1.5 is about 78%"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-consultative-intake",
+   "case": "notifications-prd-dental-saas-en",
+   "A": "with",
+   "B": "without",
+   "stem": "c7e401317e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers surface the staff-vs-patient ambiguity but then deliver a full PRD built on a staff-facing assumption, with no direct questions to the user and no restated understanding for them to confirm. A ties HIPAA directly to patient-facing messaging (PHI in messages, BAAs with SMS/email vendors, TCPA) and offers to rewrite if leadership meant patient reminders, while B names TCPA only tentatively for patient messaging and brings up HIPAA only as a reason to start in-app. B's PRD is more detailed (tenant isolation, pre-mortem), but that extra detail builds further on unconfirmed assumptions, so it does not outweigh A's slightly better rubric fit.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-consultative-intake",
+   "case": "notifications-prd-dental-saas-en",
+   "A": "without",
+   "B": "with",
+   "stem": "c7e401317e__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give a full PRD instead of asking first, and neither restates its understanding for the user to confirm, so both only partly meet items 2 and 4. B puts the patient-vs-staff audience question up front as the key issue, says outright that the draft assumes staff-facing, and offers to rewrite it if leadership meant patient reminders. B also names HIPAA directly for patient messaging, including BAAs with SMS and email vendors, while A mainly cites TCPA for patient messaging and brings up HIPAA only as the reason for choosing in-app.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-mechanism",
+   "case": "melatonin-dose-vs-preworkout-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "cc6d434172__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: each blames the caffeine in the pre-workout, works through the half-life numbers, says melatonin is a timing signal and advises against both 10 mg and phenibut. A is slightly better calibrated: it rates the evidence more cautiously and makes no unsupported assumptions. B rates the evidence for low-dose melatonin and for magnesium too highly, assumes the pre-workout began three weeks ago, and files a warm shower under the 'cooling' row, which is confusing.",
+   "errors_with": [],
+   "errors_without": [
+    "Evidence for magnesium glycinate as a sleep aid is rated 'medium', which overstates weak data",
+    "Assumes the pre-workout started three weeks ago ('Совпадение по времени'), which the user never said"
+   ]
+  },
+  {
+   "component": "skill-bio-mechanism",
+   "case": "melatonin-dose-vs-preworkout-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "cc6d434172__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical reasoning: the pre-workout's caffeine, the half-life arithmetic, adenosine blockade, melatonin as a timing signal, and a firm no on phenibut. B adds a few useful extras: a clearer explanation of why a higher melatonin dose will not help, a warning not to swap caffeine for other stimulants such as synephrine or yohimbine, a pointer to CBT-I as first-line treatment, and a source (Drake 2013) for the caffeine effect. A's protocol table is slightly inconsistent, since its fallback of at most 100 mg of caffeine no later than 16:00 conflicts with the 18:45 time listed in the same row.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-caveman-tokenomics",
+   "case": "nginx-413-upload-terse-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "df5db4fb7c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly name client_max_body_size, its 1m default, where it can go, and nginx -t plus reload, but both are long, heavily sectioned write-ups rather than the compressed answer the rubric asks for. B's main config is a simple server-level 55m fix, with the per-location option as a one-line alternative. A's main config instead mixes in a site-wide 2m limit and timeout changes, including proxy_read_timeout, which is framed as helping with slow client uploads even though it does not. B's extras list is long, but it is clearly separated from the fix, so B edges ahead.",
+   "errors_with": [],
+   "errors_without": [
+    "The config comment implies proxy_read_timeout helps with slow client uploads, but it governs reading the upstream response, not the client request body."
+   ]
+  },
+  {
+   "component": "skill-caveman-tokenomics",
+   "case": "nginx-413-upload-terse-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "df5db4fb7c__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both open by naming client_max_body_size without the value, both state the 1m default, block placement, and nginx -t plus reload, and both are long multi-section answers that ignore the compression the rubric asks for. B is longer still, puts timeout caveats straight into the main config block, and changes the site-wide limit to 2m without being asked. A keeps the fix simpler and its caveats a bit tighter, so it edges ahead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-protocol-design",
+   "case": "evening-preworkout-caffeine-beta-alanine-en",
+   "A": "with",
+   "B": "without",
+   "stem": "ed372342b5__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly total the daily caffeine, relate the dose to body weight, explain that beta-alanine works by chronic loading, and propose going stim-free or using a half scoop. A gives a fuller set of stop and adjust conditions (palpitations, blood pressure, jitteriness, sleep-onset threshold) plus a concrete 2-3 week monitoring plan, while B's stop conditions are narrower. B also suggests a 'not after ~5 pm' caffeine cut-off, which contradicts its own point that caffeine within 6 h of bed harms sleep, whereas A's timing advice holds together.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-protocol-design",
+   "case": "evening-preworkout-caffeine-beta-alanine-en",
+   "A": "without",
+   "B": "with",
+   "stem": "ed372342b5__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers compute the daily caffeine total, relate the dose to body weight, explain the sleep timing problem and describe beta-alanine loading correctly. B gives a more explicit list of stop or adjust conditions (palpitations, raised blood pressure, jitteriness, sleep onset over 30 min, rising morning coffee need), while A covers only cardiovascular symptoms plus a brief note on tolerance. B also adds a more concrete daily plan and quantifies the beta-alanine shortfall from dosing only on training days.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-caveman-tokenomics",
+   "case": "dict-iteration-fix-commit-msg-en",
+   "A": "with",
+   "B": "without",
+   "stem": "f81a16bea4__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give the correct cause, a correct in-place fix, and a well-formed prose commit message, but both pad the answer with unrequested regression tests, confidence sections and extra bullets, which goes against rubric item 3. B opens directly with a bolded cause and is somewhat tighter overall. A adds more tangential material: the note that the error is intentional, the list(sessions) alternative, and a <= edge-case digression. B's thread-safety aside is also off-topic, so the margin is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-caveman-tokenomics",
+   "case": "dict-iteration-fix-commit-msg-en",
+   "A": "without",
+   "B": "with",
+   "stem": "f81a16bea4__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give the same correct in-place fix, correctly warn against rebinding, and provide good full-sentence commit messages. Both exceed the brevity rubric with unrequested regression tests, complexity notes and confidence sections; A is slightly tighter, while B adds more explanation of CPython internals, an extra bullet list and an unrequested edge case about <=. The difference is small and comes down to A's somewhat leaner prose.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-protocols",
+   "case": "cold-plunge-after-lifting-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "f85712016c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give nearly identical beginner progressions, correctly move the plunge to rest days (Tue/Thu/Sun) or 6+ hours after lifting, and cite Roberts 2015 with hedges. A includes an explicit get-out-immediately rule tied to specific signs (loss of breathing control, numb hands, uncontrollable shivering), while B only says to exit at the onset of shivering and has no explicit alarm-sign rule. B adds useful but unrequested nutrition content and a sound note against plunging right before lifting, which does not outweigh the missing safety rule.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-bio-protocols",
+   "case": "cold-plunge-after-lifting-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "f85712016c__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers give a similar beginner progression, move the plunge to rest days (Tue/Thu/Sun) or at least 6 hours after lifting, and cite Roberts 2015 with honest caveats. The deciding difference is item 3: B has an explicit rule to get out immediately if breathing goes out of control, the hands go numb or shivering becomes uncontrollable, while A only says to get out when shivering starts. B also ends with a compact summary that fits the request for a simple scheme, while A adds nutrition advice the user did not ask for.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

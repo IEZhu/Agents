@@ -1,0 +1,35 @@
+{
+  "component": "skill-web-search",
+  "cases": [
+    {
+      "id": "nextcloud-upgrade-error-search-ru",
+      "agent": "sysadmin",
+      "language": "ru",
+      "history": [],
+      "user_message": "Обновлял Nextcloud с 31.0.9 на 32.0.0 через `sudo -u www-data php occ upgrade` (Debian 12, PHP 8.3, MariaDB 10.11). Упало вот так:\n\n```\nSetting log level to debug\nUpdating database schema\nAn unhandled exception has been thrown:\nException: Database error when running migration 32000Date20250806110519 for app core\nAn exception occurred while executing a query: SQLSTATE[42000]: Syntax error or access violation: 1071 Specified key was too long; max key length is 3072 bytes\n```\n\nСейчас инстанс в maintenance mode. Гуглил \"nextcloud не обновляется ошибка базы данных\" и \"nextcloud 32 upgrade error mariadb\" — выдаёт кучу старых статей 2019-2021 года про utf8mb4 и какие-то форумы, ничего конкретного. Что это вообще такое и как починить? Ломать базу наугад не хочу.",
+      "why_in_scope": "The skill makes the model treat a version-specific, possibly post-cutoff error as something to look up rather than guess, and to build precise queries: exact error string in quotes, version disambiguators, primary sources (the project's GitHub issues, official forum, changelog) via site:, and to check that any fix matches the exact version before applying it. A strong model without it tends to confidently prescribe a generic utf8mb4/ROW_FORMAT recipe from memory as the definitive fix and give only vague search advice.",
+      "rubric": [
+        "Instead of only prescribing a fix, gives concrete search queries that quote the exact error text (e.g. the migration name or the \"Specified key was too long\" line) together with the Nextcloud version, and point to primary sources such as github.com/nextcloud/server issues or help.nextcloud.com (e.g. via site:)",
+        "Does not present a fix reconstructed from memory as certain for 32.0.0; frames any likely cause (index length limits, charset/collation or row format) as a hypothesis to confirm against the version's issues/changelog before applying",
+        "Advises making a database backup (dump) before trying any repair or schema change",
+        "Explains in plain terms what the error means: the migration tried to create an index/key whose total length exceeds MariaDB's 3072-byte limit"
+      ]
+    },
+    {
+      "id": "node20-eol-upgrade-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick one. It's late September 2026 and we're planning Q4 infra work. Our API services (about 14 of them, Express + a few NestJS) all run on Node 20 in Docker (`node:20-alpine`). Is Node 20 still getting security fixes, and what version should we standardize on for the next year? I need to put a concrete target and a date in the planning doc, so please be exact.",
+      "why_in_scope": "The skill says time-sensitive facts (release status, current LTS lines, EOL dates) must be looked up rather than reconstructed from memory, and points to primary sources such as official release schedules and changelogs. Without it, a strong model is likely to state the current LTS line and dates as settled facts from training data, even though the user asks for exact values for a date that may be past its knowledge, and give no way to check them.",
+      "rubric": [
+        "States that Node 20 was scheduled to reach end-of-life on 30 April 2026, so it is no longer getting security fixes by late September 2026",
+        "Recommends standardizing on a currently supported LTS line (e.g. Node 24) rather than a Current (non-LTS) release for production",
+        "Clearly says the exact current LTS status and support end dates should be checked against the official Node.js release schedule (nodejs.org or the nodejs/Release GitHub repo) before they go into the planning doc, instead of presenting every date from memory as certain",
+        "Stays concise and directly answers both questions (support status and target version), with any migration notes kept short and relevant to Express/NestJS in Docker"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the user's explicit 'how do I find a solution for my version' ask, which led the model straight to search advice; the case now checks whether the model offers precise, version-specific queries on its own instead of a fix recalled from memory. Case 2: removed the odd/even LTS claim from rubric item 2 because Node.js may be changing its release scheme; the EOL date for Node 20 (2026-04-30) and the Node 24 LTS example are correct."
+}

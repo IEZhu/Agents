@@ -1,0 +1,35 @@
+{
+  "component": "implant-tree-of-thought",
+  "cases": [
+    {
+      "id": "pg-db-shuffle-disk-space-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "history": [],
+      "user_message": "Нужно переразложить базы PostgreSQL по серверам, и я запутался в порядке. Переносим так: pg_dump -> pg_restore на новый сервер, потом DROP DATABASE на старом. То есть на время переноса база целиком лежит в двух местах, и на целевом сервере должно хватать места под всю базу. Места под WAL и прочее уже вычтено, считайте только размеры баз.\n\nСейчас:\n- S1 (диск под базы 1000 ГБ): billing 420 ГБ, analytics 300 ГБ, wiki 250 ГБ. Занято 970.\n- S2 (1000 ГБ): crm 380 ГБ, metrics 250 ГБ, logs 150 ГБ. Занято 780.\n- S3 (новый, 500 ГБ): пусто.\n\nНужно в итоге:\n- S1: analytics, wiki, crm\n- S2: billing, metrics\n- S3: logs\n\nДиски расширить нельзя, внешнего хранилища под дампы нет, всё только через эти три сервера. Каждый перенос большой базы идёт по несколько часов, поэтому хочу минимальное число переносов. Джуниор предложил начать с logs на S3, раз уж он туда всё равно едет, а потом поменять billing и crm местами. Дайте порядок шагов.",
+      "why_in_scope": "This is a planning problem where the obvious moves hit dead ends: billing cannot go straight to S2 (220 GB free) and crm cannot go straight to S1 (30 GB free), and moving logs first shrinks S3's free space to 350 GB, so neither big database can then be staged there without extra moves. The implant makes the model branch over first moves, check each against the free space, drop the dead ends and backtrack. Without it, a strong model can easily accept the junior's order, propose a direct swap that does not fit, or give a longer plan than needed.",
+      "rubric": [
+        "Gives a concrete ordered plan in which every step fits the target server's free space at that moment. One valid 4-step plan: billing S1->S3, crm S2->S1, billing S3->S2, logs S2->S3. Another: crm S2->S3, billing S1->S2, crm S3->S1, logs S2->S3.",
+        "The plan uses 4 transfers, which is the minimum. A plan with 5 or more transfers, or one that relies on space that isn't there, fails this item.",
+        "States that the junior's order is not optimal: once logs is on S3, only 350 GB is free there, so neither billing (420) nor crm (380) can be staged on S3 and the plan needs an extra move.",
+        "Explains that the direct swap is impossible (S2 has only 220 GB free for billing, S1 only 30 GB free for crm), so one of the big databases has to be staged on S3 temporarily."
+      ]
+    },
+    {
+      "id": "internal-deps-version-backtrack-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our Python service depends on four internal packages and our private index's resolver keeps timing out, so I want to pin versions by hand. Requirements from our side: authkit >= 2.3 (we need the SSO refresh flow added in 2.3) and telemetry >= 3.1 (we need the new span exporter). Here is the dependency metadata from each package's pyproject, copied exactly:\n\nauthkit 2.4 -> httpcore >=5.0\nauthkit 2.3 -> httpcore >=4.1,<5.0 ; cfgload >=1.9\ntelemetry 3.2 -> httpcore <5.0 ; cfgload <=1.8\ntelemetry 3.1 -> httpcore <4.2 ; cfgload >=1.8\nhttpcore 5.0 -> (no deps)\nhttpcore 4.2 -> cfgload >=1.8\nhttpcore 4.1 -> cfgload >=1.9\nhttpcore 4.0 -> (no deps)\ncfgload 1.9, 1.8, 1.7 -> (no deps)\n\nAvailable versions: authkit 2.1-2.4, telemetry 3.0-3.2, httpcore 4.0, 4.1, 4.2, 5.0, cfgload 1.7-1.9. I'd like the newest versions that work. What exactly should I pin in requirements.txt?",
+      "why_in_scope": "Picking the newest version of each package first leads into dead ends: authkit 2.4 forces httpcore 5.0, which no telemetry version accepts, and telemetry 3.2 needs cfgload <=1.8, while authkit 2.3 needs cfgload >=1.9. The only working set comes from trying branches, rejecting them and backtracking, which is what the implant prescribes. A strong model reasoning linearly can easily pin authkit 2.4 or telemetry 3.2, or skip a transitive constraint such as httpcore 4.1 -> cfgload >=1.9.",
+      "rubric": [
+        "Recommends exactly authkit==2.3, telemetry==3.1, httpcore==4.1, cfgload==1.9, which is the only combination that meets the stated requirements.",
+        "Explains why authkit 2.4 cannot be used: it requires httpcore >=5.0, but every telemetry version that meets the requirement needs httpcore <5.0 (3.1 needs <4.2).",
+        "Explains why telemetry 3.2 cannot be used: it needs cfgload <=1.8, which conflicts with authkit 2.3's cfgload >=1.9.",
+        "Does not recommend httpcore 4.2, noting that telemetry 3.1 requires httpcore <4.2."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified both puzzles by hand: case 1 plans are valid, 4 transfers is the minimum (3 is impossible because billing and crm block each other), and the junior's logs-first order needs at least 5 transfers; case 2 has the unique solution authkit 2.3 / telemetry 3.1 / httpcore 4.1 / cfgload 1.9. No leaks, agents fit, rubrics are correct and not length-based, so no changes were needed."
+}

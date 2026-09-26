@@ -1,0 +1,242 @@
+{
+ "6cdbed9b12__o1": {
+  "component": "implant-cumulative-reasoning",
+  "case": "duplicate-payments-login-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6cdbed9b12__o2": {
+  "component": "implant-cumulative-reasoning",
+  "case": "duplicate-payments-login-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "9a2b3afb85__o1": {
+  "component": "implant-cumulative-reasoning",
+  "case": "memo-leak-timeline-en",
+  "A": "with",
+  "B": "without"
+ },
+ "9a2b3afb85__o2": {
+  "component": "implant-cumulative-reasoning",
+  "case": "memo-leak-timeline-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b3142fe301__o1": {
+  "component": "implant-decomposed-prompting",
+  "case": "interleaved-release-meeting-transcript-en",
+  "A": "with",
+  "B": "without"
+ },
+ "b3142fe301__o2": {
+  "component": "implant-decomposed-prompting",
+  "case": "interleaved-release-meeting-transcript-en",
+  "A": "without",
+  "B": "with"
+ },
+ "7d90b496cb__o1": {
+  "component": "implant-decomposed-prompting",
+  "case": "job-offer-switch-mixed-questions-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "7d90b496cb__o2": {
+  "component": "implant-decomposed-prompting",
+  "case": "job-offer-switch-mixed-questions-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9c780c2156__o1": {
+  "component": "implant-dr-cot",
+  "case": "pin-policy-overlapping-rules-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9c780c2156__o2": {
+  "component": "implant-dr-cot",
+  "case": "pin-policy-overlapping-rules-en",
+  "A": "with",
+  "B": "without"
+ },
+ "41a1ae2062__o1": {
+  "component": "implant-dr-cot",
+  "case": "shipping-cost-nested-ifs-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "41a1ae2062__o2": {
+  "component": "implant-dr-cot",
+  "case": "shipping-cost-nested-ifs-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "e822003336__o1": {
+  "component": "implant-dynamic-few-shot",
+  "case": "multilingual-intent-router-confusions-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e822003336__o2": {
+  "component": "implant-dynamic-few-shot",
+  "case": "multilingual-intent-router-confusions-en",
+  "A": "with",
+  "B": "without"
+ },
+ "d508c90fc1__o1": {
+  "component": "implant-dynamic-few-shot",
+  "case": "support-ticket-classifier-rare-categories-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "d508c90fc1__o2": {
+  "component": "implant-dynamic-few-shot",
+  "case": "support-ticket-classifier-rare-categories-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "d9dda7acaa__o1": {
+  "component": "implant-generated-knowledge",
+  "case": "tidal-causeway-full-moon-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d9dda7acaa__o2": {
+  "component": "implant-generated-knowledge",
+  "case": "tidal-causeway-full-moon-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f439ab3a77__o1": {
+  "component": "implant-generated-knowledge",
+  "case": "winter-beekeeper-scene-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f439ab3a77__o2": {
+  "component": "implant-generated-knowledge",
+  "case": "winter-beekeeper-scene-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "02af0176ae__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "offline-inspector-app-design-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "02af0176ae__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "offline-inspector-app-design-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b512f60c77__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "product-search-two-proposals-en",
+  "A": "with",
+  "B": "without"
+ },
+ "b512f60c77__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "product-search-two-proposals-en",
+  "A": "without",
+  "B": "with"
+ },
+ "449f80605d__o1": {
+  "component": "implant-layer-of-thoughts",
+  "case": "gdpr-erasure-vs-retention-en",
+  "A": "without",
+  "B": "with"
+ },
+ "449f80605d__o2": {
+  "component": "implant-layer-of-thoughts",
+  "case": "gdpr-erasure-vs-retention-en",
+  "A": "with",
+  "B": "without"
+ },
+ "61e851dcca__o1": {
+  "component": "implant-layer-of-thoughts",
+  "case": "unused-vacation-local-act-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "61e851dcca__o2": {
+  "component": "implant-layer-of-thoughts",
+  "case": "unused-vacation-local-act-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "3f0e725b80__o1": {
+  "component": "implant-least-to-most-prompting",
+  "case": "apples-backward-problem-kid-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3f0e725b80__o2": {
+  "component": "implant-least-to-most-prompting",
+  "case": "apples-backward-problem-kid-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "08e31f4a65__o1": {
+  "component": "implant-least-to-most-prompting",
+  "case": "queue-backlog-autoscale-incident-en",
+  "A": "without",
+  "B": "with"
+ },
+ "08e31f4a65__o2": {
+  "component": "implant-least-to-most-prompting",
+  "case": "queue-backlog-autoscale-incident-en",
+  "A": "with",
+  "B": "without"
+ },
+ "9236de622f__o1": {
+  "component": "implant-logic-of-thought",
+  "case": "lease-notice-email-penalty-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9236de622f__o2": {
+  "component": "implant-logic-of-thought",
+  "case": "lease-notice-email-penalty-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a434f66c5e__o1": {
+  "component": "implant-logic-of-thought",
+  "case": "saas-termination-sla-refund-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a434f66c5e__o2": {
+  "component": "implant-logic-of-thought",
+  "case": "saas-termination-sla-refund-en",
+  "A": "with",
+  "B": "without"
+ },
+ "215b14ea59__o1": {
+  "component": "implant-maieutic-prompting",
+  "case": "divisibility-answer-key-dispute-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "215b14ea59__o2": {
+  "component": "implant-maieutic-prompting",
+  "case": "divisibility-answer-key-dispute-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "260e9c098e__o1": {
+  "component": "implant-maieutic-prompting",
+  "case": "melting-ice-worksheet-key-en",
+  "A": "with",
+  "B": "without"
+ },
+ "260e9c098e__o2": {
+  "component": "implant-maieutic-prompting",
+  "case": "melting-ice-worksheet-key-en",
+  "A": "without",
+  "B": "with"
+ }
+}

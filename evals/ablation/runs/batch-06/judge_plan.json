@@ -1,0 +1,242 @@
+{
+ "94a1e378e6__o1": {
+  "component": "skill-pedagogy",
+  "case": "p-value-misconception-en",
+  "A": "with",
+  "B": "without"
+ },
+ "94a1e378e6__o2": {
+  "component": "skill-pedagogy",
+  "case": "p-value-misconception-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8f99e7c382__o1": {
+  "component": "skill-pedagogy",
+  "case": "quadratic-inequality-self-check-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8f99e7c382__o2": {
+  "component": "skill-pedagogy",
+  "case": "quadratic-inequality-self-check-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "8df4f116b7__o1": {
+  "component": "skill-product-frameworks",
+  "case": "backlog-scoring-b2b-saas-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8df4f116b7__o2": {
+  "component": "skill-product-frameworks",
+  "case": "backlog-scoring-b2b-saas-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "527951be99__o1": {
+  "component": "skill-product-frameworks",
+  "case": "solution-first-spec-to-prd-en",
+  "A": "with",
+  "B": "without"
+ },
+ "527951be99__o2": {
+  "component": "skill-product-frameworks",
+  "case": "solution-first-spec-to-prd-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5e9ec4a144__o1": {
+  "component": "skill-prompt-design-process",
+  "case": "nightly-incident-agent-prompt-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5e9ec4a144__o2": {
+  "component": "skill-prompt-design-process",
+  "case": "nightly-incident-agent-prompt-en",
+  "A": "with",
+  "B": "without"
+ },
+ "4339d7dca0__o1": {
+  "component": "skill-prompt-design-process",
+  "case": "ticket-classifier-json-drift-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "4339d7dca0__o2": {
+  "component": "skill-prompt-design-process",
+  "case": "ticket-classifier-json-drift-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a3e4e97c9d__o1": {
+  "component": "skill-prompt-engineering",
+  "case": "extraction-prompt-rule-bloat-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a3e4e97c9d__o2": {
+  "component": "skill-prompt-engineering",
+  "case": "extraction-prompt-rule-bloat-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8a0016e15f__o1": {
+  "component": "skill-prompt-engineering",
+  "case": "ticket-classifier-parser-breaks-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "8a0016e15f__o2": {
+  "component": "skill-prompt-engineering",
+  "case": "ticket-classifier-parser-breaks-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "792ade319e__o1": {
+  "component": "skill-prompt-security",
+  "case": "marketplace-review-moderator-override-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "792ade319e__o2": {
+  "component": "skill-prompt-security",
+  "case": "marketplace-review-moderator-override-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6f77312577__o1": {
+  "component": "skill-prompt-security",
+  "case": "resume-screener-hidden-text-en",
+  "A": "with",
+  "B": "without"
+ },
+ "6f77312577__o2": {
+  "component": "skill-prompt-security",
+  "case": "resume-screener-hidden-text-en",
+  "A": "without",
+  "B": "with"
+ },
+ "32577cecbc__o1": {
+  "component": "skill-prompt-techniques",
+  "case": "brand-voice-example-copying-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "32577cecbc__o2": {
+  "component": "skill-prompt-techniques",
+  "case": "brand-voice-example-copying-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "3f13232bfd__o1": {
+  "component": "skill-prompt-techniques",
+  "case": "text-to-sql-static-examples-en",
+  "A": "without",
+  "B": "with"
+ },
+ "3f13232bfd__o2": {
+  "component": "skill-prompt-techniques",
+  "case": "text-to-sql-static-examples-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f8d05e044e__o1": {
+  "component": "skill-psy-cbt",
+  "case": "code-review-fired-fear-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f8d05e044e__o2": {
+  "component": "skill-psy-cbt",
+  "case": "code-review-fired-fear-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "474be7a129__o1": {
+  "component": "skill-psy-cbt",
+  "case": "kid-im-stupid-after-test-en",
+  "A": "with",
+  "B": "without"
+ },
+ "474be7a129__o2": {
+  "component": "skill-psy-cbt",
+  "case": "kid-im-stupid-after-test-en",
+  "A": "without",
+  "B": "with"
+ },
+ "4cd19c752e__o1": {
+  "component": "skill-psy-child-dev",
+  "case": "preschooler-lying-interrogation-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "4cd19c752e__o2": {
+  "component": "skill-psy-child-dev",
+  "case": "preschooler-lying-interrogation-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "cc0a3678e7__o1": {
+  "component": "skill-psy-child-dev",
+  "case": "school-age-anger-bad-kid-en",
+  "A": "without",
+  "B": "with"
+ },
+ "cc0a3678e7__o2": {
+  "component": "skill-psy-child-dev",
+  "case": "school-age-anger-bad-kid-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5a27df6545__o1": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "fortnite-cold-turkey-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5a27df6545__o2": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "fortnite-cold-turkey-en",
+  "A": "with",
+  "B": "without"
+ },
+ "39501be8e9__o1": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "teen-tiktok-spy-app-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "39501be8e9__o2": {
+  "component": "skill-psy-digital-wellbeing",
+  "case": "teen-tiktok-spy-app-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "cf5a8a25fa__o1": {
+  "component": "skill-psy-nvc",
+  "case": "roommate-dishes-message-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "cf5a8a25fa__o2": {
+  "component": "skill-psy-nvc",
+  "case": "roommate-dishes-message-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "40e04ce495__o1": {
+  "component": "skill-psy-nvc",
+  "case": "teen-late-curfew-talk-en",
+  "A": "with",
+  "B": "without"
+ },
+ "40e04ce495__o2": {
+  "component": "skill-psy-nvc",
+  "case": "teen-late-curfew-talk-en",
+  "A": "without",
+  "B": "with"
+ }
+}

@@ -1,0 +1,35 @@
+{
+  "component": "implant-program-of-thoughts",
+  "cases": [
+    {
+      "id": "deposit-rate-step-topups-ru",
+      "agent": "math_scientist",
+      "language": "ru",
+      "history": [],
+      "user_message": "Хочу сравнить вклад с тем, что показывает банк в приложении, у них цифра какая-то подозрительная. Условия: кладу 500 000 ₽, капитализация ежемесячная (каждый месяц начисляется годовая ставка/12 на текущий остаток). Первые 6 месяцев ставка 16% годовых, с 7-го месяца по 18-й — 14% годовых. В конце каждого месяца, уже после начисления процентов, я докладываю 20 000 ₽, последнее пополнение тоже в конце 18-го месяца. Налоги и високосные годы не учитываем. Посчитай, пожалуйста, точно до рубля: сколько будет на счёте в конце, сколько я всего внесу своих денег и сколько из итоговой суммы — это именно проценты.",
+      "why_in_scope": "An 18-step compound computation with a rate change after month 6, so a single annuity formula no longer fits and the balance must be carried through two phases. The implant pushes the model to write it as code or explicit tracked-variable steps and report the computed value; without it a strong model may approximate, apply one formula to the whole term, round the intermediate balance coarsely, or drift in hand arithmetic.",
+      "rubric": [
+        "States the final balance as about 1 020 821 ₽ (1 020 820.54; within ±5 ₽ is acceptable)",
+        "States own contributions as 860 000 ₽ (500 000 + 18 × 20 000) and interest as about 160 821 ₽ (within ±5 ₽)",
+        "Computes in a reproducible way that carries the balance across the rate change (a short program/loop, or explicit two-phase calculation with the month-6 balance of about 665 429 ₽ used as the start of the 14% phase), rather than only asserting a number",
+        "Models the timing as stated: interest accrued first, then the 20 000 ₽ top-up at month end, including month 18"
+      ]
+    },
+    {
+      "id": "orders-revenue-breakdown-en",
+      "agent": "math_scientist",
+      "language": "en",
+      "history": [],
+      "user_message": "Quick sanity check before I send this to my boss, our BI dashboard is down. Here are last week's orders (order_id, customer, qty, unit_price USD, discount %):\n\n1001, acme, 3, 249.00, 0\n1002, brightline, 1, 1180.00, 10\n1003, acme, 12, 39.50, 0\n1004, corvid, 2, 615.00, 5\n1005, delta, 7, 88.00, 0\n1006, brightline, 4, 249.00, 15\n1007, acme, 1, 1180.00, 0\n1008, elmwood, 25, 12.40, 0\n1009, corvid, 6, 97.50, 10\n1010, delta, 2, 615.00, 0\n1011, brightline, 9, 39.50, 5\n1012, elmwood, 3, 249.00, 20\n\nDiscount applies to the whole line. I need: total net revenue, how much we gave away in discounts, average and median order value (net), and revenue per customer with each customer's % share. Which customer is the biggest?",
+      "why_in_scope": "This is a data aggregation task over 12 rows with per-line discounts, grouping, a median and percentage shares, where one slip in mental arithmetic propagates into every downstream figure. The implant makes the model structure it as code (or a line-by-line computed table with tracked variables) and report computed values. A strong model reasoning in prose can plausibly mis-multiply a discounted line, get the median of an even-length list wrong, or misrank acme vs brightline, which are close.",
+      "rubric": [
+        "Total net revenue is about $9,095.93 (exact 9,095.925; ±$0.05) and total discounts about $554.57–$554.58 (gross $9,650.50)",
+        "Average net order value is about $757.99 and median is $681.50 (mean of the 6th and 7th sorted values, 616.00 and 747.00)",
+        "Per-customer net revenue: acme $2,401.00 (~26.4%), brightline ~$2,246.32–2,246.33 (~24.7%), delta $1,846.00 (~20.3%), corvid $1,695.00 (~18.6%), elmwood $907.60 (~10.0%); identifies acme as the biggest customer",
+        "Computes per-line net values explicitly (as code or a per-line table) so the figures are traceable, rather than only stating totals"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 made harder with a rate step (16% for months 1-6, 14% for 7-18) so the single closed-form annuity no longer works and computed state must be carried; rubric numbers recomputed and verified by script. Case 2 figures verified; tolerances widened for half-cent rounding (discounts 554.575, brightline 2246.325)."
+}

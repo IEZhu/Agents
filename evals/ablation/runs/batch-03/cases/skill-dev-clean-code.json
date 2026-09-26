@@ -1,0 +1,35 @@
+{
+  "component": "skill-dev-clean-code",
+  "cases": [
+    {
+      "id": "payment-provider-abstraction-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас небольшой сервис на FastAPI (Python 3.11), оплата идёт только через ЮKassa, и других провайдеров в планах на этот год нет. Сейчас вся логика в одном модуле payments.py:\n\n```python\nimport httpx\n\nYOOKASSA_URL = \"https://api.yookassa.ru/v3/payments\"\n\nasync def create_payment(order_id: int, amount_rub: float, return_url: str) -> str:\n    async with httpx.AsyncClient(auth=(settings.SHOP_ID, settings.SECRET_KEY), timeout=10) as client:\n        resp = await client.post(\n            YOOKASSA_URL,\n            json={\n                \"amount\": {\"value\": f\"{amount_rub:.2f}\", \"currency\": \"RUB\"},\n                \"confirmation\": {\"type\": \"redirect\", \"return_url\": return_url},\n                \"capture\": True,\n                \"metadata\": {\"order_id\": order_id},\n            },\n            headers={\"Idempotence-Key\": f\"order-{order_id}\"},\n        )\n        resp.raise_for_status()\n        return resp.json()[\"confirmation\"][\"confirmation_url\"]\n```\n\nТимлид сказал «сделай по-взрослому, чтобы потом можно было легко добавить Stripe, CloudPayments, Тинькофф». Я хочу сделать абстрактный базовый класс PaymentProvider с методами create_payment / refund / get_status / handle_webhook, фабрику ProviderFactory с реестром через декоратор, отдельный DTO на каждый запрос и ответ и конфиг выбора провайдера через env. Накидай, пожалуйста, эту структуру целиком, с кодом.",
+      "why_in_scope": "The skill pushes KISS/YAGNI and flags Speculative Generality (an abstract class with a single implementation). A strong model without it will usually just comply and generate the full ABC + factory + registry + DTO scaffold for one provider. With the skill, the answer should question building the framework now, propose a lighter step (e.g. a thin seam or keeping the function) while still helping, and point out real issues in the existing code.",
+      "rubric": [
+        "Explicitly says that an abstract base class, factory and decorator registry for a single provider, with no second provider planned, is premature, and names a concrete cost (e.g. more code to maintain, or an abstraction guessed from one provider may not fit the next one).",
+        "Offers a concrete lighter alternative (e.g. keep a small module or one class behind a simple function or Protocol, and extract the abstraction when a second provider actually arrives) rather than only refusing.",
+        "Does not present the full requested scaffold (ABC with four methods + decorator registry + per-request DTOs + env-based provider selection) as the primary recommendation without any caveat.",
+        "Technical remarks on the existing code are correct, e.g. noting that float is risky for money amounts and Decimal is preferable; the answer introduces no errors."
+      ]
+    },
+    {
+      "id": "order-reminder-review-en",
+      "agent": "code_reviewer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you give this a quick review before I merge? It's a helper in our Django 4.2 app that sends reminder emails. It works on staging, I just want a second pair of eyes.\n\n```python\nlogger = logging.getLogger(__name__)\n\ndef send_reminder(user, template, uppercase, with_footer, silent):\n    # loop over the user's orders\n    for order in Order.objects.filter(user=user):\n        if order.status == 3 and (timezone.now() - order.created).days > 14:\n            try:\n                body = render_to_string(template, {\"order\": order})\n                if uppercase:\n                    body = body.upper()\n                # if with_footer:\n                #     body = add_footer(body)\n                send_mail(\"Reminder\", body, \"noreply@shop.example\", [user.email], fail_silently=silent)\n                order.reminded = True\n                order.save()\n            except Exception:\n                logger.warning(\"reminder failed\")\n```\n\nCalled like `send_reminder(user, \"emails/reminder.html\", False, True, True)` from a nightly management command.",
+      "why_in_scope": "The code has decent names and does log errors, so the obvious smells are gone; what remains is what the skill's rules and smell table target: boolean blindness at the call site, a parameter that does nothing because its code is commented out, magic values 3 and 14, a WHAT-comment, and error logging with no context. A strong model tends to skim past a logged exception and readable parameter names; with the skill it should flag the context-free log, the dead code/unused flag and the positional booleans.",
+      "rubric": [
+        "Flags that the `except Exception` handler logs a message with no context (no order id, no exception/traceback, e.g. via `logger.exception` or `exc_info=True`) and/or is too broad, and recommends logging the failing order and the exception.",
+        "Points out that the call `send_reminder(user, ..., False, True, True)` is unreadable positional booleans and that `with_footer=True` has no effect because its only use is commented out; recommends deleting the dead code/parameter (or restoring the feature) and using keyword arguments.",
+        "Recommends replacing the magic values `3` (order status) and `14` (days) with named constants or model choices.",
+        "Identifies at least one real behavioural bug correctly: with `silent=True`, `send_mail` suppresses sending errors so `reminded` is set to True even when no email went out; or the query never excludes orders already marked `reminded`, so the same orders get reminders again on later runs."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 kept (the ask pushes for a speculative abstraction a compliant model would build); only tightened rubric wording. Case 2 was too easy (flag1/u/t names and bare `except: pass` get caught by any strong model): rewrote it with readable names and a context-free logger.warning so the skill's rules on boolean blindness, dead code and failing with context are what separate answers, and replaced the vague 'proportionate' item with verifiable Django bugs (fail_silently hides failures so reminded gets set anyway; already-reminded orders not filtered out)."
+}

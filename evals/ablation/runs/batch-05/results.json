@@ -1,0 +1,534 @@
+{
+ "verdicts": [
+  {
+   "component": "skill-mathematical-reasoning",
+   "case": "pump-motor-sizing-unit-slip-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "06d4e10ae4__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correct the earlier 60x conversion error explicitly, arrive at 1.57 kW, 2.41 kW, 2.78 kW and a 3.0 kW motor, and estimate about 120 thousand rubles per year with the motor-efficiency assumption flagged as unverified. A gives a lower and upper bound; B gives an efficiency range, a nameplate-based upper estimate and an extra caveat that the pump's 0.65 efficiency applies at its best efficiency point. The differences are minor and offset each other, apart from a small rounding slip in B.",
+   "errors_with": [
+    "2.41/0.86 x 6000 is about 16 810 kWh, not 16 850 (rounding slip, negligible)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mathematical-reasoning",
+   "case": "pump-motor-sizing-unit-slip-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "06d4e10ae4__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers explicitly correct the /60 error, reach 1.57 kW, 2.41 kW, 2.78 kW, pick a 3 kW motor, and give about 120 thousand rubles per year with the motor-efficiency assumption stated. B edges ahead on reusability for the estimate: it carries units through the hydraulic formula, adds a dimension check, and brackets the cost with a lower bound that ignores motor efficiency as well as an upper bound. A's intermediate figures are rounded slightly high (16,850 kWh and 121,300 rubles where 2.41/0.86 gives about 16,810 kWh and 121,000 rubles), which does not matter in practice.",
+   "errors_with": [
+    "Minor rounding: 2.41/0.86*6000 is about 16,810 kWh, not 16,850, so the cost is about 121,000 rubles rather than 121,300"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-literary-devices",
+   "case": "talk-opening-mixed-metaphor-en",
+   "A": "with",
+   "B": "without",
+   "stem": "0a269a2de7__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers point out that the metaphors clash, drop the stock phrases, and build their openings on the 140 spreadsheets and three weeks, with sensible advice on delivery and checking the figures. A's options are tighter, and its Option 3 puts the $400k ask up front. B adds a useful point that the original line leads with the solution, and gives more varied options that honestly flag their risks, but Option 1 is a little long and Option 4 is more abstract, so overall the two come out about even.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-literary-devices",
+   "case": "talk-opening-mixed-metaphor-en",
+   "A": "without",
+   "B": "with",
+   "stem": "0a269a2de7__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers diagnose the stacked metaphors and build every option on the 140 spreadsheets and three weeks, with good cautions about checking figures with finance. B says outright that the images clash, and its options carry the full exec message: fragmentation (making 140 spreadsheets agree), stale numbers, and the $400k ask set against current cost. A's openings are strong on the problem but mostly leave the investment side to later advice, and Option 4 adds a figurative 'platform made of people' image.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-narrative-craft",
+   "case": "narrative-hospital-scene-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "0f30834071__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both scenes are strong, carry subtext in dialogue, use plain attributions, and hit every brief event with concrete hospital detail. A's narration explicitly names the emotion ('Злость, которую он вёз через три области, вдруг потеряла адрес'), which the rubric's first item forbids, while B conveys anger and guilt through physical sensation, gesture and plain facts (the fist that unclenches, the dropped calls, the apples). B's 'почувствовал' describes a bodily sensation rather than naming a feeling, so it holds to the show-don't-tell standard more consistently.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-narrative-craft",
+   "case": "narrative-hospital-scene-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "0f30834071__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both scenes are strong, with the brief's events, sensory hospital details, subtext-heavy dialogue and a gestural reconciliation (the apple in A, the cold coffee in B). B names the emotion outright ('Злость, которую он вёз через три области, вдруг потеряла адрес... возвращалась к нему самому') and explains the father's shame with 'будто извинялся', which breaks the show-don't-tell standard. A keeps the feelings in physical images and deflecting lines ('Поезд опоздал... хотя никто не спрашивал'); its closest slip is the sensation 'почувствовал, как внутри что-то сжалось в кулак'.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-narrative-craft",
+   "case": "narrative-pacing-diagnosis-en",
+   "A": "without",
+   "B": "with",
+   "stem": "0f62876735__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with correct arithmetic: A totals 5,700 words and B totals 5,900. B edges ahead because it points out the question the story never answers (why Lena stayed silent through two weeks at the bedside), makes that question the new ending, plants the envelope earlier, and turns the scheduling software into the thing that assigns Maya the patient. A's three ranked options for the letter are useful but less tied together, and it simply cuts the shift material where B puts it to work.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-narrative-craft",
+   "case": "narrative-pacing-diagnosis-en",
+   "A": "with",
+   "B": "without",
+   "stem": "0f62876735__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly name the inverted time allocation, compress the praised opening, break front-loaded backstory into the bedside scenes, and reframe the stranger-delivered letter as something that complicates things rather than resolves them, each with a valid outline under 6,000 words (5,900 and 5,700). A adds the sharp point that the letter re-resolves an already resolved conflict and plants the envelope earlier, while B offers ranked alternatives and a fitting hospice-packing discovery scene. Neither has a clear edge in correctness or usefulness.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-rs",
+   "case": "rs-apartment-unregistered-title-en",
+   "A": "with",
+   "B": "without",
+   "stem": "1b9aa2ee8d__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly say that registration is constitutive, explain the priority and off-register-owner defences, and give nearly the same concrete steps, so both meet every rubric item. B is a little better because it states the strongest counter-argument (načelo pouzdanja, the creditor relying in good faith on the register), names the likely building-paperwork defects (upotrebna dozvola, ozakonjenje), and sets out the risk scenarios in a clear table. A is equally sound but slightly less balanced about how contested the creditor-protection question is.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-rs",
+   "case": "rs-apartment-unregistered-title-en",
+   "A": "without",
+   "B": "with",
+   "stem": "1b9aa2ee8d__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are substantively almost identical: each says the friend is wrong because registration is constitutive, explains filing-date priority and the off-register-owner remedies, and gives concrete, ordered urgent steps with good hedging on recalled article numbers. B edges ahead because it names the tax-enforcement remedy regime (ZPPPA) alongside general enforcement law, and it covers extra practical risks: a building defect that cannot be fixed and blocks registration, and an insolvent seller whose damages claim is worth little. B's disclaimer is also more explicit about not replacing a licensed Serbian lawyer, while A's risk table is a useful but smaller plus.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mcp-development",
+   "case": "invoice-mcp-server-skeleton-en",
+   "A": "without",
+   "B": "with",
+   "stem": "344e602791__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical and correct: FastMCP with a typed pydantic InvoiceLine, an async httpx call with the key read from the environment and ToolError on failure, and a .mcp.json stdio entry using .venv/bin/python; neither says explicitly that the docstring becomes the tool description. B pulls slightly ahead because it also shows the corrected hand-written JSON schema, which answers the user's 'my schema is wrong somewhere' question directly. B also adds a docstring telling the model to confirm with the user before creating a real invoice, and handles non-JSON responses and a private CA.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mcp-development",
+   "case": "invoice-mcp-server-skeleton-en",
+   "A": "with",
+   "B": "without",
+   "stem": "344e602791__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "The two answers are nearly the same: both use FastMCP with a pydantic InvoiceLine, httpx.AsyncClient, a key read from an env var, ToolError handling and the same .mcp.json entry. A is slightly more robust: it handles a non-JSON success body, where B's response.json() can raise an uncaught ValueError, and it has a private-CA option and a docstring that warns the model before a non-idempotent call. B has a useful Literal/enum tip and a more exact $ref schema note, but that does not make up the gap.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mcp-development",
+   "case": "youtrack-tool-review-sync-requests-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "40c3de3eab__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are close to equivalent: typed parameters with field descriptions, server-side project resolution, async httpx, actionable error messages with status and body, env-based config, and a token revocation warning. B also logs errors to stderr and says why (stdout carries the stdio protocol), which rubric item 3 requires and A leaves out entirely. B also truncates error bodies, filters archived projects and explains more clearly that raise_for_status throws away the response body.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mcp-development",
+   "case": "youtrack-tool-review-sync-requests-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "40c3de3eab__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "The two answers are nearly identical: both use typed parameters with Field descriptions, httpx.AsyncClient, resolve short names to project ids, return actionable error messages that include the status and error_description, read settings from env, and warn that the token must be revoked. A also logs errors to stderr and explains that stdout carries the stdio protocol, which rubric item 3 asks for, while B has no logging at all. B's shared client is a small efficiency plus, but that does not make up for the missing logging.",
+   "errors_with": [],
+   "errors_without": [
+    "Says the model previously got a bare HTTPError stack trace; FastMCP usually passes on the exception message, not a full traceback"
+   ]
+  },
+  {
+   "component": "skill-literary-devices",
+   "case": "literary-overloaded-paragraph-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "6609b0c165__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both diagnose overload and cliches correctly and flag the ice/fire contradiction. A's rewrite stays close in length, keeps the apples/clock/bed details, and adds only restrained concrete objects, leaving the original ending intact. B adds new similes ('как снег', 'будто она собралась выйти и передумала'), a new childhood memory, and narration of the heroine's inner response after the clock, which runs against the rubric's ban on stacking images and adding events or explanations.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-literary-devices",
+   "case": "literary-overloaded-paragraph-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "6609b0c165__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers diagnose overload and cliches correctly and flag the ice/fire contradiction. A's rewrite adds new similes (dust like untrodden snow, the childhood fairy-tale comparison) and a new ending that interprets the heroine's state, which drifts from the original's quiet close. B's rewrite stays restrained, builds on the existing concrete details, and keeps the original final lines as the echo.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "apartment-share-sale-notary-en",
+   "A": "with",
+   "B": "without",
+   "stem": "6780739a8d__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet all four rubric items with nearly identical structure and add the valuable self-dealing POA warning and consulate alternative. B edges ahead by flagging Russia's 2023 suspension of key tax treaty articles with Germany, whereas A relies on the treaty's allocation of taxing rights without that caveat, and B gives a clearer cost breakdown and risk summary. A's extra currency-control note is useful but does not outweigh the treaty point.",
+   "errors_with": [
+    "Relies on the Russia-Germany double tax treaty allocating taxing rights without noting Russia suspended key treaty articles with Germany in 2023",
+    "Frames the 20,000 RUB notarial fee cap as specific to non-close relatives, while for mandatorily notarised share sales the 0.5% / max 20,000 RUB rate generally applies regardless"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "apartment-share-sale-notary-en",
+   "A": "without",
+   "B": "with",
+   "stem": "6780739a8d__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers fully meet all four rubric items and share the same strong extras (the Art. 182(3) self-dealing warning, the consulate PoA option, and tax analysis). B adds useful currency-control and payment-transfer points, but it relies on the Russia-Germany double tax treaty without mentioning that Russia suspended key treaty provisions in 2023, which A flags. That small accuracy edge decides it for A.",
+   "errors_with": [
+    "Presents the Russia-Germany double tax treaty as allocating taxing rights without noting Russia's 2023 suspension of key treaty articles"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-rs",
+   "case": "rs-pausal-single-client-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "7485623297__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Both answers meet the rubric, but A gives a complete and plausible list of the nine criteria, including a worst-case count (4 of 9) and self-assessment when the client is foreign. B merges or garbles several criteria, leaves the ninth as a placeholder, and makes its central reassurance a contested claim that the test likely does not apply to foreign clients at all. That claim could leave the user underestimating the risk, while A's handling is safer and more precise.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the independence test likely does not apply to income from foreign clients; Ministry of Finance guidance indicates it can apply, with the entrepreneur self-assessing",
+    "Criterion list is incomplete or garbled (ninth criterion left as a placeholder, criterion 7 misstated)"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-rs",
+   "case": "rs-pausal-single-client-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "7485623297__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B maps all nine criteria accurately, including paid leave and personal-performance, and runs a worst-case count that stays below the 5-of-9 threshold, while A leaves criterion 9 as a placeholder and omits paid leave. A's central claim, that the test likely does not apply to a foreign client, is doubtful: the Ministry of Finance position is that the test also covers foreign clients, with the entrepreneur self-assessing, and B handles this correctly. B also explains the failure consequences more fully (20% plus contributions, self-assessment, back taxes, interest and penalties, paušal status retained), whereas A gives no back-tax or penalty detail.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the independence test applies only to Serbian-resident clients and likely does not apply to income from a foreign (US) client; in practice it also applies to foreign clients via self-assessment",
+    "Criteria list omits the paid-leave criterion and leaves one criterion unspecified"
+   ]
+  },
+  {
+   "component": "skill-multi-step-planning",
+   "case": "failed-backfill-statement-timeout-en",
+   "A": "without",
+   "B": "with",
+   "stem": "838c66ac7b__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly explain the full rollback, replace the single UPDATE with a batched, resumable backfill, and gate step 4 on NULL and duplicate checks, including the INVALID-index consequence. B is slightly more concrete: it gives both a Rails version and an explicit primary-key-range SQL version, keeps a short per-batch statement_timeout, and adds post-build indisvalid verification to the gates. A is equally correct and a bit tighter, and it also covers the step 5 sequence, but its gate list is a little less operationally complete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-multi-step-planning",
+   "case": "failed-backfill-statement-timeout-en",
+   "A": "with",
+   "B": "without",
+   "stem": "838c66ac7b__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers say no, explain the rollback, switch to a batched, resumable backfill, and gate step 4 on a zero NULL count and a duplicate check, with the INVALID-index caveat. B gives a clearer numbered timeline, a query that confirms the rollback, a warning that wrapping the loop in a DO block or procedure hits the same timeout, and a note on NULL emails before step 5. A adds useful checks (indisvalid, dead tuples as a gate) but says the open transaction blocks vacuum across the whole cluster, which overstates it; B's 'anywhere in the database' is more accurate.",
+   "errors_with": [
+    "Says a long-open transaction stops vacuum cleanup 'across the whole cluster'; on PG14+ the held-back xmin horizon mainly affects the same database (plus shared catalogs)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-legal-citation",
+   "case": "laptop-refund-claim-vs-citations-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8915d1584d__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers decline to invent Supreme Court case numbers, cite art. 18 p. 1 of Law No. 2300-1 with an explicit from-memory caveat, and explain the three post-15-day grounds correctly. B fits the request more closely: it gives a ready-to-use draft claim built around the demands the buyer can actually make, points to the correct paragraph for the repair-deadline ground, and notes that the 15 days run from handover, not payment. A is equally accurate but gives a checklist instead of claim text, so the difference is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-legal-citation",
+   "case": "laptop-refund-claim-vs-citations-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8915d1584d__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both decline to give Supreme Court case numbers, name art. 18 of Law No. 2300-1 and Government Decree No. 924, quote the technically-complex-goods paragraph with a clear 'from memory, verify' caveat, and give sound practical steps. A adds a ready-to-use claim template and covers all three post-15-day grounds, while B gives a more nuanced strategy comparison and mentions the burden of proof under art. 18(6). Neither contains a substantive legal error, so the strengths offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-us",
+   "case": "montana-remote-employee-at-will-en",
+   "A": "with",
+   "B": "without",
+   "stem": "89b5ae4a24__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers flag the Montana WDEA good-cause issue, say that the work location decides which law applies, adapt the plan with release, PIP and counsel options, and include disclaimers. B goes further on the good-cause problem, with a dedicated evidence file (reviews that cut against the company, a decision memo), a correct explanation of the grievance-procedure exhaustion effect, and a Montana registration check. A mischaracterizes the grievance-copy step as a requirement, and it dates the job-performance ground to the 2021 amendments. B misdates the amendments to 2019, so on errors the two are roughly even.",
+   "errors_with": [
+    "Says the 2021 amendments added failure to perform job duties to good cause; that ground was in the original WDEA definition",
+    "Says the WDEA requires giving a copy of the internal grievance procedure within 7 days; it is a condition for requiring exhaustion, not a mandate"
+   ],
+   "errors_without": [
+    "Says the WDEA amendments on good cause and the grievance procedure were made in 2019; the major amendments were in 2021"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-us",
+   "case": "montana-remote-employee-at-will-en",
+   "A": "without",
+   "B": "with",
+   "stem": "89b5ae4a24__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers identify the Montana WDEA good-cause problem, explain why Montana law governs, and give concrete pre-Friday steps with a release, policy check and counsel review, so they meet every rubric item. B dates the key WDEA amendments correctly (2021), where A twice says 2019. B also adds useful practical warnings: no backdated write-ups, OWBPA timing means he won't sign on Friday, and a check for EPLI notice requirements. A frames the grievance-procedure mechanism a little more accurately, but that doesn't outweigh its dating error.",
+   "errors_with": [
+    "Describes providing the internal grievance procedure within 7 days as a WDEA requirement, when it is a condition for requiring the employee to exhaust internal remedies",
+    "Implies 'failure to perform job duties satisfactorily' was added to good cause in 2021; it was already part of the original definition"
+   ],
+   "errors_without": [
+    "States the WDEA amendments (good-cause deference, grievance procedure) were made in 2019; they were enacted in 2021 (HB 254)"
+   ]
+  },
+  {
+   "component": "skill-jurisdiction-us",
+   "case": "texas-noncompete-ftc-rule-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "9c15d5fe58__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers accurately explain that Ryan LLC v. FTC set the rule aside and the FTC dropped its appeal, walk through Tex. Bus. & Com. Code 15.50-15.52 with mandatory reformation, and give the same caveats about citations quoted from memory. A adds useful specifics, such as the fee-shifting clause and the note on SB 1318 limiting the 2025 changes to healthcare workers. B's checklist is a little more explicit: it covers choice of law, tolling and an assessment of how much the two businesses overlap. Neither difference is enough to pick a winner.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-us",
+   "case": "texas-noncompete-ftc-rule-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "9c15d5fe58__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical structure and correct substance on Ryan LLC v. FTC, Texas §§15.50-15.52 and mandatory reformation. B applies the law to the user's facts a little more precisely: it covers the preemptive effect of §15.52, notes that remote work or a nationwide market could help the employer on geography, and points out that the 18 months likely run from termination. A cites Marsh v. Cook loosely as a confidential-information consideration case, when the case is actually about stock options, while B describes it correctly.",
+   "errors_with": [
+    "Loosely attributes the confidential-information consideration holding to Marsh USA v. Cook, which concerned stock options"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-legal-citation",
+   "case": "california-noncompete-texas-clause-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a8ba84f738__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item: they identify §16600, §16600.5, §16600.1 and Labor Code §925, decline to invent an on-point Texas-v-California case, label the analogous authority, and cover the forum race and what to bring to the meeting. B answers the user's 'what exactly do they say' more closely, with subsection-level near-quotations that it marks as recalled. B also points to the official sources for the current text, gives concrete search strings for finding on-point cases, and adds practical questions such as indemnification by the new employer, which makes it slightly more useful for preparing for the meeting.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-legal-citation",
+   "case": "california-noncompete-texas-clause-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a8ba84f738__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly centre on Bus. & Prof. Code 16600/16600.5 and Labor Code 925, say they cannot give a verified case on these exact facts, and label related authority as recalled. B is somewhat more useful for the meeting: it gives a concrete list of documents to bring, lays out the two forum scenarios clearly, adds a closer analogous case (Ascension v. Underwood, where a Delaware choice-of-law clause was refused for a California employee), and covers the FTC rule's status. A is equally accurate, but it describes the 15.51(c) pre-reformation damages bar loosely as 'limited', and its practical checklist is a bit thinner.",
+   "errors_with": [
+    "Describes Tex. Bus. & Com. Code 15.51(c) as limiting damages before reformation; the statute bars damages for pre-reformation conduct (minor imprecision)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "usn-ip-vat-threshold-2026-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "b0096c430f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with similar structure and appropriate hedging. B's breakeven calculation (~74% of revenue in VAT-bearing purchases) is correct, while A's 17/22 derivation (~77%) is wrong, and B correctly notes that 25 October 2026 falls on a Sunday, which moves the deadline. A also cites a possibly fabricated 2026 law (No. 228-FZ) keeping the 20M threshold through 2028, which contradicts the known 20/15/10M schedule, though A does flag it as unverified.",
+   "errors_with": [
+    "Breakeven share of VAT-bearing purchases given as ~77% (17/22); the correct figure with VAT-inclusive prices is ~74%",
+    "Claims a law of 04.07.2026 No. 228-FZ keeps the 20M threshold for 2026-2028, likely inaccurate given the 425-FZ schedule of 20M/15M/10M",
+    "Q3 declaration deadline stated as 25.10.2026 without noting it moves to 26.10 because the 25th is a Sunday"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-jurisdiction-ru",
+   "case": "usn-ip-vat-threshold-2026-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "b0096c430f__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet all rubric items, with a correct threshold, start date, 5% vs 22% comparison tied to B2B clients and deductible purchases, and disclaimers. B cites a probably invented 'law of 04.07.2026 No. 228-FZ' that it says keeps the 20M threshold through 2028, which contradicts the phased 20/15/10M schedule. A also gets the Q3 filing-deadline shift to 26 October right and computes the breakeven more precisely, while B's extra practical details (account blocking, cash register, VAS ruling) don't make up for the dubious legal citation.",
+   "errors_with": [
+    "Claims a law of 04.07.2026 No. 228-FZ keeps the 20M threshold for 2026-2028, which is likely fabricated and contradicts the 20/15/10M schedule",
+    "States the Q3 2026 declaration deadline as 25.10.2026 without noting that it falls on a Sunday and moves to 26.10",
+    "Breakeven formula mixes VAT-inclusive and VAT-exclusive bases (77% vs about 74%)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mermaid-best-practices",
+   "case": "mermaid-payment-flow-type-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "b6079fcd93__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both diagrams are nearly identical, valid sequenceDiagrams with par/alt/loop that cover both outcomes and the polling. B keeps the user's 'verify signature' step while clearly flagging the likely inaccuracy, and adds a transparently disclosed 200 OK with a useful idempotency note plus more accurate Confluence plugin guidance. A has small advantages (a user actor, the FCM push reaching the app), but it silently renames the step the user described.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mermaid-best-practices",
+   "case": "mermaid-payment-flow-type-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "b6079fcd93__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both give nearly identical, syntactically valid sequence diagrams with par/alt/loop, correct async webhook after 3DS, a verification step before the DB update, and the same well-hedged caveat about YooKassa not using HMAC signatures. A adds the 200 OK webhook acknowledgement with a useful idempotency note and keeps labels slightly terser, while B adds the user actor, delivery of the FCM push to the app, and practical rendering fallbacks for Confluence plugins. These offsetting strengths leave neither clearly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mathematical-reasoning",
+   "case": "events-table-storage-estimate-en",
+   "A": "without",
+   "B": "with",
+   "stem": "c17ddf19e8__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers admit the 8,640-second error, correct the figures to about 3.11 TB raw and 4.35 TB with overhead, give about 15.55B rows, and recommend daily partitions with the right per-partition numbers. Neither explicitly checks that 15.5B rows × 200 B ≈ 3.1 TB. B comes out slightly ahead because it puts numbers on the overhead: about 300-450 GB per B-tree, the heap at about 230 B/row, and about 1 TB of extra storage from monthly retention granularity. It also flags that the PK is itself a large index.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mathematical-reasoning",
+   "case": "events-table-storage-estimate-en",
+   "A": "with",
+   "B": "without",
+   "stem": "c17ddf19e8__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correct the 8,640-second error, give ~3.11 TB raw and ~4.35 TB with overhead, ~15.55B rows, and a well-reasoned daily partitioning recommendation; neither explicitly cross-checks rows x 200 B against the storage figure. A's measurement query targets a leaf partition and works, while B's suggested pg_total_relation_size('events')/count(*) on a partitioned parent would return 0 bytes per row in PG 16. A also adds useful, concrete guidance like per-index size estimates and questioning the PK's storage cost.",
+   "errors_with": [],
+   "errors_without": [
+    "Suggests measuring bytes per row with pg_total_relation_size('events') on the partitioned parent, which returns 0 in Postgres because partitioned parents hold no storage"
+   ]
+  },
+  {
+   "component": "skill-multi-step-planning",
+   "case": "heroku-to-yandex-cloud-migration-plan-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "e323c83431__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are strong and very similar: they rehearse and time the dump/restore with a go/no-go threshold, keep Heroku in maintenance as the rollback, lower TTL in advance, and have a timed cutover table. B adds an explicit exit check to each weekly phase ('Готово, когда...') and writes out a rollback policy for after traffic opens, which fits rubric item 1 and the 'no surprises' request a little better. A has checks only in the cutover-night table. Neither answer explicitly maps parallel work against dependencies, and neither verifies file sync by comparing object counts or sizes.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-multi-step-planning",
+   "case": "heroku-to-yandex-cloud-migration-plan-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "e323c83431__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are strong and cover rehearsal timing, row-count and sequence checks, DNS TTL, split-brain protection and rollback, and neither states explicitly which work runs in parallel. B's cutover table puts a go/no-go criterion with a time limit on each step, and B also syncs the file delta after cutover, which closes the gap A leaves for uploads made between its T-60 final sync and maintenance. B also flags that sessions stored in Redis would log users out and includes an index-deferral plan B, which makes it slightly more complete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "skill-mermaid-best-practices",
+   "case": "mermaid-cleanup-ci-pipeline-en",
+   "A": "with",
+   "B": "without",
+   "stem": "f13a42fa9f__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A groups the pipeline into Build & Test, Staging and Production subgraphs and uses & fan-in, which fully meets the grouping item, while B uses a subgraph only for the parallel checks. Neither adds a legend explaining what the colors mean; B's descriptive classDef names and parallelogram for the approval step help slightly but do not explain the colors outright. Both keep all the logic and flag useful gaps, but B wrongly claims the diagram has 18 nodes when it has 16.",
+   "errors_with": [],
+   "errors_without": [
+    "States the diagram has 18 nodes; the original and cleaned diagrams both have 16."
+   ]
+  },
+  {
+   "component": "skill-mermaid-best-practices",
+   "case": "mermaid-cleanup-ci-pipeline-en",
+   "A": "without",
+   "B": "with",
+   "stem": "f13a42fa9f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B groups the whole pipeline into Build & Test, Staging and Production subgraphs and uses & fan-in, while A puts only the parallel checks in a subgraph. Neither adds a legend explaining what the colors mean, though A's parallelogram for the human approval step is a small plus. Both keep all the logic and flag useful gaps, but A misstates the node count (18 instead of 16).",
+   "errors_with": [
+    "Implies a bare `graph` leaves the layout direction to the renderer; Mermaid actually defaults to top-to-bottom"
+   ],
+   "errors_without": [
+    "Claims the diagram has 18 nodes; the original and cleaned versions have 16"
+   ]
+  }
+ ],
+ "missing": []
+}

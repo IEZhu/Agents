@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-es",
+  "cases": [
+    {
+      "id": "es-golden-visa-valencia-apartment-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Здравствуйте! Мы с женой граждане Казахстана, хотим переехать в Испанию. План такой: покупаем квартиру в Валенсии примерно за 520 тысяч евро (риелтор сказал, что от 500 тысяч в недвижимость дают ВНЖ инвестора на всю семью), оформляем ВНЖ и живём там. Работать в Испании не собираемся, у меня пассивный доход от сдачи двух квартир в Алматы (каждая стоит примерно 150 тысяч евро), около 6 тысяч евро в месяц. Риелтор говорит, что сначала надо внести задаток, а документы на ВНЖ подать уже после сделки. Подскажите, в каком порядке всё делать, какие налоги при покупке нас ждут и что с налогами потом, когда будем жить в Испании?",
+      "why_in_scope": "The component states that Spain's real-estate Golden Visa was abolished by LO 1/2025 effective 3 April 2025, points passive-income applicants to residencia no lucrativa, and covers NIE, notary, CCAA-dependent ITP and the Modelo 720 foreign-asset disclosure for residents. A model with stale knowledge may walk through the €500k investor-residence procedure, and even a model that knows about the abolition often omits that once resident the couple's Almaty rental income is taxed in Spain and their foreign property must be declared.",
+      "rubric": [
+        "Clearly states that residence through a €500,000 real-estate purchase ('golden visa') is no longer available to new applicants in Spain since April 2025, so buying the apartment will not by itself give residence, and advises not to pay the deposit on that assumption.",
+        "Proposes a viable alternative that fits the facts, such as the non-lucrative residence (residencia no lucrativa) based on passive income with no work in Spain, and notes that buying property is not a requirement for it.",
+        "Covers purchase mechanics correctly: an NIE is needed, the deed is signed before a notary and registered in the Property Registry, and the transfer tax on a resale property (ITP) is set by the autonomous community (here Valencia) rather than being one national rate.",
+        "Explains that as Spanish tax residents they would be taxed on worldwide income, including the Almaty rental income (IRPF), and would need to declare foreign assets over €50,000 such as the Almaty apartments (Modelo 720)."
+      ]
+    },
+    {
+      "id": "es-sl-minimum-capital-madrid-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Hi, I'm a US citizen living in Madrid on a residence permit, and my Spanish co-founder and I want to set up a company for our SaaS product. Everything I've read says a Sociedad Limitada needs €3,000 of share capital deposited in a bank before the notary appointment, which is annoying because our cash is tight right now and we'd rather keep it for servers. Is there any way around the €3,000, or should we just go the autónomo route for the first year? Also, what corporate tax rate should we expect once we're profitable?",
+      "why_in_scope": "The component encodes that since Ley 18/2022 an SL can be formed with a minimum capital of €1, with the trade-off that while capital is below €3,000 at least 20% of profits go to the legal reserve and partners are liable for the shortfall on liquidation, and that newly created companies pay 15% corporate tax in their first profitable years versus 25% standard. Many sources and a strong model without it still state the old €3,000 minimum as a hard rule, which would push the user toward an unnecessary workaround or the autónomo route.",
+      "rubric": [
+        "States that the €3,000 minimum no longer applies: since Ley 18/2022 an SL can be incorporated with share capital as low as €1.",
+        "Explains the conditions of a below-€3,000 SL: at least 20% of profits must go to the legal reserve until capital plus reserve reach €3,000, and partners can be liable for the shortfall up to €3,000 if the company is liquidated with insufficient assets.",
+        "Gives the corporate tax picture correctly: 25% standard rate, with a reduced 15% rate for newly created companies in their first profitable tax period and the following one.",
+        "Addresses the autónomo alternative with a relevant comparison (personal IRPF plus RETA contributions and unlimited personal liability versus an SL with limited liability) and answers the user's actual choice rather than only describing options."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the 'golden visa' term from the user message, added foreign-asset and post-move tax details so the case also tests worldwide-income/Modelo 720 knowledge (a strong model knowing the abolition could still miss it), and replaced the language/disclaimer item with that. Case 2: tightened the 15% rule to 'first profitable period and the following one' and replaced hedging/referral credit with fit-to-request."
+}

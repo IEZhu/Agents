@@ -1,0 +1,35 @@
+{
+  "component": "skill-fitness-programming",
+  "cases": [
+    {
+      "id": "l5s1-protrusion-return-plan-ru",
+      "agent": "fitness_coach",
+      "language": "ru",
+      "history": [],
+      "user_message": "Мне 34, в зале лет 5 занимался, полгода назад МРТ показало протрузию L5-S1 4 мм, сейчас острой боли нет, невролог разрешил тренироваться, но «без фанатизма». Раньше делал приседания со штангой на спине 120 кг и становую 150. Хочу вернуться, 4 раза в неделю по часу. Составь мне программу на первый месяц: что делать вместо приседа и становой, сколько подходов, с каким весом начинать и как потом прибавлять. Ноги и спину терять не хочу.",
+      "why_in_scope": "The skill makes the coach program around the L5-S1 disc: cut axial load and loaded spinal flexion, replace squat/deadlift with same-pattern low-compression variants built on a hip hinge and bracing, add the McGill Big 3, start near minimum effective volume at moderate RPE, and give an explicit progression and deload rule. A strong model without it often keeps a lighter barbell back squat/deadlift, gives percentage-of-old-1RM loads, or writes a generic split with no volume or effort targets and no progression rule.",
+      "rubric": [
+        "Replaces barbell back squat and conventional deadlift with lower-axial-load variants that keep the same movement pattern (e.g. split squats or goblet squats for the knee-dominant pattern, hip thrusts or light hip-hinge variants for the hinge) and explains that spinal compression and loaded flexion are what is being avoided",
+        "Includes spinal-stability work such as the McGill Big 3 (curl-up, side plank, bird dog) or equivalent bracing/neutral-spine drills",
+        "Prescribes conservative starting effort and volume with a stated target (e.g. RPE around 6-7 or 3+ reps in reserve, moderate weekly sets per muscle) instead of loads derived from the old 120/150 kg maxes",
+        "Gives a concrete 4-day weekly structure (e.g. upper/lower) with a clear progression rule over the month and a deload or pain-based stop/regress criterion"
+      ]
+    },
+    {
+      "id": "bench-block-after-plateau-en",
+      "agent": "fitness_coach",
+      "language": "en",
+      "history": [],
+      "user_message": "3 years lifting, currently on a 6-day PPL. Bench has been stuck at 100kg x 5 for about two months. Current chest work: bench 5x5, incline DB 4x10, flyes 4x12, dips 4 sets, twice a week, and I take pretty much every set to failure because otherwise it doesn't feel like I worked. Work's been crazy so I'm on ~6h sleep, shoulders a bit achy lately but nothing major. Can you write me the chest/bench part of the next 4 weeks so I finally get past 100x5? Keep it PPL, I like the schedule.",
+      "why_in_scope": "The skill has the coach count weekly sets against volume landmarks (the user is at ~32 sets/week, above typical recoverable volume), scale volume down on poor recovery signals (short sleep, achy shoulders), keep working sets around RPE 6-8, use undulating rep ranges for an intermediate, and build a 4-week block with a progression rule and deload. Since the user asks for a program rather than advice, a strong model without it often just rearranges exercises or adds intensity techniques while keeping the volume and all-out effort unchanged.",
+      "rubric": [
+        "Notices that the current chest volume (about 32 hard sets per week, all to failure) is too high for the user's recovery (short sleep, achy shoulders) and cuts it to a stated lower weekly range (roughly 10-18 sets)",
+        "Prescribes working sets short of failure with an explicit effort target (e.g. RPE 7-8 or 1-3 reps in reserve) instead of training every set to failure",
+        "Varies bench rep ranges/intensity across the two weekly chest sessions (e.g. heavy low-rep day and lighter higher-rep day) and states a concrete load or rep progression rule over the 4 weeks, including a deload or lighter week",
+        "Keeps the plan within the requested 6-day PPL structure and addresses the shoulder ache (e.g. monitor it, adjust grip/dips, get it checked if it persists)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 kept as is (in scope, no leak, correct rubric). Case 2 rewritten: the original framed an obvious 'add more volume?' choice that any strong model rejects, so it now asks for a 4-week bench block where the model must notice the ~32 all-out weekly sets and poor recovery on its own and apply volume, RPE, undulation and deload rules."
+}

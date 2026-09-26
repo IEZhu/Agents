@@ -1,0 +1,35 @@
+{
+  "component": "skill-prompt-design-process",
+  "cases": [
+    {
+      "id": "ticket-classifier-json-drift-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Делаю классификатор тикетов поддержки на gpt-4o-mini. Промпт сейчас такой:\n\n\"Ты опытный специалист поддержки. Прочитай обращение клиента и определи категорию (billing, bug, feature_request, account, other) и срочность (low/medium/high). Верни ответ строго в JSON вида {\\\"category\\\": ..., \\\"urgency\\\": ..., \\\"reason\\\": ...}. Не добавляй никакого текста кроме JSON. Не используй markdown. Поле reason — одно предложение на русском. Если категорий несколько — выбери основную.\"\n\nПроблема: примерно в 5-7% ответов модель то оборачивает JSON в ```json, то пишет urgency как \"High\" или \"срочно\", то для обращений на английском reason выходит на английском. Я уже три раза дописывал в промпт ещё более строгие фразы про формат (КАПСОМ в том числе), стало чуть лучше, но не уходит. Проверяю так: прогоняю штук 5 свежих тикетов руками и смотрю глазами. Что поменять в промпте, чтобы это наконец ушло?",
+      "why_in_scope": "The skill says that when format matters, 2-3 few-shot examples beat more descriptive wording, and that prompt changes should be judged by an eval loop over a golden set of 10-50 cases with metrics such as format-pass rate, not by eyeballing. A strong model without it may just offer yet another rewording of the format instructions or jump to API-level fixes, and answer the 'how do I know it improved' part vaguely instead of proposing a labelled test set with a measured format-pass rate at a 5-7% failure level where 5 manual samples cannot show a difference.",
+      "rubric": [
+        "Recommends adding a small number (roughly 2-3) of concrete input->output examples showing the exact JSON shape, lowercase urgency values, and a Russian reason for an English-language ticket, rather than only adding more or stronger format instructions.",
+        "Proposes a fixed labelled test set of at least a few dozen tickets (including English-language and multi-topic ones) and tracking measurable metrics such as format/schema pass rate and category accuracy before and after each prompt change.",
+        "Explains that checking 5 tickets by eye cannot reliably detect a change in a 5-7% failure rate (most 5-ticket samples will show zero failures either way).",
+        "Correctly addresses all three observed failure modes (code fences around the JSON, urgency values outside low/medium/high, reason language for English tickets) with a concrete prompt change for each; if it suggests JSON mode / structured outputs with an enum schema, it notes that this does not by itself control the language of the reason field."
+      ]
+    },
+    {
+      "id": "nightly-incident-agent-prompt-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "We have a cron job that runs at 3am: it feeds the last 24h of PagerDuty alerts + related Datadog log snippets to Claude and posts the output straight into #eng-incidents on Slack. Nobody reviews it before it posts. Current system prompt:\n\n\"You are a world-class SRE with 20 years of experience at Google. Summarize the incidents from the last 24 hours and identify the root cause of each. Be concise.\"\n\nIt mostly works, but last week it posted a confident root cause (\"expired TLS cert on api-gw\") that was just wrong, and on a quiet night with zero alerts it wrote three paragraphs about 'general system health'. My plan is to beef up the persona (\"principal SRE, expert in root cause analysis, never wrong\") so it's more accurate. Can you rewrite the prompt?",
+      "why_in_scope": "The skill says role priming shapes style but can degrade factual accuracy, so it should not be used to fix wrong facts, and that a prompt for an unattended fire-and-forget LLM needs explicit task, constraints, edge cases, fallbacks and anti-patterns spelled out, plus an eval set to check changes. A strong model without it may go along with the user's plan and hand back a prompt with an inflated persona and a slightly longer task line, without handling the zero-alert case, the evidence rule for root causes, or a way to test the new prompt.",
+      "rubric": [
+        "Pushes back on strengthening the persona as the fix for wrong root causes, explaining that a persona affects tone/style and does not make factual claims more accurate (and 'never wrong' may increase overconfidence).",
+        "The rewritten prompt explicitly handles the unattended edge cases: an empty/no-alert night (a short fixed message), missing or insufficient log evidence, and root causes that must be tied to cited alert/log lines or marked as unconfirmed/hypothesis.",
+        "The rewritten prompt states output constraints suitable for Slack (e.g., fixed structure or length limit) and lists things the model must not do (e.g., invent causes, pad with general commentary).",
+        "Suggests testing the new prompt against a saved set of past days (including the wrong-TLS night and a zero-alert night) before switching the cron job over, rather than judging it on the next live run."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the user's explicit 'how do I know it improved' question so proposing a labelled test set with measured format-pass rate is no longer prompted by the user, and replaced the opinionated 'structured output does not replace prompt fixes' rubric item with a factual check that all three failure modes are handled. Case 2 left unchanged; rubric facts verified (0.94^5 ~= 0.73 supports the 5-sample claim in case 1)."
+}

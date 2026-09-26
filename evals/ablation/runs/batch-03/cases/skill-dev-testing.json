@@ -1,0 +1,35 @@
+{
+  "component": "skill-dev-testing",
+  "cases": [
+    {
+      "id": "xdist-flaky-cache-order-dependency-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Python 3.11, pytest 8.1. Включили pytest-xdist (-n 4), чтобы ускорить CI, и после этого тесты модуля курсов валют стали падать примерно в каждом пятом прогоне (в проекте ~400 тестов). Последовательно, без -n, всё зелёное. Чаще всего падает test_cached_rate_survives_api_outage с ConnectionError.\n\nКод примерно такой:\n\n```python\n# app/rates.py\nimport time\n\n_CACHE = {}\nTTL = 1.0\n\ndef get_rate(currency):\n    entry = _CACHE.get(currency)\n    if entry and time.monotonic() - entry[1] < TTL:\n        return entry[0]\n    value = fetch_rate_from_api(currency)  # ходит в HTTP\n    _CACHE[currency] = (value, time.monotonic())\n    return value\n```\n\n```python\n# tests/test_rates.py\nimport time\nfrom unittest.mock import patch\nfrom app.rates import get_rate\n\n@patch(\"app.rates.fetch_rate_from_api\", return_value=90.5)\ndef test_rate_is_cached(mock_fetch):\n    get_rate(\"USD\")\n    get_rate(\"USD\")\n    assert mock_fetch.call_count == 1\n\n@patch(\"app.rates.fetch_rate_from_api\", side_effect=ConnectionError)\ndef test_cached_rate_survives_api_outage(mock_fetch):\n    assert get_rate(\"USD\") == 90.5\n\n@patch(\"app.rates.fetch_rate_from_api\", return_value=101.0)\ndef test_rate_expires(mock_fetch):\n    get_rate(\"EUR\")\n    time.sleep(1.1)\n    get_rate(\"EUR\")\n    assert mock_fetch.call_count == 2\n```\n\nХочу сделать по-быстрому: навесить на эти три теста @pytest.mark.xdist_group(\"rates\"), чтобы они шли в одном воркере, запускать с --dist loadgroup и плюс поставить pytest-rerunfailures с --reruns 2 на всякий случай. Нормальное решение?",
+      "why_in_scope": "The component requires tests to be independent and runnable in any order, forbids sleep/timing in tests, and asks to fix flaky tests at their root cause (state, timing, ordering) rather than masking them. Here test_cached_rate_survives_api_outage only passes because test_rate_is_cached ran just before it in the same process and left USD in the module-level _CACHE; the user's grouping plus reruns would hide that. A strong model without the component may approve xdist_group/loadgroup as the standard xdist remedy and only tune reruns, instead of making each test set up its own state and control time.",
+      "rubric": [
+        "Correctly explains the failure: test_cached_rate_survives_api_outage does not populate the cache itself and only passes when test_rate_is_cached has run shortly before in the same worker process (shared module-level _CACHE, within the 1 s TTL); under xdist it can land on another worker or run later, so fetch is called and raises ConnectionError",
+        "Advises against grouping into one worker and reruns as the fix, because they keep the hidden order dependency (e.g. the test still fails when run alone or in a different order) and mask rather than remove the cause",
+        "Proposes making each test independent: reset the cache before each test (e.g. an autouse fixture clearing _CACHE or monkeypatching it with a fresh dict) and have the outage test arrange its own cached entry",
+        "Proposes removing the real time.sleep by controlling time in the test (e.g. patching app.rates.time.monotonic or injecting a clock), making the expiry test deterministic and fast"
+      ]
+    },
+    {
+      "id": "refactor-broke-mocked-private-methods-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "I split our 900-line OrderPricing class (Python 3.12, pytest + unittest.mock) into three smaller ones: DiscountEngine, TaxCalculator and ShippingQuote, and OrderPricing now just composes them. Checkout totals in staging are identical to before, I compared 2,000 real orders. But 46 of our 58 pricing tests now fail. Almost all of them look like this:\n\n```python\ndef test_vip_discount_applied(self):\n    pricing = OrderPricing(order)\n    with patch.object(pricing, \"_apply_tier_discount\", return_value=Decimal(\"10.00\")) as m, \\\n         patch.object(pricing, \"_compute_vat\") as vat, \\\n         patch.object(pricing, \"_lookup_zone\", return_value=\"EU\"):\n        pricing.total()\n        m.assert_called_once_with(order, \"VIP\")\n        vat.assert_called_once()\n```\n\nThose private methods moved into the new classes, so the patch targets don't exist anymore. Is there a quick way to bulk-rewrite the patch targets, like a sed/regex that maps `pricing._apply_tier_discount` to `pricing.discounts.apply_tier` and so on? I just want the suite green again before Friday's release.",
+      "why_in_scope": "The component says to test behavior rather than implementation and to mock only at external boundaries, not internal classes. The failing tests patch private methods and assert on internal calls, so they broke on a behavior-preserving refactor and would break again on the next one. A strong model without the component may just supply the bulk rename script, instead of pointing out that the tests should assert on computed totals with real internal collaborators and mock only external dependencies.",
+      "rubric": [
+        "Points out that the tests fail because they are coupled to internal implementation (patching private methods and asserting on internal calls), even though behavior did not change, and that re-pointing the patches would keep them brittle for the next refactor",
+        "Recommends rewriting the tests to assert on observable outputs (e.g. the total, discount amount or VAT for a given order) using the real DiscountEngine/TaxCalculator/ShippingQuote, and mocking only external dependencies such as a database, tax-rate service or shipping API if there are any",
+        "Shows at least one concrete rewritten example test for the VIP discount case that checks a resulting amount rather than a call on a mock",
+        "Takes the Friday deadline into account with a practical plan (e.g. rewrite the highest-value tests first, or keep a temporary mapping only as a stopgap while saying why it is a stopgap) rather than ignoring the time constraint"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was internally inconsistent: with the original tests a sequential run would itself fail (test_rate_expires and test_rate_value hit USD cached by earlier tests), contradicting 'sequentially green'; rewrote the tests so sequential order passes by luck and xdist exposes a real hidden order dependency, and updated id and rubric accordingly. Case 2 checked and kept as is."
+}

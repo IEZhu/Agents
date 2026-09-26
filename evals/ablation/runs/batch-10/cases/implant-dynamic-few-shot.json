@@ -1,0 +1,35 @@
+{
+  "component": "implant-dynamic-few-shot",
+  "cases": [
+    {
+      "id": "support-ticket-classifier-rare-categories-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Делаем автоклассификацию обращений в поддержку банка через LLM. Категорий 42 (от «блокировка карты» и «не пришёл перевод СБП» до «вопрос по налоговому вычету по ИИС» и «спор по chargeback»). Сейчас в системном промпте список категорий с описаниями и 8 примеров размеченных обращений, одни и те же для всех запросов. На частых категориях точность около 90%, а на редких (их штук 15, в сумме ~12% трафика) падает до 50-55%: ИИС путают с вкладами, chargeback с «ошибочным переводом». Размеченных обращений у нас около 6 000, по каждой категории минимум 40. Коллега предлагает просто запихнуть в промпт по 3 примера на каждую категорию, это ~126 примеров, но выходит около 20k токенов на каждый запрос при потоке 30 тысяч обращений в день. Либо можно вместо этого переподобрать наши 8 примеров, сделать их «потруднее», чтобы покрывали редкие категории. Какой вариант лучше и как выбрать примеры?",
+      "why_in_scope": "The implant pushes toward choosing, per incoming ticket, a small set (2-5) of the most similar labeled examples from the existing 6 000-ticket pool via embedding/keyword search, placing the most similar closest to the ticket. A strong model without it may stay within the static framing: tweak the fixed 8 examples, rewrite category descriptions, accept the colleague's 126-example prompt, or jump to fine-tuning, missing that the labeled set can serve as a retrieval pool that fixes rare-category confusion without the token cost.",
+      "rubric": [
+        "Recommends selecting examples per ticket from the existing labeled set by similarity (e.g. embeddings or keyword search) instead of a fixed set or all 126 examples in every prompt",
+        "Gives a concrete small number of retrieved examples per request (roughly 2-10) and/or advises placing the most similar example closest to the ticket being classified",
+        "Addresses the colleague's proposal with the cost/context trade-off (about 20k tokens x 30 000 requests/day) rather than ignoring it",
+        "Mentions at least one practical caveat or check: quality of the labeled pool, retrieval latency, or measuring per-category accuracy on a held-out set for the rare categories"
+      ]
+    },
+    {
+      "id": "multilingual-intent-router-confusions-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "We run an intent router for a travel app chatbot on gpt-4o-mini. 27 intents (change_booking, cancel_booking, refund_status, baggage_allowance, seat_selection, visa_question, etc.). The prompt lists the intents with one-line descriptions plus 10 hand-picked English example utterances with their labels, same for every call. Traffic is ~40% English, 35% German, 25% Spanish. Overall accuracy on our 1,500-utterance labeled eval set is 84%, but German and Spanish users asking about refunds get routed to cancel_booking a lot, and seat_selection vs. change_booking gets mixed up in all languages. We also have ~9,000 labeled production utterances in all three languages sitting in a spreadsheet. I've already tried rewriting the intent descriptions twice and it barely moved. My plan is to translate the 10 examples into German and Spanish and hand-pick maybe 20 more that cover the confused pairs, so ~50 fixed examples total. Is that the right move, and which examples should I pick?",
+      "why_in_scope": "Following the implant, the answer should turn the 9,000 labeled multilingual utterances into a pool and retrieve the few most similar ones (ideally same language and near the confused intents) for each incoming message, ordered with the closest example last, instead of a static English-only set. Without it, a strong model may keep suggesting more description tweaks, adding a few static German/Spanish examples, or fine-tuning, and overlook per-query example selection from the data the user already has.",
+      "rubric": [
+        "Recommends retrieving a small number of the most similar labeled utterances per incoming message from the ~9,000-utterance set (e.g. via multilingual embeddings) rather than using the same 10 examples for every call",
+        "Addresses the language mismatch explicitly, e.g. retrieved examples should match or be close to the user's language (German/Spanish), not only English",
+        "Tackles the specific confusions (refund_status vs cancel_booking, seat_selection vs change_booking), e.g. ensuring contrasting examples of both intents can appear, or placing the most similar example closest to the query",
+        "Advises validating the change against the existing 1,500-utterance eval set, ideally broken down per language and per intent"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases were too easy to answer with retrieval-based example selection without help, so each user message now ends with a static-example plan (re-pick 8 'harder' examples; translate plus ~50 hand-picked fixed examples) that pulls the answer back toward a fixed set, without leaking the technique. Case 2's last rubric item had two requirements (per-language eval and keeping eval data out of the pool); it now checks only the per-language eval. Agent prompt_engineer kept because the component has no owners."
+}

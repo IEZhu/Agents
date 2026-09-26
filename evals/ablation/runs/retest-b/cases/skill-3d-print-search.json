@@ -1,0 +1,99 @@
+{
+  "component": "skill-3d-print-search",
+  "cases": [
+    {
+      "id": "headphone-stand-all-weak-ru",
+      "agent": "3d_print_finder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Ищу подставку под наушники (Sony WH-1000XM5), печатать буду на Ender 3 V2, сопло 0.4. Нашёл три варианта, но все какие-то так себе:\n1) Thingiverse, \"Minimal Headphone Stand\" — 18 000 скачиваний, рейтинг 3.1, 0 makes, в описании только рендеры, в комментах двое пишут \"slicer says mesh has errors\".\n2) Cults3D, \"Wave Headset Hanger\" — 900 скачиваний, 4.2★, 6 makes с фото, нужны поддержки под изгиб, лицензия CC-BY-NC.\n3) Printables, \"Desk Clamp Headphone Hook\" — 350 скачиваний, 4.6★, 22 makes с фото, без поддержек, автор выложил 3MF с настройками, но крепление рассчитано на столешницу до 30 мм, а у меня 38 мм.\nЧто брать и как печатать? Может есть смысл искать дальше?",
+      "why_in_scope": "The component tells the model to weigh tested makes, real print photos and supports over raw download counts, to call out red flags (low rating, only renders, mesh-error comments) and, when all results are weak, to acknowledge the gap and recommend the best-of-bad option plus next search steps. A strong model without it could be swayed by the 18k downloads or just pick one without explaining the trade-offs or where else to search.",
+      "rubric": [
+        "Does not recommend option 1 as the main pick and explicitly names its red flags (low rating, no makes, only renders, mesh-error reports).",
+        "Ranks using printability evidence (makes with photos, no supports, creator settings) rather than download count, and addresses the 30 mm vs 38 mm clamp mismatch for option 3 (e.g. remix/scale the clamp, look for an adjustable variant, or pick another option).",
+        "Gives concrete FDM settings for the chosen model suited to a functional load-bearing part (e.g. PETG or PLA with 3-4 walls and roughly 30-50% infill) and states whether supports are needed.",
+        "Acknowledges that none of the three is ideal and gives next steps beyond these listings: other platforms not yet checked (e.g. Thangs, MakerWorld, MyMiniFactory) or an aggregator such as Yeggi, alternate search terms, or remixing/commissioning a clamp for a 38 mm desk."
+      ]
+    },
+    {
+      "id": "sell-minis-license-fdm-ru",
+      "agent": "3d_print_finder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Хочу на выходных продавать на ярмарке распечатанные фигурки для настолок (28 мм, типа гоблины/гномы). Нашёл на MyMiniFactory пару крутых паков, у одного лицензия CC BY-NC 4.0, у другого написано \"Personal use only\". Ещё есть вариант на Printables под CC BY 4.0, но там модели попроще. Принтер Bambu A1 mini, сопло 0.4, PLA. Какой пак можно брать и нормально ли они вообще напечатаются?",
+      "why_in_scope": "The component carries a license table (NC and personal-use-only forbid commercial use, CC-BY allows it with attribution) and a miniature-specific FDM warning that ~0.4 mm features are the limit and resin is worth considering at 28 mm scale, with very fine layer heights and slow speeds. A strong model might hedge on the licenses or say FDM with a 0.4 nozzle is fine for 28 mm minis without flagging lost detail.",
+      "rubric": [
+        "States clearly that selling prints of the CC BY-NC and personal-use-only packs is not allowed without the creator's explicit permission (e.g. a commercial/merchant license), and that the CC BY 4.0 models may be sold provided the creator is credited.",
+        "Warns that fine details below roughly the nozzle width (0.4 mm) will be lost or unreliable on FDM at 28 mm scale, and mentions resin or a smaller nozzle (e.g. 0.2 mm) as alternatives.",
+        "Recommends miniature-appropriate settings such as a low layer height (around 0.08-0.12 mm) and reduced print speed."
+      ]
+    },
+    {
+      "id": "niche-mount-no-results-ru",
+      "agent": "3d_print_finder",
+      "language": "ru",
+      "history": [],
+      "user_message": "Уже час ищу на Thingiverse крепление для фонаря Olight Seeker 4 Pro на руль велосипеда (диаметр руля 31.8). По запросу \"Olight Seeker 4 Pro handlebar mount\" ноль результатов. Нашёлся только какой-то \"Olight bike mount\" с 2 звёздами, 4 скачивания, без фото, последнее обновление 2019. Печатать или я что-то не так ищу?",
+      "why_in_scope": "The component defines a no-results playbook (alternate terms, broaden the query, check other platforms and an aggregator like Yeggi, site: operators) and red flags (low rating, untested, no print photos, abandoned). A strong model without it might just say 'print it and see' or suggest designing one without systematically broadening the search and explaining why the found model is risky.",
+      "rubric": [
+        "Advises against relying on the found model and names concrete reasons (very low rating, almost no downloads/no makes, no print photos, old/abandoned).",
+        "Suggests broadening or rephrasing the query (e.g. generic 'flashlight handlebar mount 31.8', mount by torch body diameter, GoPro-style adapter) rather than the exact product name only.",
+        "Recommends searching other platforms beyond Thingiverse (e.g. Printables, Thangs, MakerWorld) and/or an aggregator such as Yeggi, optionally with site: search operators.",
+        "Offers a fallback if nothing fits (remixing a parametric handlebar mount, commissioning a design) and notes that a handlebar mount is a functional part needing a stronger material than basic PLA or robust settings."
+      ]
+    },
+    {
+      "id": "blender-bracket-fdm-limits-en",
+      "agent": "blender_scripter",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm modeling a wall-mounted bracket in Blender to hold a 1.2 kg router, going to print it on a Prusa MK4 with a 0.4 mm nozzle. Current design: the arms are 0.8 mm thick shells, I embossed our house number on the face with 0.3 mm wide strokes, and there's a 14 mm unsupported gap between two tabs where the screw plate sits. Before I export the STL, anything that'll bite me? And what slicer settings should I use?",
+      "why_in_scope": "The component lists FDM-specific checks: features below 0.4 mm are risky for a 0.4 mm nozzle, walls under 1 mm may be fragile, bridges over 10 mm may need tuning, and functional parts want PETG/ABS, 3-4 perimeters and 30-50% infill. A strong model might miss the 0.3 mm emboss vs. nozzle width issue or give generic decorative settings for a load-bearing bracket.",
+      "rubric": [
+        "Flags the 0.3 mm embossed strokes as too thin for a 0.4 mm nozzle and suggests widening them (to at least about the nozzle width, ideally more).",
+        "Flags both the 0.8 mm arm shells as too thin for a load-bearing part (recommends thickening well above 1 mm) and the 14 mm unsupported bridge as a sag risk with a fix (bridge tuning, reorienting, adding a support or chamfer).",
+        "Gives settings appropriate for a functional part, e.g. PETG (or ABS/ASA) with about 3-4 perimeters and roughly 30-50% infill, rather than decorative-print defaults.",
+        "Addresses print orientation relative to the load, e.g. orienting the bracket so the arms are not stressed across layer lines, since FDM parts are weakest between layers."
+      ]
+    },
+    {
+      "id": "where-to-find-tested-dragon-en",
+      "agent": "3d_print_finder",
+      "language": "en",
+      "history": [],
+      "user_message": "My kid wants one of those articulated flexi dragons for her birthday next week. Every time I search Thingiverse I get junk - half of them are pretty renders that turn into spaghetti when I print them. I've got an Ender 3 S1 with PLA. Where should I actually be looking and how do I tell which ones will print right the first time?",
+      "why_in_scope": "The component prioritises curated tier-1 platforms (Printables, Thangs, MyMiniFactory), gives concrete quality signals (real print photos rather than renders, number of makes, no-supports/print-in-place tags, creator settings) and search patterns like site: queries or sorting Thingiverse by most makes. A strong model might give vague advice ('check reviews') without naming curated platforms or concrete signals.",
+      "rubric": [
+        "Recommends specific better-curated platforms (at least one of Printables, MyMiniFactory, Thangs, MakerWorld) and/or sorting Thingiverse by makes.",
+        "Gives concrete checkable quality signals: photos of real prints (not just renders), a meaningful number of makes, print-in-place/no-supports designs, creator-provided settings or orientation notes.",
+        "Gives practical print advice for articulated print-in-place models (e.g. print without supports, check bed levelling/first layer, don't over-squish, test a small section first).",
+        "Stays concrete and scoped to the parent's situation rather than a generic 3D printing tutorial."
+      ]
+    },
+    {
+      "id": "correct-downloads-based-pick-en",
+      "agent": "3d_print_finder",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "I need a GoPro mount for my drone shop - I'll print them and include one with every drone kit I sell. Two options: (A) Thingiverse 'GoPro Universal Mount', 41k downloads, 3.4 stars, 9 makes, renders only, license CC BY-NC-SA. (B) Printables 'GoPro Mount Remix v3', 1.3k downloads, 4.8 stars, 160 makes with photos, STL+3MF+STEP, license CC BY 4.0, no supports. Which one?"
+        },
+        {
+          "role": "assistant",
+          "content": "Go with A - 41k downloads means it's by far the most popular and battle-tested option. Popularity is usually the best signal of a good model."
+        }
+      ],
+      "user_message": "Cool, downloading A now. I'll print a batch of 50 in PLA tonight at 15% infill so they're ready for Monday's orders. Any last tips?",
+      "why_in_scope": "The prior turn made two mistakes the component guards against: treating downloads as the quality signal instead of makes/photos/rating, and ignoring that CC BY-NC-SA forbids the commercial use the user described. The component's functional-part settings (PETG/ABS, 30-50% infill, 3-4 walls) also contradict the user's PLA/15% plan. A strong model may just give batch-printing tips and go along with its earlier answer.",
+      "rubric": [
+        "Corrects the earlier recommendation, pointing out that CC BY-NC-SA does not allow including prints with products sold commercially, while B's CC BY 4.0 does (with attribution).",
+        "Explains that B is also the better-tested model (160 makes with photos, 4.8 stars, no supports) and that download count alone is a weak quality signal compared with makes and real print photos.",
+        "Advises against 15% infill PLA for a load-bearing camera mount on a drone (vibration/heat) and suggests stronger settings, e.g. PETG or ABS/ASA, more walls and higher infill.",
+        "Suggests test-printing and checking a few mounts before the full batch of 50."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case ids and agents kept; headphone item 4 rewritten to reward the all-weak playbook (acknowledge gap, unsearched platforms/aggregator, remix/commission) instead of re-listing Printables; minis item 4 dropped as a duplicate of the attribution point; bracket rubric had no general-quality item, so the arm-thickness and bridge checks were merged and a layer-orientation-vs-load item was added."
+}

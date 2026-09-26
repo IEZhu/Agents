@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-us",
+  "cases": [
+    {
+      "id": "texas-noncompete-ftc-rule-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Здравствуйте. Я работаю senior-разработчиком в компании в Остине (Техас), при приёме в 2023 году подписал non-compete: 18 месяцев не работать на конкурентов по всей территории США. Сейчас мне предложили оффер в конкурирующем стартапе. Коллега сказал, что FTC ещё в 2024 году запретила все неконкуренции по всей стране, и мой договор в этой части ничего не стоит, можно спокойно уходить. Это так? Могу я просто подписать оффер и не переживать?",
+      "why_in_scope": "The skill states that the FTC non-compete rule is dead (vacated in court, and the FTC dropped its appeals on 2025-09-05), that non-competes are heavily state-driven, and that US law must not be treated as monolithic. A strong model with older knowledge may say the rule is merely stayed or pending appeal, or may accept the colleague's claim that non-competes were banned nationwide, instead of sending the user to Texas state law.",
+      "rubric": [
+        "Says the FTC's nationwide non-compete ban never took effect: it was set aside by a federal court and the FTC later abandoned its appeals, so it does not void the user's agreement",
+        "Explains that enforceability is governed by state law (here Texas), where non-competes can be enforced if reasonable in time, geography and scope of activity, and that a court may narrow an overbroad restriction rather than simply void it",
+        "Gives practical next steps grounded in the facts: review the agreement's actual terms and choice-of-law clause, assess whether the nationwide 18-month scope is likely overbroad, and get a Texas employment attorney to review before signing the offer",
+        "Includes a disclaimer that this is informational and not legal advice and that a licensed attorney in the relevant state should be consulted"
+      ]
+    },
+    {
+      "id": "montana-remote-employee-at-will-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "We're a 40-person SaaS company, Delaware C-corp, HQ in Denver. We need to let one of our customer success reps go next Friday. Performance has been mediocre for a while, but honestly nothing is documented: no PIP, no written warnings. He's been with us a bit over two years, fully remote the whole time (he lives up in Bozeman). Our handbook has a clear at-will clause and he signed the acknowledgment when he started. Plan is a short call, no reason given, two weeks severance. Can you give me a quick checklist of what HR should have ready before Friday so we're covered legally?",
+      "why_in_scope": "The skill says at-will employment is the default in 49 states with Montana as the exception, and warns against treating US law as monolithic: identify the state whose law applies. The user never questions at-will status and mentions Bozeman only in passing, framing the request as a routine termination checklist; a strong model may write a generic at-will checklist (or focus on Colorado/Delaware) and miss that Montana's Wrongful Discharge from Employment Act requires good cause after the probationary period.",
+      "rubric": [
+        "Flags that the employee works in Montana, the one state that is not at-will: after the probationary period, its Wrongful Discharge from Employment Act requires good cause for discharge, so the signed at-will acknowledgment does not settle the matter",
+        "Identifies that the employee's work location (Montana) rather than Delaware incorporation or the Denver HQ is what likely determines the governing employment law",
+        "Adapts the plan to the good-cause problem with concrete steps before Friday, such as documenting legitimate performance-based reasons (or reconsidering the timing/no-reason approach), checking any written probation and grievance policies, offering the severance in exchange for a signed release, and having a Montana employment lawyer review",
+        "Includes a disclaimer that this is informational and not legal advice, and recommends consulting an attorney admitted in the relevant state"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2 was too leading (it asserted 'everyone in the US is at-will' next to 'Bozeman, Montana'), so I rewrote it as a routine termination-checklist request with Bozeman mentioned only in passing, and tightened rubric items 1 and 3 to match. Case 1 checked: the FTC rule's vacatur (Ryan v. FTC, 2024), the FTC's withdrawal of its appeal (Sept 2025) and Texas reasonableness/reformation (Bus. & Com. Code 15.50-15.51) are correct, so it is kept unchanged."
+}

@@ -1,0 +1,35 @@
+{
+  "component": "implant-maieutic-prompting",
+  "cases": [
+    {
+      "id": "divisibility-answer-key-dispute-ru",
+      "agent": "education_tutor",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите рассудить спор с сыном (8 класс). В сборнике задание: «Верно ли утверждение? n — натуральное число.\n1) Если n² делится на 6, то n делится на 6.\n2) Если n² делится на 12, то n делится на 12.\n3) Если n² делится на 8, то n делится на 4.»\nВ ответах в конце сборника: 1 — верно, 2 — верно, 3 — неверно.\nСын написал: 1 — верно, 2 — неверно, 3 — верно, и упирается, что ключ ошибается. Я думаю, раз для 6 работает, то и для 12 должно работать, а в третьем вообще не пойму, откуда он взял 4. Сборник всё-таки издательский, скорее всего ребёнок где-то напутал? Объясните, кто прав, и так, чтобы я мог ему потом нормально показать.",
+      "why_in_scope": "Each item is a binary claim, and the user pushes toward the answer key by analogy (works for 6, so works for 12). The implant makes the model build the argument for both 'true' and 'false' on each item and keep the branch that survives checking, which surfaces the counterexample n = 6 for item 2 and the proof for item 3. A strong model without it may defer to the published key or the user's analogy, or reason only in one direction and miss that the key is wrong on two items.",
+      "rubric": [
+        "Says the son is right on all three items: 1 is true, 2 is false, 3 is true, so the answer key is wrong on items 2 and 3",
+        "Gives a concrete counterexample for item 2 (e.g. n = 6: 36 is divisible by 12 but 6 is not) and explains why the analogy with 6 breaks (12 contains the square 4, while 6 has no repeated prime factors)",
+        "Proves item 3 correctly: n² divisible by 8 forces n even, n = 2k gives 4k² divisible by 8, so k² and hence k is even and n is divisible by 4; and/or shows the claim fails for 8 itself (n = 4) to explain where the 4 comes from",
+        "Explains item 1 (n² divisible by 2 and 3 implies n divisible by 2 and 3 because they are prime) in terms a parent can show a 14-year-old"
+      ]
+    },
+    {
+      "id": "melting-ice-worksheet-key-en",
+      "agent": "education_tutor",
+      "language": "en",
+      "history": [],
+      "user_message": "I teach 9th grade physical science and wrote a quick buoyancy worksheet. Three T/F items, all about an ice cube floating in a full-to-the-brim glass, answered right after it has completely melted:\n\n(a) Glass of fresh water, pure ice cube: the water level stays exactly the same. -> my key: TRUE\n(b) Glass of salt water, pure (fresh-water) ice cube: the level stays exactly the same, same principle as (a). -> my key: TRUE\n(c) Glass of fresh water, ice cube with a small pebble frozen inside (the cube still floats): the level rises because the pebble adds extra volume. -> my key: TRUE\n\nOne kid marked (a) TRUE, (b) FALSE, (c) FALSE and wrote 'the salt one overflows, the pebble one goes down' in the margin. I'm fairly sure she just overthought it, but before I hand back grades tomorrow, can you confirm my key so I can explain it to her?",
+      "why_in_scope": "Three binary claims, with the teacher's confidence and the phrase 'same principle as (a)' steering toward confirming the key. The implant makes the model argue both TRUE and FALSE for each item and check each against Archimedes' principle, which exposes that (b) and (c) are false. A strong model without it can plausibly confirm the key on (b) by pattern-matching to the classic 'level stays the same' result, or accept the 'pebble adds volume' reasoning in (c).",
+      "rubric": [
+        "Concludes the student is right: (a) TRUE, (b) FALSE, (c) FALSE, and tells the teacher the key needs correcting before grades go back",
+        "For (b), explains that the floating ice displaces a mass of salt water equal to its own mass, which takes less volume than the same mass of fresh meltwater, so the level rises (the glass overflows)",
+        "For (c), explains that while floating the pebble is supported by displaced water equal to its full mass, but once it sinks it displaces only its own volume, which is smaller because the pebble is denser than water, so the level falls",
+        "Keeps (a) as TRUE with the correct reason (the floating ice already displaces exactly its mass of water, which equals the meltwater volume)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified all factual rubric claims (n=6 counterexample, n^2 div 8 => n div 4 proof; salt-water level rises, pebble case level falls) and kept both cases, since the answer-key pressure plus 'same principle' analogy gives a real deference trap that two-sided checking counters. Only change: reworded 'true/false items' to 'T/F items' in case 2 to avoid echoing the implant's trigger phrase."
+}

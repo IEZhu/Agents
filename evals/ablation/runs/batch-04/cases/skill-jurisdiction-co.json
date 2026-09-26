@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-co",
+  "cases": [
+    {
+      "id": "co-sas-apartment-contribution-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Добрый день. Я гражданин РФ, живу в Боготе второй год по визе M. Хочу открыть свою компанию для IT-консалтинга, учредитель буду только я один. Друг-колумбиец говорит, что сейчас все открывают SAS и что нотариус вообще не нужен, всё делается простым документом и регистрируется в Торговой палате. План такой: внести в уставный капитал мою квартиру в Чапинеро (оценка около 450 млн песо) плюс 20 млн наличными, чтобы у компании сразу был солидный капитал. Правильно ли я понимаю, что можно всё оформить без нотариуса за пару дней? И есть ли ещё налоговые или регистрационные моменты, о которых мне стоит знать на старте?",
+      "why_in_scope": "The component supplies Colombian corporate specifics: SAS allows a single shareholder and formation by private document, but a contribution of real estate still requires an escritura pública, plus the need for RUT with DIAN and the municipal nature of ICA. A strong model without it may simply confirm the friend's 'no notary at all' claim or, conversely, invent a general notary requirement, and may give generic tax advice without RUT/ICA/Colombian-lawyer referral.",
+      "rubric": [
+        "Confirms that an SAS may have a single shareholder and can normally be constituted by private document registered with the Cámara de Comercio.",
+        "Explicitly corrects the plan: because the apartment (real estate) is being contributed to capital, the constitution requires an escritura pública before a notary, so 'no notary at all' is wrong in this case.",
+        "Mentions obtaining the RUT with DIAN and that ICA is a municipal tax (Bogotá's rules apply), without presenting specific current rates as certain.",
+        "Answers in Russian and recommends confirming with a licensed Colombian lawyer before acting."
+      ]
+    },
+    {
+      "id": "co-sas-contractor-withholding-move-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "We're relocating our small company from Medellín to Bogotá in January and I'm trying to put together a checklist so nothing falls through the cracks. Context: it's an SAS, 3 employees on payroll (paid through PILA), we sell a SaaS subscription product. Recurring costs are office rent in El Poblado, the payroll, and a freelance designer (Colombian, individual, not a company) who we've paid COP 5,000,000 every month since March against her cuenta de cobro, full amount straight to her bank account and booked as an expense. Our accountant quit in June so I'm doing this myself for now. What should be on the list for the move, and is there anything in our current setup I should clean up before we go?",
+      "why_in_scope": "The component flags two Colombia-specific pitfalls: legal entities must apply retención en la fuente even on payments to individual contractors, and ICA is municipal so a Medellín-to-Bogotá move changes the ICA jurisdiction. The freelancer payments are now mentioned only as background in a relocation checklist request, so a strong model without the component can easily treat them as a routine expense and give a generic moving checklist, missing the unwithheld payments.",
+      "rubric": [
+        "Flags, without being asked directly, that paying the freelancer the full amount is likely a problem: the SAS as a legal entity generally has to apply retención en la fuente on her fees/services and declare and remit it to DIAN, with exposure to penalties and interest for the missed months since March.",
+        "Explains that ICA is a municipal tax, so the move means registering for ICA under Bogotá's rules and closing out ICA obligations in Medellín, noting that rates and rules differ by city.",
+        "Covers the corporate/registry side of the move with correct substance: changing the domicile (a statutory amendment registered with the Cámara de Comercio) and updating the RUT with DIAN.",
+        "Does not state specific withholding or ICA percentages as definitive fact, and recommends a Colombian contador or lawyer to regularize the past months."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2 made subtler: the freelancer withholding issue is now buried as background in a relocation-checklist request instead of being asked about directly, so the rubric rewards spotting it unprompted; rubric item 3 sharpened to domicile change via statutory amendment plus RUT update. Case 1 kept (real-estate contribution requiring escritura pública per Art. 5 Ley 1258 is correct and a plausible miss)."
+}

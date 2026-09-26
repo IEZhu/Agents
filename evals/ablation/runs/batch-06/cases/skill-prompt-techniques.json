@@ -1,0 +1,35 @@
+{
+  "component": "skill-prompt-techniques",
+  "cases": [
+    {
+      "id": "brand-voice-example-copying-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "У нас интернет-магазин чая, ~1400 карточек товаров, описания писали разные люди в разное время, всё вразнобой: где-то канцелярит (\"данный чай обладает выраженным ароматом\"), где-то куча восклицательных знаков. Маркетолог написала эталонный текст для одного улуна, всем нравится:\n\n\"Те Гуань Инь из Аньси. Сухой лист скручен в тугие шарики — в чайнике раскрывается минут за пять. Пахнет сиренью и немного сливочным маслом. Заваривайте 90°, первые проливы короткие, секунд по 15. Выдерживает семь-восемь заварок, дальше уже вода.\"\n\nГоняем карточки через Claude API. Промпт сейчас такой: \"Перепиши описание товара в стиле примера ниже. Сохрани все факты. Пример: <текст выше>. Описание: {old_text}\".\n\nСтало лучше, чем было, но вылезла другая беда. Прогнали тестово 50 карточек: у Лунцзина и у шу пуэра тоже \"выдерживает семь-восемь заварок\", у половины зелёных откуда-то взялось \"заваривайте 90°\", у жасминового \"нотки сливочного масла\", а в исходниках этого не было. И все тексты начинаются с \"Название из Региона.\" и дальше слово в слово по той же схеме, даже если в исходнике про регион ни слова. Как это починить, не теряя стиль?",
+      "why_in_scope": "The skill's tone-transfer technique separates analyzing the reference's style (vocabulary, sentence length, rhythm, formality) from rewriting the target while preserving the target's meaning, and its few-shot guidance calls for several examples including an edge case. With the reference already pasted in, the obvious fix is 'tell it not to copy facts'; a strong model without the skill may stop there instead of turning the reference into explicit style features and adding varied before/after pairs, including a card with sparse information, so the model learns manner rather than content and template.",
+      "rubric": [
+        "Recommends describing the reference's style explicitly in the prompt (e.g. short declarative sentences, no exclamations or superlatives, concrete sensory detail, plain practical advice, a colloquial closing remark) so the model imitates the manner rather than the content or the exact sentence template.",
+        "Adds an explicit rule that facts come only from the source card: details from the example (lilac, butter, 90°, seven-eight infusions, origin) must not be carried over, and missing information (region, brewing parameters) is omitted rather than invented.",
+        "Suggests adding one or two more before/after example pairs for different teas, including a card with little source information, so the model sees the style held constant while the content and structure vary.",
+        "Gives a concrete revised prompt the user can use via the API, producing Russian output."
+      ]
+    },
+    {
+      "id": "text-to-sql-static-examples-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "I have an internal text-to-SQL tool on Postgres 15 for our ops team. The prompt has the schema (orders, order_items, customers, warehouses, shipments) and then 6 hardcoded example pairs I wrote when we launched, like \"how many orders yesterday\" -> SELECT count(*) FROM orders WHERE created_at::date = current_date - 1, \"list customers in Texas\", \"total revenue in March\". Accuracy on simple lookups is fine, but when people ask things like \"which warehouses had more than 10 late shipments last week, compared to the week before\" or \"customers who ordered in Q1 but not Q2\", it produces wrong joins or forgets the anti-join entirely. I have about 900 question/SQL pairs from the last few months that the analysts have already verified. My plan is to just add 30 more of the hardest ones to the static example block. Is that the right move?",
+      "why_in_scope": "The skill's few-shot selection technique says to pick 2-3 examples similar to the current request, insert them before it, include at least one edge case, and avoid examples that don't match the actual task distribution. A strong model without it may simply endorse or tweak the plan of stuffing many more static examples, instead of recommending per-query retrieval of the most similar verified pairs from the 900-pair pool.",
+      "rubric": [
+        "Recommends selecting a small number of examples per incoming question (retrieved by similarity from the 900 verified pairs) instead of growing one fixed block of 36 examples.",
+        "Points out that the current static examples do not match the failing question types (multi-table joins, period comparisons, anti-joins / NOT EXISTS), and that selected examples should cover those patterns, including at least one edge case.",
+        "Explains a downside of the 30-extra-static-examples plan, such as extra prompt tokens and cost on every call or irrelevant examples diluting the relevant ones.",
+        "Directly answers the user's question (whether the plan is the right move) and gives a concrete implementation outline that fits their stack (Postgres, existing verified pairs)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy (a strong model would suggest pasting the reference as an example anyway), so it now starts after that step and targets the example-copying failure, where style analysis, meaning preservation and varied edge-case examples decide the answer; id and rubric were updated. Case 2 kept as is: it fits the skill, does not leak its terms and its rubric is factually sound."
+}

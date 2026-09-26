@@ -1,0 +1,35 @@
+{
+  "component": "implant-second-order-thinking",
+  "cases": [
+    {
+      "id": "second-order-cancel-discount-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я PM в B2B SaaS для небольших салонов красоты (онлайн-запись + CRM), около 3 200 платящих клиентов, тариф 2 490 ₽/мес, помесячная оплата. Месячный отток держится на 4,1%, и CEO требует срезать его до 3% к концу квартала. План такой: когда клиент нажимает «Отменить подписку», показываем экран «Останьтесь — 40% скидки на 6 месяцев» и применяем её в один клик. У конкурента, говорят, такой экран удерживает до трети уходящих. Разработка — два дня. Я хочу запустить на всех уже в понедельник. Подтверди, что это правильный ход, и помоги сформулировать, как я это продам CEO.",
+      "why_in_scope": "Имплант заставляет модель не останавливаться на прямом эффекте (часть уходящих остаётся, отток падает) и спрашивать «а что потом»: клиенты узнают, что кнопка отмены даёт скидку, и начинают нажимать её ради скидки; лояльные клиенты на полной цене чувствуют себя обманутыми; через 6 месяцев удержанные сталкиваются с возвратом цены и уходят волной; метрика оттока улучшается, маскируя падение выручки. Сильная модель без импланта, получив просьбу «подтверди и помоги продать», склонна согласиться и написать питч, упомянув риски поверхностно.",
+      "rubric": [
+        "Не ограничивается подтверждением: прямо указывает, что запуск на всех сразу несёт отложенные риски, и не пишет питч CEO без оговорок",
+        "Прослеживает хотя бы две цепочки последствий дальше первого шага, например: слух о скидке → клиенты жмут «Отменить» ради скидки → падает средний чек у тех, кто и не собирался уходить; или скидка на 6 месяцев → по окончании возврат к полной цене → отложенная волна оттока, которая попадёт в следующие кварталы",
+        "Отмечает, что целевая метрика (отток по числу клиентов) может улучшиться при падении выручки (MRR), и предлагает смотреть на выручку/net revenue retention, а не только на логотипный отток",
+        "Всё же отвечает на запрос: предлагает конкретный способ снизить риски, совместимый с дедлайном (например, тест на части клиентов с контрольной группой, оффер один раз на клиента, меньшая скидка или короче срок, вопрос о причине ухода перед оффером), и даёт формулировку для CEO, построенную вокруг этого варианта"
+      ]
+    },
+    {
+      "id": "second-order-delete-confirmation-en",
+      "agent": "ux_designer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm the designer on a B2B project management tool (web app, ~40k weekly active users, mostly teams of 5-30). Support got 180 tickets last quarter from people who deleted tasks or whole boards by accident, and there's currently no way to restore them. Our PM wants a fix in the next sprint: every delete action (single task, bulk delete of selected tasks, board, comment) opens a modal where the user has to type the item's name (or \"DELETE\" for bulk) before the button enables. Engineering says it's 3 days of work. I need to write the spec for this tomorrow. Can you help me define the modal's copy, states and edge cases?",
+      "why_in_scope": "The implant pushes the model to follow the proposed fix past its immediate effect (fewer accidental deletes): heavy confirmation on every frequent action becomes routine, people type through it on autopilot so it stops protecting against the real mistakes, and the added friction on everyday cleanup leads teams to stop deleting at all, cluttering boards. A strong model asked for modal copy and edge cases will often just deliver the spec as requested and miss that the design undermines itself over time and that a recoverable delete addresses the root problem.",
+      "rubric": [
+        "Raises, before or alongside the spec, that applying a typed confirmation to every delete (including frequent ones like single tasks and comments) will likely become habitual and be clicked or typed through without reading, reducing its protective value over time",
+        "Identifies at least one further downstream effect of the added friction beyond annoyance, e.g. users avoid deleting and boards fill with stale tasks, or users look for workarounds (such as archiving or moving items instead of deleting)",
+        "Points out that the underlying problem is irreversibility and recommends a recoverable path (undo toast, trash/recently deleted with a retention window, or soft delete), with heavy confirmation reserved for high-impact, hard-to-reverse actions such as deleting a board",
+        "Still addresses the actual request with usable content: modal copy and at least a few concrete states or edge cases for whichever confirmations remain"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free, tool-less, and use owner agents. Case 1's last rubric item was changed to be the general-quality check: it must still help with the CEO pitch, built around the lower-risk rollout. Case 2 item 2 had a reflexive-typing example that duplicated item 1, so it was swapped for a distinct downstream effect."
+}

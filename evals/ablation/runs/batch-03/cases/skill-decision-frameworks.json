@@ -1,0 +1,35 @@
+{
+  "component": "skill-decision-frameworks",
+  "cases": [
+    {
+      "id": "onboarding-interviews-vs-pricing-email-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите разрулить спор, мы уже три недели ходим по кругу. Новый онбординг (5 шагов вместо 9) готов и лежит за фиче-флагом. Дизайнер настаивает, что нужно ещё 2 раунда юзер-интервью (+3 недели), иначе «выкатим сырое». CEO хочет выкатить в понедельник вместе с остальным релизом — там ещё маркетинг рассылает всем 40 тыс. платящих письмо о переходе с $12/мес на $15/мес с 1 ноября и в тот же день убирает старую страницу тарифов, но это уже решено, это не обсуждаем. Вопрос только про онбординг: ждать интервью или катить в понедельник? И как мне аргументировать это на встрече в пятницу?",
+      "why_in_scope": "The skill makes the model classify decisions by reversibility: the flagged onboarding is a cheap-to-undo decision that should ship soon (e.g. partially, with metrics) rather than wait 3 more weeks, and the three-week debate is analysis paralysis over a reversible choice. The user explicitly fences off the pricing email as 'decided', so a strong model without the skill will likely answer only the onboarding question; with the skill it should notice that the bundled release contains the one genuinely irreversible step (a mass email to 40k paying users plus deleting the old pricing page) and flag that this is where caution belongs.",
+      "rubric": [
+        "Recommends not waiting 3 more weeks for interviews: ship the flagged onboarding soon (e.g. to a share of users) with concrete metrics to watch, citing that the flag makes it cheap to roll back.",
+        "Frames the three-week debate as over-deliberating a choice that is easy to undo, and uses that reversibility as the core argument for the Friday meeting.",
+        "Although the user said the pricing change is not up for discussion, flags that the mass pricing email to paying customers (and deleting the old pricing page the same day) is the part that cannot be undone and deserves the extra care, e.g. decoupling it from the onboarding launch or double-checking it before sending.",
+        "Answers the actual question (wait vs. ship Monday) with a clear recommendation and usable arguments, in Russian."
+      ]
+    },
+    {
+      "id": "feature-store-justification-sunk-cost-en",
+      "agent": "system_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "I need help writing a one-page justification for leadership to keep funding our in-house feature store. Context: 3 engineers have spent 8 months on it, it's about 60% done, serves 2 of our 11 models in prod right now, and p99 online lookup is ~40ms vs our 15ms target. Finance is asking why we don't just move to a managed option (they floated Tecton or Databricks Feature Store). The point I want to lead with is that we've already put 8 months and roughly $400k into it, and switching now means writing all of that off. Can you make the case as strong as possible?",
+      "why_in_scope": "The skill tells the model to flag sunk-cost reasoning (past investment is not future value) and to steel-man the opposing position before building the case. A strong model without it could simply comply and polish the user's 'we already spent $400k' argument into a persuasive memo, which is the weakest argument and one leadership/finance is likely to see through; with the skill it should redirect the case to forward-looking costs and benefits and address the managed-option argument head-on.",
+      "rubric": [
+        "Points out that the '8 months / $400k already spent' argument is sunk-cost reasoning and should not be the core of the justification; recommends arguing from remaining cost and future value instead.",
+        "Presents the strongest version of finance's case for a managed option (e.g. remaining build time, the unmet latency target, only 2 of 11 models migrated, ongoing maintenance burden) and shows how the memo should answer it.",
+        "Still delivers what was asked: a usable draft or outline of the justification built on forward-looking arguments (e.g. cost to finish vs. migration/licensing cost, specific requirements a managed option may not meet).",
+        "Is honest that if the forward-looking comparison does not favour the in-house build, the case may not hold, rather than guaranteeing it will persuade leadership."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 was too easy (user explicitly contrasted one-click rollback with the pricing email and asked where to be careful), so it was rewritten: the user fences off the irreversible pricing email as 'decided' and asks only about the reversible onboarding, making the reversibility flag a non-obvious behaviour; rubric updated. Case 2 kept, with the sunk-cost argument phrased more naturally; rubric facts verified."
+}

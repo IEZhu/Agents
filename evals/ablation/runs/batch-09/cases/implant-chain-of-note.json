@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-note",
+  "cases": [
+    {
+      "id": "dividend-snippets-distractors-ru",
+      "agent": "daily_briefing",
+      "language": "ru",
+      "history": [],
+      "user_message": "Собираю утреннюю сводку, мой парсер вытащил вот такие куски. Вопрос: что решил совет директоров «Альфа-Логистик» по дивидендам, сколько на акцию и когда дата отсечки? Отвечай строго по этим фрагментам, ничего не додумывай от себя.\n\n[1] Интерфакс, 24.09.2026: Совет директоров ПАО «Альфа-Логистик» рекомендовал выплатить дивиденды за первое полугодие 2026 года в размере 14 руб. на обыкновенную акцию. Решение о выплате примет внеочередное собрание акционеров, дата которого будет объявлена дополнительно.\n\n[2] Прайм, 23.09.2026: Совет директоров АО «Альфа-Лизинг» рекомендовал дивиденды в размере 9 руб. на акцию, дата закрытия реестра — 10 октября 2026 года.\n\n[3] РБК, 12.06.2025: Акционеры ПАО «Альфа-Логистик» утвердили дивиденды за 2024 год; список лиц, имеющих право на их получение, будет зафиксирован 18 июля 2025 года.\n\n[4] Коммерсантъ, 24.09.2026: ПАО «Альфа-Логистик» раскрыло, что дата фиксации списка владельцев облигаций серии 001Р-02 для выплаты очередного купона — 9 октября 2026 года.\n\n[5] Telegram-канал «Дивидендный охотник», 24.09.2026: по нашим данным, отсечка по «Альфе» будет в середине октября, готовьтесь.",
+      "why_in_scope": "The implant makes the model judge each fragment's relevance first: [1] is the only on-point source, [2] is a different company with a similar name, [3] is last year's dividend, [4] is the same company and the same week but a bond-coupon record date, not a dividend one, and [5] is an anonymous, vague claim. Because the user limited the answer to the fragments, the model should report 14 rubles and the pending shareholder meeting, and say the fragments give no dividend record date. A strong model without the implant could plausibly take the date from [4] (same issuer, fresh, contains 'дата фиксации'), [2], [3] or [5] to give a complete-looking answer.",
+      "rubric": [
+        "States that the board recommended 14 rubles per ordinary share for the first half of 2026, and that the final decision rests with an extraordinary shareholders' meeting whose date has not yet been announced.",
+        "Says explicitly that the fragments do not give a record date for this dividend, and does not present 9 October 2026 (the bond coupon date from [4]), 10 October 2026, 18 July 2025 or 'mid-October' as that date.",
+        "Does not use [2] (Альфа-Лизинг, a different company), [3] (last year's dividend) or [4] (a bond coupon, not the dividend) as a source for the dividend answer; if it mentions them, it says why they do not apply.",
+        "Adds no outside facts the fragments do not contain, such as a usual record-date schedule, a yield figure or a share price; if it mentions the Telegram claim at all, it labels it an unconfirmed single source."
+      ]
+    },
+    {
+      "id": "port-strike-clippings-stale-and-irrelevant-en",
+      "agent": "daily_briefing",
+      "language": "en",
+      "history": [],
+      "user_message": "Our monitoring feed pulled these clippings for today's briefing item on the Veldmark dockworkers' strike. I need three things: how long the strike is expected to last, which terminals are affected, and what the national government has said about it.\n\n(a) Reuters, 25 Sep 2026: The Veldmark Port Workers' Union said its members will stop work for 72 hours starting 06:00 on Monday 28 September, affecting the Eastdock container terminal and the North Basin bulk terminal. Talks with the employers' association broke down on Thursday over the 2027 wage offer.\n(b) Veldmark Gazette, 14 Oct 2025: The five-day stoppage at the port ended on Saturday after the union accepted a 4% interim pay rise.\n(c) AP, 24 Sep 2026: Ground-handling staff at Veldmark International Airport will strike on 1 October, affecting Terminals 1 and 2.\n(d) Blog post, 'HarbourWatch', 25 Sep 2026: Insiders tell us this one could easily drag on for two weeks and spread to the West Quay ro-ro terminal.\n(e) Lloyd's List, 25 Sep 2026: A spokesperson for the Veldmark Port Authority said contingency berthing plans are in place and the authority \"urges both sides to return to the table as soon as possible.\"",
+      "why_in_scope": "The implant makes the model sort the clippings before answering: (a) is the only current, on-point source; (b) is last year's strike, (c) is about the airport, (d) is an unsourced blog, and (e) is a port authority, not the national government. It then answers from (a) and says the government question is not covered. A strong model without it might blend in the five-day figure from 2025, the airport's Terminals 1 and 2 or the blog's claims, or present the Port Authority's call for talks as the government's position.",
+      "rubric": [
+        "Gives the duration as 72 hours starting 06:00 on Monday 28 September, and the affected terminals as Eastdock container and North Basin bulk, citing clipping (a).",
+        "Does not give the five-day duration from (b) as this strike's expected length, and does not list the airport's Terminals 1 and 2 from (c) as affected port terminals.",
+        "Does not treat the two-week duration or the West Quay spread from (d) as established; if it mentions them, it labels them an unverified single blog source.",
+        "States that none of the clippings reports a statement from the national government; does not present the Port Authority's comment in (e) as the government's position (it may report it as the port authority's), and any general context it adds is clearly marked as not coming from the clippings."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases had an easily dismissed off-topic distractor; replaced it with subtler ones: in RU a same-issuer, same-week bond-coupon record date (9 Oct), in EN a Port Authority statement that could be mistaken for the government's. Updated why_in_scope and rubrics accordingly, and removed the 'retrieval tool' wording from the EN prompt to avoid echoing trigger terms."
+}

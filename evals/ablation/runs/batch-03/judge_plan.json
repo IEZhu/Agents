@@ -1,0 +1,242 @@
+{
+ "1b25dbd21a__o1": {
+  "component": "skill-decision-frameworks",
+  "case": "feature-store-justification-sunk-cost-en",
+  "A": "without",
+  "B": "with"
+ },
+ "1b25dbd21a__o2": {
+  "component": "skill-decision-frameworks",
+  "case": "feature-store-justification-sunk-cost-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f169b7d13d__o1": {
+  "component": "skill-decision-frameworks",
+  "case": "onboarding-interviews-vs-pricing-email-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f169b7d13d__o2": {
+  "component": "skill-decision-frameworks",
+  "case": "onboarding-interviews-vs-pricing-email-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9a03aa7333__o1": {
+  "component": "skill-dense-summarization",
+  "case": "conflicting-studies-digest-en",
+  "A": "with",
+  "B": "without"
+ },
+ "9a03aa7333__o2": {
+  "component": "skill-dense-summarization",
+  "case": "conflicting-studies-digest-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9e1d9a6cb0__o1": {
+  "component": "skill-dense-summarization",
+  "case": "vendor-call-notes-summary-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9e1d9a6cb0__o2": {
+  "component": "skill-dense-summarization",
+  "case": "vendor-call-notes-summary-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b9101c999a__o1": {
+  "component": "skill-dev-api-design",
+  "case": "orders-feed-duplicates-review-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b9101c999a__o2": {
+  "component": "skill-dev-api-design",
+  "case": "orders-feed-duplicates-review-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "27dbc232be__o1": {
+  "component": "skill-dev-api-design",
+  "case": "payments-retry-and-field-rename-en",
+  "A": "without",
+  "B": "with"
+ },
+ "27dbc232be__o2": {
+  "component": "skill-dev-api-design",
+  "case": "payments-retry-and-field-rename-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c124dfcbc8__o1": {
+  "component": "skill-dev-clean-code",
+  "case": "order-reminder-review-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c124dfcbc8__o2": {
+  "component": "skill-dev-clean-code",
+  "case": "order-reminder-review-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c4d783c804__o1": {
+  "component": "skill-dev-clean-code",
+  "case": "payment-provider-abstraction-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "c4d783c804__o2": {
+  "component": "skill-dev-clean-code",
+  "case": "payment-provider-abstraction-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8ed8cbf4ea__o1": {
+  "component": "skill-dev-debugging",
+  "case": "celery-duplicate-emails-three-changes-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "8ed8cbf4ea__o2": {
+  "component": "skill-dev-debugging",
+  "case": "celery-duplicate-emails-three-changes-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "5ab2bb3b7b__o1": {
+  "component": "skill-dev-debugging",
+  "case": "keyerror-truncated-trace-get-default-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5ab2bb3b7b__o2": {
+  "component": "skill-dev-debugging",
+  "case": "keyerror-truncated-trace-get-default-en",
+  "A": "with",
+  "B": "without"
+ },
+ "844b93d864__o1": {
+  "component": "skill-dev-performance",
+  "case": "drf-orders-aggregate-orjson-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "844b93d864__o2": {
+  "component": "skill-dev-performance",
+  "case": "drf-orders-aggregate-orjson-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ae4194e13b__o1": {
+  "component": "skill-dev-performance",
+  "case": "etl-customer-lookup-pypy-en",
+  "A": "without",
+  "B": "with"
+ },
+ "ae4194e13b__o2": {
+  "component": "skill-dev-performance",
+  "case": "etl-customer-lookup-pypy-en",
+  "A": "with",
+  "B": "without"
+ },
+ "48f1d8d18e__o1": {
+  "component": "skill-dev-security",
+  "case": "express-download-content-type-en",
+  "A": "with",
+  "B": "without"
+ },
+ "48f1d8d18e__o2": {
+  "component": "skill-dev-security",
+  "case": "express-download-content-type-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d4eb71a1aa__o1": {
+  "component": "skill-dev-security",
+  "case": "flask-dynamic-order-by-highlight-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "d4eb71a1aa__o2": {
+  "component": "skill-dev-security",
+  "case": "flask-dynamic-order-by-highlight-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "11a4bbb2a0__o1": {
+  "component": "skill-dev-testing",
+  "case": "refactor-broke-mocked-private-methods-en",
+  "A": "with",
+  "B": "without"
+ },
+ "11a4bbb2a0__o2": {
+  "component": "skill-dev-testing",
+  "case": "refactor-broke-mocked-private-methods-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b5daee9ff9__o1": {
+  "component": "skill-dev-testing",
+  "case": "xdist-flaky-cache-order-dependency-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b5daee9ff9__o2": {
+  "component": "skill-dev-testing",
+  "case": "xdist-flaky-cache-order-dependency-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9d13a8f337__o1": {
+  "component": "skill-epistemic-method",
+  "case": "startup-press-releases-offer-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "9d13a8f337__o2": {
+  "component": "skill-epistemic-method",
+  "case": "startup-press-releases-offer-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "1ce7848679__o1": {
+  "component": "skill-epistemic-method",
+  "case": "water-utility-pfas-notices-en",
+  "A": "without",
+  "B": "with"
+ },
+ "1ce7848679__o2": {
+  "component": "skill-epistemic-method",
+  "case": "water-utility-pfas-notices-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5beeeb2c9a__o1": {
+  "component": "skill-error-recovery",
+  "case": "git-delete-merged-branches-ambiguous-base-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5beeeb2c9a__o2": {
+  "component": "skill-error-recovery",
+  "case": "git-delete-merged-branches-ambiguous-base-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5be6145a55__o1": {
+  "component": "skill-error-recovery",
+  "case": "pg-backfill-crashed-continue-drop-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "5be6145a55__o2": {
+  "component": "skill-error-recovery",
+  "case": "pg-backfill-crashed-continue-drop-ru",
+  "A": "with",
+  "B": "without"
+ }
+}

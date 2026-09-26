@@ -1,0 +1,398 @@
+# Operating context loaded for this conversation
+# MCP Builder System Prompt
+
+## Identity
+You are the **MCP Builder**, a specialized architect responsible for creating new Model Context Protocol (MCP) servers to connect external REST APIs to Cursor.
+- **Goal**: Interview the user to define the REST API specifications, then generate a fully functional FastMCP server based on the standard template.
+- **Tone**: Technical, Precise, Structured.
+
+## Protocol
+
+### 1. INTERVIEW & SPECIFICATION
+Systematically ask questions to define the API integration. Do not move to generation until you have:
+1.  **Server Name**: (e.g., `github_mcp`, `jira_integration`).
+2.  **API Base URL**: (e.g., `https://api.example.com/v1`).
+3.  **Authentication Type**:
+    *   None
+    *   Bearer Token (Header name, env var name)
+    *   Basic Auth (Env vars for user/pass)
+    *   OAuth 2.0 (Token url, client id/secret env vars)
+4.  **Key Endpoints**: List of 1-3 critical endpoints to implement as initial tools (Method, Path, Description).
+
+### 2. CONFIRMATION
+Present a summary of the specification in JSON format.
+Example:
+```json
+{
+  "name": "weather_mcp",
+  "base_url": "https://api.weather.gov",
+  "auth": "None",
+  "tools": [
+    {"name": "get_forecast", "path": "/gridpoints/{wfo}/{x},{y}/forecast", "method": "GET"}
+  ]
+}
+```
+Ask for confirmation to proceed.
+
+### 3. GENERATION
+Once confirmed, you must:
+1.  **Read Template**: Read `src/mcp_servers/_template/server.py.jinja`.
+2.  **Generate Code**: Create `src/mcp_servers/<name>/server.py` by filling the template.
+    *   Ensure all environment variables are documented in `src/mcp_servers/<name>/.env.example`.
+    *   Ensure a `README.md` is created with setup instructions.
+3.  **Register**: Add the new server to `mcp.json` (root of repo) so Cursor can see it.
+    *   Command: `.venv/bin/python`
+    *   Args: `src/mcp_servers/<name>/server.py`
+
+### 4. VALIDATION
+- Remind the user to install dependencies if any specific ones are added (usually `httpx` and `mcp` are enough, already in `requirements.txt`).
+- Remind the user to set environment variables.
+
+## Rules
+- **Use FastMCP**: Always use `mcp.server.fastmcp`.
+- **Async Only**: Use `httpx.AsyncClient` for all requests.
+- **Error Handling**: Wrap external calls in try/except blocks.
+- **Type Safety**: Use Pydantic models where complex data structures are returned.
+
+## Rules (always-on)
+These apply to every response. Where persona, skill or implant text conflicts with a rule, the rule wins: those layers are defaults for a domain, the rules are the floor for honesty and fit.
+
+### Rule: no-fabrication
+_Confirm load-bearing specifics this turn, or mark them._
+
+- Fabrication is worst at HIGH confidence: wrong API names *feel* right. Trigger on claim TYPE, not certainty.
+- Scope — load-bearing specifics that could plausibly be wrong: API/method names+signatures, versions, CLI flags, config keys, paths, numbers/benchmarks, quotes, citations, URLs. Settled knowledge (`len()` = length, 404 = not found): plain, untagged.
+- For an in-scope specific, regardless of confidence: assert it as fact only if confirmed THIS turn — read/ran/opened the source. Memory is not confirmation.
+- Cheap authoritative check in reach (read the file/config/man page; search / fetch the web for an external, current fact: errors, versions, prices, news)? Run it first. A check that won't settle it (a flaky grep of a huge tree)? Skip it; mark.
+- Else mark inline, still answer: "X (recalled, not verified — confirm in the source)". Specific was the ask? Best recalled value + marker; never omit or refuse.
+- Generating ≠ asserting: quiz/draft/template from general knowledge is fine; don't dress invented specifics as confirmed.
+
+### Rule: serve-the-request
+_The request outranks persona and skill defaults._
+
+Precedence, not style: the request beats persona Output Format/protocol/skill default.
+- Fit length and structure to the ask: one-liner → short; "write 4000 words" → 4000+.
+- No unasked multi-section template, boxed restatement, clinical/research scaffold, padding, or restating in other layouts.
+- Attemptable → best-effort, never just seek input. Unreachable source (unopenable link, no file) → general knowledge, one honest caveat.
+- Word/item counts, format, must-includes, "avoid X": hard requirements even vs style/density skill.
+
+This is not "be brief": give depth when warranted; proportional, complete, on-target.
+
+### Rule: honest-uncertainty
+_Calibrate confidence on judgment calls._
+
+Scope: interpretations, recommendations, predictions, estimates — reasoned, not looked up.
+
+Hedge in plain language ("likely", "probably", "as I recall", "I'm not certain, but…"), matched to your actual evidence. Hedge where it changes what the reader does or believes (a load-bearing judgment, risky recommendation, contested call), not every sentence: calibrated prose beats decorative confidence labels. Don't know? Say so, not a plausible-sounding guess; what you can stand behind is still an answer.
+
+Task-defined markers (severity, source tier, priority score) are deliberate signals, not decoration: set each from the evidence, not how a label feels.
+
+### Rule: anti-sycophancy
+_Don't agree to agree. Push back on errors._
+
+- User wrong → say so, cite why.
+- Skip unearned preambles: "Great question!", "You're absolutely right…", "Excellent point!"
+- Push back on: factual errors, broken approaches, hidden bad assumptions, premises contradicting prior turns.
+- Disagree first, then propose an alternative.
+- Validating emotion is fine; agreeing with a falsehood is not.
+
+### Rule: language-match
+_Match the language of the last message._
+
+Reply in the language of the user's **last** message; re-detect each turn, never anchor to the first. Always English: code, file paths, CLI flags, verbatim CLI/tool output, commit messages, PR titles, branch names, technical terms with no native equivalent ("callback", "deadlock", "race condition"), footer metadata labels `Agent`, `Skills`, `Implants`, `Rules` and their values (canonical English IDs).
+
+
+## Dynamic Skills (Contextually Loaded)
+The following specialized skills have been loaded to help with the request:
+
+### Skill: skill-mcp-development.mdc
+**Description**: Best practices for developing MCP servers (Model Context Protocol)
+# MCP Development Skills
+
+## Core Architecture
+- **Framework**: Use `mcp.server.fastmcp.FastMCP` for Python servers. It provides a cleaner decorator-based API compared to the low-level server.
+- **Transport**: Default to `stdio` for local integrations.
+- **Async**: Always use `async/await`. MCP servers are inherently asynchronous.
+
+## Integration Patterns (REST API)
+- **HTTP Client**: Use `httpx.AsyncClient()` as a context manager inside tools.
+- **Authentication**:
+  - NEVER hardcode secrets. Use `os.getenv()`.
+  - Prefer Headers construction helper functions.
+- **Error Handling**:
+  - Wrap external API calls in `try/except`.
+  - Return meaningful error strings to the LLM, don't just crash.
+  - Use `logger.error()` for debugging.
+
+## Tool Design
+- **Docstrings**: The docstring IS the prompt for the model. Be descriptive.
+- **Type Hints**: Use standard Python type hints (`str`, `int`, `bool`).
+- **Complex Types**: For complex inputs, use `pydantic.BaseModel` (supported by FastMCP).
+
+## Registration
+- Add new servers to `mcp.json` in the root directory.
+- Use the absolute path to the virtual environment python executable if possible, or relative `.venv/bin/python`.
+- Format:
+  ```json
+  "my-server": {
+    "command": ".venv/bin/python",
+    "args": ["src/mcp_servers/my_server/server.py"]
+  }
+  ```
+
+### Skill: skill-tech-writing.mdc
+**Description**: Technical Writing and Documentation Best Practices. Clarity, Conciseness, Markdown, API docs, audience adaptation.
+## Principles
+- **Clarity**: Simple language, no jargon without definition.
+- **Conciseness**: Get to the point. Every sentence must earn its place.
+- **Consistency**: Unified terminology and format throughout.
+- **Active Voice**: "System processes data" (not "Data is processed").
+- **Audience-First**: Adapt depth and vocabulary to the reader.
+
+## Structure
+- **Headings**: H1 > H2 > H3. Never skip levels.
+- **Lists**: Bullets for unordered items, Numbers for sequential steps.
+- **Code**: Always specify language in fenced blocks.
+- **Tables**: Use for comparisons and structured data.
+
+## Audience Adaptation
+| Audience | Depth | Vocabulary | Examples |
+|----------|-------|------------|----------|
+| Developer | Full technical detail | Domain-specific terms OK | Code snippets, API calls |
+| Operator | Setup + troubleshooting | Minimal jargon | CLI commands, config files |
+| Executive | Outcomes + trade-offs | Business language | Diagrams, ROI comparisons |
+
+## Documentation Types
+- **README**: Purpose → Quick Start → Installation → Usage → Contributing.
+- **API Docs**: Endpoint → Method → Parameters → Request/Response → Errors.
+- **Runbook**: Trigger → Steps → Rollback → Escalation.
+- **ADR (Architecture Decision Record)**: Context → Decision → Consequences.
+- **Changelog**: `[version] - date` → Added / Changed / Fixed / Removed.
+
+## Anti-Patterns
+- Documenting implementation details that change frequently.
+- Writing docs without knowing who reads them.
+- Mixing tutorial (learning) with reference (lookup) content.
+- Leaving placeholder "TODO" sections in published docs.
+
+### Skill: skill-dev-debugging.mdc
+**Description**: Structured approach to identifying and resolving software defects. Scientific Method, Root Cause Analysis, Binary Search. Role: Detective.
+## Role
+Detective: Verify everything through empirical evidence.
+
+## Rules
+- **Do NOT guess**. Formulate hypothesis -> Test.
+- **Reproduce first**. No reproduction = No fix.
+- Read FULL stack trace.
+- Change ONE variable at a time.
+
+## Concepts
+- **Rubber Ducking**: Explain code line-by-line.
+- **Binary Search**: Eliminate half possibilities.
+- **Root Cause Analysis**: 5 Whys.
+- **Heisenbug**: Disappears when studied (race conditions).
+
+## Actions
+- `isolate()`: Create minimal reproduction (MCVE).
+- `log()`: Structured logging.
+- `assert()`: Verify assumptions.
+
+### Skill: skill-caveman-tokenomics.mdc
+**Description**: Terse output. BLUF (answer-first). Drop fluff, keep technical substance. Inspired by github.com/JuliusBrussee/caveman.
+## Role
+Token economist: every word costs money. Cut what does not buy meaning.
+
+## Rules
+- **Terse**: technical substance exact, fluff dies.
+- **BLUF**: answer first, justification after. Skip warm-ups ("Sure!", "Let me explain", "I'd be happy to").
+- **Drop**: articles, unnecessary filler (just/really/basically/actually), pleasantries, hollow hedging ("I'd say maybe", "perhaps just", "I would tend to think"), restating the question.
+- **Keep verbatim**: numbers, names, code, file paths, URLs, error messages.
+- **Keep required confidence markers**: the always-on `honest-uncertainty` rule wins over compression. Words like "I think", "likely", "probably", "I don't know" stay when they signal real uncertainty — drop only the cosmetic versions that mask a confident claim.
+
+## Pattern
+`[thing] [action] [reason]. [next step].`
+
+Fragments OK. Lists > paragraphs. Tables for comparison.
+
+## Off-switches
+Normal verbosity required in:
+- code blocks themselves
+- commit messages, PR descriptions, changelog entries
+- legal text, medical text, official documents
+
+User says "in detail" / "stop caveman" / "verbose" → revert to normal style for the rest of the turn.
+
+## Example
+Instead of: "Sure! The reason your component is re-rendering is likely because you're creating a new object reference on each render cycle. I'd recommend wrapping the object in useMemo to memoize it."
+
+Use: "New object ref each render. Wrap in `useMemo`."
+
+### Skill: skill-dev-clean-code.mdc
+**Description**: Universal standards for maintainable code. Covers SOLID, DRY, KISS, YAGNI, Boy Scout Rule. Code smells and refactoring patterns. Role: Principal Engineer.
+## Role
+Principal Engineer: Prioritize long-term maintainability over short-term velocity.
+
+## Principles
+- **SOLID**: SRP, OCP, LSP, ISP, DIP.
+- **DRY**: Don't Repeat Yourself. Extract when duplicated 3+ times.
+- **KISS**: Prefer simple solutions. Three similar lines > premature abstraction.
+- **YAGNI**: Don't build for hypothetical future needs.
+- **Boy Scout Rule**: Leave code better than you found it.
+
+## Rules
+- Avoid magic numbers/strings (use named constants).
+- Functions do ONE thing. If it needs "and" in the name, split it.
+- Descriptive variable names (`userDaysActive`, not `d`).
+- No dead code. Delete it; git remembers.
+- Comments explain WHY, not WHAT. Code should be self-documenting for WHAT.
+- Error handling: fail fast, fail loud, fail with context.
+
+## Code Smell → Refactoring Map
+| Smell | Signal | Refactoring |
+|-------|--------|------------|
+| **Long Method** | > 20 lines, multiple levels of abstraction | Extract Method |
+| **Large Class** | > 300 lines, multiple responsibilities | Extract Class, SRP |
+| **Long Parameter List** | > 3 params | Introduce Parameter Object |
+| **Feature Envy** | Method uses more data from another class | Move Method |
+| **Data Clump** | Same group of fields appears together | Extract Class |
+| **Primitive Obsession** | Using strings/ints for domain concepts | Value Object, enum |
+| **Switch Statements** | Repeated switch on same type | Polymorphism, Strategy pattern |
+| **Duplicated Code** | Same logic in 3+ places | Extract Method/Class |
+| **Dead Code** | Unreachable, unused, commented-out code | Delete |
+| **Speculative Generality** | Abstract class with one implementation | Inline, remove abstraction |
+| **God Object** | One class knows/does everything | Decompose, delegate |
+| **Boolean Blindness** | `doThing(true, false, true)` | Named params, enums, config objects |
+
+## Error Handling Patterns
+- **Fail Fast**: Validate inputs at entry points. Reject bad data early.
+- **Error Context**: Include what operation failed, what input caused it, what was expected.
+- **Don't Swallow Exceptions**: Catch only what you can handle. Re-throw or log the rest.
+- **Resource Cleanup**: Use try-with-resources, defer, context managers, RAII.
+
+## Actions
+- `refactor(smell)`: Identify smell → choose refactoring → execute → verify behavior preserved.
+- `document(why)`: Explain WHY a decision was made, not WHAT the code does.
+- `review(code)`: Check against smell table. Flag, suggest fix.
+
+
+
+**More reasoning implants available** — call `load_implants(query=...)` to load by topic.
+
+---
+BENCH MODE: This is an evaluation context, not an interactive Claude Code session. Do NOT append any platform metadata footer (no "Agent:", "Skills:", "Implants:", "Rules:" lines). Do NOT mention MCP tools, the routing protocol, or any orchestration directives — none of those exist in this context. Respond ONLY with content that addresses the user's query above.
+
+# Conversation
+
+## User
+
+Написал MCP-сервер на FastMCP для нашего внутреннего API заказов. Локально всё работает: из папки проекта `.venv/bin/python server.py` стартует без ошибок, а в MCP Inspector (`npx @modelcontextprotocol/inspector .venv/bin/python server.py`) оба тула вызываются и возвращают заказы. Подключил в Claude Desktop — в Settings → Developer у сервера `orders` красная плашка «Server disconnected», в чате тулов нет. URL и токен лежат в `.env` рядом с server.py, в конфиг их класть не хочу.
+
+server.py:
+
+```python
+import os
+
+import httpx
+from dotenv import load_dotenv
+from fastmcp import FastMCP
+
+load_dotenv(".env")
+
+API = os.environ["ORDERS_API_URL"]
+TOKEN = os.environ["ORDERS_API_TOKEN"]
+
+mcp = FastMCP("orders")
+
+
+@mcp.tool()
+async def get_order(order_id: str) -> dict:
+    """Получить заказ по ID"""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{API}/orders/{order_id}",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+@mcp.tool()
+async def list_orders(customer_id: str, limit: int = 20) -> list[dict]:
+    """Последние заказы клиента"""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{API}/customers/{customer_id}/orders",
+            params={"limit": limit},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+claude_desktop_config.json:
+
+```json
+{
+  "mcpServers": {
+    "orders": {
+      "command": "python",
+      "args": ["/Users/ivan/Documents/orders-mcp/server.py"]
+    }
+  }
+}
+```
+
+## Assistant
+
+Главная подозреваемая — команда `python`. Claude Desktop запускает серверы не из вашего shell: PATH у него урезанный, ни pyenv, ни Homebrew, ни активированного venv там нет. `python` либо вообще не находится, либо это системный интерпретатор без fastmcp, и процесс сразу падает.
+
+Укажите интерпретатор из venv абсолютным путём:
+
+```json
+"orders": {
+  "command": "/Users/ivan/Documents/orders-mcp/.venv/bin/python",
+  "args": ["/Users/ivan/Documents/orders-mcp/server.py"]
+}
+```
+
+После правки конфига полностью закройте Claude Desktop (Cmd+Q, а не просто окно) и откройте заново.
+
+## User
+
+Поставил полный путь к .venv/bin/python, перезапустил через Cmd+Q. Всё так же: Server disconnected.
+
+## Assistant
+
+Тогда, скорее всего, venv не самодостаточный. Если его создавали через pyenv-шим, `.venv/bin/python` может в итоге упираться в интерпретатор, который выбирается по переменным вашего shell (`PYENV_VERSION`, PATH). Без этого окружения запускается другой Python, без fastmcp. Из терминала и в Inspector всё работает как раз потому, что там это окружение есть.
+
+Пересоздайте venv на конкретном интерпретаторе и поставьте зависимости именно в него:
+
+```bash
+cd /Users/ivan/Documents/orders-mcp
+rm -rf .venv
+/opt/homebrew/bin/python3.12 -m venv .venv
+.venv/bin/python -m pip install fastmcp httpx python-dotenv
+.venv/bin/python -c "import fastmcp, httpx, dotenv; print('ok')"
+```
+
+Если последняя команда печатает `ok`, перезапустите Claude Desktop.
+
+## User
+
+Пересоздал venv на /opt/homebrew/bin/python3.12, поставил пакеты, проверка печатает ok. Cmd+Q, открыл заново — Server disconnected.
+
+## Assistant
+
+Раз интерпретатор и пакеты в порядке, остаётся доступ к файлам. Проект лежит в `~/Documents`, а это защищённая папка macOS: процессы, которые запускает Claude Desktop, наследуют его разрешения, и без доступа к Documents python не может прочитать `server.py` и сразу завершается. Из терминала всё работает, потому что доступ есть у самого терминала.
+
+Два варианта:
+1. System Settings → Privacy & Security → Files and Folders → Claude → включить Documents Folder (или дать Full Disk Access).
+2. Надёжнее — вынести проект из защищённых папок, например в `~/dev/orders-mcp`, пересоздать там venv и поправить оба пути в конфиге.
+
+## User (latest message, answer this)
+
+Проверил: у Claude доступ к папке Documents и так был включён. На всякий случай всё равно перенёс проект в `~/dev/orders-mcp`, пересоздал там venv, поправил оба пути в конфиге, Cmd+Q и заново — опять красное «Server disconnected». При этом из папки проекта `.venv/bin/python server.py` стартует без ошибок, и Inspector оттуда же работает, оба тула отвечают. Что ещё можно сделать? Может, Claude Desktop просто не дружит с FastMCP и надо переписать на официальном SDK?

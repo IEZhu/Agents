@@ -1,0 +1,511 @@
+{
+ "verdicts": [
+  {
+   "component": "implant-narrative-of-thought",
+   "case": "outage-root-cause-mixed-tz-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "0c64c37e33__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers convert MSK to UTC correctly, build the same timeline, reject the release as root cause, point to report-export as the likely cause and ask for pg_stat_activity confirmation. B adds useful nuance: Slack timestamps are message times rather than event times, v2.14.0 may have changed pool settings, and the missing max_connections budget. A slightly overstates that the release's role can be checked 'only' via the 5xx graph and asserts the on-call lost about 15 minutes as fact.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-narrative-of-thought",
+   "case": "outage-root-cause-mixed-tz-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "0c64c37e33__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers convert MSK to UTC correctly, produce the same correct timeline, and refute both claims in the draft: the release came after the errors began, and the rollback was not slow. Both name report-export as the likely cause, say it is a correlation, and propose checking pg_stat_activity or per-application connection metrics. The remaining differences are minor: B frames its rewrite a bit more cautiously ('likely cause', exact seconds), and A adds a point about using Slack timestamps as event times, so neither is meaningfully better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-priming",
+   "case": "mermaid-generator-inconsistent-output-en",
+   "A": "with",
+   "B": "without",
+   "stem": "4cceb184e7__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers suggest prefilling 'sequenceDiagram' and 'autonumber', note that the caller must prepend those lines, and give valid example diagrams that follow the user's conventions. B also handles the end of the output explicitly, with stop sequences (``` and blank lines) and a sanitizer that cuts at the first non-Mermaid line; A relies only on a line filter. A's filter also requires leading whitespace on every line after the header, so it would silently drop unindented diagram lines, while B's fixed alias table and unfenced example target the alias drift more directly.",
+   "errors_with": [
+    "Sanitizer regex requires leading whitespace for autonumber/participant/message lines, so valid unindented Mermaid output would be stripped down to just 'sequenceDiagram'."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-priming",
+   "case": "mermaid-generator-inconsistent-output-en",
+   "A": "without",
+   "B": "with",
+   "stem": "4cceb184e7__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers recommend prefilling 'sequenceDiagram\\nautonumber', say the caller must prepend those lines, give correct example diagrams and keep the requested conventions. A also handles how the output ends with an explicit stop sequence and a sanitizer that cuts at the first non-Mermaid line, and its fixed alias table is more deterministic. B only strips trailing prose with a line filter, and that filter's regex requires leading whitespace on every line after the first, so unindented but valid output would lose its participant and message lines. B also contradicts itself by saying line 2 is 'exactly: autonumber' and then that it is indented 4 spaces.",
+   "errors_with": [
+    "Sanitizer regex requires leading whitespace (\\s+) before autonumber, participant and message lines, so valid unindented Mermaid output is silently dropped",
+    "'Redis -> RDS' is presented as a well-known abbreviation, which is questionable"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-premortem",
+   "case": "postgres-weekend-cutover-runbook-en",
+   "A": "with",
+   "B": "without",
+   "stem": "521fcd0565__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers do the window arithmetic, recommend logical replication or DMS with a timed end-to-end rehearsal, and cover roles, extensions, sequences, ANALYZE, Celery and validation. The difference is the runbook itself: B gives a coherent clock-by-clock table with owners, exit criteria and three concrete go/no-go gates that add up, while A's timeline contradicts itself, with post-restore steps at ~04:40 coming after its 04:30 point-of-no-return gate, so it is harder to follow as written. A has some sharper details, such as NOLOGIN on the source to prevent split-brain writes, but they don't outweigh B's more usable, internally consistent schedule.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-premortem",
+   "case": "postgres-weekend-cutover-runbook-en",
+   "A": "without",
+   "B": "with",
+   "stem": "521fcd0565__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers do the window arithmetic, recommend logical replication or a full timed rehearsal, and cover roles, extensions, sequences, ANALYZE, Celery and validation. B adds good details (NOLOGIN on the source to prevent split writes, WAL retention risk from the replication slot), but its night timeline contradicts itself: the point of no return is set at 04:30, yet post-restore work only starts at about 04:40. A gives a coherent clock-time table with three concrete go/no-go gates that the on-call team could actually follow.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-metacognitive-prompting",
+   "case": "black-friday-pod-scaling-en",
+   "A": "without",
+   "B": "with",
+   "stem": "58b1e6072f__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give 12 pods, catch the 600 vs 400 connection overflow, flag the ~135% database CPU projection, and recommend a 1,200 rps load test, so both meet every rubric item. B names PgBouncer/RDS Proxy as a pooler fix, says more clearly that the whole estimate rests on linear extrapolation from one data point, and advises adding headroom on the database side if testing isn't possible. A is equally correct and adds useful points about pre-scaling and a deploy freeze, so B's edge is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-metacognitive-prompting",
+   "case": "black-friday-pod-scaling-en",
+   "A": "with",
+   "B": "without",
+   "stem": "58b1e6072f__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give 12 pods, catch the 600 vs 400 connection overflow with a pool-size fix, flag the linear-scaling assumption and the 135% DB CPU projection, and recommend a 3x load test against a production-sized database. B adds useful practical details: it asks whether '3x' means 3x peak or 3x average, recommends a deploy freeze and pre-scaling timing, and gives a clearer change-request table. A is slightly tighter but covers marginally less ground, so B wins by a small margin.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-metacognitive-prompting",
+   "case": "redesign-conversion-revenue-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "5a3623d231__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers compute ~600 orders/month, ~2.5M RUB/month and ~30M RUB/year correctly, name Black Friday/pre-holiday seasonality and the missing control as the main weakness, frame 30M as an upper bound in near-identical report wording, and propose a year-over-year comparison plus an A/B test. A adds a correct sampling confidence interval (~0.33-0.67 pp, ~20-40M RUB) and notes the 11.11 sale in the baseline; B adds an unchanged-category control group and a caveat that sessions are not independent. These extras roughly balance out, so neither answer is clearly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-metacognitive-prompting",
+   "case": "redesign-conversion-revenue-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "5a3623d231__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers compute the ~600 orders/2.5M per month/~30M per year figure correctly, flag Black Friday seasonality and the missing control group, frame 30M as an upper bound, and propose a year-over-year comparison and an A/B test. B adds a correct 95% confidence interval translated into rubles (~20-40M), traffic-mix and segment checks, and gives prior-year comparison windows that fit the timeline. A's suggestion to use 'the same weeks of 2025' is probably the wrong year if the launch was November 2025.",
+   "errors_with": [
+    "Suggests comparing with the same weeks of 2025 as 'last year', which is likely the launch year itself rather than the prior year"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-program-of-thoughts",
+   "case": "deposit-rate-step-topups-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "5e750780fb__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same correct figures (1 020 820,54; 860 000; 160 820,54), the same two-phase calculation with B6 = 665 429,10, and a matching month-by-month check table. A adds a concrete what-if figure for a missing final top-up. B adds a sum check and an effective-rate note. Neither difference is material.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-program-of-thoughts",
+   "case": "deposit-rate-step-topups-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "5e750780fb__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers reach identical correct figures with the same two-phase method, a month-by-month check and the same breakdown table. B shows the exact-fraction derivation of q^n more transparently, and its month-5 balance (636 936,62) is correctly rounded where A shows 636 936,61. B also quantifies one concrete discrepancy scenario (last top-up omitted, which gives about 1 000 820,54), so the bank-comparison part is slightly more useful.",
+   "errors_with": [
+    "Month-5 balance shown as 636 936,61 (rounds to 636 936,62); cosmetic only"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-priming",
+   "case": "alert-card-llm-generator-drift-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "675143419e__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "B pre-fills more of the card ('## KubePodCrashLooping\\n' rather than just '## ') and explains why this blocks the preamble, the code fence and the wrong heading level, while A's prefill explanation covers only the preamble. A, however, handles extra trailing sections concretely: its clean() cuts everything after the Grafana line, whereas B only forbids them in the prompt and relies on validation plus retry. Neither pre-fills the start of the Severity line, and both are otherwise equally sound, keep the user's format and give plausible CrashLoopBackOff content, so the strengths balance out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-priming",
+   "case": "alert-card-llm-generator-drift-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "675143419e__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "A prefills the full '## KubePodCrashLooping' heading and says outright that this stops the 'Конечно!' preamble, the code fence and the wrong heading level; B prefills only '## ' and says only that the preamble has nowhere to go. B handles trailing sections better, because its clean() cuts everything after the Grafana line, while A only states in the prompt that Grafana is the last line and lets the validator reject extra sections. Neither answer prefills the start of the Severity line, and both make JSON the main recommendation while keeping the user's card format, so the gap between them is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-react",
+   "case": "oomkilled-rss-vs-tracemalloc-en",
+   "A": "without",
+   "B": "with",
+   "stem": "8b25e22789__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correct the earlier advice, use the tracemalloc-vs-working-set gap to point at native/Pillow/glibc/tmpfs memory, and give well-sequenced diagnostics with confirm/rule-out criteria. A offers a more concrete stopgap (request-count recycling via --limit-max-requests or gunicorn --max-requests) and a sync resize example consistent with its threadpool reasoning, while B's example uses async def with blocking Pillow work and its stopgap advice ('liveness or memory-based restart') is vaguer. B's explicit jemalloc instructions and slope-based rule-out are a small plus but do not outweigh these points.",
+   "errors_with": [
+    "A 4000x3000 RGB image in Pillow takes about 48 MB, not 36 MB, because Pillow stores RGB at 4 bytes per pixel",
+    "The example resize handler is async def but does blocking Pillow work on the event loop"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-react",
+   "case": "oomkilled-rss-vs-tracemalloc-en",
+   "A": "with",
+   "B": "without",
+   "stem": "8b25e22789__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. They correct the earlier advice, reason from the tracemalloc-versus-working-set gap to native or tmpfs memory, and give a memory.stat, live-image-count, MALLOC_ARENA_MAX and memray diagnostic ladder with confirm or rule-out criteria. B edges ahead with a more actionable stopgap (request-count recycling via --limit-max-requests or gunicorn --max-requests instead of a timer) and a sync resize example that does not block the event loop, whereas A's sample runs blocking Pillow work inside an async def.",
+   "errors_with": [
+    "Example resize function is async def but performs blocking Pillow decode/resize on the event loop (practical flaw rather than strict factual error)"
+   ],
+   "errors_without": [
+    "Says the container 'grows by gigabytes' while the observed growth is bounded by a 1Gi limit (minor exaggeration)"
+   ]
+  },
+  {
+   "component": "implant-output-automata",
+   "case": "barbershop-tg-bot-booking-flow-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "8caa9aaaf8__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give a full state machine, atomic Lua CAS slot capture, deadline workers and a webhook re-check, and both map all three bugs to concrete fixes. A's universal late-payment rule sends a refund for any succeeded webhook on a CANCELLED_* booking, so a duplicate webhook after a late (<3h) client cancellation would wrongly refund. B makes an explicit exception for no-refund client cancellations, and it also adds TTL'd cells with an ownership check at confirm, compare-and-delete release, and the admin-after-client-cancel conflict case. A's state table with per-transition guards is somewhat more explicit, but that does not outweigh the refund-logic hole.",
+   "errors_with": [
+    "Late/duplicate payment.succeeded rule auto-refunds any CANCELLED_* booking, including client cancellations inside 3 hours that must not be refunded"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-automata",
+   "case": "barbershop-tg-bot-booking-flow-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "8caa9aaaf8__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers design a sound Redis-backed state machine with atomic Lua claims, stale-callback rejection, deadline workers and YooKassa verification by webhook plus API re-fetch, and both map the three bugs to concrete fixes. B lays out every transition in an explicit table with its guard, atomic actions and follow-up actions, names its terminal states, and handles restart through SUPERSEDED, so it fits the 'no holes' request more directly; A gives transitions only as a diagram plus prose. A's single global refund rule is also stated loosely: as written it would refund COMPLETED bookings, which slightly weakens its rigor.",
+   "errors_with": [],
+   "errors_without": [
+    "Global refund rule ('refund if payment succeeded and status is not CONFIRMED, except CANCELLED_BY_CLIENT with refund=no') would also trigger refunds for COMPLETED/NO_SHOW bookings as literally stated"
+   ]
+  },
+  {
+   "component": "implant-prompt-chaining",
+   "case": "call-transcript-megaprompt-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "920171465e__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both propose the same extract-then-generate pipeline with the SMS built only from quoted promises, plus code-level quote validation, and both justify the split by latency not mattering without discussing added cost. B handles invalid JSON more completely (it checks finish_reason for truncation, adds pydantic validation with a retry, and warns that strict mode does not prevent length cutoffs), and it critiques the reorder idea more sharply by noting that ticket_text and sms would come before the category and anchor it. A is otherwise equally strong, with a fuller strict schema, so the margin is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-prompt-chaining",
+   "case": "call-transcript-megaprompt-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "920171465e__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers propose the same core fix: extract facts with quotes, generate the SMS and ticket only from that extraction, use strict Structured Outputs, add a problems timeline before the category, and give clear verdicts on the user's ideas; neither says outright that an early-step error carries into later steps or discusses the cost of extra calls. B delivers a more complete rewritten prompt set: a full strict JSON schema, a second-call prompt with explicit SMS rules and an empty-promises case, concrete code checks, and a single-call fallback. That matches the user's 'how do I rewrite the prompt' request slightly better. A's strengths are an explicit code-validation step before generation and the finish_reason/truncation tip.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-automata",
+   "case": "equipment-rental-deposit-lifecycle-en",
+   "A": "with",
+   "B": "without",
+   "stem": "a41f9ca0ac__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are strong, rigorous specs that meet the guard, incident-mapping and card-hold items, and both flag that hold expiry may be the real cause of incident #1. A explicitly states that any transition not in the table is illegal and ties every state to a complete transition table. B only implies this through guards and invariants, though it adds useful extras such as stale-timer no-ops, race and idempotency handling, and an owner no-damage transition, so the margin is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-output-automata",
+   "case": "equipment-rental-deposit-lifecycle-en",
+   "A": "without",
+   "B": "with",
+   "stem": "a41f9ca0ac__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both specs are strong and nearly equivalent: named states with actors, correct guards, incident-by-incident prevention, and a well-reasoned treatment of hold expiry with a re-auth/capture decision and a fallback state. B explicitly states that any transition not listed is illegal and gives a clear segment-by-segment calculation of the liability window against the 7-day hold, while A leaves the default-deny rule implicit. A has slightly richer states (NOT_RETURNED, LAPSED alarm), but its race-condition acceptance criterion is muddled, and B's diagram, though somewhat messy, is backed by an unambiguous table.",
+   "errors_with": [],
+   "errors_without": [
+    "Race acceptance criterion ('winner is whichever is first by returned_at + 48h cutoff; the other fails on the version check') is internally confused about how the winner is determined"
+   ]
+  },
+  {
+   "component": "implant-plan-and-solve-plus",
+   "case": "pg-orders-int-to-bigint-logical-replica-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "afa247870c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers compute the runway of about 140 days correctly, follow the same shadow-column, backfill and swap sequence, cover all three FK tables plus ALTER SEQUENCE AS bigint, and prepare the subscriber before the publisher. B adds an explicit reconciliation step (id_new IS DISTINCT FROM id) and a post-swap check list, flags the binary-mode subscription pitfall, and keeps a rollback path by pre-creating id_old columns on the subscriber. A drops the old column inside the swap, so the only way out afterwards is forward, and its final verification is thinner.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-plan-and-solve-plus",
+   "case": "pg-orders-int-to-bigint-logical-replica-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "afa247870c__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both compute the ~167.5M / ~140-day runway with a realistic lower-bound scenario, give a correctly ordered app -> subscriber -> publisher shadow-column plan with a short swap transaction, handle all three FK tables and ALTER SEQUENCE AS bigint, and explain why the subscriber must get the bigint type and new columns first. A adds an explicit id_new = id reconciliation step and warns about binary-mode subscriptions; B adds dependency audit queries, carries over FK ON DELETE actions, pre-validates the new FKs, and includes a clone rehearsal and a failure-mode checklist. These strengths balance out, and neither answer has a significant error.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-multi-agent-debate",
+   "case": "monolith-split-cross-exam-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "c60c8c296d__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are very close: each splits the problem from the solution, says the pro-split plan is unrealistic, flags the user's bias, and ends with a modular-monolith-plus-pilot recommendation with confidence and triggers for revisiting it. B's positions respond to each other a bit more (it rebuts the steel-man directly), and its advice is more practical: a separate language decision, Kafka only if a real async use case exists (outbox otherwise), the point that money errors become quieter and costlier, and a sharp question to put to the CTO about metrics. A is clearer that doing nothing is unsafe, but B's more concrete, well-hedged guidance gives it a slight edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-multi-agent-debate",
+   "case": "monolith-split-cross-exam-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "c60c8c296d__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers critique the pro-split plan well and end with the same concrete recommendation plus a confidence level, but in both the pro and con positions still sit mostly as parallel lists. B pushes back on the anti-split side more directly: it says doing nothing lets incidents and CI time grow, while A calls the status quo 'not a catastrophe'. B also separates the problem from the solution more thoroughly, with its own diagnosis section and pre-meeting questions about the incidents and the CI time, and it adds practical advice on presenting at the meeting.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-narrative-of-thought",
+   "case": "scrambled-slack-final-decision-en",
+   "A": "with",
+   "B": "without",
+   "stem": "c69ae01b6c__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the correct final state (Oct 14, SSO out of v1, Aisha), explain that the Wed 09:15 reply supersedes the Tuesday 'ok final' message, and cite the DPA as the reason, though neither explicitly says dropping SSO is what allowed keeping Oct 14. A adds an accurate, useful caveat that nobody re-confirmed Oct 14 after the change and that Dan's 'fine by me' was about the Tuesday plan. Otherwise the two are nearly identical in accuracy and format.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-narrative-of-thought",
+   "case": "scrambled-slack-final-decision-en",
+   "A": "without",
+   "B": "with",
+   "stem": "c69ae01b6c__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both report Oct 14, SSO out of v1 and Aisha as owner, and both explain that the Wed 09:15 thread reply superseded the Tue 'ok final'; neither says outright that dropping SSO is what allowed Oct 14 to stay. A's SSO line muddles the reason by attaching Marco's follow-up to it, while B states the DPA cause more cleanly. B's extra caveat that Oct 14 was never re-confirmed adds some unwarranted doubt, since Priya's message explicitly keeps Oct 14, so the two balance out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-premortem",
+   "case": "freemium-shutdown-launch-plan-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "da175dbbcd__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers name concrete launch-specific failures (review delay, old 2.x clients, false paywall for Pro, export, billing availability in Russia, weekend dates), and both build fixes into a correct day-by-day plan with go/no-go checkpoints. A edges ahead with an explicit prioritized pre-mortem table (probability, impact, preventive action), a go/no-go gate before the announcement on 16 October, and a clear hotfix deadline. B has a richer test matrix, covers App Store requirements, and makes the sensible choice of a 10:00 flag switch, but its risk prioritization is less systematic and its closing risk section is thin.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-premortem",
+   "case": "freemium-shutdown-launch-plan-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "da175dbbcd__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers catch the weekend dates, move submission to 23 October, put enforcement behind a server flag, protect existing Pro subscribers and flag the Play Billing issue in Russia. B spells out more clearly that old 2.x clients must be blocked by the server, adds a go/no-go on 16 October before the announcement, and gives an explicit pre-mortem table with likelihood, impact and prevention for each risk, including backlash and support load. A has some advantages, such as switching the flag at 10:00 rather than midnight and a detailed test matrix, but its risk prioritization is less systematic.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-multi-agent-debate",
+   "case": "job-offer-equity-debate-en",
+   "A": "without",
+   "B": "with",
+   "stem": "dd4edb91f5__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are strong and structurally similar, and each meets every rubric item with a MEDIUM-confidence conditional recommendation and concrete negotiation asks. B does slightly more to set the arguments against each other, with an explicit declining steel-man and a bias section that names loss aversion on the cautious side, and it gives a consolidated, checkable question list for before Friday. B's equity treatment is also a little more directly actionable ('value the options at close to zero in your budget'), while A's closing remark about coming back 'with FMLA behind you' is muddled, since FMLA eligibility would not carry over to a new employer.",
+   "errors_with": [],
+   "errors_without": [
+    "Implies deferring 6-9 months leaves you 'with FMLA ... behind you', which confuses FMLA eligibility; tenure would reset at a new employer"
+   ]
+  },
+  {
+   "component": "implant-multi-agent-debate",
+   "case": "job-offer-equity-debate-en",
+   "A": "with",
+   "B": "without",
+   "stem": "dd4edb91f5__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers are strong and closely matched on every rubric item, weighing the over-optimistic 'Series C soon' claim against the overstated risk for an employable senior engineer and valuing the options realistically. B gives a sharper bottom line ('don't accept as offered; take only if...') with explicit conditions and a defer path, and grounds its runway concern in a rough burn estimate plus a term-sheet question. B also adds useful checks A lacks, such as liquidation preference terms, a longer exercise window, a household-budget test and treating the decision as a joint one with the user's wife.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-program-of-thoughts",
+   "case": "orders-revenue-breakdown-en",
+   "A": "with",
+   "B": "without",
+   "stem": "e542c51378__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give identical, correct figures for totals, discounts, mean, median, per-customer revenue and shares, identify acme as biggest, and include a per-line table with checks. A shows the qty x price step in each gross cell, which makes it slightly more traceable, while B gives two-decimal shares and spells out the exact rounding ranges the boss might see. Both flag the gross-vs-net ranking flip, so neither is meaningfully better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-program-of-thoughts",
+   "case": "orders-revenue-breakdown-en",
+   "A": "without",
+   "B": "with",
+   "stem": "e542c51378__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give identical, correct figures for totals, discounts, mean, median, per-customer revenue and shares, and both identify acme with a traceable per-line table. B shows the qty x price arithmetic inline and notes how narrow acme's lead is, while A gives the exact alternative rounded values for the half-cent line; these offsetting small strengths leave no meaningful difference. Both flag the gross-vs-net ranking flip correctly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-plan-and-solve-plus",
+   "case": "nas-12tb-migration-weekend-cutover-en",
+   "A": "without",
+   "B": "with",
+   "stem": "e75d47071a__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers get the core numbers right (~50 MB/s, ~67+ h seed, 29 h insufficient, ~360 GB/day ≈ 2 h, small final delta) and both give a sensible schedule with verification and rollback. B edges ahead by adding a pilot run to measure real throughput and scan time before committing, noting the TiB variant, pointing out that the manager's plan has no frozen final sync, and setting an explicit 02:00 abort gate with the old NAS kept read-only for 1-2 weeks afterward. A is equally correct and a bit tighter, but its go/no-go and rollback handling are slightly less concrete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-plan-and-solve-plus",
+   "case": "nas-12tb-migration-weekend-cutover-en",
+   "A": "with",
+   "B": "without",
+   "stem": "e75d47071a__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers get the core numbers right (50 MB/s, ~67 h, 29 h available, 360 GB/day, ~2 h per day of churn) and give similar week-ahead schedules with a freeze, a final --delete sync, verification and rollback. B checks the final step against the window more explicitly: it says at most ~360 GB fits in the 2-hour window, realistically ~180 GB, which is why the delta has to be kept small. It also sizes the first catch-up after the seed (~1 TB, ~6 h) and adds a Saturday rehearsal gate. A presents churn as 'not a problem' and never states outright that one day of changes would fill the whole window, though its Saturday 20:00 pre-sync handles that case in practice.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-prompt-chaining",
+   "case": "release-notes-from-commits-en",
+   "A": "without",
+   "B": "with",
+   "stem": "f61bf3485b__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers propose nearly identical staged pipelines: a deterministic pre-filter, per-PR JSON extraction with an evidence-backed rollout field, grouping by feature key using the most conservative status, a constrained writer, code-based coverage and GA checks, and a PM review of intermediate lists, along with Batch API and small-model cost measures and a golden-set evaluation. A is slightly stricter on omissions (it truncates in code and never lets the model choose what to drop), while B adds an explicit omitted_with_reason list, a writer retry loop, and a rule that GA language must match rollout status. Neither difference is enough to separate them decisively.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-prompt-chaining",
+   "case": "release-notes-from-commits-en",
+   "A": "with",
+   "B": "without",
+   "stem": "f61bf3485b__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers propose nearly identical staged pipelines with evidence-backed rollout fields, coverage checks, pre-filtering, small-model batch extraction and a PM review artifact, and both give a clear 'no' on the Opus-plus-examples idea. B is slightly more direct about catching early classification errors: it surfaces every LLM-classified-internal PR for PM review and keeps a full drop log. B also closes the silent-omission gap more cleanly by making the writer include every item and doing length truncation in code. A's approach, asking the writer to list omitted items with reasons, is sound but leaves the omission decision with the model.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "implant-react",
+   "case": "disk-full-after-rm-observations-ru",
+   "A": "with",
+   "B": "without",
+   "stem": "fdd32a0392__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly diagnose the deleted-but-open access.log, explain that the lsof run without sudo proves nothing, give nginx -s reopen/reload/restart with df verification, and advise against fsck on the mounted root. B adds the no-restart option of truncating via /proc/<PID>/fd/<FD> with a precise note on the FD column, plus a dmesg check for real corruption signs, so its release and diagnosis steps are a bit more complete. A's extra bind-mount and reserved-block checks are useful but secondary, and its '~75 GB used' figure is slightly less accurate than B's arithmetic.",
+   "errors_with": [
+    "States ~75 GB used by df; 97% of 80 GB is closer to 77 GB (minor approximation)"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "implant-react",
+   "case": "disk-full-after-rm-observations-ru",
+   "A": "without",
+   "B": "with",
+   "stem": "fdd32a0392__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain the deleted-but-open file, attribute the empty lsof output to running without sudo, give nginx -s reopen/restart with df verification, and warn against fsck on the mounted root. A adds the /proc/<PID>/fd truncate option for a no-restart case, while B adds useful fallback diagnostics (ext4 reserved blocks, files hidden under mount points) in case the gap persists. These extras roughly balance out, and neither answer has meaningful errors.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

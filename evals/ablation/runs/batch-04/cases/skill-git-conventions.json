@@ -1,0 +1,44 @@
+{
+  "component": "skill-git-conventions",
+  "cases": [
+    {
+      "id": "staged-mixed-changes-commit-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Набросай сообщение коммита, хочу залить всё одним коммитом и уйти домой. Вот что у меня в `git diff --staged --stat` и что я делал за день:\n\n```\n src/billing/invoice.py        | 14 +++++++-----\n src/billing/utils.py          | 62 ++++++++++++++++++++-----------------------\n requirements.txt              |  2 +-\n README.md                     | 21 ++++++++++++++\n 4 files changed, 58 insertions(+), 41 deletions(-)\n```\n\n- invoice.py: исправил баг — дата счёта считалась в UTC, а не в часовом поясе клиента, из-за этого у клиентов из Владивостока счета датировались предыдущим днём (тикет BILL-412)\n- utils.py: переименовал функции `calc_t` → `calculate_tax`, `fmt` → `format_amount`, поведение не менял\n- requirements.txt: поднял `requests` с 2.31.0 до 2.32.3\n- README.md: дописал раздел, как локально поднять биллинг через docker compose\n\nУ нас в команде обычно пишут что-то вроде «Правки биллинга, обновил зависимости». Сделай получше.",
+      "why_in_scope": "The skill requires one logical change per commit (\"if it needs 'and', split it\") and messages in the form type(scope): subject with an imperative subject, no trailing period, and a body explaining what and why wrapped at 72 characters. Here the staged set holds four unrelated changes (a bug fix, a pure rename, a dependency bump and docs), so the skill pushes the model to recommend splitting them into separate typed commits. A strong model without the skill may simply write one nicer combined message as asked, or use the team's past-tense style (\"Исправил…\", \"обновил…\").",
+      "rubric": [
+        "Recommends splitting the staged changes into separate commits (the timezone fix, the rename, the requests bump and the README change as distinct commits) rather than one combined commit, with a brief reason (e.g. easier revert, review or bisect); offering a single-commit fallback is fine as long as splitting is the recommendation.",
+        "Proposed commit subjects use the type(scope): subject form with fitting types: fix for the timezone bug, refactor for the renames, chore (or build) for the requests bump, docs for the README.",
+        "Subjects are imperative (e.g. \"fix\"/\"add\", or Russian infinitive/imperative such as \"исправить\", not past tense like \"исправил\"/\"added\") and have no trailing period.",
+        "The fix commit body states what was wrong and why (invoice date computed in UTC instead of the client's timezone, so Vladivostok clients got the previous day) and references BILL-412; the answer does not describe the rename as a behaviour change."
+      ]
+    },
+    {
+      "id": "perf-with-reformat-commit-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Can you write a commit message for my changes? I swapped the O(n^2) duplicate check in `src/search/dedupe.ts` for a Set-based one (p95 on /search went from 840ms to 95ms on our 20k-item fixture). While I was in there I also ran prettier over the whole `src/search/` folder since the formatting was a mess, 14 files touched in total."
+        },
+        {
+          "role": "assistant",
+          "content": "Sure, here's a message you can use:\n\n```\nperf(search): Replaced quadratic dedupe with Set-based lookup.\n\nThe duplicate check in dedupe.ts compared every result against every other result, which was O(n^2) and dominated /search latency on large result sets. It now tracks seen ids in a Set, bringing p95 on the 20k-item fixture from 840ms to 95ms. Also ran prettier across src/search/ to fix inconsistent formatting.\n```"
+        }
+      ],
+      "user_message": "My lead bounced this in review and just wrote \"please redo\" with no explanation. The format looks fine to me though? What's wrong with it and what should I push instead? It's all still one local commit, nothing pushed yet.",
+      "why_in_scope": "The skill requires one logical change per commit, an imperative subject with no trailing period, and a body wrapped at 72 characters. The prior message already looks conventional, so the flaws are subtle: past-tense capitalised subject with a period, an unwrapped body, and a folder-wide prettier pass bundled with a perf change in the same scope. A strong model without the skill may just polish the wording and keep the reformat inside the perf commit.",
+      "rubric": [
+        "Recommends moving the prettier reformat of src/search/ into its own commit (e.g. style(search): ...) separate from the perf change, explaining that the formatting noise across 14 files hides the actual logic change from review.",
+        "Gives workable steps for splitting the unpushed commit (e.g. git reset --soft HEAD~1 or git reset HEAD~1, then staging per change, using git add -p or re-running prettier for dedupe.ts where formatting and logic changes share a file).",
+        "Points out and fixes the subject problems: past tense \"Replaced\" becomes imperative (\"replace\"), trailing period removed; the rewritten body is wrapped at about 72 characters.",
+        "The rewritten perf commit keeps the what and why (O(n^2) check replaced by a Set of seen ids, p95 840ms to 95ms on the 20k-item fixture) and no longer mentions the formatting pass."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: softened the split item to allow a fallback single commit and tightened wording. Case 2 was too obvious (three unrelated changes, non-conventional past-tense message any strong model would flag); rewrote it so the prior message already looks conventional and the flaws are subtle (bundled same-scope reformat, past tense, trailing period, unwrapped body), and added a split-steps item that handles the shared file."
+}

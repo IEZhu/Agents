@@ -1,0 +1,1104 @@
+{
+ "38245b15b11a": {
+  "component": "rule-anti-sycophancy",
+  "case": "pg-varchar-misattributed-premise-ru",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 31799,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "8e09ef567a4e": {
+  "component": "rule-anti-sycophancy",
+  "case": "pg-varchar-misattributed-premise-ru",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 31378,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "73564cd593ae": {
+  "component": "rule-anti-sycophancy",
+  "case": "ab-test-upbeat-slack-update-en",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 35721,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-reasoning-logic",
+   "skill-dense-summarization",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "236ea2e4a8d6": {
+  "component": "rule-anti-sycophancy",
+  "case": "ab-test-upbeat-slack-update-en",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 35300,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-reasoning-logic",
+   "skill-dense-summarization",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d5c87cfd5ca0": {
+  "component": "rule-honest-uncertainty",
+  "case": "pg-bigint-migration-window-ru",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 29703,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-clean-code",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4ac413d8dd2b": {
+  "component": "rule-honest-uncertainty",
+  "case": "pg-bigint-migration-window-ru",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 28972,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-clean-code",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "620e31c6483a": {
+  "component": "rule-honest-uncertainty",
+  "case": "ab-test-revenue-projection-en",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 35721,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "07c9f3f6332c": {
+  "component": "rule-honest-uncertainty",
+  "case": "ab-test-revenue-projection-en",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 34990,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a9a1b6a101ff": {
+  "component": "rule-language-match",
+  "case": "switch-to-ru-commit-msg-stays-en-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 20758,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "8df42860ae6a": {
+  "component": "rule-language-match",
+  "case": "switch-to-ru-commit-msg-stays-en-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 20283,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "4e48dfc5c49d": {
+  "component": "rule-language-match",
+  "case": "switch-to-en-after-ru-history-nginx-502-en",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 29545,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "OutputPriming",
+   "OutputAutomata"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d59ae3fd65b6": {
+  "component": "rule-language-match",
+  "case": "switch-to-en-after-ru-history-nginx-502-en",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 29070,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "OutputPriming",
+   "OutputAutomata"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "003536a2a6a0": {
+  "component": "rule-serve-the-request",
+  "case": "ibuprofen-paracetamol-short-answer-ru",
+  "arm": "with",
+  "agent": "medical_expert",
+  "chars": 20159,
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "609338ff3754": {
+  "component": "rule-serve-the-request",
+  "case": "ibuprofen-paracetamol-short-answer-ru",
+  "arm": "without",
+  "agent": "medical_expert",
+  "chars": 19455,
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "c12687a5ea14": {
+  "component": "rule-serve-the-request",
+  "case": "ca-deposit-wear-tear-dead-link-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "21890c641f84": {
+  "component": "rule-serve-the-request",
+  "case": "ca-deposit-wear-tear-dead-link-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29282,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fe0c8d7633cc": {
+  "component": "skill-3d-platforms",
+  "case": "sell-printed-organizers-market-ru",
+  "arm": "with",
+  "agent": "3d_print_finder",
+  "chars": 33374,
+  "skills": [
+   "skill-3d-print-search",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-decision-frameworks",
+   "skill-3d-platforms"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "34264b420b14": {
+  "component": "skill-3d-platforms",
+  "case": "sell-printed-organizers-market-ru",
+  "arm": "without",
+  "agent": "3d_print_finder",
+  "chars": 26781,
+  "skills": [
+   "skill-3d-print-search",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cec6ae88c370": {
+  "component": "skill-3d-platforms",
+  "case": "thingiverse-knob-failed-downloads-en",
+  "arm": "with",
+  "agent": "3d_print_finder",
+  "chars": 33374,
+  "skills": [
+   "skill-3d-print-search",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-3d-platforms"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e8d8e8a8d7e0": {
+  "component": "skill-3d-platforms",
+  "case": "thingiverse-knob-failed-downloads-en",
+  "arm": "without",
+  "agent": "3d_print_finder",
+  "chars": 26781,
+  "skills": [
+   "skill-3d-print-search",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5e47a005177a": {
+  "component": "skill-3d-print-search",
+  "case": "sell-headphone-hooks-license-ru",
+  "arm": "with",
+  "agent": "3d_print_finder",
+  "chars": 32609,
+  "skills": [
+   "skill-3d-platforms",
+   "skill-analysis-critical",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-3d-print-search"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "RolePlayExpert"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e17bdf77db3d": {
+  "component": "skill-3d-print-search",
+  "case": "sell-headphone-hooks-license-ru",
+  "arm": "without",
+  "agent": "3d_print_finder",
+  "chars": 25636,
+  "skills": [
+   "skill-3d-platforms",
+   "skill-analysis-critical",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "RolePlayExpert"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cf68134c7943": {
+  "component": "skill-3d-print-search",
+  "case": "fdm-28mm-mini-thin-features-en",
+  "arm": "with",
+  "agent": "3d_print_finder",
+  "chars": 32048,
+  "skills": [
+   "skill-3d-platforms",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-decision-frameworks",
+   "skill-3d-print-search"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a87e02de1668": {
+  "component": "skill-3d-print-search",
+  "case": "fdm-28mm-mini-thin-features-en",
+  "arm": "without",
+  "agent": "3d_print_finder",
+  "chars": 25075,
+  "skills": [
+   "skill-3d-platforms",
+   "skill-consultative-intake",
+   "skill-analysis-critical",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "CoV",
+   "PreMortem",
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "904085999ee3": {
+  "component": "skill-agent-handoff",
+  "case": "support-copilot-legal-retention-ru",
+  "arm": "with",
+  "agent": "ai_senior_engineer",
+  "chars": 35138,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-agent-handoff"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "47ee6646a188": {
+  "component": "skill-agent-handoff",
+  "case": "support-copilot-legal-retention-ru",
+  "arm": "without",
+  "agent": "ai_senior_engineer",
+  "chars": 33775,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "050584e9b32b": {
+  "component": "skill-agent-handoff",
+  "case": "pharmacy-bot-dosage-table-en",
+  "arm": "with",
+  "agent": "ai_senior_engineer",
+  "chars": 35611,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-error-recovery",
+   "skill-agent-handoff"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "645cb90aaaaf": {
+  "component": "skill-agent-handoff",
+  "case": "pharmacy-bot-dosage-table-en",
+  "arm": "without",
+  "agent": "ai_senior_engineer",
+  "chars": 34248,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0d1620aa0e5c": {
+  "component": "skill-agentic-loops",
+  "case": "overnight-test-fixer-burned-budget-ru",
+  "arm": "with",
+  "agent": "ai_senior_engineer",
+  "chars": 33806,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-dev-clean-code",
+   "skill-agentic-loops"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "72bf6451270e": {
+  "component": "skill-agentic-loops",
+  "case": "overnight-test-fixer-burned-budget-ru",
+  "arm": "without",
+  "agent": "ai_senior_engineer",
+  "chars": 32162,
+  "skills": [
+   "skill-content-structure",
+   "skill-prompt-engineering",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "VerifyAssumptions",
+   "PlanSolvePlus"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fbc74b63ca3e": {
+  "component": "skill-agentic-loops",
+  "case": "essay-critic-refine-loop-never-ends-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 26071,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-caveman-tokenomics",
+   "skill-prompt-engineering",
+   "skill-dense-summarization",
+   "skill-agentic-loops"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ccf2531da413": {
+  "component": "skill-agentic-loops",
+  "case": "essay-critic-refine-loop-never-ends-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 24427,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-caveman-tokenomics",
+   "skill-prompt-engineering",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "SelfRefine",
+   "CoV",
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e64e02af5b4b": {
+  "component": "skill-agnotology",
+  "case": "chemical-plant-closure-silence-ru",
+  "arm": "with",
+  "agent": "black_hole_finder",
+  "chars": 24446,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-analysis-critical",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-agnotology"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "CoV",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fcd1903044d4": {
+  "component": "skill-agnotology",
+  "case": "chemical-plant-closure-silence-ru",
+  "arm": "without",
+  "agent": "black_hole_finder",
+  "chars": 22101,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-analysis-critical",
+   "skill-fact-verification",
+   "skill-forensic-process"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "CoV",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "aecfaccc47dd": {
+  "component": "skill-agnotology",
+  "case": "remote-work-productivity-contradiction-en",
+  "arm": "with",
+  "agent": "investigative_analyst",
+  "chars": 27213,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers",
+   "skill-temporal-validation",
+   "skill-analysis-critical",
+   "skill-agnotology"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "dd2b07bf34b7": {
+  "component": "skill-agnotology",
+  "case": "remote-work-productivity-contradiction-en",
+  "arm": "without",
+  "agent": "investigative_analyst",
+  "chars": 24868,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers",
+   "skill-temporal-validation",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "63a3e77b34c9": {
+  "component": "skill-analysis-critical",
+  "case": "remote-comp-probation-clause-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 31660,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7d399d31764a": {
+  "component": "skill-analysis-critical",
+  "case": "remote-comp-probation-clause-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 29986,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "13cc8197426d": {
+  "component": "skill-analysis-critical",
+  "case": "cfo-churn-ltv-paragraph-en",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 34354,
+  "skills": [
+   "skill-content-structure",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-forensic-process",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a7d887f92a99": {
+  "component": "skill-analysis-critical",
+  "case": "cfo-churn-ltv-paragraph-en",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 32680,
+  "skills": [
+   "skill-content-structure",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-forensic-process",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

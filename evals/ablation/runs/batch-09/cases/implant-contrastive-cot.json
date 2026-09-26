@@ -1,0 +1,35 @@
+{
+  "component": "implant-contrastive-cot",
+  "cases": [
+    {
+      "id": "ticket-classifier-boundary-errors-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите переписать промпт для классификатора обращений в поддержку (gpt-4o-mini, temperature 0). Сейчас он такой:\n\n\"Ты классификатор обращений. Отнеси обращение к одной категории: ОПЛАТА, ВОЗВРАТ, ОТМЕНА. Ответь только названием категории.\"\n\nНаши правила разметки:\n- ВОЗВРАТ — клиент прямо просит вернуть деньги. Это правило главное: если есть просьба вернуть деньги, это ВОЗВРАТ, даже если там же речь про отмену или про ошибку списания.\n- ОТМЕНА — клиент хочет прекратить подписку или отключить автопродление, но деньги назад не просит.\n- ОПЛАТА — проблемы с проведением платежа или вопросы по списаниям без просьбы вернуть деньги.\n\nНа валидации (400 обращений) точность 81%, и почти все ошибки вот такие:\n1) \"Списали 499 ₽ два раза за март, верните лишнее\" — модель ставит ОПЛАТА, должно быть ВОЗВРАТ.\n2) \"Отключите автопродление, не хочу чтобы в апреле снова списали\" — модель ставит ОПЛАТА, должно быть ОТМЕНА.\n3) \"Отмените подписку и верните деньги за неиспользованный месяц\" — модель ставит ОТМЕНА, должно быть ВОЗВРАТ.\n\nНужен готовый текст нового промпта, который закроет именно эти ошибки. Формат ответа модели менять нельзя — парсер ждёт одно слово.",
+      "why_in_scope": "The errors are all boundary confusions, where a surface cue (the word 'списали' or 'отмените') pulls the model to the wrong label. The implant makes the prompt engineer name that error type and put into the prompt labelled wrong-versus-right pairs that explain why the tempting label is wrong. A strong model without it will usually just restate the definitions more firmly or add plain positive few-shot examples, which does not show the classifier the trap it keeps falling into.",
+      "rubric": [
+        "The new prompt contains at least one example that explicitly shows the tempting wrong label for a boundary case (e.g. ОПЛАТА for the double charge with a refund request) together with a short reason why it is wrong and the correct label.",
+        "All labels in the prompt's examples follow the user's rules: a request to return money is ВОЗВРАТ even when it mentions cancellation or a charging error, and turning off auto-renewal without asking for money back is ОТМЕНА.",
+        "The wrong examples are clearly marked as wrong inside the prompt (and/or the prompt restates the priority rule), so the classifier is not primed to copy them.",
+        "The prompt keeps the three categories and still requires the output to be exactly one category word, as the parser needs."
+      ]
+    },
+    {
+      "id": "kpi-summary-percent-vs-points-en",
+      "agent": "prompt_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "We have a GPT-4o prompt that turns our weekly metrics JSON into a 3-4 sentence summary for the exec Slack channel. Current prompt:\n\n\"You are a data analyst. Summarize the week-over-week changes in the metrics below in 3-4 plain sentences for executives. Be precise with numbers.\n{metrics_json}\"\n\nProblem: it keeps getting rate metrics wrong. Last week checkout conversion went from 4.0% to 6.0% and the summary said \"Checkout conversion rose 2%.\" The week before, churn went from 5.0% to 4.5% and it said \"churn fell 10 percentage points\". Our CFO flagged both. Absolute metrics like revenue or order count are summarized fine.\n\nCan you rewrite the prompt so this stops happening? Give me the full prompt text I can paste in.",
+      "why_in_scope": "The mistake is a known, named error type: mixing up percentage points and relative percent for rate metrics. The implant makes the prompt engineer put into the prompt a worked wrong-versus-right pair, using a rate change like the user's, with an explanation of why the wrong wording fails. A strong model without it tends to add only an abstract instruction such as 'distinguish percentage points from percent', which the user's current 'be precise' instruction shows is not enough.",
+      "rubric": [
+        "The rewritten prompt includes at least one concrete incorrect summary sentence for a rate metric, marked as wrong with the reason, next to the corrected sentence.",
+        "Any worked numbers in the prompt are correct: 4.0% to 6.0% is +2.0 percentage points (a 50% relative increase), and 5.0% to 4.5% is -0.5 percentage points (a 10% relative decrease).",
+        "The prompt tells the model to report rate metrics in percentage points (optionally with the relative change clearly labelled) and leaves absolute metrics like revenue and order count summarized as before.",
+        "The answer is a complete, paste-ready prompt that keeps the {metrics_json} placeholder and the 3-4 sentence executive-summary constraint."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases kept unchanged: no leak (neither message uses the component's trigger phrases or terms of art), prompt_engineer is the owner, one-shot and tool-less, and rubric facts verified (4.0->6.0% = +2.0 pp / +50% relative; 5.0->4.5% = -0.5 pp / -10% relative; case-1 labels follow the stated priority rule). Each rubric has one item for the component's wrong-versus-right example with a reason and at least one general-quality item; none rewards length."
+}

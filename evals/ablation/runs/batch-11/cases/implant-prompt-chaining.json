@@ -1,0 +1,35 @@
+{
+  "component": "implant-prompt-chaining",
+  "cases": [
+    {
+      "id": "call-transcript-megaprompt-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите докрутить промпт. У нас колл-центр интернет-провайдера, звонки транскрибируем (Whisper), потом одним запросом в GPT-4o отдаём транскрипт и просим вернуть JSON: {\"client_id\", \"address\", \"problem_category\" (одна из 14 категорий, список в промпте), \"sentiment\", \"promised_actions\" (что оператор пообещал и к какому сроку), \"ticket_text\" (готовый текст заявки для техников), \"sms_to_client\" (СМС клиенту до 160 символов)}. Промпт сейчас ~2500 токенов: инструкции по всем полям, список категорий с описаниями, 3 примера. Транскрипты от 2 до 25 минут, длинные — до 9–10 тыс. токенов. Проблемы: на коротких звонках всё нормально, а на длинных категория часто не та (берёт тему из начала разговора, хотя реальная проблема всплыла в конце), в promised_actions теряются сроки, а в СМС иногда обещается то, чего оператор не говорил. Ещё примерно в 3% случаев JSON невалидный. Думали добавить ещё 3–4 примера длинных звонков и переставить problem_category в конец JSON, чтобы модель сначала «прочитала» всё остальное. Поможет? Как переписать промпт, чтобы это починить? Задержка не критична, обработка идёт в фоне после звонка.",
+      "why_in_scope": "The implant makes the model recognize that one prompt is doing extraction, classification and two kinds of generation at once and should be split into dependent calls: first extract facts (problem statements, operator promises with deadlines, address) from the transcript, then classify and fill fields from that extraction, then generate ticket text and SMS only from the verified extracted promises. A strong model without it tends to stay inside the user's framing ('rewrite the prompt') and just add instructions, reorder fields or add examples to the single prompt, which does not address the hallucinated SMS promises or the long-transcript failures; the implant also brings the trade-offs (error propagation between steps, more calls and cost), which the user's note that latency is not critical makes acceptable.",
+      "rubric": [
+        "The answer proposes splitting the single request into a sequence of separate model calls where later steps consume the output of earlier ones (e.g. extract facts/promises from the transcript first, then classify and build the ticket and SMS from that extraction), rather than only editing the one prompt.",
+        "The SMS and ticket text are generated from the extracted list of operator promises (not from the raw transcript), and the answer ties this to the problem of the SMS promising things the operator never said.",
+        "The answer addresses that an error in an early step carries into every later step (e.g. by suggesting validation or logging of the intermediate outputs) and notes that more calls mean more cost and latency, which is acceptable here because processing runs in the background.",
+        "The answer gives a direct, reasoned verdict on the user's own idea (more long-call examples, moving problem_category to the end) and concrete fixes for the stated problems: the late-appearing real issue on long calls (e.g. listing all problems raised across the whole call before choosing a category) and invalid JSON (e.g. structured outputs / JSON mode, schema validation with retry)."
+      ]
+    },
+    {
+      "id": "release-notes-from-commits-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm automating our release notes. Every two weeks we ship a release with roughly 250-350 merged PRs across 6 repos. Right now a GitHub Action dumps all PR titles + descriptions + linked Jira ticket summaries (ends up around 90k tokens) into a single Claude Sonnet call with a prompt like \"Write customer-facing release notes grouped into New features / Improvements / Bug fixes, skip internal refactors and CI changes, max 1 page\". The output reads great but the PMs keep catching problems: a couple of real customer-facing features just don't appear, some internal changes (dependency bumps, a feature-flag cleanup) end up listed as \"improvements\", and last release it described a feature as GA when the PR said it's behind a flag for 10% of tenants. My first thought was to switch to Opus and add a few examples of good notes plus a 'double-check rollout status' line to the prompt. Would that be enough, or how should I restructure this so it's reliable? It runs in CI overnight so a few minutes of runtime is fine, but I'd like to keep the cost reasonable.",
+      "why_in_scope": "The implant makes the model break the one-shot summarization into a chain: per-PR (or small batch) extraction/classification into a structured record (customer-facing or internal, category, rollout status such as flagged/GA), then filtering and grouping on those records, then a final writing call that only sees the approved records. A strong model without it may instead tune the single prompt (stronger instructions, examples, bigger model) or just chunk and concatenate summaries, which does not fix dropped items or wrong rollout status; the implant also flags that classification mistakes propagate to the final text and that the extra calls add cost, which is relevant to the user's cost constraint.",
+      "rubric": [
+        "The answer restructures the job into dependent stages where each output feeds the next, e.g. per-PR or small-batch classification into structured records (customer-facing vs internal, category, rollout/flag status), then filtering/grouping, then a final call that writes the notes only from the kept records.",
+        "The answer explains how the staged design fixes the reported failures: every PR gets an explicit decision so features are not silently dropped (e.g. a count or coverage check that every PR has a record), and rollout status is extracted as an explicit field so flagged features are not presented as GA.",
+        "The answer acknowledges that errors in the early classification step carry into the final notes and proposes a check point for it, such as logging intermediate records, a PM review of the classified list, or spot checks before the writing step.",
+        "The answer gives a clear verdict on the user's idea (bigger model + examples + an extra instruction) and takes the cost constraint seriously with a concrete measure, e.g. a cheaper model or batching for the per-PR classification step with the stronger model only for the final writing, or pre-filtering obvious internal PRs (dependency bumps, CI) by labels or rules before any model call."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases were in scope and leak-free, but a strong model could already reach for splitting, so each user message now proposes a tempting single-prompt fix (more examples/field reorder; switching to Opus plus an instruction) and the rubrics require a verdict on it. The RU rubric item 3 was also corrected to tie the acceptable latency/cost to background processing."
+}

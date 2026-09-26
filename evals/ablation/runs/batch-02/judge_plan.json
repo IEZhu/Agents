@@ -1,0 +1,242 @@
+{
+ "4b6a0a3eb6__o1": {
+  "component": "skill-bio-mechanism",
+  "case": "iron-ferritin-not-rising-en",
+  "A": "without",
+  "B": "with"
+ },
+ "4b6a0a3eb6__o2": {
+  "component": "skill-bio-mechanism",
+  "case": "iron-ferritin-not-rising-en",
+  "A": "with",
+  "B": "without"
+ },
+ "cc6d434172__o1": {
+  "component": "skill-bio-mechanism",
+  "case": "melatonin-dose-vs-preworkout-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "cc6d434172__o2": {
+  "component": "skill-bio-mechanism",
+  "case": "melatonin-dose-vs-preworkout-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ed372342b5__o1": {
+  "component": "skill-bio-protocol-design",
+  "case": "evening-preworkout-caffeine-beta-alanine-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ed372342b5__o2": {
+  "component": "skill-bio-protocol-design",
+  "case": "evening-preworkout-caffeine-beta-alanine-en",
+  "A": "without",
+  "B": "with"
+ },
+ "022ae6eeca__o1": {
+  "component": "skill-bio-protocol-design",
+  "case": "levothyroxine-ashwagandha-magnesium-sleep-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "022ae6eeca__o2": {
+  "component": "skill-bio-protocol-design",
+  "case": "levothyroxine-ashwagandha-magnesium-sleep-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "f85712016c__o1": {
+  "component": "skill-bio-protocols",
+  "case": "cold-plunge-after-lifting-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "f85712016c__o2": {
+  "component": "skill-bio-protocols",
+  "case": "cold-plunge-after-lifting-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "158422b399__o1": {
+  "component": "skill-bio-protocols",
+  "case": "sauna-longevity-on-amlodipine-en",
+  "A": "without",
+  "B": "with"
+ },
+ "158422b399__o2": {
+  "component": "skill-bio-protocols",
+  "case": "sauna-longevity-on-amlodipine-en",
+  "A": "with",
+  "B": "without"
+ },
+ "8c8d31fc51__o1": {
+  "component": "skill-blender-scripting",
+  "case": "lampshade-solidify-custom-stl-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8c8d31fc51__o2": {
+  "component": "skill-blender-scripting",
+  "case": "lampshade-solidify-custom-stl-en",
+  "A": "with",
+  "B": "without"
+ },
+ "bdb1dac8eb__o1": {
+  "component": "skill-blender-scripting",
+  "case": "pegboard-slow-loop-thin-wall-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "bdb1dac8eb__o2": {
+  "component": "skill-blender-scripting",
+  "case": "pegboard-slow-loop-thin-wall-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f81a16bea4__o1": {
+  "component": "skill-caveman-tokenomics",
+  "case": "dict-iteration-fix-commit-msg-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f81a16bea4__o2": {
+  "component": "skill-caveman-tokenomics",
+  "case": "dict-iteration-fix-commit-msg-en",
+  "A": "without",
+  "B": "with"
+ },
+ "df5db4fb7c__o1": {
+  "component": "skill-caveman-tokenomics",
+  "case": "nginx-413-upload-terse-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "df5db4fb7c__o2": {
+  "component": "skill-caveman-tokenomics",
+  "case": "nginx-413-upload-terse-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6bf8787dab__o1": {
+  "component": "skill-clickup-markdown",
+  "case": "clickup-bug-comment-en",
+  "A": "with",
+  "B": "without"
+ },
+ "6bf8787dab__o2": {
+  "component": "skill-clickup-markdown",
+  "case": "clickup-bug-comment-en",
+  "A": "without",
+  "B": "with"
+ },
+ "03add422b5__o1": {
+  "component": "skill-clickup-markdown",
+  "case": "clickup-release-checklist-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "03add422b5__o2": {
+  "component": "skill-clickup-markdown",
+  "case": "clickup-release-checklist-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b0cd2e0762__o1": {
+  "component": "skill-code-generation",
+  "case": "batch-helper-bulk-api-limit-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b0cd2e0762__o2": {
+  "component": "skill-code-generation",
+  "case": "batch-helper-bulk-api-limit-en",
+  "A": "with",
+  "B": "without"
+ },
+ "081ec9d435__o1": {
+  "component": "skill-code-generation",
+  "case": "config-duration-parser-existing-style-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "081ec9d435__o2": {
+  "component": "skill-code-generation",
+  "case": "config-duration-parser-existing-style-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "af871f2ba4__o1": {
+  "component": "skill-confidence-markers",
+  "case": "flask-orders-review-before-release-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "af871f2ba4__o2": {
+  "component": "skill-confidence-markers",
+  "case": "flask-orders-review-before-release-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a708728aab__o1": {
+  "component": "skill-confidence-markers",
+  "case": "node20-rss-growth-oom-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a708728aab__o2": {
+  "component": "skill-confidence-markers",
+  "case": "node20-rss-growth-oom-en",
+  "A": "without",
+  "B": "with"
+ },
+ "302cd8fcbe__o1": {
+  "component": "skill-consultative-intake",
+  "case": "laptop-for-student-daughter-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "302cd8fcbe__o2": {
+  "component": "skill-consultative-intake",
+  "case": "laptop-for-student-daughter-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "c7e401317e__o1": {
+  "component": "skill-consultative-intake",
+  "case": "notifications-prd-dental-saas-en",
+  "A": "with",
+  "B": "without"
+ },
+ "c7e401317e__o2": {
+  "component": "skill-consultative-intake",
+  "case": "notifications-prd-dental-saas-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a0184c242b__o1": {
+  "component": "skill-creative-craft",
+  "case": "estranged-father-hospital-scene-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a0184c242b__o2": {
+  "component": "skill-creative-craft",
+  "case": "estranged-father-hospital-scene-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "a7c0fc9fb2__o1": {
+  "component": "skill-creative-craft",
+  "case": "grandma-kitchen-paragraph-revision-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a7c0fc9fb2__o2": {
+  "component": "skill-creative-craft",
+  "case": "grandma-kitchen-paragraph-revision-en",
+  "A": "with",
+  "B": "without"
+ }
+}

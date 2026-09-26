@@ -1,0 +1,105 @@
+{
+  "component": "implant-react",
+  "checked": true,
+  "checker_notes": "Made cases 1, 3, 4 and 5 subtler: the key observation is now buried or the user steers toward the old line of action (another cache, docker prune, product pages, no explicit ask for a stop condition), so the model has to notice and use the observation on its own. Fixed case 1 history (assistant cited code it had never seen) and corrected the case 6 workaround item (a bundle with only the intermediate may not verify without the roots).",
+  "cases": [
+    {
+      "id": "boto3-memory-growth-refuted-cache-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [
+        {"role": "user", "content": "Python 3.11, сервис на FastAPI + фоновые воркеры. Память процесса растёт примерно на 40 МБ в час, через сутки под убивается по OOM. Из подозрительного: на `get_user_profile` висит `@functools.lru_cache(maxsize=None)`. Что может течь?"},
+        {"role": "assistant", "content": "Скорее всего, это он и есть: `lru_cache(maxsize=None)` хранит все когда-либо запрошенные профили и никогда их не вытесняет. Поставьте `maxsize=1024` или уберите кеш — рост памяти должен прекратиться."}
+      ],
+      "user_message": "Убрал lru_cache совсем, задеплоил, смотрел 6 часов — растёт ровно так же, ~40 МБ/час. У нас есть ещё `cachetools.TTLCache(maxsize=10000, ttl=300)` для сессий — его тоже выпилить? Кстати, коллега говорит, что на стейдже, где воркер выгрузки в S3 выключен, память почти не растёт. Воркер там простой: раз в секунду в цикле `s3 = boto3.client('s3')`, потом `s3.upload_file(...)`.",
+      "why_in_scope": "Пользователь тянет к следующему шагу в старом русле (убрать ещё один кеш), а наблюдение, указывающее в другую сторону, упоминает мимоходом. Имплант требует не игнорировать наблюдения: признать, что гипотеза про кеш опровергнута, перестроить рассуждение от факта со стейджем и выбрать проверочный шаг. Сильная модель без него может просто ответить на прямой вопрос про TTLCache или дать общий чек-лист утечек.",
+      "rubric": [
+        "Прямо признаёт, что гипотеза про lru_cache опровергнута (рост не изменился), и не предлагает продолжать перебор кешей как основное направление; отмечает, что TTLCache ограничен maxsize и вряд ли даёт неограниченный линейный рост",
+        "Переключается на воркер с boto3 и называет создание нового клиента boto3 на каждой итерации вероятной причиной; предлагает создать клиент один раз вне цикла и переиспользовать",
+        "Предлагает конкретную проверку в проде (например, вынести клиент из цикла и замерить рост, или сравнить снимки tracemalloc) и говорит, как трактовать её результат; учитывает, что стейдж — не чистое сравнение",
+        "Не выдаёт новую причину за окончательно доказанную до проверки"
+      ]
+    },
+    {
+      "id": "k8s-crashloop-liveness-startup-ru",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Под со Spring Boot сервисом (Java 17) после обновления образа ушёл в CrashLoopBackOff. `kubectl describe pod`: Last State: Terminated, Reason: Error, Exit Code: 137. В Events: `Liveness probe failed: Get \"http://10.2.3.14:8080/actuator/health\": context deadline exceeded` — несколько раз подряд, потом `Container app failed liveness probe, will be restarted`. В манифесте livenessProbe: initialDelaySeconds 30, periodSeconds 10, failureThreshold 3. Лимит памяти 1Gi. Локально новый образ стартует секунд 80–90, старый стартовал за 40. Дай полный список, что проверить, чтобы понять причину.",
+      "why_in_scope": "Пользователь просит «полный список», хотя уже принёс наблюдения, которые почти однозначно указывают на причину. Имплант заставляет сначала интерпретировать имеющиеся наблюдения, сузить гипотезы и предложить следующий проверочный шаг с понятным критерием остановки, а не выдавать плоский чек-лист. Сильная модель без него легко выдаст 15 пунктов (OOM, образ, конфиги, сеть), не связав их с Events и временем старта.",
+      "rubric": [
+        "Опирается на приведённые данные: Reason Error (а не OOMKilled) и события liveness-проб указывают, что контейнер перезапускает kubelet по пробе, а не ядро по памяти",
+        "Сопоставляет время старта 80–90 с с окном пробы (30 с задержки плюс примерно 3 неудачи по 10 с) и делает вывод, что приложение не успевает подняться",
+        "Предлагает одну-две подтверждающие проверки (например, `kubectl logs --previous`: видно ли, что старт не завершился к моменту убийства) и говорит, что при подтверждении дальнейший перебор не нужен",
+        "Предлагает исправление: startupProbe или увеличение initialDelaySeconds/failureThreshold, и отдельно — разобраться, почему старт стал вдвое дольше"
+      ]
+    },
+    {
+      "id": "disk-full-df-du-mismatch-ru",
+      "agent": "sysadmin",
+      "language": "ru",
+      "history": [
+        {"role": "user", "content": "Ubuntu 22.04, корневой раздел 50G, `df -h /` показывает 100%. Сервисы падают с No space left on device."},
+        {"role": "assistant", "content": "Почистите журналы systemd: `journalctl --vacuum-size=200M`. Это часто освобождает несколько гигабайт."},
+        {"role": "user", "content": "Сделал, освободилось 300 МБ, через час опять 100%."},
+        {"role": "assistant", "content": "Тогда очистите кеш пакетов `apt-get clean` и удалите старые ядра `apt autoremove --purge`. Также проверьте /var/log на ротированные .gz."}
+      ],
+      "user_message": "Сделал и это, освободилось ещё гиг, но через час опять 100%. Запустил `ncdu -x /`, самое жирное — /var/lib/docker на 6.1G, остальное по мелочи, внизу пишет Total disk usage: 12.3 GiB. Делать `docker system prune -a`? Там вроде старые образы лежат.",
+      "why_in_scope": "После двух неудачных итераций пользователь предлагает очередное действие по чистке, а ключевое наблюдение (ncdu видит 12 ГБ при заполненных 50 ГБ) упоминает между делом. Имплант требует интерпретировать наблюдение и перестроить рассуждение, а не продолжать цикл однотипных действий. Сильная модель без него может просто одобрить prune и добавить ещё пунктов чистки, не заметив расхождения.",
+      "rubric": [
+        "Замечает, что ncdu видит ~12G при занятых 50G, и делает вывод, что основное место занято не видимыми в дереве каталогов файлами, поэтому чистка docker или других каталогов проблему не решит",
+        "Называет удалённые, но всё ещё открытые процессом файлы главным подозреваемым и даёт команду для их поиска (например, `lsof +L1` или `lsof | grep deleted`)",
+        "Объясняет, как освободить место: перезапустить процесс, держащий файл, или обнулить файл через /proc/<PID>/fd/<N>",
+        "Упоминает ещё одну возможную причину расхождения — файлы, скрытые под точкой монтирования, — или говорит, как это проверить"
+      ]
+    },
+    {
+      "id": "conversion-drop-mix-shift-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [
+        {"role": "user", "content": "Our e-commerce site conversion rate dropped from 3.1% to 2.4% week over week. Nothing obvious changed. Where do I start?"},
+        {"role": "assistant", "content": "A drop that sharp usually points to a funnel break. My top suspect is checkout: a payment-provider issue or a broken form on some browser. Check the checkout completion rate for both weeks."}
+      ],
+      "user_message": "Checked. Checkout completion is 62% both weeks, basically identical. But add-to-cart rate fell from about 9% to about 7%, so I'm thinking something broke on product pages. Should I get QA to go through the PDP add-to-cart button on all browsers? For reference the dashboard shows sessions ~100k last week vs ~140k this week, orders ~3,100 vs ~3,360.",
+      "why_in_scope": "The user refutes the prior hypothesis and then proposes a new one, while the numbers that explain the drop are tacked on 'for reference'. The implant makes the model update its reasoning from every observation, pick the next discriminating check and say when the question is answered. A strong model without it may just endorse the product-page QA sweep and never notice that orders went up.",
+      "rubric": [
+        "Explicitly says the unchanged 62% checkout completion rules out checkout as the cause",
+        "Notices that orders rose while sessions rose ~40%, and explains the rate drop as added lower-converting traffic diluting the overall rate (a mix shift), which also accounts for the lower add-to-cart rate, rather than a broken product page",
+        "Does the arithmetic correctly: if the original ~100k sessions still converted at ~3.1% (~3,100 orders), the ~40k extra sessions produced ~260 orders, roughly 0.65% conversion",
+        "Proposes segmenting conversion by traffic source or channel before a browser QA sweep, and states that if the pre-existing channels still convert at ~3.1% the drop is explained"
+      ]
+    },
+    {
+      "id": "replica-lag-nightly-maintenance-window-en",
+      "agent": "database_admin",
+      "language": "en",
+      "history": [],
+      "user_message": "PostgreSQL 15, one primary, one streaming hot-standby replica used for reporting. Every night around 02:10 replay lag on the replica climbs to ~300 seconds, then recovers by ~02:40. Security gives me a 15-minute read-only session on both hosts tonight starting 02:05 and I won't get another one this month. What should I look at?",
+      "why_in_scope": "The user has a single tight investigation window but does not ask for a plan shape. The implant shapes the answer as a sequence where each check is chosen based on what the previous one shows, with decision points and a stop condition. A strong model without it tends to produce an unordered checklist of every possible replication-lag cause with no branching or finish line.",
+      "rubric": [
+        "An early step separates where the lag is: compares write/flush lag against replay lag (e.g. write_lag, flush_lag, replay_lag in pg_stat_replication on the primary) to tell WAL shipping problems from replay problems",
+        "Steps branch on results (e.g. replay lag only leads to replica-side long-running queries and replay conflicts; shipping lag leads to network or WAL volume on the primary) instead of a flat list",
+        "Ties the fixed 02:10 timing to scheduled work on either host (cron jobs, backups or dumps, VACUUM or bulk loads) and includes checking what runs then",
+        "States what finding means the window has done its job (e.g. the lag type plus the job or query that coincides with it), so the time is not spent on open-ended exploration"
+      ]
+    },
+    {
+      "id": "tls-verify-code-21-not-expiry-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [
+        {"role": "user", "content": "Our Python service calling https://api.partner-internal.net suddenly fails with `requests.exceptions.SSLError: ... CERTIFICATE_VERIFY_FAILED ... unable to get local issuer certificate`. What happened?"},
+        {"role": "assistant", "content": "Most likely the server's certificate has expired. Ask the partner to renew it; in the meantime you can confirm by checking the certificate dates in a browser."}
+      ],
+      "user_message": "Opened it in Chrome, padlock is fine, cert valid until March 2027. Then ran `openssl s_client -connect api.partner-internal.net:443 -servername api.partner-internal.net` and it ends with `Verify return code: 21 (unable to verify the first certificate)`. Also only one cert shows in the chain output. Partner says they replaced the cert last Friday. Should I just set verify=False until they sort it out?",
+      "why_in_scope": "The user's new observations refute the earlier expiry hypothesis and point to a specific cause, but the question asked is only about verify=False. The implant makes the model update from the observations instead of answering just the literal question or loosely patching the earlier answer. A strong model without it might focus on the verify=False trade-off and blur the cause.",
+      "rubric": [
+        "Explicitly drops the expiry hypothesis based on the valid-until-2027 observation",
+        "Identifies the cause as the server not sending the intermediate certificate (incomplete chain, likely since last Friday's replacement), consistent with only one cert shown and verify code 21",
+        "Explains why Chrome still works (browsers can compensate for a missing intermediate, e.g. cached intermediates or fetching it via the AIA URL) while Python does not",
+        "Advises against verify=False and gives a safer path: the partner configures the full chain; as a stopgap the client points verify at a CA bundle that contains the intermediate along with the usual roots"
+      ]
+    }
+  ]
+}

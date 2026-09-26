@@ -1,0 +1,35 @@
+{
+  "component": "skill-wayback-machine",
+  "cases": [
+    {
+      "id": "stealth-edit-press-release-ru",
+      "agent": "investigative_analyst",
+      "language": "ru",
+      "history": [],
+      "user_message": "Готовлю материал про застройщика. В марте 2024 у них на сайте была страница /news/zhk-severny с пресс-релизом, где был указан срок сдачи «IV квартал 2025». Сейчас там написано «II квартал 2027», и дата публикации на странице осталась старая, никакой пометки об изменении нет. Мне нужно показать редактору, когда именно текст поменяли, и приложить доказательства. Я знаю, что есть архив интернета, но там по этой странице сотни снимков, листать их руками нереально. Как это сделать быстро и так, чтобы результат нельзя было оспорить? Питон знаю на базовом уровне.",
+      "why_in_scope": "The skill tells the model to use the CDX API with collapse=digest so that only captures with changed content remain (same digest = identical content), narrow by from/to dates, fetch the two bounding captures in raw id_ mode to diff clean HTML without the archive toolbar, keep to about 1 request per second, and cite the Wayback captures with their timestamps. A strong model without it tends to suggest paging through the calendar UI or downloading every snapshot and diffing them all, missing the digest-based dedup and the raw mode, which is exactly what makes this fast and clean.",
+      "rubric": [
+        "Recommends querying the Wayback Machine CDX API for the page URL and deduplicating captures by content digest (collapse=digest or comparing the digest field), explaining that an unchanged digest means unchanged content, so only the few distinct versions need inspection.",
+        "Explains retrieving the original page HTML without the Wayback toolbar/injected markup (the id_ suffix after the timestamp) before diffing, or otherwise addresses archive-injected noise in the comparison.",
+        "Gives a concrete way to bound the change: the last capture with the old wording and the first capture with the new wording, cited by their archive URLs/timestamps as evidence, with the caveat that the edit happened somewhere between those two captures, not at an exact moment.",
+        "Stays practical for a basic Python user (concrete steps or a short script) and mentions pacing requests to the archive (e.g. about one per second, with a pause/backoff on errors) rather than hammering it."
+      ]
+    },
+    {
+      "id": "competitor-pricing-history-en",
+      "agent": "website_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm trying to reconstruct how a competitor's pricing page (acme-analytics.io/pricing) changed over the last 3 years using archive.org. I wrote a Python loop that hits web.archive.org/web/<timestamp>/acme-analytics.io/pricing for every timestamp I got from the CDX endpoint and parses the plan names and prices with BeautifulSoup. Three problems: (1) there are ~1,400 captures; I tried skipping duplicates by md5-hashing the HTML I download, but almost every hash comes out different even when the page looks the same, so I still fetch everything and the run takes hours; (2) my selectors sometimes grab junk that isn't from their site at all, and some links in the HTML point to web.archive.org instead of their domain; (3) after a few hundred requests I start getting errors and connection resets. How should I restructure this?",
+      "why_in_scope": "The skill supplies the specific fixes: dedup server-side with collapse=digest (plus statuscode:200 / mimetype:text/html filters) using the archive's own content digest instead of hashing downloaded pages; the id_ raw mode after the timestamp to get the original HTML without the Wayback toolbar and rewritten links (which is also why the user's own hashes all differ); and about 1 request/second with backoff. A strong model without it may suggest normalising the HTML before hashing or stripping the toolbar with custom parsing, which still downloads all 1,400 captures.",
+      "rubric": [
+        "Recommends deduplicating before any download using the CDX digest (collapse=digest, or skipping rows whose digest field repeats), noting that identical digest means identical archived content, so only distinct versions are fetched.",
+        "Identifies that the junk, the web.archive.org links and the differing hashes come from the Wayback toolbar/URL rewriting injected into replayed pages, and recommends fetching raw captures by adding id_ after the timestamp (e.g. web.archive.org/web/<timestamp>id_/acme-analytics.io/pricing).",
+        "Addresses the errors/resets by slowing down (on the order of one request per second or slower) with retry and backoff, framed as respecting the archive's rate limits.",
+        "Gives a coherent restructured pipeline (filtered CDX query -> fetch distinct raw captures -> parse -> dated change timeline) that fits the user's Python/BeautifulSoup setup."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2 made subtler: the user now already tried hashing downloaded HTML and got all-different hashes (toolbar noise), so the answer must reach server-side digest dedup plus id_ raw mode rather than generic post-download hashing; tightened rubric item 1 so status/mime filtering alone does not pass and loosened the exact 1 req/s figure. Case 1 kept; its throttling item now accepts any pacing with backoff instead of a script-format requirement."
+}

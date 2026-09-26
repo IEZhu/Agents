@@ -1,0 +1,35 @@
+{
+  "component": "skill-jurisdiction-rs",
+  "cases": [
+    {
+      "id": "rs-pausal-single-client-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я живу в Нови-Саде второй год, открыт как предузетник на паушале (программирование, 62.01). Весь доход — 100% — от одной американской компании, контракт на разработку, работаю удалённо из дома на своём ноутбуке, часы выбираю сам, отчитываюсь по задачам в Jira, отпусков и больничных они мне не оплачивают. Бухгалтер сегодня сказал: раз у тебя один клиент больше 70% дохода, Пореска управа тебя автоматически переквалифицирует в работника, доначислит налог по 20% и штрафы, лучше срочно закрываться и переходить в доо. Это правда так работает? Что мне реально грозит и надо ли что-то менять?",
+      "why_in_scope": "The skill states that the Serbian independence test for paušalno entrepreneurs requires at least 5 of 9 criteria, the 70%-of-revenue-from-one-client rule is only one of them, and one criterion alone is not enough. A strong model without it may accept the accountant's premise that a single dominant client triggers automatic reclassification, or give a generic 'disguised employment' answer with no Serbian threshold.",
+      "rubric": [
+        "States that a single criterion (one client providing over 70% of revenue) does not by itself lead to reclassification; the test needs at least 5 of 9 criteria to be met",
+        "Checks the user's stated facts against other criteria (e.g. who sets working hours, whose equipment and premises are used, paid leave) and concludes that on these facts the risk looks lower than the accountant claims",
+        "Explains the consequence if the test is failed: the income is treated as other income taxed at 20% (plus contributions), with back taxes and penalties, rather than inventing unrelated sanctions",
+        "Does not push the user to close the business and set up a d.o.o. as the only answer, and recommends confirming with a local accountant or lawyer or the Tax Administration"
+      ]
+    },
+    {
+      "id": "rs-apartment-unregistered-title-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "I bought an apartment in Belgrade (Vračar) in March for 145,000 EUR. The sale contract was notarized (solemnized by a public notary), I paid the full price by bank transfer, and I got the keys and moved in. The notary said they would send it to the cadastre, but because the seller's old building permit paperwork had some issue, the cadastre hasn't entered me yet. Now I found out the seller has a tax debt and the Tax Administration may put a lien on 'his' property. My friend says that doesn't matter because the notarized contract made me the owner in March. Is he right? Am I the legal owner, and what should I do right now?",
+      "why_in_scope": "The skill flags that in Serbia registration of title in the real estate cadastre (upis/uknjižba) is constitutive: ownership does not pass until the cadastre records it, whatever the contract says. A strong model without it may follow common-law intuition or the friend's claim and say the notarized contract plus payment already made the buyer owner, underestimating the exposure to the seller's creditors.",
+      "rubric": [
+        "States clearly that the friend is wrong: under Serbian law ownership of real estate passes only on registration (uknjižba) in the real estate cadastre, so the seller is still the registered owner and the notarized contract plus payment give the buyer a legal basis and a right to be registered, not completed ownership",
+        "Explains the practical risk that creditors of the registered owner (here, the Tax Administration) can try to enforce against the apartment while the user is not registered, and that the user would then have to defend their position (e.g. by objecting in the enforcement with the contract and payment proof)",
+        "Gives concrete urgent steps, such as pressing the cadastre and notary on the pending application, fixing the paperwork problem behind it, and getting a local real estate lawyer to protect the user's claim, instead of generic advice",
+        "Includes a note that this is not a substitute for a licensed Serbian lawyer, without letting the caveat replace the substantive answer"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified the 5-of-9 independence test, 70% criterion and 20% other-income consequence (case 1) and constitutive cadastre registration (case 2); both cases kept. Softened case 2 rubric items 1-2 to avoid overstating that the buyer has only a bare claim, since Serbian practice lets an unregistered buyer oppose enforcement, and made item 2 reward naming that defensive route."
+}

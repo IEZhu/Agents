@@ -1,0 +1,362 @@
+{
+ "4c8f1dde32__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "ci-pipeline-interacting-fixes-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "4c8f1dde32__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "ci-pipeline-interacting-fixes-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "287393160e__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "db-split-migration-plans-en",
+  "A": "with",
+  "B": "without"
+ },
+ "287393160e__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "db-split-migration-plans-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9f330f399e__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "forecast-two-models-segment-merge-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9f330f399e__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "forecast-two-models-segment-merge-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f0a45fb43f__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "onboarding-doc-three-drafts-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f0a45fb43f__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "onboarding-doc-three-drafts-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "eb9877f333__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "roadmap-three-team-proposals-en",
+  "A": "without",
+  "B": "with"
+ },
+ "eb9877f333__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "roadmap-three-team-proposals-en",
+  "A": "with",
+  "B": "without"
+ },
+ "067ff6c515__o1": {
+  "component": "implant-graph-of-thoughts",
+  "case": "two-architects-notifications-merge-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "067ff6c515__o2": {
+  "component": "implant-graph-of-thoughts",
+  "case": "two-architects-notifications-merge-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "c73848603d__o1": {
+  "component": "implant-self-refine",
+  "case": "docstring-mismatch-cleanup-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c73848603d__o2": {
+  "component": "implant-self-refine",
+  "case": "docstring-mismatch-cleanup-en",
+  "A": "with",
+  "B": "without"
+ },
+ "9f8f0b662e__o1": {
+  "component": "implant-self-refine",
+  "case": "pitch-tighten-restore-figure-en",
+  "A": "without",
+  "B": "with"
+ },
+ "9f8f0b662e__o2": {
+  "component": "implant-self-refine",
+  "case": "pitch-tighten-restore-figure-en",
+  "A": "with",
+  "B": "without"
+ },
+ "966a9989af__o1": {
+  "component": "implant-self-refine",
+  "case": "readme-install-polish-contradiction-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "966a9989af__o2": {
+  "component": "implant-self-refine",
+  "case": "readme-install-polish-contradiction-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8c2baa24c9__o1": {
+  "component": "implant-self-refine",
+  "case": "slide-bullets-word-limit-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8c2baa24c9__o2": {
+  "component": "implant-self-refine",
+  "case": "slide-bullets-word-limit-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ae929c9285__o1": {
+  "component": "implant-self-refine",
+  "case": "story-voice-light-edit-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ae929c9285__o2": {
+  "component": "implant-self-refine",
+  "case": "story-voice-light-edit-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "facb90d9dd__o1": {
+  "component": "implant-self-refine",
+  "case": "support-prompt-conflicting-rules-en",
+  "A": "with",
+  "B": "without"
+ },
+ "facb90d9dd__o2": {
+  "component": "implant-self-refine",
+  "case": "support-prompt-conflicting-rules-en",
+  "A": "without",
+  "B": "with"
+ },
+ "44b7b8f401__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "box-packing-exact-count-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "44b7b8f401__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "box-packing-exact-count-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "6afb57fb3f__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "carpool-rota-after-change-en",
+  "A": "with",
+  "B": "without"
+ },
+ "6afb57fb3f__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "carpool-rota-after-change-en",
+  "A": "without",
+  "B": "with"
+ },
+ "1cb0636278__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "internal-lib-version-resolution-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1cb0636278__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "internal-lib-version-resolution-en",
+  "A": "without",
+  "B": "with"
+ },
+ "7a26764a56__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "make-24-from-1346-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "7a26764a56__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "make-24-from-1346-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "746b1a26cd__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "meeting-slots-two-rooms-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "746b1a26cd__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "meeting-slots-two-rooms-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b2e83ed24e__o1": {
+  "component": "implant-tree-of-thought",
+  "case": "saturday-errands-time-windows-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b2e83ed24e__o2": {
+  "component": "implant-tree-of-thought",
+  "case": "saturday-errands-time-windows-en",
+  "A": "with",
+  "B": "without"
+ },
+ "e2f47a9e0c__o1": {
+  "component": "skill-3d-print-search",
+  "case": "blender-bracket-fdm-limits-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e2f47a9e0c__o2": {
+  "component": "skill-3d-print-search",
+  "case": "blender-bracket-fdm-limits-en",
+  "A": "with",
+  "B": "without"
+ },
+ "361601c866__o1": {
+  "component": "skill-3d-print-search",
+  "case": "correct-downloads-based-pick-en",
+  "A": "without",
+  "B": "with"
+ },
+ "361601c866__o2": {
+  "component": "skill-3d-print-search",
+  "case": "correct-downloads-based-pick-en",
+  "A": "with",
+  "B": "without"
+ },
+ "9a636e7faa__o1": {
+  "component": "skill-3d-print-search",
+  "case": "headphone-stand-all-weak-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "9a636e7faa__o2": {
+  "component": "skill-3d-print-search",
+  "case": "headphone-stand-all-weak-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "30752cd33a__o1": {
+  "component": "skill-3d-print-search",
+  "case": "niche-mount-no-results-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "30752cd33a__o2": {
+  "component": "skill-3d-print-search",
+  "case": "niche-mount-no-results-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a99405b17a__o1": {
+  "component": "skill-3d-print-search",
+  "case": "sell-minis-license-fdm-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "a99405b17a__o2": {
+  "component": "skill-3d-print-search",
+  "case": "sell-minis-license-fdm-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bbac76d759__o1": {
+  "component": "skill-3d-print-search",
+  "case": "where-to-find-tested-dragon-en",
+  "A": "with",
+  "B": "without"
+ },
+ "bbac76d759__o2": {
+  "component": "skill-3d-print-search",
+  "case": "where-to-find-tested-dragon-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b0c3a3f35f__o1": {
+  "component": "skill-token-economy",
+  "case": "agent-memory-choice-quick-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "b0c3a3f35f__o2": {
+  "component": "skill-token-economy",
+  "case": "agent-memory-choice-quick-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bca5d938fa__o1": {
+  "component": "skill-token-economy",
+  "case": "mcp-httpx-timeout-followup-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bca5d938fa__o2": {
+  "component": "skill-token-economy",
+  "case": "mcp-httpx-timeout-followup-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "cd2341ad7e__o1": {
+  "component": "skill-token-economy",
+  "case": "mcp-mutable-default-tags-en",
+  "A": "with",
+  "B": "without"
+ },
+ "cd2341ad7e__o2": {
+  "component": "skill-token-economy",
+  "case": "mcp-mutable-default-tags-en",
+  "A": "without",
+  "B": "with"
+ },
+ "f8da8fc771__o1": {
+  "component": "skill-token-economy",
+  "case": "prompt-edit-tone-drop-example-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f8da8fc771__o2": {
+  "component": "skill-token-economy",
+  "case": "prompt-edit-tone-drop-example-en",
+  "A": "without",
+  "B": "with"
+ },
+ "24b4f8791b__o1": {
+  "component": "skill-token-economy",
+  "case": "prompt-json-format-fix-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "24b4f8791b__o2": {
+  "component": "skill-token-economy",
+  "case": "prompt-json-format-fix-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "1463798cd3__o1": {
+  "component": "skill-token-economy",
+  "case": "retry-placement-verdict-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1463798cd3__o2": {
+  "component": "skill-token-economy",
+  "case": "retry-placement-verdict-en",
+  "A": "without",
+  "B": "with"
+ }
+}

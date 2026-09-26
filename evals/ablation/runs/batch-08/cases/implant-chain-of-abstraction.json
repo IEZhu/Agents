@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-abstraction",
+  "cases": [
+    {
+      "id": "three-lost-side-effects-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Разбираю бэклог, там три бага по разным сервисам, тикеты уже раскиданы на трёх людей, у каждого есть предложенный фикс. Хочу, чтобы кто-то со стороны глянул, нормальные ли фиксы. 1) Сервис заказов (Spring Boot 3.2, PostgreSQL 15): сохраняем заказ, потом в @Transactional методе шлём событие OrderCreated в RabbitMQ. Раз в пару дней событие теряется — заказ в базе есть, склад о нём не знает. Коллега предлагает перенести отправку в RabbitMQ внутрь транзакции, до коммита. 2) Сервис каталога: обновляем цену в Postgres, затем делаем DEL ключа в Redis. Иногда после деплоя или сетевого таймаута в кэше висит старая цена до истечения TTL (сутки). Тут предлагают поставить TTL 5 минут. 3) Сервис регистрации: создаём пользователя в базе и тут же через SMTP-провайдера шлём welcome-письмо. Бывает, что пользователь есть, а письма нет, и наоборот — письмо ушло, а регистрация откатилась по unique constraint. Предлагают добавить ретраи на SMTP. Какие из фиксов принять, а какие переделать?",
+      "why_in_scope": "The implant makes the model strip away the technology specifics (RabbitMQ, Redis, SMTP) and see one abstract problem: a local DB commit plus a side effect in a second system with no shared transaction, then solve that once and map the solution back to each service. A strong model without it can plausibly go ticket by ticket and endorse or tweak the three local fixes (publish before commit, shorter TTL, SMTP retries) without naming the common cause and the single pattern that covers all three.",
+      "rubric": [
+        "Explicitly states that all three bugs are the same underlying problem: a database write and a side effect in another system (broker, cache, mail provider) are not atomic, so either one can happen without the other.",
+        "Proposes one shared mechanism for all three (for example a transactional outbox table written in the same DB transaction and relayed afterwards, or change data capture from the DB log), with at-least-once delivery and idempotent or deduplicated handling on the receiving side.",
+        "Points out that publishing to RabbitMQ inside the transaction before commit does not fix case 1: the message can be sent and the transaction can still roll back, producing an event for an order that does not exist.",
+        "Maps the common solution back to each concrete case, noting a case-specific detail (for example a dedup key so a retried welcome email is not sent twice, or cache invalidation done only after commit, with a shorter TTL as a mitigation rather than a fix)."
+      ]
+    },
+    {
+      "id": "support-backlog-size-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a sanity check before a staffing meeting tomorrow. Our support desk runs 24/7. Tickets come in at a pretty steady 120 per hour (that's been flat for the whole last quarter). Routing: about 70% go to Tier 1 (avg handle time 10 min), 25% escalate to Tier 2 (avg handle 40 min), 5% go to Tier 3 engineers (avg handle 3 hours). We have about 70 agents on each shift, each takes a 30-min lunch and a 15-min break, and Tier 2 folks also do QA reviews about 20% of their time. From the ticketing system, the average time from ticket creation to ticket closed over the quarter is 45 minutes. Two questions: (1) on average, how many tickets are open at any given moment? My manager multiplied out the handle times per tier and got around 52, which feels low to me. (2) Leadership wants the average number of open tickets down to 60 without any change in incoming volume. What does that imply for our average creation-to-close time?",
+      "why_in_scope": "The implant makes the model discard the narrative detail (tiers, handle times, agent count, breaks, QA time) and reduce the problem to its abstract structure: a stable system with known arrival rate and known average time in system, which Little's Law (L = lambda * W) answers directly. A strong model without it can plausibly get pulled into the tier and staffing numbers, reproduce or adjust the manager's handle-time calculation, or hedge that more data is needed, instead of recognising that the two given averages are sufficient.",
+      "rubric": [
+        "Answers question 1 as about 90 open tickets on average, from 120 tickets/hour times 0.75 hours (Little's Law or equivalent reasoning).",
+        "Answers question 2 as an average creation-to-close time of 30 minutes (60 / 120 per hour = 0.5 hours).",
+        "Explains that the tier split, handle times, agent count and breaks are not needed for these two answers, and that the manager's ~52 figure is too low because it counts only handle time and leaves out time tickets spend waiting.",
+        "Notes the key assumption behind the calculation: the system is roughly stable over the period (arrival rate steady, backlog not growing), consistent with the user's statement that volume was flat all quarter."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the user's hint that the three bugs might be one problem ('are these really three different problems?') and reframed it as a per-ticket fix review, so spotting the shared dual-write structure depends on abstracting rather than being prompted. Case 2: changed 14 agents to about 70, because 52 Erlangs of handle-time load cannot be served by 14 agents, which made the data inconsistent; reworded rubric item 4 so it no longer claims the staffing data supports stability."
+}

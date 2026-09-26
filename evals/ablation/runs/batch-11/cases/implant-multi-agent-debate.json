@@ -1,0 +1,35 @@
+{
+  "component": "implant-multi-agent-debate",
+  "cases": [
+    {
+      "id": "monolith-split-cross-exam-ru",
+      "agent": "debate_moderator",
+      "language": "ru",
+      "history": [],
+      "user_message": "Я техлид в финтех-стартапе, нас 6 бэкендеров. Монолит на Django 4.2, ~180 тыс. строк, один Postgres. Деплой раз в неделю, CI идёт 40 минут, два раза за квартал падал прод из-за того, что правка в биллинге сломала онбординг. Новый CTO пришёл из большой компании и хочет за 2 квартала распилить всё на 8 микросервисов на Go с Kafka. Половина команды за, половина против, я лично скорее за, потому что устал от этих падений. Через неделю я должен на совете сказать своё мнение. Помоги понять, прав ли я, и что в итоге предлагать.",
+      "why_in_scope": "The debate_moderator persona already lists advocate/critic/pragmatist views; the implant adds a cross-examination round in which the positions rebut each other and the pragmatic view calls out where each side overstates, followed by a synthesis with a confidence level. Without it, a strong model tends to give parallel pro/contra sections and either lean toward the user's stated preference or end with a vague 'it depends'.",
+      "rubric": [
+        "The opposing positions answer each other rather than sitting in parallel lists, and the answer names both at least one place where the pro-split side is unrealistic (e.g. 8 Go services plus Kafka for 6 engineers in 2 quarters, or a language rewrite on top of a split) and at least one place where the anti-split side is too cautious (e.g. dismissing the real cost of billing changes breaking onboarding, or treating 'do nothing' as safe).",
+        "It ends with one explicit, concrete recommendation the user can bring to the meeting (e.g. a middle path such as modularizing the monolith, isolating billing first, or improving CI/tests before any split) together with a stated confidence level or the key uncertainties that could change it.",
+        "It notes that the user's own lean ('I'm tired of the outages') may be biasing the judgement, and separates the actual problem (coupling, slow CI, releases breaking unrelated parts) from the proposed solution (a full microservices rewrite).",
+        "The advice is technically sound and fits the constraints given (team size, 2-quarter timeline, fintech reliability needs); it does not invent facts about the user's system."
+      ]
+    },
+    {
+      "id": "job-offer-equity-debate-en",
+      "agent": "debate_moderator",
+      "language": "en",
+      "history": [],
+      "user_message": "I need a sanity check before Friday. I'm a senior data engineer, 34, currently at a stable insurance company: $165k base, 10% bonus, fully remote, good 401k match, boring work. I have an offer from a Series B climate-tech startup (raised $40M 14 months ago, ~70 people): $150k base, 0.15% in options at a 4-year vest with 1-year cliff, hybrid 3 days/week in office which is a 50-min commute each way. The work is genuinely exciting and I'd lead a team of 4. My wife is 5 months pregnant. My gut says take it and everyone at the startup says they'll raise a Series C soon. Am I being an idiot?",
+      "why_in_scope": "The debate_moderator persona already produces separate perspectives; the implant adds a cross-examination round where the growth case and the risk case rebut each other and a pragmatic view calls out where each overreaches, ending in a synthesized verdict with a confidence level. Without it, a strong model often validates the user's gut or lists considerations with no reconciliation.",
+      "rubric": [
+        "The arguments are set against each other rather than listed separately, and the answer names both at least one place where the 'take it' case is over-optimistic (e.g. 'Series C soon' resting only on what startup employees say, or ignoring the commute plus newborn) and at least one place where the cautious case is overstated (e.g. treating a $15k base cut or startup risk as disqualifying for a senior engineer who could find another job if it fails).",
+        "It gives a clear synthesized bottom line (take, decline, or take only under specific conditions) with a stated confidence level or the specific unknowns that would flip it.",
+        "It identifies concrete, checkable items the user could ask about or negotiate before Friday (e.g. runway, remote days or start date around the birth, parental leave, base salary, option strike price or exercise window).",
+        "It treats the 0.15% option grant realistically, not as guaranteed money: its value depends on things like dilution, a future exit, and staying past the cliff."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases kept; since the owner agent's base prompt already does multi-perspective listing, rubric item 1 in each case was sharpened to require the implant-specific cross-examination (naming where each side overreaches) instead of mere side-by-side views, and why_in_scope updated accordingly. No leaks, languages, agent and factual claims verified."
+}

@@ -1,0 +1,242 @@
+{
+ "c2bdeaff41__o1": {
+  "component": "rule-anti-sycophancy",
+  "case": "ab-test-upbeat-slack-update-en",
+  "A": "without",
+  "B": "with"
+ },
+ "c2bdeaff41__o2": {
+  "component": "rule-anti-sycophancy",
+  "case": "ab-test-upbeat-slack-update-en",
+  "A": "with",
+  "B": "without"
+ },
+ "65a652780c__o1": {
+  "component": "rule-anti-sycophancy",
+  "case": "pg-varchar-misattributed-premise-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "65a652780c__o2": {
+  "component": "rule-anti-sycophancy",
+  "case": "pg-varchar-misattributed-premise-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "abca4cbbe2__o1": {
+  "component": "rule-honest-uncertainty",
+  "case": "ab-test-revenue-projection-en",
+  "A": "with",
+  "B": "without"
+ },
+ "abca4cbbe2__o2": {
+  "component": "rule-honest-uncertainty",
+  "case": "ab-test-revenue-projection-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e047bbb2fc__o1": {
+  "component": "rule-honest-uncertainty",
+  "case": "pg-bigint-migration-window-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "e047bbb2fc__o2": {
+  "component": "rule-honest-uncertainty",
+  "case": "pg-bigint-migration-window-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "59d856e10f__o1": {
+  "component": "rule-language-match",
+  "case": "switch-to-en-after-ru-history-nginx-502-en",
+  "A": "with",
+  "B": "without"
+ },
+ "59d856e10f__o2": {
+  "component": "rule-language-match",
+  "case": "switch-to-en-after-ru-history-nginx-502-en",
+  "A": "without",
+  "B": "with"
+ },
+ "6176c00c92__o1": {
+  "component": "rule-language-match",
+  "case": "switch-to-ru-commit-msg-stays-en-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "6176c00c92__o2": {
+  "component": "rule-language-match",
+  "case": "switch-to-ru-commit-msg-stays-en-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "e86f37e186__o1": {
+  "component": "rule-serve-the-request",
+  "case": "ca-deposit-wear-tear-dead-link-en",
+  "A": "without",
+  "B": "with"
+ },
+ "e86f37e186__o2": {
+  "component": "rule-serve-the-request",
+  "case": "ca-deposit-wear-tear-dead-link-en",
+  "A": "with",
+  "B": "without"
+ },
+ "652f6f1088__o1": {
+  "component": "rule-serve-the-request",
+  "case": "ibuprofen-paracetamol-short-answer-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "652f6f1088__o2": {
+  "component": "rule-serve-the-request",
+  "case": "ibuprofen-paracetamol-short-answer-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "fa0dffdeb8__o1": {
+  "component": "skill-3d-platforms",
+  "case": "sell-printed-organizers-market-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "fa0dffdeb8__o2": {
+  "component": "skill-3d-platforms",
+  "case": "sell-printed-organizers-market-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "33a0b93295__o1": {
+  "component": "skill-3d-platforms",
+  "case": "thingiverse-knob-failed-downloads-en",
+  "A": "without",
+  "B": "with"
+ },
+ "33a0b93295__o2": {
+  "component": "skill-3d-platforms",
+  "case": "thingiverse-knob-failed-downloads-en",
+  "A": "with",
+  "B": "without"
+ },
+ "fc624dc40c__o1": {
+  "component": "skill-3d-print-search",
+  "case": "fdm-28mm-mini-thin-features-en",
+  "A": "without",
+  "B": "with"
+ },
+ "fc624dc40c__o2": {
+  "component": "skill-3d-print-search",
+  "case": "fdm-28mm-mini-thin-features-en",
+  "A": "with",
+  "B": "without"
+ },
+ "f8ef18469d__o1": {
+  "component": "skill-3d-print-search",
+  "case": "sell-headphone-hooks-license-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "f8ef18469d__o2": {
+  "component": "skill-3d-print-search",
+  "case": "sell-headphone-hooks-license-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "95dc7b1d92__o1": {
+  "component": "skill-agent-handoff",
+  "case": "pharmacy-bot-dosage-table-en",
+  "A": "with",
+  "B": "without"
+ },
+ "95dc7b1d92__o2": {
+  "component": "skill-agent-handoff",
+  "case": "pharmacy-bot-dosage-table-en",
+  "A": "without",
+  "B": "with"
+ },
+ "2949b4415d__o1": {
+  "component": "skill-agent-handoff",
+  "case": "support-copilot-legal-retention-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "2949b4415d__o2": {
+  "component": "skill-agent-handoff",
+  "case": "support-copilot-legal-retention-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "717426721e__o1": {
+  "component": "skill-agentic-loops",
+  "case": "essay-critic-refine-loop-never-ends-en",
+  "A": "without",
+  "B": "with"
+ },
+ "717426721e__o2": {
+  "component": "skill-agentic-loops",
+  "case": "essay-critic-refine-loop-never-ends-en",
+  "A": "with",
+  "B": "without"
+ },
+ "1ece8f41d0__o1": {
+  "component": "skill-agentic-loops",
+  "case": "overnight-test-fixer-burned-budget-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "1ece8f41d0__o2": {
+  "component": "skill-agentic-loops",
+  "case": "overnight-test-fixer-burned-budget-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "bee2d5bbb2__o1": {
+  "component": "skill-agnotology",
+  "case": "chemical-plant-closure-silence-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "bee2d5bbb2__o2": {
+  "component": "skill-agnotology",
+  "case": "chemical-plant-closure-silence-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ed598b8e90__o1": {
+  "component": "skill-agnotology",
+  "case": "remote-work-productivity-contradiction-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ed598b8e90__o2": {
+  "component": "skill-agnotology",
+  "case": "remote-work-productivity-contradiction-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a77e12b370__o1": {
+  "component": "skill-analysis-critical",
+  "case": "cfo-churn-ltv-paragraph-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a77e12b370__o2": {
+  "component": "skill-analysis-critical",
+  "case": "cfo-churn-ltv-paragraph-en",
+  "A": "with",
+  "B": "without"
+ },
+ "40e470cf2d__o1": {
+  "component": "skill-analysis-critical",
+  "case": "remote-comp-probation-clause-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "40e470cf2d__o2": {
+  "component": "skill-analysis-critical",
+  "case": "remote-comp-probation-clause-ru",
+  "A": "with",
+  "B": "without"
+ }
+}

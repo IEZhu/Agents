@@ -1,0 +1,35 @@
+{
+  "component": "implant-premortem",
+  "cases": [
+    {
+      "id": "freemium-shutdown-launch-plan-ru",
+      "agent": "product_manager",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет. У нас мобильное приложение для трекинга привычек (iOS + Android), ~38 тыс. MAU, из них платят около 1 100 человек (Pro за 299 ₽/мес через App Store / Google Play). Бесплатный тариф нас съедает по серверам, поэтому решение уже принято: с 1 ноября убираем бесплатный тариф совсем. Все, кто не оформит Pro, после 1 ноября видят пейволл и могут только экспортировать свои данные. Анонс делаем push-уведомлением и письмом за 14 дней, т.е. 18 октября. Параллельно выкатываем новую версию 3.0 с пейволлом — сабмит в сторы планируем на 25 октября. Команда: я, два мобильных разработчика, один бэкендер, дизайнер на полставки. Нужен пошаговый план запуска по дням с 10 октября по 1 ноября: кто что делает, какие задачи. Обсуждать само решение не надо, оно согласовано с фаундерами, нужен именно рабочий план.",
+      "why_in_scope": "The implant makes the model imagine that the 1 November switch has already failed and work backwards to concrete causes specific to this plan (store review of 3.0 slipping past 1 November with only a week of buffer, users who don't update the app never seeing the paywall, a wave of angry reviews and rating drop, support overload for a five-person team, existing subscribers or data export breaking), then rank them and build mitigations with early warning signals into the schedule. A strong model without it tends to take 'the decision is made, just give the plan' at face value and produce a clean optimistic day-by-day task list, perhaps with a generic risks paragraph at the end.",
+      "rubric": [
+        "The answer names several concrete ways this specific launch could fail (for example: store review of the 3.0 build not approved in time given the 25 October submission, users on old app versions bypassing the paywall unless it is enforced server-side, rating/review backlash, support load, breakage for existing Pro subscribers or of data export) rather than only generic risks.",
+        "The most serious failure modes are prioritized, and for the top ones the answer gives a specific preventive action built into the schedule (e.g. submitting earlier, server-side enforcement, a fallback date) together with an early signal or checkpoint that shows the risk is materializing.",
+        "The answer still delivers the requested day-by-day plan from 10 October to 1 November with tasks assigned to the listed roles, and respects that the decision to remove the free tier is not up for debate (it may suggest adjusting the timeline or rollout, but does not argue against the business decision itself).",
+        "The plan is internally consistent with the user's dates (announcement 18 October, submission 25 October, switch 1 November) and team size."
+      ]
+    },
+    {
+      "id": "postgres-weekend-cutover-runbook-en",
+      "agent": "system_architect",
+      "language": "en",
+      "history": [],
+      "user_message": "We're moving our main OLTP database off a self-managed PostgreSQL 12 box (single primary + one streaming replica, ~1.2 TB on disk, biggest table ~480 GB) to Amazon Aurora PostgreSQL 15. Management approved a maintenance window of Saturday 23:00 to Sunday 05:00 UTC. The plan: at 23:00 put the app (Django, 14 pods on EKS, plus 3 Celery worker deployments) into maintenance mode, run pg_dump -Fd -j 8 on the primary, pg_restore -j 8 into Aurora, switch the DATABASE_URL secret, restart pods, smoke test, open traffic by 05:00. We rehearsed last month: pg_restore of a dump from a snapshot into Aurora took 3h50m and everything came up fine, so the window should be OK. Can you turn this into a proper step-by-step runbook with timings for the night so I can share it with the on-call team?",
+      "why_in_scope": "The implant makes the model assume the cutover night has gone wrong and trace back concrete causes in this plan: the rehearsal only timed the restore (3h50m), so adding the live pg_dump of 1.2 TB, ANALYZE, validation and smoke tests overruns the 6-hour window with no margin; Celery workers or cron jobs still writing; roles/extensions not carried over; a cold planner without statistics; and no rollback path once writes land on Aurora. It then builds go/no-go checkpoints and mitigations into the runbook. A strong model without it tends to trust the user's 'the window should be OK' and format the steps into a neat timed runbook.",
+      "rubric": [
+        "The answer does the arithmetic on the window: the rehearsal timed only the 3h50m restore, so adding the pg_dump of about 1.2 TB on the live primary plus post-restore steps leaves little or no margin in 23:00-05:00, and it proposes a mitigation such as a timed end-to-end rehearsal (dump + restore) or a replication-based approach (e.g. logical replication or AWS DMS) that shrinks downtime to the final cutover.",
+        "The runbook contains explicit go/no-go checkpoints with a concrete trigger (e.g. restore not finished by a stated time) and a rollback procedure back to the PostgreSQL 12 primary, and it points out that rollback is simple only before any writes land on Aurora.",
+        "The answer covers several specific failure points of this plan beyond timing, such as stopping Celery workers and scheduled jobs before the dump, verifying sequences/extensions/roles after restore, running ANALYZE before opening traffic, and checking row counts or other data validation.",
+        "The output is still a usable step-by-step runbook with timings for the night that the on-call team could follow, not only a risk list."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Made case 2 subtler: the user now cites a 3h50m restore rehearsal and asserts the window is fine, so the model must notice the dump time and post-restore steps were never counted instead of reacting to a bare size figure; rubric item 1 and why_in_scope updated accordingly. Case 1 passed all checks unchanged (dates 18 Oct = 1 Nov minus 14 days verified)."
+}

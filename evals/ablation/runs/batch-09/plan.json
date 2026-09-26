@@ -1,0 +1,996 @@
+{
+ "bcb9ce72959b": {
+  "component": "implant-chain-of-code",
+  "case": "fifo-writeoff-rule-ru",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 21308,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "CoC"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e7a49bbf5983": {
+  "component": "implant-chain-of-code",
+  "case": "fifo-writeoff-rule-ru",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 19858,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-dense-summarization"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "25dbdda5041f": {
+  "component": "implant-chain-of-code",
+  "case": "coin-passing-rounds-en",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 21875,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-reasoning-logic",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "CoC"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "9853ad2c876e": {
+  "component": "implant-chain-of-code",
+  "case": "coin-passing-rounds-en",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 20425,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-reasoning-logic",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-decision-frameworks"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "02e1df4f21ea": {
+  "component": "implant-chain-of-draft",
+  "case": "saas-funnel-mrr-ltv-brief-ru",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 16581,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "3e5e3ae7e280": {
+  "component": "implant-chain-of-draft",
+  "case": "saas-funnel-mrr-ltv-brief-ru",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 14752,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "standard"
+ },
+ "2790f85f2fdb": {
+  "component": "implant-chain-of-draft",
+  "case": "gunicorn-sqlalchemy-pg-connections-short-en",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 24260,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-web-search"
+  ],
+  "implants": [
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "801c59c05d78": {
+  "component": "implant-chain-of-draft",
+  "case": "gunicorn-sqlalchemy-pg-connections-short-en",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 22431,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-web-search"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "34eef49e3750": {
+  "component": "implant-chain-of-note",
+  "case": "dividend-snippets-distractors-ru",
+  "arm": "with",
+  "agent": "daily_briefing",
+  "chars": 27794,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "ChainOfNote"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "36c692923f3d": {
+  "component": "implant-chain-of-note",
+  "case": "dividend-snippets-distractors-ru",
+  "arm": "without",
+  "agent": "daily_briefing",
+  "chars": 25867,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0a3d98e085d4": {
+  "component": "implant-chain-of-note",
+  "case": "port-strike-clippings-stale-and-irrelevant-en",
+  "arm": "with",
+  "agent": "daily_briefing",
+  "chars": 27794,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "ChainOfNote"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e42373503b0e": {
+  "component": "implant-chain-of-note",
+  "case": "port-strike-clippings-stale-and-irrelevant-en",
+  "arm": "without",
+  "agent": "daily_briefing",
+  "chars": 25867,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-dense-summarization",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-analysis-critical",
+   "skill-reasoning-logic"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d240789cadff": {
+  "component": "implant-chain-of-symbol",
+  "case": "office-desk-seating-ru",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 21329,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-product-frameworks"
+  ],
+  "implants": [
+   "ChainOfSymbol"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b7f8370e8748": {
+  "component": "implant-chain-of-symbol",
+  "case": "office-desk-seating-ru",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 19774,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-product-frameworks"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0923e77062e3": {
+  "component": "implant-chain-of-symbol",
+  "case": "tool-survey-overlap-en",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 29999,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "ChainOfSymbol"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cff36a5ed4d1": {
+  "component": "implant-chain-of-symbol",
+  "case": "tool-survey-overlap-en",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 28444,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-reasoning-logic"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "71b0b9ab37bf": {
+  "component": "implant-chain-of-table",
+  "case": "laptop-scattered-specs-ru",
+  "arm": "with",
+  "agent": "purchase_researcher",
+  "chars": 38466,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-purchase-research",
+   "skill-fact-verification",
+   "skill-consultative-intake",
+   "skill-reasoning-logic",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "ChainOfTable"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "01232e454def": {
+  "component": "implant-chain-of-table",
+  "case": "laptop-scattered-specs-ru",
+  "arm": "without",
+  "agent": "purchase_researcher",
+  "chars": 36925,
+  "skills": [
+   "skill-web-search",
+   "skill-content-structure",
+   "skill-purchase-research",
+   "skill-fact-verification",
+   "skill-consultative-intake",
+   "skill-reasoning-logic",
+   "skill-decision-frameworks"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6bf9963f7104": {
+  "component": "implant-chain-of-table",
+  "case": "managed-postgres-quotes-en",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 24422,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "ChainOfTable"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a13600d5d719": {
+  "component": "implant-chain-of-table",
+  "case": "managed-postgres-quotes-en",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 22881,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5bfe50178f59": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-python-versions-wiki-ru",
+  "arm": "with",
+  "agent": "tech_writer",
+  "chars": 19311,
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-mermaid-best-practices",
+   "skill-structured-output",
+   "skill-git-conventions",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "91ec721e50d4": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-python-versions-wiki-ru",
+  "arm": "without",
+  "agent": "tech_writer",
+  "chars": 16716,
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-mermaid-best-practices",
+   "skill-structured-output",
+   "skill-git-conventions",
+   "skill-dense-summarization"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "8ce7852f30e9": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-gdpr-onepager-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 27510,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7246ef5dde7e": {
+  "component": "implant-chain-of-verification",
+  "case": "cov-gdpr-onepager-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 24915,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fc8502e96da4": {
+  "component": "implant-complexity-based-prompting",
+  "case": "four-doors-random-host-ru",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 23335,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-reasoning-logic",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "ComplexityPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "af56275258a6": {
+  "component": "implant-complexity-based-prompting",
+  "case": "four-doors-random-host-ru",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 21034,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-reasoning-logic",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-fact-verification"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7a7e4f6d693c": {
+  "component": "implant-complexity-based-prompting",
+  "case": "die-until-six-all-even-en",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 22352,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-reasoning-logic",
+   "skill-analysis-critical",
+   "skill-code-generation"
+  ],
+  "implants": [
+   "ComplexityPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c023369185aa": {
+  "component": "implant-complexity-based-prompting",
+  "case": "die-until-six-all-even-en",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 20051,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-reasoning-logic",
+   "skill-analysis-critical",
+   "skill-code-generation"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "35bb93c3d0a9": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-cleaning-lifehacks-post-ru",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 21853,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "ConstitutionalCritique"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "288c9835ecda": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-cleaning-lifehacks-post-ru",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 20243,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-fact-verification"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "9f0e90404b48": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-new-parents-sleep-handout-en",
+  "arm": "with",
+  "agent": "tech_writer",
+  "chars": 18326,
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-dense-summarization",
+   "skill-git-conventions",
+   "skill-mermaid-best-practices",
+   "skill-structured-output"
+  ],
+  "implants": [
+   "ConstitutionalCritique"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6aa72f62d5bf": {
+  "component": "implant-constitutional-critique",
+  "case": "cc-new-parents-sleep-handout-en",
+  "arm": "without",
+  "agent": "tech_writer",
+  "chars": 16716,
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-dense-summarization",
+   "skill-git-conventions",
+   "skill-mermaid-best-practices",
+   "skill-structured-output"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4e906e1c5e20": {
+  "component": "implant-contextual-compression",
+  "case": "ocr-supply-letter-condense-ru",
+  "arm": "with",
+  "agent": "document_ocr_expert",
+  "chars": 19861,
+  "skills": [
+   "skill-structured-output",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "ContextualCompression"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "558bf7be02dc": {
+  "component": "implant-contextual-compression",
+  "case": "ocr-supply-letter-condense-ru",
+  "arm": "without",
+  "agent": "document_ocr_expert",
+  "chars": 18096,
+  "skills": [
+   "skill-structured-output",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-fact-verification"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6b4189ef1718": {
+  "component": "implant-contextual-compression",
+  "case": "handwritten-meeting-notes-condense-en",
+  "arm": "with",
+  "agent": "document_ocr_expert",
+  "chars": 18972,
+  "skills": [
+   "skill-structured-output",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-tech-writing"
+  ],
+  "implants": [
+   "ContextualCompression"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e82d81c6b3a9": {
+  "component": "implant-contextual-compression",
+  "case": "handwritten-meeting-notes-condense-en",
+  "arm": "without",
+  "agent": "document_ocr_expert",
+  "chars": 17207,
+  "skills": [
+   "skill-structured-output",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-tech-writing"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2f210812e560": {
+  "component": "implant-contrastive-cot",
+  "case": "ticket-classifier-boundary-errors-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 21462,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "49b0b8ee2aaf": {
+  "component": "implant-contrastive-cot",
+  "case": "ticket-classifier-boundary-errors-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 19343,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "dcfc14cba070": {
+  "component": "implant-contrastive-cot",
+  "case": "kpi-summary-percent-vs-points-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 21261,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-dense-summarization",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-prompt-techniques"
+  ],
+  "implants": [
+   "ContrastiveCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6dc65cec0867": {
+  "component": "implant-contrastive-cot",
+  "case": "kpi-summary-percent-vs-points-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 19142,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-dense-summarization",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-prompt-techniques"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

@@ -1,0 +1,35 @@
+{
+  "component": "skill-dev-performance",
+  "cases": [
+    {
+      "id": "drf-orders-aggregate-orjson-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Django 4.2 + DRF 3.14, PostgreSQL 15. Эндпоинт GET /api/orders/?page_size=200 отвечает медленно: p95 около 1.9 с, по Grafana. N+1 я уже убрал (select_related/prefetch_related стоят), так что остаётся сериализация — ModelSerializer в DRF известен как медленный. План: поставить orjson вместо стандартного JSONRenderer и переписать сериализаторы на ручную сборку dict'ов без ModelSerializer. Помоги с кодом для обоих пунктов.\n\n```python\nclass OrderItemSerializer(serializers.ModelSerializer):\n    product_name = serializers.CharField(source=\"product.name\")\n    class Meta:\n        model = OrderItem\n        fields = [\"id\", \"product_name\", \"qty\", \"price\"]\n\nclass OrderSerializer(serializers.ModelSerializer):\n    customer_email = serializers.CharField(source=\"customer.email\")\n    items = OrderItemSerializer(many=True, source=\"orderitem_set\")\n    total = serializers.SerializerMethodField()\n\n    class Meta:\n        model = Order\n        fields = [\"id\", \"created\", \"status\", \"customer_email\", \"items\", \"total\"]\n\n    def get_total(self, obj):\n        return obj.orderitem_set.aggregate(\n            s=Sum(F(\"qty\") * F(\"price\"))\n        )[\"s\"] or 0\n\nclass OrderViewSet(viewsets.ReadOnlyModelViewSet):\n    queryset = (\n        Order.objects.select_related(\"customer\")\n        .prefetch_related(\"orderitem_set__product\")\n        .order_by(\"-created\")\n    )\n    serializer_class = OrderSerializer\n```\n\nВ среднем в заказе 5-6 позиций.",
+      "why_in_scope": "The user claims N+1 is fixed and has already decided serialization is the bottleneck. The skill makes the model insist on measuring (query count/time, profile) before rewriting, and find the real hot spot: get_total calls aggregate() on the related manager, which ignores the prefetch cache and issues one extra query per order (about 200 per page). A strong model without the skill may just deliver the orjson renderer and hand-written dict serializers, carrying the aggregate over unchanged.",
+      "rubric": [
+        "Recommends measuring before rewriting (e.g. counting SQL queries and their time per request with django-debug-toolbar, django-silk, connection.queries or a profiler) instead of accepting that serialization is the bottleneck.",
+        "Points out that get_total's aggregate() runs a separate database query for every order despite prefetch_related (about 200 extra queries per page), and fixes it by summing over the prefetched obj.orderitem_set.all() in Python or by annotating the total on the queryset.",
+        "Explains that swapping the renderer or hand-writing serializers is unlikely to materially cut p95 while per-order queries dominate, and treats those changes as optional follow-ups to be justified by measurements.",
+        "Suggests verifying the fix with before/after numbers (query count and latency) and/or a regression guard such as a test using assertNumQueries."
+      ]
+    },
+    {
+      "id": "etl-customer-lookup-pypy-en",
+      "agent": "data_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Our nightly ETL job has crept up to ~50 minutes and ops wants it under 15. It reads a ~1.2M-row CSV export, cleans a few columns, and loads into Postgres 14. The load step is already fast since we switched to COPY last quarter, so it's the Python transform. My plan is to rewrite `clean_row` with pandas/numpy vectorization and run the whole thing under PyPy. Can you help me vectorize it and tell me what to watch out for with PyPy + psycopg2?\n\n```python\nimport csv, io, psycopg2\n\nconn = psycopg2.connect(DSN)\ncur = conn.cursor()\n\ndef lookup_customer(email):\n    cur.execute(\"SELECT id FROM customers WHERE email = %s\", (email,))\n    row = cur.fetchone()\n    return row[0] if row else None\n\ndef clean_row(r):\n    r[\"email\"] = r[\"email\"].strip().lower()\n    r[\"amount\"] = round(float(r[\"amount\"] or 0), 2)\n    r[\"country\"] = COUNTRY_MAP.get(r[\"country\"], r[\"country\"])\n    r[\"customer_id\"] = lookup_customer(r[\"email\"])\n    return r\n\nbuf = io.StringIO()\nw = csv.writer(buf)\nwith open(\"export.csv\", newline=\"\") as f:\n    for r in csv.DictReader(f):\n        r = clean_row(r)\n        w.writerow([r[\"customer_id\"], r[\"email\"], r[\"amount\"], r[\"country\"], r[\"ts\"]])\n\nbuf.seek(0)\ncur.copy_expert(\"COPY sales (customer_id, email, amount, country, ts) FROM STDIN WITH CSV\", buf)\nconn.commit()\n```",
+      "why_in_scope": "The user has concluded the CPU-bound transform is slow and wants vectorization plus PyPy. The skill makes the model time the stages first and target the actual bottleneck: lookup_customer does a database round trip per row (1.2M SELECTs) hidden inside the 'transform', which neither numpy nor PyPy speeds up. A strong model without the skill may focus on vectorizing the string/number cleanup and keep the lookup as a per-row apply.",
+      "rubric": [
+        "Recommends timing or profiling the job (e.g. per-stage timings, cProfile) before rewriting, rather than assuming the string/number cleanup is what is slow.",
+        "Identifies the per-row SELECT in lookup_customer (about 1.2M database round trips) as the likely dominant cost and replaces it with a set-based approach, such as loading the customers email-to-id mapping into a dict once, or COPYing into a staging table and resolving customer_id with a SQL join.",
+        "Explains that vectorizing the cleanup or running under PyPy cannot meaningfully reduce time spent waiting on database round trips, so that work should wait until measurements show the transform CPU cost matters.",
+        "Proposes verifying the change by re-running the job and comparing total time against the ~50-minute baseline, and any code given is consistent with the user's schema and logic (e.g. same email normalization before lookup)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both originals had an obvious bottleneck (textbook N+1, per-row INSERT+commit) that a strong model flags unprompted, so both were made subtler: case 1 now has select_related/prefetch in place and hides a per-order aggregate() query that bypasses the prefetch cache; case 2 already uses COPY and hides a per-row SELECT lookup inside the transform. Rubrics rewritten to match; dropped the unverifiable PyPy/psycopg2 specifics."
+}

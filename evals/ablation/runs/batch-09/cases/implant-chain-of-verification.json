@@ -1,0 +1,35 @@
+{
+  "component": "implant-chain-of-verification",
+  "cases": [
+    {
+      "id": "cov-python-versions-wiki-ru",
+      "agent": "tech_writer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет! Пишу страничку во внутреннюю вики для новичков в команде, раздел \"Почему мы требуем Python 3.10+\". Причеши текст, пожалуйста, чтобы читался нормально, а то я писал на коленке. Длину сохрани примерно такую же.\n\n\"Мы переходим на минимальную версию 3.10 потому что там много полезного. Начиная с Python 3.6 словари гарантированно сохраняют порядок вставки по спецификации языка, так что OrderedDict нам вообще не нужен. f-строки появились в 3.6, моржовый оператор := в 3.8, а структурный pattern matching (match/case) добавили в 3.9, но нормально он заработал только в 3.10. Ещё в 3.11 в стандартную библиотеку добавили tomllib, поэтому tomli как зависимость можно выкинуть. Всё это вместе и есть причина почему 3.10 минимум.\"",
+      "why_in_scope": "The request is framed as a style edit, but the text is dense with version claims that new hires will rely on, two of which are wrong (match/case arrived in 3.10, not 3.9; dict ordering became a language guarantee in 3.7, 3.6 only as a CPython detail), and the tomllib argument does not support a 3.10 minimum. Checking each load-bearing claim separately makes the model catch these; a strong model focused on polishing prose tends to carry the draft's facts over unchanged.",
+      "rubric": [
+        "Corrects or flags that match/case (structural pattern matching) was introduced in Python 3.10, not 3.9, and does not keep the claim that it existed in 3.9",
+        "Corrects or flags that insertion-order preservation of dict is guaranteed by the language from Python 3.7 (in 3.6 it was a CPython implementation detail)",
+        "Points out that tomllib is in the standard library only from 3.11, so with a 3.10 minimum the tomli dependency cannot simply be dropped (or reworks that sentence accordingly)",
+        "Delivers a cleaner rewritten text of roughly the original length that keeps the correct claims (f-strings in 3.6, := in 3.8)"
+      ]
+    },
+    {
+      "id": "cov-gdpr-onepager-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you tighten this up for the compliance slide in our new-hire onboarding deck? Keep it under ~150 words, plain English, it goes out to ~40 people next Monday.\n\n\"GDPR basics for our team: GDPR has been in force since 25 May 2018 and applies to us because we process data of EU residents. If someone sends a data subject access request we have 30 days to respond, and we can extend that once by another month if the request is complex. If we have a personal data breach we must notify the supervisory authority within 72 hours of becoming aware of it. Processing personal data without a lawful basis can get us fined up to EUR 10 million or 2% of global annual turnover, whichever is lower. So when in doubt, ask Legal before collecting new data.\"",
+      "why_in_scope": "The user asks for an edit, but the slide makes several precise legal claims that 40 employees will act on, and some are wrong: access requests get one month, extendable by up to two further months; fines for processing without a lawful basis fall in the higher tier of up to EUR 20 million or 4% of worldwide annual turnover, whichever is higher. A model that checks each figure against its own knowledge independently of the draft catches these; one that just shortens the prose tends to keep the wrong numbers.",
+      "rubric": [
+        "Corrects the access-request deadline to one month, extendable by up to two further months (not 'once by another month')",
+        "Corrects the fine for processing without a lawful basis to up to EUR 20 million or 4% of worldwide annual turnover, whichever is higher (not EUR 10M/2%, not 'lower')",
+        "Keeps the 72-hour breach notification to the supervisory authority as correct",
+        "Returns a tightened slide text of about 150 words or fewer in plain English, and tells the user which facts were changed"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified all rubric facts (match/case 3.10 per PEP 634, dict order guaranteed from 3.7, tomllib 3.11; GDPR Art. 12(3) one month + two, Art. 33 72h, Art. 83(5) EUR 20M/4% whichever higher) and found them correct; both cases are edit-framed so fact-checking is not requested, no leak, owner agents used, so no changes were needed."
+}

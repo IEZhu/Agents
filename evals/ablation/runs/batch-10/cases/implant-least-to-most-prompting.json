@@ -1,0 +1,35 @@
+{
+  "component": "implant-least-to-most-prompting",
+  "cases": [
+    {
+      "id": "apples-backward-problem-kid-ru",
+      "agent": "education_tutor",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите объяснить сыну задачу, 6 класс. \"У Маши было несколько яблок. Сначала она отдала Пете половину всех яблок и ещё одно. Потом отдала Коле половину оставшихся и ещё одно. После этого у неё осталось 3 яблока. Сколько яблок было у Маши сначала?\" Я ему уже два раза показал решение с конца, он кивает, а потом снова пишет уравнение с x и путается в скобках, получает дробное число. Как ему объяснить, чтобы он сам понял, а не просто списал ответ?",
+      "why_in_scope": "The parent needs scaffolding, not another full solution: the implant makes the model break the problem into a sequence from simplest to hardest (first a one-step version, e.g. only Kolya's step, then add Petya's step using that result) so each stage reuses the previous answer. A strong model without it tends to just present the complete backward solution again or a single equation, which is exactly what the parent says has already failed twice.",
+      "rubric": [
+        "Starts from a simpler sub-problem than the full task (e.g. only the last step: 'half and one more given away, 3 left, how many were there?') and has the child solve it before the full problem.",
+        "Builds up explicitly: the answer of the simpler step (8 apples before Kolya) is used as the input for the next step (before Petya), rather than presenting the two steps independently or all at once.",
+        "Gives the correct answer of 18 apples and shows a forward check (18 -> give 10 -> 8 -> give 5 -> 3).",
+        "Addresses the parent's actual situation: offers concrete guiding questions or actions for the child to do himself instead of only repeating the solution, and does not rely on the x-equation approach the child already gets lost in."
+      ]
+    },
+    {
+      "id": "queue-backlog-autoscale-incident-en",
+      "agent": "devops_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a sanity check before tomorrow's load test review. Our job queue has 25 workers, each does 40 jobs/min. The test profile is 1,500 jobs/min for the first 20 minutes, then drops to 600 jobs/min and stays there. The autoscaler is dumb: at the end of every 5-minute window (t=5, 10, 15, ...) if the backlog is above zero it requests 5 more workers, hard cap 40 workers, and it never scales down during the test. A requested worker takes exactly 1 minute to boot, then runs at full speed. Two questions: what's the max backlog we'll hit (Redis list is capped at 5,000 messages, anything above gets dropped), and at what minute does the backlog get back to zero? My teammate says we'll blow past 5k, I think we're fine, but I'd like actual numbers.",
+      "why_in_scope": "Each segment depends on the backlog and worker count left by the previous one, and the 1-minute boot delay shifts every capacity change off the 5-minute grid, so the reliable approach is to solve the first segment and carry its result forward step by step. A strong model answering in one pass tends to ignore the boot lag (getting a 4,500 peak and a comfortable 'you're fine'), use fixed 25 workers (10,000, siding with the teammate), or drop the carry-over between segments.",
+      "rubric": [
+        "Carries state forward segment by segment with the boot lag: 25 workers until t=6 (backlog 3,000), 30 workers until t=11 (backlog 4,500), 35 workers until t=16 (backlog 5,000), then 40 workers (backlog 4,600 at t=20).",
+        "States the peak backlog as 5,000 at t=16: exactly at the Redis cap, so nothing is dropped under these idealized assumptions but there is zero headroom; does not report the lag-free 4,500 or the fixed-capacity 10,000 as the peak.",
+        "States that after t=20 the backlog drains at 1,000 jobs/min (1,600 capacity minus 600 incoming) and reaches zero at about t=24.6 (24 min 36 s).",
+        "Answers the teammate disagreement directly and honestly (neither side is comfortably right: no overflow on paper, but any jitter or slower boot would overflow)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 verified (answer 18, forward check correct) and kept. Case 2 was a plain window-by-window simulation a strong model would do anyway, so added a 1-minute worker boot delay that moves capacity changes off the 5-minute grid; recomputed the rubric (peak exactly 5,000 at t=16, zero at t=24.6)."
+}

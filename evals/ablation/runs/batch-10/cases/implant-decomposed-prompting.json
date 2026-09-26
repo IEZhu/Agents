@@ -1,0 +1,35 @@
+{
+  "component": "implant-decomposed-prompting",
+  "cases": [
+    {
+      "id": "job-offer-switch-mixed-questions-ru",
+      "agent": "universal_agent",
+      "language": "ru",
+      "history": [],
+      "user_message": "Короче, ситуация такая. Работаю в Москве аналитиком, оклад 180 000 до вычета налога, в офис 5 дней в неделю, дорога 1 ч 20 мин в одну сторону. Позвали в другую компанию: 210 000 до вычета, офис 3 дня в неделю, дорога 40 минут в одну сторону, остальное удалёнка. Они хотят, чтобы я вышел 13 октября, говорят, дольше ждать не могут. Заявление об уходе я могу подать только 6 октября, раньше начальник в командировке. Ещё у меня остался неотгулянный отпуск, 18 дней, не хочу его просто потерять. И я не понимаю, как вообще сказать начальнику, мы с ним нормально общаемся, не хочу портить отношения. Помоги разобраться, стоит ли оно того и как всё это провернуть.",
+      "why_in_scope": "The message mixes several independent sub-problems in unstructured prose: comparing the offers (money and commute time), the dismissal notice timing, the unused vacation, and how to talk to the manager. Decomposing, solving each part and then verifying the combined plan exposes a hidden conflict: a two-week notice submitted on 6 October runs until 20 October, which is later than the 13 October start date. A strong model answering holistically can easily give generic advice on each point and miss that the pieces do not fit together, or skip one of the buried questions.",
+      "rubric": [
+        "Points out that a standard two-week notice submitted on 6 October ends after 13 October, so the requested start date does not fit a regular resignation, and proposes a concrete way out (e.g. leaving earlier by agreement with the employer, which needs the employer's consent, or negotiating a later start with the new company).",
+        "Addresses the 18 days of unused vacation (compensation on dismissal and/or taking vacation followed by dismissal) and ties it to the timing problem instead of treating it in isolation.",
+        "Compares the offers with correct commute arithmetic: about 13 h 20 min per week now (5 days x 2 x 80 min) versus 4 h per week at the new job (3 days x 2 x 40 min), alongside the +30 000 gross salary difference.",
+        "Gives practical advice on how to tell the manager, and the final recommendation is consistent with the resolved timing and vacation points and covers all four questions (worth it, notice timing, vacation, conversation with the manager)."
+      ]
+    },
+    {
+      "id": "interleaved-release-meeting-transcript-en",
+      "agent": "semantic_expert",
+      "language": "en",
+      "history": [],
+      "user_message": "Can you pull the decisions and action items out of this? It's the auto-transcript from our Thursday sync, it jumps around a lot.\n\n[00:01] Priya: ok so three things today, the release, the pricing page, and the on-call thing. also reminder the board rule still stands, no release goes out until we have the external audit report in hand\n[00:03] Marco: on the release, uh, QA says we're good to go for November fifth\n[00:05] Priya: pricing page, legal still hasn't signed off on the new annual discount copy\n[00:07] Dan: for on-call I think we move to weekly rotations instead of two weeks, people are burning out\n[00:08] Priya: agreed, weekly. Dan can you set it up in PagerDuty\n[00:09] Dan: yeah\n[00:10] Marco: oh btw the auditors emailed, they'll send their report on the twelfth, a bit later than they said\n[00:12] Priya: ok. so pricing page, Lena will you chase legal\n[00:14] Lena: I can but I'm out next week, maybe somebody else\n[00:15] Priya: fine let's figure that out later\n[00:16] Marco: so, release on the fifth then, I'll tell the customers\n[00:17] Priya: yep sounds good, send the email today\n[00:18] Dan: also on-call, we need a secondary, I'll ask in the channel\n[00:19] Priya: ok thanks all",
+      "why_in_scope": "The transcript interleaves three threads (release, pricing page, on-call), and the release constraint is split across three distant lines: the board rule at the start, the audit report date mentioned in passing, and the confirmed 5 November release plus customer email near the end. Separating the threads, extracting each, then checking the combined result against the whole transcript surfaces the contradiction; a model summarising linearly tends to list 'release on Nov 5, Marco emails customers' as a clean decision.",
+      "rubric": [
+        "Flags that the confirmed 5 November release (and the customer email going out today) conflicts with the board rule that no release goes out before the external audit report, which is now expected on the 12th, and does not present the release date as an unproblematic decision.",
+        "Correctly attributes the actions: Dan sets up weekly on-call rotation in PagerDuty and asks in the channel for a secondary; Marco emails customers today about the release.",
+        "Records that the legal sign-off follow-up on the pricing page has no confirmed owner (Lena said she is out next week and Priya deferred it), rather than assigning it to Lena.",
+        "Does not invent owners, deadlines or decisions that are not in the transcript."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1 kept (notice from 6 Oct ends 20 Oct under the two-week rule, commute math verified); reworded the last item so it scores coherence, not structure. Case 2 made subtler by spreading the board rule, audit date and release confirmation across distant lines, and replaced the format-rewarding 'group by topic' item with an attribution check (Marco's customer email, Dan's actions)."
+}

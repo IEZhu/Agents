@@ -1,0 +1,35 @@
+{
+  "component": "skill-dev-api-design",
+  "cases": [
+    {
+      "id": "orders-feed-duplicates-review-ru",
+      "agent": "code_reviewer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Привет. У нас мобилка (iOS/Android), бэк на Django REST Framework 3.15. Лента заказов с бесконечной прокруткой. Сейчас API такое:\n\nGET /api/getOrders?page=3&page_size=20&access_token=eyJhbGciOiJIUzI1NiJ9...\nPOST /api/order/cancel  body: {\"order_id\": 123}\nPOST /api/order/updateAddress  body: {\"orderId\": 123, \"new_address\": \"...\"}\n\nПри любой ошибке отдаём HTTP 200 и {\"ok\": false, \"msg\": \"Заказ не найден\"}, так мобильщикам проще парсить.\n\nОсновная жалоба от QA: когда пользователь листает ленту, а в это время приходят новые заказы, на следующих страницах появляются дубли, а иногда какие-то заказы вообще пропадают. Почему так и как это починить? И если видишь ещё что-то кривое в этих эндпоинтах перед релизом новой версии приложения, скажи, пока не поздно.",
+      "why_in_scope": "The component pushes toward cursor-based pagination returning next_cursor/has_next, no tokens in URLs, noun/plural resources with one naming convention, real status codes with a structured {code,message,details} error body, and never breaking existing clients (additive changes only, new version otherwise). A strong model will likely explain the offset-shift bug and flag the token, but may soften the 200-on-error practice the user defends, and will often propose changing status codes and URLs in place, which breaks already-installed mobile app versions that cannot be force-updated.",
+      "rubric": [
+        "Correctly explains that page/offset pagination shifts when new orders are inserted at the top, causing duplicates and skipped items, and proposes cursor/keyset pagination (e.g. after a stable sort key such as created_at+id) with the response returning a next cursor and a has-more indicator",
+        "Flags that access_token in the query string leaks into logs/proxies/history and should move to the Authorization header, and points out the verb-style URLs (getOrders, updateAddress) and the mixed orderId/order_id naming, suggesting resource-oriented paths like /orders/{id} and one naming convention",
+        "Recommends proper HTTP status codes (e.g. 404 for a missing order, 400/422 for validation, 401/403 for auth) with a consistent machine-readable error body containing an error code and message, instead of 200 with ok:false",
+        "Proposes rolling out the pagination/error/URL changes without breaking already-installed app versions (e.g. new versioned endpoints such as /v2 alongside the old ones, then deprecation), rather than changing the existing endpoints' behaviour in place"
+      ]
+    },
+    {
+      "id": "payments-retry-and-field-rename-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "We run a small public payments API (Node 20, Express, Postgres) used by ~40 merchant integrations we don't control. Two things on my plate this sprint:\n\n1. Some merchants' HTTP clients time out after 10s and retry POST /v1/charges. When our upstream processor is slow, the first request actually succeeds, so the customer gets charged twice. Last week that happened 17 times. My plan is to dedupe server-side: if the same merchant sends a charge with the same amount and card in the last 60 seconds, return the existing charge.\n\n2. Our charge response has `amount` as a float in dollars (e.g. 19.99) and we've had rounding bugs. I want to change `amount` to an integer in cents (1999) in the same deploy so it's fixed for everyone at once.\n\nCan you sanity-check both plans and tell me what you'd actually ship?",
+      "why_in_scope": "The component says POST is not idempotent and should use client-supplied idempotency keys, and that existing clients must never be broken: only additive changes within a version. A strong model might tweak the user's amount+card heuristic instead of replacing it, or accept an in-place type change to `amount` with a changelog note, which would silently break 40 uncontrolled integrations.",
+      "rubric": [
+        "Rejects the amount+card+60s heuristic as the primary fix (it can block legitimate repeat purchases and miss retries outside the window) and recommends a client-supplied idempotency key header stored per merchant, returning the original result for a repeated key",
+        "Addresses what happens when the same idempotency key is reused with a different request body or while the first request is still in progress (e.g. reject with an error such as 409/422) rather than silently treating it as a replay",
+        "Advises against changing the type/meaning of the existing `amount` field in place under /v1, and instead proposes an additive change (e.g. a new integer field in minor units alongside the old one, with deprecation) or a new API version",
+        "Gives a concrete, shippable recommendation for both items that fits the stated constraints (Express/Postgres, merchants not under their control)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: merged the naming/verb-URL item into the token item and added a rubric item on not breaking already-installed mobile clients (versioning/additive change), which is the subtler component behaviour a strong model often misses; loosened 'has-more flag' wording. Case 2 kept as is: in scope (idempotency keys, no in-place breaking field change), no leak, rubric facts hedged and correct."
+}

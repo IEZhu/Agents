@@ -1,0 +1,69 @@
+{
+  "component": "implant-reflexion",
+  "cases": [
+    {
+      "id": "reflexion-money-rounding-retry-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [
+        {
+          "role": "user",
+          "content": "Нужна функция на Python 3.11 для округления суммы до копеек по правилу «половина вверх», как в бухгалтерии. Тесты:\n\n```python\nassert round_money(2.675) == 2.68\nassert round_money(0.125) == 0.13\nassert round_money(1.005) == 1.01\nassert round_money(3.14159) == 3.14\n```\n\nНа вход приходит float из JSON, менять формат входа нельзя, на выходе тоже float."
+        },
+        {
+          "role": "assistant",
+          "content": "Держите:\n\n```python\ndef round_money(x: float) -> float:\n    return round(x, 2)\n```"
+        },
+        {
+          "role": "user",
+          "content": "Тесты падают: round_money(2.675) возвращает 2.67, round_money(0.125) возвращает 0.12, 1.005 даёт 1.0."
+        },
+        {
+          "role": "assistant",
+          "content": "Встроенный round использует банковское округление. Сделаем «половина вверх» вручную:\n\n```python\nimport math\n\ndef round_money(x: float) -> float:\n    return math.floor(x * 100 + 0.5) / 100\n```"
+        }
+      ],
+      "user_message": "0.125 теперь проходит, но 2.675 всё равно даёт 2.67, и 1.005 даёт 1.0. Попробуй ещё раз, только давай уже чтобы все четыре теста прошли, мне это сегодня в прод катить.",
+      "why_in_scope": "После двух неудачных попыток имплант заставляет модель сначала критически разобрать, почему они провалились (обе считают в двоичном float, где 2.675 и 1.005 хранятся чуть меньше половины), сформулировать урок и только потом дать решение, проверенное против всех тестов. Без этого сильная модель часто делает третий косметический вариант той же ошибки (например, Decimal(x) без str, или добавление эпсилона) или не объясняет, почему предыдущие попытки не могли пройти.",
+      "rubric": [
+        "Исправляет диагноз из прошлого ответа: банковское округление объясняет только провал 0.125 (оно точно представимо и round даёт 0.12), а 2.675 и 1.005 падают в обеих попытках по одной причине: в двоичном float они хранятся чуть меньше (2.67499…, 1.00499…), поэтому x*100 даёт 267.4999… и 100.4999…, и любое округление на float уходит вниз",
+        "Итоговое решение строит Decimal из строки (Decimal(str(x)) или repr(x)), а не из самого float, округляет через quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) и возвращает float; не предлагает как итог ещё один вариант арифметики на float (эпсилон, другой множитель, floor/ceil)",
+        "Проверяет итоговую функцию на всех четырёх тестах (2.675→2.68, 0.125→0.13, 1.005→1.01, 3.14159→3.14), и заявленные результаты верны для приведённого кода",
+        "Соблюдает ограничения: Python 3.11, только стандартная библиотека, float на входе и на выходе"
+      ]
+    },
+    {
+      "id": "reflexion-js-days-between-dst-retry-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [
+        {
+          "role": "user",
+          "content": "I need a `daysBetween(a, b)` helper in plain JavaScript (Node 20, no libraries) that returns the number of calendar days from date a to date b. Our CI runs with TZ=America/New_York. Tests:\n\n```js\n// DST starts Mar 10 2024\nexpect(daysBetween(new Date(2024, 2, 9), new Date(2024, 2, 11))).toBe(2);\n// DST ends Nov 3 2024\nexpect(daysBetween(new Date(2024, 10, 2), new Date(2024, 10, 4))).toBe(2);\n// late evening to early morning = next calendar day\nexpect(daysBetween(new Date(2024, 0, 1, 23, 0), new Date(2024, 0, 2, 1, 0))).toBe(1);\n```"
+        },
+        {
+          "role": "assistant",
+          "content": "```js\nfunction daysBetween(a, b) {\n  return Math.floor((b - a) / 86400000);\n}\n```"
+        },
+        {
+          "role": "user",
+          "content": "First test fails, got 1. Third test fails too, got 0."
+        },
+        {
+          "role": "assistant",
+          "content": "The spring-forward day is only 23 hours, so floor rounds it down. Use ceil instead:\n\n```js\nfunction daysBetween(a, b) {\n  return Math.ceil((b - a) / 86400000);\n}\n```"
+        }
+      ],
+      "user_message": "Now the first and third pass but the November one returns 3. This is the third try, can you please actually get it right this time so all three pass?",
+      "why_in_scope": "After two failed attempts the implant pushes the model to critique why they failed as a class (both measure elapsed milliseconds, while the spec is calendar days, so DST and time of day break any rounding choice), state that lesson, and check the new version against every test before answering. Without it, a strong model often just flips to Math.round, which fixes both DST tests but still fails the 23:00-to-01:00 test, repeating the same mistaken framing.",
+      "rubric": [
+        "Identifies that the previous attempts failed for one shared reason: they divide elapsed milliseconds by 24 hours, while the requirement is a difference of calendar dates, so no choice of floor/ceil/round fixes all cases",
+        "Final solution compares calendar dates rather than elapsed time, e.g. differencing Date.UTC(getFullYear(), getMonth(), getDate()) of each date (or equivalent midnight normalization that is DST-safe), and does not use Math.round on the raw millisecond difference as the fix",
+        "Walks the final function through all three tests and the claimed results (2, 2, 1) are correct for that code",
+        "Code is plain JavaScript with no libraries, as requested"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: verified all numeric claims (round/floor outputs, float representations); rewrote rubric item 1 to require correcting the prior turn's incomplete banker's-rounding diagnosis (a subtler reflection target), merged the two overlapping Decimal items, and added a constraint-fit item. Case 2: verified floor/ceil/round results under America/New_York DST (47h/49h/2h) and the Date.UTC fix; left unchanged."
+}

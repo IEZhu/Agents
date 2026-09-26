@@ -1,0 +1,35 @@
+{
+  "component": "skill-dev-debugging",
+  "cases": [
+    {
+      "id": "celery-duplicate-emails-three-changes-ru",
+      "agent": "software_engineer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите разобраться. Django 4.2 + Celery 5.2.7, брокер Redis. Есть таска send_invoice_email, её ставим через apply_async(countdown=...) — у части клиентов countdown до 3 часов (отправка по их часовому поясу). В проде примерно 2–3% клиентов получают одно и то же письмо дважды, иногда трижды.\n\nВчера за один коммит сделал сразу три вещи:\n1) обновил Celery до 5.3.6;\n2) поставил worker_prefetch_multiplier = 1;\n3) в самой таске добавил select_for_update() по инвойсу и проверку флага email_sent перед отправкой.\n\nПроверил локально: закинул 500 тасок с countdown=10, один воркер — ни одного дубля. Какая из трёх правок в итоге починила баг? Хочу написать это в тикете и катить в прод.",
+      "why_in_scope": "The component requires reproducing the bug before claiming a fix and changing one variable at a time. The user made three simultaneous changes and 'verified' them with a local test (10-second countdown, one worker) that never recreated the production conditions (hours-long countdowns), so the absence of duplicates proves nothing. A strong model without the component may just pick the likeliest change or explain Redis visibility_timeout and accept the local test as confirmation, instead of noticing the test never reproduced the bug.",
+      "rubric": [
+        "States that it cannot be determined which of the three changes fixed the bug, because they were made together, and does not present any single change as the confirmed fix",
+        "Points out that the local test (countdown=10, a single worker) does not recreate the production conditions (countdowns of up to hours, multiple workers), so zero duplicates there does not show the bug is fixed; the bug has not been reproduced",
+        "Proposes a concrete way to reproduce the duplicates first (e.g. countdowns longer than the Redis visibility_timeout or a shortened visibility_timeout, several workers, worker restarts, or checking logs for the same task id executed more than once) and then testing the changes one at a time or against a specific hypothesis",
+        "Answers the ticket/deploy question sensibly (e.g. deploy with logging or monitoring of duplicate sends and keep the ticket open until confirmed) rather than an unqualified yes"
+      ]
+    },
+    {
+      "id": "keyerror-truncated-trace-get-default-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our FastAPI service (Python 3.11) started throwing 500s after Tuesday's deploy, roughly 1 in 200 requests to POST /orders. Datadog only shows me this, the rest of the trace gets cut off:\n\n    KeyError: 'user_id'\n\nIt has to be the order handler where we do `user_id = payload[\"user_id\"]`. Tuesday's deploy was big (auth middleware refactor, pydantic 1 -> 2 migration, new caching layer) and I don't have time to dig through all of it. Can you write the patch: switch that line to `payload.get(\"user_id\")` and fall back to our ANONYMOUS_USER_ID constant when it's missing, plus a pytest test for the missing-key case? Want to ship it this afternoon.",
+      "why_in_scope": "The component says not to guess, to read the full stack trace, to reproduce first, and to find the root cause rather than patch the symptom. The user frames it as a pure implementation request based on a guessed location from a truncated trace, so a strong model without the component may simply write the requested patch and test, without questioning whether that line is even where the error is raised or why user_id is now missing.",
+      "rubric": [
+        "Points out that the truncated trace does not show where the KeyError is raised, so the handler line is a guess (other code touched by the deploy could index 'user_id'), and suggests a concrete way to get the full traceback (e.g. logging the exception with traceback, raising the stack trace length limit, or reproducing the failing request)",
+        "Warns that falling back to the anonymous user masks the real cause and can attribute real orders to the wrong user, and recommends not shipping it silently as the fix (e.g. log the offending payload, or fail with a clear error, until the cause is known)",
+        "Proposes testable hypotheses tied to the deploy's changes (e.g. the auth middleware refactor no longer providing user_id in some cases, pydantic v2 changes altering the payload shape, cached data with a different shape) and how to check them, such as capturing the payloads of failing requests or isolating one change at a time",
+        "Any code provided is correct and matches what it claims (e.g. the test actually exercises the missing-key path through the handler)"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 1: removed the user's explicit admission that the bug never reproduced locally and replaced it with a concrete local test (countdown=10, one worker) the model must recognise as not reproducing production conditions; rubric updated accordingly. Case 2: reframed from a leading 'is .get() fine?' question to a direct request to write the patch and test, so a model without the component is more likely to just comply; added a code-correctness general-quality item and merged the narrowing item into the hypotheses item."
+}

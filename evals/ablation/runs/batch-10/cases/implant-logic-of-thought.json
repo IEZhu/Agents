@@ -1,0 +1,35 @@
+{
+  "component": "implant-logic-of-thought",
+  "cases": [
+    {
+      "id": "lease-notice-email-penalty-ru",
+      "agent": "lawyer",
+      "language": "ru",
+      "history": [],
+      "user_message": "Добрый день. Арендуем склад 150 м² по договору аренды, хотим съезжать. Спор с арендодателем, помогите понять, кто прав по тексту договора.\n\nПункты договора:\n1.5. «Существенный недостаток — недостаток, препятствующий использованию более 20% площади Помещения».\n7.1. «Арендатор вправе в одностороннем порядке отказаться от Договора без уплаты штрафа, если Арендодатель не устранил Существенный недостаток в течение 30 календарных дней с даты получения письменного уведомления Арендатора».\n7.2. «Во всех остальных случаях одностороннего отказа Арендатора от Договора Арендатор уплачивает штраф в размере трёх месячных арендных платежей».\n12.3. «Уведомления считаются направленными надлежащим образом, если они отправлены заказным письмом с уведомлением о вручении либо на адрес электронной почты Стороны, указанный в разделе 14».\n\nФакты: в конце февраля протекла кровля, залило зону 40 м², там хранить ничего нельзя. 3 марта наш менеджер отправил письмо с фото на e-mail их юриста (yurist@...), а в разделе 14 указан только office@.... Юрист 4 марта ответил: «Получили, разберёмся». На сегодня (25 апреля) ничего не сделано.\n\nАрендодатель пишет: «Уведомление направлено не по п. 12.3, значит, оно ненадлежащее, п. 7.1 к вам не применяется, при выезде платите штраф по 7.2». Наш директор считает наоборот: «Юрист подтвердил получение, 30 дней давно прошли — отказываемся хоть завтра, штрафа нет». Кто из них прав и что нам делать?",
+      "why_in_scope": "The dispute turns on the logical form of the clauses: 12.3 is phrased as a sufficient condition ('считаются надлежащими, если'), so the landlord's step 'not sent per 12.3, therefore improper' is denying the antecedent unless the contract makes 12.3 exclusive. At the same time the director treats the conclusion as proven although 7.1 needs every premise (substantial defect, written notice, receipt, 30 days) and whether an e-mail to an unlisted address satisfies 'письменное уведомление' is not settled by the given text. A strong model without formal decomposition tends to just call the unlisted e-mail 'risky' and side with the landlord, or to side with the director, without separating what the clauses actually entail from what remains open.",
+      "rubric": [
+        "Points out that 12.3 as quoted states when a notice is deemed properly sent, not that other ways are invalid, so the landlord's conclusion that the notice is improper does not follow from 12.3 alone.",
+        "Checks the conditions of 7.1 one by one against the facts, including that 40 m² of 150 m² is about 27%, above the 20% threshold in 1.5, and that more than 30 days have passed since the confirmed receipt on 4 March.",
+        "Says the director's position is not certain either, because whether this e-mail counts as written notice received by the landlord is open and can be disputed, rather than declaring either side clearly right.",
+        "Gives a practical risk-reducing step, such as sending a fresh notice now in the 12.3 form (registered letter or the section 14 e-mail) and counting 30 days from its receipt before withdrawing, while keeping the 4 March correspondence as evidence."
+      ]
+    },
+    {
+      "id": "saas-termination-sla-refund-en",
+      "agent": "lawyer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our CFO wants to exit our SaaS contract with a vendor this week and I've been asked to sanity-check her reasoning before we send the notice. Relevant clauses (we're 14 months into a 36-month prepaid term):\n\n9.2 \"Customer may terminate this Agreement for convenience on sixty (60) days' written notice, provided that Customer is not then in breach of any payment obligation.\"\n9.4 \"Upon any termination by Customer under Section 9.2, Customer shall remain liable for all Fees for the remainder of the then-current Subscription Term.\"\n9.5 \"If Vendor fails to meet the Availability SLA in three (3) consecutive calendar months, Customer may terminate immediately upon written notice and Vendor shall refund all prepaid Fees for the remainder of the Subscription Term.\"\n9.6 \"Section 9.4 shall not apply where termination results from Vendor's material breach.\"\n\nFacts: the SLA was missed in March, April and June; May met it. We also have one invoice (support add-on, $8,400) that is 15 days past due because we're disputing it.\n\nCFO's argument: \"They missed the SLA three times this year, so under 9.5 we can walk away today and get the prepaid fees back. And even if 9.5 somehow doesn't apply, three SLA misses is obviously a material breach, so 9.6 switches off 9.4 — we terminate under 9.2 and owe nothing more.\" Does this hold up?",
+      "why_in_scope": "The CFO's argument chains several conditionals and each link fails on the stated premises: 9.5 requires three consecutive months (March, April, June is not), 9.2 is conditioned on no outstanding payment breach, and 9.6 requires that termination 'results from' a material breach, which is both unestablished and in tension with terminating under the convenience clause 9.2. A strong model can easily accept the '3 misses' framing or treat 9.6 as an automatic override, instead of formally testing each antecedent and flagging where the premises are insufficient.",
+      "rubric": [
+        "States that 9.5 is not triggered because the SLA misses (March, April, June) are not three consecutive calendar months.",
+        "Notes that the right to terminate under 9.2 is conditioned on the customer not being in breach of a payment obligation, so the overdue $8,400 invoice may block or be used to contest a 9.2 termination until it is paid or the dispute is resolved.",
+        "Explains that the fallback does not follow: SLA misses are not shown to be a material breach on these facts, and a termination made under the convenience clause 9.2 is not obviously one that 'results from' a vendor breach, so relying on 9.6 to switch off 9.4 is not supported; a breach-based exit would need grounds beyond the clauses quoted.",
+        "Concludes that on the clauses given, a convenience termination would likely leave the company liable for fees for the rest of the term, and suggests concrete next steps (for example resolving the disputed invoice, checking the contract for a general material-breach termination clause and SLA remedies, or waiting to see whether the misses become consecutive)."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified both cases: no leak of LoT terms, tool-less, owner agent lawyer, arithmetic (40/150 = about 27%, 4 March + 30 days before 25 April) and the non-consecutive SLA months are correct, and the rubrics target denying-the-antecedent and condition-by-condition checking. No changes needed; the traps (12.3 read as sufficient-only, the 9.2 payment proviso, 9.6 'results from') are subtle enough that a strong model without the implant can miss them."
+}

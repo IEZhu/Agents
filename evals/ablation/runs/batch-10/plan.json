@@ -1,0 +1,992 @@
+{
+ "499e7a75fd70": {
+  "component": "implant-cumulative-reasoning",
+  "case": "duplicate-payments-login-ru",
+  "arm": "with",
+  "agent": "data_forensic",
+  "chars": 22610,
+  "skills": [
+   "skill-content-structure",
+   "skill-forensic-process",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-fact-verification",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CumulReason"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "23ddd269fc64": {
+  "component": "implant-cumulative-reasoning",
+  "case": "duplicate-payments-login-ru",
+  "arm": "without",
+  "agent": "data_forensic",
+  "chars": 20952,
+  "skills": [
+   "skill-content-structure",
+   "skill-forensic-process",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-fact-verification",
+   "skill-web-search"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b17e53fc46ac": {
+  "component": "implant-cumulative-reasoning",
+  "case": "memo-leak-timeline-en",
+  "arm": "with",
+  "agent": "investigative_analyst",
+  "chars": 22885,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers",
+   "skill-temporal-validation",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CumulReason"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "4f292ccb2638": {
+  "component": "implant-cumulative-reasoning",
+  "case": "memo-leak-timeline-en",
+  "arm": "without",
+  "agent": "investigative_analyst",
+  "chars": 21227,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-dense-summarization",
+   "skill-source-trust-tiers",
+   "skill-temporal-validation",
+   "skill-web-search"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "55702f3f5fe2": {
+  "component": "implant-decomposed-prompting",
+  "case": "job-offer-switch-mixed-questions-ru",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 20299,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0ffc1afa2aab": {
+  "component": "implant-decomposed-prompting",
+  "case": "job-offer-switch-mixed-questions-ru",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 18647,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "9bed5efad725": {
+  "component": "implant-decomposed-prompting",
+  "case": "interleaved-release-meeting-transcript-en",
+  "arm": "with",
+  "agent": "semantic_expert",
+  "chars": 20276,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-tech-writing",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-agnotology"
+  ],
+  "implants": [
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "33ce79e447a5": {
+  "component": "implant-decomposed-prompting",
+  "case": "interleaved-release-meeting-transcript-en",
+  "arm": "without",
+  "agent": "semantic_expert",
+  "chars": 18624,
+  "skills": [
+   "skill-content-structure",
+   "skill-epistemic-method",
+   "skill-tech-writing",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-agnotology"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7b3b124c414e": {
+  "component": "implant-dr-cot",
+  "case": "shipping-cost-nested-ifs-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 32246,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-web-search",
+   "skill-dev-api-design",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "DRCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3d96f47d5122": {
+  "component": "implant-dr-cot",
+  "case": "shipping-cost-nested-ifs-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 30103,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-web-search",
+   "skill-dev-api-design",
+   "skill-dev-performance"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "f3b994e914d9": {
+  "component": "implant-dr-cot",
+  "case": "pin-policy-overlapping-rules-en",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 22001,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "DRCoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "14036f6a880e": {
+  "component": "implant-dr-cot",
+  "case": "pin-policy-overlapping-rules-en",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 19858,
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-dense-summarization"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "340de5297aad": {
+  "component": "implant-dynamic-few-shot",
+  "case": "support-ticket-classifier-rare-categories-ru",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 21491,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "DynamicFewShot"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "34411c263c4d": {
+  "component": "implant-dynamic-few-shot",
+  "case": "support-ticket-classifier-rare-categories-ru",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 19343,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-analysis-critical"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ea4900ca6643": {
+  "component": "implant-dynamic-few-shot",
+  "case": "multilingual-intent-router-confusions-en",
+  "arm": "with",
+  "agent": "prompt_engineer",
+  "chars": 21290,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "DynamicFewShot"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "57317b688cc8": {
+  "component": "implant-dynamic-few-shot",
+  "case": "multilingual-intent-router-confusions-en",
+  "arm": "without",
+  "agent": "prompt_engineer",
+  "chars": 19142,
+  "skills": [
+   "skill-prompt-design-process",
+   "skill-prompt-techniques",
+   "skill-prompt-engineering",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3818641bc0ff": {
+  "component": "implant-generated-knowledge",
+  "case": "winter-beekeeper-scene-ru",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 21797,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "887e0e02741d": {
+  "component": "implant-generated-knowledge",
+  "case": "winter-beekeeper-scene-ru",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 19542,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-pedagogy"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "73bce06ed919": {
+  "component": "implant-generated-knowledge",
+  "case": "tidal-causeway-full-moon-en",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 21797,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-pedagogy"
+  ],
+  "implants": [
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2382e82190ad": {
+  "component": "implant-generated-knowledge",
+  "case": "tidal-causeway-full-moon-en",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 19542,
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft",
+   "skill-dense-summarization",
+   "skill-pedagogy"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "90d4a0eead0c": {
+  "component": "implant-graph-of-thoughts",
+  "case": "offline-inspector-app-design-ru",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 25869,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "GoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "e2b790f9c074": {
+  "component": "implant-graph-of-thoughts",
+  "case": "offline-inspector-app-design-ru",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 23571,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-mermaid-best-practices",
+   "skill-dev-clean-code"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5f1f82e1c671": {
+  "component": "implant-graph-of-thoughts",
+  "case": "product-search-two-proposals-en",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 25869,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices"
+  ],
+  "implants": [
+   "GoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "c18bbcaeeabe": {
+  "component": "implant-graph-of-thoughts",
+  "case": "product-search-two-proposals-en",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 23571,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-dev-api-design",
+   "skill-mermaid-best-practices"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a7bf5340ab4b": {
+  "component": "implant-layer-of-thoughts",
+  "case": "unused-vacation-local-act-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 26911,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LayerOfThoughts"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "677d53a8e3e9": {
+  "component": "implant-layer-of-thoughts",
+  "case": "unused-vacation-local-act-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 25281,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-decision-frameworks"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "22834b0809eb": {
+  "component": "implant-layer-of-thoughts",
+  "case": "gdpr-erasure-vs-retention-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 26911,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-web-search"
+  ],
+  "implants": [
+   "LayerOfThoughts"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7030f20074bb": {
+  "component": "implant-layer-of-thoughts",
+  "case": "gdpr-erasure-vs-retention-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 25281,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-web-search"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d7a37efb369c": {
+  "component": "implant-least-to-most-prompting",
+  "case": "apples-backward-problem-kid-ru",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 22088,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "LeastToMost"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b085000d9974": {
+  "component": "implant-least-to-most-prompting",
+  "case": "apples-backward-problem-kid-ru",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 20387,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-consultative-intake",
+   "skill-decision-frameworks"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "781f6b0a4872": {
+  "component": "implant-least-to-most-prompting",
+  "case": "queue-backlog-autoscale-incident-en",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 21367,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "LeastToMost"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "254fd64bbea0": {
+  "component": "implant-least-to-most-prompting",
+  "case": "queue-backlog-autoscale-incident-en",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 19666,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0735f84981b2": {
+  "component": "implant-logic-of-thought",
+  "case": "lease-notice-email-penalty-ru",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 24654,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "943de72394a2": {
+  "component": "implant-logic-of-thought",
+  "case": "lease-notice-email-penalty-ru",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 22980,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-dense-summarization",
+   "skill-decision-frameworks",
+   "skill-consultative-intake",
+   "skill-analysis-critical"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7d7dc6312f34": {
+  "component": "implant-logic-of-thought",
+  "case": "saas-termination-sla-refund-en",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 24654,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "LoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5287ca05bfbf": {
+  "component": "implant-logic-of-thought",
+  "case": "saas-termination-sla-refund-en",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 22980,
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "bef0ee5465eb": {
+  "component": "implant-maieutic-prompting",
+  "case": "divisibility-answer-key-dispute-ru",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 24412,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-literary-devices",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "cf6aeede6942": {
+  "component": "implant-maieutic-prompting",
+  "case": "divisibility-answer-key-dispute-ru",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 22721,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-literary-devices",
+   "skill-decision-frameworks"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1c0714cfc846": {
+  "component": "implant-maieutic-prompting",
+  "case": "melting-ice-worksheet-key-en",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 21542,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-source-trust-tiers",
+   "skill-fact-verification",
+   "skill-creative-craft"
+  ],
+  "implants": [
+   "MaieuticPrompting"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "682bb888a539": {
+  "component": "implant-maieutic-prompting",
+  "case": "melting-ice-worksheet-key-en",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 19851,
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-source-trust-tiers",
+   "skill-fact-verification",
+   "skill-creative-craft"
+  ],
+  "implants": [],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

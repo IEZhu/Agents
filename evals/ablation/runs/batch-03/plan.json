@@ -1,0 +1,1148 @@
+{
+ "6c462dc406a1": {
+  "component": "skill-decision-frameworks",
+  "case": "onboarding-interviews-vs-pricing-email-ru",
+  "arm": "with",
+  "agent": "product_manager",
+  "chars": 31488,
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fbf12e52837d": {
+  "component": "skill-decision-frameworks",
+  "case": "onboarding-interviews-vs-pricing-email-ru",
+  "arm": "without",
+  "agent": "product_manager",
+  "chars": 29448,
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "218d6f4aa8d6": {
+  "component": "skill-decision-frameworks",
+  "case": "feature-store-justification-sunk-cost-en",
+  "arm": "with",
+  "agent": "system_architect",
+  "chars": 29699,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-mermaid-best-practices",
+   "skill-dev-api-design",
+   "skill-decision-frameworks"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6a180c24885b": {
+  "component": "skill-decision-frameworks",
+  "case": "feature-store-justification-sunk-cost-en",
+  "arm": "without",
+  "agent": "system_architect",
+  "chars": 27659,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-performance",
+   "skill-dev-clean-code",
+   "skill-mermaid-best-practices",
+   "skill-dev-api-design"
+  ],
+  "implants": [
+   "PlanSolvePlus",
+   "StepBack",
+   "PreMortem"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5622175f04fd": {
+  "component": "skill-dense-summarization",
+  "case": "vendor-call-notes-summary-ru",
+  "arm": "with",
+  "agent": "product_manager",
+  "chars": 29448,
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d9c0977a71a7": {
+  "component": "skill-dense-summarization",
+  "case": "vendor-call-notes-summary-ru",
+  "arm": "without",
+  "agent": "product_manager",
+  "chars": 27975,
+  "skills": [
+   "skill-content-structure",
+   "skill-product-frameworks",
+   "skill-consultative-intake",
+   "skill-web-search",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "PreMortem",
+   "SecondOrder",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "36a5f9cab5bc": {
+  "component": "skill-dense-summarization",
+  "case": "conflicting-studies-digest-en",
+  "arm": "with",
+  "agent": "medical_expert",
+  "chars": 30665,
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-bio-mechanism",
+   "skill-fact-verification",
+   "skill-source-trust-tiers",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "3a2342864a0c": {
+  "component": "skill-dense-summarization",
+  "case": "conflicting-studies-digest-en",
+  "arm": "without",
+  "agent": "medical_expert",
+  "chars": 29192,
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-bio-protocols",
+   "skill-bio-mechanism",
+   "skill-fact-verification",
+   "skill-source-trust-tiers"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "166c5fd9708c": {
+  "component": "skill-dev-api-design",
+  "case": "orders-feed-duplicates-review-ru",
+  "arm": "with",
+  "agent": "code_reviewer",
+  "chars": 29582,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-dev-testing",
+   "skill-caveman-tokenomics",
+   "skill-dev-security",
+   "skill-dev-api-design"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "CoV",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "41a7dbd6b39c": {
+  "component": "skill-dev-api-design",
+  "case": "orders-feed-duplicates-review-ru",
+  "arm": "without",
+  "agent": "code_reviewer",
+  "chars": 27350,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-dev-testing",
+   "skill-caveman-tokenomics",
+   "skill-dev-security"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "CoV",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "99eab1c7f459": {
+  "component": "skill-dev-api-design",
+  "case": "payments-retry-and-field-rename-en",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 35723,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-error-recovery",
+   "skill-dev-performance",
+   "skill-dev-debugging",
+   "skill-dev-api-design"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "58aafe776aa2": {
+  "component": "skill-dev-api-design",
+  "case": "payments-retry-and-field-rename-en",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 33491,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-error-recovery",
+   "skill-dev-performance",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a64574cf71d1": {
+  "component": "skill-dev-clean-code",
+  "case": "payment-provider-abstraction-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 37652,
+  "skills": [
+   "skill-content-structure",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-error-recovery",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "84a1567cc1d9": {
+  "component": "skill-dev-clean-code",
+  "case": "payment-provider-abstraction-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 34980,
+  "skills": [
+   "skill-content-structure",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-error-recovery",
+   "skill-web-search",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "99cfa7d8a6a4": {
+  "component": "skill-dev-clean-code",
+  "case": "order-reminder-review-en",
+  "arm": "with",
+  "agent": "code_reviewer",
+  "chars": 27350,
+  "skills": [
+   "skill-content-structure",
+   "skill-caveman-tokenomics",
+   "skill-dev-debugging",
+   "skill-dev-security",
+   "skill-dev-testing",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "CoV",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "071cbb12e397": {
+  "component": "skill-dev-clean-code",
+  "case": "order-reminder-review-en",
+  "arm": "without",
+  "agent": "code_reviewer",
+  "chars": 24678,
+  "skills": [
+   "skill-content-structure",
+   "skill-caveman-tokenomics",
+   "skill-dev-debugging",
+   "skill-dev-security",
+   "skill-dev-testing"
+  ],
+  "implants": [
+   "RolePlayExpert",
+   "CoV",
+   "RegressionFirst"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "da6f46094308": {
+  "component": "skill-dev-debugging",
+  "case": "celery-duplicate-emails-three-changes-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 38144,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-web-search",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "Reflexion"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b6a46982ee0d": {
+  "component": "skill-dev-debugging",
+  "case": "celery-duplicate-emails-three-changes-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 37384,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "Reflexion"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "afd8ece3cebf": {
+  "component": "skill-dev-debugging",
+  "case": "keyerror-truncated-trace-get-default-en",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 35990,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-error-recovery",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "22db2ea48c3b": {
+  "component": "skill-dev-debugging",
+  "case": "keyerror-truncated-trace-get-default-en",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 35230,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "92806e9226cc": {
+  "component": "skill-dev-performance",
+  "case": "drf-orders-aggregate-orjson-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 39257,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-error-recovery",
+   "skill-web-search",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "DynamicFewShot"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1f4e32cba9c0": {
+  "component": "skill-dev-performance",
+  "case": "drf-orders-aggregate-orjson-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 36944,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-error-recovery",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "DynamicFewShot"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ef345c320df5": {
+  "component": "skill-dev-performance",
+  "case": "etl-customer-lookup-pypy-en",
+  "arm": "with",
+  "agent": "data_analyst",
+  "chars": 36667,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-forensic-process",
+   "skill-web-search",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "a3ef9bb0b9d6": {
+  "component": "skill-dev-performance",
+  "case": "etl-customer-lookup-pypy-en",
+  "arm": "without",
+  "agent": "data_analyst",
+  "chars": 34354,
+  "skills": [
+   "skill-content-structure",
+   "skill-analysis-critical",
+   "skill-caveman-tokenomics",
+   "skill-dense-summarization",
+   "skill-forensic-process",
+   "skill-web-search"
+  ],
+  "implants": [
+   "CausalReasoning",
+   "CoV",
+   "UncertaintyQ"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6ae553d736ff": {
+  "component": "skill-dev-security",
+  "case": "flask-dynamic-order-by-highlight-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 38567,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-dev-security"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "fb959c1d2507": {
+  "component": "skill-dev-security",
+  "case": "flask-dynamic-order-by-highlight-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 37879,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-web-search",
+   "skill-dev-debugging",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "d7dd88411756": {
+  "component": "skill-dev-security",
+  "case": "express-download-content-type-en",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 38567,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-web-search",
+   "skill-dev-performance",
+   "skill-dev-debugging",
+   "skill-dev-security"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "835b7455700c": {
+  "component": "skill-dev-security",
+  "case": "express-download-content-type-en",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 37879,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-web-search",
+   "skill-dev-performance",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "112d47c50e2e": {
+  "component": "skill-dev-testing",
+  "case": "xdist-flaky-cache-order-dependency-ru",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 41437,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-dev-debugging",
+   "skill-dev-testing"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0b4fee29d066": {
+  "component": "skill-dev-testing",
+  "case": "xdist-flaky-cache-order-dependency-ru",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 39676,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-api-design",
+   "skill-dev-performance",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "6f1ef4928007": {
+  "component": "skill-dev-testing",
+  "case": "refactor-broke-mocked-private-methods-en",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 39373,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-web-search",
+   "skill-dev-testing"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "2ad4de432bac": {
+  "component": "skill-dev-testing",
+  "case": "refactor-broke-mocked-private-methods-en",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 37612,
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-dev-performance",
+   "skill-dev-api-design",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "ChainOfDraft"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "7848077631a7": {
+  "component": "skill-epistemic-method",
+  "case": "startup-press-releases-offer-ru",
+  "arm": "with",
+  "agent": "investigative_analyst",
+  "chars": 28711,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-web-search",
+   "skill-temporal-validation",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-epistemic-method"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "b856bc2b8837": {
+  "component": "skill-epistemic-method",
+  "case": "startup-press-releases-offer-ru",
+  "arm": "without",
+  "agent": "investigative_analyst",
+  "chars": 27569,
+  "skills": [
+   "skill-content-structure",
+   "skill-fact-verification",
+   "skill-forensic-process",
+   "skill-web-search",
+   "skill-temporal-validation",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CumulReason",
+   "CoV",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "23e3d8cfce05": {
+  "component": "skill-epistemic-method",
+  "case": "water-utility-pfas-notices-en",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 23660,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake",
+   "skill-epistemic-method"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "18a9cffe5526": {
+  "component": "skill-epistemic-method",
+  "case": "water-utility-pfas-notices-en",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 22518,
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "0ae15b7722d2": {
+  "component": "skill-error-recovery",
+  "case": "pg-backfill-crashed-continue-drop-ru",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 35004,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "5994f1a48c5c": {
+  "component": "skill-error-recovery",
+  "case": "pg-backfill-crashed-continue-drop-ru",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 32918,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "ca36b72e7239": {
+  "component": "skill-error-recovery",
+  "case": "git-delete-merged-branches-ambiguous-base-en",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 31718,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-web-search",
+   "skill-error-recovery"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "SelfConsistency",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ },
+ "1ba8a882cfb4": {
+  "component": "skill-error-recovery",
+  "case": "git-delete-merged-branches-ambiguous-base-en",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 29632,
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "SelfConsistency",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "language-match"
+  ],
+  "tier": "deep"
+ }
+}

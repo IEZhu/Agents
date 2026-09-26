@@ -1,0 +1,35 @@
+{
+  "component": "implant-cumulative-reasoning",
+  "cases": [
+    {
+      "id": "duplicate-payments-login-ru",
+      "agent": "data_forensic",
+      "language": "ru",
+      "history": [],
+      "user_message": "Помогите разобраться, пока не наломали дров. В августе нашли 47 задвоенных платёжек поставщикам в 1С на 3,1 млн ₽. Финдиректор уже готовит служебку на бухгалтера Петрову: все 47 документов созданы под её логином petrova, значит это она. Что мы знаем точно:\n1) Все 47 дублей созданы под petrova в период с 1 по 22 августа.\n2) По кадровому приказу Петрова была в отпуске с 5 по 16 августа включительно. 19 из 47 дублей созданы как раз в эти даты.\n3) В журнале регистрации 1С у 44 дублей поле «Источник» = «Обмен с банком», у 3 = «Ручной ввод». Все 3 ручных созданы 20–21 августа.\n4) С 1 августа подрядчик поставил новый модуль обмена с банк-клиентом. Модуль работает от имени пользователя, который последним сохранил его настройки. Настройки 31 июля сохраняла Петрова.\n5) По выписке банка реально списано 41 из 47 дублей, 6 банк отклонил как повтор.\nВопрос: можно ли по этим данным утверждать, что Петрова умышленно задвоила платежи? Если нет — что из этого реально следует и что проверять дальше?",
+      "why_in_scope": "The request invites a premature conclusion (login = culprit) and contains facts that only become meaningful when added one at a time and checked against each other: vacation dates, source field, module running under the last configurer's account. The implant makes the model build the chain step by step, check each fact's consistency with the previous ones, and audit out the unsupported leap from 'created under her login' to 'intentional fraud'. A strong model without it may give a generic 'login is not proof' answer without reconciling the 19 vacation-period entries with the 44 exchange-sourced ones or isolating the 3 manual entries as the only part still open.",
+      "rubric": [
+        "States clearly that the data does not support the claim that Petrova intentionally duplicated the payments, and explains that the login attribution is explained by fact 4 (the module runs under the account of whoever last saved its settings)",
+        "Connects the facts to each other rather than listing them: the 19 entries during her vacation are consistent with automated creation, and the 44 'Обмен с банком' entries point to the exchange module as the source of most duplicates",
+        "Singles out the 3 manual entries (20–21 August, after her return) as the only part that could involve a person acting under her login, and says that even these need checking (who was logged in, from which workstation/IP) before blaming anyone",
+        "Proposes concrete next checks relevant to the facts, such as reviewing the exchange module's re-import/deduplication behaviour with the contractor and starting recovery of the 41 actually debited duplicates from suppliers"
+      ]
+    },
+    {
+      "id": "memo-leak-timeline-en",
+      "agent": "investigative_analyst",
+      "language": "en",
+      "history": [],
+      "user_message": "Need a sanity check before HR meets with someone tomorrow. A confidential draft memo (v4) leaked on Reddit on Tuesday Sept 15 at 14:20 UTC. The post is an image of page 2 with a PDF viewer toolbar visible and a margin comment from J. Ortiz on it. Our DMS export feature includes margin comments that exist at the moment of export.\n\nWhat the DMS audit log shows for v4 (times as the log records them, in each user's local time zone):\n- Dana (London): opened 14:05, exported to PDF 14:12\n- Mark (New York): opened 09:50, session active until 10:30, no export\n- Priya (Bangalore): opened 19:40, no export\n- Tom (UTC): opened 15:30\n- J. Ortiz added his margin comment at 13:55 UTC\n\nMy director says it's obviously Dana: she's the only one who exported a PDF and the leak is clearly a PDF. Is that a sound conclusion? If not, what does the evidence actually support?",
+      "why_in_scope": "The director's conclusion rests on one fact (only Dana exported a PDF) and ignores how it fits with the others. The implant makes the model add facts one at a time, converting each timestamp to UTC and checking consistency with the comment time, which exposes that Dana's export (13:12 UTC) predates the Ortiz comment (13:55 UTC) and so cannot be the leaked PDF. A strong model without it may accept the tempting single-fact chain or skip the time-zone arithmetic.",
+      "rubric": [
+        "Converts the local times to UTC correctly for mid-September (London BST = UTC+1, New York EDT = UTC-4, Bangalore IST = UTC+5:30): Dana exported at 13:12 UTC, Mark was in the document 13:50-14:30 UTC, Priya opened it at 14:10 UTC",
+        "Concludes that Dana's logged export happened before the Ortiz comment existed, so by the stated export behaviour her PDF could not contain the comment seen in the leak, which contradicts the director's conclusion",
+        "Rules Tom out because he first opened v4 after the leak was posted, and notes that Mark and Priya (and Ortiz himself) had access while the comment existed, so the evidence does not identify any single person",
+        "Explains that a PDF showing the comment was produced some way the export log does not show (e.g. browser print-to-PDF, a screenshot of the in-app viewer, or a gap in the log), and recommends checking these routes before any HR action rather than naming a new culprit"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Verified all facts (15 Sep 2026 is a Tuesday; BST/EDT/IST conversions give 13:12, 13:50-14:30, 14:10 UTC; the case 1 dates and counts are internally consistent). Softened case 2 rubric item 4, which claimed the leaked PDF 'must' come from one specific uncaptured route; it now accepts any non-logged route, including a gap in the log. Case 1 is unchanged: it is in scope, has no leak and passes the checks."
+}

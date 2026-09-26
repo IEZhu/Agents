@@ -1,0 +1,242 @@
+{
+ "6df08d1313__o1": {
+  "component": "implant-active-prompting",
+  "case": "postgres-migration-quick-checks-en",
+  "A": "without",
+  "B": "with"
+ },
+ "6df08d1313__o2": {
+  "component": "implant-active-prompting",
+  "case": "postgres-migration-quick-checks-en",
+  "A": "with",
+  "B": "without"
+ },
+ "dbefd9759a__o1": {
+  "component": "implant-active-prompting",
+  "case": "probability-homework-mixed-check-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "dbefd9759a__o2": {
+  "component": "implant-active-prompting",
+  "case": "probability-homework-mixed-check-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "32948c4110__o1": {
+  "component": "implant-analogical-prompting",
+  "case": "candies-boxes-combinatorics-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "32948c4110__o2": {
+  "component": "implant-analogical-prompting",
+  "case": "candies-boxes-combinatorics-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "5645320e50__o1": {
+  "component": "implant-analogical-prompting",
+  "case": "mystery-killer-too-obvious-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5645320e50__o2": {
+  "component": "implant-analogical-prompting",
+  "case": "mystery-killer-too-obvious-en",
+  "A": "without",
+  "B": "with"
+ },
+ "faded1a80a__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "laptop-kzt-vs-rub-live-rate-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "faded1a80a__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "laptop-kzt-vs-rub-live-rate-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "37f49dda9e__o1": {
+  "component": "implant-automatic-reasoning",
+  "case": "mortgage-payment-current-rate-en",
+  "A": "without",
+  "B": "with"
+ },
+ "37f49dda9e__o2": {
+  "component": "implant-automatic-reasoning",
+  "case": "mortgage-payment-current-rate-en",
+  "A": "with",
+  "B": "without"
+ },
+ "8a6dfb2542__o1": {
+  "component": "implant-buffer-of-thoughts",
+  "case": "bank-csv-normalization-en",
+  "A": "without",
+  "B": "with"
+ },
+ "8a6dfb2542__o2": {
+  "component": "implant-buffer-of-thoughts",
+  "case": "bank-csv-normalization-en",
+  "A": "with",
+  "B": "without"
+ },
+ "8f290016cb__o1": {
+  "component": "implant-buffer-of-thoughts",
+  "case": "junior-functions-feedback-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "8f290016cb__o2": {
+  "component": "implant-buffer-of-thoughts",
+  "case": "junior-functions-feedback-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "b3db8bf76c__o1": {
+  "component": "implant-causal-reasoning",
+  "case": "magnesium-hrv-double-dose-en",
+  "A": "with",
+  "B": "without"
+ },
+ "b3db8bf76c__o2": {
+  "component": "implant-causal-reasoning",
+  "case": "magnesium-hrv-double-dose-en",
+  "A": "without",
+  "B": "with"
+ },
+ "a075c8d7d7__o1": {
+  "component": "implant-causal-reasoning",
+  "case": "optional-tutorial-retention-forecast-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a075c8d7d7__o2": {
+  "component": "implant-causal-reasoning",
+  "case": "optional-tutorial-retention-forecast-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "ab405c27fb__o1": {
+  "component": "implant-chain-of-abstraction",
+  "case": "support-backlog-size-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ab405c27fb__o2": {
+  "component": "implant-chain-of-abstraction",
+  "case": "support-backlog-size-en",
+  "A": "without",
+  "B": "with"
+ },
+ "89be86c033__o1": {
+  "component": "implant-chain-of-abstraction",
+  "case": "three-lost-side-effects-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "89be86c033__o2": {
+  "component": "implant-chain-of-abstraction",
+  "case": "three-lost-side-effects-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "fd9d805ecb__o1": {
+  "component": "skill-token-economy",
+  "case": "fastmcp-missing-await-en",
+  "A": "without",
+  "B": "with"
+ },
+ "fd9d805ecb__o2": {
+  "component": "skill-token-economy",
+  "case": "fastmcp-missing-await-en",
+  "A": "with",
+  "B": "without"
+ },
+ "596162bb17__o1": {
+  "component": "skill-token-economy",
+  "case": "prompt-contradiction-fix-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "596162bb17__o2": {
+  "component": "skill-token-economy",
+  "case": "prompt-contradiction-fix-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0846cfc918__o1": {
+  "component": "skill-ux-principles",
+  "case": "ux-gray-secondary-text-contrast-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0846cfc918__o2": {
+  "component": "skill-ux-principles",
+  "case": "ux-gray-secondary-text-contrast-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "714a5c3b96__o1": {
+  "component": "skill-ux-principles",
+  "case": "ux-icon-only-bottom-tabs-en",
+  "A": "with",
+  "B": "without"
+ },
+ "714a5c3b96__o2": {
+  "component": "skill-ux-principles",
+  "case": "ux-icon-only-bottom-tabs-en",
+  "A": "without",
+  "B": "with"
+ },
+ "74d75ddc25__o1": {
+  "component": "skill-wayback-machine",
+  "case": "competitor-pricing-history-en",
+  "A": "without",
+  "B": "with"
+ },
+ "74d75ddc25__o2": {
+  "component": "skill-wayback-machine",
+  "case": "competitor-pricing-history-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5564ec43d3__o1": {
+  "component": "skill-wayback-machine",
+  "case": "stealth-edit-press-release-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "5564ec43d3__o2": {
+  "component": "skill-wayback-machine",
+  "case": "stealth-edit-press-release-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "e5daec1f63__o1": {
+  "component": "skill-web-search",
+  "case": "nextcloud-upgrade-error-search-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "e5daec1f63__o2": {
+  "component": "skill-web-search",
+  "case": "nextcloud-upgrade-error-search-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "db42607a60__o1": {
+  "component": "skill-web-search",
+  "case": "node20-eol-upgrade-en",
+  "A": "without",
+  "B": "with"
+ },
+ "db42607a60__o2": {
+  "component": "skill-web-search",
+  "case": "node20-eol-upgrade-en",
+  "A": "with",
+  "B": "without"
+ }
+}

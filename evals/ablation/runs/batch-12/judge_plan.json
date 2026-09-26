@@ -1,0 +1,242 @@
+{
+ "208fe43a54__o1": {
+  "component": "implant-recursion-of-thought",
+  "case": "budget-rollup-org-tree-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "208fe43a54__o2": {
+  "component": "implant-recursion-of-thought",
+  "case": "budget-rollup-org-tree-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "277a14352f__o1": {
+  "component": "implant-recursion-of-thought",
+  "case": "layered-config-extends-resolution-en",
+  "A": "without",
+  "B": "with"
+ },
+ "277a14352f__o2": {
+  "component": "implant-recursion-of-thought",
+  "case": "layered-config-extends-resolution-en",
+  "A": "with",
+  "B": "without"
+ },
+ "5aec92eba2__o1": {
+  "component": "implant-reflexion",
+  "case": "reflexion-js-days-between-dst-retry-en",
+  "A": "without",
+  "B": "with"
+ },
+ "5aec92eba2__o2": {
+  "component": "implant-reflexion",
+  "case": "reflexion-js-days-between-dst-retry-en",
+  "A": "with",
+  "B": "without"
+ },
+ "a51ffbcbbe__o1": {
+  "component": "implant-reflexion",
+  "case": "reflexion-money-rounding-retry-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "a51ffbcbbe__o2": {
+  "component": "implant-reflexion",
+  "case": "reflexion-money-rounding-retry-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "5948111b6e__o1": {
+  "component": "implant-rephrase-and-respond",
+  "case": "rar-avg-per-client-returns-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "5948111b6e__o2": {
+  "component": "implant-rephrase-and-respond",
+  "case": "rar-avg-per-client-returns-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "3cfc43e611__o1": {
+  "component": "implant-rephrase-and-respond",
+  "case": "rar-biweekly-monday-cron-en",
+  "A": "without",
+  "B": "with"
+ },
+ "3cfc43e611__o2": {
+  "component": "implant-rephrase-and-respond",
+  "case": "rar-biweekly-monday-cron-en",
+  "A": "with",
+  "B": "without"
+ },
+ "b3015bbe70__o1": {
+  "component": "implant-reverse-cot",
+  "case": "reverse-cot-cron-window-en",
+  "A": "without",
+  "B": "with"
+ },
+ "b3015bbe70__o2": {
+  "component": "implant-reverse-cot",
+  "case": "reverse-cot-cron-window-en",
+  "A": "with",
+  "B": "without"
+ },
+ "efe63d13da__o1": {
+  "component": "implant-reverse-cot",
+  "case": "reverse-cot-speaker-schedule-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "efe63d13da__o2": {
+  "component": "implant-reverse-cot",
+  "case": "reverse-cot-speaker-schedule-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "f8955a8ef9__o1": {
+  "component": "implant-role-play-expert",
+  "case": "roleplay-pentester-threat-model-cve-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "f8955a8ef9__o2": {
+  "component": "implant-role-play-expert",
+  "case": "roleplay-pentester-threat-model-cve-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "73b40751f0__o1": {
+  "component": "implant-role-play-expert",
+  "case": "roleplay-ux-checkout-conversion-number-en",
+  "A": "with",
+  "B": "without"
+ },
+ "73b40751f0__o2": {
+  "component": "implant-role-play-expert",
+  "case": "roleplay-ux-checkout-conversion-number-en",
+  "A": "without",
+  "B": "with"
+ },
+ "421ca4fc62__o1": {
+  "component": "implant-second-order-thinking",
+  "case": "second-order-cancel-discount-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "421ca4fc62__o2": {
+  "component": "implant-second-order-thinking",
+  "case": "second-order-cancel-discount-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "75e889a718__o1": {
+  "component": "implant-second-order-thinking",
+  "case": "second-order-delete-confirmation-en",
+  "A": "without",
+  "B": "with"
+ },
+ "75e889a718__o2": {
+  "component": "implant-second-order-thinking",
+  "case": "second-order-delete-confirmation-en",
+  "A": "with",
+  "B": "without"
+ },
+ "31cadd7416__o1": {
+  "component": "implant-self-consistency",
+  "case": "self-consistency-candies-boxes-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "31cadd7416__o2": {
+  "component": "implant-self-consistency",
+  "case": "self-consistency-candies-boxes-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "d0ea5a4872__o1": {
+  "component": "implant-self-consistency",
+  "case": "self-consistency-secret-santa-couples-en",
+  "A": "without",
+  "B": "with"
+ },
+ "d0ea5a4872__o2": {
+  "component": "implant-self-consistency",
+  "case": "self-consistency-secret-santa-couples-en",
+  "A": "with",
+  "B": "without"
+ },
+ "3238a18d5c__o1": {
+  "component": "implant-self-discover",
+  "case": "self-discover-agent-step-vs-e2e-en",
+  "A": "without",
+  "B": "with"
+ },
+ "3238a18d5c__o2": {
+  "component": "implant-self-discover",
+  "case": "self-discover-agent-step-vs-e2e-en",
+  "A": "with",
+  "B": "without"
+ },
+ "532f28707a__o1": {
+  "component": "implant-self-discover",
+  "case": "self-discover-classifier-paradox-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "532f28707a__o2": {
+  "component": "implant-self-discover",
+  "case": "self-discover-classifier-paradox-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "0d13f10948__o1": {
+  "component": "implant-self-harmonized-cot",
+  "case": "shcot-catalog-caching-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "0d13f10948__o2": {
+  "component": "implant-self-harmonized-cot",
+  "case": "shcot-catalog-caching-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ea27d0dcb2__o1": {
+  "component": "implant-self-harmonized-cot",
+  "case": "shcot-outage-email-two-versions-en",
+  "A": "without",
+  "B": "with"
+ },
+ "ea27d0dcb2__o2": {
+  "component": "implant-self-harmonized-cot",
+  "case": "shcot-outage-email-two-versions-en",
+  "A": "with",
+  "B": "without"
+ },
+ "ac42ec6ac0__o1": {
+  "component": "implant-self-refine",
+  "case": "self-refine-maintenance-notice-ru",
+  "A": "without",
+  "B": "with"
+ },
+ "ac42ec6ac0__o2": {
+  "component": "implant-self-refine",
+  "case": "self-refine-maintenance-notice-ru",
+  "A": "with",
+  "B": "without"
+ },
+ "7771182138__o1": {
+  "component": "implant-self-refine",
+  "case": "self-refine-support-bot-prompt-en",
+  "A": "without",
+  "B": "with"
+ },
+ "7771182138__o2": {
+  "component": "implant-self-refine",
+  "case": "self-refine-support-bot-prompt-en",
+  "A": "with",
+  "B": "without"
+ }
+}

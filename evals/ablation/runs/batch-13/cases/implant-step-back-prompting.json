@@ -1,0 +1,35 @@
+{
+  "component": "implant-step-back-prompting",
+  "cases": [
+    {
+      "id": "redis-lock-oversell-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "history": [],
+      "user_message": "Интернет-магазин, Java 17 + Spring Boot, 6 инстансов за балансировщиком, PostgreSQL 15, Redis 7. На распродажах бывает оверселл: товара 50 штук, а заказов проходит 52-53. Чтобы это починить, мы месяц назад обернули списание остатка в распределённый лок через Redisson: lock на ключ sku:{id}, leaseTime 5 секунд, внутри читаем stock из Postgres, проверяем stock > 0, делаем UPDATE products SET stock = ? и коммитим. Стало лучше, но на последней распродаже всё равно 2 лишних заказа. В логах видно, что в эти моменты были GC-паузы по 6-8 секунд на одном из инстансов. Коллеги предлагают поднять leaseTime до 30 секунд и перейти с одного Redis на Redlock с пятью нодами. Это решит проблему? Если нет, что делать?",
+      "why_in_scope": "The user is focused on tuning the lock (TTL, Redlock) and the details pull the answer toward lock parameters. Stepping back to the general principle, that a lease-based lock cannot guarantee mutual exclusion when the holder can pause past the lease, and that correctness must be enforced by the storage that holds the data, leads to a different fix: an atomic conditional update or a fencing check in Postgres. A strong model without this could plausibly accept the premise and recommend a bigger TTL, Redlock or a watchdog as the main fix.",
+      "rubric": [
+        "States that neither raising leaseTime nor switching to Redlock guarantees correctness, because a process paused longer than the lease (GC, network delay) can still write after its lock expired and another holder took it.",
+        "Names the underlying principle before the fix: mutual exclusion via a time-based lock is advisory, and the invariant (stock never below zero) has to be enforced where the data lives.",
+        "Proposes a concrete database-level fix that holds even if the lock expires, such as an atomic conditional update (UPDATE ... SET stock = stock - 1 WHERE id = ? AND stock > 0, checking the affected row count), optimistic locking with a version column, SELECT ... FOR UPDATE inside the same transaction, or a fencing token checked by the database.",
+        "Explains that the current read-then-write pattern (read stock, then UPDATE stock = ? with an absolute value) is what makes an expired lock turn into lost updates, and the answer stays specific to the user's stack."
+      ]
+    },
+    {
+      "id": "hourglass-on-scale-en",
+      "agent": "education_tutor",
+      "language": "en",
+      "history": [],
+      "user_message": "My son (11th grade physics) got into an argument with his teacher and now I'm stuck in the middle. The question: a closed hourglass sits on a very precise digital scale. When all the sand is resting in the bottom, the scale reads 500.0 g. You flip it and the sand starts streaming down. Does the scale read less than 500 g while the sand is falling? My son says obviously yes, because the grains that are in mid-air aren't resting on anything, so they can't push on the scale. The teacher says no, it reads the same, because the sand hitting the bottom pushes extra. My son says that's just hand-waving and the two effects wouldn't cancel exactly. Who's right, and how do I explain it to him so it actually clicks?",
+      "why_in_scope": "The details (grains in flight, impact force) invite a bookkeeping argument about two opposing effects, which is exactly where people and models get stuck or give a vague 'they roughly cancel'. Stepping back to the general principle, that the net external force on the whole system equals total mass times the acceleration of its center of mass, settles it cleanly: in steady flow the center of mass is not accelerating, so the reading equals the weight, and deviations appear only when the flow starts or stops. A strong model without this could plausibly argue only at the level of grains and impacts and leave the father without a clear reason why the cancellation is exact.",
+      "rubric": [
+        "Frames the problem with a system-level principle (Newton's second law for the whole hourglass: scale force minus total weight equals total mass times center-of-mass acceleration) rather than only tracking individual grains.",
+        "Concludes that during steady flow the reading equals the full weight (500 g) to a very good approximation, so the teacher's conclusion is right and the son's 'obviously lighter' is wrong.",
+        "Notes that the reading does deviate briefly when the flow starts (slightly less, as the center of mass begins accelerating downward) and when the last sand lands (slightly more, as it decelerates), which addresses the son's valid instinct that something happens.",
+        "Directly answers the son's objection that the two effects would not cancel exactly (e.g. via the system-level argument or by showing the airborne mass and the extra impact force balance), in language a parent can relay to an 11th grader."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Both cases are in scope, leak-free, tool-less and use owner agents; kept them. Case 1: dropped 'CHECK (stock >= 0)' from the fix list because with the user's absolute 'SET stock = ?' write it does not prevent oversell. Case 2: replaced the item calling the teacher's impact argument 'incomplete' (contestable: the impact force does balance the airborne weight in steady flow) with one rewarding a direct answer to the son's 'won't cancel exactly' objection."
+}

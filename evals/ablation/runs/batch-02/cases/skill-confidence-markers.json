@@ -1,0 +1,35 @@
+{
+  "component": "skill-confidence-markers",
+  "cases": [
+    {
+      "id": "flask-orders-review-before-release-ru",
+      "agent": "security_expert",
+      "language": "ru",
+      "history": [],
+      "user_message": "Завтра релиз, попросили быстро глянуть кусок бэкенда (Flask 3.0, SQLite в тестах, в проде Postgres через тот же db.execute). Перед приложением стоит nginx, но его конфиг у девопсов, я его не видел. Авторизацию делает middleware, которого в этом файле нет, я не уверен, что он вешается на /api/orders.\n\n```python\napp.config[\"SECRET_KEY\"] = os.getenv(\"SECRET_KEY\", \"dev\")\n\n@app.route(\"/api/orders\")\ndef orders():\n    user_id = request.args.get(\"user_id\")\n    status = request.args.get(\"status\", \"new\")\n    rows = db.execute(\n        f\"SELECT * FROM orders WHERE user_id = {user_id} AND status = '{status}'\"\n    ).fetchall()\n    return jsonify([dict(r) for r in rows])\n\n@app.route(\"/login\", methods=[\"POST\"])\n@limiter.limit(\"5/minute\", key_func=lambda: request.headers.get(\"X-Forwarded-For\", request.remote_addr))\ndef login():\n    ...\n```\n\nМне нужно до вечера решить, что чиним сегодня и блокируем релиз, а что уходит в бэклог. Что тут реально плохо?",
+      "why_in_scope": "The review produces several findings with very different evidentiary footing: the SQL injection is directly visible in the pasted code, while the IDOR, the X-Forwarded-For rate-limit bypass and the 'dev' SECRET_KEY fallback depend on nginx config, middleware and prod env that the user explicitly has not seen. The component makes the model attach one calibrated confidence signal with a one-line basis to each finding so the user can separate release blockers from items to verify. A strong model without it tends to list all four as equally certain vulnerabilities (or hedge everything uniformly), which is exactly what misleads a block/ship decision.",
+      "rubric": [
+        "Identifies the SQL injection from f-string interpolation of user_id and status and recommends parameterized queries, treating it as a release blocker",
+        "Also covers the dependent issues: user_id taken from the query string without a visible ownership/session check (IDOR), rate-limit key from a client-controllable X-Forwarded-For header, and the hardcoded 'dev' fallback for SECRET_KEY",
+        "Gives each finding an explicit, differentiated confidence level with a short reason: the SQL injection is high confidence because it is visible in the pasted code, while the IDOR and the SECRET_KEY exposure are rated lower or explicitly conditional because they depend on the unseen auth middleware and prod environment (the X-Forwarded-For issue may be rated anywhere from medium to high, as long as the reason references the unseen nginx config)",
+        "For the lower-confidence findings, states what specifically to check (e.g. whether nginx overwrites rather than appends X-Forwarded-For, whether the auth middleware covers /api/orders, whether SECRET_KEY is set in prod) and does not tag every sentence with a confidence label"
+      ]
+    },
+    {
+      "id": "node20-rss-growth-oom-en",
+      "agent": "software_engineer",
+      "language": "en",
+      "history": [],
+      "user_message": "Our Node 20.11 image service (Express, runs in k8s with a 2Gi memory limit) keeps getting OOMKilled every ~6 hours. RSS climbs steadily from ~300MB to ~1.9GB, but process.memoryUsage().heapUsed in our Grafana stays flat around 170-190MB the whole time. This started the week we (a) upgraded from Node 18 to 20 and (b) shipped a new /thumb endpoint that uses sharp 0.33 to resize uploaded JPEGs. We also added an in-memory cache with lru-cache v10, `max: 5000`, that stores the resized thumbnails as Buffers keyed by URL. Base image is node:20-bookworm-slim. I have about half a day before I hand this over to on-call. Where should I spend that time, in what order?",
+      "why_in_scope": "The user needs a prioritized list of hypotheses under a time budget, and the hypotheses have very different support: flat heapUsed with growing RSS is strong evidence from the user's own data that growth is off the JS heap, while sharp/libvips plus glibc allocator fragmentation, the count-bounded lru-cache holding Buffers, and a Node 20 regression are each reasoned or speculative. The component makes the model mark each recommendation with a calibrated confidence and a one-line basis, without claiming anything is verified. A strong model without it typically lists causes and fixes in one uniform confident tone, which hides which lead is worth the half day.",
+      "rubric": [
+        "Explains that flat heapUsed with rising RSS points to memory outside the V8 heap (e.g. Buffers counted under external/arrayBuffers, or native allocations such as libvips) and suggests logging external/arrayBuffers alongside RSS to split these",
+        "Names the lru-cache configuration as a concrete suspect: max: 5000 bounds entry count, not bytes, so large thumbnail Buffers can grow memory, and suggests bounding by size (e.g. maxSize with sizeCalculation) or checking cache byte size",
+        "Names sharp/libvips native memory with glibc malloc fragmentation as a suspect and gives concrete mitigations such as setting MALLOC_ARENA_MAX, using jemalloc, or reducing sharp.concurrency / sharp.cache",
+        "Orders the steps for the half-day budget and gives each hypothesis or recommendation a distinct, justified confidence level (not every line tagged), without presenting any unconfirmed cause as verified"
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Removed the ProxyFix example from case 1's rubric: it is factually wrong here, because the limiter key_func reads the X-Forwarded-For header directly, so ProxyFix would not help. The XFF confidence requirement is also relaxed, since nginx's default proxy_add_x_forwarded_for appends the client value and keeps the spoofed prefix, so a medium-to-high rating is defensible. Case 2 facts (heapUsed vs external/arrayBuffers, lru-cache max vs maxSize/sizeCalculation, sharp MALLOC_ARENA_MAX/jemalloc/concurrency/cache) were checked and kept."
+}

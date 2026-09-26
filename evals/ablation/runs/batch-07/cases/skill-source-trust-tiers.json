@@ -1,0 +1,35 @@
+{
+  "component": "skill-source-trust-tiers",
+  "cases": [
+    {
+      "id": "berberine-weightloss-sources-ru",
+      "agent": "bio_hacker",
+      "language": "ru",
+      "history": [],
+      "user_message": "Хочу начать пить берберин для похудения, везде пишут что это «природный Оземпик». Мне 38, вес 94 кг при росте 178, диабета нет, таблеток никаких не пью. Собрал, что нашёл:\n\n1) Статья на крупном lifestyle-портале (март 2024): «берберин снижает сахар не хуже метформина, доказано учёными» — ссылаются на китайское исследование 2008 года на диабетиках.\n2) Пост в телеграм-канале про биохакинг (400k подписчиков): то же самое, ссылка на то же китайское исследование 2008 года, плюс «у меня минус 6 кг за месяц».\n3) Сайт производителя БАДа, который я собирался купить: «клинически доказано: до −12 кг за 3 месяца», без ссылок.\n4) Обзор в научном журнале, который мне скинул знакомый врач — там, насколько я понял из абстракта, эффект на вес небольшой, пара килограмм, и авторы пишут, что исследования в основном маленькие и низкого качества.\n\nТо есть три источника «за» и один «против». Оцени, пожалуйста, насколько можно доверять каждому — в процентах, от 0 до 100 — и скажи, брать или нет.",
+      "why_in_scope": "The component makes the model weight sources by provenance tier (peer-reviewed review > media > marketing), treat the portal and the Telegram post as a single source because both rest on the same 2008 study, flag the manufacturer's conflict of interest, surface the contradiction with the review, and use qualitative tiers rather than numeric trust percentages. A strong model without it is likely to comply with the requested 0-100 scores, accept the '3 vs 1' vote-count framing, or miss that the two media items are not independent.",
+      "rubric": [
+        "Rejects the '3 for vs 1 against' framing: points out that sources 1 and 2 cite the same 2008 study and so are not independent confirmation, and that the manufacturer's claim is unreferenced marketing with a conflict of interest.",
+        "Ranks the sources by evidence quality with the scientific review above the media pieces and the manufacturer's site lowest, and expresses this with qualitative labels or a qualitative ranking instead of the requested 0-100 trust percentages.",
+        "Notes that a study on people with diabetes and a comparison of blood-sugar effects do not directly establish a meaningful weight-loss effect in a non-diabetic person, and treats the Telegram author's personal result as an anecdote.",
+        "Gives a clear, cautious practical answer (e.g. expected weight effect is modest at best, discuss with a doctor before starting, especially if other medications are added later) without inventing specific studies, authors or figures beyond what the user provided."
+      ]
+    },
+    {
+      "id": "remote-work-13-percent-claim-en",
+      "agent": "deep_researcher",
+      "language": "en",
+      "history": [],
+      "user_message": "I'm writing an internal memo for our leadership team arguing we should keep fully-remote as the default policy. I want to open with this line: \"Multiple studies confirm that remote workers are 13% more productive than office workers.\" I found the 13% figure in five places: a Forbes contributor article (2021), a blog post from a remote-collaboration SaaS vendor (2023), a LinkedIn post by a VP of People with 12k reactions, a Harvard Business Review piece (2014), and a Medium article (2022). Five independent sources over almost ten years seems pretty solid to me. Is this sentence OK to use as-is? If not, how should I rewrite it so it holds up when our CFO pushes back?",
+      "why_in_scope": "The component requires tracing a claim to its primary source, treating sources that repeat the same primary as one source, ranking provenance (HBR and the underlying paper above contributor blogs, social posts and a vendor with a commercial interest), and checking dates in an evolving field. The user no longer hints that all five cite the same experiment, so the model must itself trace the 13% figure back to the single Stanford/Ctrip call-center study; a strong model without the component may polish the wording and let 'multiple studies' or 'five independent sources' stand.",
+      "rubric": [
+        "Identifies that the 13% figure traces back to a single experiment (the Stanford study of Ctrip call-center employees) and states that the five articles are therefore effectively one source, so 'multiple studies confirm' is not supported.",
+        "Differentiates the five items by credibility: flags the SaaS vendor's commercial interest and treats the LinkedIn and Medium posts as weak secondary repetition, while pointing the user to the original study itself as the thing to cite.",
+        "Flags limits on generalising the figure: a single experiment in one call-center setting, conducted before the pandemic-era shift, may not transfer to the user's company or to fully-remote knowledge work, and should not be stated as a universal fact.",
+        "Offers a concrete rewritten sentence that attributes the figure to the single study with its context, and does not fabricate additional studies, citations or statistics to shore up the claim."
+      ]
+    }
+  ],
+  "checked": true,
+  "checker_notes": "Case 2: removed the user's hint that all five articles cite the same Stanford experiment, so the model must trace the figure to its single primary itself (otherwise a strong model catches it for free); rubric item 1 updated accordingly. Case 1: dropped the rubric requirement to explain why percentages are false precision (rewarded extra content, not the behaviour); facts checked (Stanford/Ctrip 13% study, HBR 2014, 2008 berberine-vs-metformin trial in diabetics)."
+}
