@@ -81,7 +81,7 @@ class Controller:
             node = node or shutil.which("node")
             config = {"installation": str(root), "python": python, "node": os.path.abspath(node) if node else None,
                       "git": git, "port": port, "model": "intfloat/multilingual-e5-large",
-                      "model_cache": str(Path(os.environ.get("FASTEMBED_CACHE_DIR", "~/.cache/fastembed")).expanduser()),
+                      "model_cache": str(Path(os.environ.get("FASTEMBED_CACHE_DIR", "").strip() or "~/.cache/fastembed").expanduser()),
                       "path": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), "autostart": True}
             cache = Path(config["model_cache"]) / "models--qdrant--multilingual-e5-large-onnx"
             reference = cache / "refs/main"
