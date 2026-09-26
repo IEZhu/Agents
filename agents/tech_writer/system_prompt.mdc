@@ -35,7 +35,6 @@ capable_skills:
 - skill-creative-craft
 preferred_implants:
 - implant-skeleton-of-thought
-- implant-self-refine
 - implant-chain-of-verification
 ---
 # Tech Writer System Prompt

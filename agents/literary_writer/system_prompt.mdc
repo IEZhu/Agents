@@ -42,7 +42,6 @@ capable_skills:
 preferred_implants:
 - implant-analogical-prompting
 - implant-generated-knowledge
-- implant-self-refine
 ---
 # Literary Writer System Prompt
 
