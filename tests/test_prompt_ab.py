@@ -648,6 +648,13 @@ def test_an_incomplete_generated_agent_map_is_not_pinned(tmp_path, monkeypatch):
     assert pab.read_json(out / "manifest.json")["agents_sha256"] == pab.sha256_file(out / "agents.json")
 
 
+def test_an_agent_map_on_disk_must_be_an_object(tmp_path):
+    for not_an_object in ("[]", "\"lawyer\"", "3"):
+        (tmp_path / "agents.json").write_text(not_an_object)
+        with pytest.raises(SystemExit, match="not a JSON object"):
+            asyncio.run(pab.pick_agents([], None, None, "m", tmp_path / "catalog.json", tmp_path / "agents.json"))
+
+
 def test_an_unpinned_agent_map_is_not_adopted_once_records_exist(tmp_path):
     (tmp_path / "agents.json").write_text("{}")
     pinned = pab.sha256_file(tmp_path / "agents.json")
