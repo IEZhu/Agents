@@ -5,9 +5,10 @@ When the user requests this workflow, read this file and carry it through to a
 verified set of changes. Deliver current documentation and AI instructions on a
 separate branch, with a short validation report.
 
-This workflow is part of the [model workflow catalog](README.md). Store reusable
-task instructions in `flows/` and keep the catalog up to date when adding or
-renaming them.
+This workflow ships in the Agents-Core [model workflow catalog](README.md).
+When maintaining that source catalog, store reusable task instructions in
+`flows/` and update the index when adding or renaming them. Running a flow for
+another repository does not require copying the catalog there.
 
 ## Documentation language
 
@@ -65,8 +66,9 @@ and reference links, while all inspection, edits and validation use the target.
    status labels, links, and compliance with the documentation language policy.
    If no index exists, inventory the tracked documents before making changes.
    Preserve their historical results.
-4. Use the separate branch requested by the user. By default, create
-   `codex/docs-refresh-<YYYYMMDD>` from the current `HEAD`; add a suffix if that
+4. Use the separate branch requested by the user. Otherwise follow the target's
+   branch naming rules; if none exist, create `codex/docs-refresh-<YYYYMMDD>`
+   from the current `HEAD`. Add a suffix if that
    name is taken. Use a different base when the user specifies one. Do not reuse
    an unfamiliar branch or discard existing changes.
 5. If the current checkout is busy or contains unrelated changes, create an
@@ -110,10 +112,10 @@ product behavior merely to match the text.
 - **For people:** correct installation steps, commands, configuration,
   architecture, limitations, and links in the affected guides. Add new pages
   to the documentation map.
-- **For model workflows:** when adding or maintaining workflows, keep reusable
-  task instructions in `flows/`, register
-  them in `flows/README.md`, and update invocation examples and incoming links
-  whenever a workflow moves or is renamed.
+- **For model workflows:** preserve the target's established workflow location
+  and index. Use `flows/` and `flows/README.md` when introducing workflows into
+  a project without a convention, or when maintaining Agents-Core. Update
+  invocation examples and incoming links when moving or renaming a workflow.
 - **For AI:** check that the target's AI entry points agree, repository
   notes describe real modules, and any generated instruction templates agree
   with the code.
@@ -207,8 +209,9 @@ The workflow is complete when:
 In the final response, state the branch and worktree path, main corrections, a
 link to this file for future runs, validation results, and remaining issues.
 Commit, push, and create a PR when those actions are included in the user's
-request. Before committing, review the staged diff and use a Conventional Commit
-with type `docs` for documentation changes.
+request. Before committing, review the staged diff and follow the target's commit
+convention. In Agents-Core, use a Conventional Commit with type `docs` for
+documentation changes.
 
 If a later run finds that the documentation is already current, report what was
 checked and that no discrepancies were found. Do not create redundant changes

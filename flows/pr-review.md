@@ -5,6 +5,9 @@ validation, and merge. Read the target's applicable repository instructions.
 For Agents-Core, read [AGENTS.md](../AGENTS.md) and the
 [session playbook](../docs/session-playbook.md) for repository working practices.
 Use the target project's checks; [the test guide](../tests/README.md) covers Agents-Core.
+Use the target's branch naming, commit style, PR/MR template, CI, merge method
+and required approvals. Agents-Core source references and helpers are optional
+supporting material; they do not supply those conventions for another project.
 
 ## Invoke and identify the target
 
@@ -99,19 +102,27 @@ Inspect failed requests and bot status before retrying. Avoid repeated requests
 after an explicit quota failure. If every bot is unavailable, handle all existing
 findings and continue to the merge conditions; unavailability is not approval.
 
-### GitHub helpers in this repository
+### Optional GitHub helpers from the Agents-Core installation
 
 Run helpers from the target GitHub repository context after checking their source.
 When the target is another repository, use the absolute helper paths from the
 Agents-Core source checkout while keeping the working directory at the target.
 Do not assume `scripts/dev/` exists in the target. If the installation's files
 are inaccessible, use the platform API or CLI directly.
-Replace `OWNER`, `REPO`, and `N` with the verified target:
+Use the platform API or CLI directly by default. If using the optional helpers,
+derive the source checkout from the loaded flow's location (`flow.source_path`
+from MCP, whose parent is `flows/`). Set `AGENTS_CORE_ROOT` to that checkout's
+absolute path and `TARGET_REPO` to the selected target checkout. Verify both
+paths before running commands, and select an available Python interpreter for
+the helper. Replace `OWNER`, `REPO`, and `N` with the verified target:
 
 ```bash
+AGENTS_CORE_ROOT=/absolute/path/to/Agents-Core
+TARGET_REPO=/absolute/path/to/target-repository
+cd "$TARGET_REPO"
 gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
-scripts/dev/wait_copilot.sh N
-python scripts/dev/pr_threads.py N
+bash "$AGENTS_CORE_ROOT/scripts/dev/wait_copilot.sh" N
+python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N
 ```
 
 [wait_copilot.sh](../scripts/dev/wait_copilot.sh) waits for a Copilot review on
@@ -158,7 +169,8 @@ deciding a finding is handled. Also read PR conversation comments and bot status
    review the current head, read the new results, and repeat when there are
    actionable findings.
 
-On GitHub, `python scripts/dev/pr_threads.py N --resolve-mine` resolves threads
+On GitHub, `python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N --resolve-mine`
+(with the source root and target working directory established above) resolves threads
 whose last comment belongs to the authenticated account. Inspect the candidate
 threads first: that condition alone does not prove they were handled correctly.
 
