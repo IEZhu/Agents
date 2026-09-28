@@ -35,7 +35,7 @@
 **Weaknesses:**
 - No study first splits a chat request into instruction, artifact, and goal and then measures answer accuracy. The evidence base consists of security research and vendor recommendations.
 - The “GOALS” block is our own construction. Explicit goals are already part of the instruction; implicit goals belong to I3.
-- I1 helps the classifier only when the triggering text is in a pasted artifact. The code implies that a pasted log containing “compare” or “debug” activates `mode=analyze` (code map, intent.py:527-533). This is an inference from reading the code, not a measurement from F1–F10. I1 does not fix F2's main example (a conversation about prompting).
+- I1 helps the classifier only when the triggering text is in a pasted artifact. The code implies that a pasted log containing “compare” or “debug” activates `mode=analyze` (the `_ANALYZE_LEX` branch in [`_detect_mode`](../src/engine/intent.py)). This is an inference from reading the code, not a measurement from F1–F10. I1 does not fix F2's main example (a conversation about prompting).
 - Gains from prompt-level delimiters and tags do not mean that the model will follow the hierarchy they specify ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)).
 
 **What the literature adds:**
@@ -122,7 +122,7 @@
 - The vocabulary of the query and the required item barely overlaps: ROUGE-L 0.06 ([Retrieval Models Aren't Tool-Savvy, 2025](https://arxiv.org/abs/2503.01763)).
 - Lexical matching breaks across languages ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)).
 
-**What the code already does:** the existing `IMPLANT_GATING=zscore` multiplies distance by `IMPLANT_TRIGGER_BOOST=0.85` when a trigger phrase matches (implants.py:313). Set it to 1.0 for evaluations. Rerunning F5/F6 without the boost (`implant_need_gate --trigger-boost 1.0`) produced the same F6 result (hit@3 0.25 → 0.18): the trigger-index distance itself hurts, not the boost. The `trig_z1` weight in F5 is −0.37 without the boost (−0.19 with a 0.85 boost), and it does not change the gate's decisions. In F2's z-score gate, the few hits came from the boost: without it, hit@3 falls from 0.04 to 0.00.
+**What the code already does:** the existing `IMPLANT_GATING=zscore` multiplies distance by `IMPLANT_TRIGGER_BOOST=0.85` when a trigger phrase matches (see [`ImplantRetriever._zscore_candidates`](../src/engine/implants.py)). Set it to 1.0 for evaluations. Rerunning F5/F6 without the boost (`implant_need_gate --trigger-boost 1.0`) produced the same F6 result (hit@3 0.25 → 0.18): the trigger-index distance itself hurts, not the boost. The `trig_z1` weight in F5 is −0.37 without the boost (−0.19 with a 0.85 boost), and it does not change the gate's decisions. In F2's z-score gate, the few hits came from the boost: without it, hit@3 falls from 0.04 to 0.00.
 
 There are no studies of calibrating multiple layers within a single prompt assembly. Everything above is an extrapolation.
 
@@ -148,7 +148,7 @@ There are no studies of calibrating multiple layers within a single prompt assem
 - `classify_intent` runs on the hot path: it is pure, synchronous, and uses only the standard library. An embedding-based centroid approach was rejected because it added 12–53 ms, with p95 of 37–58 ms (intent.py docstring).
 - Every dimension therefore falls into one of three classes:
   - **R**: regular expressions in `intent.py`;
-  - **H**: a lightweight head (LR, kNN, or SetFit) over the query embedding that skills, implants, and the router **already compute** (skills.py:240, router.py:359). It belongs in enrichment or the router, not intent.py. The additional latency is only the head itself; it must be measured;
+  - **H**: a lightweight head (LR, kNN, or SetFit) over the query embedding that skills, implants, and the router **already compute** (see [`SkillRetriever.retrieve`](../src/engine/skills.py), [`ImplantRetriever.retrieve`](../src/engine/implants.py), and [`SemanticRouter.query_nearest`](../src/engine/router.py)). It belongs in enrichment or the router, not intent.py. The additional latency is only the head itself; it must be measured;
   - **O**: offline only. An LLM labels training data here, or the host model selects from a catalog. MCP sampling is not always available, and protocol v2 “never samples”, so a server-side LLM call per query is unsuitable for runtime.
 - Any field that changes the prompt must be included in `cache_token` and `with_tier`. Query-specific dimensions must not enter the session-scoped v2 bundle.
 - “High” reliability for a regex feature means only that the regex itself is stable. Whether it predicts **need** has not been tested.
@@ -157,11 +157,11 @@ There are no studies of calibrating multiple layers within a single prompt assem
 
 | Output | How to obtain it | Current state |
 |---|---|---|
-| `instruction_span` | Remove `_CODE_FENCE`, `_URL`, long `_LIST_LINE` blocks, and `_CODE_DECLARATION` (intent.py:354-366, 423-431) | Absent: the regexes only add points to `depth_score` |
+| `instruction_span` | Remove `_CODE_FENCE`, `_URL`, long `_LIST_LINE` blocks, and `_CODE_DECLARATION` (see the named patterns in [intent.py](../src/engine/intent.py)) | Absent: the regexes only add points to `depth_score` |
 | `artifact_spans[]` (type, length) | The same regexes plus a stack-trace heuristic | Absent |
 | `sub_asks[]` | `enumerated`, `multi_question` | Counters only |
 | `goal_hint` | Markers such as “чтобы”, “для”, “нужно” (“so that”, “for”, “need”), in ru/en/es | Absent |
-| `turn_context` | The `history` parameter | Accepted but unused (intent.py:633-636) |
+| `turn_context` | The `history` parameter | Accepted but unused in [`classify_intent`](../src/engine/intent.py) |
 
 ### Dimensions
 

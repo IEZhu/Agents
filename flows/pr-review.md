@@ -58,6 +58,10 @@ GitHub PR. Confirm that those reviews actually started. CodeRabbit normally
 reviews subsequent pushes automatically, but its quota is often exhausted.
 After each fix commit is pushed and the remote head updates, **explicitly
 re-request Copilot review**. Do not assume a push requests it again.
+Confirm that a review was queued for the current head. If an earlier review is
+still running, wait for it to finish, then request again if the current head has
+no queued or completed review. A successful API response alone does not prove
+that a new review started.
 If expected automation did not start, check its status and request review through
 the installed integration's supported action.
 
@@ -120,6 +124,9 @@ deciding a finding is handled. Also read PR conversation comments and bot status
 4. Inspect the diff, commit the fixes, check title/description alignment, and
    push. Confirm the remote head matches the pushed commit. Do not count an
    older review or an earlier passing check as verification of the new head.
+   If CI intentionally skips a check by changed-file filters, verify that its
+   code, tests, and configuration are unchanged since the last passing run.
+   Report that run and the skipped scope explicitly; required checks still apply.
 5. Reply to each finding in its own thread in concise English. State the
    conclusion, fix commit, and useful evidence. For a declined finding, state
    the reason. Use ordinary punctuation, with **no em dashes or en dashes**.
