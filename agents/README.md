@@ -1,10 +1,54 @@
 # Agent Catalog
 
-Reference of all available agents for manual routing (fallback Path B).
-Also available programmatically via the MCP tool `list_agents`.
+Reference of available agents, their primary triggers, and their roles. The MCP
+tool `list_agents` returns this catalog with metadata.
 
-> **Automatic routing**: `route_and_load(query)` is the preferred method.
-> This catalog is needed when MCP is unavailable or routing fails.
+## Selecting and keeping a role
+
+The installer writes **persona protocol 2** instructions by default. Route with
+`route_and_load(query, protocol_version=2, current_persona=...)` for initial
+selection or a change of specialization. Keep the active bundle locally while its
+role fits. An explicitly named role can be loaded directly with
+`get_agent_context(agent_name, query, protocol_version=2, current_persona=...)`.
+Use `refresh_persona_context` when the same role needs updated skills or implants.
+
+The tool API and MCP slash prompts still default to **protocol 1** when
+`protocol_version` is omitted. Protocol 1 routes before each query and uses
+`context_hash` for continuation. Follow the protocol installed in the client;
+see [the routing protocol](../docs/routing_flow.md) for response handling,
+replacement rules, logging, and the unavailable-MCP fallback.
+
+If no valid MCP bundle is retained and MCP is unavailable, read the selected
+`agents/<name>/system_prompt.mdc` manually. Report manual fallback without
+inventing MCP descriptors or loaded-component attribution.
+
+## Agent source and metadata
+
+Each agent lives in `agents/<name>/system_prompt.mdc`: YAML frontmatter declares
+its identity and retrieval policy; the Markdown body supplies its role guidance.
+The [schema](common/agent-schema.json) defines the fields:
+
+| Field | Purpose |
+|---|---|
+| `identity` | Canonical `name`, `display_name`, competency `role`, and `tone` |
+| `routing` | `domain_keywords`, primary `trigger_command`, and optional `aliases` |
+| `core_skills` | Mandatory skills, loaded at every tier |
+| `preferred_skills` | Semantic skill pool with a distance boost |
+| `capable_skills` | Additional allowed skills selected by semantic and keyword match |
+| `preferred_implants` | Optional ordered implant IDs loaded before semantic candidates, within the implant budget |
+| `interaction_examples` | Optional examples reserved for future use; enrichment does not consume them |
+
+Use canonical component IDs such as `skill-tech-writing` and
+`implant-chain-of-verification`. Skills outside the three skill lists are excluded.
+See [skills](../skills/README.md) and [implants](../implants/README.md) for loading
+budgets and authoring conventions. Universal directives belong in `rules/rule-*.mdc`;
+per-agent guidance belongs in the agent or its skills. The former global
+`core_skills.yaml` and `agents/capabilities/registry.yaml` mechanisms have been
+removed.
+
+Protocol 2 delivers separate persona, rules, skills, and implants blocks. A
+successful switch, restore, or refresh replaces all four blocks, including empty
+ones; it does not accumulate the previous role's instructions.
 
 ## Research & Analytics
 
@@ -104,4 +148,4 @@ The single `lawyer` agent replaced nine country-specific clones (`colombian_lawy
 ---
 
 **Total agents**: 43
-**Updated**: 2026-05-24
+**Updated**: 2026-09-28

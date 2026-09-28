@@ -1,8 +1,10 @@
 # Playbook for agent sessions on this repository
 
 Practices that held up in the 2026-09 sessions (the component ablation sweep and the
-review rounds that followed). CLAUDE.md covers the routing protocol and the code
-layout; this page covers how to work. Related pages: [cloud-runs.md](cloud-runs.md)
+review rounds that followed). [AGENTS.md](../AGENTS.md) is the contributor entry
+point; [CLAUDE.md](../CLAUDE.md) covers the routing protocol and the code layout.
+This page covers how to work. For documentation maintenance, execute
+[documentation-refresh.md](../flows/documentation-refresh.md). Related pages: [cloud-runs.md](cloud-runs.md)
 for evals in cloud sessions, [`evals/ablation/README.md`](../evals/ablation/README.md)
 for the ablation runbook, [`evals/telemetry/README.md`](../evals/telemetry/README.md)
 for Langfuse analysis.
@@ -12,53 +14,44 @@ for Langfuse analysis.
 - **Commit identity.** Check `git config user.email` in each checkout before the first
   commit; a repository-local setting overrides the global one. When amending, use
   `git commit --amend --reset-author` so author and committer both change.
-- **Branches.** Branch from a remote ref with `--no-track`
-  (`git worktree add --no-track -b fix/x <path> origin/main`), so a GUI client never
+- **Branches.** Use the requested base, or the current `HEAD` for a documentation
+  refresh. When branching from a remote ref, use `--no-track`
+  (`git worktree add --no-track -b codex/task-name <path> origin/main`), so a GUI client never
   pushes a feature branch to the upstream it was cut from. The repository deletes a
   PR's branch when it is merged.
-- **Parallel work.** Give each PR its own worktree under `.claude/worktrees/`, and
-  remove it once the PR is merged and the tree is clean.
+- **Parallel work.** Give each independent change its own worktree, for example
+  under `.worktrees/` or `.claude/worktrees/`. Check existing worktrees first and
+  remove only your completed worktree once its changes are preserved and it is clean.
 - **One heavy process at a time.** The development laptop has rebooted under parallel
   pytest runs and embedding-model loads. Run the full suite once, alone:
-  `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q` (about 100
-  seconds, ~1300 tests). Run targeted test files while iterating.
+  `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q`.
+  Run targeted test files while iterating; [tests/README.md](../tests/README.md)
+  covers setup, slow tests and worktree isolation.
 - **Keep eval outputs out of the repository and out of temporary directories** that
   get cleaned: `~/evals-runs/<name>/` has been the convention.
 - **Secrets.** `.env` holds the Langfuse keys; the OpenRouter key for hosted A/B evals
   lives in a user-level env file, not in the repository. Never print a secret; a
   token that was pasted into a chat or printed in a log is rotated.
-- **Agents-Core picks up skill and agent changes only on restart.** After merging
-  changes to `skills/`, `implants/`, `rules/` or `agents/`, reconnect the MCP server
-  (`/mcp` in Claude Code); the skill store reindexes when the directory changes.
+- **Prompt freshness.** Protocol 2 builds each issued bundle from current source
+  content; an explicit refresh can update the active persona without restarting.
+  A local `keep` retains the existing bundle. The running router and retrieval
+  indexes are separate state: after changing agent membership, routing metadata
+  or indexed skill/implant content or metadata, reload the serving process so
+  those changes are indexed. Use the [daemon procedure](shared-mcp-daemon.md) for HTTP and reconnect
+  the server for stdio. See [routing](routing_flow.md) for refresh semantics.
 
 ## PR review loop
 
-Every PR goes through GitHub Copilot review until it has no concrete findings left;
-CodeRabbit comments too, and its findings get the same treatment.
+Execute [flows/pr-review.md](../flows/pr-review.md) for the review and merge
+process. It is the shared source for concise English descriptions, checking their
+alignment after every commit, reviewing full discussions, and replying in English
+without long dashes or judgments about findings.
 
-1. Request a review:
-   `gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`
-2. Wait for it: `scripts/dev/wait_copilot.sh N [N ...]`. It waits until the PR head equals
-   the pushed branch tip and a Copilot review exists on that commit.
-3. Read everything: `python scripts/dev/pr_threads.py N` lists unresolved threads and the
-   review bodies on the current head. Copilot also reports findings only in the review
-   body, under "Previously missed", so read the body, not just the threads.
-4. For each finding, verify it against the code before acting. Fix what is real;
-   decline with a reason what is not. In 2026-09 Copilot was sometimes wrong: one
-   suggested fix would have let an unpinned agent map pass the manifest check silently.
-   Before tightening a validation rule, check it against existing data so it does not
-   reject records that were fine.
-5. Reply in the thread with the fix commit or the reason, then resolve it:
-   `python scripts/dev/pr_threads.py N --resolve-mine` resolves threads whose last
-   comment is yours.
-6. Push, re-request the review, and repeat.
-
-**When to stop.** Copilot tends to find one new edge case per round, and after several
-rounds its overview may speak of "N unresolved issues" without naming any. Stop when a
-round names no finding and no thread is open; ask it in a PR comment to name the file
-and line if anything remains. Code that handles saved state (resume, rebuild, partial
-runs) drew 10 to 16 rounds; writing out the state table and testing it up front is
-cheaper.
+CodeRabbit and Copilot start the first review automatically in the expected GitHub
+setup. Confirm that they started. CodeRabbit normally reviews later pushes;
+re-request Copilot manually after each pushed fix commit and preserve its lite
+configuration. Continue with the available bots if one exhausts its quota. Use the
+flow's current-head review, validation, and merge conditions before finishing.
 
 **Merged PRs.** Unresolved threads on merged or closed PRs are still answered:
 `python scripts/dev/pr_threads.py --closed` lists them.
@@ -79,5 +72,6 @@ cheaper.
 
 ## Telemetry
 
-Langfuse keeps every MCP tool call. `evals/telemetry/` exports and summarises it; see its
-README for the procedure and for what the telemetry can and cannot tell.
+When configured and enabled, Langfuse records instrumented routing, loading,
+retrieval and memory operations. `evals/telemetry/` exports and summarises those
+traces; see its README for the procedure and for what the telemetry can and cannot tell.

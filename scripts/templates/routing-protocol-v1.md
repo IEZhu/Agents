@@ -35,20 +35,27 @@ This applies to ALL queries: coding, research, questions, documentation, debuggi
 | `get_agent_context(agent_name, query)` | Load a specific agent (after ROUTE_REQUIRED) |
 | `load_implants(task_type)` | Load reasoning strategies (debugging/analysis/creative/planning) |
 | `list_agents()` | List all available agents |
-| `log_interaction(...)` | End-of-turn observability logger (Langfuse) |
-| `clear_session_cache()` | Clear routing cache (use when switching contexts) |
+| `log_interaction(...)` | Append repository history and, when configured, record a Langfuse trace |
+| `clear_session_cache()` | Administrative reset of v1 prompt and context-hash caches; not needed for persona switches and unavailable over HTTP |
 | `describe_repo(repo_path?, force_refresh?)` | Bootstrap the Repository Memory section of CLAUDE.md; on `needs_summary` follow its `instruction` |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persist the summary after `needs_summary`, passing `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent or semantic lookup in the repo's `history.md` |
 
 ## Environment
 
-- MCP server: `Agents-Core` (stdio transport, Python/FastMCP)
+- MCP server: `Agents-Core` (Python/FastMCP; shared HTTP daemon or standalone stdio)
 - Agents: `agents/[name]/system_prompt.mdc`
+- Rules: `rules/rule-*.mdc`
 - Skills: `skills/skill-*.mdc`
 - Implants: `implants/implant-*.mdc`
-- Capabilities: `agents/capabilities/registry.yaml`
 - Config: `.env` (LANGFUSE_* optional, ANTHROPIC_API_KEY for document OCR)
+
+Paths below are relative to the Agents-Core installation. The transport does not
+select a persona protocol: this template specifies version 1. See the maintained
+[routing reference](https://github.com/WonderMr/Agents/blob/main/docs/routing_flow.md)
+for both protocols and
+[daemon guide](https://github.com/WonderMr/Agents/blob/main/docs/shared-mcp-daemon.md)
+for HTTP setup and workspace-scoped repository memory.
 
 ## Fallback (if MCP is unavailable)
 
@@ -62,85 +69,48 @@ If `route_and_load` fails or Agents-Core MCP is not connected:
 ## Enrichment layers (order in every system prompt)
 
 1. **Base agent system_prompt** — agent persona from `agents/<name>/system_prompt.mdc`.
-2. **Rules** (`rules/rule-*.mdc`) — **always-on, universal, no semantic retrieval, no opt-out**. Loaded by `src/engine/rules.py`. Architectural invariant: rules apply to every agent without exception. Per-agent guidance belongs in `skills/`. Toggle via `RULES_ENABLED=0`.
-3. **Skills** (`skills/skill-*.mdc`) — semantic retrieval + per-agent opt-in via `preferred_skills` / `capabilities`. Caveman-style output compression lives here as `skill-caveman-tokenomics`, opt-in via the `concise-output` capability.
-4. **Capability Directives** — terse one-liners from `agents/capabilities/registry.yaml`.
-5. **Implants** (`implants/implant-*.mdc`) — semantic retrieval, cognitive reasoning patterns.
+2. **Rules** (`rules/rule-*.mdc`) — shared rules loaded by `src/engine/rules.py`, without semantic retrieval or per-agent opt-out. `RULES_ENABLED=0` disables this layer globally.
+3. **Skills** (`skills/skill-*.mdc`) — mandatory `core_skills` plus relevant skills selected under the agent's `preferred_skills` and `capable_skills` declarations.
+4. **Implants** (`implants/implant-*.mdc`) — reasoning patterns selected using semantic retrieval and `preferred_implants`.
+
+Tier and optional intent settings control enrichment depth. Their current behavior
+is documented in the routing reference; declarations live in each agent's YAML
+frontmatter.
 
 ## Repository Structure
 
-```
-src/
-  server.py            — MCP server: route_and_load(), get_agent_context(), clear_session_cache()
-  engine/
-    router.py          — SemanticRouter: cache lookup, keyword matching, agent catalog
-    vector_store.py    — NumpyVectorStore: numpy-based cosine similarity store
-    embedder.py        — FastEmbed wrapper (model configurable via EMBEDDING_MODEL env var)
-    config.py          — Thresholds, paths, env-based configuration (RULES_ENABLED, RULES_DIR)
-    enrichment.py      — Prompt enrichment with rules/skills/implants by tier (lite/standard/deep)
-    rules.py           — Universal always-on rules layer (no retrieval, no opt-out)
-    skills.py          — Skill retrieval from vector store
-    implants.py        — Implant retrieval from vector store
-    capabilities.py    — Capability -> skill resolution via registry.yaml
-    language.py        — Language detection (langdetect, 24 languages)
-    context.py         — Context management
-  utils/
-    prompt_loader.py   — Frontmatter parsing, agent metadata, @import resolution
-    debug_logger.py    — JSON debug logging (AGENTS_DEBUG=1)
-    langfuse_compat.py — Optional Langfuse observability
-  schemas/
-    protocol.py        — RouterDecision, AgentRequest, AgentResponse
-agents/
-  [name]/system_prompt.mdc — Agent persona with YAML frontmatter (identity, routing, skills)
-  common/agent-schema.json — Frontmatter JSON schema
-  capabilities/registry.yaml — Capability -> skill mapping (incl. concise-output)
-rules/rule-*.mdc           — Universal always-on directives (accuracy, honesty, language, sycophancy)
-skills/skill-*.mdc         — Compiled skill prompts (incl. skill-caveman-tokenomics)
-implants/implant-*.mdc     — Cognitive reasoning implants
-tests/
-  test_routing.py      — Routing logic, sticky routing, keyword boosting tests
-  test_vector_store.py — NumpyVectorStore correctness tests
-  test_language.py     — Language detection tests
-  test_rules.py        — Rules layer: parsing, priority, invariant (no opt-out fields)
-```
+| Path | Purpose |
+|---|---|
+| `src/server.py` | Shared MCP tools and version 1 request handling |
+| `src/engine/` | Routing, enrichment, embeddings, configuration, and version 2 bundles |
+| `src/daemon/` | Shared HTTP service and client configuration |
+| `src/memory/` | Repository summaries, history, and managed sections |
+| `src/utils/prompt_loader.py` | Frontmatter and import resolution |
+| `src/schemas/protocol.py` | Request, response, and persona schemas |
+| `agents/`, `rules/`, `skills/`, `implants/` | Source prompts and component metadata |
+| `agents/common/agent-schema.json` | Agent metadata schema |
+| `tests/` | Unit, contract, and integration tests |
 
 ## Routing Flow (Internal)
 
-```
-Query -> route_and_load()
-  |-- Sticky agent? -> query_nearest() -> distance-based decisions
-  |     |-- d < 0.02 + keyword check: auto-switch (validate with keywords)
-  |     |-- d < 0.05 & same agent + keyword check: confirm or override
-  |     |-- d >= 0.05: ROUTE_REQUIRED (topic change)
-  |     +-- else: keep sticky (stability)
-  +-- No sticky -> lookup_cache() (threshold: d < 0.05)
-        |-- Hit + keyword_veto() confirms -> SUCCESS
-        |-- Hit + keyword_veto() overrides -> use keyword winner
-        |-- Hit + keyword_veto() ambiguous -> ROUTE_REQUIRED
-        |-- Meta-query -> universal_agent (lite tier)
-        +-- Miss -> ROUTE_REQUIRED (LLM picks from candidates)
-```
+Version 1 uses `context_hash` for sticky routing and prompt reuse. Semantic cache
+matches are checked against agent keywords. An ambiguous or missing decision
+returns `ROUTE_REQUIRED` so the client selects a candidate. The detailed handling
+lives in `src/server.py` and `src/engine/router.py`; the client must still follow
+the Routing Flow above on every request.
 
 ## Key Thresholds (config.py)
 
-| Constant | Default | Purpose |
-|----------|---------|---------|
-| `ROUTER_SIMILARITY_THRESHOLD` | 0.95 | Cache hit if cosine distance < 0.05 |
-| `STICKY_SWITCH_THRESHOLD` | 0.02 | Auto-switch only for near-duplicate queries |
-| `KEYWORD_OVERRIDE_MIN_HITS` | 1 | Min keyword hits to consider cache override |
-| `KEYWORD_UNIQUENESS_RATIO` | 2.0 | Top agent must have >= 2x hits vs second-best |
-| `SKILLS_RELEVANCE_THRESHOLD` | 0.75 | Cosine distance cutoff for skill retrieval |
-| `IMPLANTS_RELEVANCE_THRESHOLD` | 0.85 | Cosine distance cutoff for implant retrieval |
-| `SESSION_CACHE_MAX_SIZE` | 128 | Max enriched prompt cache entries |
-| `SESSION_CACHE_TTL_SECONDS` | 600 | Prompt cache TTL (10 min) |
-| `ROUTER_CACHE_MAX_SIZE` | 500 | Max routing decisions in vector store (router.py) |
+Read `src/engine/config.py` for current thresholds and environment overrides, and
+`src/engine/router.py` for router-specific limits. These are implementation
+settings, separate from the version 1 client contract above.
 
 ## Cache Storage (data/)
 
-- `router_cache.npz` + `.json` — Semantic routing cache (500 entries max, atomic writes)
-- `skills_store.npz` + `.json` — Skills vector store
-- `implants_store.npz` + `.json` — Implants vector store
-- `.router_cache_model` — Embedding model hash (auto-invalidates cache on model change)
+Skill and implant indexes are generated installation data. Router indexes use
+private daemon state or isolated standalone-process storage. Version 1 enriched
+prompt and context-hash caches are process-local. See the routing reference's
+runtime and project boundaries; do not edit derived indexes by hand.
 
 ## Debug Logging
 

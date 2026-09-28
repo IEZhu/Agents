@@ -50,8 +50,8 @@ Examples:
 ---
 description: "Brief description with key concepts. Role: Persona."
 compiled: "Dense one-liner used only when the skill is rendered at standard tier (token-saving)."
-keywords:                       # 5–10 phrases that drive the capable-skills
-  - keyword phrase one          # keyword boost in `SkillRetriever.retrieve()`.
+keywords:                       # Phrases that boost preferred/capable skills
+  - keyword phrase one          # in `SkillRetriever.retrieve()`.
   - keyword phrase two          # The retrieval embedding uses
                                 # `description + keywords + body`, not `compiled`.
                                 # Matching: case-insensitive, non-word
@@ -186,13 +186,33 @@ preferred_skills:
 
 Skills available with base distance, promoted by keyword match (`distance ×
 0.85` when any `keywords:` entry literally appears in the query). Use for the
-broader pool that may apply to sub-queries. Typical size 0–15.
+broader pool that may apply to sub-queries. Typical size 0–15. The same keyword
+boost also applies to preferred skills, in addition to their preferred boost.
 
 ```yaml
 capable_skills:
   - skill-prompt-security
   - skill-tech-writing
 ```
+
+### Tier budgets and protocol lifetime
+
+With the default tier policy, core skills are followed by up to 0 semantic skills
+at `lite`, 2 at `standard`, and 4 at `deep`. The relevance cutoff is applied after
+distance boosts (`SKILLS_RELEVANCE_THRESHOLD`, default `0.75`). `standard` renders
+`compiled` text; `lite` and `deep` render the full skill body. Declared
+`preferred_implants` can promote an inferred `lite` tier to `standard`.
+
+Protocol 1 enriches per query. The optional `INTENT_CLASSIFIER_ENABLED=1` policy
+can change its budgets; it is disabled by default. Protocol 2 selects skills when
+a bundle is activated or refreshed and retains them across turns. Its bundle uses
+the tier budgets above, even when the intent classifier is enabled. Request
+`refresh_persona_context` when a continuing task needs a different skill selection.
+
+Universal rules are a separate layer from skills: `rules/rule-*.mdc` files load
+for every agent, ordered by priority, without semantic retrieval. Rules with
+per-agent `applies_to` or `exclude_agents` fields are rejected. `RULES_ENABLED=0`
+disables this layer for diagnostics.
 
 ## Creating a New Skill
 
@@ -230,7 +250,11 @@ capable_skills:
      - skill-domain-name
    ```
 
-4. **Restart MCP server**: To re-index skills
+4. **Rebuild the index and reload the context**: Server startup detects changed
+   skill files and rebuilds the index. For a manual rebuild, use the installation's
+   interpreter to run `python -m src.reindex` while its service and stdio readers
+   are stopped. For a shared daemon, follow the [maintenance workflow](../docs/shared-mcp-daemon.md).
+   A retained protocol 2 bundle needs `refresh_persona_context` to use the changes.
 
 ## Best Practices
 

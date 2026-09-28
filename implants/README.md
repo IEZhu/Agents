@@ -47,10 +47,12 @@ implant-{technique-name}.mdc
 ```yaml
 ---
 description: "Brief description of the reasoning technique"
-globs: []              # File patterns for auto-activation (usually empty)
-alwaysApply: false     # Whether to always include this implant
+globs: []              # Editor metadata; MCP retrieval does not use this field
+alwaysApply: false     # Editor metadata; MCP retrieval does not use this field
 short_name: MyTechnique     # CamelCase short name for display
 one_liner: brief action phrase  # Lowercase, no period, describes what it does
+triggers:                      # User-side task phrases for optional retrieval modes
+  - compare conflicting sources
 ---
 ## Pattern
 1. **Step One**: Description of first step
@@ -162,19 +164,45 @@ Techniques for breaking down complex problems:
 
 ## Activation Methods
 
-### 1. Automatic (RAG)
+### 1. Agent preferences and semantic retrieval
 
-Implants are automatically selected based on query relevance:
-- Query is embedded
-- Vector search returns relevant implants
-- Top matches are injected into context
+An agent's `preferred_implants` list loads by canonical ID in declaration order,
+then semantic search fills remaining slots. These preferences are direct loads,
+not the distance boost used for `preferred_skills`.
+
+```yaml
+preferred_implants:
+  - implant-chain-of-verification
+  - implant-step-back-prompting
+```
+
+With the default policy, `standard` starts with 2 slots and `deep` with 3. A longer
+preferred list raises the budget, up to `MAX_PREFERRED_IMPLANTS` (5). An inferred
+`lite` tier is promoted to `standard` for agents with declared implants; an
+explicit `lite` tier loads none. Protocol 1's optional intent classifier can waive
+promotion for a greeting and change per-query budgets. Protocol 2 retains its
+bundle across turns and always uses the tier-based budget.
+
+Semantic retrieval embeds the query and role, then selects candidates below
+`IMPLANTS_RELEVANCE_THRESHOLD` (default `0.85`). Optional settings in
+`src/engine/config.py` change this behavior:
+
+| Setting | Default | Alternative |
+|---|---|---|
+| `IMPLANT_INDEX_MODE` | `legacy`: description + body | `triggers`: description + triggers + When to Use |
+| `IMPLANT_GATING` | `legacy`: absolute distance cutoff | `zscore`: candidates must stand out from the query's distance distribution |
+| `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to protocol 1 |
+
+The alternatives affect semantic selection or per-query need, not the meaning of
+editor fields `globs` and `alwaysApply`. A protocol 2 bundle is updated through
+`refresh_persona_context`; changing the current question alone does not reload it.
 
 ### 2. Explicit via MCP Tool
 
 ```python
 # Request specific reasoning strategy
 load_implants(task_type="debugging")
-# Returns: chain-of-code, reflexion
+# Returns: chain-of-code, reflexion, react
 
 load_implants(task_type="analysis")
 # Returns: step-back-prompting, chain-of-verification
@@ -183,15 +211,19 @@ load_implants(task_type="creative")
 # Returns: analogical-prompting, generated-knowledge
 
 load_implants(task_type="planning")
-# Returns: plan-and-solve, skeleton-of-thought
+# Returns: plan-and-solve-plus, skeleton-of-thought
 ```
 
 ### 3. Direct Query
 
 ```python
-load_implants(query="How do I debug this race condition?")
+load_implants(query="How do I debug this race condition?", limit=3)
 # Returns implants relevant to debugging
 ```
+
+`task_type` selects a fixed bundle; `query` selects by semantic relevance, with
+`limit=5` by default. Returned implants are supplementary context; this tool does
+not replace a protocol 2 persona descriptor or its footer.
 
 ## Creating a New Implant
 
@@ -225,7 +257,14 @@ load_implants(query="How do I debug this race condition?")
    Output: "..."
    ```
 
-3. **Restart MCP server**: To re-index implants
+3. **Attach when needed**: Add its canonical ID to an agent's `preferred_implants`
+   for a direct preference. Otherwise it participates in semantic retrieval.
+
+4. **Rebuild the index and reload the context**: Server startup detects changed
+   implant files and rebuilds the index. For a manual rebuild, use the installation's
+   interpreter to run `python -m src.reindex` while its service and stdio readers
+   are stopped. For a shared daemon, follow the [maintenance workflow](../docs/shared-mcp-daemon.md).
+   Refresh retained protocol 2 bundles to deliver the updated text.
 
 ## Best Practices
 

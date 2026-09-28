@@ -1,5 +1,9 @@
 # Persona and request routing
 
+This is the current routing contract. For setup and operations, start with the
+[documentation map](README.md); for a repeatable update, use the
+[documentation refresh process](../flows/documentation-refresh.md).
+
 Protocol 2 keeps the active persona in the client conversation. The model assesses
 whether its current scope fits each new request. A fitting role continues without
 routing, catalog lookup, enrichment, or a server-side suitability check.
@@ -26,6 +30,11 @@ flowchart TD
     Keep --> Answer[Answer and log attribution]
     Apply --> Answer
 ```
+
+The installer and committed client instructions use version 2. MCP tools and
+slash prompts retain version 1 as their API default, so callers must explicitly
+pass `protocol_version=2` to request the contract below. Choosing HTTP or stdio
+does not select a persona protocol.
 
 ## Client decisions
 
@@ -90,19 +99,58 @@ messages. No cache clearing, shared active-agent variable or conversation reset 
 involved. Use the last successful footer on `keep`; logs record self-reported
 activation and revision rather than proving behavioral compliance.
 
+Keep the complete descriptor and exact footer in retained conversation context,
+including summaries used during compaction. Losing a temporary tool variable
+does not remove an activation that remains in the conversation. Before sending
+the final answer, compose it with the saved footer and call `log_interaction`
+with that exact text, the current user request verbatim, the descriptor, and the
+action (`keep`, `switch`, `refresh`, or `restore`). Then deliver the answer.
+
 ## Enrichment and storage
 
 Agent metadata declares core, preferred and capable skills, plus preferred
 implants. Tier inference selects lite, standard or deep depth; an inferred lite
-request can be promoted for declared enrichment. Explicit lite remains lite.
+request is promoted to standard when the agent declares preferred implants.
+Explicit lite remains lite.
 Mandatory rules and core skills are distinct from extra retrieved components.
 Standard and deep tiers select relevant extras under the agent's declared skill
 constraints. Refresh reads current source content before calculating its revision.
+
+`RULES_ENABLED=0` disables the shared rules layer. The optional intent classifier
+is off by default (`INTENT_CLASSIFIER_ENABLED=0`). When enabled, it can contribute
+the initial v2 tier; per-query skill/implant budgets and persona-format suppression
+remain in the v1 path. `IMPLANT_NEED_GATE` is also v1-only because a v2 bundle
+persists across later requests until a switch, restore, or refresh.
 
 The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
 bounded persistent routing cache. The embedding model and thresholds come from
 `src/engine/config.py`; no external model is called to decide `keep`. The existing
 v1 enriched-prompt TTL cache remains separate from v2 client persona state.
+
+## Runtime and project boundaries
+
+Both transports use the tools defined in `src/server.py`; HTTP excludes
+`clear_session_cache`. Version 2 handlers live in
+`src/engine/persona.py`; `src/engine/persona_bundle.py` assembles fresh blocks and
+their revision. `src/schemas/protocol.py` defines the descriptors and responses.
+Each client conversation owns its activation; the shared HTTP daemon does not
+hold one global active persona for all clients.
+
+The daemon keeps derived router and history indexes in private service state.
+Standalone startup leases separate `data/stdio/` slots for concurrent processes
+when process locking is available; without it, startup uses temporary derived
+storage. Skill and implant indexes are installation data. The bounded v1 prompt
+and context-hash caches are process-local. Over stdio, `clear_session_cache()`
+clears those shared caches; for HTTP, use `.venv/bin/python -m src.daemon clear-cache`.
+Cache clearing is an administrative action and is not required for persona changes.
+
+HTTP repository memory requires `X-Agents-Workspace` with a registered workspace
+UUID. Global connections can route and load personas without that header, but
+`describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
+a valid workspace. On `workspace_required` or `workspace_invalid`, keep routing
+and report unavailable memory without retrying logging in a loop. For
+`needs_summary`, preserve `workspace_id`, `repo_path`, and `repo_hash` in the
+follow-up write. See [memory and errors](shared-mcp-daemon.md#memory-and-errors).
 
 ## Compatibility
 
@@ -163,7 +211,15 @@ subsequent user edits requires merging those edits first.
 
 ## Validation
 
-Run deterministic contract and migration tests with `pytest tests/`. The dialogue
+Run deterministic contract and migration tests from the checkout root:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_protocol_migration.py -q
+```
+
+See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,
+and optional integration tests. These checks validate server and migration
+contracts; they do not by themselves validate a client's behavior. The dialogue
 runner in `evals/runners/run_persona_dialogues.py` drives real Codex/Claude sessions,
 retains protocol instructions and records actual MCP traces. Evaluate Russian and
 English continuations, role switches, retained facts, recovery and failures with
