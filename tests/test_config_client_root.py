@@ -173,6 +173,19 @@ class TestDeprecatedAliases:
 
 
 class TestCacheReset:
+    @pytest.mark.parametrize("first_allows_fallback", [True, False])
+    def test_memory_and_flows_share_one_pinned_root(self, tmp_path, monkeypatch, first_allows_fallback):
+        first, second = tmp_path / "first", tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(first))
+        assert engine_config.get_client_repo_root(
+            allow_install_fallback=first_allows_fallback) == str(first.resolve())
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(second))
+        assert engine_config.get_client_repo_root(
+            allow_install_fallback=not first_allows_fallback) == str(first.resolve())
+        assert engine_config.get_client_repo_root() == str(first.resolve())
+
     def test_reset_lets_tests_swap_roots(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(tmp_path / "a"))
         (tmp_path / "a").mkdir()

@@ -107,8 +107,7 @@ def client_context(ctx=None, *, allow_install_fallback=True):
         # Prompts/tools must forward their MCP context explicitly.
         raise WorkspaceError("workspace_required")
     from src.engine.config import get_client_repo_root
-    root = (get_client_repo_root() if allow_install_fallback
-            else get_client_repo_root(allow_install_fallback=False))
+    root = get_client_repo_root(allow_install_fallback=allow_install_fallback)
     return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve())
 
 
