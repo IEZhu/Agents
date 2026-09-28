@@ -1,0 +1,2 @@
+# Keep native Windows batch files in CRLF regardless of core.autocrlf.
+*.bat text eol=crlf

@@ -191,6 +191,33 @@ because connectivity returns.
 to install v1; on Windows set `AGENTS_PERSONA_PROTOCOL=1` before `scripts\init_repo.bat`.
 Use the same setting on subsequent installer runs.
 
+To update instructions without rerunning installation, use
+`python3 scripts/install_instructions.py` (Windows:
+`py -3 scripts\install_instructions.py`). This standalone command requires Python
+3.11 or newer, uses only the standard library, and updates detected Codex and
+Claude clients by default. Use `--clients codex` to restrict the update or
+`--protocol 1` / `--protocol 2` to override `AGENTS_PERSONA_PROTOCOL` (unset or empty
+defaults to 2).
+It updates global managed instructions, an existing exact generated Claude
+routing reminder, and that reminder's entry in `~/.claude/memory/MEMORY.md`.
+It does not create an absent reminder or change dependencies, `.env`, vector
+indexes, MCP registrations or the shared service.
+
+Both installers automatically install the selected protocol in Codex's global
+instructions during client setup, unless `--skip-mcp` is used. Detection accepts
+`CODEX_HOME`, an existing default `~/.codex` directory, or an available `codex`
+command. A non-empty `CODEX_HOME` selects the profile directory; otherwise
+`~/.codex` is used. Within that directory the helper updates a non-empty
+`AGENTS.override.md`, falling back to `AGENTS.md`. The file's unrelated content is
+preserved. See [Codex instruction installation](../README.md#codex-instruction-installation)
+for a targeted update command and the official instruction-discovery reference.
+
+This installs persona instructions only. It does not register Codex's MCP
+connection or restart the shared service. The existing daemon
+`migrate --clients codex` command configures the macOS connection; see
+[daemon installation and client migration](shared-mcp-daemon.md#installation-and-client-migration).
+Start a fresh Codex session so updated instructions are loaded.
+
 The checked-in `CLAUDE.md` uses a managed v2 section. Global installation does not
 modify this tracked file. To switch the checkout itself to v1, run
 `.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-v1.md`
@@ -199,7 +226,16 @@ modify this tracked file. To switch the checkout itself to v1, run
 Only the managed section is replaced; repository notes outside it remain intact.
 
 Both installers replace only the marked routing section and back up changed
-files. They migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its
+files. The shared instruction writer retains the three newest backups per file
+whose names end in `.backup.<timestamp>`, accepting both the legacy 10-digit
+seconds and current 19-digit nanoseconds formats. It removes older matching
+regular files after a successful write or an unchanged-content check. An
+unchanged update creates no backup. Backup creation reserves a distinct name even
+when the clock returns a timestamp already in use. Named manual backups, other
+filename formats and symlink backups are preserved; MCP configuration backups use separate logic.
+Malformed routing markers stop the update without rewriting the target.
+
+The installers migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its
 bytes exactly match a known generated v1/v2 template. A changed reminder or index
 entry is preserved with a warning naming the file and manual correction. Windows
 migrates an existing reminder but never creates one when absent. Other project
@@ -221,7 +257,7 @@ subsequent user edits requires merging those edits first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_protocol_migration.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,
