@@ -180,18 +180,20 @@ set "VENV_PY_VER="
 set "VENV_PY_SUPPORTED=true"
 REM FOR /F invokes cmd /c, which strips the outer quote pair. Keep another pair
 REM around the complete command so the executable path retains its own quotes.
-for /f "delims=" %%A in ('""%VENV_PYTHON%" "%PYCHECK%" 2^>nul"') do set "VENV_PY_VER=%%A"
-if not defined VENV_PY_VER (
-    set "VENV_PY_SUPPORTED=false"
-    REM check_version.py failed — get version directly for display
-    for /f "delims=" %%A in ('""%VENV_PYTHON%" -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul"') do set "VENV_PY_VER=%%A"
-    if not defined VENV_PY_VER set "VENV_PY_VER=unknown"
-    echo   %YELLOW%WARNING:%NC% Could not verify existing virtual environment Python version as supported ^(reported: !VENV_PY_VER!^)
-)
+for /f "delims=" %%A in ('""%VENV_PYTHON%" "%PYCHECK%"" 2^>nul') do set "VENV_PY_VER=%%A"
+if defined VENV_PY_VER goto :venv_version_ready
+set "VENV_PY_SUPPORTED=false"
+REM check_version.py failed — get major.minor from "Python X.Y.Z" for display.
+REM Keep the probe outside a command block to avoid cmd's nested quote parsing.
+for /f "tokens=2,3 delims=. " %%A in ('""%VENV_PYTHON%" --version" 2^>nul') do set "VENV_PY_VER=%%A.%%B"
+if not defined VENV_PY_VER set "VENV_PY_VER=unknown"
+echo   %YELLOW%WARNING:%NC% Could not verify existing virtual environment Python version as supported ^(reported: !VENV_PY_VER!^)
+
+:venv_version_ready
 echo   %GREEN%+%NC% Virtual environment exists (!VENV_PY_VER!)
 
 REM Compare venv Python version with selected interpreter
-for /f "delims=" %%A in ('%SELECTED_PYTHON% -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul') do set "SELECTED_PY_SHORT=%%A"
+set "SELECTED_PY_SHORT=%PY_VER%"
 if not "!VENV_PY_VER!"=="!SELECTED_PY_SHORT!" echo   %YELLOW%WARNING:%NC% Venv python version (!VENV_PY_VER!) differs from selected (!SELECTED_PY_SHORT!)
 
 echo(
