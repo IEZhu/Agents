@@ -36,7 +36,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_PATH="$REPO_ROOT/.venv"
-PYTHON_MIN_VERSION="3.10"
+PYTHON_MIN_VERSION="3.11"
 # Select the same protocol for managed instructions, memory, and printed fallback.
 PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"
 case "$PERSONA_PROTOCOL" in
@@ -418,7 +418,10 @@ SKIP_INSTALL=false
 
 if [ -d "$VENV_PATH" ]; then
     # Check existing venv python version
-    VENV_PYTHON_VER=$("$VENV_PATH/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "unknown")
+    VENV_PYTHON_VER=$("$VENV_PATH/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || VENV_PYTHON_VER=unknown
+    if [[ ! "$VENV_PYTHON_VER" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        VENV_PYTHON_VER=unknown
+    fi
 
     print_success "Virtual environment exists ($VENV_PYTHON_VER)"
 
@@ -436,6 +439,15 @@ if [ -d "$VENV_PATH" ]; then
         print_step "Creating fresh virtual environment using $SELECTED_PYTHON..."
         "$SELECTED_PYTHON" -m venv "$VENV_PATH"
     else
+        if [ "$VENV_PYTHON_VER" = "unknown" ] || ! version_gte "$VENV_PYTHON_VER" "$PYTHON_MIN_VERSION"; then
+            if [ "$VENV_PYTHON_VER" = "unknown" ]; then
+                print_error "Could not verify existing virtual environment Python version"
+            else
+                print_error "Existing virtual environment uses Python $VENV_PYTHON_VER"
+            fi
+            print_error "Existing virtual environment requires Python >= $PYTHON_MIN_VERSION; rerun setup and choose to recreate it"
+            exit 1
+        fi
         print_step "Using existing virtual environment"
         SKIP_INSTALL=true
     fi

@@ -2,13 +2,22 @@
 
 **Universal MCP Server for AI Agent Roles, Skills & Cognitive Implants**
 
-A semantic router that dynamically loads specialized agent personas, domain skills, and cognitive reasoning implants based on user queries. Works with any MCP-compatible client (Claude Code, Cursor, Windsurf, and others).
+A local MCP server that loads specialized agent personas, domain skills, shared rules, and cognitive reasoning implants. Clients can connect through standalone stdio processes or a shared macOS HTTP service. Protocol 2 keeps a fitting persona in the conversation and routes only when selection is needed.
+
+- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
+- [Model workflows](flows/README.md): reusable Markdown instructions, including
+  the [documentation refresh process](flows/documentation-refresh.md).
 
 ---
 
 ## 🚀 Quick Start
 
 ### After Cloning
+
+Use Python 3.11 or newer, as required by [pyproject.toml](pyproject.toml).
+An existing `.venv` must also use a supported version. If it uses an older Python,
+choose to recreate it when the installer asks; setup stops if you decline.
 
 ```bash
 git clone <repository-url>
@@ -18,11 +27,12 @@ cd Agents
 ./scripts/init_repo.sh
 ```
 
-The script will:
-- ✅ Create Python virtual environment (`.venv/`)
-- ✅ Install all dependencies
-- ✅ Create `.env` configuration file
-- ✅ Validate MCP server configuration
+The interactive script creates or reuses `.venv/`, installs dependencies, creates
+`.env`, selects and downloads an embedding model, and builds the skill and implant
+indexes. It can also configure detected Cursor, Claude Code, and Claude Desktop
+clients and install protocol 2 instructions in the global Claude configuration.
+Use `./scripts/init_repo.sh --help` for the available skip options. For the shared
+macOS service and Codex configuration, continue with [MCP client configuration](#-mcp-client-configuration).
 
 ### Manual Setup
 
@@ -36,28 +46,56 @@ pip install -r requirements.txt
 
 # Configure environment
 cp env.example .env
-# Edit .env with your API keys
+# Edit .env for the model and any optional integrations
+
+# Download the selected model and build the indexes
+python -m src.reindex
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-### Required Environment Variables
+### Environment Variables
 
-Create `.env` file with:
+The core router needs no external API key. Keep optional integration keys empty
+unless you use the corresponding service. Configure `.env` using [env.example](env.example):
 
 ```env
-LANGFUSE_PUBLIC_KEY=pk-lf-... # Optional: observability
-LANGFUSE_SECRET_KEY=sk-lf-... # Optional: observability
+LANGFUSE_PUBLIC_KEY=          # Optional: observability
+LANGFUSE_SECRET_KEY=          # Optional: observability
 LANGFUSE_HOST=https://cloud.langfuse.com
-ANTHROPIC_API_KEY=sk-ant-...  # Optional: for document OCR
-AGENTS_DEBUG=0                # Set to 1 for JSON debug logging in logs/
+ANTHROPIC_API_KEY=            # Optional: for document OCR
+AGENTS_DEBUG=0                # Set to 1 for per-call JSON debug logs
 ```
 
-> **Note**: Embeddings are handled locally by `fastembed` (ONNX Runtime). Model is selected during setup — no external API key is required for core routing.
+Embeddings run locally through FastEmbed (ONNX Runtime); the initial model download
+requires network access. Standalone stdio defaults to
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. The shared daemon
+uses a cached `intfloat/multilingual-e5-large` snapshot selected by its controller.
 
-### Background Auto-Update
+| Setting | Default | Purpose |
+|---|---|---|
+| `EMBEDDING_MODEL` | Multilingual MiniLM above | Standalone embedding model |
+| `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache |
+| `AGENTS_CLIENT_REPO_ROOT` | Nearest `.git` or `CLAUDE.md` above the process working directory; otherwise that directory | Explicit stdio memory target |
+| `RULES_ENABLED` | `1` | Include shared rules in loaded context |
+| `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
+| `AGENTS_PERSONA_PROTOCOL` | `2` in installers | Select the installed client instruction template; the MCP API still defaults to v1 |
+
+Routing thresholds and enrichment settings are defined in
+[src/engine/config.py](src/engine/config.py). HTTP memory uses a registered
+workspace header instead of `AGENTS_CLIENT_REPO_ROOT`.
+
+### Updates
+
+The shared daemon has its own update controller. Run
+`.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
+updates are opt-in through `.venv/bin/python -m src.daemon auto-update enable`.
+See [service updates and recovery](docs/shared-mcp-daemon.md#updates-and-recovery).
+The daemon disables the standalone updater described below.
+
+#### Standalone stdio auto-update
 
 The server can keep itself current. Updates are **two-phase** — prepared in the
 background, activated on the next idle start — so the live install is never mutated
@@ -137,7 +175,7 @@ the live tree and rebuild the stores right there, rolling back to the previous
 commit if the rebuild fails. This mode can delay startup for fetch and reindex;
 it no longer mutates files in a background thread while sessions are serving.
 
-Run a manual rebuild any time with `python -m src.reindex`.
+With serving processes stopped, run a manual rebuild using `python -m src.reindex`.
 
 ---
 
@@ -147,13 +185,13 @@ The server exposes MCP tools that any compatible client can call:
 
 | Tool | Purpose |
 |------|---------|
-| `route_and_load(query)` | Semantic routing — finds the best agent, enriches its prompt with relevant skills & implants |
+| `route_and_load(query)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
 | `refresh_persona_context(query, current_persona)` | Protocol 2: refresh skills/implants for the active role |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
-| `clear_session_cache()` | Reset session cache |
+| `clear_session_cache()` | Stdio only: administrative reset of the shared v1 prompt cache and sticky mappings; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling, or when the sampling call fails, it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling, or sampling failed); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
@@ -164,7 +202,7 @@ Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
 enrichment calls. A needed specialization change triggers routing; a known
 requested role loads directly. Lost instructions restore the known role; a
-justified refresh adds skills without reselecting it.
+justified refresh rebuilds its context without reselecting it.
 
 Version 2 returns separate persona, rules, skills and implants blocks, an
 activation descriptor and an exact footer. Every successful switch, restore or
@@ -222,33 +260,51 @@ passing server tests alone does not establish it.
 
 ```
 Agents/
-├── agents/               # Agent personas (system prompts, 38 agents)
+├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
-│   ├── common/           # Shared agent resources
-│   └── schemas/          # Validation schemas
+│   ├── common/           # Shared resources and agent-schema.json
+│   └── schemas/          # Additional schemas
 ├── skills/               # Reusable knowledge chunks (RAG)
 │   └── skill-*.mdc
 ├── implants/             # Cognitive reasoning strategies (RAG)
 │   └── implant-*.mdc
+├── rules/                # Shared directives (rule-*.mdc)
 ├── src/
-│   ├── server.py         # MCP Server entrypoint (FastMCP)
+│   ├── server.py         # FastMCP tools, prompts, and standalone entrypoint
+│   ├── startup.py        # Installation leases and isolated stdio indexes
+│   ├── self_update.py    # Standalone staged updates
+│   ├── reindex.py        # Skill and implant index rebuild
+│   ├── daemon/           # HTTP app, service control, workspaces, client migration
 │   ├── engine/
 │   │   ├── router.py     # Semantic routing (cache-first)
+│   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
+│   │   ├── persona_bundle.py # Fresh instruction blocks and bundle revision
 │   │   ├── skills.py     # Skill retrieval (vector search)
 │   │   ├── implants.py   # Implant retrieval (vector search)
+│   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
 │   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
+│   │   ├── intent.py     # Optional task classification
+│   │   ├── fingerprint.py # Index compatibility fingerprint
 │   │   ├── context.py    # Context retrieval (history formatting)
 │   │   └── language.py   # Language detection
+│   ├── memory/           # Repository summary, history, managed sections
+│   ├── schemas/protocol.py # Request, response, and persona schemas
 │   └── utils/
 │       ├── prompt_loader.py
 │       ├── debug_logger.py     # Optional JSON debug logging
 │       └── langfuse_compat.py  # Optional Langfuse layer
-├── data/                 # Vector store cache (auto-initialized)
-├── mcp.json              # MCP server configuration
+├── bridge/               # Node stdio bridge to the shared HTTP service
+├── scripts/              # Setup, validation, test, and maintenance commands
+├── scripts/templates/    # Versioned client instruction templates
+├── tests/                # Deterministic and opt-in integration tests
+├── evals/                # Routing, enrichment, and client dialogue evaluations
+├── docs/                 # Guides and reference documents
+├── flows/                # Reusable Markdown task instructions for models
+├── data/                 # Installation indexes and leased stdio state (ignored)
 ├── pyproject.toml        # Python project metadata
 └── requirements.txt
 ```
@@ -260,28 +316,39 @@ Agents/
 | **Agents** | Specialized personas with unique system prompts |
 | **Skills** | Domain-specific knowledge chunks (retrieved via RAG) |
 | **Implants** | Cognitive patterns & reasoning strategies |
+| **Rules** | Shared directives included in every loaded bundle when enabled |
 | **Router** | Semantic matching + caching for fast agent selection |
+| **Persona bundle** | Versioned role instructions, rules, skills, and implants retained by the client |
+| **Memory** | Per-project summary and action history |
 
 ---
 
 ## 🔌 MCP Client Configuration
 
-On macOS, use one shared daemon for Codex, Claude Code, Cursor and Claude Desktop:
+On macOS, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
+Before the first migration, follow the maintenance and baseline steps in
+[service operations](docs/shared-mcp-daemon.md#installation-and-client-migration).
+The service requires a locally cached e5-large model; choose that model during
+setup if you plan to use the daemon. The Desktop bridge requires Node 22 or newer.
 
 ```bash
 .venv/bin/python -m src.daemon install
 .venv/bin/python -m src.daemon start
+.venv/bin/python -m src.daemon migrate --clients codex,claude,cursor
 .venv/bin/python -m src.daemon migrate --workspace /absolute/path/to/project
 .venv/bin/python -m src.daemon migrate --clients desktop
 ```
 
-The cached model is `intfloat/multilingual-e5-large`. Global registrations provide
-routing; project memory requires a registered workspace. The installer manages
-private bearer headers and backups. See [service operations](docs/shared-mcp-daemon.md)
-for the initial maintenance window, scope audit, updates, token rotation and rollback.
+Global registrations provide routing; project memory requires a registered
+workspace. Register each clone or worktree separately with `migrate --workspace`.
+Migration manages private bearer headers and backups. Reconnect MCP in open
+clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
+scope audits, updates, token rotation and rollback.
 
 The configurations below are for explicit standalone stdio use (including platforms
 without the macOS service). Stop the shared daemon before a full stdio rollback.
+Replace both absolute installation paths below. Set `AGENTS_CLIENT_REPO_ROOT` to
+the client project when its launch directory is not reliable.
 
 ### Claude Code (`.mcp.json` in project root)
 
@@ -289,21 +356,27 @@ without the macOS service). Stop the shared daemon before a full stdio rollback.
 {
   "mcpServers": {
     "Agents-Core": {
-      "command": ".venv/bin/python",
-      "args": ["src/server.py"]
+      "command": "/absolute/path/to/Agents/.venv/bin/python",
+      "args": ["/absolute/path/to/Agents/src/server.py"],
+      "env": {
+        "AGENTS_CLIENT_REPO_ROOT": "/absolute/path/to/project"
+      }
     }
   }
 }
 ```
 
-### Cursor (`mcp.json` in project root)
+### Cursor (`.cursor/mcp.json` in the client project)
 
 ```json
 {
   "mcpServers": {
     "Agents-Core": {
-      "command": ".venv/bin/python",
-      "args": ["src/server.py"]
+      "command": "/absolute/path/to/Agents/.venv/bin/python",
+      "args": ["/absolute/path/to/Agents/src/server.py"],
+      "env": {
+        "AGENTS_CLIENT_REPO_ROOT": "/absolute/path/to/project"
+      }
     }
   }
 }
@@ -341,7 +414,10 @@ routing:
 You are an expert in X...
 ```
 
-The agent will be auto-discovered by the MCP server on next startup.
+Validate the frontmatter with `.venv/bin/python scripts/validate_agents.py`.
+The MCP server discovers the agent on its next startup; restart the shared daemon
+through its controller when using that transport. The schema is
+[agents/common/agent-schema.json](agents/common/agent-schema.json).
 
 ### Skill tiers
 
@@ -363,31 +439,73 @@ Skills outside the three lists are never loaded for that agent. Guidance that ap
 
 ## 🧠 Repository Memory
 
-The server ships with a per-repo memory subsystem so each new Claude session does not have to re-explore the codebase from scratch:
+The server stores repository summaries and action history separately for each
+client project:
 
 - **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Without sampling, or when the sampling call fails, it writes nothing and returns `needs_summary` (the prompt plus `repo_hash`, `repo_path` and `workspace_id`), and the caller persists its own summary with `write_repo_summary`. Idempotent: re-runs are no-ops unless the repo manifest changes or `force_refresh=True`.
 - **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
 
-The full design and step-by-step rationale lives in [`docs/memory-subsystem-spec.md`](docs/memory-subsystem-spec.md).
+Over stdio, the project is resolved from `AGENTS_CLIENT_REPO_ROOT`, then the
+nearest `.git` or `CLAUDE.md` above the launch directory, then the launch directory
+itself. Over HTTP, memory requires the registered `X-Agents-Workspace` header;
+the daemon does not infer a project from its working directory. If a memory tool
+returns `workspace_required` or `workspace_invalid`, routing remains available.
+Register the project before retrying memory operations; do not retry logging in a loop.
 
-> ⚠️ **Privacy warning** — `history.md` captures raw prompts and responses. If you paste secrets (API keys, tokens, credentials) into Claude, they will land in this file. It is **gitignored by default** to keep them out of git history; if you want the action log visible in PRs, remove `history.md` / `history/` from `.gitignore` and review entries before pushing.
+Source history and `CLAUDE.md` stay in the project. The summary hash is stored in
+the project's `data/memory/`. Derived router and history indexes live in private
+daemon state or in leased `data/stdio/` slots for standalone processes. These
+indexes can be rebuilt without deleting the source history.
+
+See [service memory behavior](docs/shared-mcp-daemon.md#memory-and-errors) for the
+current transport contract and [the original memory design](docs/memory-subsystem-spec.md)
+for its rationale.
+
+`log_interaction` stores the supplied prompt and response by default; callers can
+provide curated `intent`, `action`, and `outcome` fields. This checkout ignores
+`history.md` and `history/`; check the client project's own ignore rules before
+committing its action log.
 
 ---
 
 ## 📊 Observability
 
-The framework integrates with LangFuse for tracing:
-
-- All tool calls are automatically traced
-- Routing decisions are logged
-- Cache hits/misses are tracked
-
-Configure LangFuse in `.env` or leave blank for local-only operation.
+Selected routing, loading, retrieval, and memory operations are instrumented with
+Langfuse. `log_interaction` records the answer and declared persona attribution;
+its history and Langfuse results are reported separately. Configure the Langfuse
+keys in `.env`, or leave them blank for local-only operation. Set
+`LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.
 
 ---
 
 ## 🛠️ Development
+
+Read [AGENTS.md](AGENTS.md) for contributor instructions, [the documentation
+refresh process](flows/documentation-refresh.md) for documentation work, and
+[tests/README.md](tests/README.md) for the test matrix.
+
+Store reusable task instructions for models in `flows/` and list them in
+[flows/README.md](flows/README.md). To run one, point the model to its Markdown
+file, for example: `Run flows/documentation-refresh.md.`
+For review through merge, use `Run flows/pr-review.md for <PR or MR URL>.`
+The [PR/MR flow](flows/pr-review.md) covers concise English descriptions, bot
+review cycles, replies, and a final report in the request's language.
+
+### Validation
+
+Run these commands from the checkout root with its environment installed:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
+.venv/bin/python scripts/validate_agents.py
+```
+
+The default pytest configuration excludes `slow` tests. Use
+`LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -m '' -q` to
+include them. Bridge changes also require `node --test bridge/test.mjs`.
+The test configuration isolates derived indexes in temporary storage; tests that
+load embeddings still need the selected model to be available.
 
 ### Running Server Manually
 
@@ -404,7 +522,10 @@ Enable detailed per-call JSON logging:
 AGENTS_DEBUG=1 python src/server.py
 ```
 
-Logs are written to `logs/{YYYY-MM-DD}/{HH-MM-SS.fff}_{tool}_{direction}.json`. Zero overhead when disabled.
+Standalone debug logs are written under the client project's `logs/`; HTTP
+debug logs are written under the daemon's private `debug/` directory. Files use
+`{YYYY-MM-DD}/{HH-MM-SS.fff}_{uuid}_{tool}_{direction}.json`. Logging is disabled
+unless `AGENTS_DEBUG=1` (or `true`).
 
 ---
 

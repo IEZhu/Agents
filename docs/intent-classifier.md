@@ -6,6 +6,10 @@ task needs** (`mode`) and **how much enrichment it earns** (`tier`).
 
 Off by default. Enable with `INTENT_CLASSIFIER_ENABLED=1`.
 
+The measurements and review rounds below record the original implementation and
+its evaluation dataset. For current protocol 1/2 enrichment behavior, see the
+[routing reference](routing_flow.md#enrichment-and-storage).
+
 ## Why
 
 `infer_tier` (`src/engine/enrichment.py`) decided the budget like this:
@@ -34,9 +38,11 @@ query merely containing `план`, `compare`, `design` or `review`.
 
 `classify_intent(query) -> TaskProfile` is **pure, synchronous, embedding-free and
 dependency-free**. It runs on the hot path before any `await` in
-`route_and_load`, and is unit-testable with no vector store — which matters while
-[#68](https://github.com/IEZhu/Agents/issues/68) (no `tests/conftest.py`, so
-importing `enrichment` can reindex the live stores) is open.
+`route_and_load`, and is unit-testable with no vector store.
+[tests/conftest.py](../tests/conftest.py) now redirects derived stores and updater
+state into temporary storage before collection, so importing `enrichment` in the
+suite does not reindex the live stores. Model loading may still be necessary;
+see [the test guide](../tests/README.md#isolation-and-resource-use).
 
 ```python
 @dataclass(frozen=True)
