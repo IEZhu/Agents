@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Refresh Agents-Core global instructions for detected Codex and Claude clients."""
+import argparse
+import os
+from pathlib import Path
+import shutil
+import sys
+
+
+if sys.version_info < (3, 11):
+    print("ERROR: Python 3.11 or newer is required. Rerun this command with a supported Python.",
+          file=sys.stderr)
+    sys.exit(1)
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR / "_helpers"))
+
+import install_codex_instructions as codex_instructions  # noqa: E402
+from inject_claude_md import inject  # noqa: E402
+from migrate_routing_memory import migrate  # noqa: E402
+
+
+def parse_clients(value: str) -> tuple[str, ...]:
+    clients = tuple(dict.fromkeys(client.strip() for client in value.split(",")))
+    if any(client not in ("codex", "claude") for client in clients):
+        raise argparse.ArgumentTypeError("clients must be codex, claude, or codex,claude")
+    return clients
+
+
+def detect_claude_home() -> Path | None:
+    """Use the same Claude detection signals as the full installers."""
+    home = Path.home()
+    claude_home = home / ".claude"
+    if claude_home.is_dir() or (home / ".claude.json").is_file() or shutil.which("claude"):
+        return claude_home
+    return None
+
+
+def install_claude_instructions(template: Path, protocol: int) -> int:
+    """Preserve personal instructions and migrate only an existing routing reminder."""
+    claude_home = detect_claude_home()
+    if claude_home is None:
+        print("Claude Code not detected; global instructions skipped. "
+              "Install Claude Code, then rerun this command.")
+        return 0
+    target = claude_home / "CLAUDE.md"
+    changed = inject(target, template)
+    state = "configured" if changed else "already current"
+    print(f"Claude Code global instructions {state}: {target}")
+    migrate(claude_home / "memory", protocol, existing_only=True)
+    print("Start a fresh Claude Code session to load these instructions.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog="Updates managed instruction sections and existing known Claude routing memory. "
+               "Client connections and the Agents-Core installation stay unchanged.",
+    )
+    parser.add_argument(
+        "--clients", type=parse_clients, default=("codex", "claude"), metavar="codex,claude",
+        help="clients to refresh (default: both, when detected)",
+    )
+    parser.add_argument(
+        "--protocol", type=int, choices=(1, 2),
+        help="persona protocol (overrides AGENTS_PERSONA_PROTOCOL; default: 2)",
+    )
+    args = parser.parse_args(argv)
+    protocol = args.protocol
+    if protocol is None:
+        value = os.environ.get("AGENTS_PERSONA_PROTOCOL", "2")
+        if value not in ("1", "2"):
+            parser.error("AGENTS_PERSONA_PROTOCOL must be 1 or 2; use --protocol to override it")
+        protocol = int(value)
+
+    name = "routing-protocol-core.md" if protocol == 2 else "routing-protocol-v1.md"
+    template = SCRIPT_DIR / "templates" / name
+    try:
+        template.read_bytes()
+    except OSError as exc:
+        print(f"ERROR: Could not read the protocol {protocol} template: {exc}. "
+              "Restore the template from the repository and rerun this command.", file=sys.stderr)
+        return 1
+
+    failed = False
+    for client in args.clients:
+        try:
+            if client == "codex":
+                result = codex_instructions.main([str(template)])
+            else:
+                result = install_claude_instructions(template, protocol)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: Could not configure {client} instructions: {exc}. "
+                  "Check the reported path, permissions, and routing markers, "
+                  "then rerun this command.", file=sys.stderr)
+            result = 1
+        failed = failed or result != 0
+    return int(failed)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

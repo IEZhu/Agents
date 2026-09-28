@@ -6,6 +6,8 @@ REM This script sets up the development environment after cloning.
 REM
 REM Usage:
 REM   scripts\init_repo.bat [--skip-env] [--skip-index] [--skip-mcp]
+REM   py -3 scripts\install_instructions.py [--clients codex,claude] [--protocol 1^|2]
+REM     Update only client instructions, without running MCP or dependency setup.
 REM
 REM Flags:
 REM   --skip-env     Skip .env file creation (useful if already configured)
@@ -61,6 +63,8 @@ echo Agents Repository Initialization Script (Windows)
 echo(
 echo Usage:
 echo   scripts\init_repo.bat [--skip-env] [--skip-index] [--skip-mcp]
+echo   py -3 scripts\install_instructions.py [--clients codex,claude] [--protocol 1^|2]
+echo     Update only client instructions, without running MCP or dependency setup.
 echo(
 echo Flags:
 echo   --skip-env     Skip .env file creation

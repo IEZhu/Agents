@@ -37,6 +37,10 @@ MCP; see [Codex instruction installation](#codex-instruction-installation).
 Use `./scripts/init_repo.sh --help` for the available skip options. For the shared
 macOS service and client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 
+For an existing installation, refresh global Codex and Claude instructions with
+`python3 scripts/install_instructions.py`. This standalone command needs Python
+3.11 or newer and does not rerun setup; see the [instruction update options](#codex-instruction-installation).
+
 ### Manual Setup
 
 ```bash
@@ -349,20 +353,26 @@ can override global guidance, so review any old project-level routing rules too.
 Start a fresh Codex session after updating instructions. See the
 [official Codex instruction guide](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-To refresh only Codex instructions from the current checkout:
+To refresh global instructions for detected Codex and Claude clients from the
+current checkout without rerunning setup:
 
 ```bash
-.venv/bin/python scripts/_helpers/install_codex_instructions.py scripts/templates/routing-protocol-core.md
+python3 scripts/install_instructions.py
 ```
 
-On Windows, use `.venv\Scripts\python.exe`. For protocol 1, pass
-`scripts/templates/routing-protocol-v1.md` instead. This helper uses the same Codex
-detection, target selection, managed-section replacement and backup retention as
-the installer.
+On Windows, use `py -3 scripts\install_instructions.py`. The command needs Python
+3.11 or newer and only uses its standard library; no virtual environment is
+required. Add `--clients codex` to update only Codex. Protocol 2 is the default;
+`AGENTS_PERSONA_PROTOCOL=1` selects version 1, and an explicit `--protocol 1` or
+`--protocol 2` overrides that environment setting. The command uses the installer's
+managed-section replacement and backup retention. It migrates an existing exact
+generated Claude routing reminder but does not create an absent reminder.
 
-Installing instructions does not register the Agents-Core MCP server in Codex or
-change `config.toml`. The shared daemon migration below configures that connection
-on macOS. Refreshing instructions alone does not require restarting the daemon.
+This command only updates instructions and their managed backups. It does not
+install dependencies, change `.env` or indexes, register MCP connections, or change
+service configuration. The shared daemon migration below configures Codex's MCP
+connection on macOS. Refreshing instructions alone does not require restarting the
+daemon.
 
 ### Shared macOS service
 

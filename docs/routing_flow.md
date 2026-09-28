@@ -184,6 +184,16 @@ because connectivity returns.
 to install v1; on Windows set `AGENTS_PERSONA_PROTOCOL=1` before `scripts\init_repo.bat`.
 Use the same setting on subsequent installer runs.
 
+To update instructions without rerunning installation, use
+`python3 scripts/install_instructions.py` (Windows:
+`py -3 scripts\install_instructions.py`). This standalone command requires Python
+3.11 or newer, uses only the standard library, and updates detected Codex and
+Claude clients by default. Use `--clients codex` to restrict the update or
+`--protocol 1` / `--protocol 2` to override `AGENTS_PERSONA_PROTOCOL` (default 2).
+It updates global managed instructions and an existing exact generated Claude
+routing reminder. It does not create an absent reminder or change dependencies,
+`.env`, indexes, MCP registrations or the shared service.
+
 Both installers automatically install the selected protocol in Codex's global
 instructions during client setup, unless `--skip-mcp` is used. Detection accepts
 `CODEX_HOME`, an existing default `~/.codex` directory, or an available `codex`
@@ -237,7 +247,7 @@ subsequent user edits requires merging those edits first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

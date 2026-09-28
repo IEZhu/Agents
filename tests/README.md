@@ -29,7 +29,7 @@ Run focused files while iterating:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_language.py -q
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q
 ```
 
 Include slow tests, or select only slow tests:
@@ -57,7 +57,7 @@ Use the direct Python command when you need to select specific test files.
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2 and fresh bundles | `test_persona_protocol.py`, `test_persona_bundle.py` |
 | Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py` |
-| Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
+| Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
 | Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |

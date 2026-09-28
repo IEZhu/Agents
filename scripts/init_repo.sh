@@ -6,6 +6,8 @@
 #
 # Usage:
 #   ./scripts/init_repo.sh [--skip-env] [--skip-index] [--skip-mcp]
+#   python3 scripts/install_instructions.py [--clients codex,claude] [--protocol 1|2]
+#     Update only client instructions, without running MCP or dependency setup.
 #
 # Flags:
 #   --skip-env     Skip .env file creation (useful if already configured)

@@ -86,7 +86,7 @@ separate report in the repository is optional.
 | Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py` |
 | Agent catalog and metadata | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json`, `scripts/validate_agents.py` |
 | Memory, history, and workspace isolation | `src/memory/`, `src/daemon/`, `tests/test_per_repo_memory.py`, `tests/test_daemon.py` |
-| Generated instructions and Codex discovery | `scripts/templates/`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `tests/test_codex_instructions.py`, `tests/test_protocol_migration.py` |
+| Generated instructions and Codex discovery | `scripts/install_instructions.py`, `scripts/templates/`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `tests/test_install_instructions.py`, `tests/test_installer_instructions.py`, `tests/test_codex_instructions.py`, `tests/test_protocol_migration.py` |
 | Validation commands | `pyproject.toml`, `tests/conftest.py`, `scripts/run_tests.sh`, `tests/test_*.py` |
 
 Verify names, paths, parameters, versions, defaults, and examples. Distinguish
@@ -162,7 +162,7 @@ Choose additional checks based on the changed contract:
 
 | Change | Check |
 |---|---|
-| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q` |
+| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q` |
 | Agent catalog or metadata | `.venv/bin/python scripts/validate_agents.py`; compare catalog rows with `identity` and `routing` metadata |
 | Protocol or bundle assembly documentation | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py -q` |
 | Behavior changes or several related subsystems | The regular suite described in `tests/README.md` |
