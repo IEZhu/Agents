@@ -123,7 +123,7 @@ def test_selected_client_is_the_only_client_updated(instruction_install, selecte
 
 
 @pytest.mark.parametrize("environment,explicit,expected", [
-    (None, None, 2), ("1", None, 1), ("2", None, 2),
+    (None, None, 2), ("", None, 2), ("1", None, 1), ("2", None, 2),
     ("1", "2", 2), ("2", "1", 1), ("invalid", "2", 2),
 ])
 def test_protocol_flag_takes_precedence_over_environment(instruction_install, monkeypatch, environment, explicit, expected):

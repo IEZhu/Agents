@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     protocol = args.protocol
     if protocol is None:
-        value = os.environ.get("AGENTS_PERSONA_PROTOCOL", "2")
+        value = os.environ.get("AGENTS_PERSONA_PROTOCOL") or "2"
         if value not in ("1", "2"):
             parser.error("AGENTS_PERSONA_PROTOCOL must be 1 or 2; use --protocol to override it")
         protocol = int(value)

@@ -383,8 +383,9 @@ python3 scripts/install_instructions.py
 
 On Windows, use `py -3 scripts\install_instructions.py`. The command needs Python
 3.11 or newer and only uses its standard library; no virtual environment is
-required. Add `--clients codex` to update only Codex. Protocol 2 is the default;
-`AGENTS_PERSONA_PROTOCOL=1` selects version 1, and an explicit `--protocol 1` or
+required. Add `--clients codex` to update only Codex. An unset or empty
+`AGENTS_PERSONA_PROTOCOL` selects protocol 2; `AGENTS_PERSONA_PROTOCOL=1` selects
+version 1, and an explicit `--protocol 1` or
 `--protocol 2` overrides that environment setting. The command uses the installer's
 managed-section replacement and backup retention. It migrates an existing exact
 generated Claude routing reminder and its entry in `~/.claude/memory/MEMORY.md`,

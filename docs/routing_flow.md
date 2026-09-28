@@ -196,7 +196,8 @@ To update instructions without rerunning installation, use
 `py -3 scripts\install_instructions.py`). This standalone command requires Python
 3.11 or newer, uses only the standard library, and updates detected Codex and
 Claude clients by default. Use `--clients codex` to restrict the update or
-`--protocol 1` / `--protocol 2` to override `AGENTS_PERSONA_PROTOCOL` (default 2).
+`--protocol 1` / `--protocol 2` to override `AGENTS_PERSONA_PROTOCOL` (unset or empty
+defaults to 2).
 It updates global managed instructions, an existing exact generated Claude
 routing reminder, and that reminder's entry in `~/.claude/memory/MEMORY.md`.
 It does not create an absent reminder or change dependencies, `.env`, vector
