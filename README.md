@@ -386,10 +386,12 @@ required. Add `--clients codex` to update only Codex. Protocol 2 is the default;
 `AGENTS_PERSONA_PROTOCOL=1` selects version 1, and an explicit `--protocol 1` or
 `--protocol 2` overrides that environment setting. The command uses the installer's
 managed-section replacement and backup retention. It migrates an existing exact
-generated Claude routing reminder but does not create an absent reminder.
+generated Claude routing reminder and its entry in `~/.claude/memory/MEMORY.md`,
+but does not create an absent reminder.
 
-This command only updates instructions and their managed backups. It does not
-install dependencies, change `.env` or indexes, register MCP connections, or change
+This command updates global instructions, that reminder and its memory-index
+entry, and their managed backups. It does not install dependencies, change `.env`
+or vector indexes, register MCP connections, or change
 service configuration. The shared daemon migration below configures Codex's MCP
 connection on macOS. Refreshing instructions alone does not require restarting the
 daemon.

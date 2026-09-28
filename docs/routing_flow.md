@@ -197,9 +197,10 @@ To update instructions without rerunning installation, use
 3.11 or newer, uses only the standard library, and updates detected Codex and
 Claude clients by default. Use `--clients codex` to restrict the update or
 `--protocol 1` / `--protocol 2` to override `AGENTS_PERSONA_PROTOCOL` (default 2).
-It updates global managed instructions and an existing exact generated Claude
-routing reminder. It does not create an absent reminder or change dependencies,
-`.env`, indexes, MCP registrations or the shared service.
+It updates global managed instructions, an existing exact generated Claude
+routing reminder, and that reminder's entry in `~/.claude/memory/MEMORY.md`.
+It does not create an absent reminder or change dependencies, `.env`, vector
+indexes, MCP registrations or the shared service.
 
 Both installers automatically install the selected protocol in Codex's global
 instructions during client setup, unless `--skip-mcp` is used. Detection accepts
