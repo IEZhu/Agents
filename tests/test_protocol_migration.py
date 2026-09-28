@@ -189,8 +189,8 @@ def test_checkout_defaults_to_v2_and_switching_to_v1_is_reversible(tmp_path, hel
 
 def test_installers_default_to_protocol_2():
     root = Path(__file__).resolve().parents[1]
-    assert 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"' in (root / "scripts" / "init_repo.sh").read_text()
-    assert 'set "PERSONA_PROTOCOL=2"' in (root / "scripts" / "init_repo.bat").read_text()
+    assert 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"' in (root / "scripts" / "init_repo.sh").read_text(encoding="utf-8")
+    assert 'set "PERSONA_PROTOCOL=2"' in (root / "scripts" / "init_repo.bat").read_text(encoding="utf-8")
 
 
 def test_instruction_backups_are_bounded_and_contain_recent_versions(tmp_path, helpers, monkeypatch):
