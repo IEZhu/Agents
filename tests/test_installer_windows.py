@@ -65,7 +65,13 @@ def run_windows_installer(tmp_path):
             assert version == (3, 10) if venv_kind == "unsupported" else version >= (3, 11)
 
         activation = venv / "Scripts/activate.bat"
-        activation.write_bytes(b'@echo off\r\necho activated>>"%TEST_EVENTS%"\r\nexit 77\r\n')
+        activation.write_bytes(
+            b'@echo off\r\n'
+            b'if not "%SKIP_ENV%"=="true" exit 78\r\n'
+            b'if not "%SKIP_INDEX%"=="true" exit 78\r\n'
+            b'if not "%SKIP_MCP%"=="true" exit 78\r\n'
+            b'echo activated>>"%TEST_EVENTS%"\r\nexit 77\r\n'
+        )
         before_config, before_activation = config.read_bytes(), activation.read_bytes()
         result = subprocess.run(
             [os.environ["COMSPEC"], "/d", "/c",
@@ -78,6 +84,9 @@ def run_windows_installer(tmp_path):
         assert activation.read_bytes() == before_activation, result.stdout + result.stderr
         assert "Found suitable Python" in result.stdout, result.stdout + result.stderr
         assert "Reinstall? [y/N]:" in result.stdout, result.stdout + result.stderr
+        if venv_kind == "supported":
+            expected_version = probe.stdout.strip()
+            assert f"Virtual environment exists ({expected_version})" in result.stdout, result.stdout + result.stderr
         assert "Installing Dependencies" not in result.stdout
         return result, events.read_text().splitlines() if events.exists() else []
 
@@ -95,6 +104,8 @@ def test_windows_declining_recreation_rejects_invalid_venv(run_windows_installer
     if venv_kind == "unverifiable":
         assert "Could not verify existing virtual environment Python version" in result.stdout
         assert "Virtual environment exists (unknown)" in result.stdout
+    else:
+        assert "Virtual environment exists (3.10)" in result.stdout
     assert "Activating virtual environment" not in result.stdout
     assert events == []
 

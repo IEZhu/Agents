@@ -48,9 +48,9 @@ set "SKIP_MCP=false"
 :parse_args
 if "%~1"=="" goto :args_done
 
-if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"    & shift & goto :parse_args
-if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"   & shift & goto :parse_args
-if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"     & shift & goto :parse_args
+if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"
+if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"
+if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"
 if /I "%~1"=="--help" goto :show_help
 if /I "%~1"=="-h"     goto :show_help
 shift
@@ -178,11 +178,13 @@ goto :venv_activate
 set "VENV_PYTHON=%VENV_PATH%\Scripts\python.exe"
 set "VENV_PY_VER="
 set "VENV_PY_SUPPORTED=true"
-for /f "delims=" %%A in ('"%VENV_PYTHON%" "%PYCHECK%" 2^>nul') do set "VENV_PY_VER=%%A"
+REM FOR /F invokes cmd /c, which strips the outer quote pair. Keep another pair
+REM around the complete command so the executable path retains its own quotes.
+for /f "delims=" %%A in ('""%VENV_PYTHON%" "%PYCHECK%" 2^>nul"') do set "VENV_PY_VER=%%A"
 if not defined VENV_PY_VER (
     set "VENV_PY_SUPPORTED=false"
     REM check_version.py failed — get version directly for display
-    for /f "delims=" %%A in ('"%VENV_PYTHON%" -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul') do set "VENV_PY_VER=%%A"
+    for /f "delims=" %%A in ('""%VENV_PYTHON%" -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul"') do set "VENV_PY_VER=%%A"
     if not defined VENV_PY_VER set "VENV_PY_VER=unknown"
     echo   %YELLOW%WARNING:%NC% Could not verify existing virtual environment Python version as supported ^(reported: !VENV_PY_VER!^)
 )
@@ -196,15 +198,18 @@ echo(
 echo   %YELLOW%WARNING:%NC% Do you want to recreate it and reinstall all packages?
 set "REPLY=N"
 set /p "REPLY=  Reinstall? [y/N]: "
-if /I not "!REPLY!"=="y" (
-    if "!VENV_PY_SUPPORTED!"=="false" (
-        echo   %RED%x%NC% Existing virtual environment requires Python 3.11 or newer; rerun setup and choose to recreate it
-        exit /b 1
-    )
-    echo   %GREEN%^>%NC% Using existing virtual environment
-    set "SKIP_INSTALL=true"
-    goto :venv_activate
-)
+if /I "!REPLY!"=="y" goto :venv_recreate
+if "!VENV_PY_SUPPORTED!"=="false" goto :venv_unsupported
+echo   %GREEN%^>%NC% Using existing virtual environment
+set "SKIP_INSTALL=true"
+goto :venv_activate
+
+:venv_unsupported
+REM Exit outside a nested block so cmd /c preserves the nonzero process status.
+echo   %RED%x%NC% Existing virtual environment requires Python 3.11 or newer; rerun setup and choose to recreate it
+exit /b 1
+
+:venv_recreate
 echo   %GREEN%^>%NC% Removing existing venv...
 rmdir /S /Q "%VENV_PATH%"
 echo   %GREEN%^>%NC% Creating fresh virtual environment using %SELECTED_PYTHON%...
