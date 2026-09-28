@@ -57,7 +57,8 @@ The expected setup runs CodeRabbit and Copilot automatically on the initial
 GitHub PR. Confirm that those reviews actually started. CodeRabbit normally
 reviews subsequent pushes automatically, but its quota is often exhausted.
 After each fix commit is pushed and the remote head updates, **explicitly
-re-request Copilot review**. Do not assume a push requests it again.
+re-request Copilot review when the integration is available**, using the current
+platform's supported action. Do not assume a push requests it again.
 Confirm that a review was queued for the current head. If an earlier review is
 still running, wait for it to finish, then request again if the current head has
 no queued or completed review. A successful API response alone does not prove
@@ -139,9 +140,11 @@ deciding a finding is handled. Also read PR conversation comments and bot status
    its rejection is justified. For a finding in a review body without a thread,
    respond in the platform's corresponding discussion, identifying the finding.
    Do not mark unresolved human approval requirements as satisfied by a reply.
-7. Re-request Copilot after every pushed fix commit. Check CodeRabbit's automatic
-   review or explicit quota result. Wait for the available bots to review the
-   current head, read the new results, and repeat when there are actionable findings.
+7. Re-request Copilot after every pushed fix commit when the integration is
+   available, using the current platform's supported action. Check CodeRabbit's
+   automatic review or explicit quota result. Wait for the available bots to
+   review the current head, read the new results, and repeat when there are
+   actionable findings.
 
 On GitHub, `python scripts/dev/pr_threads.py N --resolve-mine` resolves threads
 whose last comment belongs to the authenticated account. Inspect the candidate
