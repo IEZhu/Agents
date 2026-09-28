@@ -59,7 +59,7 @@ async def test_target_subdirectory_and_escape(environment):
     outside = target.parent / "outside"
     outside.mkdir()
     (target / "escape").symlink_to(outside)
-    for requested in ("..", str(outside), "escape", "absent"):
+    for requested in ("..", str(outside), "escape", "absent", "\x00"):
         error = json.loads(await server.run_flow("check", repo_path=requested))
         assert error["status"] == "error"
         assert "within workspace" in error["error"]

@@ -83,10 +83,13 @@ class ClientContext:
     def workspace_target(self, requested=None):
         """Resolve a target without imposing memory-file write constraints."""
         root = self.workspace_root()
-        target = Path(requested) if requested is not None else root
-        if not target.is_absolute():
-            target = root / target
-        target = target.resolve()
+        try:
+            target = Path(requested) if requested is not None else root
+            if not target.is_absolute():
+                target = root / target
+            target = target.resolve()
+        except (OSError, ValueError, RuntimeError):
+            raise WorkspaceError("repo_path must be an existing directory within workspace") from None
         if not target.is_relative_to(root) or not target.is_dir():
             raise WorkspaceError("repo_path must be an existing directory within workspace")
         return target
