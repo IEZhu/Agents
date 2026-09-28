@@ -1,13 +1,14 @@
 # Refresh documentation for people and AI
 
-This is an executable instruction for an AI working on the Agents-Core repository.
+This is an executable instruction for an AI working on a target repository.
 When the user requests this workflow, read this file and carry it through to a
 verified set of changes. Deliver current documentation and AI instructions on a
 separate branch, with a short validation report.
 
-This workflow is part of the [model workflow catalog](README.md). Store reusable
-task instructions in `flows/` and keep the catalog up to date when adding or
-renaming them.
+This workflow ships in the Agents-Core [model workflow catalog](README.md).
+When maintaining that source catalog, store reusable task instructions in
+`flows/` and update the index when adding or renaming them. Running a flow for
+another repository does not require copying the catalog there.
 
 ## Documentation language
 
@@ -47,21 +48,27 @@ Use main as the base and codex/docs-routing-refresh as the branch.
 This instruction runs in the current AI session. No separate installation or
 command registration is required. If the file is in another working copy, give
 its absolute path and identify the target repository.
+Through Agents-Core MCP, call `run_flow(flow="documentation-refresh")`; use the
+returned `repo_path` as the target. The flow's source checkout supplies instructions
+and reference links, while all inspection, edits and validation use the target.
 
 ## 1. Establish the scope and starting state
 
-1. Read `AGENTS.md` and `CLAUDE.md`, then the [documentation map](../docs/README.md).
+1. Read the target's `AGENTS.md`, `CLAUDE.md` and documentation index when present.
+   For Agents-Core, the index is the [documentation map](../docs/README.md).
    Follow the active session instructions. This workflow does not change their
    priority.
 2. Check `git status --short --branch`, `git worktree list`, and the current
    `HEAD`. Record the base revision for the final comparison.
-3. If no scope is specified, review all maintained documents in the map: user
-   guides, component READMEs, AI instructions, workflows in `flows/`,
-   routing/memory templates, and the test guide. Check plans and reports for clear
+3. If no scope is specified, review all maintained documents in the target: user
+   guides, component READMEs, AI instructions, any workflows or generated
+   instruction templates, and the test guide. Check plans and reports for clear
    status labels, links, and compliance with the documentation language policy.
+   If no index exists, inventory the tracked documents before making changes.
    Preserve their historical results.
-4. Use the separate branch requested by the user. By default, create
-   `codex/docs-refresh-<YYYYMMDD>` from the current `HEAD`; add a suffix if that
+4. Use the separate branch requested by the user. Otherwise follow the target's
+   branch naming rules; if none exist, create `codex/docs-refresh-<YYYYMMDD>`
+   from the current `HEAD`. Add a suffix if that
    name is taken. Use a different base when the user specifies one. Do not reuse
    an unfamiliar branch or discard existing changes.
 5. If the current checkout is busy or contains unrelated changes, create an
@@ -76,6 +83,11 @@ and branch, then continue working.
 For each material discrepancy, record the document, claim, supporting source or
 test, and required correction. A working table in your notes is sufficient; a
 separate report in the repository is optional.
+
+Build a source-to-document map from the target's actual structure, manifests,
+entry points, configuration and tests. The following table applies to Agents-Core;
+for another project, replace these examples with its verified sources. Do not
+assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 
 | What to check | Sources |
 |---|---|
@@ -100,13 +112,16 @@ product behavior merely to match the text.
 - **For people:** correct installation steps, commands, configuration,
   architecture, limitations, and links in the affected guides. Add new pages
   to the documentation map.
-- **For model workflows:** keep reusable task instructions in `flows/`, register
-  them in `flows/README.md`, and update invocation examples and incoming links
-  whenever a workflow moves or is renamed.
-- **For AI:** check that `AGENTS.md` points to one shared protocol, repository
-  notes describe real modules, and routing/memory templates agree with the code.
+- **For model workflows:** preserve the target's established workflow location
+  and index. Use `flows/` and `flows/README.md` when introducing workflows into
+  a project without a convention, or when maintaining Agents-Core. Update
+  invocation examples and incoming links when moving or renaming a workflow.
+- **For AI:** check that the target's AI entry points agree, repository
+  notes describe real modules, and any generated instruction templates agree
+  with the code.
   Avoid maintaining separate copies of the full protocol in multiple documents.
-- When shared routing text changes, edit its source in `scripts/templates/`
+- **Agents-Core only:** when shared routing text changes, edit its source in
+  `scripts/templates/`
   first. When changing the default `routing-protocol-core.md` template, synchronize
   the managed section in this checkout, which uses protocol 2:
 
@@ -119,7 +134,8 @@ product behavior merely to match the text.
   The helper preserves other text and creates a backup when it makes a change.
   Review the diff and exclude the backup from the changes. Do not run the global
   installer just to synchronize Markdown.
-- When changing `memory-routing-v1.md` or `memory-routing-v2.md`, verify migration
+- **Agents-Core only:** when changing `memory-routing-v1.md` or
+  `memory-routing-v2.md`, verify migration
   of the previous generated reminder: the helper recognizes known text by exact
   match. A template edit must not turn the previous generated file into
   unrecognized user content. If migration logic needs to change, include that
@@ -135,8 +151,9 @@ product behavior merely to match the text.
 
 ## 4. Validate the result
 
-Run commands from the worktree root. Use its Python environment; if reusing
-another checkout's environment, supply the interpreter's absolute path and verify
+Run the target project's checks from the worktree root. For Agents-Core, use its
+Python environment; if reusing another checkout's environment, supply the
+interpreter's absolute path and verify
 that `src` imports resolve to the current worktree. Dependency setup is described
 in the [test guide](../tests/README.md).
 
@@ -158,7 +175,8 @@ Execute safe validation commands. Verify installation, migration, update, and
 restart commands against source and tests without running them on the live
 installation.
 
-Choose additional checks based on the changed contract:
+Choose additional checks based on the changed contract and the target's own
+contributor guide or CI. These commands apply to Agents-Core:
 
 | Change | Check |
 |---|---|
@@ -191,8 +209,9 @@ The workflow is complete when:
 In the final response, state the branch and worktree path, main corrections, a
 link to this file for future runs, validation results, and remaining issues.
 Commit, push, and create a PR when those actions are included in the user's
-request. Before committing, review the staged diff and use a Conventional Commit
-with type `docs` for documentation changes.
+request. Before committing, review the staged diff and follow the target's commit
+convention. In Agents-Core, use a Conventional Commit with type `docs` for
+documentation changes.
 
 If a later run finds that the documentation is already current, report what was
 checked and that no discrepancies were found. Do not create redundant changes
