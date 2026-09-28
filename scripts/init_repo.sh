@@ -418,7 +418,10 @@ SKIP_INSTALL=false
 
 if [ -d "$VENV_PATH" ]; then
     # Check existing venv python version
-    VENV_PYTHON_VER=$("$VENV_PATH/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "unknown")
+    VENV_PYTHON_VER=$("$VENV_PATH/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || VENV_PYTHON_VER=unknown
+    if [[ ! "$VENV_PYTHON_VER" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        VENV_PYTHON_VER=unknown
+    fi
 
     print_success "Virtual environment exists ($VENV_PYTHON_VER)"
 
@@ -437,6 +440,11 @@ if [ -d "$VENV_PATH" ]; then
         "$SELECTED_PYTHON" -m venv "$VENV_PATH"
     else
         if [ "$VENV_PYTHON_VER" = "unknown" ] || ! version_gte "$VENV_PYTHON_VER" "$PYTHON_MIN_VERSION"; then
+            if [ "$VENV_PYTHON_VER" = "unknown" ]; then
+                print_error "Could not verify existing virtual environment Python version"
+            else
+                print_error "Existing virtual environment uses Python $VENV_PYTHON_VER"
+            fi
             print_error "Existing virtual environment requires Python >= $PYTHON_MIN_VERSION; rerun setup and choose to recreate it"
             exit 1
         fi

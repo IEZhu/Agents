@@ -42,32 +42,16 @@ for Langfuse analysis.
 
 ## PR review loop
 
-Every PR goes through GitHub Copilot review until it has no concrete findings left;
-CodeRabbit comments too, and its findings get the same treatment.
+Execute [flows/pr-review.md](../flows/pr-review.md) for the review and merge
+process. It is the shared source for concise English descriptions, checking their
+alignment after every commit, reviewing full discussions, and replying in English
+without long dashes or judgments about findings.
 
-1. Request a review:
-   `gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`
-2. Wait for it: `scripts/dev/wait_copilot.sh N [N ...]`. It waits until the PR head equals
-   the pushed branch tip and a Copilot review exists on that commit.
-3. Read everything: `python scripts/dev/pr_threads.py N` lists unresolved threads and the
-   review bodies on the current head. Copilot also reports findings only in the review
-   body, under "Previously missed", so read the body, not just the threads.
-4. For each finding, verify it against the code before acting. Fix what is real;
-   decline with a reason what is not. In 2026-09 Copilot was sometimes wrong: one
-   suggested fix would have let an unpinned agent map pass the manifest check silently.
-   Before tightening a validation rule, check it against existing data so it does not
-   reject records that were fine.
-5. Reply in the thread with the fix commit or the reason, then resolve it:
-   `python scripts/dev/pr_threads.py N --resolve-mine` resolves threads whose last
-   comment is yours.
-6. Push, re-request the review, and repeat.
-
-**When to stop.** Copilot tends to find one new edge case per round, and after several
-rounds its overview may speak of "N unresolved issues" without naming any. Stop when a
-round names no finding and no thread is open; ask it in a PR comment to name the file
-and line if anything remains. Code that handles saved state (resume, rebuild, partial
-runs) drew 10 to 16 rounds; writing out the state table and testing it up front is
-cheaper.
+CodeRabbit and Copilot start the first review automatically in the expected GitHub
+setup. Confirm that they started. CodeRabbit normally reviews later pushes;
+re-request Copilot manually after each pushed fix commit and preserve its lite
+configuration. Continue with the available bots if one exhausts its quota. Use the
+flow's current-head review, validation, and merge conditions before finishing.
 
 **Merged PRs.** Unresolved threads on merged or closed PRs are still answered:
 `python scripts/dev/pr_threads.py --closed` lists them.

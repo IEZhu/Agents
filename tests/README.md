@@ -57,7 +57,7 @@ Use the direct Python command when you need to select specific test files.
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2 and fresh bundles | `test_persona_protocol.py`, `test_persona_bundle.py` |
 | Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py` |
-| Installer version checks, instructions and migration | `test_installer_python.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
+| Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
 | Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |
@@ -68,6 +68,29 @@ Use the direct Python command when you need to select specific test files.
 Patterns in this table name groups of files. See the directory for the full list.
 Do not treat an old test count or duration as an expected result; pytest reports
 the selected, passed, skipped and deselected tests for each run.
+
+## Native Windows installer checks
+
+The [Windows installer workflow](../.github/workflows/windows-installer.yml) runs
+`test_installer_windows.py` on Windows with real Python 3.10 and 3.11 environments.
+It launches the unchanged batch installer through `cmd.exe`, including its version
+probes and `set /p` prompt. Explicit `N` and empty Enter must reject an existing
+Python 3.10 venv or a broken venv whose base interpreter is missing, preserve the
+environment, and exit before activation. A supported venv reaches an activation
+sentinel that exits with code 77. This checks the reuse gate; it does not complete
+dependency installation, download a model, or change MCP client settings.
+
+To run locally in PowerShell with Python 3.11+ selected:
+
+```powershell
+python -m pip install pytest python-dotenv
+$env:AGENTS_TEST_PYTHON310 = 'C:\absolute\path\to\Python310\python.exe'
+python -m pytest tests/test_installer_windows.py -v
+```
+
+These tests skip on macOS/Linux. On Windows, the Python 3.10 cases skip when the
+variable is absent locally and fail if it is absent in CI. The workflow supplies
+the actual interpreter path from `setup-python`.
 
 ## Isolation and resource use
 

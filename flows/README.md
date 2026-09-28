@@ -10,6 +10,7 @@ and the [documentation map](../docs/README.md) for supporting references.
 | Flow | Purpose | Result |
 |---|---|---|
 | [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
+| [PR/MR review](pr-review.md) | Handle review findings, update the description, and repeat bot reviews | A merged request or a precise blocker, with a report in the invocation language |
 
 ## Run a flow
 
@@ -18,6 +19,14 @@ Point the model to the file in the repository and ask it to execute the workflow
 ```text
 Run flows/documentation-refresh.md.
 ```
+
+To handle a pull request or merge request through merge:
+
+```text
+Run flows/pr-review.md for <PR or MR URL>.
+```
+
+Add `no-merge` to stop before merging.
 
 Add optional scope, a starting revision, or a branch when needed:
 

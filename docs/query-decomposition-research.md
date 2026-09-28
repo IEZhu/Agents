@@ -1,307 +1,307 @@
 <!-- Generated 2026-09-23 by a research workflow: 7 literature sweeps + 3 gap sweeps, 81 citations verified against the opened source (9 rejected), synthesis revised after a rigor critic. Claims about our eval set and code were re-checked by hand. -->
 
-# Идеи I1–I7 и многомерный классификатор запроса: что говорят исследования и как это соотносится с нашими замерами F1–F10
+# Ideas I1–I7 and a multidimensional query classifier: research evidence and its relationship to our measurements F1–F10
 
-## 1. Коротко
+## 1. Summary
 
-- **Наши замеры слабее, чем выглядят, и это нужно исправить до любых выводов.** Состав eval-набора (`routing.jsonl` и `implant_labels.jsonl`, ветка feat/factuality-layer) я проверил:
-  - 45 из 56 меток «none» пришли из однострочных голосовых команд MASSIVE/CLINC. Из WildBench (en) таких меток только 11.
-  - Все 20 запросов на ru/es — это короткие команды MASSIVE с tier=lite, и у 18 из них метка «none».
-  - Значит, признаки «tier_lite», «имплант не нужен» и «не английский» в нашем наборе почти совпадают из-за того, как он собран.
-  - F4 (+0.106) и вес tier_lite в F5 могут измерять «голосовая ли это команда», а не «нужна ли модели помощь в рассуждении».
-  - Доля 52% «none» отражает пропорцию исходных датасетов, а не реальный трафик.
-  - F3 («0 попаданий на ru/es») нельзя отделить от типа запроса.
-  - Кроме того, в докстринге `intent.py` сказано, что эвристику подбирали на тех же 110 id (там упоминаются «67/110» и «16 of 25 standard»). То есть F4, скорее всего, измерен на той же выборке, на которой настраивали эвристику.
-- **I7 (классификатор решает, какие слои включать) — идея с самой зрелой опорой в литературе:** [Adaptive-RAG, 2024](https://aclanthology.org/2024.naacl-long.389/), [RAGate, 2024](https://arxiv.org/abs/2407.21712), [SKR, 2023](https://arxiv.org/abs/2310.05002), [DOTS, 2024](https://arxiv.org/abs/2410.03864). Наш F4 пока нельзя считать её подтверждением, потому что он получен на той же выборке и на смещённом наборе. Сначала нужна проверка на отложенных данных.
-- **Слабое место — сравнение по косинусу, а не эмбеддинги как таковые.** Без обучения и кластеризация, и косинус к описаниям айтемов ловят тему. Но в [TnT-LLM, 2024](https://arxiv.org/abs/2403.12173) логистическая регрессия на эмбеддингах, обученная на псевдометках GPT-4, сравнялась с GPT-4 в определении намерения по человеческим меткам (0.658 против 0.655). Значит, обученная голова «что нужно запросу» поверх уже посчитанного эмбеддинга e5-large имеет опору в литературе.
-- **Нарезка запроса (I5 и I1) не лечит основной пример из F2.** В разговоре о промптинге тема сидит в самой инструкции, а не во вставленном артефакте, поэтому вырезание артефактов ничего не меняет. Лечит другое:
-  - обученная голова потребности;
-  - сформулированная LLM потребность ([Re-Invoke, 2024](https://arxiv.org/abs/2408.01875), [BRIGHT, 2024](https://arxiv.org/abs/2407.12883));
-  - выбор имплантов самой хост-моделью из короткого каталога ([Self-Discover, 2024](https://arxiv.org/abs/2402.03620), `implants.get_catalog()` уже есть). Но такой выбор по каталогу помог только сильнейшей модели ([Select-then-Solve, 2026](https://arxiv.org/abs/2604.06753)), так что нужен A/B.
-- **I1 и I2 на уровне промпта работают заметнее, чем принято считать, но защитой не являются.** Промпт-инжиниринг поднял разделение инструкций и данных у GPT-4 с 20.8% до 95.3% при малой потере полезности. При этом крупные модели на старте разделяют хуже мелких ([Can LLMs Separate Instructions From Data?, 2024](https://arxiv.org/abs/2403.06833)). Адаптивные атаки обходят 12 защит, у большинства с успехом выше 90% ([The Attacker Moves Second, 2025](https://arxiv.org/abs/2510.09023)).
-- **I4 стоит делать как явный план шагов у одного агента, а не как передачу работы между персонами.** Для последовательных задач данные скорее против раздачи по агентам. Для нашего случая с одним чат-запросом это прямо не проверялось.
-- **F8 (устаревшие ставки) не лечится тегами и датами в промпте.** Изменчивые факты нужно вынести из skills и фильтровать по дате на сервере ([Mitigating Temporal Misalignment by Discarding Outdated Facts, 2023](https://aclanthology.org/2023.emnlp-main.879/), [Metadata, Structure, or Strategy?, 2026](https://arxiv.org/abs/2606.29645)). Процедурная часть skills должна остаться инструкцией.
+- **Our measurements are weaker than they appear, and this needs to be addressed before drawing conclusions.** I checked the composition of the evaluation set (`routing.jsonl` and `implant_labels.jsonl`, branch feat/factuality-layer):
+  - 45 of the 56 “none” labels came from single-line MASSIVE/CLINC voice commands. Only 11 came from WildBench (en).
+  - All 20 ru/es queries are short MASSIVE commands with tier=lite, and 18 of them are labeled “none”.
+  - This means the features “tier_lite”, “no implant needed”, and “non-English” almost coincide in our set because of how it was assembled.
+  - F4 (+0.106) and the tier_lite weight in F5 may measure “is this a voice command?” rather than “does the model need reasoning support?”.
+  - The 52% “none” share reflects the proportions of the source datasets, not real traffic.
+  - F3 (“0 hits on ru/es”) cannot be separated from query type.
+  - In addition, the `intent.py` docstring says the heuristic was tuned on the same 110 ids (it mentions “67/110” and “16 of 25 standard”). F4 was therefore most likely measured on the same sample used to tune the heuristic.
+- **I7 (a classifier decides which layers to enable) has the most mature support in the literature:** [Adaptive-RAG, 2024](https://aclanthology.org/2024.naacl-long.389/), [RAGate, 2024](https://arxiv.org/abs/2407.21712), [SKR, 2023](https://arxiv.org/abs/2310.05002), [DOTS, 2024](https://arxiv.org/abs/2410.03864). Our F4 cannot yet count as confirmation because it was obtained in-sample on a biased set. It first needs validation on held-out data.
+- **The weak point is cosine comparison, not embeddings themselves.** Without training, both clustering and cosine similarity to item descriptions capture topic. But in [TnT-LLM, 2024](https://arxiv.org/abs/2403.12173), logistic regression on embeddings, trained on GPT-4 pseudo-labels, matched GPT-4 at intent classification against human labels (0.658 versus 0.655). A trained “what does this query need?” head over the already computed e5-large embedding therefore has support in the literature.
+- **Splitting the query (I5 and I1) does not fix the main F2 example.** In a conversation about prompting, the topic is in the instruction itself, not in a pasted artifact, so removing artifacts changes nothing. Other approaches address this:
+  - a trained need-detection head;
+  - an LLM-formulated statement of the need ([Re-Invoke, 2024](https://arxiv.org/abs/2408.01875), [BRIGHT, 2024](https://arxiv.org/abs/2407.12883));
+  - the host model selecting implants from a short catalog ([Self-Discover, 2024](https://arxiv.org/abs/2402.03620); `implants.get_catalog()` already exists). However, catalog selection helped only the strongest model in [Select-then-Solve, 2026](https://arxiv.org/abs/2604.06753), so an A/B test is needed.
+- **I1 and I2 work better at the prompt level than is commonly assumed, but they are not a security boundary.** Prompt engineering improved GPT-4's separation of instructions from data from 20.8% to 95.3%, with a small utility loss. Larger models nevertheless start out worse at separation than smaller ones ([Can LLMs Separate Instructions From Data?, 2024](https://arxiv.org/abs/2403.06833)). Adaptive attacks bypass 12 defenses, with success above 90% for most of them ([The Attacker Moves Second, 2025](https://arxiv.org/abs/2510.09023)).
+- **I4 should be an explicit step-by-step plan within one agent, rather than handoffs between personas.** For sequential tasks, the evidence leans against distributing work across agents. Our case of a single chat request has not been tested directly.
+- **F8 (outdated rates) is not fixed by tags and dates in the prompt.** Volatile facts should be moved out of skills and filtered by date on the server ([Mitigating Temporal Misalignment by Discarding Outdated Facts, 2023](https://aclanthology.org/2023.emnlp-main.879/), [Metadata, Structure, or Strategy?, 2026](https://arxiv.org/abs/2606.29645)). The procedural part of skills should remain an instruction.
 
-## 2. Идеи пользователя против исследований
+## 2. The user's ideas against the research
 
-### I1. Разбор запроса на блоки ИНСТРУКЦИИ / АРТЕФАКТЫ / ЦЕЛИ. Вердикт: частично подтверждено, для нашей задачи ново
+### I1. Parse a query into INSTRUCTIONS / ARTIFACTS / GOALS. Verdict: partly supported; novel for our task
 
-**Что говорит в пользу:**
-- [SEP, 2024](https://arxiv.org/abs/2403.06833): модели плохо отличают инструкцию от данных, но промпт-уровень заметно помогает большинству моделей. У GPT-4 разделение выросло с 20.8% до 95.3% при малой потере полезности. У части моделей (Gemma-7B) почти без эффекта.
-- [Instructional Segment Embedding, 2024](https://arxiv.org/abs/2410.09102): разметка ролей по фрагментам (system / user / data / output) — правильная абстракция. Выигрыш в основном в устойчивости к атакам; на чистое качество задачи — до +4.1%.
-- [Claude prompting best practices, 2026](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices): теги по типам содержимого, длинные данные сверху, запрос последним («до 30%» по внутренним тестам вендора, методика не опубликована).
-- [LLMs Get Lost In Multi-Turn Conversation, 2025](https://arxiv.org/abs/2505.06120): если собрать накопленные инструкции в один блок (Concat), возвращается 95.1% качества. При подаче частями по ходам потеря в среднем 39%.
+**Supporting evidence:**
+- [SEP, 2024](https://arxiv.org/abs/2403.06833): models struggle to distinguish instructions from data, but prompt-level changes help most models substantially. GPT-4's separation improved from 20.8% to 95.3%, with a small utility loss. Some models (Gemma-7B) showed almost no effect.
+- [Instructional Segment Embedding, 2024](https://arxiv.org/abs/2410.09102): labeling roles by segment (system / user / data / output) is the right abstraction. The gains are mainly in attack resistance; clean-task quality improves by up to +4.1%.
+- [Claude prompting best practices, 2026](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices): tags by content type, long data first, query last (“up to 30%” in the vendor's internal tests; methodology not published).
+- [LLMs Get Lost In Multi-Turn Conversation, 2025](https://arxiv.org/abs/2505.06120): consolidating accumulated instructions into one block (Concat) recovers 95.1% of quality. Providing them across turns causes an average loss of 39%.
 
-**Слабые места:**
-- Нет исследования, где чат-запрос заранее делят на инструкцию, артефакт и цель и затем меряют точность ответа. Основа доказательств — безопасность и вендорские рекомендации.
-- Блок «ЦЕЛИ» — наша конструкция. Явные цели сидят внутри инструкции, неявные — это I3.
-- Классификатору I1 помогает только там, где триггерный текст лежит во вставке. Из кода следует, что вставленный лог со словами «compare» или «debug» включает `mode=analyze` (карта кода, intent.py:527-533). Это вывод из чтения кода, а не замер из F1–F10. Главный пример F2 (разговор о промптинге) I1 не исправляет.
-- Прирост от разделителей и тегов на уровне промпта не значит, что модель выполнит заданную ими иерархию ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)).
+**Weaknesses:**
+- No study first splits a chat request into instruction, artifact, and goal and then measures answer accuracy. The evidence base consists of security research and vendor recommendations.
+- The “GOALS” block is our own construction. Explicit goals are already part of the instruction; implicit goals belong to I3.
+- I1 helps the classifier only when the triggering text is in a pasted artifact. The code implies that a pasted log containing “compare” or “debug” activates `mode=analyze` (code map, intent.py:527-533). This is an inference from reading the code, not a measurement from F1–F10. I1 does not fix F2's main example (a conversation about prompting).
+- Gains from prompt-level delimiters and tags do not mean that the model will follow the hierarchy they specify ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)).
 
-**Что добавляет литература:**
-- Способ маркировки должен зависеть от типа артефакта ([Spotlighting, 2024](https://arxiv.org/abs/2403.14720)). Datamarking проверялся на прозе. Его влияние на код и логи — наш вывод, не результат статьи.
-- Для длинных артефактов маркеры нужно повторять, потому что сигнал разделителей на длинном контексте затухает (ISE).
-- Сегментатор нужно проверять на инвариантность: инструкция до артефакта, после него и вперемешку ([The Illusion of Role Separation, 2025](https://arxiv.org/abs/2505.00626)).
+**What the literature adds:**
+- The marking method should depend on the artifact type ([Spotlighting, 2024](https://arxiv.org/abs/2403.14720)). Datamarking was tested on prose. Its effect on code and logs is our inference, not a result of the paper.
+- Markers should be repeated for long artifacts because delimiter signals fade over long contexts (ISE).
+- The segmenter needs invariance tests: instruction before the artifact, after it, and interleaved with it ([The Illusion of Role Separation, 2025](https://arxiv.org/abs/2505.00626)).
 
-### I2. Артефакты — это данные, а не инструкции. Вердикт: как гигиена подтверждено; как защита противоречит
+### I2. Artifacts are data, not instructions. Verdict: supported as hygiene; contradicted as a security guarantee
 
-**Что говорит в пользу:**
-- Разделители примерно вдвое снижают успех атак. Datamarking снижает его у GPT-3.5 примерно с 50% до менее чем 3% без измеренной потери качества ([Spotlighting, 2024](https://arxiv.org/abs/2403.14720)).
+**Supporting evidence:**
+- Delimiters roughly halve attack success. Datamarking reduces it for GPT-3.5 from about 50% to below 3%, with no measured quality loss ([Spotlighting, 2024](https://arxiv.org/abs/2403.14720)).
 
-**Что говорит против:**
-- Адаптивные атаки обходят 12 защит ([The Attacker Moves Second, 2025](https://arxiv.org/abs/2510.09023)).
-- Разделение на system и user не задаёт приоритет ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)).
-- Даже у GPT-4 после промпт-инжиниринга сотни проб из данных всё равно исполняются (SEP).
+**Contrary evidence:**
+- Adaptive attacks bypass 12 defenses ([The Attacker Moves Second, 2025](https://arxiv.org/abs/2510.09023)).
+- Separating system and user messages does not establish priority ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)).
+- Even after prompt engineering, GPT-4 still executes hundreds of probes from the data (SEP).
 
-**Чего в идее не было:**
-- Не все инструкции в артефакте нужно игнорировать. README с шагами, которые пользователь просит выполнить, — это согласованная инструкция ([The Instruction Hierarchy, 2024](https://arxiv.org/abs/2404.13208)). Отличить её от враждебной без цели пользователя (I3) нельзя.
-- Та же статья признаёт у обученных моделей избыточные отказы на безобидных запросах. Если слишком жёстко понизить что-то до «данных», то же случится у нас.
-- Модель угроз [CaMeL, 2025](https://arxiv.org/abs/2503.18813) прямо исключает случай, когда пользователь сам вставляет недоверенный текст. I2 закрывает этот пробел только как гигиена.
+**What the idea omitted:**
+- Not every instruction in an artifact should be ignored. A README containing steps the user asks to execute is an aligned instruction ([The Instruction Hierarchy, 2024](https://arxiv.org/abs/2404.13208)). It cannot be distinguished from a hostile instruction without the user's goal (I3).
+- The same paper acknowledges that trained models over-refuse benign requests. If we demote content to “data” too aggressively, the same could happen here.
+- The threat model in [CaMeL, 2025](https://arxiv.org/abs/2503.18813) explicitly excludes cases where the user pastes untrusted text. I2 addresses that gap only as hygiene.
 
-### I3. Вывод неявных целей. Вердикт: в наивной форме противоречит; как «найти недостающее» подтверждено
+### I3. Infer implicit goals. Verdict: contradicted in its naive form; supported as “identify what is missing”
 
-**Что говорит против наивной формы:**
-- Модели часто сами угадывают невысказанные требования: в 41.1% случаев точность выше 98%. Но такие промпты вдвое чаще деградируют при смене модели ([What Prompts Don't Say, 2025](https://arxiv.org/abs/2505.13360)).
-- Промптовый LLM распознаёт неоднозначность запроса на 54.25% ([CLAMBER, 2024](https://arxiv.org/abs/2405.12063); модели 2023 года).
-- Ранние допущения — главный источник сбоев в многоходовом диалоге ([LLMs Get Lost…, 2025](https://arxiv.org/abs/2505.06120)).
-- Согласие людей между собой по основному намерению — κ≈0.55 ([TnT-LLM, 2024](https://arxiv.org/abs/2403.12173)).
+**Evidence against the naive form:**
+- Models often infer unstated requirements themselves: in 41.1% of cases, accuracy exceeds 98%. But these prompts are twice as likely to degrade when switching models ([What Prompts Don't Say, 2025](https://arxiv.org/abs/2505.13360)).
+- A prompted LLM recognizes query ambiguity with 54.25% accuracy ([CLAMBER, 2024](https://arxiv.org/abs/2405.12063); models from 2023).
+- Early assumptions are the main source of failures in multi-turn dialogue ([LLMs Get Lost…, 2025](https://arxiv.org/abs/2505.06120)).
+- Human agreement on primary intent is κ≈0.55 ([TnT-LLM, 2024](https://arxiv.org/abs/2403.12173)).
 
-**Что говорит в пользу формы «найти недостающее»:**
-- «Найти недостающие детали и оценить их важность»: дообученная 7B-модель правильно определяет расплывчатость больше чем в 85% задач. Задачи синтетические ([Tell Me More!, 2024](https://arxiv.org/abs/2402.09205)).
-- Явное рассуждение о запросе перед поиском даёт до +12.2 пункта ([BRIGHT, 2024](https://arxiv.org/abs/2407.12883)). Это I3 на службе поиска, а не ответа.
+**Evidence for “identify what is missing”:**
+- “Identify missing details and assess their importance”: a fine-tuned 7B model correctly identifies vagueness in more than 85% of tasks. The tasks are synthetic ([Tell Me More!, 2024](https://arxiv.org/abs/2402.09205)).
+- Explicit reasoning about the query before retrieval adds up to +12.2 points ([BRIGHT, 2024](https://arxiv.org/abs/2407.12883)). This is I3 serving retrieval rather than answering.
 
-**Вывод:**
-- Выведенные цели передавать как допущения, которые пользователь может поправить.
-- Если не хватает критичной детали (юрисдикция или год для вопроса о ставке), спросить или назвать допущение явно.
-- Надёжно сделать это в синхронном пути без LLM нельзя: см. ограничения в разделе 3.
+**Conclusion:**
+- Pass inferred goals as assumptions the user can correct.
+- If a critical detail is missing (jurisdiction or year for a question about a rate), ask or state the assumption explicitly.
+- This cannot be done reliably in the synchronous path without an LLM: see the constraints in section 3.
 
-### I4. Идти по ходу запроса, роль на каждый шаг. Вердикт: план — prior art; роль на шаг — не доказано, для последовательных задач данные скорее против
+### I4. Follow the request's steps, with a role for each step. Verdict: planning is prior art; a role per step is unproven, with evidence leaning against it for sequential tasks
 
-**Что говорит в пользу:**
-- [Decomposed Prompting, 2023](https://arxiv.org/abs/2210.02406): отдельные обработчики подзадач помогают на многошаговых бенчмарках. Это близко к I4. Но обработчики там различаются функцией (промпт, модель, символьная функция), а не персоной.
+**Supporting evidence:**
+- [Decomposed Prompting, 2023](https://arxiv.org/abs/2210.02406): separate subtask handlers help on multi-step benchmarks. This is close to I4. But the handlers differ by function (prompt, model, symbolic function), not by persona.
 
-**Что говорит против:**
-- [Towards a Science of Scaling Agent Systems, 2025](https://arxiv.org/abs/2512.08296v3): от +80.8% на разложимом финансовом рассуждении до −70.0% на последовательном планировании. Цепочка «анализ → сравнение → рекомендация» последовательна.
-- [Rethinking the Bounds of LLM Reasoning, 2024](https://aclanthology.org/2024.acl-long.331/): один агент с сильным промптом почти равен лучшей мультиагентной дискуссии. Мультиагентность выигрывает только когда в промпте нет демонстраций. Сравнивалась дискуссия, а не конвейер «обработчик на шаг».
-- [How we built our multi-agent research system, 2025](https://www.anthropic.com/engineering/multi-agent-research-system): мультиагентность окупается на широких исследовательских запросах ценой примерно 15× токенов.
+**Contrary evidence:**
+- [Towards a Science of Scaling Agent Systems, 2025](https://arxiv.org/abs/2512.08296v3): results range from +80.8% on decomposable financial reasoning to −70.0% on sequential planning. The chain “analysis → comparison → recommendation” is sequential.
+- [Rethinking the Bounds of LLM Reasoning, 2024](https://aclanthology.org/2024.acl-long.331/): one agent with a strong prompt nearly matches the best multi-agent debate. Multiple agents win only when the prompt has no demonstrations. The comparison concerned debate, not a “handler per step” pipeline.
+- [How we built our multi-agent research system, 2025](https://www.anthropic.com/engineering/multi-agent-research-system): multiple agents pay off on broad research requests at roughly 15× the token cost.
 
-**Вывод:**
-- Прямых данных о передаче ролей по шагам внутри одного чат-запроса нет. Верное прочтение I4: один агент и явный план, который строится только из инструкции и цели, никогда из артефактов (CaMeL).
-- Чем шаги должны различаться — содержимым (skills, свежие факты) или персоной, — это наша гипотеза. F9 касается только фактической точности. В [Control Illusion, 2025](https://arxiv.org/abs/2502.15851) рамка авторитета или экспертизы влияла на поведение сильнее, чем место инструкции. Значит, персона может быть рычагом на соблюдение требований, и отбрасывать её рано. Проверки у нас нет.
+**Conclusion:**
+- There is no direct evidence on role handoffs between steps within a single chat request. The appropriate interpretation of I4 is one agent with an explicit plan built only from the instruction and goal, never from artifacts (CaMeL).
+- Whether steps should differ in content (skills, fresh facts) or persona is our hypothesis. F9 concerns only factual accuracy. In [Control Illusion, 2025](https://arxiv.org/abs/2502.15851), authority or expertise framing affected behavior more than instruction placement. Persona may therefore help with requirement compliance, and it is too early to discard it. We have not tested this.
 
-### I5. Своя нарезка запроса для каждого слоя. Вердикт: частично; проблема глубже, чем нарезка
+### I5. A separate query slice for each layer. Verdict: partly supported; the problem goes deeper than slicing
 
-**Что говорит против наивной формы:**
-- [When Should Queries Be Decomposed?, 2026](https://arxiv.org/abs/2606.08577): подзапросы на первичном dense-поиске снижают NDCG@10 на 1.6–4.3, а на этапе переранжирования повышают на 3.9–7.6. Но эта работа про первичный поиск (recall) по большим корпусам.
-- У нас пулы маленькие (57 имплантов, 71 skill), и z-score-гейт оценивает каждый айтем. Отдельной стадии recall нет, и различие «кандидаты по всему запросу, переранжирование по срезу» почти исчезает. Остаётся эмпирический вопрос: не размывается ли короткий срез при эмбеддинге.
+**Evidence against the naive form:**
+- [When Should Queries Be Decomposed?, 2026](https://arxiv.org/abs/2606.08577): subqueries reduce NDCG@10 by 1.6–4.3 during initial dense retrieval but improve it by 3.9–7.6 during reranking. However, this work studies initial retrieval (recall) over large corpora.
+- Our pools are small (57 implants, 71 skills), and the z-score gate evaluates every item. There is no separate recall stage, so the distinction between “retrieve candidates using the full query, rerank using a slice” almost disappears. The remaining empirical question is whether embedding a short slice dilutes its signal.
 
-**Что говорит в пользу:**
-- Домен и действие — разные оси ([Arch-Router, 2025](https://arxiv.org/abs/2506.16655)).
-- Clio эмбеддит сформулированный LLM «фасет», а не сырой текст ([Clio, 2024](https://arxiv.org/html/2412.13678v1)). Сами авторы Clio не принимают автоматических решений только на основе кластеров, а мы предлагаем именно автоматическую маршрутизацию по фасетам на каждый запрос.
-- Re-Invoke извлекает намерение и сравнивает его с синтетическими запросами к каждому инструменту: +20% (один инструмент) и +39% (несколько) по nDCG@5 ([Re-Invoke, 2024](https://arxiv.org/abs/2408.01875)).
-- [Buffer of Thoughts, 2024](https://arxiv.org/html/2406.04271) сопоставляет с шаблонами дистиллированную задачу, а не сырой запрос.
+**Supporting evidence:**
+- Domain and action are different axes ([Arch-Router, 2025](https://arxiv.org/abs/2506.16655)).
+- Clio embeds an LLM-formulated “facet” rather than raw text ([Clio, 2024](https://arxiv.org/html/2412.13678v1)). Clio's authors do not make automatic decisions based solely on clusters, whereas we are proposing automatic routing by facets for every query.
+- Re-Invoke extracts intent and compares it with synthetic queries for each tool: +20% (single tool) and +39% (multiple tools) in nDCG@5 ([Re-Invoke, 2024](https://arxiv.org/abs/2408.01875)).
+- [Buffer of Thoughts, 2024](https://arxiv.org/html/2406.04271) matches templates against a distilled task rather than the raw query.
 
-**Нюансы:**
-- Поиск по аспектам выигрывает только на несбалансированном корпусе: MAP@10 0.36 → 0.52 ([Multi-Aspect Reviewed-Item Retrieval…, 2024](https://arxiv.org/abs/2408.00878)).
-- Декомпозиция окупается на многочастных запросах в схеме «объединить кандидатов, затем переранжировать» ([Question Decomposition for RAG, 2025](https://aclanthology.org/2025.acl-srw.32/)).
-- Во всех вариантах с LLM-извлечением нужен вызов LLM на каждый запрос (см. раздел 3).
+**Nuances:**
+- Aspect-based retrieval wins only on an unbalanced corpus: MAP@10 0.36 → 0.52 ([Multi-Aspect Reviewed-Item Retrieval…, 2024](https://arxiv.org/abs/2408.00878)).
+- Decomposition pays off for multi-part queries in a “merge candidates, then rerank” scheme ([Question Decomposition for RAG, 2025](https://aclanthology.org/2025.acl-srw.32/)).
+- Every approach using LLM extraction needs an LLM call per query (see section 3).
 
-**Альтернатива, которой в идее не было:** хост-модель сама выбирает импланты из каталога описаний «когда применять», с явным вариантом «none».
-- Опора: [Self-Discover, 2024](https://arxiv.org/abs/2402.03620), где рост до +32% к CoT дал выбор модулей по типу задачи; [Equipping agents… Agent Skills, 2025](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills).
-- Такой выбор обходит F1 и F2 целиком.
-- Риск: в Select-then-Solve выбор по каталогу помог только GPT-5, а у слабых моделей результат упал ниже прямого ответа. В [Meta-Reasoning Prompting, 2024](https://arxiv.org/abs/2406.11698) с GPT-3.5 выбор оказался хуже лучшего одиночного метода.
+**An alternative missing from the idea:** the host model selects implants from a catalog of “when to use” descriptions, with an explicit “none” option.
+- Support: [Self-Discover, 2024](https://arxiv.org/abs/2402.03620), where selecting modules by task type improved on CoT by up to +32%; [Equipping agents… Agent Skills, 2025](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills).
+- This bypasses F1 and F2 entirely.
+- Risk: in Select-then-Solve, catalog selection helped only GPT-5, while weaker models fell below direct answering. In [Meta-Reasoning Prompting, 2024](https://arxiv.org/abs/2406.11698), selection with GPT-3.5 was worse than the best single method.
 
-### I6. Своя чувствительность для каждого слоя. Вердикт: отдельные гейты и пороги подтверждены; отдельные словари противоречат
+### I6. Separate sensitivity for each layer. Verdict: separate gates and thresholds are supported; separate vocabularies are contradicted
 
-**Что говорит в пользу:**
-- Абсолютный косинус зависит от того, как обучена модель ([multilingual-e5-base model card, 2023](https://huggingface.co/intfloat/multilingual-e5-base)). Пороги должны быть относительными или конформными ([Principled Context Engineering for RAG, 2025](https://arxiv.org/abs/2511.17908)).
-- Нужен явный классификатор «none» для каждого слоя. В [Guarded Query Routing, 2025](https://arxiv.org/html/2505.14524) роутинг по похожести эмбеддингов определяет OOD только на 35–42%, а TF-IDF+WideMLP даёт гармоническое среднее 87.74% примерно за 3.6 мс.
-- Для каждой задачи — свой адаптер или инструкция поверх одного энкодера ([jina-embeddings-v3, 2024](https://arxiv.org/abs/2409.10173)).
+**Supporting evidence:**
+- Absolute cosine similarity depends on how the model was trained ([multilingual-e5-base model card, 2023](https://huggingface.co/intfloat/multilingual-e5-base)). Thresholds should be relative or conformal ([Principled Context Engineering for RAG, 2025](https://arxiv.org/abs/2511.17908)).
+- Each layer needs an explicit “none” classifier. In [Guarded Query Routing, 2025](https://arxiv.org/html/2505.14524), routing by embedding similarity detects OOD at only 35–42%, while TF-IDF+WideMLP achieves a harmonic mean of 87.74% in about 3.6 ms.
+- Each task gets its own adapter or instruction over a shared encoder ([jina-embeddings-v3, 2024](https://arxiv.org/abs/2409.10173)).
 
-**Что говорит против словарей:**
-- Лексика запроса и нужного айтема почти не пересекается: ROUGE-L 0.06 ([Retrieval Models Aren't Tool-Savvy, 2025](https://arxiv.org/abs/2503.01763)).
-- Между языками лексическое совпадение ломается ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)).
+**Evidence against vocabularies:**
+- The vocabulary of the query and the required item barely overlaps: ROUGE-L 0.06 ([Retrieval Models Aren't Tool-Savvy, 2025](https://arxiv.org/abs/2503.01763)).
+- Lexical matching breaks across languages ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)).
 
-**Что уже есть в коде:** существующий `IMPLANT_GATING=zscore` умножает расстояние на `IMPLANT_TRIGGER_BOOST=0.85`, когда срабатывает триггер-фраза (implants.py:313). В оценках его нужно ставить на 1.0. Перепрогон F5/F6 без буста (`implant_need_gate --trigger-boost 1.0`) дал тот же F6 (hit@3 0.25 → 0.18): вредит сама дистанция по триггерному индексу, а не буст. Вес `trig_z1` в F5 равен −0.37 без буста (−0.19 с бустом 0.85), решений гейта он не меняет. В z-score-гейте из F2 немногие попадания дал именно буст: без него hit@3 падает с 0.04 до 0.00.
+**What the code already does:** the existing `IMPLANT_GATING=zscore` multiplies distance by `IMPLANT_TRIGGER_BOOST=0.85` when a trigger phrase matches (implants.py:313). Set it to 1.0 for evaluations. Rerunning F5/F6 without the boost (`implant_need_gate --trigger-boost 1.0`) produced the same F6 result (hit@3 0.25 → 0.18): the trigger-index distance itself hurts, not the boost. The `trig_z1` weight in F5 is −0.37 without the boost (−0.19 with a 0.85 boost), and it does not change the gate's decisions. In F2's z-score gate, the few hits came from the boost: without it, hit@3 falls from 0.04 to 0.00.
 
-Исследований калибровки нескольких слоёв внутри одной сборки промпта нет. Всё, что выше, — экстраполяция.
+There are no studies of calibrating multiple layers within a single prompt assembly. Everything above is an extrapolation.
 
-### I7. Многомерный классификатор запроса. Вердикт: подтверждено литературой; наш собственный довод пока слабый
+### I7. A multidimensional query classifier. Verdict: supported by the literature; our own evidence remains weak
 
-**Что говорит в пользу:**
-- Сложность запроса как переключатель режима поиска ([Adaptive-RAG, 2024](https://aclanthology.org/2024.naacl-long.389/)).
-- Бинарный гейт по человеческим меткам: обогащается примерно 16% ходов при качестве, сравнимом с обогащением всех ([RAGate, 2024](https://arxiv.org/abs/2407.21712)).
-- Выбор действий рассуждения, обученный на исходах, с пустым действием «Empty» ([DOTS, 2024](https://arxiv.org/abs/2410.03864)).
-- CoT нужен в основном для математики и логики ([To CoT or not to CoT?, 2024](https://arxiv.org/abs/2409.12183)).
-- Отдельные классификаторы для намерения и домена ([TnT-LLM, 2024](https://arxiv.org/abs/2403.12173)).
+**Supporting evidence:**
+- Query complexity as a retrieval-mode switch ([Adaptive-RAG, 2024](https://aclanthology.org/2024.naacl-long.389/)).
+- A binary gate based on human labels: roughly 16% of turns are enriched, with quality comparable to enriching every turn ([RAGate, 2024](https://arxiv.org/abs/2407.21712)).
+- Reasoning-action selection trained on outcomes, including an “Empty” action ([DOTS, 2024](https://arxiv.org/abs/2410.03864)).
+- CoT is mainly needed for mathematics and logic ([To CoT or not to CoT?, 2024](https://arxiv.org/abs/2409.12183)).
+- Separate classifiers for intent and domain ([TnT-LLM, 2024](https://arxiv.org/abs/2403.12173)).
 
-**Предупреждения:**
-- Точность самих классификаторов скромная. У Adaptive-RAG — 54.52% в целом и 30.52% на классе «не нужно ничего».
-- Уровень Блума даже у GPT-5 даёт F1 около 0.75–0.84. Обученные классификаторы теряют 0.25–0.28 на чужом датасете ([Cross-Dataset Bloom Question Classification, 2026](https://arxiv.org/html/2606.13684v1)).
-- Метки Arena-Hard и Magpie проверены только против других LLM ([From Crowdsourced Data to High-Quality Benchmarks, 2024](https://arxiv.org/abs/2406.11939), [Magpie, 2024](https://arxiv.org/html/2406.08464)).
-- Обученные модели склонны учить короткие пути ([The Illusion of Role Separation, 2025](https://arxiv.org/abs/2505.00626)). Наш смещённый набор создаёт готовый короткий путь: признак «короткая команда» равен ответу «none».
+**Cautions:**
+- The classifiers' own accuracy is modest. Adaptive-RAG achieves 54.52% overall and 30.52% on the “nothing needed” class.
+- Even GPT-5 achieves only about 0.75–0.84 F1 on Bloom levels. Trained classifiers lose 0.25–0.28 on another dataset ([Cross-Dataset Bloom Question Classification, 2026](https://arxiv.org/html/2606.13684v1)).
+- Arena-Hard and Magpie labels have been validated only against other LLMs ([From Crowdsourced Data to High-Quality Benchmarks, 2024](https://arxiv.org/abs/2406.11939), [Magpie, 2024](https://arxiv.org/html/2406.08464)).
+- Trained models tend to learn shortcuts ([The Illusion of Role Separation, 2025](https://arxiv.org/abs/2505.00626)). Our biased set supplies a ready-made shortcut: the “short command” feature is equivalent to the answer “none”.
 
-## 3. Многомерный классификатор запроса
+## 3. A multidimensional query classifier
 
-### Ограничения, которые решают, что вообще можно сделать
+### Constraints that determine what is feasible
 
-- `classify_intent` работает на горячем пути: он чистый, синхронный и использует только stdlib. Эмбеддинговый вариант с центроидами отклонили: он добавлял 12–53 мс при p95 37–58 мс (докстринг intent.py).
-- Поэтому любое измерение попадает в один из трёх классов:
-  - **R**: регулярные выражения в `intent.py`;
-  - **H**: лёгкая голова (LR, kNN или SetFit) поверх эмбеддинга запроса, который skills, импланты и роутер **уже считают** (skills.py:240, router.py:359). Её место — enrichment или router, не intent.py. Добавочная задержка — только сама голова; её нужно измерить;
-  - **O**: только офлайн. Здесь LLM размечает обучающие данные или сама хост-модель выбирает по каталогу. Сэмплинг MCP доступен не всегда, а протокол v2 «never samples», поэтому вызов LLM на каждый запрос со стороны сервера для рантайма не годится.
-- Любое поле, которое меняет промпт, должно попасть в `cache_token` и `with_tier`. Измерения конкретного запроса не должны попадать в сессионный v2 bundle.
-- Надёжность «высокая» для признака-регэкспа означает только стабильность самого регэкспа. Предсказывает ли он **потребность**, нигде не проверено.
+- `classify_intent` runs on the hot path: it is pure, synchronous, and uses only the standard library. An embedding-based centroid approach was rejected because it added 12–53 ms, with p95 of 37–58 ms (intent.py docstring).
+- Every dimension therefore falls into one of three classes:
+  - **R**: regular expressions in `intent.py`;
+  - **H**: a lightweight head (LR, kNN, or SetFit) over the query embedding that skills, implants, and the router **already compute** (skills.py:240, router.py:359). It belongs in enrichment or the router, not intent.py. The additional latency is only the head itself; it must be measured;
+  - **O**: offline only. An LLM labels training data here, or the host model selects from a catalog. MCP sampling is not always available, and protocol v2 “never samples”, so a server-side LLM call per query is unsuitable for runtime.
+- Any field that changes the prompt must be included in `cache_token` and `with_tier`. Query-specific dimensions must not enter the session-scoped v2 bundle.
+- “High” reliability for a regex feature means only that the regex itself is stable. Whether it predicts **need** has not been tested.
 
-### Входы от декомпозитора (сырьё для измерений, класс R)
+### Decomposer outputs (inputs to the dimensions, class R)
 
-| Выход | Как получить | Сейчас |
+| Output | How to obtain it | Current state |
 |---|---|---|
-| `instruction_span` | Вырезать `_CODE_FENCE`, `_URL`, длинные блоки `_LIST_LINE` и `_CODE_DECLARATION` (intent.py:354-366, 423-431) | Нет: регэкспы только добавляют очки в `depth_score` |
-| `artifact_spans[]` (тип, длина) | Те же регэкспы плюс эвристика для stack trace | Нет |
-| `sub_asks[]` | `enumerated`, `multi_question` | Только счётчики |
-| `goal_hint` | Маркеры «чтобы», «для», «нужно» на ru/en/es | Нет |
-| `turn_context` | Параметр `history` | Принимается, но не используется (intent.py:633-636) |
+| `instruction_span` | Remove `_CODE_FENCE`, `_URL`, long `_LIST_LINE` blocks, and `_CODE_DECLARATION` (intent.py:354-366, 423-431) | Absent: the regexes only add points to `depth_score` |
+| `artifact_spans[]` (type, length) | The same regexes plus a stack-trace heuristic | Absent |
+| `sub_asks[]` | `enumerated`, `multi_question` | Counters only |
+| `goal_hint` | Markers such as “чтобы”, “для”, “нужно” (“so that”, “for”, “need”), in ru/en/es | Absent |
+| `turn_context` | The `history` parameter | Accepted but unused (intent.py:633-636) |
 
-### Измерения
+### Dimensions
 
-Буквы в колонке «Сигнал»: R — регэксп, H — голова на готовом эмбеддинге, O — только офлайн или хост-модель.
+Letters in the “Signal” column: R — regex; H — head over an existing embedding; O — offline or host model only.
 
-| # | Измерение | Значения | Управляет | Сигнал | Надёжность разметки (по литературе) | Как размечать у нас | Доказательства | В `classify_intent` сейчас |
+| # | Dimension | Values | Controls | Signal | Label reliability (from the literature) | How to label it here | Evidence | Currently in `classify_intent` |
 |---|---|---|---|---|---|---|---|---|
-| 1 | **primary_domain** (с флагом «регулируемая область»: налоги, право, медицина, финансы) | tax/legal, finance, code, medical, general… | роутинг, пул skills, путь фактичности | H (kNN или LR). Ключевые слова — только точные идентификаторы | Основная метка у людей κ≈0.62 (у намерения 0.55, разница умеренная, 25 классов против 10). **Мультиметочно** GPT-4 против людей: κ 0.102 для домена против 0.271 для намерения, то есть здесь домен хуже всех. Пул skills многодоменный, так что многометочное правило к skills не переносить | LLM-псевдометки плюс человеческий аудит; одна основная метка | [TnT-LLM, 2024](https://arxiv.org/abs/2403.12173), [Rethinking Predictive Modeling for LLM Routing, 2025](https://arxiv.org/html/2505.12601v2), [Arch-Router, 2025](https://arxiv.org/abs/2506.16655) | Нет; есть только keyword_veto в роутере |
-| 2 | **action / task_shape** | lookup, explain, compare, debug, plan, create, compute, converse | слот имплантов, формат | R по `instruction_span`, дальше H | Ограничено потолком намерения у людей (κ≈0.55) | То же | [Arch-Router, 2025](https://arxiv.org/abs/2506.16655) | Частично: `mode` по всему запросу, берётся первое совпадение, на выбор имплантов не влияет |
-| 3 | **cognitive_demand** | LOW (вспомнить, объяснить) / HIGH | бюджет имплантов 0 или 1+ | R (глаголы) | В CogRAG нет опубликованной точности классификатора, так что тезис «бинарная версия стабильна» — выбор авторов, а не замер. Для чата единственное свидетельство — квадратичная κ=0.76 между GPT-4 и авторами на 100 английских диалогах Copilot, мягкая к соседним уровням | Двое разметчиков, бинарно | [The Use of Generative Search Engines…, 2024](https://arxiv.org/abs/2404.04268), [CogRAG, 2026](https://arxiv.org/html/2604.25928), [Cross-Dataset Bloom…, 2026](https://arxiv.org/html/2606.13684v1) | Косвенно через `tier` |
-| 4 | **layer_applicability** (для каждого слоя) с уровнями 0 / 1 / полный | skills: none/any; implants: 0/1/full | гейты слоёв, бюджет | R+H | Бинарные метки надёжнее многометочных. Класс «none» самый трудный (30.52% у Adaptive-RAG) | Метки из исходов, с оговорками E1 | [Adaptive-RAG, 2024](https://aclanthology.org/2024.naacl-long.389/), [RAGate, 2024](https://arxiv.org/abs/2407.21712), [Guarded Query Routing, 2025](https://arxiv.org/html/2505.14524), [DOTS, 2024](https://arxiv.org/abs/2410.03864) | Только для имплантов через `implant_budget` (`IMPLANT_NEED_GATE=intent`, по умолчанию выключен); для skills нет |
-| 5 | **formal_symbolic** | да / нет | импланты класса CoT и вычислений | R (`_MATHY`, код, «=») | Признак поверхностный; предсказывает ли он потребность у нас, не проверено | Проверить на E1 | [To CoT or not to CoT?, 2024](https://arxiv.org/abs/2409.12183) | Частично: `mode=compute` |
-| 6 | **answer_volatility** | never / slow / fast; false_premise | фильтр фактов в skills, требование даты | R (ставки, «текущий», год), дальше H | Таксономия определена; точность на ru нигде не проверена | LLM плюс аудит | [FreshLLMs, 2023](https://arxiv.org/abs/2310.03214), [Mitigating Temporal Misalignment…, 2023](https://aclanthology.org/2023.emnlp-main.879/), [TIDE, 2026](https://arxiv.org/abs/2608.08512) | Нет |
-| 7 | **artifact_kind / volume / has_imperatives** | проза, код, лог, URL; нет / короткий / длинный; да / нет | режим маркировки, вырезание перед эмбеддингом | R | Стабильность регэкспа ≠ польза; не проверено | Нужны контрфактические пары, E2 | [Spotlighting, 2024](https://arxiv.org/abs/2403.14720), [SEP, 2024](https://arxiv.org/abs/2403.06833) | Только счётчики в `depth_score` |
-| 8 | **intent_multiplicity / constraint_count** | 1 или 2+ подзапросов; число условий | запуск схемы «объединить → переранжировать» | R | Порог числа условий в литературе не задан (выигрыш «сосредоточен на запросах с многими условиями»), подбирать на данных | На данных | [When Should Queries Be Decomposed?, 2026](https://arxiv.org/abs/2606.08577), [Re-Invoke, 2024](https://arxiv.org/abs/2408.01875) | Счётчики |
-| 9 | **task_structure / flow_data_dependence** | одна операция, последовательная цепочка или параллельные подзадачи; ход фиксирован или зависит от данных | план I4 | R плюс O | Неизвестна | Отложить | [Scaling Agent Systems, 2025](https://arxiv.org/abs/2512.08296v3), [CaMeL, 2025](https://arxiv.org/abs/2503.18813) | Нет |
-| 10 | **constraint_conflict** | нет / формат / длина / язык | правила, снятие формата персоны | R | Средняя | Отложить | [Control Illusion, 2025](https://arxiv.org/abs/2502.15851), [What Prompts Don't Say, 2025](https://arxiv.org/abs/2505.13360) | Частично: `suppress_persona_format` (только converse) |
-| 11 | **specification / ambiguity** | ясно или расплывчато; важность недостающей детали 1–3 | уточнение или явное допущение | O | Низкая: 54.25% у промптового LLM | Отложить | [CLAMBER, 2024](https://arxiv.org/abs/2405.12063), [Tell Me More!, 2024](https://arxiv.org/abs/2402.09205) | Нет |
-| 12 | **turn_role** | новая задача / добавляет ограничение / исправление | сведение инструкций в один блок, кэш | R по истории | Неизвестна | Отложить | [LLMs Get Lost…, 2025](https://arxiv.org/abs/2505.06120) | Нет |
-| 13 | **query_language** | ru / en / es / смешанный | включение ключевых слов, разбивка метрик | R (`language.py`) | Высокая | — | [M3-Embedding, 2024](https://arxiv.org/abs/2402.03216) | Нет: в рантайме не импортируется |
-| 14 | **external_verifiability** (узко) | есть или нет вставленный артефакт / источник skill | разрешает импланты проверки | R | Сервер MCP не знает инструментов клиента и не может запускать тесты. Наличие артефакта ≠ внешняя обратная связь | Отложить | [Large Language Models Cannot Self-Correct Reasoning Yet, 2023](https://arxiv.org/abs/2310.01798) | Нет |
+| 1 | **primary_domain** (with a “regulated domain” flag: tax, law, medicine, finance) | tax/legal, finance, code, medical, general… | routing, skill pool, factuality path | H (kNN or LR). Keywords only for exact identifiers | Human agreement on the primary label is κ≈0.62 (0.55 for intent, a moderate difference; 25 classes versus 10). **Multi-label** GPT-4 versus humans: κ 0.102 for domain versus 0.271 for intent, so domain performs worst here. Skills span multiple domains, so this labeling rule cannot simply be transferred to the skill pool | LLM pseudo-labels plus a human audit; one primary label | [TnT-LLM, 2024](https://arxiv.org/abs/2403.12173), [Rethinking Predictive Modeling for LLM Routing, 2025](https://arxiv.org/html/2505.12601v2), [Arch-Router, 2025](https://arxiv.org/abs/2506.16655) | Absent; the router only has keyword_veto |
+| 2 | **action / task_shape** | lookup, explain, compare, debug, plan, create, compute, converse | implant slot, format | R over `instruction_span`, then H | Limited by the human intent-agreement ceiling (κ≈0.55) | Same as above | [Arch-Router, 2025](https://arxiv.org/abs/2506.16655) | Partial: `mode` over the full query, first match wins, does not affect implant selection |
+| 3 | **cognitive_demand** | LOW (recall, explain) / HIGH | implant budget of 0 or 1+ | R (verbs) | CogRAG does not publish classifier accuracy, so “the binary version is stable” is an author choice, not a measurement. For chat, the only evidence is quadratically weighted κ=0.76 between GPT-4 and the authors on 100 English Copilot dialogues, which is lenient toward adjacent levels | Two annotators, binary labels | [The Use of Generative Search Engines…, 2024](https://arxiv.org/abs/2404.04268), [CogRAG, 2026](https://arxiv.org/html/2604.25928), [Cross-Dataset Bloom…, 2026](https://arxiv.org/html/2606.13684v1) | Indirectly through `tier` |
+| 4 | **layer_applicability** (for each layer), with levels 0 / 1 / full | skills: none/any; implants: 0/1/full | layer gates, budget | R+H | Binary labels are more reliable than multi-label annotations. The “none” class is the hardest (30.52% in Adaptive-RAG) | Outcome-derived labels, with the caveats in E1 | [Adaptive-RAG, 2024](https://aclanthology.org/2024.naacl-long.389/), [RAGate, 2024](https://arxiv.org/abs/2407.21712), [Guarded Query Routing, 2025](https://arxiv.org/html/2505.14524), [DOTS, 2024](https://arxiv.org/abs/2410.03864) | Only for implants through `implant_budget` (`IMPLANT_NEED_GATE=intent`, off by default); absent for skills |
+| 5 | **formal_symbolic** | yes / no | CoT and computation implants | R (`_MATHY`, code, “=”) | A surface feature; whether it predicts need here is untested | Test in E1 | [To CoT or not to CoT?, 2024](https://arxiv.org/abs/2409.12183) | Partial: `mode=compute` |
+| 6 | **answer_volatility** | never / slow / fast; false_premise | fact filter in skills, date requirement | R (rates, “текущий” / “current”, year), then H | The taxonomy is defined; accuracy on ru has not been tested | LLM plus audit | [FreshLLMs, 2023](https://arxiv.org/abs/2310.03214), [Mitigating Temporal Misalignment…, 2023](https://aclanthology.org/2023.emnlp-main.879/), [TIDE, 2026](https://arxiv.org/abs/2608.08512) | Absent |
+| 7 | **artifact_kind / volume / has_imperatives** | prose, code, log, URL; none / short / long; yes / no | marking mode, removal before embedding | R | Regex stability ≠ usefulness; untested | Counterfactual pairs needed, E2 | [Spotlighting, 2024](https://arxiv.org/abs/2403.14720), [SEP, 2024](https://arxiv.org/abs/2403.06833) | Only counters in `depth_score` |
+| 8 | **intent_multiplicity / constraint_count** | 1 or 2+ subqueries; number of constraints | enables “merge → rerank” | R | The literature sets no threshold on constraint count (the benefit is “concentrated on queries with many constraints”); tune it on data | From data | [When Should Queries Be Decomposed?, 2026](https://arxiv.org/abs/2606.08577), [Re-Invoke, 2024](https://arxiv.org/abs/2408.01875) | Counters |
+| 9 | **task_structure / flow_data_dependence** | single operation, sequential chain, or parallel subtasks; fixed or data-dependent flow | I4 plan | R plus O | Unknown | Defer | [Scaling Agent Systems, 2025](https://arxiv.org/abs/2512.08296v3), [CaMeL, 2025](https://arxiv.org/abs/2503.18813) | Absent |
+| 10 | **constraint_conflict** | none / format / length / language | rules, removing persona format | R | Medium | Defer | [Control Illusion, 2025](https://arxiv.org/abs/2502.15851), [What Prompts Don't Say, 2025](https://arxiv.org/abs/2505.13360) | Partial: `suppress_persona_format` (converse only) |
+| 11 | **specification / ambiguity** | clear or vague; importance of the missing detail 1–3 | clarification or explicit assumption | O | Low: 54.25% for a prompted LLM | Defer | [CLAMBER, 2024](https://arxiv.org/abs/2405.12063), [Tell Me More!, 2024](https://arxiv.org/abs/2402.09205) | Absent |
+| 12 | **turn_role** | new task / adds a constraint / correction | consolidating instructions into one block, cache | R over history | Unknown | Defer | [LLMs Get Lost…, 2025](https://arxiv.org/abs/2505.06120) | Absent |
+| 13 | **query_language** | ru / en / es / mixed | enabling keywords, metric breakdowns | R (`language.py`) | High | — | [M3-Embedding, 2024](https://arxiv.org/abs/2402.03216) | Absent: not imported at runtime |
+| 14 | **external_verifiability** (narrow scope) | presence or absence of a pasted artifact / skill source | permits verification implants | R | The MCP server does not know the client's tools and cannot run tests. Having an artifact ≠ external feedback | Defer | [Large Language Models Cannot Self-Correct Reasoning Yet, 2023](https://arxiv.org/abs/2310.01798) | Absent |
 
-**Stakes.** Отдельное измерение на базе Llama Guard я убрал. Категория S6 помечает **небезопасный** специализированный совет, так что вопрос «какая ставка НДС» будет классифицирован как safe. F1 0.900 там — это классификация опасности по всем 14 категориям, а не детектор «юридический ли это вопрос», и ru не поддерживается ([Llama Guard 3 8B model card, 2024](https://huggingface.co/meta-llama/Llama-Guard-3-8B)). Флаг регулируемой области проще выводить из №1.
+**Stakes.** I removed a separate dimension based on Llama Guard. Category S6 flags **unsafe** specialized advice, so “какая ставка НДС” (“what is the VAT rate?”) would be classified as safe. Its F1 of 0.900 measures danger classification across all 14 categories, not “is this a legal question?”, and ru is unsupported ([Llama Guard 3 8B model card, 2024](https://huggingface.co/meta-llama/Llama-Guard-3-8B)). The regulated-domain flag is more simply derived from #1.
 
-### Приоритет
+### Priority
 
-0. **Сначала пересобрать eval-набор** (E0). Без этого ни одно измерение нельзя честно оценить: сейчас признак «none» совпадает с источником данных и языком.
-1. **Декомпозитор-лайт плюс `query_language` (R, почти бесплатно).**
-   - Убирает случай, когда вставленный текст включает `mode`.
-   - Даёт разбивку метрик по языкам.
-   - Нужен как вход для №2, №7 и №8.
-   - F2 не лечит (см. I1).
-2. **`layer_applicability` с тремя уровнями (№4), включая гейт для skills.** У этого направления самая зрелая литература. Наш выигрыш (F4) нужно заново проверить на отложенных данных.
-3. **`primary_domain` (№1, H)**, но только после того, как станет ясно, на какой стадии роутера ломается F7 (E3).
-   - kNN или LR теряют свойство Arch-Router «новый маршрут без переобучения».
-   - Вызывающая LLM при ROUTE_REQUIRED уже читает описания агентов, и она ближе к механизму Arch-Router. Возможно, чинить нужно кандидатов и описания, а не добавлять голову.
-4. **`answer_volatility` (№6)** — для серверного фильтра изменчивых фактов в skills (F8).
-5. **Выбор имплантов:** голова «что нужно» (H, №2/№3/№5) против выбора хост-моделью по каталогу (O). Решает A/B (E2).
+0. **Rebuild the evaluation set first** (E0). Without this, no dimension can be evaluated honestly: “none” currently coincides with data source and language.
+1. **A lightweight decomposer plus `query_language` (R, almost free).**
+   - Removes cases where pasted text activates `mode`.
+   - Enables metric breakdowns by language.
+   - Provides input for #2, #7, and #8.
+   - Does not fix F2 (see I1).
+2. **Three-level `layer_applicability` (#4), including a skill gate.** This direction has the most mature literature. Our gain (F4) must be checked again on held-out data.
+3. **`primary_domain` (#1, H)**, but only after identifying the router stage where F7 fails (E3).
+   - kNN or LR loses Arch-Router's “new route without retraining” property.
+   - The calling LLM already reads agent descriptions at ROUTE_REQUIRED and is closer to Arch-Router's mechanism. The fix may lie in the candidates and descriptions rather than adding a head.
+4. **`answer_volatility` (#6)** for server-side filtering of volatile facts in skills (F8).
+5. **Implant selection:** a “what is needed?” head (H, #2/#3/#5) versus host-model catalog selection (O). An A/B test decides (E2).
 
-Отложить №9–№12 и №14: либо надёжность низкая, либо измерение требует LLM на каждый запрос, либо данные против.
+Defer #9–#12 and #14: reliability is low, the dimension requires an LLM call per query, or the evidence weighs against it.
 
-## 4. Связь с нашими находками
+## 4. Relationship to our findings
 
-| F | Что говорит литература | Что менять |
+| F | What the literature says | What to change |
 |---|---|---|
-| **F1** (полоса 0.12–0.27, пороги 0.75/0.85 не срабатывают) | **Объясняет.** Абсолютный косинус — артефакт обучения модели ([multilingual-e5-base model card, 2023](https://huggingface.co/intfloat/multilingual-e5-base)). Одна похожесть не умеет сказать «none» ([Guarded Query Routing, 2025](https://arxiv.org/html/2505.14524)). Правдоподобная причина — схлопывание эмбеддингов длинных текстов ([Length-Induced Embedding Collapse…, 2024](https://arxiv.org/abs/2410.24200)). Локальная проверка (не F-замер): у e5-large окно 512 токенов; медиана индексного текста импланта 301 токен (обрезаются 6 из 57), у skills 656 (обрезаются 46 из 71). Механизм не измерен. **Контрдовод:** вычитание среднего повышает изотропию, а снижение изотропии, наоборот, улучшает большинство задач ([Stable Anisotropic Regularization, 2024](https://arxiv.org/html/2305.19358v3)). Более широкая полоса ≠ лучший гейт | Вместо абсолютных порогов — z-score (с `IMPLANT_TRIGGER_BOOST=1.0`) или конформный порог на слой. Любой вариант калибровки оценивать по метрикам гейта (none-rate и покрытие), а не по ширине полосы. Поле «когда применять» короче 128 токенов — отдельный вариант в E2 |
-| **F2** (импланты по теме; hit@3 0.14, MRR 0.095) | **Предсказывает для неконтролируемой похожести**: эмбеддинги без обучения ловят домен ([TnT-LLM, 2024](https://arxiv.org/abs/2403.12173)), релевантность, требующая рассуждения, эмбеддеру даётся плохо ([BRIGHT, 2024](https://arxiv.org/abs/2407.12883)). **Но** обученная LR на эмбеддингах в TnT-LLM держит намерение на уровне GPT-4. Сравнение с RAGate снимаю: там 12–16% ходов нуждаются в **знаниях**, у нас речь о **методах рассуждения**, и наши 52% «none» заданы составом набора. Трактовка F2 как путаницы инструкции и данных — наша аналогия с SEP | Три кандидата на замену выбору по косинусу: (a) обученная голова «что нужно»; (b) хост-модель выбирает из `get_catalog()` с вариантом «none»; (c) извлечённая потребность (требует LLM, в рантайме вряд ли). Слоты анализ / решение / проверка, у каждого «none» (DOTS). В eval добавить запросы «о промптинге» |
-| **F3** (0 попаданий ключевых слов; 0 на ru/es) | **Объясняет частично.** Лексика запроса и нужного айтема почти не пересекается ([Retrieval Models Aren't Tool-Savvy, 2025](https://arxiv.org/abs/2503.01763)), между языками она расходится ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)). Но ru/es у нас — только голосовые команды с «none», так что «0 на ru/es» не отделить от типа запроса | Буст ключевых слов для skills оставить только для точных идентификаторов. Проверить на ru/es-запросах, где skills реально нужны (их пока нет в наборе) |
-| **F4** (гейт intent: 0.480 → 0.586, CI +0.045..+0.173) | **Совпадает с опубликованным паттерном** (Adaptive-RAG, SKR, [To CoT or not to CoT?, 2024](https://arxiv.org/abs/2409.12183), [PET-Select, 2024](https://arxiv.org/abs/2409.16416)). **Но как доказательство слабый:** эвристику подбирали на тех же 110 id, а «none» совпадает с «голосовой командой» | Прогнать на отложенном наборе, собранном из других источников, с запросами на ru/es, которым нужны импланты. Только после этого включать по умолчанию |
-| **F5** (LR на 52 примерах ≈ эвристика; вес на tier_lite) | **Предупреждает.** Скорее всего это короткий путь через тип источника ([The Illusion of Role Separation, 2025](https://arxiv.org/abs/2505.00626)). Обобщение между датасетами падает на 0.25–0.28 ([Cross-Dataset Bloom…, 2026](https://arxiv.org/html/2606.13684v1)). kNN — дешёвая сильная базовая линия ([Rethinking Predictive Modeling…, 2025](https://arxiv.org/html/2505.12601v2)). SetFit хорош на малых n ([SetFit, 2022](https://arxiv.org/abs/2209.11055)) | Валидация leave-one-source-out (WildBench / MASSIVE / CLINC) и по языкам. Не разбивать случайно |
-| **F6** (переранжирование по триггер-фразам: hit@3 0.25 → 0.18) | **Объясняет.** Переранжирование в поиске инструментов часто вредит (ToolRet). Добавленная лексика — это шум в top-k ([When do Generative Query and Document Expansions Fail?, 2023](https://arxiv.org/abs/2309.08541)). Польза переранжирования в работе 2026 года — это проверка ограничений, а не добавленная лексика | Убрать триггерный буст из z-score-гейта при оценке. Любое переранжирование — только через A/B |
-| **F7** (налоговый вопрос на ru уходит к универсальному агенту) | **Не проверено.** В `routing.jsonl` нет ни одного запроса с ожидаемым lawyer и ни одного ru-вопроса про налоги или право. Какая стадия ломается (семантический кэш, keyword_veto, список кандидатов или выбор LLM при ROUTE_REQUIRED), не установлено. Литература подсказывает гипотезы: домен — отдельная ось ([Arch-Router, 2025](https://arxiv.org/abs/2506.16655)), английские ключевые слова не ловят ru ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)) | Сначала трассировка по стадиям (E3), потом решение: чинить описания и кандидатов или добавлять голову домена |
-| **F8** (устаревшие ставки в skills) | **Объясняет, и средство сильнее тегов.** Модели охотно принимают связное, убедительное свидетельство ([Adaptive Chameleon or Stubborn Sloth, 2023](https://arxiv.org/abs/2305.13300)). Неверный контекст перекрывает верное знание модели больше чем в 60% случаев ([ClashEval, 2024](https://arxiv.org/abs/2404.10198)). Дата может сделать устаревшее значение **легитимнее** ([ConflictBank, 2024](https://arxiv.org/abs/2408.12076)). Теги происхождения почти не используются, а работает фильтр по дате на сервере ([Metadata, Structure, or Strategy?, 2026](https://arxiv.org/abs/2606.29645)). Предупреждения «может устареть» точности не добавляют ([When Facts Change, 2026](https://aclanthology.org/2026.findings-acl.103/)). Skills — смешанное содержимое: процедуры — это инструкции, ставки — данные. Если понизить весь skill до данных, риск в том, что модель начнёт игнорировать процедуры ([The Instruction Hierarchy, 2024](https://arxiv.org/abs/2404.13208)) | Вынести изменчивые факты из тела skills в отдельное хранилище с полями срока и даты действия. Фильтровать на сервере по `answer_volatility`. Процедуры оставить в system prompt |
-| **F9** (персоны не повышают фактическую точность) | **Совместимо, но узко.** F9 касается только фактов. Рамка экспертизы сильнее влияет на поведение, чем место инструкции ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)). Роль персоны в соблюдении требований нами не измерена | Не отказываться от персон ради I4 без A/B. Факты брать не из персоны, а из свежих источников |
-| **F10** (один LLM-разметчик, n=110) | **Предупреждает сильнее, чем казалось.** Многометочная разметка LLM наименее надёжна (TnT-LLM). Метки «из исходов» для открытого чата требуют LLM-судью, а это снова тот же один LLM, только в другой роли. Судья-человек на MT-Bench в лучшем случае κ≈0.51 ([Reliability without Validity, 2026](https://arxiv.org/abs/2606.19544)). Кросс-языковая согласованность судей около 0.3 ([How Reliable is Multilingual LLM-as-a-Judge?, 2025](https://arxiv.org/abs/2505.12201)), на ru судьи слабее ([REPA, 2025](https://arxiv.org/abs/2503.13102)). Если судья не лучше генератора, человеческих меток можно сэкономить не больше чем вдвое ([Limits to scalable evaluation at the frontier, 2024](https://arxiv.org/abs/2410.13341)) | Human alt-test: не меньше 3 людей на 50–100 стратифицированных примерах ([The Alternative Annotator Test, 2025](https://arxiv.org/abs/2501.10970)). Судья оценивает каждую ветку поточечно по рубрике ([Pairwise or Pointwise?, 2025](https://arxiv.org/abs/2504.14716)). В отчётах — κ, а не процент совпадений |
+| **F1** (range 0.12–0.27; thresholds 0.75/0.85 never gate) | **Explains it.** Absolute cosine similarity is an artifact of model training ([multilingual-e5-base model card, 2023](https://huggingface.co/intfloat/multilingual-e5-base)). Similarity alone cannot say “none” ([Guarded Query Routing, 2025](https://arxiv.org/html/2505.14524)). A plausible cause is embedding collapse on long texts ([Length-Induced Embedding Collapse…, 2024](https://arxiv.org/abs/2410.24200)). Local check (not an F measurement): e5-large has a 512-token window; median implant index text is 301 tokens (6 of 57 are truncated), versus 656 for skills (46 of 71 are truncated). The mechanism has not been measured. **Counterargument:** mean subtraction increases isotropy, yet reducing isotropy improves most tasks ([Stable Anisotropic Regularization, 2024](https://arxiv.org/html/2305.19358v3)). A wider range ≠ a better gate | Replace absolute thresholds with z-scores (with `IMPLANT_TRIGGER_BOOST=1.0`) or a conformal threshold per layer. Evaluate every calibration option by gate metrics (none-rate and coverage), not range width. A “when to use” field shorter than 128 tokens is a separate variant in E2 |
+| **F2** (implants selected by topic; hit@3 0.14, MRR 0.095) | **Predicts this for unsupervised similarity**: embeddings without task-specific training capture domain ([TnT-LLM, 2024](https://arxiv.org/abs/2403.12173)), and embedding models struggle with relevance that requires reasoning ([BRIGHT, 2024](https://arxiv.org/abs/2407.12883)). **But** trained LR over embeddings in TnT-LLM matches GPT-4 on intent. I withdraw the RAGate comparison: there, 12–16% of turns need **knowledge**; here we mean **reasoning methods**, and our 52% “none” share is determined by dataset composition. Interpreting F2 as instruction/data confusion is our analogy with SEP | Three candidates to replace cosine selection: (a) a trained “what is needed?” head; (b) the host model selects from `get_catalog()` with a “none” option; (c) an extracted statement of need (requires an LLM, unlikely to suit runtime). Analysis / solution / verification slots, each with “none” (DOTS). Add queries “about prompting” to the evaluation set |
+| **F3** (0 keyword hits; 0 on ru/es) | **Partly explains it.** Query and required-item vocabularies barely overlap ([Retrieval Models Aren't Tool-Savvy, 2025](https://arxiv.org/abs/2503.01763)) and diverge across languages ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)). But our ru/es samples are only voice commands labeled “none”, so “0 on ru/es” cannot be separated from query type | Keep the skill keyword boost only for exact identifiers. Test on ru/es queries that actually need skills (currently absent from the set) |
+| **F4** (intent gate: 0.480 → 0.586, CI +0.045..+0.173) | **Matches a published pattern** (Adaptive-RAG, SKR, [To CoT or not to CoT?, 2024](https://arxiv.org/abs/2409.12183), [PET-Select, 2024](https://arxiv.org/abs/2409.16416)). **But the evidence is weak:** the heuristic was tuned on the same 110 ids, and “none” coincides with “voice command” | Run on a held-out set assembled from other sources, including ru/es queries that need implants. Only then enable it by default |
+| **F5** (LR on 52 examples ≈ heuristic; weight on tier_lite) | **A warning.** This is most likely a shortcut through source type ([The Illusion of Role Separation, 2025](https://arxiv.org/abs/2505.00626)). Cross-dataset generalization drops by 0.25–0.28 ([Cross-Dataset Bloom…, 2026](https://arxiv.org/html/2606.13684v1)). kNN is a cheap, strong baseline ([Rethinking Predictive Modeling…, 2025](https://arxiv.org/html/2505.12601v2)). SetFit works well at small n ([SetFit, 2022](https://arxiv.org/abs/2209.11055)) | Leave-one-source-out validation (WildBench / MASSIVE / CLINC) and validation by language. Do not split randomly |
+| **F6** (trigger-phrase reranking: hit@3 0.25 → 0.18) | **Explains it.** Reranking in tool retrieval often hurts (ToolRet). Added vocabulary creates noise in top-k ([When do Generative Query and Document Expansions Fail?, 2023](https://arxiv.org/abs/2309.08541)). The reranking benefit in the 2026 paper comes from constraint checking, not added vocabulary | Remove the trigger boost from the z-score gate during evaluation. Adopt any reranking only after an A/B test |
+| **F7** (a Russian tax question goes to the universal agent) | **Unverified.** `routing.jsonl` has no queries whose expected agent is lawyer and no Russian tax or legal questions. The failing stage (semantic cache, keyword_veto, candidate list, or LLM selection at ROUTE_REQUIRED) has not been identified. The literature suggests hypotheses: domain is a separate axis ([Arch-Router, 2025](https://arxiv.org/abs/2506.16655)); English keywords do not match ru ([M3-Embedding, 2024](https://arxiv.org/abs/2402.03216)) | First trace the stages (E3), then decide whether to fix descriptions and candidates or add a domain head |
+| **F8** (outdated rates in skills) | **Explains it, with a remedy stronger than tags.** Models readily accept coherent, convincing evidence ([Adaptive Chameleon or Stubborn Sloth, 2023](https://arxiv.org/abs/2305.13300)). Incorrect context overrides correct model knowledge in more than 60% of cases ([ClashEval, 2024](https://arxiv.org/abs/2404.10198)). A date can make an outdated value seem **more legitimate** ([ConflictBank, 2024](https://arxiv.org/abs/2408.12076)). Provenance tags are barely used, while server-side date filtering works ([Metadata, Structure, or Strategy?, 2026](https://arxiv.org/abs/2606.29645)). “May be outdated” warnings do not improve accuracy ([When Facts Change, 2026](https://aclanthology.org/2026.findings-acl.103/)). Skills contain mixed content: procedures are instructions, rates are data. Demoting an entire skill to data risks making the model ignore procedures ([The Instruction Hierarchy, 2024](https://arxiv.org/abs/2404.13208)) | Move volatile facts out of skill bodies into a separate store with validity-period and effective-date fields. Filter server-side using `answer_volatility`. Keep procedures in the system prompt |
+| **F9** (personas do not improve factual accuracy) | **Compatible, but narrow.** F9 concerns facts only. Expertise framing affects behavior more than instruction placement ([Control Illusion, 2025](https://arxiv.org/abs/2502.15851)). We have not measured persona's role in requirement compliance | Do not drop personas for I4 without an A/B test. Get facts from fresh sources rather than the persona |
+| **F10** (one LLM annotator, n=110) | **A stronger warning than it first appeared.** Multi-label LLM annotation is the least reliable (TnT-LLM). Outcome-derived labels for open chat require an LLM judge, which is the same single LLM again, only in a different role. Judge–human agreement on MT-Bench is at best κ≈0.51 ([Reliability without Validity, 2026](https://arxiv.org/abs/2606.19544)). Cross-language judge agreement is about 0.3 ([How Reliable is Multilingual LLM-as-a-Judge?, 2025](https://arxiv.org/abs/2505.12201)); judges are weaker on ru ([REPA, 2025](https://arxiv.org/abs/2503.13102)). If the judge is no better than the generator, human labeling can be reduced by at most a factor of two ([Limits to scalable evaluation at the frontier, 2024](https://arxiv.org/abs/2410.13341)) | Human alt-test: at least 3 people on 50–100 stratified examples ([The Alternative Annotator Test, 2025](https://arxiv.org/abs/2501.10970)). The judge scores each arm pointwise against a rubric ([Pairwise or Pointwise?, 2025](https://arxiv.org/abs/2504.14716)). Report κ rather than percentage agreement |
 
-## 5. План экспериментов
+## 5. Experiment plan
 
-Общие правила для всех экспериментов:
-- сравнения парные на одних и тех же id (парный бутстрап, для бинарных исходов McNemar);
-- стандартные ошибки кластеризованы по источнику и агенту;
-- K≥3 ответа на ветку ([Adding Error Bars to Evals, 2024](https://arxiv.org/abs/2411.00640)).
+Shared rules for all experiments:
+- paired comparisons on the same ids (paired bootstrap; McNemar for binary outcomes);
+- standard errors clustered by source and agent;
+- K≥3 responses per arm ([Adding Error Bars to Evals, 2024](https://arxiv.org/abs/2411.00640)).
 
-Из F4 (CI шириной ±0.06) следует SD парной разницы около 0.34. Отсюда n≈0.92/m²: примерно 92 запроса на границу 0.10 и примерно 370 на границу 0.05. На n=110 можно проверить не-хуже только с границей около 0.10.
+F4 (a CI of ±0.06) implies a paired-difference SD of about 0.34. This gives n≈0.92/m²: roughly 92 queries for a margin of 0.10 and roughly 370 for a margin of 0.05. At n=110, non-inferiority can be tested only with a margin of about 0.10.
 
-**E0. Пересборка набора и аудит меток (предусловие).**
-- Добавить:
-  - ru/es-запросы, которым нужны импланты и skills (не голосовые команды);
-  - en-команды, которым импланты нужны;
-  - ru-вопросы про налоги и право с ожидаемым lawyer;
-  - запросы «о промптинге».
-- Цель: чтобы признак «none» не совпадал с источником и языком.
-- Человеческий аудит: не меньше 3 людей на 50–100 примерах, стратифицированных по языку, домену и «none».
-- Метрика: κ человек–LLM отдельно для бинарных меток «нужен ли имплант» и многометочных «какие импланты»; alt-test.
-- Базовая линия: 0 проверенных людьми меток (F10).
-- Успех: заданы кросс-табличные доли (источник × язык × none), и нет ячеек, в которых «none» определяется источником. Бинарная метка проходит alt-test. Если многометочная не проходит, hit@3 и MRR (F2, F6) переводятся во вспомогательные метрики.
+**E0. Rebuild the set and audit the labels (prerequisite).**
+- Add:
+  - ru/es queries that need implants and skills (not voice commands);
+  - en commands that need implants;
+  - Russian tax and legal questions whose expected agent is lawyer;
+  - queries “about prompting”.
+- Goal: prevent “none” from coinciding with source and language.
+- Human audit: at least 3 people on 50–100 examples, stratified by language, domain, and “none”.
+- Metric: human–LLM κ separately for binary “is an implant needed?” labels and multi-label “which implants?” annotations; alt-test.
+- Baseline: 0 human-reviewed labels (F10).
+- Success: cross-tabulated proportions are specified (source × language × none), with no cells where source determines “none”. The binary label passes the alt-test. If the multi-label annotation does not pass, hit@3 and MRR (F2, F6) become secondary metrics.
 
-**E1. Гейт слоя на отложенных данных, с тремя уровнями.**
-- Ветки: без гейта; текущий `classify_intent` (F4); плюс `formal_symbolic` и `cognitive_demand` по `instruction_span`; kNN или SetFit по эмбеддингу.
-- Метки «из исходов»: самый дешёвый вариант (0 / 1 / полный), не хуже по оценке судьи.
-- Стоимость: 110 × 3 уровня (0 / 1 / полный) × K=3 = 990 генераций плюс 990 оценок судьи. Ветки гейта новых генераций не требуют: каждая ветка выбирает для запроса один из трёх уровней, и её метрики считаются по уже оценённым ответам этого уровня (ветка без гейта — это уровень «полный»). Судья проверяется на аудите из E0.
-- Валидация leave-one-source-out.
-- Метрики: utility, число имплантов на запрос, ложные загрузки на «none».
-- Базовые линии: 0.480 и 2.0 без гейта; 0.586 и 1.49 с гейтом (F4, in-sample).
-- Успех на отложенном наборе (не меньше ~92 запросов):
-  - гейт не хуже ветки без гейта на границе 0.10 (парный бутстрап);
-  - имплантов на запрос строго меньше 2.0;
-  - отдельно отчитаться по ru/es. Если выигрыш F4 держится только на MASSIVE/CLINC, гейт считаем детектором команд.
+**E1. A three-level layer gate on held-out data.**
+- Arms: no gate; current `classify_intent` (F4); add `formal_symbolic` and `cognitive_demand` over `instruction_span`; kNN or SetFit over the embedding.
+- Outcome-derived labels: the cheapest option (0 / 1 / full) that is non-inferior according to the judge.
+- Cost: 110 × 3 levels (0 / 1 / full) × K=3 = 990 generations plus 990 judge assessments. The gate arms require no new generations: each arm selects one of the three levels for a query, and its metrics use the already scored responses at that level (the no-gate arm is the “full” level). Validate the judge against the E0 audit.
+- Leave-one-source-out validation.
+- Metrics: utility, implants per query, false loads on “none”.
+- Baselines: 0.480 and 2.0 without a gate; 0.586 and 1.49 with a gate (F4, in-sample).
+- Success on the held-out set (at least ~92 queries):
+  - the gate is non-inferior to the no-gate arm at a margin of 0.10 (paired bootstrap);
+  - implants per query are strictly below 2.0;
+  - report ru/es separately. If the F4 gain holds only on MASSIVE/CLINC, treat the gate as a command detector.
 
-**E2. Как выбирать импланты.**
-- Все ветки считаются с гейтом из E1 и `IMPLANT_TRIGGER_BOOST=1.0`:
-  - (a) весь запрос, как сейчас;
+**E2. How to select implants.**
+- Evaluate all arms with the E1 gate and `IMPLANT_TRIGGER_BOOST=1.0`:
+  - (a) the full query, as today;
   - (b) `instruction_span`;
-  - (c) поле «когда применять» короче 128 токенов вместо описания и тела;
-  - (d) обученная голова «что нужно» на эмбеддинге;
-  - (e) хост-модель выбирает по `get_catalog()` с вариантом «none».
-- Контрфактические пары двух типов: (i) одна и та же императивная фраза как инструкция пользователя и внутри вставленного лога — для каждого члена пары размечается ожидаемое решение, и они могут различаться: фраза из лога не должна становиться инструкцией; (ii) одна и та же инструкция до артефакта и после — ожидаемое решение у членов пары одинаковое.
-- Метрики:
-  - hit@3 и MRR (только если многометочные метки прошли E0);
-  - на парах (i): доля пар, где оба члена получили ожидаемое решение; на парах (ii): доля пар, где решение переворачивается;
+  - (c) a “when to use” field shorter than 128 tokens instead of the description and body;
+  - (d) a trained “what is needed?” head over the embedding;
+  - (e) the host model selects through `get_catalog()` with a “none” option.
+- Two types of counterfactual pairs: (i) the same imperative phrase as a user instruction and inside a pasted log — label the expected decision for each member separately; they may differ because the log phrase must not become an instruction; (ii) the same instruction before and after the artifact — both members have the same expected decision.
+- Metrics:
+  - hit@3 and MRR (only if the multi-label annotations passed E0);
+  - for pairs (i): share of pairs where both members receive their expected decision; for pairs (ii): share of pairs where the decision flips;
   - utility;
-  - задержка ветки (d) против бюджета 12–53 мс из intent.py.
-- Базовые линии: hit@3 0.14, MRR 0.095 (F2); 0.25 для пула preferred (F6).
-- Успех: у лучшей ветки 95% CI парного бутстрапа для разницы с (a) не включает 0; на парах (i) правильно решённых пар больше, чем у (a), на парах (ii) переворотов меньше, чем у (a) (McNemar для каждого типа); utility не хуже E1.
+  - latency of arm (d) against the 12–53 ms budget from intent.py.
+- Baselines: hit@3 0.14, MRR 0.095 (F2); 0.25 for the preferred pool (F6).
+- Success: the best arm's 95% paired-bootstrap CI for its difference from (a) excludes 0; it resolves more pairs (i) correctly than (a) and has fewer flips on pairs (ii) than (a) (McNemar for each type); utility is non-inferior to E1.
 
-**E3. Трассировка F7 и голова домена.**
-- Для набора ru/en/es налоговых и юридических вопросов из E0 записать исход на каждой стадии роутера: кэш, keyword_veto, список кандидатов, выбор при ROUTE_REQUIRED.
-- Сравнить исправление описаний и кандидатов с kNN или LR по `primary_domain`. Добавить OOD-запросы, чтобы проверить отказ.
-- Метрики: точность роутинга по языкам, доля правильных «не специалист».
-- Базовая линия: сначала измерить. Для F7 числа нет.
-- Успех: ru-вопросы про ставки уходят к lawyer; разрыв ru/en сокращается по сравнению с текущим роутером (McNemar).
+**E3. Trace F7 and evaluate a domain head.**
+- For the E0 set of ru/en/es tax and legal questions, record the outcome at each router stage: cache, keyword_veto, candidate list, and selection at ROUTE_REQUIRED.
+- Compare fixes to descriptions and candidates with kNN or LR over `primary_domain`. Add OOD queries to test abstention.
+- Metrics: routing accuracy by language, share of correct “not a specialist” decisions.
+- Baseline: measure it first. F7 has no numeric baseline.
+- Success: Russian questions about rates route to lawyer; the ru/en gap narrows relative to the current router (McNemar).
 
-**E4. Сборка промпта: разметка I1 и изменчивые факты (F8).**
-- Это прямая проверка главного неизвестного: меняет ли I1 качество ответа.
-- Ветки:
-  - как сейчас;
-  - артефакты в тегах, запрос последним;
-  - теги плюс внедрённая в артефакт посторонняя инструкция (согласованная и несогласованная);
-  - skill целиком в system prompt;
-  - skill с вынесенными изменчивыми фактами и серверным фильтром по дате;
-  - без skill.
-- Метрики, поточечно по рубрике: utility; доля исполненных несогласованных инструкций из артефакта; доля выполненных согласованных; доля ответов, где устаревшее число подано как текущее; точность на неизменных фактах.
-- Базовая линия: нет числа, F8 качественный. Сначала измерить ветку «как сейчас».
-- Успех: теги не ухудшают utility (граница 0.10); доля устаревших чисел падает, а точность на неизменных фактах и соблюдение процедур не падают.
+**E4. Prompt assembly: I1 markup and volatile facts (F8).**
+- This directly tests the main unknown: whether I1 changes answer quality.
+- Arms:
+  - current behavior;
+  - tagged artifacts, query last;
+  - tags plus an extraneous instruction embedded in the artifact (aligned and misaligned);
+  - the entire skill in the system prompt;
+  - the skill with volatile facts extracted and filtered by date on the server;
+  - no skill.
+- Metrics, scored pointwise against a rubric: utility; share of misaligned artifact instructions followed; share of aligned instructions followed; share of answers presenting an outdated number as current; accuracy on stable facts.
+- Baseline: no numeric value; F8 is qualitative. Measure the “current behavior” arm first.
+- Success: tags do not reduce utility (margin 0.10); the share of outdated numbers falls, while accuracy on stable facts and procedural compliance do not fall.
 
-Не покрыты экспериментами: №9–№12 и №14. Они отложены сознательно.
+Not covered by the experiments: #9–#12 and #14. These are deliberately deferred.
 
-## 6. Чего мы не знаем
+## 6. What we do not know
 
-- **Наши данные.** Пока нет E0 и E1 на отложенных данных, неизвестно, есть ли у F4 и F5 вообще сигнал «нужно рассуждение» помимо признака «голосовая команда». Доля «none» в реальном трафике неизвестна.
-- **I1 и I5 для компонентов промпта** напрямую не исследованы. Никто не делил чат-запрос на инструкцию, артефакт и цель, чтобы использовать куски как ключи для skills и имплантов, и не мерил точность ответа. Разделение инструкции и данных как причина F2 — наша аналогия.
-- **Выбор по каталогу хост-моделью.** Помог только сильнейшей модели (Select-then-Solve, MRP). Как он работает с нашим хостом и с вариантом «none», не проверено.
-- **Метки из исходов не спасают от проблемы судьи.** Для открытого чата они требуют LLM-судью. Adaptive-RAG на таких метках получил 54.52% в целом и 30.52% на «none». Сколько человеческих меток нужно нам, решает расчёт мощности, а не метод.
+- **Our data.** Until E0 and held-out E1 are complete, we do not know whether F4 and F5 contain any “reasoning needed” signal beyond “voice command”. The “none” share in real traffic is unknown.
+- **I1 and I5 for prompt components** have not been studied directly. No one has split a chat request into instruction, artifact, and goal, used those pieces as retrieval keys for skills and implants, and measured answer accuracy. Instruction/data separation as an explanation of F2 is our analogy.
+- **Host-model catalog selection.** It helped only the strongest model (Select-then-Solve, MRP). Its behavior with our host and with a “none” option has not been tested.
+- **Outcome-derived labels do not solve the judge problem.** For open chat, they require an LLM judge. Adaptive-RAG achieved 54.52% overall and 30.52% on “none” with such labels. Power analysis, not the method, determines how many human labels we need.
 - **ru/es.**
-  - Нет бенчмарков поиска инструментов или стратегий на ru/es.
-  - TnT-LLM даёт только агрегированное падение на неанглийских (от −2.7% до ~−10% в зависимости от эмбеддера).
-  - Судьи на ru слабее (REPA), кросс-языковая согласованность около 0.3.
-- **Калибровка по слоям (I6)** — экстраполяция с адаптеров под задачу и с конформной фильтрации одного ретривера. Конформные гарантии верны только относительно наших меток.
-- **Механизм F1.** Узкая полоса согласуется с [карточкой multilingual-e5-large](https://huggingface.co/intfloat/multilingual-e5-large): низкая температура InfoNCE (0.01) сжимает косинус в 0.7–1.0. Схлопывание по длине — гипотеза, не измерена. Окно e5-large 512 токенов, и 46 из 71 индексного текста skills длиннее окна. Что теряет поиск из-за обрезки, неизвестно.
-- **Персоны.** F9 касается только фактов. Влияние персоны на соблюдение формата и требований у нас не измерено, а Control Illusion намекает, что оно может быть существенным.
-- **I4 в форме одного чат-запроса** не исследован. Вся мультиагентная база — бенчмарки (код, математика, исследовательские eval).
-- **Безопасность I2.** Какие именно 12 защит обошла «The Attacker Moves Second», не проверено. Эффект datamarking на код и логи — наш вывод.
-- **Вендорское «до 30%»** — внутренние тесты без методики, это не рецензируемое доказательство.
+  - There are no tool- or strategy-retrieval benchmarks in ru/es.
+  - TnT-LLM reports only an aggregate drop on non-English inputs (from −2.7% to ~−10%, depending on the embedding model).
+  - Judges are weaker on ru (REPA); cross-language agreement is about 0.3.
+- **Per-layer calibration (I6)** is an extrapolation from task-specific adapters and conformal filtering of a single retriever. Conformal guarantees hold only relative to our labels.
+- **The F1 mechanism.** The narrow range is consistent with the [multilingual-e5-large model card](https://huggingface.co/intfloat/multilingual-e5-large): low InfoNCE temperature (0.01) compresses cosine similarity into 0.7–1.0. Length-induced collapse is an unmeasured hypothesis. e5-large has a 512-token window, and 46 of the 71 skill index texts exceed it. The retrieval loss caused by truncation is unknown.
+- **Personas.** F9 concerns facts only. We have not measured persona's effect on format and requirement compliance, while Control Illusion suggests it may be substantial.
+- **I4 within a single chat request** has not been studied. The entire multi-agent evidence base consists of benchmarks (code, mathematics, research evaluations).
+- **I2 security.** Which specific 12 defenses “The Attacker Moves Second” bypassed has not been verified. The effect of datamarking on code and logs is our inference.
+- **The vendor's “up to 30%”** comes from internal tests without a published methodology; it is not peer-reviewed evidence.

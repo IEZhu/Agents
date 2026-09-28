@@ -131,6 +131,8 @@ and recorded results. To refresh both human documentation and AI instructions,
 execute [flows/documentation-refresh.md](flows/documentation-refresh.md).
 Keep reusable model task instructions in `flows/`; see the
 [workflow catalog and authoring guide](flows/README.md).
+For PR/MR review, follow [flows/pr-review.md](flows/pr-review.md), including
+description updates, bot review cycles, thread replies, and merge conditions.
 
 The committed managed section uses protocol 2, the installer default. The global
 installer does not modify this tracked checkout file. To switch this checkout back

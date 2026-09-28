@@ -22,10 +22,10 @@ This module replaces that single length axis with two orthogonal ones:
 Design constraints, in priority order:
 
 1. **Pure and synchronous.** No embeddings, no I/O, no vector store, no network.
-   ``classify_intent`` is called on the hot path before any ``await`` in
-   ``server.route_and_load``; it must not add latency there, and it must be
-   unit-testable without the live stores (there is no ``tests/conftest.py`` to
-   isolate ``DATA_DIR``).
+   ``classify_intent`` runs synchronously on the routing and bundle-building
+   paths; it must keep their latency low, and it must be
+   unit-testable without loading the live stores. ``tests/conftest.py`` redirects
+   derived data to a temporary directory for the wider test suite.
 2. **No new dependencies.** Standard library only.
 3. **Fail open.** Every knob reads through ``config._int_env``; the whole layer
    is gated by ``INTENT_CLASSIFIER_ENABLED`` and defaults to *off* so the

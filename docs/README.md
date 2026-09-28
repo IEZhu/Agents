@@ -23,6 +23,7 @@ also applies to AI instructions, plans, and reports.
 | Run or add reusable model workflows | [Workflow catalog](../flows/README.md) | `flows/*.md` |
 | Run tests | [Test guide](../tests/README.md) | `pyproject.toml`, `tests/conftest.py`, `scripts/run_tests.sh`, `tests/` |
 | Refresh documentation for people and AI | [Repeatable workflow](../flows/documentation-refresh.md) | The sources and checks listed in that workflow |
+| Review and merge a PR/MR | [PR/MR review flow](../flows/pr-review.md) | Live reviews, current-head checks, and repository merge rules |
 
 ## AI instruction sources
 

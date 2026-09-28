@@ -183,7 +183,8 @@ if not defined VENV_PY_VER (
     set "VENV_PY_SUPPORTED=false"
     REM check_version.py failed — get version directly for display
     for /f "delims=" %%A in ('"%VENV_PYTHON%" -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul') do set "VENV_PY_VER=%%A"
-    echo   %YELLOW%WARNING:%NC% Venv Python !VENV_PY_VER! may be unsupported
+    if not defined VENV_PY_VER set "VENV_PY_VER=unknown"
+    echo   %YELLOW%WARNING:%NC% Could not verify existing virtual environment Python version as supported ^(reported: !VENV_PY_VER!^)
 )
 echo   %GREEN%+%NC% Virtual environment exists (!VENV_PY_VER!)
 

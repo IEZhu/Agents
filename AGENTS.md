@@ -45,6 +45,9 @@ their recorded revision; they do not override the current implementation.
   or restarting the shared daemon.
 - Run checks appropriate to the changed contract and report their actual result.
   Run only one heavy test or embedding process at a time.
+- For PR/MR submission and review, follow [flows/pr-review.md](flows/pr-review.md):
+  keep the English description aligned with every commit, handle review threads,
+  and obtain fresh bot reviews before merging under its completion conditions.
 
 ## Repeat the documentation update
 

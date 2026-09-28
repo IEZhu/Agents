@@ -488,6 +488,9 @@ refresh process](flows/documentation-refresh.md) for documentation work, and
 Store reusable task instructions for models in `flows/` and list them in
 [flows/README.md](flows/README.md). To run one, point the model to its Markdown
 file, for example: `Run flows/documentation-refresh.md.`
+For review through merge, use `Run flows/pr-review.md for <PR or MR URL>.`
+The [PR/MR flow](flows/pr-review.md) covers concise English descriptions, bot
+review cycles, replies, and a final report in the request's language.
 
 ### Validation
 

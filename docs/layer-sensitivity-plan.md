@@ -82,7 +82,7 @@ one, sit outside the observed range. Gate per layer on a calibrated score:
   `d_i ≤ d_top1 + m_layer` and `d_i ≤ μ_q − k_layer·σ_q`, where μ/σ are this
   query's distances over the layer. Implants get strict `k` (precision, allow
   empty); skills get loose `k` (recall).
-- **Next ("дообучение", step 1):** a per-layer calibration head. Logistic
+- **Next (fine-tuning, step 1):** a per-layer calibration head. Logistic
   regression on features `[cosine, keyword/trigger hit, in preferred pool,
   in capable pool, query language]` → P(relevant), trained separately per layer
   on (query, item, label) pairs. It needs roughly 300–500 labelled pairs per layer,
