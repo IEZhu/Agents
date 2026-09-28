@@ -64,16 +64,25 @@ class ClientContext:
     root: Path | None = None
     error: str | None = None
 
-    def require_root(self):
+    def workspace_root(self):
         if self.error or self.root is None:
             raise WorkspaceError(self.error or "workspace_required")
+        return self.root
+
+    def require_root(self):
+        self.workspace_root()
         for relative in ("history.md", "history", "CLAUDE.md", "data/memory"):
             if not (self.root / relative).resolve().is_relative_to(self.root):
                 raise WorkspaceError("workspace_invalid: memory path escapes workspace")
         return self.root
 
     def target(self, requested=None):
-        root = self.require_root()
+        self.require_root()
+        return self.workspace_target(requested)
+
+    def workspace_target(self, requested=None):
+        """Resolve a target without imposing memory-file write constraints."""
+        root = self.workspace_root()
         target = Path(requested) if requested is not None else root
         if not target.is_absolute():
             target = root / target
@@ -83,7 +92,7 @@ class ClientContext:
         return target
 
 
-def client_context(ctx=None):
+def client_context(ctx=None, *, allow_install_fallback=True):
     if ctx is not None:
         try:
             request = ctx.request_context.request
@@ -98,7 +107,9 @@ def client_context(ctx=None):
         # Prompts/tools must forward their MCP context explicitly.
         raise WorkspaceError("workspace_required")
     from src.engine.config import get_client_repo_root
-    return ClientContext(str(uuid.uuid4()), "stdio", root=Path(get_client_repo_root()).resolve())
+    root = (get_client_repo_root() if allow_install_fallback
+            else get_client_repo_root(allow_install_fallback=False))
+    return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve())
 
 
 class HistoryStores:

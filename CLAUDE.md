@@ -131,6 +131,11 @@ and recorded results. To refresh both human documentation and AI instructions,
 execute [flows/documentation-refresh.md](flows/documentation-refresh.md).
 Keep reusable model task instructions in `flows/`; see the
 [workflow catalog and authoring guide](flows/README.md).
+`list_flows()` discovers installed workflows; `run_flow(...)` returns their
+instructions bound to the caller's repository. Continue executing a
+`needs_execution` bundle against its `repo_path` with the current model's tools.
+The loader is in `src/flows.py`; installation source paths and target paths
+have different roles and must not be interchanged.
 For PR/MR review, follow [flows/pr-review.md](flows/pr-review.md), including
 description updates, bot review cycles, thread replies, and merge conditions.
 

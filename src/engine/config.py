@@ -19,6 +19,7 @@ AGENTS_DIR = os.path.join(INSTALL_ROOT, "agents")
 SKILLS_DIR = os.path.join(INSTALL_ROOT, "skills")
 IMPLANTS_DIR = os.path.join(INSTALL_ROOT, "implants")
 RULES_DIR = os.path.join(INSTALL_ROOT, "rules")
+FLOWS_DIR = os.path.join(INSTALL_ROOT, "flows")
 
 # --- Client repo root (per-session, per-repo memory artifacts) ---------------
 # Where the serving MCP session's journal lives: history.md, history/ archive,
@@ -42,8 +43,8 @@ def _find_marker_upwards(start: Path) -> Optional[Path]:
     return None
 
 
-@lru_cache(maxsize=1)
-def get_client_repo_root() -> str:
+@lru_cache(maxsize=2)
+def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
     """Resolve the client repo that owns this MCP session's per-repo memory.
 
     Resolution order:
@@ -52,6 +53,8 @@ def get_client_repo_root() -> str:
          `.git` or `CLAUDE.md`.
       3. Fallback: `os.getcwd()`.
 
+    With allow_install_fallback=False, an unavailable cwd raises OSError
+    instead of selecting the installation as the target of a workflow.
     Memoized for the process lifetime. Tests reset via
     `_reset_client_repo_root_cache()`.
     """
@@ -70,6 +73,8 @@ def get_client_repo_root() -> str:
     try:
         cwd = Path(os.getcwd())
     except (FileNotFoundError, OSError) as err:
+        if not allow_install_fallback:
+            raise
         logger.warning(
             "client-repo-root: cwd unavailable (%s); falling back to INSTALL_ROOT. "
             "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
@@ -85,6 +90,8 @@ def get_client_repo_root() -> str:
     try:
         fallback = str(cwd.resolve())
     except OSError as err:
+        if not allow_install_fallback:
+            raise
         logger.warning(
             "client-repo-root: cwd resolve failed (%s); falling back to INSTALL_ROOT.",
             err,

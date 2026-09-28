@@ -1,7 +1,8 @@
 # Review and merge a pull request or merge request
 
 Follow this flow to take a GitHub PR or GitLab MR through review, fixes,
-validation, and merge. Read [AGENTS.md](../AGENTS.md) and the
+validation, and merge. Read the target's applicable repository instructions.
+For Agents-Core, read [AGENTS.md](../AGENTS.md) and the
 [session playbook](../docs/session-playbook.md) for repository working practices.
 Use the target project's checks; [the test guide](../tests/README.md) covers Agents-Core.
 
@@ -10,6 +11,13 @@ Use the target project's checks; [the test guide](../tests/README.md) covers Age
 ```text
 Run flows/pr-review.md for <PR or MR URL>.
 ```
+
+Through Agents-Core MCP, call
+`run_flow(flow="pr-review", request="Review <PR or MR URL>")`. Carry user
+constraints such as `no-merge` into `request` and use the returned `repo_path` as
+the target. Source links belong to the MCP installation; repository operations
+and instructions belong to the target. Confirm the PR/MR matches that repository
+before making changes.
 
 Optional constraints include a specific review scope or `review-only` / `no-merge`.
 Without a URL, locate the current branch's existing PR/MR. If the task includes
@@ -94,6 +102,10 @@ findings and continue to the merge conditions; unavailability is not approval.
 ### GitHub helpers in this repository
 
 Run helpers from the target GitHub repository context after checking their source.
+When the target is another repository, use the absolute helper paths from the
+Agents-Core source checkout while keeping the working directory at the target.
+Do not assume `scripts/dev/` exists in the target. If the installation's files
+are inaccessible, use the platform API or CLI directly.
 Replace `OWNER`, `REPO`, and `N` with the verified target:
 
 ```bash
