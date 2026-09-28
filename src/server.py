@@ -48,6 +48,7 @@ from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
 from src.memory.history import HistoryReader, HistoryWriter
 from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
+from src.flows import FlowCatalog, FlowError, execution_bundle
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import load_persona, route_persona, parse_persona, error_response
 
@@ -100,6 +101,12 @@ mcp = FastMCP(
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
         "Never replay an ambiguous write automatically; read the result first.\n"
+        "For requested repository workflows, use list_flows and run_flow. Flows come "
+        "from this installation; run_flow binds them to the caller's workspace and "
+        "returns needs_execution. Execute the returned instructions in the current "
+        "model session against repo_path, preserving user constraints. It does not "
+        "perform the workflow or authorize additional actions. HTTP requires "
+        "X-Agents-Workspace; never substitute the installation for a missing target.\n"
         "MCP-unavailable fallback: reuse a valid retained v2 bundle's descriptor and exact "
         "footer, or retained v1 context with its legacy footer format. If neither is "
         "retained, disclose manual fallback and omit the MCP footer and descriptor "
@@ -143,6 +150,50 @@ def _is_within(candidate: str, boundary: str) -> bool:
 
 
 # --- Tools ---
+
+@mcp.tool()
+async def list_flows() -> str:
+    """List installed Markdown workflows with IDs, titles, source paths and revisions.
+
+    No caller workspace is needed. Use an ID with run_flow to execute a requested
+    workflow in the caller's repository through the current model session.
+    """
+    try:
+        flows = await asyncio.to_thread(FlowCatalog().list)
+        return json.dumps({"status": "success", "flows": flows}, ensure_ascii=False)
+    except (FlowError, OSError, RuntimeError) as error:
+        return json.dumps({"status": "error", "error": str(error)})
+
+
+@mcp.tool()
+async def run_flow(
+    flow: str,
+    request: str = "",
+    repo_path: Optional[str] = None,
+    ctx: Context | None = None,
+) -> str:
+    """Start a user-requested installed flow in the CALLER's repository.
+
+    flow accepts a catalog ID, ID.md or flows/ID.md. request carries the user's
+    scope, PR/MR URL and constraints such as no-merge. repo_path defaults to the
+    caller workspace; an override must be an existing directory within it.
+    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT or cwd.
+
+    Returns needs_execution with flow metadata, content, repo_path, workspace_id,
+    request and instruction. Continue executing that content using client tools.
+    This tool only reads instructions: it does not run commands, edit files,
+    create a background task, sample a model or claim the workflow is complete.
+    Returns status=error for an invalid source or unavailable caller workspace.
+    """
+    try:
+        client = client_context(ctx, allow_install_fallback=False)
+        target = client.workspace_target(repo_path)
+        loaded = await asyncio.to_thread(FlowCatalog().load, flow)
+        return json.dumps(execution_bundle(loaded, target, client.workspace_id, request),
+                          ensure_ascii=False)
+    except (FlowError, WorkspaceError, OSError, RuntimeError) as error:
+        return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
+
 
 @mcp.tool()
 async def clear_session_cache() -> str:

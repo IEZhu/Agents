@@ -59,6 +59,7 @@ Use the direct Python command when you need to select specific test files.
 | Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py` |
 | Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
 | Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
+| Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |

@@ -20,7 +20,7 @@ also applies to AI instructions, plans, and reports.
 | Understand skills and implants | [Skills](../skills/README.md), [Implants](../implants/README.md) | `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/enrichment.py` |
 | Understand the optional intent classifier | [Intent classifier](intent-classifier.md) | `src/engine/intent.py`, `src/engine/config.py` |
 | Work in this repository | [Session playbook](session-playbook.md) | Current repository and task constraints |
-| Run or add reusable model workflows | [Workflow catalog](../flows/README.md) | `flows/*.md` |
+| Run or add reusable model workflows | [Workflow catalog](../flows/README.md) | `flows/*.md`, `src/flows.py`, `src/server.py`, `src/daemon/workspaces.py` |
 | Run tests | [Test guide](../tests/README.md) | `pyproject.toml`, `tests/conftest.py`, `scripts/run_tests.sh`, `tests/` |
 | Refresh documentation for people and AI | [Repeatable workflow](../flows/documentation-refresh.md) | The sources and checks listed in that workflow |
 | Review and merge a PR/MR | [PR/MR review flow](../flows/pr-review.md) | Live reviews, current-head checks, and repository merge rules |
@@ -31,7 +31,7 @@ also applies to AI instructions, plans, and reports.
 |---|---|
 | [AGENTS.md](../AGENTS.md) | Short entry point for AI contributors; links to the shared protocol and working instructions |
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
-| [flows/](../flows/README.md) | Reusable task instructions invoked by pointing a model to a Markdown file |
+| [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
 | [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Installer's default protocol 2 instruction template |
 | [routing-protocol-v1.md](../scripts/templates/routing-protocol-v1.md) | Explicit version 1 compatibility template |
 | [memory-routing-v2.md](../scripts/templates/memory-routing-v2.md), [memory-routing-v1.md](../scripts/templates/memory-routing-v1.md) | Matching installer reminders for client memory |
