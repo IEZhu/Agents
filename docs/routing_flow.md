@@ -229,8 +229,9 @@ files. The shared instruction writer retains the three newest backups per file
 whose names end in `.backup.<timestamp>`, accepting both the legacy 10-digit
 seconds and current 19-digit nanoseconds formats. It removes older matching
 regular files after a successful write or an unchanged-content check. An
-unchanged update creates no backup. Named manual backups, other filename formats
-and symlink backups are preserved; MCP configuration backups use separate logic.
+unchanged update creates no backup. Backup creation reserves a distinct name even
+when the clock returns a timestamp already in use. Named manual backups, other
+filename formats and symlink backups are preserved; MCP configuration backups use separate logic.
 Malformed routing markers stop the update without rewriting the target.
 
 The installers migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its

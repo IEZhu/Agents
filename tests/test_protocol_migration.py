@@ -208,6 +208,48 @@ def test_instruction_backups_are_bounded_and_contain_recent_versions(tmp_path, h
     assert sorted(tmp_path.glob("AGENTS.md.backup.*")) == backups
 
 
+def test_fixed_clock_keeps_distinct_backups_of_recent_versions(tmp_path, helpers, monkeypatch):
+    injector, _ = helpers
+    target = tmp_path / "AGENTS.md"
+    monkeypatch.setattr(injector.time, "time_ns", lambda: 1_790_000_000_000_000_000)
+    for version in range(8):
+        assert injector.write_with_backup(target, f"version {version}".encode())
+        backups = sorted(tmp_path.glob("AGENTS.md.backup.*"))
+        expected = [f"version {previous}".encode() for previous in range(max(0, version - 3), version)]
+        assert [backup.read_bytes() for backup in backups] == expected
+        assert all(len(backup.name.rsplit(".", 1)[1]) == 19 for backup in backups)
+    assert target.read_bytes() == b"version 7"
+
+
+@pytest.mark.parametrize("collision", [False, True])
+def test_failed_backup_copy_removes_partial_snapshot_and_preserves_old_backups(
+    tmp_path, helpers, monkeypatch, collision,
+):
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    tick = 1_790_000_000_000_000_000
+    monkeypatch.setattr(injector.time, "time_ns", lambda: tick)
+    # More than the retention limit proves a failed backup does not prune either.
+    timestamps = list(range(tick - 4, tick)) + ([tick] if collision else [])
+    originals = {}
+    for timestamp in timestamps:
+        backup = target.with_name(f"{target.name}.backup.{timestamp}")
+        originals[backup] = str(timestamp).encode()
+        backup.write_bytes(originals[backup])
+
+    def fail_copy(source, destination):
+        Path(destination).write_bytes(b"partial snapshot")
+        raise OSError("backup copy failed")
+
+    monkeypatch.setattr(injector.shutil, "copy2", fail_copy)
+    with pytest.raises(OSError, match="backup copy failed"):
+        injector.write_with_backup(target, b"replacement")
+    assert target.read_bytes() == b"original"
+    assert {backup: backup.read_bytes() for backup in tmp_path.glob("*.backup.*")} == originals
+    assert not list(tmp_path.glob(".CLAUDE.md.*"))
+
+
 def test_unchanged_update_prunes_legacy_backups_and_preserves_user_copies(tmp_path, helpers):
     injector, _ = helpers
     target = tmp_path / "CLAUDE.md"

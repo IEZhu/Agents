@@ -35,6 +35,37 @@ def prune_backups(path: Path) -> None:
         print(f"WARNING: Could not prune instruction backups for {path}: {exc}", file=sys.stderr)
 
 
+def copy_backup(path: Path) -> Path:
+    """Reserve a unique snapshot name, including when the clock has not advanced."""
+    prefix = path.name + ".backup."
+    timestamp = time.time_ns()
+    # Start after existing snapshots so pruning cannot make a frozen clock reuse
+    # an older name and then discard the newest backup as the oldest snapshot.
+    for existing in path.parent.iterdir():
+        suffix = existing.name[len(prefix):] if existing.name.startswith(prefix) else ""
+        if re.fullmatch(r"(?:[0-9]{10}|[0-9]{19})", suffix):
+            previous = int(suffix) * (10**9 if len(suffix) == 10 else 1)
+            timestamp = max(timestamp, previous + 1)
+    while True:
+        backup = path.with_name(f"{prefix}{timestamp:019d}")
+        try:
+            with backup.open("xb"):
+                pass
+        except FileExistsError:
+            timestamp += 1
+            continue
+        break
+    try:
+        shutil.copy2(path, backup)
+    except BaseException:
+        try:
+            backup.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"WARNING: Could not remove incomplete backup {backup}: {exc}", file=sys.stderr)
+        raise
+    return backup
+
+
 def write_with_backup(path: Path, content: bytes) -> bool:
     """Write atomically and retain up to three managed backups of previous bytes."""
     if path.is_symlink():
@@ -44,8 +75,7 @@ def write_with_backup(path: Path, content: bytes) -> bool:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
-        backup = path.with_name(f"{path.name}.backup.{time.time_ns()}")
-        shutil.copy2(path, backup)
+        backup = copy_backup(path)
         print(f"Backup created: {backup}")
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:

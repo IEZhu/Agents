@@ -269,8 +269,9 @@ checkout to v2, use `scripts/templates/routing-protocol-core.md` as the source.
 Repository notes outside the markers are preserved. Managed instruction sections
 are backed up and replaced by markers. For each managed instruction or routing
 memory file, the helper keeps the three newest generated timestamp backups;
-unchanged instructions create no new backup. Named manual backups and other
-backup formats are preserved. This limit does not apply to MCP configuration
+unchanged instructions create no new backup. Backup creation reserves a distinct
+name even when successive writes have the same timestamp. Named manual backups
+and other backup formats are preserved. This limit does not apply to MCP configuration
 backups. Only exact known installer-generated
 routing memory is migrated; edited reminders are preserved with a path-specific warning. Windows
 does not create an absent memory reminder. Review your own project instructions
