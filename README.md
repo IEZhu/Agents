@@ -197,11 +197,31 @@ The server exposes MCP tools that any compatible client can call:
 | `refresh_persona_context(query, current_persona)` | Protocol 2: refresh skills/implants for the active role |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
+| `list_flows()` | Discover Markdown workflows in this MCP installation, with IDs and content revisions |
+| `run_flow(flow, request="", repo_path=None)` | Load an installed workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared v1 prompt cache and sticky mappings; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling, or when the sampling call fails, it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling, or sampling failed); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
+
+### Workflows in the caller's repository
+
+Ask the model to use Agents-Core to run `documentation-refresh` or `pr-review`
+in the current repository. It calls `list_flows()` to discover flows and
+`run_flow(flow="documentation-refresh")` to get the instructions. For review,
+pass the PR/MR URL and constraints in `request`, such as `no-merge`.
+
+The flow files stay in the MCP installation. Inspection, edits, tests and PR/MR
+actions target the caller's repository. HTTP requires a registered workspace in
+`X-Agents-Workspace`; stdio uses `AGENTS_CLIENT_REPO_ROOT` or the server's working
+directory. An optional `repo_path` must stay within that workspace. A missing
+HTTP workspace is an error, even when `repo_path` is supplied.
+
+The tool reads and returns instructions; the current model executes them with
+its existing permissions and tools. `needs_execution` does not mean the work is
+complete. See the [workflow guide](flows/README.md#through-agents-core-mcp) for
+the response contract, target resolution, and authoring rules.
 
 ### Persona continuity (protocol 2, default)
 
@@ -316,7 +336,7 @@ Agents/
 ├── tests/                # Deterministic and opt-in integration tests
 ├── evals/                # Routing, enrichment, and client dialogue evaluations
 ├── docs/                 # Guides and reference documents
-├── flows/                # Reusable Markdown task instructions for models
+├── flows/                # Markdown workflows served to caller repositories through MCP
 ├── data/                 # Installation indexes and leased stdio state (ignored)
 ├── pyproject.toml        # Python project metadata
 └── requirements.txt
@@ -539,6 +559,8 @@ refresh process](flows/documentation-refresh.md) for documentation work, and
 Store reusable task instructions for models in `flows/` and list them in
 [flows/README.md](flows/README.md). To run one, point the model to its Markdown
 file, for example: `Run flows/documentation-refresh.md.`
+From another repository, use `run_flow(flow="documentation-refresh")` through
+Agents-Core MCP; no copy of the flow file is needed in that repository.
 For review through merge, use `Run flows/pr-review.md for <PR or MR URL>.`
 The [PR/MR flow](flows/pr-review.md) covers concise English descriptions, bot
 review cycles, replies, and a final report in the request's language.

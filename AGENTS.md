@@ -27,6 +27,11 @@ their recorded revision; they do not override the current implementation.
 - Put reusable task instructions for models in `flows/<descriptive-name>.md`
   and add them to [flows/README.md](flows/README.md). Follow the selected flow
   when the user invokes it by path.
+- MCP exposes installed flows through `list_flows()` and `run_flow(...)`.
+  When a user requests one for another repository, execute the returned bundle
+  against its `repo_path`. Source files come from the MCP installation; target
+  instructions, edits and checks belong to the caller. `needs_execution` requires
+  the current model to continue the work; it is not a completion result.
 - Write all repository documentation in English, including AI instructions,
   plans, and reports. Retain other languages only for necessary passages such as
   verbatim quotations, language-specific examples or test data, and original

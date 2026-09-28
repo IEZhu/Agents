@@ -19,6 +19,7 @@ AGENTS_DIR = os.path.join(INSTALL_ROOT, "agents")
 SKILLS_DIR = os.path.join(INSTALL_ROOT, "skills")
 IMPLANTS_DIR = os.path.join(INSTALL_ROOT, "implants")
 RULES_DIR = os.path.join(INSTALL_ROOT, "rules")
+FLOWS_DIR = os.path.join(INSTALL_ROOT, "flows")
 
 # --- Client repo root (per-session, per-repo memory artifacts) ---------------
 # Where the serving MCP session's journal lives: history.md, history/ archive,
@@ -42,8 +43,7 @@ def _find_marker_upwards(start: Path) -> Optional[Path]:
     return None
 
 
-@lru_cache(maxsize=1)
-def get_client_repo_root() -> str:
+def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
     """Resolve the client repo that owns this MCP session's per-repo memory.
 
     Resolution order:
@@ -52,16 +52,27 @@ def get_client_repo_root() -> str:
          `.git` or `CLAUDE.md`.
       3. Fallback: `os.getcwd()`.
 
+    With allow_install_fallback=False, an unavailable cwd raises OSError
+    instead of selecting the installation as the target of a workflow.
     Memoized for the process lifetime. Tests reset via
     `_reset_client_repo_root_cache()`.
     """
+    root, used_install_fallback = _resolve_client_repo_root()
+    if used_install_fallback and not allow_install_fallback:
+        raise OSError("workspace_required: cwd unavailable; set AGENTS_CLIENT_REPO_ROOT")
+    return root
+
+
+@lru_cache(maxsize=1)
+def _resolve_client_repo_root() -> tuple[str, bool]:
+    """Pin one identity for both memory and flows, retaining fallback provenance."""
     override = os.environ.get("AGENTS_CLIENT_REPO_ROOT")
     if override:
         resolved = os.path.realpath(os.path.expanduser(override))
         # Debug-level so the server's INFO-configured root logger stays quiet
         # on normal startup; AGENTS_DEBUG=1 surfaces these when diagnosing.
         logger.debug("client-repo-root: env override -> %s", resolved)
-        return resolved
+        return resolved, False
 
     # `os.getcwd()` raises FileNotFoundError when the process' cwd has been
     # deleted (long-running daemons started from ephemeral dirs). Without
@@ -75,12 +86,12 @@ def get_client_repo_root() -> str:
             "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
             err,
         )
-        return INSTALL_ROOT
+        return INSTALL_ROOT, True
 
     marker = _find_marker_upwards(cwd)
     if marker is not None:
         logger.debug("client-repo-root: walk-up marker -> %s", marker)
-        return str(marker)
+        return str(marker), False
 
     try:
         fallback = str(cwd.resolve())
@@ -89,14 +100,14 @@ def get_client_repo_root() -> str:
             "client-repo-root: cwd resolve failed (%s); falling back to INSTALL_ROOT.",
             err,
         )
-        return INSTALL_ROOT
+        return INSTALL_ROOT, True
     logger.debug("client-repo-root: fallback cwd -> %s", fallback)
-    return fallback
+    return fallback, False
 
 
 def _reset_client_repo_root_cache() -> None:
     """Clear the memoization of `get_client_repo_root()`. Test-only."""
-    get_client_repo_root.cache_clear()
+    _resolve_client_repo_root.cache_clear()
 
 
 def get_client_data_dir() -> str:

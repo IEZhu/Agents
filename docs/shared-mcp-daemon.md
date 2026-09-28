@@ -42,7 +42,8 @@ to select another port.
 
 Register each project directory and worktree separately. Registering the same
 realpath again returns its existing UUID. Global entries provide routing and
-personas without a workspace; memory requires project configuration. After
+personas and the flow catalog without a workspace; memory and `run_flow` require
+project configuration. After
 creating a clone or worktree, run `migrate --workspace /absolute/worktree` before
 connecting. Do not copy an MCP configuration containing another project's UUID.
 
@@ -120,7 +121,10 @@ A request sent during the stop window fails and can be retried.
 HTTP never selects a project from cwd, environment variables, or client roots.
 `X-Agents-Workspace` carries a UUID from the private registry. Errors
 `workspace_required` and `workspace_invalid` mean memory is unavailable: routing
-can continue, and logging must not be retried in a loop.
+can continue, and logging must not be retried in a loop. `run_flow` also requires
+this header and never uses `repo_path` as a replacement for workspace identity.
+`list_flows` works without it. See the [flow guide](../flows/README.md) for loading
+installation workflows into the caller's repository.
 
 After `describe_repo`, pass the original `workspace_id`, `repo_path`, and
 `repo_hash` to `write_repo_summary` together with the summary. The header must
