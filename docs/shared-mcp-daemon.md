@@ -4,7 +4,17 @@ A macOS LaunchAgent serves local MCP clients at `http://127.0.0.1:8765/mcp`.
 One Python process holds `intfloat/multilingual-e5-large`, the router, and shared
 indexes. Desktop Chat connects through `bridge/stdio.mjs` (Node 22+, no npm
 dependencies). MCP SDK 1.28.1 is pinned in `pyproject.toml`, `requirements.txt`,
-and `uv.lock`.
+and `uv.lock`. The port above is the default; `install --port` can change it.
+Installation requires an existing e5-large snapshot under `FASTEMBED_CACHE_DIR`
+(default `~/.cache/fastembed`); `install` does not download the model.
+
+The daemon supports persona protocols 1 and 2. Client instructions installed by
+`init_repo` default to version 2, while MCP tools and slash prompts default to
+version 1 unless `protocol_version=2` is supplied. Transport migration does not
+rewrite that client policy. Follow [the routing protocol](routing_flow.md) when
+keeping, switching, restoring, or refreshing a role. HTTP never samples the final
+answer and does not expose `clear_session_cache`; administrative cache clearing
+uses the controller command below.
 
 ## Installation and client migration
 
@@ -81,7 +91,9 @@ logs are limited to seven days and 100 MiB. Debug writes skip symlinked path
 components and create mode-0600 JSON files exclusively. Debug pruning leaves
 symlinked directories and JSON entries untouched.
 
-`status` reports ready, starting, draining, or failed state, PID, boot ID, request
+`status` reports ready, starting, draining, or failed state when the service
+responds; otherwise it reports `not_installed`, `starting`, or `stopped` from local
+configuration and launchd. A live response includes PID, boot ID, request
 counts (`inflight` for work, `streams` for open client notification streams),
 `idle_seconds` since the last request finished, and running jobs. `/health` requires a bearer token. Readiness means the
 model and indexes have warmed successfully. Admission is bounded at 32 work requests,
@@ -163,7 +175,8 @@ Git credentials and SSH must work with the LaunchAgent's PATH and environment.
 
 `enable` installs a second LaunchAgent, `local.agents-core.<installation-hash>.updater`,
 that runs `auto-update run` every `--interval` seconds (default 900, minimum
-60). A run fetches the tracked branch (`main`) and stops there when the
+60). A run fetches `AGENTS_AUTO_UPDATE_REMOTE` / `AGENTS_AUTO_UPDATE_BRANCH`
+(defaults `origin` / `main`) and stops there when the
 installation is up to date. It skips a target without touching the service when
 the checked-out branch is different, tracked files have local changes, the
 target is not a fast-forward, or dependency manifests changed; each skip is
@@ -197,15 +210,17 @@ reverse order. Uninstall retains backups, the registry, and history.
 
 ## Validation
 
-`tests/conftest.py` runs the suite against a temporary copy of the vector
-stores, so tests never write the live `data/`. Checkouts without that file
-rebuild the live stores whenever `EMBEDDING_MODEL` differs from the installed
-model, which is the MiniLM default when the variable is unset. Export the
-installed model before running tests in such a checkout; it is harmless with
-the conftest too:
+`tests/conftest.py` redirects vector stores, router state, and updater state to a
+temporary directory, seeded with available skills/implants indexes. When
+`EMBEDDING_MODEL` is not already set, it reads the model from the checkout's `.env`.
+Without either setting, the engine defaults to
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; this differs from
+the daemon's fixed e5-large model. Missing or incompatible indexes may require
+model loading and rebuilding inside the temporary directory.
+
+Run the suite from a checkout with this conftest and its development dependencies:
 
 ```bash
-export EMBEDDING_MODEL="$(sed -n 's/^EMBEDDING_MODEL=//p' .env)"
 scripts/run_tests.sh
 .venv/bin/python -m pytest -m slow tests/test_routing.py
 node --test bridge/test.mjs
@@ -214,9 +229,11 @@ node --test bridge/test.mjs
 ```
 
 Fast transport, controller, and configuration tests do not load the model. Smoke
-tests use the locally cached e5-large model, one temporary daemon, and isolated
-projects. They cover 20 clients, memory, digest and identity checks, absence of
-sampling, and graceful shutdown. The soak test adds 1,000 connections, 20
+tests require the e5-large model at `~/.cache/fastembed`, use port `18765`, one
+temporary daemon, and isolated projects. They can still rebuild derived indexes
+in the installation checkout, so run them in a dedicated checkout rather than a
+live installation. They cover 20 clients, memory, digest and identity checks,
+absence of sampling, and graceful shutdown. The soak test adds 1,000 connections, 20
 workspaces, and a five-minute idle CPU measurement. Verify Dock launch,
 sleep/wake, and reconnection separately in each GUI client; CLI and HTTP tests
 do not cover those application workflows.

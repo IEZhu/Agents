@@ -36,7 +36,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_PATH="$REPO_ROOT/.venv"
-PYTHON_MIN_VERSION="3.10"
+PYTHON_MIN_VERSION="3.11"
 # Select the same protocol for managed instructions, memory, and printed fallback.
 PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"
 case "$PERSONA_PROTOCOL" in
@@ -436,6 +436,10 @@ if [ -d "$VENV_PATH" ]; then
         print_step "Creating fresh virtual environment using $SELECTED_PYTHON..."
         "$SELECTED_PYTHON" -m venv "$VENV_PATH"
     else
+        if [ "$VENV_PYTHON_VER" = "unknown" ] || ! version_gte "$VENV_PYTHON_VER" "$PYTHON_MIN_VERSION"; then
+            print_error "Existing virtual environment requires Python >= $PYTHON_MIN_VERSION; rerun setup and choose to recreate it"
+            exit 1
+        fi
         print_step "Using existing virtual environment"
         SKIP_INSTALL=true
     fi

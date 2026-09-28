@@ -109,7 +109,7 @@ for /f "delims=" %%A in ('python3 "%PYCHECK%" 2^>nul') do (set "SELECTED_PYTHON=
 if defined SELECTED_PYTHON goto :python_found
 
 echo   %RED%x%NC% No suitable Python version found
-echo        Please install Python 3.10 or newer and ensure `py -3`, `python`,
+echo        Please install Python 3.11 or newer and ensure `py -3`, `python`,
 echo        or `python3` is on PATH.
 exit /b 1
 
@@ -177,8 +177,10 @@ goto :venv_activate
 :venv_exists
 set "VENV_PYTHON=%VENV_PATH%\Scripts\python.exe"
 set "VENV_PY_VER="
+set "VENV_PY_SUPPORTED=true"
 for /f "delims=" %%A in ('"%VENV_PYTHON%" "%PYCHECK%" 2^>nul') do set "VENV_PY_VER=%%A"
 if not defined VENV_PY_VER (
+    set "VENV_PY_SUPPORTED=false"
     REM check_version.py failed — get version directly for display
     for /f "delims=" %%A in ('"%VENV_PYTHON%" -c "import sys;v=sys.version_info;print(str(v.major)+'.'+str(v.minor))" 2^>nul') do set "VENV_PY_VER=%%A"
     echo   %YELLOW%WARNING:%NC% Venv Python !VENV_PY_VER! may be unsupported
@@ -194,6 +196,10 @@ echo   %YELLOW%WARNING:%NC% Do you want to recreate it and reinstall all package
 set "REPLY=N"
 set /p "REPLY=  Reinstall? [y/N]: "
 if /I not "!REPLY!"=="y" (
+    if "!VENV_PY_SUPPORTED!"=="false" (
+        echo   %RED%x%NC% Existing virtual environment requires Python 3.11 or newer; rerun setup and choose to recreate it
+        exit /b 1
+    )
     echo   %GREEN%^>%NC% Using existing virtual environment
     set "SKIP_INSTALL=true"
     goto :venv_activate

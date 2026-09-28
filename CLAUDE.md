@@ -125,6 +125,13 @@ above only where their required state or tool is unavailable:
 
 ## Repository notes
 
+For contribution instructions, read [AGENTS.md](AGENTS.md). The
+[documentation map](docs/README.md) distinguishes current references from plans
+and recorded results. To refresh both human documentation and AI instructions,
+execute [flows/documentation-refresh.md](flows/documentation-refresh.md).
+Keep reusable model task instructions in `flows/`; see the
+[workflow catalog and authoring guide](flows/README.md).
+
 The committed managed section uses protocol 2, the installer default. The global
 installer does not modify this tracked checkout file. To switch this checkout back
 to protocol 1, replace its managed section using the command documented in
@@ -144,4 +151,6 @@ notes outside the markers so future protocol changes preserve them.
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
   for the current contracts, compatibility behavior and migration procedure.
 - Run `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q` for
-  the regular suite; include slow tests with `-m ''` when required.
+  the regular suite; include slow tests with `-m ''` when required. See
+  [tests/README.md](tests/README.md) for environment setup, focused checks and
+  worktree isolation. Run only one heavy test or embedding process at a time.
