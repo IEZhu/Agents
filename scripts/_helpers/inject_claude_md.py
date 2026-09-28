@@ -1,6 +1,7 @@
 """Replace only the marked routing section, preserving other user instructions."""
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -10,14 +11,37 @@ MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
 MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
 LEGACY_MARKER_BEGIN = "# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>"
 LEGACY_MARKER_END = "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<"
+BACKUP_LIMIT = 3
+
+
+def prune_backups(path: Path) -> None:
+    """Keep the latest managed snapshots; leave user-named backups untouched."""
+    prefix = path.name + ".backup."
+    try:
+        backups = [
+            item for item in path.parent.iterdir()
+            if item.name.startswith(prefix)
+            and re.fullmatch(r"(?:[0-9]{10}|[0-9]{19})", item.name[len(prefix):])
+            and not item.is_symlink() and item.is_file()
+        ]
+
+        def timestamp(item: Path) -> int:
+            value = item.name[len(prefix):]
+            return int(value) * (10**9 if len(value) == 10 else 1)
+
+        for backup in sorted(backups, key=timestamp, reverse=True)[BACKUP_LIMIT:]:
+            backup.unlink()
+    except OSError as exc:
+        print(f"WARNING: Could not prune instruction backups for {path}: {exc}", file=sys.stderr)
 
 
 def write_with_backup(path: Path, content: bytes) -> bool:
-    """Write atomically; preserve the original bytes in a unique backup on change."""
-    if path.exists() and path.read_bytes() == content:
-        return False
+    """Write atomically and retain up to three managed backups of previous bytes."""
     if path.is_symlink():
         raise ValueError(f"Refusing to replace a symlink: {path}; edit its target manually")
+    if path.exists() and path.read_bytes() == content:
+        prune_backups(path)
+        return False
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         backup = path.with_name(f"{path.name}.backup.{time.time_ns()}")
@@ -33,6 +57,7 @@ def write_with_backup(path: Path, content: bytes) -> bool:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+    prune_backups(path)
     return True
 
 

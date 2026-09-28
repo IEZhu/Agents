@@ -29,7 +29,7 @@ Run focused files while iterating:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_language.py -q
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_protocol_migration.py tests/test_managed_section.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q
 ```
 
 Include slow tests, or select only slow tests:
@@ -57,7 +57,7 @@ Use the direct Python command when you need to select specific test files.
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2 and fresh bundles | `test_persona_protocol.py`, `test_persona_bundle.py` |
 | Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py` |
-| Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
+| Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
 | Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |
@@ -79,6 +79,13 @@ Python 3.10 venv or a broken venv whose base interpreter is missing, preserve th
 environment, and exit before activation. A supported venv reaches an activation
 sentinel that exits with code 77. This checks the reuse gate; it does not complete
 dependency installation, download a model, or change MCP client settings.
+
+The same workflow runs Codex discovery and managed-instruction migration checks.
+`test_installer_instructions.py` executes the actual template selection, skip guard
+and Codex instruction hook from each installer in temporary directories. Unix
+uses Bash; Windows uses native `cmd.exe`. These focused checks cover protocol
+selection, repeated updates, override precedence and errors without running
+dependency installation or editing real client settings.
 
 To run locally in PowerShell with Python 3.11+ selected:
 

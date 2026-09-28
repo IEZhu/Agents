@@ -10,7 +10,7 @@ REM
 REM Flags:
 REM   --skip-env     Skip .env file creation (useful if already configured)
 REM   --skip-index   Skip embedding model download and index pre-build
-REM   --skip-mcp     Skip MCP environment detection and configuration
+REM   --skip-mcp     Skip MCP configuration and client instruction updates
 REM   --help         Show this help message
 
 setlocal enabledelayedexpansion
@@ -65,7 +65,7 @@ echo(
 echo Flags:
 echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
-echo   --skip-mcp     Skip MCP environment detection and configuration
+echo   --skip-mcp     Skip MCP configuration and client instruction updates
 echo   --help         Show this help message
 echo   Persona protocol 2 is the default; set AGENTS_PERSONA_PROTOCOL=1 for version 1.
 exit /b 0
@@ -569,12 +569,18 @@ if "!CLAUDE_MD_CONFIGURED!"=="true" (
 )
 :skip_claude_code
 
+REM --- Configure Codex instructions ---
+REM MCP registration is separate from these global persona instructions.
+echo   %GREEN%^>%NC% Checking Codex global instructions...
+"%PYTHON_ABS%" "%HELPERS%\install_codex_instructions.py" "%ROUTING_TEMPLATE%"
+if !errorlevel! neq 0 echo   %RED%x%NC% Failed to configure Codex instructions - inspect the reported path
+
 REM --- MCP Summary ---
 echo(
 if defined CONFIGURED_ENVS (
     echo   %GREEN%+%NC% MCP configured for:%CONFIGURED_ENVS%
 ) else (
-    echo   %YELLOW%WARNING:%NC% No IDE environments detected
+    echo   %YELLOW%WARNING:%NC% No MCP client registrations were configured
     echo   %GREEN%^>%NC% You can configure MCP manually later
 )
 

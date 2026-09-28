@@ -14,6 +14,7 @@ also applies to AI instructions, plans, and reports.
 | Need | Document | Source of truth for behavior |
 |---|---|---|
 | Install and configure Agents-Core | [Project README](../README.md) | `scripts/init_repo.sh`, `scripts/init_repo.bat`, `pyproject.toml`, `env.example`, `src/engine/config.py` |
+| Install or refresh Codex global instructions | [Codex instruction installation](../README.md#codex-instruction-installation) | `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/templates/` |
 | Understand persona continuity and routing | [Routing](routing_flow.md) | `src/server.py`, `src/engine/persona.py`, `src/engine/persona_bundle.py`, `src/schemas/protocol.py` |
 | Operate the shared macOS MCP daemon | [Daemon operations](shared-mcp-daemon.md) | `src/daemon/`, `bridge/stdio.mjs`, `scripts/daemon_smoke.py` |
 | Choose or add agents | [Agent catalog](../agents/README.md), [creation guide](../README.md#-creating-new-agents) | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json` |
