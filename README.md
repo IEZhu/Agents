@@ -31,8 +31,15 @@ The interactive script creates or reuses `.venv/`, installs dependencies, create
 `.env`, selects and downloads an embedding model, and builds the skill and implant
 indexes. It can also configure detected Cursor, Claude Code, and Claude Desktop
 clients and install protocol 2 instructions in the global Claude configuration.
+When Codex is detected, it automatically installs the same protocol in Codex's
+global instructions. This instruction update is separate from connecting Codex to
+MCP; see [Codex instruction installation](#codex-instruction-installation).
 Use `./scripts/init_repo.sh --help` for the available skip options. For the shared
-macOS service and Codex configuration, continue with [MCP client configuration](#-mcp-client-configuration).
+macOS service and client connections, continue with [MCP client configuration](#-mcp-client-configuration).
+
+For an existing installation, refresh global Codex and Claude instructions with
+`python3 scripts/install_instructions.py`. This standalone command needs Python
+3.11 or newer and does not rerun setup; see the [instruction update options](#codex-instruction-installation).
 
 ### Manual Setup
 
@@ -247,7 +254,9 @@ AGENTS_PERSONA_PROTOCOL=1 ./scripts/init_repo.sh
 ```
 
 On Windows, set `AGENTS_PERSONA_PROTOCOL=1` before running `scripts\init_repo.bat`.
-Use the same setting on reruns. The checked-in `CLAUDE.md` also uses v2; the global
+Use the same setting on reruns. Both installers apply the selected protocol to
+detected Codex global instructions as well as the Claude instruction setup.
+The checked-in `CLAUDE.md` also uses v2; the global
 installer does not change this tracked file. To switch this checkout to another
 version, replace its managed section:
 
@@ -258,7 +267,12 @@ version, replace its managed section:
 On Windows, use `.venv\Scripts\python.exe` for the same command. To return this
 checkout to v2, use `scripts/templates/routing-protocol-core.md` as the source.
 Repository notes outside the markers are preserved. Managed instruction sections
-are backed up and replaced by markers. Only exact known installer-generated
+are backed up and replaced by markers. For each managed instruction or routing
+memory file, the helper keeps the three newest generated timestamp backups;
+unchanged instructions create no new backup. Backup creation reserves a distinct
+name even when successive writes have the same timestamp. Named manual backups
+and other backup formats are preserved. This limit does not apply to MCP configuration
+backups. Only exact known installer-generated
 routing memory is migrated; edited reminders are preserved with a path-specific warning. Windows
 does not create an absent memory reminder. Review your own project instructions
 and memory for conflicting unconditional `route_and_load` requirements; these
@@ -344,6 +358,47 @@ Agents/
 ---
 
 ## 🔌 MCP Client Configuration
+
+### Codex instruction installation
+
+During the client setup stage, both installers automatically update Codex's global
+instructions when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
+the `codex` command is available. `CODEX_HOME` selects the target directory when
+non-empty; otherwise the target is `~/.codex`. There is no additional Codex prompt.
+`--skip-mcp` skips this instruction update along with client configuration.
+
+The installer updates a non-empty `AGENTS.override.md` when present; otherwise it
+updates `AGENTS.md`. This matches Codex's global instruction precedence. Personal
+instructions outside the Agents-Core markers are preserved. Project instructions
+can override global guidance, so review any old project-level routing rules too.
+Start a fresh Codex session after updating instructions. See the
+[official Codex instruction guide](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+
+To refresh global instructions for detected Codex and Claude clients from the
+current checkout without rerunning setup:
+
+```bash
+python3 scripts/install_instructions.py
+```
+
+On Windows, use `py -3 scripts\install_instructions.py`. The command needs Python
+3.11 or newer and only uses its standard library; no virtual environment is
+required. Add `--clients codex` to update only Codex. An unset or empty
+`AGENTS_PERSONA_PROTOCOL` selects protocol 2; `AGENTS_PERSONA_PROTOCOL=1` selects
+version 1, and an explicit `--protocol 1` or
+`--protocol 2` overrides that environment setting. The command uses the installer's
+managed-section replacement and backup retention. It migrates an existing exact
+generated Claude routing reminder and its entry in `~/.claude/memory/MEMORY.md`,
+but does not create an absent reminder.
+
+This command updates global instructions, that reminder and its memory-index
+entry, and their managed backups. It does not install dependencies, change `.env`
+or vector indexes, register MCP connections, or change
+service configuration. The shared daemon migration below configures Codex's MCP
+connection on macOS. Refreshing instructions alone does not require restarting the
+daemon.
+
+### Shared macOS service
 
 On macOS, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
 Before the first migration, follow the maintenance and baseline steps in

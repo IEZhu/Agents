@@ -3,17 +3,39 @@ name: Windows installer
 on:
   pull_request:
     paths:
+      - .gitattributes
       - scripts/init_repo.bat
+      - scripts/init_repo.sh
+      - scripts/install_instructions.py
       - scripts/_helpers/check_version.py
+      - scripts/_helpers/install_codex_instructions.py
+      - scripts/_helpers/inject_claude_md.py
+      - scripts/_helpers/migrate_routing_memory.py
+      - scripts/templates/*.md
       - tests/test_installer_windows.py
+      - tests/test_installer_instructions.py
+      - tests/test_install_instructions.py
+      - tests/test_codex_instructions.py
+      - tests/test_protocol_migration.py
       - tests/conftest.py
       - .github/workflows/windows-installer.yml
   push:
     branches: [main]
     paths:
+      - .gitattributes
       - scripts/init_repo.bat
+      - scripts/init_repo.sh
+      - scripts/install_instructions.py
       - scripts/_helpers/check_version.py
+      - scripts/_helpers/install_codex_instructions.py
+      - scripts/_helpers/inject_claude_md.py
+      - scripts/_helpers/migrate_routing_memory.py
+      - scripts/templates/*.md
       - tests/test_installer_windows.py
+      - tests/test_installer_instructions.py
+      - tests/test_install_instructions.py
+      - tests/test_codex_instructions.py
+      - tests/test_protocol_migration.py
       - tests/conftest.py
       - .github/workflows/windows-installer.yml
   workflow_dispatch:
@@ -26,6 +48,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
+      - name: Preserve source line endings for byte-exact migration checks
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -38,7 +62,10 @@ jobs:
           python-version: '3.11'
       - name: Install test dependencies
         run: python -m pip install pytest python-dotenv
-      - name: Exercise native cmd.exe installer prompts
+      - name: Exercise native installer prompts and instruction migrations
         env:
           AGENTS_TEST_PYTHON310: ${{ steps.python310.outputs.python-path }}
-        run: python -m pytest tests/test_installer_windows.py -v
+        run: >-
+          python -m pytest tests/test_installer_windows.py
+          tests/test_installer_instructions.py tests/test_codex_instructions.py
+          tests/test_install_instructions.py tests/test_protocol_migration.py -v

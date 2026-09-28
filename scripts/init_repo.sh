@@ -6,11 +6,13 @@
 #
 # Usage:
 #   ./scripts/init_repo.sh [--skip-env] [--skip-index] [--skip-mcp]
+#   python3 scripts/install_instructions.py [--clients codex,claude] [--protocol 1|2]
+#     Update only client instructions, without running MCP or dependency setup.
 #
 # Flags:
 #   --skip-env     Skip .env file creation (useful if already configured)
 #   --skip-index   Skip embedding model download and index pre-build
-#   --skip-mcp     Skip MCP environment detection and configuration
+#   --skip-mcp     Skip MCP configuration and client instruction updates
 #   --help         Show this help message
 #
 # The default is persona protocol 2: the model keeps its role across turns and routes
@@ -742,7 +744,7 @@ else
                 CONFIGURED_ENVS+=("Claude Code")
             fi
 
-            # 2. Global CLAUDE.md with routing instructions (append, not overwrite)
+            # 2. Replace the managed routing section, preserving personal instructions.
             CLAUDE_CODE_MD="$CLAUDE_CODE_DIR/CLAUDE.md"
             CLAUDE_MD_SRC="$ROUTING_TEMPLATE"
             # --- Ask permission before modifying instruction files ---
@@ -794,10 +796,17 @@ else
         fi # end: ~/.claude is a directory check
     fi
 
+    # --- Configure Codex instructions ---
+    # Registration is separate: Codex's TOML configuration is not a JSON MCP file.
+    print_step "Checking Codex global instructions..."
+    if ! "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_codex_instructions.py" "$ROUTING_TEMPLATE"; then
+        print_error "Failed to configure Codex instructions — inspect the reported path"
+    fi
+
     # --- Summary ---
     echo ""
     if [ ${#CONFIGURED_ENVS[@]} -eq 0 ]; then
-        print_warn "No IDE environments detected"
+        print_warn "No MCP client registrations were configured"
         print_step "You can configure MCP manually later:"
         echo "    • Cursor:         Install Cursor, then re-run this script"
         echo "    • Claude Desktop: Install Claude Desktop, then re-run this script"

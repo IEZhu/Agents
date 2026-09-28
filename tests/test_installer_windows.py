@@ -24,6 +24,10 @@ def run_windows_installer(tmp_path):
     helpers = root / "scripts" / "_helpers"
     helpers.mkdir(parents=True)
     shutil.copyfile(ROOT / "scripts/init_repo.bat", root / "scripts/init_repo.bat")
+    # Markdown byte checks disable autocrlf in CI; .gitattributes must still
+    # provide a native CRLF batch file instead of changing what cmd.exe parses.
+    batch = (root / "scripts/init_repo.bat").read_bytes()
+    assert b"\n" not in batch.replace(b"\r\n", b""), "Batch checkout must use CRLF; check .gitattributes"
     shutil.copyfile(ROOT / "scripts/_helpers/check_version.py", helpers / "check_version.py")
     events = root / "events.txt"
     profile = tmp_path / "profile"
@@ -73,12 +77,21 @@ def run_windows_installer(tmp_path):
             b'echo activated>>"%TEST_EVENTS%"\r\nexit 77\r\n'
         )
         before_config, before_activation = config.read_bytes(), activation.read_bytes()
-        result = subprocess.run(
-            [os.environ["COMSPEC"], "/d", "/c",
-             r"scripts\init_repo.bat --skip-env --skip-index --skip-mcp"],
-            cwd=root, input=reply, text=True, encoding="utf-8", errors="replace",
-            capture_output=True, env=env, timeout=45,
-        )
+        try:
+            result = subprocess.run(
+                [os.environ["COMSPEC"], "/d", "/c",
+                 r"scripts\init_repo.bat --skip-env --skip-index --skip-mcp"],
+                cwd=root, input=reply, text=True, encoding="utf-8", errors="replace",
+                capture_output=True, env=env, timeout=45,
+            )
+        except subprocess.TimeoutExpired as exc:
+            def captured(value):
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8", errors="replace")
+                return (value or "")[-12000:]
+
+            pytest.fail(f"Installer timed out after {exc.timeout}s.\n"
+                        f"stdout:\n{captured(exc.stdout)}\nstderr:\n{captured(exc.stderr)}")
         # Declining recreation must preserve the existing environment.
         assert config.read_bytes() == before_config, result.stdout + result.stderr
         assert activation.read_bytes() == before_activation, result.stdout + result.stderr

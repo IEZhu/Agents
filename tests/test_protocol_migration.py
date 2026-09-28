@@ -145,7 +145,12 @@ def test_symlink_target_is_not_replaced(tmp_path, helpers):
     injector, _ = helpers
     original, link, source = tmp_path / "personal.md", tmp_path / "CLAUDE.md", tmp_path / "protocol.md"
     original.write_text("My instructions", encoding="utf-8")
-    link.symlink_to(original)
+    try:
+        link.symlink_to(original)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Creating symlinks requires Windows developer mode or privilege")
+        raise
     source.write_text("protocol 2", encoding="utf-8")
     with pytest.raises(ValueError, match="symlink"):
         injector.inject(link, source)
@@ -184,5 +189,123 @@ def test_checkout_defaults_to_v2_and_switching_to_v1_is_reversible(tmp_path, hel
 
 def test_installers_default_to_protocol_2():
     root = Path(__file__).resolve().parents[1]
-    assert 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"' in (root / "scripts" / "init_repo.sh").read_text()
-    assert 'set "PERSONA_PROTOCOL=2"' in (root / "scripts" / "init_repo.bat").read_text()
+    assert 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"' in (root / "scripts" / "init_repo.sh").read_text(encoding="utf-8")
+    assert 'set "PERSONA_PROTOCOL=2"' in (root / "scripts" / "init_repo.bat").read_text(encoding="utf-8")
+
+
+def test_instruction_backups_are_bounded_and_contain_recent_versions(tmp_path, helpers, monkeypatch):
+    injector, _ = helpers
+    target = tmp_path / "AGENTS.md"
+    ticks = iter(range(1_790_000_000_000_000_000, 1_790_000_000_000_000_010))
+    monkeypatch.setattr(injector.time, "time_ns", lambda: next(ticks))
+    for version in range(8):
+        assert injector.write_with_backup(target, f"version {version}".encode())
+    backups = sorted(tmp_path.glob("AGENTS.md.backup.*"))
+    assert len(backups) == 3
+    assert [backup.read_bytes() for backup in backups] == [b"version 4", b"version 5", b"version 6"]
+    assert target.read_bytes() == b"version 7"
+    assert not injector.write_with_backup(target, b"version 7")
+    assert sorted(tmp_path.glob("AGENTS.md.backup.*")) == backups
+
+
+def test_fixed_clock_keeps_distinct_backups_of_recent_versions(tmp_path, helpers, monkeypatch):
+    injector, _ = helpers
+    target = tmp_path / "AGENTS.md"
+    monkeypatch.setattr(injector.time, "time_ns", lambda: 1_790_000_000_000_000_000)
+    for version in range(8):
+        assert injector.write_with_backup(target, f"version {version}".encode())
+        backups = sorted(tmp_path.glob("AGENTS.md.backup.*"))
+        expected = [f"version {previous}".encode() for previous in range(max(0, version - 3), version)]
+        assert [backup.read_bytes() for backup in backups] == expected
+        assert all(len(backup.name.rsplit(".", 1)[1]) == 19 for backup in backups)
+    assert target.read_bytes() == b"version 7"
+
+
+@pytest.mark.parametrize("collision", [False, True])
+def test_failed_backup_copy_removes_partial_snapshot_and_preserves_old_backups(
+    tmp_path, helpers, monkeypatch, collision,
+):
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    tick = 1_790_000_000_000_000_000
+    monkeypatch.setattr(injector.time, "time_ns", lambda: tick)
+    # More than the retention limit proves a failed backup does not prune either.
+    timestamps = list(range(tick - 4, tick)) + ([tick] if collision else [])
+    originals = {}
+    for timestamp in timestamps:
+        backup = target.with_name(f"{target.name}.backup.{timestamp}")
+        originals[backup] = str(timestamp).encode()
+        backup.write_bytes(originals[backup])
+
+    def fail_copy(source, destination):
+        Path(destination).write_bytes(b"partial snapshot")
+        raise OSError("backup copy failed")
+
+    monkeypatch.setattr(injector.shutil, "copy2", fail_copy)
+    with pytest.raises(OSError, match="backup copy failed"):
+        injector.write_with_backup(target, b"replacement")
+    assert target.read_bytes() == b"original"
+    assert {backup: backup.read_bytes() for backup in tmp_path.glob("*.backup.*")} == originals
+    assert not list(tmp_path.glob(".CLAUDE.md.*"))
+
+
+def test_unchanged_update_prunes_legacy_backups_and_preserves_user_copies(tmp_path, helpers):
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"current")
+    timestamps = ["1775755471", "1779628138", "1790458484", "1790458484900485000", "1790458485"]
+    for timestamp in timestamps:
+        target.with_name(target.name + ".backup." + timestamp).write_bytes(timestamp.encode())
+    manual = target.with_name(target.name + ".backup.before-my-edits")
+    manual.write_bytes(b"personal snapshot")
+    directory = target.with_name(target.name + ".backup.1775755470")
+    directory.mkdir()
+    assert not injector.write_with_backup(target, b"current")
+    for timestamp in timestamps[:2]:
+        assert not target.with_name(target.name + ".backup." + timestamp).exists()
+    for timestamp in timestamps[2:]:
+        assert target.with_name(target.name + ".backup." + timestamp).read_bytes() == timestamp.encode()
+    assert manual.read_bytes() == b"personal snapshot"
+    assert directory.is_dir()
+
+
+def test_failed_atomic_write_keeps_original_and_existing_backups(tmp_path, helpers, monkeypatch):
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    backups = []
+    for timestamp in range(1_770_000_000, 1_770_000_004):
+        backup = target.with_name(target.name + ".backup." + str(timestamp))
+        backup.write_bytes(b"older snapshot")
+        backups.append(backup)
+
+    def fail_replace(*args):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(injector.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        injector.write_with_backup(target, b"replacement")
+    assert target.read_bytes() == b"original"
+    assert all(backup.read_bytes() == b"older snapshot" for backup in backups)
+    assert any(backup.read_bytes() == b"original" for backup in tmp_path.glob("*.backup.*"))
+    assert not list(tmp_path.glob(".CLAUDE.md.*"))
+
+
+def test_backup_cleanup_failure_is_reported_after_successful_write(tmp_path, helpers, monkeypatch, capsys):
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    for timestamp in range(1_770_000_000, 1_770_000_004):
+        target.with_name(target.name + ".backup." + str(timestamp)).write_bytes(b"older")
+    original_unlink = Path.unlink
+
+    def fail_backup_unlink(path, *args, **kwargs):
+        if ".backup." in path.name:
+            raise PermissionError("backup is read-only")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_backup_unlink)
+    assert injector.write_with_backup(target, b"updated")
+    assert target.read_bytes() == b"updated"
+    assert "Could not prune instruction backups" in capsys.readouterr().err
