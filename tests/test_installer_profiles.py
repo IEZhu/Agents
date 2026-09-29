@@ -66,9 +66,10 @@ def profile_installer(request, tmp_path):
     else:
         source = (ROOT / "scripts/init_repo.bat").read_text()
         setup = between(source, "REM Resolve the same effective client paths", "REM --- Configure Codex instructions ---")
+        fatal_handler = source[source.index("REM ============== Fatal Error Handler =============="):]
         script = checkout / "profiles.bat"
         script.write_bytes(("@echo off\nsetlocal enabledelayedexpansion\n" + setup
-                            + "exit /b 0\n").replace("\n", "\r\n").encode())
+                            + "exit /b 0\n" + fatal_handler).replace("\n", "\r\n").encode())
         command = [interpreter, "/d", "/c", str(script)]
 
     def run(overrides):
@@ -151,3 +152,32 @@ def test_explicit_paths_create_missing_parent_directories(profile_installer):
     assert not (home / ".claude.json").exists()
     assert not (home / ".claude").exists()
     assert not (home / ".cursor").exists()
+
+
+@pytest.mark.parametrize("profile_installer", ["cmd"], indirect=True)
+@pytest.mark.parametrize("missing", ["helper", "MCP_SETTINGS_FILE", "CLAUDE_DESKTOP_CONFIG",
+                                     "CLAUDE_CODE_DIR", "CLAUDE_CODE_MCP"])
+def test_windows_path_resolution_failure_reports_context_before_writes(profile_installer, missing):
+    run, home, checkout, _, desktop = profile_installer
+    helper = checkout / "scripts/_helpers/client_config_paths.py"
+    if missing == "helper":
+        helper.unlink()
+        expected_key = "MCP_SETTINGS_FILE"
+    else:
+        paths = {"MCP_SETTINGS_FILE": home / ".cursor/mcp.json",
+                 "CLAUDE_DESKTOP_CONFIG": desktop,
+                 "CLAUDE_CODE_DIR": home / ".claude",
+                 "CLAUDE_CODE_MCP": home / ".claude.json"}
+        helper.write_text("\n".join(f"print({str(key + '=' + str(path))!r})"
+                                    for key, path in paths.items() if key != missing) + "\n",
+                          encoding="utf-8")
+        expected_key = missing
+
+    result = run({})
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "FATAL: init_repo.bat aborted unexpectedly" in result.stdout
+    assert "Exit code : 1" in result.stdout
+    assert f"Context   : Failed to resolve {expected_key}" in result.stdout
+    assert "!_FATAL_CTX!" not in result.stdout and "!_FATAL_EC!" not in result.stdout
+    assert not list(home.iterdir())

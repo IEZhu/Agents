@@ -441,10 +441,30 @@ set "CLAUDE_DESKTOP_CONFIG="
 set "CLAUDE_CODE_DIR="
 set "CLAUDE_CODE_MCP="
 for /f "tokens=1,* delims==" %%K in ('""%PYTHON_ABS%" "%HELPERS%\client_config_paths.py""') do set "%%K=%%L"
-if not defined MCP_SETTINGS_FILE exit /b 1
-if not defined CLAUDE_DESKTOP_CONFIG exit /b 1
-if not defined CLAUDE_CODE_DIR exit /b 1
-if not defined CLAUDE_CODE_MCP exit /b 1
+if not defined MCP_SETTINGS_FILE (
+    endlocal
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Failed to resolve MCP_SETTINGS_FILE"
+    goto :fatal_exit
+)
+if not defined CLAUDE_DESKTOP_CONFIG (
+    endlocal
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Failed to resolve CLAUDE_DESKTOP_CONFIG"
+    goto :fatal_exit
+)
+if not defined CLAUDE_CODE_DIR (
+    endlocal
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Failed to resolve CLAUDE_CODE_DIR"
+    goto :fatal_exit
+)
+if not defined CLAUDE_CODE_MCP (
+    endlocal
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Failed to resolve CLAUDE_CODE_MCP"
+    goto :fatal_exit
+)
 for %%I in ("%MCP_SETTINGS_FILE%") do set "CURSOR_DIR=%%~dpI"
 for %%I in ("%CLAUDE_DESKTOP_CONFIG%") do set "CLAUDE_DESKTOP_DIR=%%~dpI"
 setlocal EnableDelayedExpansion
