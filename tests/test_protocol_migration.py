@@ -73,32 +73,54 @@ def test_append_preserves_user_instructions_without_final_newline(tmp_path, help
     assert target.read_text(encoding="utf-8").startswith("User instructions\n" + injector.MARKER_BEGIN)
 
 
-def test_known_memory_and_index_migrate_with_backups(tmp_path, helpers):
+@pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md"])
+def test_known_memory_and_index_migrate_with_backups(tmp_path, helpers, legacy):
     _, memory = helpers
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
-    original = (memory.TEMPLATES / "memory-routing-v1.md").read_bytes()
+    original = (memory.TEMPLATES / "legacy" / legacy).read_bytes()
     reminder.write_bytes(original)
-    old_index = b"# My index\r\n" + memory.INDEX_ENTRIES[1].encode() + b"\r\nOther note\r\n"
+    old_index = b"# My index\r\n" + memory.LEGACY_INDEX_ENTRIES[0].encode() + b"\r\nOther note\r\n"
     index.write_bytes(old_index)
-    assert memory.migrate(tmp_path, 2)
-    assert reminder.read_bytes() == (memory.TEMPLATES / "memory-routing-v2.md").read_bytes()
-    assert index.read_bytes() == b"# My index\r\n" + memory.INDEX_ENTRIES[2].encode() + b"\r\nOther note\r\n"
+    assert memory.migrate(tmp_path)
+    assert reminder.read_bytes() == (memory.TEMPLATES / "memory-routing.md").read_bytes()
+    assert index.read_bytes() == b"# My index\r\n" + memory.INDEX_ENTRY.encode() + b"\r\nOther note\r\n"
     assert next(tmp_path.glob(memory.FILENAME + ".backup.*")).read_bytes() == original
     assert next(tmp_path.glob("MEMORY.md.backup.*")).read_bytes() == old_index
     backups = list(tmp_path.glob("*.backup.*"))
-    assert not memory.migrate(tmp_path, 2)
+    assert not memory.migrate(tmp_path)
     assert list(tmp_path.glob("*.backup.*")) == backups
+
+
+def test_legacy_v2_reminder_with_current_index_updates_only_the_reminder(tmp_path, helpers):
+    _, memory = helpers
+    reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
+    reminder.write_bytes((memory.TEMPLATES / "legacy" / "memory-routing-v2.md").read_bytes())
+    index.write_text("# My index\n" + memory.INDEX_ENTRY + "\n", encoding="utf-8")
+    assert memory.migrate(tmp_path)
+    assert reminder.read_bytes() == (memory.TEMPLATES / "memory-routing.md").read_bytes()
+    assert index.read_text(encoding="utf-8") == "# My index\n" + memory.INDEX_ENTRY + "\n"
+    assert not list(tmp_path.glob("MEMORY.md.backup.*"))
+
+
+def test_current_reminder_has_no_version_fallback():
+    root = Path(__file__).resolve().parents[1]
+    templates = root / "scripts" / "templates"
+    current = (templates / "memory-routing.md").read_text(encoding="utf-8")
+    assert "version 1" not in current.lower() and "version 2" not in current.lower()
+    assert all(current != legacy.read_text(encoding="utf-8")
+               for legacy in (templates / "legacy").glob("memory-routing-*.md"))
+    assert not (templates / "routing-protocol-v1.md").exists()
 
 
 def test_user_edited_memory_is_preserved_with_actionable_warning(tmp_path, helpers, capsys):
     _, memory = helpers
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
-    custom = (memory.TEMPLATES / "memory-routing-v1.md").read_bytes() + b"\nMy exception\n"
+    custom = (memory.TEMPLATES / "legacy" / "memory-routing-v1.md").read_bytes() + b"\nMy exception\n"
     reminder.write_bytes(custom)
-    index.write_text(memory.INDEX_ENTRIES[1] + "\n", encoding="utf-8")
-    assert not memory.migrate(tmp_path, 2)
+    index.write_text(memory.LEGACY_INDEX_ENTRIES[0] + "\n", encoding="utf-8")
+    assert not memory.migrate(tmp_path)
     assert reminder.read_bytes() == custom
-    assert index.read_text(encoding="utf-8") == memory.INDEX_ENTRIES[1] + "\n"
+    assert index.read_text(encoding="utf-8") == memory.LEGACY_INDEX_ENTRIES[0] + "\n"
     warning = capsys.readouterr().err
     assert str(reminder) in warning and "Manually" in warning and "keep/switch" in warning
     assert not list(tmp_path.glob("*.backup.*"))
@@ -108,10 +130,10 @@ def test_user_edited_memory_is_preserved_with_actionable_warning(tmp_path, helpe
 def test_user_edited_or_duplicate_index_entry_is_preserved(tmp_path, helpers, capsys, suffix):
     _, memory = helpers
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
-    reminder.write_bytes((memory.TEMPLATES / "memory-routing-v1.md").read_bytes())
-    custom_index = memory.INDEX_ENTRIES[1] + suffix + "\n"
+    reminder.write_bytes((memory.TEMPLATES / "legacy" / "memory-routing-v1.md").read_bytes())
+    custom_index = memory.LEGACY_INDEX_ENTRIES[0] + suffix + "\n"
     index.write_text(custom_index, encoding="utf-8")
-    assert memory.migrate(tmp_path, 2)
+    assert memory.migrate(tmp_path)
     assert index.read_text(encoding="utf-8") == custom_index
     assert str(index) in capsys.readouterr().err
     assert not list(tmp_path.glob("MEMORY.md.backup.*"))
@@ -120,7 +142,7 @@ def test_user_edited_or_duplicate_index_entry_is_preserved(tmp_path, helpers, ca
 def test_windows_missing_memory_is_not_created(tmp_path, helpers):
     _, memory = helpers
     directory = tmp_path / "missing"
-    assert not memory.migrate(directory, 2, existing_only=True)
+    assert not memory.migrate(directory, existing_only=True)
     assert not directory.exists()
 
 
@@ -128,17 +150,9 @@ def test_unix_first_install_creates_memory_and_preserves_existing_index(tmp_path
     _, memory = helpers
     index = tmp_path / "MEMORY.md"
     index.write_bytes(b"[My note](my-note.md)")
-    assert memory.migrate(tmp_path, 2)
-    assert index.read_text(encoding="utf-8") == "[My note](my-note.md)\n" + memory.INDEX_ENTRIES[2] + "\n"
-    assert (tmp_path / memory.FILENAME).exists()
-
-
-def test_known_v2_reminder_can_roll_back_to_v1(tmp_path, helpers):
-    _, memory = helpers
-    memory.migrate(tmp_path, 2)
-    assert memory.migrate(tmp_path, 1)
-    assert (tmp_path / memory.FILENAME).read_bytes() == (memory.TEMPLATES / "memory-routing-v1.md").read_bytes()
-    assert (tmp_path / "MEMORY.md").read_text(encoding="utf-8") == memory.INDEX_ENTRIES[1] + "\n"
+    assert memory.migrate(tmp_path)
+    assert index.read_text(encoding="utf-8") == "[My note](my-note.md)\n" + memory.INDEX_ENTRY + "\n"
+    assert (tmp_path / memory.FILENAME).read_bytes() == (memory.TEMPLATES / "memory-routing.md").read_bytes()
 
 
 def test_symlink_target_is_not_replaced(tmp_path, helpers):
@@ -158,39 +172,29 @@ def test_symlink_target_is_not_replaced(tmp_path, helpers):
     assert link.is_symlink()
 
 
-def test_checkout_defaults_to_v2_and_switching_to_v1_is_reversible(tmp_path, helpers):
+def test_checkout_managed_section_matches_core_template(helpers):
     injector, _ = helpers
     root = Path(__file__).resolve().parents[1]
     templates = root / "scripts" / "templates"
     original = (root / "CLAUDE.md").read_bytes()
     begin, end = injector.MARKER_BEGIN.encode(), injector.MARKER_END.encode()
     assert original.count(begin) == original.count(end) == 1
-    before, managed = original.split(begin, 1)
+    _, managed = original.split(begin, 1)
     section, after = managed.split(end, 1)
     assert section.strip() == (templates / "routing-protocol-core.md").read_bytes().strip()
     assert b"Before answering ANY user query" not in original
+    assert b"default to version 1" not in section
     assert b"## Repository notes" in after
 
-    target = tmp_path / "CLAUDE.md"
-    target.write_bytes(original)
-    assert injector.inject(target, templates / "routing-protocol-v1.md")
-    switched = target.read_bytes()
-    assert switched.startswith(before + begin) and switched.endswith(end + after)
-    assert switched.count(begin) == switched.count(end) == 1
-    assert b"Before answering ANY user query" in switched
-    assert not injector.inject(target, templates / "routing-protocol-v1.md")
 
-    assert injector.inject(target, templates / "routing-protocol-core.md")
-    assert target.read_bytes() == original
-    backups = list(tmp_path.glob("CLAUDE.md.backup.*"))
-    assert len(backups) == 2
-    assert {path.read_bytes() for path in backups} == {original, switched}
-
-
-def test_installers_default_to_protocol_2():
+def test_installers_always_use_core_template():
     root = Path(__file__).resolve().parents[1]
-    assert 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"' in (root / "scripts" / "init_repo.sh").read_text(encoding="utf-8")
-    assert 'set "PERSONA_PROTOCOL=2"' in (root / "scripts" / "init_repo.bat").read_text(encoding="utf-8")
+    for name in ("init_repo.sh", "init_repo.bat"):
+        script = (root / "scripts" / name).read_text(encoding="utf-8")
+        assert "routing-protocol-core.md" in script
+        assert "routing-protocol-v1.md" not in script
+        assert "AGENTS_PERSONA_PROTOCOL" not in script and "PERSONA_PROTOCOL" not in script
+        assert "--protocol" not in script
 
 
 def test_instruction_backups_are_bounded_and_contain_recent_versions(tmp_path, helpers, monkeypatch):

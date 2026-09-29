@@ -5,17 +5,14 @@ tool `list_agents` returns this catalog with metadata.
 
 ## Selecting and keeping a role
 
-The installer writes **persona protocol 2** instructions by default. Route with
+The installer writes **persona protocol 2** instructions. Route with
 `route_and_load(query, protocol_version=2, current_persona=...)` for initial
 selection or a change of specialization. Keep the active bundle locally while its
 role fits. An explicitly named role can be loaded directly with
 `get_agent_context(agent_name, query, protocol_version=2, current_persona=...)`.
 Use `refresh_persona_context` when the same role needs updated skills or implants.
 
-The tool API and MCP slash prompts still default to **protocol 1** when
-`protocol_version` is omitted. Protocol 1 routes before each query and uses
-`context_hash` for continuation. Follow the protocol installed in the client;
-see [the routing protocol](../docs/routing_flow.md) for response handling,
+Protocol 1 was removed on 2026-09-29. See [the routing protocol](../docs/routing_flow.md) for response handling,
 replacement rules, logging, and the unavailable-MCP fallback.
 
 If no valid MCP bundle is retained and MCP is unavailable, read the selected

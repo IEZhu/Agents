@@ -35,14 +35,14 @@ dotenv.load_dotenv(env_path)
 
 # Langfuse is optional — server works without keys
 
-from src.engine.router import SemanticRouter, KEYWORD_VETO_ROUTE_REQUIRED
+from src.engine.router import SemanticRouter
 from src.engine.enrichment import (
     enrich_agent_prompt,
     infer_tier,
     resolve_profile,
     implant_retriever,
 )
-from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, STICKY_SWITCH_THRESHOLD, ROUTER_SIMILARITY_THRESHOLD, get_client_repo_root
+from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, get_client_repo_root
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
@@ -52,6 +52,12 @@ from src.flows import FlowCatalog, FlowError, execution_bundle
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import load_persona, route_persona, parse_persona, error_response
 
+PROTOCOL_VERSION = 2
+UNSUPPORTED_PROTOCOL = (
+    "Persona protocol 1 was removed; this server supports protocol_version=2 only. "
+    "Reinstall the client instructions with scripts/init_repo.sh."
+)
+
 # Cached instance — avoids reloading .npz from disk on every read_history call.
 # HistoryStore.ensure_index() handles mtime-based staleness internally.
 _history_stores = HistoryStores()
@@ -59,8 +65,8 @@ _history_stores = HistoryStores()
 mcp = FastMCP(
     "Agents-Core",
     instructions=(
-        "Agents-Core supports persona protocols 1 and 2. Follow the version in your client instructions.\n"
-        "Version 2: silently assess whether the active persona fits each request. On keep, "
+        "Agents-Core uses persona protocol 2; always pass protocol_version=2.\n"
+        "Silently assess whether the active persona fits each request. On keep, "
         "do not route, enumerate agents, or enrich. Route only for initial selection or a needed "
         "specialization change, with protocol_version=2 and current_persona. Load an explicitly "
         "named role directly. Restore lost instructions with force_reload=True; refresh skills "
@@ -70,7 +76,7 @@ mcp = FastMCP(
         "with the returned footer, call log_interaction "
         "with that answer, the current user request verbatim as query, and the active "
         "descriptor/action, then send the final answer.\n\n"
-        "Version 2 response statuses:\n"
+        "Response statuses:\n"
         "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
         "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
         "matches the current activation (null for initial load), replacing all four blocks, "
@@ -81,22 +87,12 @@ mcp = FastMCP(
         "- NO_CHANGE → keep the current blocks, descriptor and footer unchanged.\n"
         "- ERROR → keep the previous activation; report that the requested bundle was not "
         "applied. Do not partially activate returned content.\n"
-        "Version 2 never samples an answer.\n\n"
-        "Version 1 (default API): route before each query, passing the previous context_hash. "
-        "The ask and agent slash prompts also default to version 1; pass protocol_version=2 "
-        "explicitly to request their version 2 bundles.\n\n"
-        "Version 1 response statuses:\n"
-        "- SUCCESS_SAMPLED → display `response` as-is (ready-made agent answer).\n"
-        "- SUCCESS → use `system_prompt` as context for your answer.\n"
-        "- ROUTE_REQUIRED → pick best agent from `candidates`, call `get_agent_context(agent_name, query)`.\n"
-        "- NO_CHANGE → context unchanged, continue.\n"
-        "- ERROR → answer directly (only fallback).\n\n"
+        "The server never samples an answer. The ask and agent slash prompts return the "
+        "same bundles; pass current_persona as descriptor JSON when available.\n\n"
         "Respond in the same language as the user's query (auto-detect). "
         "Exceptions: code blocks, technical terms, tool/CLI output, and the footer "
         "labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.\n"
-        "Version 1: append at the end (labels in English, values are canonical IDs): "
-        "**Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]\n"
-        "Version 2: append the exact footer returned with the active bundle.\n"
+        "Append the exact footer returned with the active bundle.\n"
         "HTTP memory tools require X-Agents-Workspace. On workspace_required or workspace_invalid, "
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
@@ -107,9 +103,8 @@ mcp = FastMCP(
         "model session against repo_path, preserving user constraints. It does not "
         "perform the workflow or authorize additional actions. HTTP requires "
         "X-Agents-Workspace; never substitute the installation for a missing target.\n"
-        "MCP-unavailable fallback: reuse a valid retained v2 bundle's descriptor and exact "
-        "footer, or retained v1 context with its legacy footer format. If neither is "
-        "retained, disclose manual fallback and omit the MCP footer and descriptor "
+        "MCP-unavailable fallback: reuse a valid retained bundle's descriptor and exact "
+        "footer. If none is retained, disclose manual fallback and omit the MCP footer and descriptor "
         "attribution; do not fabricate them. Skip unavailable logging."
     ),
 )
@@ -199,8 +194,7 @@ async def run_flow(
 async def clear_session_cache() -> str:
     """Administrative cache reset. Not needed for persona switches; affects shared caches."""
     SESSION_CACHE.clear()
-    CONTEXT_HASH_CACHE.clear()
-    return "Session cache and sticky agent mappings cleared"
+    return "Session cache cleared"
 
 _META_QUERY_RE = re.compile(
     r"(?:h(?:ello|i|ey)|what tools(?: do you have)?|what can you(?: do)?|help(?: me)?"
@@ -229,31 +223,8 @@ def _normalize_chat_history(chat_history: Optional[List[str] | str]) -> List[str
 
     return [entry for entry in chat_history if isinstance(entry, str)]
 
-CONTEXT_HASH_CACHE: TTLCache = TTLCache(maxsize=SESSION_CACHE_MAX_SIZE, ttl=SESSION_CACHE_TTL_SECONDS)
-
 def _compute_context_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
-
-_ROUTE_REQUIRED_INSTRUCTION = (
-    "CRITICAL: You MUST call get_agent_context(agent_name, query) RIGHT NOW as your ONLY next action. "
-    "Do NOT call any other tools. Do NOT use Agent, Bash, Read, Grep, or any tool in parallel. "
-    "Do NOT explore the codebase. Do NOT answer the user. "
-    "FIRST pick the single best agent from candidates, THEN call ONLY: "
-    "get_agent_context(agent_name=\"<chosen>\", query=\"<original query>\"). "
-    "Wait for its response. Only THEN proceed with the user's request."
-)
-
-def _build_route_required(request_id: str, tier: str, candidates: list) -> str:
-    """Build a ROUTE_REQUIRED JSON response. Single source of truth for this payload."""
-    result = {
-        "status": "ROUTE_REQUIRED",
-        "request_id": request_id,
-        "tier": tier,
-        "candidates": candidates,
-        "instruction": _ROUTE_REQUIRED_INSTRUCTION,
-    }
-    debug_log("route_and_load", "res", result)
-    return json.dumps(result, ensure_ascii=False)
 
 async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], list[str], str]:
     """Shared helper: load prompt, enrich with rules/skills/implants/capabilities.
@@ -356,7 +327,6 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     final_prompt = enrichment.prompt
     SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded)
     ctx_hash = _compute_context_hash(final_prompt)
-    CONTEXT_HASH_CACHE[ctx_hash] = agent_name
     debug_log("_load_and_enrich", "res", {
         "agent": agent_name, "tier": tier, "cache": "miss",
         "task_mode": profile.mode if profile else None,
@@ -420,303 +390,42 @@ def _supports_sampling(ctx: Context | None) -> bool:
 async def route_and_load(
     query: str,
     chat_history: Optional[List[str] | str] = None,
-    context_hash: Optional[str] = None,
-    ctx: Context | None = None,
-    protocol_version: int = 1,
+    protocol_version: int = PROTOCOL_VERSION,
     current_persona: PersonaDescriptor | None = None,
 ) -> str:
     """
-    Route to a specialist. In protocol 2 call only for initial selection or a needed
+    Route to a specialist. Call only for initial selection or a needed
     specialization change; keep the active role locally on continuations. Pass
-    protocol_version=2 and current_persona. Returns separate instruction blocks,
-    never a sampled response. ROUTE_REQUIRED needs get_agent_context with the same
-    version and descriptor. Explicit known roles can be loaded directly.
-
-    Protocol 1 (default) routes each query and supports these legacy responses:
-
-    Response statuses:
-    - SUCCESS_SAMPLED → Display `response` to the user as-is. Do not modify.
-    - SUCCESS → Use `system_prompt` as context for your answer.
-    - ROUTE_REQUIRED → You MUST immediately call get_agent_context(agent_name, query)
-      with the best agent from `candidates`. Do NOT answer without completing this step.
-    - NO_CHANGE → Context unchanged, continue with current persona.
-    - ERROR → Answer directly (only fallback).
-
-    Respond in the same language as the user's query (auto-detect).
-    Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory
-    footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
-    Append at the end (labels in English, values are canonical IDs):
-    **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
-    Pass `context_hash` from a previous response to enable delta mode.
-    When context_hash maps to a previously loaded agent, sticky routing is activated:
-    the router prefers keeping the current agent unless a very strong semantic signal
-    (distance < STICKY_SWITCH_THRESHOLD) suggests a different one.
+    protocol_version=2 and current_persona. Returns separate instruction blocks.
+    ROUTE_REQUIRED needs get_agent_context with the same version and descriptor.
+    Explicit known roles can be loaded directly.
     """
-    if protocol_version == 2:
-        return await route_persona(router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query)
-    if protocol_version != 1:
-        return error_response("Unsupported protocol_version; supported versions: 1, 2")
-    try:
-        chat_history_list = _normalize_chat_history(chat_history)
-        history_text = "\n".join(chat_history_list)
-        request_id = str(uuid.uuid4())
-        tier = infer_tier(query)
-        debug_log("route_and_load", "req", {
-            "query": query, "tier": tier, "context_hash": context_hash,
-            "history_len": len(chat_history_list), "request_id": request_id,
-        })
-
-        # 1. Sticky agent: if we already have an active agent, prefer keeping it
-        explicit_tier = None  # only set for intentional overrides (e.g. meta-query)
-        should_cache = True  # skip caching for unvalidated sticky decisions
-        sticky_agent = CONTEXT_HASH_CACHE.get(context_hash) if context_hash else None
-
-        if sticky_agent:
-            logger.info(f"Sticky agent active: {sticky_agent} (hash={context_hash})")
-            # Standalone social/continuation messages preserve known instructions.
-            if _is_meta_query(query):
-                return json.dumps({
-                    "status": "NO_CHANGE", "agent": sticky_agent,
-                    "context_hash": context_hash, "request_id": request_id,
-                    "instruction": "Keep the current persona and its last component lists/footer.",
-                }, ensure_ascii=False)
-            else:
-                # Use unfiltered nearest match to distinguish "empty cache" from "topic change".
-                # query_nearest raises on vector store errors — release to ROUTE_REQUIRED on failure.
-                lookup_failed = False
-                try:
-                    nearest = await router.query_nearest(query, {"history_text": history_text})
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.error(f"Sticky lookup failed, releasing to ROUTE_REQUIRED: {e}")
-                    debug_log("route_and_load", "sticky", {"action": "release", "reason": "lookup_error", "from": sticky_agent, "error": str(e)})
-                    nearest = None
-                    lookup_failed = True
-
-                distance_threshold = 1 - ROUTER_SIMILARITY_THRESHOLD
-
-                if lookup_failed:
-                    # DB error — release to ROUTE_REQUIRED so LLM can decide
-                    return _build_route_required(request_id, tier, router.get_agent_catalog())
-                elif nearest is None:
-                    # Cache is genuinely empty — keep current agent, don't cache
-                    agent_name = sticky_agent
-                    reasoning = "Sticky: cache empty, keeping current agent"
-                    should_cache = False
-                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "empty_cache", "agent": agent_name})
-                elif nearest[1] < STICKY_SWITCH_THRESHOLD and nearest[0].target_agent != sticky_agent:
-                    # Very strong signal for a different agent — validate with keywords
-                    switch_target = nearest[0].target_agent
-                    kw_veto = router.keyword_veto(query, switch_target)
-                    if kw_veto == KEYWORD_VETO_ROUTE_REQUIRED:
-                        debug_log("route_and_load", "sticky", {"action": "release", "reason": "keyword_ambiguous_autoswitch", "from": sticky_agent, "switch_target": switch_target, "distance": nearest[1]})
-                        return _build_route_required(request_id, tier, router.get_agent_catalog())
-                    elif kw_veto and kw_veto != switch_target:
-                        agent_name = kw_veto
-                        reasoning = f"Keyword override (auto-switch): {switch_target} -> {kw_veto} (d={nearest[1]:.4f})"
-                        logger.info(f"Keyword override in auto-switch: {sticky_agent} → {agent_name} (cache suggested {switch_target}, d={nearest[1]:.4f})")
-                        debug_log("route_and_load", "sticky", {"action": "keyword_override", "from": sticky_agent, "to": agent_name, "cache_target": switch_target, "distance": nearest[1]})
-                    else:
-                        agent_name = switch_target
-                        reasoning = f"Auto-switch from {sticky_agent}: strong signal (d={nearest[1]:.4f})"
-                        logger.info(f"Sticky auto-switch: {sticky_agent} → {agent_name} (d={nearest[1]:.4f})")
-                        debug_log("route_and_load", "sticky", {"action": "switch", "from": sticky_agent, "to": agent_name, "distance": nearest[1]})
-                elif nearest[1] < distance_threshold and nearest[0].target_agent == sticky_agent:
-                    # Cache confirms the same agent — but check keywords
-                    kw_veto = router.keyword_veto(query, sticky_agent)
-                    if kw_veto and kw_veto != KEYWORD_VETO_ROUTE_REQUIRED:
-                        agent_name = kw_veto
-                        reasoning = f"Keyword override (sticky): {sticky_agent} -> {kw_veto} (d={nearest[1]:.4f})"
-                        logger.info("Keyword override in sticky: %s -> %s", sticky_agent, kw_veto)
-                        debug_log("route_and_load", "sticky", {"action": "keyword_override", "from": sticky_agent, "to": kw_veto, "distance": nearest[1]})
-                    elif kw_veto == KEYWORD_VETO_ROUTE_REQUIRED:
-                        debug_log("route_and_load", "sticky", {"action": "release", "reason": "keyword_ambiguous", "from": sticky_agent, "distance": nearest[1]})
-                        return _build_route_required(request_id, tier, router.get_agent_catalog())
-                    else:
-                        agent_name = sticky_agent
-                        reasoning = f"Sticky: confirmed by cache (d={nearest[1]:.4f})"
-                        debug_log("route_and_load", "sticky", {"action": "keep", "reason": "same_agent", "agent": agent_name, "distance": nearest[1]})
-                elif nearest[1] >= distance_threshold:
-                    # Query is far from anything cached — likely a topic change.
-                    # Go straight to ROUTE_REQUIRED so the LLM can pick the right agent.
-                    debug_log("route_and_load", "sticky", {"action": "release", "reason": "topic_change", "from": sticky_agent, "distance": nearest[1]})
-                    return _build_route_required(request_id, tier, router.get_agent_catalog())
-                else:
-                    # Close match for a different agent, but not strong enough to auto-switch.
-                    # Keep sticky agent for stability, don't cache.
-                    agent_name = sticky_agent
-                    reasoning = f"Sticky: kept despite competing signal for {nearest[0].target_agent} (d={nearest[1]:.4f})"
-                    should_cache = False
-                    debug_log("route_and_load", "sticky", {"action": "keep", "reason": "weak_signal", "agent": agent_name, "competing": nearest[0].target_agent, "distance": nearest[1]})
-        else:
-            # 2. No sticky agent — standard routing (cache → keyword veto → meta-query → ROUTE_REQUIRED)
-            cached_decision = await router.lookup_cache(query, {"history_text": history_text})
-            if cached_decision:
-                veto = router.keyword_veto(query, cached_decision.target_agent)
-                if veto is None:
-                    agent_name = cached_decision.target_agent
-                    reasoning = cached_decision.reasoning
-                elif veto == KEYWORD_VETO_ROUTE_REQUIRED:
-                    logger.info("Keyword veto: ambiguous override for cached %s", cached_decision.target_agent)
-                    debug_log("route_and_load", "keyword_veto", {
-                        "action": "route_required", "cached_agent": cached_decision.target_agent, "query": query,
-                    })
-                    return _build_route_required(request_id, tier, router.get_agent_catalog())
-                else:
-                    agent_name = veto
-                    reasoning = f"Keyword override: {cached_decision.target_agent} -> {veto}"
-                    logger.info("Keyword override: %s -> %s for query: %.80s", cached_decision.target_agent, veto, query)
-                    debug_log("route_and_load", "keyword_veto", {
-                        "action": "override", "from": cached_decision.target_agent, "to": veto, "query": query,
-                    })
-            elif _is_meta_query(query):
-                agent_name = "universal_agent"
-                reasoning = "Auto-fallback: meta-query detected"
-                explicit_tier = "lite"
-            else:
-                # 3. Cache miss — return candidates for the calling LLM to decide
-                return _build_route_required(request_id, tier, router.get_agent_catalog())
-
-        # 3. Cache hit or meta-query — load enriched prompt
-        # Pass explicit_tier only for meta-queries (preserves "lite"); None lets _load_and_enrich infer + promote
-        final_prompt, new_hash, skills_loaded, implants_loaded, rules_loaded, tier = await _load_and_enrich(agent_name, query, chat_history_list, explicit_tier)
-
-        if context_hash and context_hash == new_hash:
-            result = {
-                "status": "NO_CHANGE",
-                "agent": agent_name,
-                "context_hash": new_hash,
-                "request_id": request_id,
-                "tier": tier,
-                "skills_loaded": skills_loaded,
-                "implants_loaded": implants_loaded,
-                "rules_loaded": rules_loaded,
-            }
-            debug_log("route_and_load", "res", result)
-            return json.dumps(result, ensure_ascii=False)
-
-        if should_cache:
-            await router.update_cache(query, agent_name, reasoning, request_id)
-
-        # Try sampling: generate response with agent's system prompt via client LLM
-        if _supports_sampling(ctx):
-            try:
-                response = await _sample_with_agent(ctx, final_prompt, query)
-                result = {
-                    "status": "SUCCESS_SAMPLED",
-                    "agent": agent_name,
-                    "reasoning": reasoning,
-                    "request_id": request_id,
-                    "tier": tier,
-                    "context_hash": new_hash,
-                    "response": response,
-                    "skills_loaded": skills_loaded,
-                    "implants_loaded": implants_loaded,
-                    "rules_loaded": rules_loaded,
-                }
-                debug_log("route_and_load", "res", result)
-                return json.dumps(result, ensure_ascii=False)
-            except Exception as sampling_err:
-                logger.debug(f"Sampling not supported, falling back: {sampling_err}")
-                debug_log("route_and_load", "sampling_error", {"error": str(sampling_err)})
-
-        # Fallback: return system_prompt for clients without sampling support
-        result = {
-            "status": "SUCCESS",
-            "agent": agent_name,
-            "reasoning": reasoning,
-            "request_id": request_id,
-            "tier": tier,
-            "context_hash": new_hash,
-            "system_prompt": final_prompt,
-            "skills_loaded": skills_loaded,
-            "implants_loaded": implants_loaded,
-            "rules_loaded": rules_loaded,
-        }
-        debug_log("route_and_load", "res", result)
-        return json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        result = {"status": "ERROR", "message": str(e)}
-        debug_log("route_and_load", "error", result)
-        return json.dumps(result, ensure_ascii=False)
+    if protocol_version != PROTOCOL_VERSION:
+        return error_response(UNSUPPORTED_PROTOCOL)
+    return await route_persona(router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query)
 
 @mcp.tool()
 @observe(name="get_agent_context")
 async def get_agent_context(
     agent_name: str, query: str, reasoning: str = "Selected by calling LLM",
-    chat_history: Optional[List[str] | str] = None, ctx: Context | None = None,
-    protocol_version: int = 1, current_persona: PersonaDescriptor | None = None,
+    chat_history: Optional[List[str] | str] = None,
+    protocol_version: int = PROTOCOL_VERSION, current_persona: PersonaDescriptor | None = None,
     force_reload: bool = False,
 ) -> str:
     """
     Load an explicitly chosen agent or a ROUTE_REQUIRED selection.
-    Protocol 2: pass protocol_version=2 and current_persona. The same active agent
+    Pass protocol_version=2 and current_persona. The same active agent
     returns NO_CHANGE without enrichment. Use force_reload=True to restore lost
     instructions; use refresh_persona_context to refresh the same role's skills.
     SUCCESS contains separate blocks and a descriptor; apply only when its
     replaces_activation_id matches your current activation. Preserve the dialogue.
-
-    Protocol 1: if the client advertises sampling, returns SUCCESS_SAMPLED.
-    Otherwise returns the system_prompt for you to use as context.
-    Respond in the same language as the user's query (auto-detect).
-    Exceptions: code blocks, technical terms, tool/CLI output, and the mandatory
-    footer labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.
-    Append at the end (labels in English, values are canonical IDs):
-    **Agent**: [name] · **Skills**: [skills] · **Implants**: [implants] · **Rules**: [rules]
     """
-    if protocol_version == 2:
-        return await load_persona(
-            router, agent_name, query, _normalize_chat_history(chat_history),
-            current_persona, force_reload=force_reload, reasoning=reasoning,
-        )
-    if protocol_version != 1:
-        return error_response("Unsupported protocol_version; supported versions: 1, 2")
-    try:
-        chat_history_list = _normalize_chat_history(chat_history)
-        request_id = str(uuid.uuid4())
-        debug_log("get_agent_context", "req", {"agent_name": agent_name, "query": query, "reasoning": reasoning})
-
-        final_prompt, ctx_hash, skills_loaded, implants_loaded, rules_loaded, _ = await _load_and_enrich(agent_name, query, chat_history_list)
-        await router.update_cache(query, agent_name, reasoning, request_id)
-
-        # Try sampling: generate response with agent's system prompt via client LLM
-        if _supports_sampling(ctx):
-            try:
-                response = await _sample_with_agent(ctx, final_prompt, query)
-                result = {
-                    "status": "SUCCESS_SAMPLED",
-                    "agent": agent_name,
-                    "request_id": request_id,
-                    "context_hash": ctx_hash,
-                    "response": response,
-                    "skills_loaded": skills_loaded,
-                    "implants_loaded": implants_loaded,
-                    "rules_loaded": rules_loaded,
-                }
-                debug_log("get_agent_context", "res", result)
-                return json.dumps(result, ensure_ascii=False)
-            except Exception as sampling_err:
-                logger.debug(f"Sampling not supported, falling back: {sampling_err}")
-                debug_log("get_agent_context", "sampling_error", {"error": str(sampling_err)})
-
-        # Fallback: return system_prompt for clients without sampling support
-        result = {
-            "status": "SUCCESS",
-            "agent": agent_name,
-            "request_id": request_id,
-            "context_hash": ctx_hash,
-            "system_prompt": final_prompt,
-            "skills_loaded": skills_loaded,
-            "implants_loaded": implants_loaded,
-            "rules_loaded": rules_loaded,
-        }
-        debug_log("get_agent_context", "res", result)
-        return json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        result = {"status": "ERROR", "message": str(e)}
-        debug_log("get_agent_context", "error", result)
-        return json.dumps(result, ensure_ascii=False)
+    if protocol_version != PROTOCOL_VERSION:
+        return error_response(UNSUPPORTED_PROTOCOL)
+    return await load_persona(
+        router, agent_name, query, _normalize_chat_history(chat_history),
+        current_persona, force_reload=force_reload, reasoning=reasoning,
+    )
 
 @mcp.tool()
 async def refresh_persona_context(
@@ -853,8 +562,7 @@ async def log_interaction(
     ctx: Context | None = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
-    with that exact response_content, then deliver the final answer. In protocol 2,
-    pass the active persona descriptor and persona_action (keep/switch/refresh/restore).
+    with that exact response_content, then deliver the final answer. Pass the active persona descriptor and persona_action (keep/switch/refresh/restore).
     Pass the current user request verbatim as query, without paraphrasing or
     substituting a conversation summary.
     These are client-reported attribution, not proof of instruction compliance.
@@ -1172,46 +880,16 @@ async def read_history(
 from mcp.server.fastmcp.prompts.base import UserMessage
 
 
-def _legacy_prompt_message(prompt: str, query: str) -> list:
-    """Preserve the version 1 slash-prompt message format."""
-    return [UserMessage(
-        f"SYSTEM INSTRUCTIONS (MANDATORY — follow exactly):\n\n"
-        f"{prompt}\n\n"
-        f"---\n"
-        f"USER QUERY: {query}"
-    )]
-
-
 @mcp.prompt()
-async def ask(
-    query: str, current_persona: Optional[str] = None, protocol_version: int = 1,
-) -> list:
-    """Select a specialist. Protocol 1 is the default; pass protocol_version=2 for
-    persona bundles. In version 2, current_persona is the retained descriptor JSON.
+async def ask(query: str, current_persona: Optional[str] = None) -> list:
+    """Select a specialist and return a persona bundle.
+    current_persona is the retained descriptor JSON, if any.
     """
     try:
-        if protocol_version not in (1, 2):
-            raise ValueError("protocol_version must be 1 or 2")
-        if protocol_version == 1:
-            cached = await router.lookup_cache(query, {"history_text": ""})
-            if cached:
-                agent_name = cached.target_agent
-            elif _is_meta_query(query):
-                agent_name = "universal_agent"
-            else:
-                candidates = router.get_agent_catalog()
-                lines = [f"- **{c['name']}**: {c.get('role', '')}" for c in candidates]
-                return [UserMessage(
-                    "Pick the best agent for my query and call `get_agent_context(agent_name, query)`.\n"
-                    "Agents:\n" + "\n".join(lines) + f"\n\nQuery: {query}"
-                )]
-            prompt, _, _, _, _, _ = await _load_and_enrich(agent_name, query, [])
-            return _legacy_prompt_message(prompt, query)
-
         current = parse_persona(json.loads(current_persona)) if current_persona else None
         result = await route_persona(router, query, [], current, _is_meta_query)
         return [UserMessage(
-            f"Requested persona selection (protocol 2):\n{result}\n\nUser query: {query}\n"
+            f"Requested persona selection:\n{result}\n\nUser query: {query}\n"
             "Apply successful blocks within existing instructions, preserving the dialogue. "
             "When no descriptor was supplied, this explicit command sets the role sequentially "
             "for this dialogue. Otherwise enforce the activation replacement check."
@@ -1272,20 +950,13 @@ def _register_agent_prompts():
         role = meta.get("identity", {}).get("role", "")
 
         def make_prompt(a_name, d_name, r, p_name, invoked_cmd, primary_trigger):
-            async def agent_prompt(
-                query: str, current_persona: Optional[str] = None, protocol_version: int = 1,
-            ) -> list:
+            async def agent_prompt(query: str, current_persona: Optional[str] = None) -> list:
                 retrieval_query = _build_retrieval_query(invoked_cmd, primary_trigger, query)
                 try:
-                    if protocol_version not in (1, 2):
-                        raise ValueError("protocol_version must be 1 or 2")
-                    if protocol_version == 1:
-                        prompt, _, _, _, _, _ = await _load_and_enrich(a_name, retrieval_query, [])
-                        return _legacy_prompt_message(prompt, query)
                     current = parse_persona(json.loads(current_persona)) if current_persona else None
                     result = await load_persona(router, a_name, retrieval_query, [], current)
                     return [UserMessage(
-                        f"Requested persona (protocol 2):\n{result}\n\nUser query: {query}\n"
+                        f"Requested persona:\n{result}\n\nUser query: {query}\n"
                         "Apply successful blocks within existing instructions, preserving the dialogue. "
                         "When no descriptor was supplied, this explicit command sets the role "
                         "sequentially for this dialogue. Otherwise enforce the activation replacement check."
@@ -1294,8 +965,8 @@ def _register_agent_prompts():
                     return [UserMessage(f"{query}\n\n(Error loading {d_name}: {e})")]
             agent_prompt.__name__ = p_name
             agent_prompt.__doc__ = (
-                f"{d_name} — {r}. Protocol 1 is the default; pass protocol_version=2 "
-                "for a persona bundle and current_persona as retained descriptor JSON."
+                f"{d_name} — {r}. Returns a persona bundle; pass current_persona "
+                "as retained descriptor JSON."
             )
             return agent_prompt
 

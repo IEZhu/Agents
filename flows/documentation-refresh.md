@@ -94,7 +94,7 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 | Python version, dependencies, installation | `pyproject.toml`, `requirements.txt`, `uv.lock`, `scripts/init_repo.sh`, `scripts/init_repo.bat` |
 | Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings |
 | MCP tools, parameters, statuses, and slash prompts | `src/server.py`, `src/schemas/protocol.py` |
-| Protocol 2, bundle assembly, and v1 compatibility | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py` |
+| Protocol 2 and bundle assembly | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py` |
 | Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py` |
 | Agent catalog and metadata | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json`, `scripts/validate_agents.py` |
 | Memory, history, and workspace isolation | `src/memory/`, `src/daemon/`, `tests/test_per_repo_memory.py`, `tests/test_daemon.py` |
@@ -122,23 +122,20 @@ product behavior merely to match the text.
   Avoid maintaining separate copies of the full protocol in multiple documents.
 - **Agents-Core only:** when shared routing text changes, edit its source in
   `scripts/templates/`
-  first. When changing the default `routing-protocol-core.md` template, synchronize
-  the managed section in this checkout, which uses protocol 2:
+  first. When changing the `routing-protocol-core.md` template, synchronize
+  the managed section in this checkout:
 
   ```bash
   .venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
   ```
 
-  Editing the v1 compatibility template alone does not require switching the
-  checkout to v1. Preserve a different protocol explicitly selected by the user.
   The helper preserves other text and creates a backup when it makes a change.
   Review the diff and exclude the backup from the changes. Do not run the global
   installer just to synchronize Markdown.
-- **Agents-Core only:** when changing `memory-routing-v1.md` or
-  `memory-routing-v2.md`, verify migration
-  of the previous generated reminder: the helper recognizes known text by exact
-  match. A template edit must not turn the previous generated file into
-  unrecognized user content. If migration logic needs to change, include that
+- **Agents-Core only:** when changing `memory-routing.md`, first copy its
+  previous bytes into `scripts/templates/legacy/` under a new name. The migration
+  helper recognizes generated reminders by exact match, so a template edit must
+  not turn the previous generated file into unrecognized user content. If migration logic needs to change, include that
   change explicitly in the scope and validation.
 - Apply the [documentation language policy](#documentation-language) to every
   document in scope. Preserve a consistent style while translating non-English

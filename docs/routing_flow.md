@@ -31,9 +31,9 @@ flowchart TD
     Apply --> Answer
 ```
 
-The installer and committed client instructions use version 2. MCP tools and
-slash prompts retain version 1 as their API default, so callers must explicitly
-pass `protocol_version=2` to request the contract below. Choosing HTTP or stdio
+Protocol 2 is the only protocol. MCP tools default to `protocol_version=2`,
+and clients pass it explicitly; any other value returns `ERROR` without loading a
+persona. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
 does not select a persona protocol.
 
 ## Client decisions
@@ -47,9 +47,8 @@ instructions for a known role without selecting another one. Cache expiry has no
 bearing on the client's retained instructions.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
-The installer uses version 2 by default since 2026-09-26; the
-[v1 compatibility template](../scripts/templates/routing-protocol-v1.md) remains
-available with `AGENTS_PERSONA_PROTOCOL=1`. The switch rests on two measurements:
+The installers switched to version 2 on 2026-09-26, and protocol 1 was removed on
+2026-09-29. The switch rests on two measurements:
 in 30 days of telemetry under v1, 96% of routed turns returned ROUTE_REQUIRED and
 continuing turns re-picked the active agent 73% of the time, re-sending its prompt
 ([telemetry analysis](../evals/telemetry/README.md)); in the dialogue evaluation,
@@ -57,23 +56,21 @@ v2 made no selection calls on continuing turns and switched roles correctly in
 every completed case. Server contract tests alone do not establish support for a
 client and model; see the [measured results and remaining validation gaps](persona-switch-eval-results.md).
 
-## Version 2 API
+## API
 
 | Call | Behavior |
 |---|---|
-| `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no v1 sticky binding or sampling |
+| `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
 | `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency and records declared attribution |
 
 Pass a relevant `chat_history` excerpt when a routed request depends on earlier
 facts. The server does not need the whole conversation. Agent slash prompts load
-explicit roles; `/ask` requests routing. Both default to `protocol_version=1`,
-preserving their legacy prompt format and selection behavior. To request a v2
-bundle, pass `protocol_version=2` explicitly and optionally `current_persona` as
-descriptor JSON. MCP prompt arguments are transported as strings, for example
-`{"query": "Explain a dictionary", "protocol_version": "2"}`. Supplying only
-`current_persona` does not opt into v2.
+explicit roles; `/ask` requests routing. Both return the same bundles as the
+tools; pass `current_persona` as descriptor JSON when available. MCP prompt
+arguments are transported as strings, for example
+`{"query": "Explain a dictionary", "current_persona": "{...}"}`.
 
 `SUCCESS` contains `protocol_version`, `request_id`, `persona`,
 `replaces_activation_id`, `footer`, an application instruction, and separate
@@ -118,19 +115,20 @@ constraints. Refresh reads current source content before calculating its revisio
 
 `RULES_ENABLED=0` disables the shared rules layer. The optional intent classifier
 is off by default (`INTENT_CLASSIFIER_ENABLED=0`). When enabled, it can contribute
-the initial v2 tier; per-query skill/implant budgets and persona-format suppression
-remain in the v1 path. `IMPLANT_NEED_GATE` is also v1-only because a v2 bundle
+the initial bundle tier. Per-query skill/implant budgets, persona-format
+suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
+(`server._load_and_enrich`) that the evaluation harnesses use, because a bundle
 persists across later requests until a switch, restore, or refresh.
 
 The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
 bounded persistent routing cache. The embedding model and thresholds come from
-`src/engine/config.py`; no external model is called to decide `keep`. The existing
-v1 enriched-prompt TTL cache remains separate from v2 client persona state.
+`src/engine/config.py`; no external model is called to decide `keep`. The
+enriched-prompt TTL cache of the per-query path is separate from client persona state.
 
 ## Runtime and project boundaries
 
 Both transports use the tools defined in `src/server.py`; HTTP excludes
-`clear_session_cache`. Version 2 handlers live in
+`clear_session_cache`. Protocol handlers live in
 `src/engine/persona.py`; `src/engine/persona_bundle.py` assembles fresh blocks and
 their revision. `src/schemas/protocol.py` defines the descriptors and responses.
 Each client conversation owns its activation; the shared HTTP daemon does not
@@ -139,9 +137,9 @@ hold one global active persona for all clients.
 The daemon keeps derived router and history indexes in private service state.
 Standalone startup leases separate `data/stdio/` slots for concurrent processes
 when process locking is available; without it, startup uses temporary derived
-storage. Skill and implant indexes are installation data. The bounded v1 prompt
-and context-hash caches are process-local. Over stdio, `clear_session_cache()`
-clears those shared caches; for HTTP, use `.venv/bin/python -m src.daemon clear-cache`.
+storage. Skill and implant indexes are installation data. The bounded
+enriched-prompt cache is process-local. Over stdio, `clear_session_cache()`
+clears it; for HTTP, use `.venv/bin/python -m src.daemon clear-cache`.
 Cache clearing is an administrative action and is not required for persona changes.
 
 HTTP repository memory requires `X-Agents-Workspace` with a registered workspace
@@ -161,25 +159,23 @@ does not route, replace a persona or complete the task. See the
 
 ## Compatibility
 
-| Client | Server | Result |
+| Client instructions | Server | Result |
 |---|---|---|
-| v1 | Supports v2 | Existing v1 signatures, prompt/hash results and sticky routing |
-| v2 | Supports v2 | Conditional routing, structured bundles, no sampling |
-| v2 | v1 only | One incompatibility notice, then v1 for that conversation until upgrade |
+| Protocol 1 | Current | Calls omit `protocol_version` and receive protocol 2 bundles the instructions do not describe (an unknown `context_hash` is ignored); reinstall the instructions |
+| Protocol 2 | Current | Conditional routing, structured bundles, no sampling |
+| Protocol 2 | Predates protocol 2 | One incompatibility notice, then answers without an activated persona until the server is updated |
 
-The API defaults to `protocol_version=1`. V1 sampling is attempted only when the
-client advertises sampling capability; otherwise the server returns the prompt.
-V1 meta detection recognizes standalone greetings/acknowledgements, not arbitrary
-short strings or greeting prefixes. `SQL?`, `Taxes?`, and greetings followed by a
+Meta detection during routing recognizes standalone greetings/acknowledgements,
+not arbitrary short strings or greeting prefixes. `SQL?`, `Taxes?`, and greetings followed by a
 task remain substantive. A known role survives standalone acknowledgements;
 without one, the server cannot return `NO_CHANGE`.
 
 When MCP is unavailable, its footer and logging requirements have an explicit
 fallback. A retained valid bundle keeps its descriptor and exact footer when
 available; unavailable logging is skipped. A manually loaded prompt is attributed
-as a manual role, without a fabricated v2 descriptor, footer or component list.
+as a manual role, without a fabricated descriptor, footer or component list.
 Once MCP returns, reload a manually loaded role or a retained role missing its
-descriptor or exact footer through `get_agent_context` with version 2 and
+descriptor or exact footer through `get_agent_context` with `protocol_version=2` and
 `force_reload=True`, using the last real descriptor if retained or null if none
 exists. Resume normal attribution after that successful activation. A retained
 MCP bundle with its descriptor and exact footer needs no reactivation solely
@@ -187,23 +183,19 @@ because connectivity returns.
 
 ## Installation, migration and rollback
 
-`./scripts/init_repo.sh` installs v2. Use `AGENTS_PERSONA_PROTOCOL=1 ./scripts/init_repo.sh`
-to install v1; on Windows set `AGENTS_PERSONA_PROTOCOL=1` before `scripts\init_repo.bat`.
-Use the same setting on subsequent installer runs.
+`./scripts/init_repo.sh` (Windows: `scripts\init_repo.bat`) installs the protocol.
 
 To update instructions without rerunning installation, use
 `python3 scripts/install_instructions.py` (Windows:
 `py -3 scripts\install_instructions.py`). This standalone command requires Python
 3.11 or newer, uses only the standard library, and updates detected Codex and
-Claude clients by default. Use `--clients codex` to restrict the update or
-`--protocol 1` / `--protocol 2` to override `AGENTS_PERSONA_PROTOCOL` (unset or empty
-defaults to 2).
+Claude clients by default. Use `--clients codex` to restrict the update.
 It updates global managed instructions, an existing exact generated Claude
 routing reminder, and that reminder's entry in `~/.claude/memory/MEMORY.md`.
 It does not create an absent reminder or change dependencies, `.env`, vector
 indexes, MCP registrations or the shared service.
 
-Both installers automatically install the selected protocol in Codex's global
+Both installers automatically install the protocol in Codex's global
 instructions during client setup, unless `--skip-mcp` is used. Detection accepts
 `CODEX_HOME`, an existing default `~/.codex` directory, or an available `codex`
 command. A non-empty `CODEX_HOME` selects the profile directory; otherwise
@@ -218,12 +210,10 @@ connection or restart the shared service. The existing daemon
 [daemon installation and client migration](shared-mcp-daemon.md#installation-and-client-migration).
 Start a fresh Codex session so updated instructions are loaded.
 
-The checked-in `CLAUDE.md` uses a managed v2 section. Global installation does not
-modify this tracked file. To switch the checkout itself to v1, run
-`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-v1.md`
-(or use `.venv\Scripts\python.exe` on Windows). Use
-`scripts/templates/routing-protocol-core.md` as the source to switch it back to v2.
-Only the managed section is replaced; repository notes outside it remain intact.
+The checked-in `CLAUDE.md` uses the same managed section. Global installation does
+not modify this tracked file. After editing the template, run
+`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md`
+(or use `.venv\Scripts\python.exe` on Windows). Only the managed section is replaced; repository notes outside it remain intact.
 
 Both installers replace only the marked routing section and back up changed
 files. The shared instruction writer retains the three newest backups per file
@@ -236,21 +226,24 @@ filename formats and symlink backups are preserved; MCP configuration backups us
 Malformed routing markers stop the update without rewriting the target.
 
 The installers migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its
-bytes exactly match a known generated v1/v2 template. A changed reminder or index
+bytes exactly match the current template or a previously generated one in
+[`scripts/templates/legacy/`](../scripts/templates/legacy/README.md), including the
+protocol 1 reminder; the old protocol 1 index line is replaced too. A changed reminder or index
 entry is preserved with a warning naming the file and manual correction. Windows
 migrates an existing reminder but never creates one when absent. Other project
 memory is untouched.
 
-Before enabling v2, search the instructions and memory you maintain for
+When migrating from protocol 1, search the instructions and memory you maintain for
 `always route_and_load`, `Before answering ANY user query`, and equivalent
 unconditional routing rules. Replace those conflicts with local suitability
 assessment. The server cannot scan a remote client's home directory or override
 user instructions through tool output.
 
-For rollback, restore the routing managed section and generated reminder from
-installer backups (or reinstall with `AGENTS_PERSONA_PROTOCOL=1`). Preserve all
-unrelated user content and conversation history. Restoring a whole backup over
-subsequent user edits requires merging those edits first.
+Protocol 1 cannot be rolled back to on a current server. Restoring older
+instructions from backups requires checking out a server revision before
+2026-09-29 as well. Preserve all unrelated user content and conversation history;
+restoring a whole backup over subsequent user edits requires merging those edits
+first.
 
 ## Validation
 
