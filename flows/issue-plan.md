@@ -38,6 +38,7 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 ```markdown
 <!-- issue-agent -->
 <!-- issue-agent:plan v2 -->
+<!-- issue-agent:plan-base 2026-09-29T18:00:00Z -->
 ## Plan v2
 
 **Goal:** ...  **Result:** ...
@@ -68,12 +69,16 @@ explore parts in parallel; keep the final plan in one comment.
 
 ## 4. Publish
 
-1. Post the plan as a new comment. A replan posts a new version; it never edits
+1. Read the issue's current `updated_at` before posting and write it into the
+   separate `<!-- issue-agent:plan-base ... -->` line; keep the
+   `<!-- issue-agent:plan vN -->` line exactly as shown so it can be found.
+   Post the plan as a new comment. A replan posts a new version; it never edits
    an older plan, so each version stays reviewable.
 2. Immediately update the state: `plan.version`, `plan.comment_id`, and
-   `plan.issue_updated_at` set to the issue's current `updated_at`; phase `planned`.
+   `plan.issue_updated_at` set to that plan-base value; phase `planned`.
    Whenever a later step needs the plan, treat the newest comment carrying
    `<!-- issue-agent:plan vN -->` as authoritative if it is newer than the state
-   entry (a session can end between posting and saving), and repair the state.
+   entry (a session can end between posting and saving), take the baseline from
+   its plan-base line, and repair the state.
 3. For `@agent run`, continue directly with
    [issue-implementation](issue-implementation.md) using this version.
