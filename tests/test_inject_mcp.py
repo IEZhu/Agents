@@ -21,6 +21,7 @@ def _run_shell_injection(tmp_path, monkeypatch, config=None, nixos=False):
     if config is not None:
         path.write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.setenv("CLAUDE_CONFIG_PATH", str(path))
+    monkeypatch.setenv("MCP_CLIENT", "claude")
     monkeypatch.setenv("MCP_PYTHON", "/venv/bin/python")
     # No data/.shared-service.json under this install, so the stdio path runs.
     monkeypatch.setenv("MCP_SERVER", str(tmp_path / "install/src/server.py"))
@@ -133,3 +134,65 @@ def test_helper_refuses_unexpected_shapes(run_helper, tmp_path, original):
 
     assert exc.value.code == 1
     assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8")) == original
+
+
+@pytest.mark.parametrize("client", ["claude", "cursor", "desktop"])
+def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_path, monkeypatch, client):
+    from src.daemon.state import atomic_private, write_json
+
+    home = tmp_path / "home"
+    home.mkdir()
+    installation = tmp_path / "installation"
+    state = tmp_path / "state"
+    selected_profile = home / "custom claude profile"
+    selected_profile.mkdir()
+    # The basename and directory deliberately do not identify a client.
+    destination = tmp_path / "custom registrations" / "selected.json"
+    destination.parent.mkdir()
+    original = {"mcpServers": {"Agents-Core": {"command": "old-python", "args": ["old.py"], "disabled": True},
+                               "other": {"command": "unrelated"}}, "userSetting": True}
+    destination.write_text(json.dumps(original))
+    defaults = [home / ".claude.json", home / ".cursor/mcp.json",
+                home / "Library/Application Support/Claude/claude_desktop_config.json"]
+    for path in defaults:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"Inactive default file\r\n")
+    before = {path: path.read_bytes() for path in defaults}
+    write_json(installation / "data/.shared-service.json", {"directory": str(state)})
+    write_json(state / "service.json", {"installation": str(installation), "port": 8765, "node": sys.executable})
+    atomic_private(state / "token", "private-test-token-only")
+    write_json(selected_profile / "settings.json", {"permissions": {"deny": ["existing-rule"]}, "userSetting": True})
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(selected_profile))
+    monkeypatch.setenv("CLAUDE_CONFIG_PATH", str(destination))
+    monkeypatch.setenv("MCP_CLIENT", client)
+    monkeypatch.setenv("MCP_PYTHON", sys.executable)
+    monkeypatch.setenv("MCP_SERVER", str(installation / "src/server.py"))
+    script = (REPO_ROOT / "scripts/init_repo.sh").read_text()
+    injection = script.split('    python -c "\n', 1)[1].split('\n" &&', 1)[0]
+
+    with pytest.raises(SystemExit) as error:
+        exec(compile(injection, "init_repo.sh:inject_mcp_config", "exec"), {})
+
+    assert error.value.code == 0
+    result = json.loads(destination.read_text())
+    name = "Agents-Core-Desktop" if client == "desktop" else "Agents-Core"
+    entry = result["mcpServers"][name]
+    assert entry["disabled"] is True
+    assert result["userSetting"] is True
+    assert result["mcpServers"]["other"] == original["mcpServers"]["other"]
+    assert {path: path.read_bytes() for path in defaults} == before
+    if client == "desktop":
+        assert "Agents-Core" not in result["mcpServers"]
+        assert entry["command"] == sys.executable
+        assert entry["args"][0] == str(installation / "bridge/stdio.mjs")
+        settings = json.loads((selected_profile / "settings.json").read_text())
+        assert settings["userSetting"] is True
+        assert set(settings["permissions"]["deny"]) == {
+            "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
+        assert not (home / ".claude/settings.json").exists()
+    else:
+        assert entry["url"] == "http://127.0.0.1:8765/mcp"
+        assert "command" not in entry and "args" not in entry

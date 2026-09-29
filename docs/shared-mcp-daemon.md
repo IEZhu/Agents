@@ -48,8 +48,9 @@ creating a clone or worktree, run `migrate --workspace /absolute/worktree` befor
 connecting. Do not copy an MCP configuration containing another project's UUID.
 
 Codex reads project `.codex/config.toml` in a trusted project; Claude Code uses
-local scope in `~/.claude.json`; Cursor uses project `.cursor/mcp.json`. An existing
-Claude project `.mcp.json` is also updated. Tracked Codex configurations use a
+local scope in its selected user configuration; Cursor uses project
+`.cursor/mcp.json`. An existing Claude project `.mcp.json` is also updated.
+Tracked Codex configurations use a
 string `http_headers_helper`; tracked JSON configurations use the Node bridge
 with a private configuration outside the repository. Secrets are neither printed
 nor written to tracked configurations. Untracked files containing a token are
@@ -68,6 +69,101 @@ process holding the model.
 Module-invoked `python -m src.server` processes are counted across the host because
 their command lines do not identify an installation. Check the reported PIDs
 when multiple installations are present.
+
+### Alternate client configurations
+
+Migration and audit share the same client path resolver. For each user target, an
+explicit `--client-config CLIENT=PATH` takes precedence over its environment
+override, then its default path. With `--workspace`, Codex and Cursor use the
+fixed project paths below, ignoring user configuration overrides; an explicit
+`--client-config` can select a different file. Paths identify configuration files;
+workspace identity is supplied separately with `--workspace`.
+
+| Client target | Default file | Environment override |
+| --- | --- | --- |
+| `claude` | `~/.claude.json` | `CLAUDE_CONFIG_DIR` selects `<dir>/.claude.json` |
+| `claude-deny-desktop` | `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` selects `<dir>/settings.json` |
+| `codex` | `~/.codex/config.toml`, or `<workspace>/.codex/config.toml` with `--workspace` | `CODEX_HOME` selects the user configuration directory; project paths stay unchanged |
+| `cursor` | `~/.cursor/mcp.json`, or `<workspace>/.cursor/mcp.json` with `--workspace` | `AGENTS_CURSOR_MCP_CONFIG` selects the user MCP file; project paths stay unchanged |
+| `desktop` | `~/Library/Application Support/Claude/claude_desktop_config.json` | `AGENTS_CLAUDE_DESKTOP_CONFIG` selects an exact configuration file |
+| `claude-project` | `<workspace>/.mcp.json` | No environment override; requires `--workspace` |
+
+Export variables in the shell that runs migration or audit. The controller cannot
+infer another process's environment from the daemon. A nonempty
+`CLAUDE_CONFIG_DIR` also changes the location of the user JSON: explicitly setting
+it to `~/.claude` selects `~/.claude/.claude.json`, while leaving it unset selects
+`~/.claude.json`. `CODEX_HOME` is the Codex state directory, not the configuration
+file itself. Use an existing directory and absolute paths for alternate profiles.
+
+`AGENTS_CURSOR_MCP_CONFIG` and `AGENTS_CLAUDE_DESKTOP_CONFIG` are Agents-Core
+controller settings. They tell migration and audit which existing client file to
+manage; they do not reconfigure the client application's own path selection.
+In particular, a Cursor `--user-data-dir` or UI profile does not establish the
+location of its MCP file. Supply the file that the client actually reads.
+
+Select a Claude profile for both user and project-local registrations:
+
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --clients claude
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --clients claude --workspace /absolute/project
+```
+
+Use explicit files for other profiles or a Codex named profile that contains its
+own MCP entry:
+
+```bash
+.venv/bin/python -m src.daemon migrate --clients codex,cursor \
+  --client-config codex=/absolute/codex-home/work.config.toml \
+  --client-config cursor=/absolute/cursor-profile/mcp.json
+.venv/bin/python -m src.daemon migrate --clients desktop \
+  --client-config desktop=/absolute/desktop-profile/claude_desktop_config.json \
+  --client-config claude-deny-desktop=/absolute/claude-profile/settings.json
+```
+
+`migrate` accepts one explicit file per client target and rejects repeated
+overrides for the same target. Migrate another profile in a separate invocation.
+Select each overridden target with `--clients`; Desktop migration also selects
+`claude-deny-desktop`, and Claude workspace migration selects an existing project
+`.mcp.json` as `claude-project`.
+Existing unrelated fields and client enablement settings are preserved. When a
+workspace is supplied, the selected MCP entry receives that workspace's UUID.
+Claude's user JSON keeps separate local entries for each project. Other file
+formats hold a single `Agents-Core` entry: do not reuse the same file for
+different projects that need separate memory.
+
+Audit accepts repeated files for the same client and an optional workspace:
+
+```bash
+.venv/bin/python -m src.daemon audit --workspace /absolute/project \
+  --client-config claude=/absolute/claude-work/.claude.json \
+  --client-config claude=/absolute/claude-personal/.claude.json \
+  --client-config cursor=/absolute/cursor-profile/mcp.json
+```
+
+Audit checks standard and active configuration roots, project scopes discovered
+in the selected Claude registries, Codex named `*.config.toml` files, and plugin
+MCP manifests under the selected client roots. It also checks explicit files and
+previously migrated paths retained in private `client-configs.json`. Migration
+records targets so a later audit can inspect an inactive profile after its
+environment override is no longer set. Paths migrated before this registry was
+introduced need an explicit path if they are outside the standard or active
+roots. Restoring client configuration retains this inventory so audit can report
+restored standalone entries; later migrations of other profiles do not block the
+restore. Audit reads these sources without modifying them and reports malformed
+files without exposing credentials.
+
+This is a bounded configuration inventory, not a search of the entire disk or
+every running process. Supply arbitrary inactive paths explicitly at least once
+to migrate them. Inline command-line MCP definitions, dynamic extension
+registrations, and another process's configuration environment may introduce
+additional servers outside this inventory. After reconnecting clients, repeat
+the process baseline to verify that only one model process remains.
+
+The client path contracts are documented in [Claude Code environment
+variables](https://code.claude.com/docs/en/env-vars), [Codex configuration and
+profiles](https://learn.chatgpt.com/docs/config-file/config-advanced),
+[Cursor MCP configuration](https://cursor.com/docs/mcp#configuration-locations),
+and the [Claude Desktop MCP setup guide](https://modelcontextprotocol.io/docs/develop/connect-local-servers).
 
 ## Service control
 
@@ -91,6 +187,11 @@ ProcessType Interactive. Service logs are limited to six 10 MiB files; debug
 logs are limited to seven days and 100 MiB. Debug writes skip symlinked path
 components and create mode-0600 JSON files exclusively. Debug pruning leaves
 symlinked directories and JSON entries untouched.
+
+Token rotation includes custom client paths recorded by successful migrations,
+using the same private backup journals as standard paths. Merely auditing a file
+does not make it a managed rotation target. Rotation also updates private bridge
+configurations; it does not depend on the profile environment remaining active.
 
 `status` reports ready, starting, draining, or failed state when the service
 responds; otherwise it reports `not_installed`, `starting`, or `stopped` from local

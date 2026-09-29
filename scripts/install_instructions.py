@@ -13,8 +13,10 @@ if sys.version_info < (3, 11):
     sys.exit(1)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent))
 sys.path.insert(0, str(SCRIPT_DIR / "_helpers"))
 
+from src.client_paths import client_config_path, client_home  # noqa: E402
 import install_codex_instructions as codex_instructions  # noqa: E402
 from inject_claude_md import inject  # noqa: E402
 from migrate_routing_memory import migrate  # noqa: E402
@@ -29,9 +31,9 @@ def parse_clients(value: str) -> tuple[str, ...]:
 
 def detect_claude_home() -> Path | None:
     """Use the same Claude detection signals as the full installers."""
-    home = Path.home()
-    claude_home = home / ".claude"
-    if claude_home.is_dir() or (home / ".claude.json").is_file() or shutil.which("claude"):
+    claude_home = client_home("claude")
+    if (os.environ.get("CLAUDE_CONFIG_DIR") or claude_home.is_dir()
+            or client_config_path("claude").is_file() or shutil.which("claude")):
         return claude_home
     return None
 

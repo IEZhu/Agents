@@ -82,6 +82,10 @@ sentinel that exits with code 77. This checks the reuse gate; it does not comple
 dependency installation, download a model, or change MCP client settings.
 
 The same workflow runs Codex discovery and managed-instruction migration checks.
+`test_installer_profiles.py` also runs the actual MCP setup hooks against default
+and alternate client profiles, using native `cmd.exe` on Windows and Bash on Unix.
+It checks exact configuration targets, preserved inactive profiles, and paths with
+spaces without modifying the user's client files.
 `test_installer_instructions.py` executes the actual template selection, skip guard
 and Codex instruction hook from each installer in temporary directories. Unix
 uses Bash; Windows uses native `cmd.exe`. These focused checks cover protocol

@@ -3,51 +3,116 @@ from pathlib import Path
 import json
 import tomllib
 
+from src.client_paths import CLIENTS, absolute_path, client_config_path, client_home
+from .state import read_json
+
 
 def _unreadable(path, scope):
     return {"path": str(path), "scope": scope, "error": "unreadable configuration"}
 
 
-def inventory(home=None, workspace=None):
-    home = Path(home or Path.home())
+def registered_configs(document):
+    """Validate the private inventory before using it for either reads or writes."""
+    if document == {}:
+        return []
+    if not isinstance(document, dict) or document.get("version") != 1 or not isinstance(document.get("configs"), list):
+        raise ValueError("Invalid client configuration registry")
+    for record in document["configs"]:
+        if (not isinstance(record, dict) or record.get("client") not in CLIENTS
+                or not isinstance(record.get("path"), str) or not Path(record["path"]).is_absolute()
+                or (record.get("workspace") is not None and
+                    (not isinstance(record["workspace"], str) or not Path(record["workspace"]).is_absolute()))):
+            raise ValueError("Invalid client configuration registry entry")
+    return document["configs"]
+
+
+def inventory(home=None, workspace=None, *, client_configs=(), directory=None):
+    home = absolute_path(home or Path.home())
     roots = {Path(workspace).resolve()} if workspace else set()
-    claude = home / ".claude.json"
-    result = []
-    if claude.exists():
+    result, candidates = [], []
+    for env in ({}, None):
+        for client in ("claude", "codex", "cursor", "desktop"):
+            candidates.append((client, client_config_path(client, home=home, environ=env), None))
+    for client, path in client_configs:
+        if client not in CLIENTS:
+            raise ValueError("Unknown client: " + client)
+        candidates.append((client, absolute_path(path), workspace))
+    if directory is not None:
+        registry = Path(directory) / "client-configs.json"
         try:
-            data = json.loads(claude.read_text())
+            records = registered_configs(read_json(registry, {}))
+        except (ValueError, OSError):
+            result.append(_unreadable(registry, "managed"))
+        else:
+            candidates += [(record["client"], Path(record["path"]), record.get("workspace")) for record in records]
+    paths, plugins, seen = [], set(), set()
+    default_claude = client_config_path("claude", home=home, environ={})
+    for client, path, target in candidates:
+        if target and Path(target).is_dir():
+            roots.add(Path(target).resolve())
+        if client == "claude-deny-desktop":
+            continue
+        scope = "desktop" if client == "desktop" else ("claude:project" if client == "claude-project" else client + (":project" if target and client != "claude" else ":user"))
+        try:
+            key = (client, path.resolve(), scope)
+        except (OSError, RuntimeError):
+            result.append(_unreadable(path, scope))
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        if client == "codex" and not target:
+            plugins.add(path.parent / "plugins/cache")
+            try:
+                paths.extend((p, "codex:profile", True) for p in path.parent.glob("*.config.toml") if p != path)
+            except OSError:
+                result.append(_unreadable(path.parent, "codex:profile"))
+        if client != "claude":
+            paths.append((path, scope, client == "codex"))
+            continue
+        profile = client_home("claude", home=home, environ={}) if path == default_claude else path.parent
+        plugins.add(profile / "plugins/cache")
+        if not path.exists() and not path.is_symlink():
+            continue
+        try:
+            data = json.loads(path.read_text())
             if not isinstance(data, dict) or not isinstance(data.get("projects", {}), dict):
                 raise ValueError("Configuration tables must be mappings")
         except (ValueError, OSError):
-            result.append(_unreadable(claude, "claude:user"))
-        else:
-            scopes = [("claude:user", data.get("mcpServers", {}))]
-            for root, entry in data.get("projects", {}).items():
-                if not isinstance(entry, dict):
-                    result.append(_unreadable(claude, "claude:local:" + root))
-                    continue
-                path = Path(root)
-                if path.is_dir():
-                    roots.add(path.resolve())
-                scopes.append(("claude:local:" + root, entry.get("mcpServers", {})))
-            for scope, servers in scopes:
-                result.extend(describe(claude, scope, servers))
-    paths = [(home / ".codex/config.toml", "codex:user"),
-             (home / ".cursor/mcp.json", "cursor:user"),
-             (home / "Library/Application Support/Claude/claude_desktop_config.json", "desktop")]
+            result.append(_unreadable(path, "claude:user"))
+            continue
+        scopes = [("claude:user", data.get("mcpServers", {}))]
+        for root, entry in data.get("projects", {}).items():
+            if not isinstance(entry, dict):
+                result.append(_unreadable(path, "claude:local:" + root))
+                continue
+            if Path(root).is_dir():
+                roots.add(Path(root).resolve())
+            scopes.append(("claude:local:" + root, entry.get("mcpServers", {})))
+        for label, servers in scopes:
+            result.extend(describe(path, label, servers))
     for root in roots:
-        paths += [(root / ".codex/config.toml", "codex:project"),
-                  (root / ".cursor/mcp.json", "cursor:project"),
-                  (root / ".mcp.json", "claude:project")]
-    # MCP manifests in installed plugins can introduce an additional server even
-    # when normal project/user scopes look correct.
-    for plugin_root in (home / ".codex/plugins/cache", home / ".claude/plugins/cache"):
-        if plugin_root.exists():
-            paths.extend((path, "plugin") for path in plugin_root.rglob(".mcp.json"))
-    for path, scope in paths:
-        if not path.exists(): continue
+        paths += [(root / ".codex/config.toml", "codex:project", True),
+                  (root / ".cursor/mcp.json", "cursor:project", False),
+                  (root / ".mcp.json", "claude:project", False)]
+    # Plugin manifests are reported, never rewritten by migration.
+    for plugin_root in sorted(plugins):
         try:
-            data = tomllib.loads(path.read_text()) if path.suffix == ".toml" else json.loads(path.read_text())
+            paths.extend((path, "plugin", False) for path in plugin_root.rglob(".mcp.json"))
+        except OSError:
+            result.append(_unreadable(plugin_root, "plugin"))
+    seen_paths = set()
+    for path, scope, is_toml in paths:
+        try:
+            key = (path.resolve(), scope, is_toml)
+        except (OSError, RuntimeError):
+            result.append(_unreadable(path, scope))
+            continue
+        if key in seen_paths or (not path.exists() and not path.is_symlink()):
+            continue
+        seen_paths.add(key)
+        try:
+            data = tomllib.loads(path.read_text()) if is_toml else json.loads(path.read_text())
             if not isinstance(data, dict):
                 raise ValueError("Configuration must be a mapping")
             servers = data.get("mcp_servers", data.get("mcpServers", {}))

@@ -180,13 +180,17 @@ def main(argv=None):
     install.add_argument("--port", type=int, default=8765)
     install.add_argument("--python"); install.add_argument("--node")
     serve = commands.add_parser("serve"); serve.add_argument("--probation")
-    for command in ("start", "status", "stop", "restart", "uninstall", "update", "recover", "clear-cache", "audit"):
+    for command in ("start", "status", "stop", "restart", "uninstall", "update", "recover", "clear-cache"):
         commands.add_parser(command)
+    audit = commands.add_parser("audit")
+    audit.add_argument("--workspace", type=Path)
+    audit.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
     workspace = commands.add_parser("workspace")
     workspace.add_argument("action", choices=["register", "list"]); workspace.add_argument("path", nargs="?")
     migrate = commands.add_parser("migrate")
     migrate.add_argument("--workspace", type=Path)
     migrate.add_argument("--clients", default="codex,claude,cursor")
+    migrate.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
     restore = commands.add_parser("restore-clients"); restore.add_argument("backup", type=Path)
     token = commands.add_parser("token"); token.add_argument("action", choices=["rotate"])
     auto = commands.add_parser("auto-update", help="unattended updates from the tracked branch")
@@ -194,6 +198,21 @@ def main(argv=None):
     auto.add_argument("--interval", type=int, help="seconds between checks (default 900)")
     auto.add_argument("--idle-seconds", type=int, help="apply only after this long without requests (default 120)")
     args = parser.parse_args(argv)
+    overrides = []
+    if args.command in ("audit", "migrate"):
+        from src.client_paths import parse_client_configs, CLIENTS
+        try:
+            overrides = parse_client_configs(args.client_config, multiple=args.command == "audit")
+        except ValueError as error:
+            parser.error(str(error))
+        if args.command == "migrate":
+            clients = [client.strip() for client in args.clients.split(",")]
+            if any(client not in CLIENTS for client in clients):
+                parser.error("Unknown client in --clients")
+            if "desktop" in clients: clients.append("claude-deny-desktop")
+            if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
+            if any(client not in clients for client, _ in overrides):
+                parser.error("Each --client-config target must be selected by --clients")
     controller = Controller(args.state)
     if args.command == "serve":
         from .bootstrap import serve
@@ -202,7 +221,7 @@ def main(argv=None):
     if args.command == "install": result = controller.install(port=args.port, python=args.python, node=args.node)
     elif args.command == "audit":
         from .audit import inventory
-        result = inventory()
+        result = inventory(workspace=args.workspace, client_configs=overrides, directory=controller.directory)
     elif args.command == "workspace":
         from .workspaces import WorkspaceRegistry
         registry = WorkspaceRegistry(controller.directory)
@@ -212,14 +231,12 @@ def main(argv=None):
         else: result = read_json(registry.path, {})
     elif args.command == "migrate":
         from .clients import ClientMigration
-        clients = args.clients.split(",")
-        if "desktop" in clients: clients.append("claude-deny-desktop")
-        if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
+        selected = dict(overrides)
         with file_lock(controller.directory / "control.lock", blocking=False):
             from .bootstrap import assert_service_safe
             assert_service_safe(controller.directory)
             migration = ClientMigration(controller.directory)
-            changes = [migration.prepare(client, args.workspace) for client in dict.fromkeys(clients)]
+            changes = [migration.prepare(client, args.workspace, config_path=selected.get(client)) for client in dict.fromkeys(clients)]
             result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
     elif args.command == "restore-clients":
         from .clients import ClientMigration

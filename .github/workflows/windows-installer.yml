@@ -7,6 +7,7 @@ on:
       - scripts/init_repo.bat
       - scripts/init_repo.sh
       - scripts/install_instructions.py
+      - src/client_paths.py
       - scripts/_helpers/check_version.py
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
@@ -14,6 +15,7 @@ on:
       - scripts/templates/*.md
       - tests/test_installer_windows.py
       - tests/test_installer_instructions.py
+      - tests/test_installer_profiles.py
       - tests/test_install_instructions.py
       - tests/test_codex_instructions.py
       - tests/test_protocol_migration.py
@@ -26,6 +28,7 @@ on:
       - scripts/init_repo.bat
       - scripts/init_repo.sh
       - scripts/install_instructions.py
+      - src/client_paths.py
       - scripts/_helpers/check_version.py
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
@@ -33,6 +36,7 @@ on:
       - scripts/templates/*.md
       - tests/test_installer_windows.py
       - tests/test_installer_instructions.py
+      - tests/test_installer_profiles.py
       - tests/test_install_instructions.py
       - tests/test_codex_instructions.py
       - tests/test_protocol_migration.py
@@ -68,4 +72,5 @@ jobs:
         run: >-
           python -m pytest tests/test_installer_windows.py
           tests/test_installer_instructions.py tests/test_codex_instructions.py
-          tests/test_install_instructions.py tests/test_protocol_migration.py -v
+          tests/test_install_instructions.py tests/test_installer_profiles.py
+          tests/test_protocol_migration.py -v

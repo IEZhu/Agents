@@ -23,6 +23,9 @@ def instruction_install(tmp_path, monkeypatch):
     helpers, templates = scripts / "_helpers", scripts / "templates"
     helpers.mkdir(parents=True)
     templates.mkdir()
+    (checkout / "src").mkdir()
+    for name in ("__init__.py", "client_paths.py"):
+        shutil.copyfile(ROOT / "src" / name, checkout / "src" / name)
     shutil.copyfile(ROOT / "scripts" / "install_instructions.py", scripts / "install_instructions.py")
     for name in ("inject_claude_md.py", "install_codex_instructions.py", "migrate_routing_memory.py"):
         shutil.copyfile(ROOT / "scripts" / "_helpers" / name, helpers / name)
@@ -186,6 +189,52 @@ def test_codex_custom_home_and_override_preserve_inactive_files(instruction_inst
     assert snapshot(preserved) == preserved
     assert len(list(custom.glob("AGENTS.override.md.backup.*"))) == 1
     assert not list(custom.glob("AGENTS.md.backup.*"))
+
+
+@pytest.mark.parametrize("configured", ["custom", "tilde", "default_directory"])
+def test_claude_profile_controls_instructions_and_memory_only(instruction_install, tmp_path, monkeypatch, configured):
+    install = instruction_install
+    defaults = client_files(install)
+    for target in defaults.values():
+        target.write_bytes(b"Default personal instructions\r\n")
+    custom = install.profile / "custom claude profile"
+    if configured == "default_directory":
+        custom = install.profile / ".claude"
+    selected = "~/custom claude profile" if configured == "tilde" else str(custom)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", selected)
+    target = custom / "CLAUDE.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"Active personal rules\r\n")
+    reminder = custom / "memory" / REMINDER
+    reminder.parent.mkdir()
+    reminder.write_bytes((install.templates / "memory-routing-v1.md").read_bytes())
+    for path in (custom / ".claude.json", custom / "settings.json", install.profile / ".claude.json"):
+        path.write_bytes(b"Protected connection state\r\n")
+    protected = [custom / ".claude.json", custom / "settings.json", install.profile / ".claude.json",
+                 defaults["codex"]]
+    if target != defaults["claude"]:
+        protected.append(defaults["claude"])
+    before = snapshot(protected)
+
+    assert install.module.main(["--clients", "claude"]) == 0
+
+    assert_protocol(install, target, 2)
+    assert target.read_bytes().startswith(b"Active personal rules\r\n")
+    assert reminder.read_bytes() == (install.templates / "memory-routing-v2.md").read_bytes()
+    assert snapshot(protected) == before
+
+
+def test_explicit_claude_profile_is_created_without_an_installed_binary(instruction_install, tmp_path, monkeypatch):
+    install = instruction_install
+    custom = tmp_path / "new claude profile"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(custom))
+
+    assert install.module.main(["--clients", "claude"]) == 0
+
+    assert_protocol(install, custom / "CLAUDE.md", 2)
+    assert not list(install.profile.iterdir())
+    assert not (custom / ".claude.json").exists()
+    assert not (custom / "memory").exists()
 
 
 def test_repeat_is_idempotent_and_migrations_back_up_previous_bytes(instruction_install):

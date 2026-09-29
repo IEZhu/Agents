@@ -55,3 +55,22 @@ def test_repeated_rotation_updates_token_and_managed_client(installation, tmp_pa
         assert controller.running
         assert not (controller.directory / "transaction.json").exists()
         assert not (controller.directory / "maintenance.json").exists()
+
+
+def test_custom_profile_rotation_survives_removed_environment(installation, tmp_path, monkeypatch):
+    controller, _, _, _ = installation
+    controller.config["port"] = 8765
+    write_json(controller.directory / "service.json", controller.config)
+    atomic_private(controller.directory / "token", "original-profile-token")
+    profile = tmp_path / "alternate-claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(profile))
+    migration = ClientMigration(controller.directory)
+    migration.apply([migration.prepare("claude")])
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+
+    assert rotate_token(controller)["state"] == "rotated"
+
+    token = (controller.directory / "token").read_text().strip()
+    entry = json.loads((profile / ".claude.json").read_text())["mcpServers"]["Agents-Core"]
+    assert entry["headers"]["Authorization"] == "Bearer " + token
+    assert token != "original-profile-token"

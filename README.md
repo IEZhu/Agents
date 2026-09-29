@@ -420,6 +420,25 @@ Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback.
 
+Client migration honors `CLAUDE_CONFIG_DIR` and `CODEX_HOME` from the environment
+of the controller command. Use `--client-config CLIENT=/absolute/config/file`
+for an explicit configuration file, including alternate Cursor or Claude Desktop
+configurations. For example:
+
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --clients claude
+.venv/bin/python -m src.daemon migrate --clients cursor --client-config cursor=/absolute/profile/mcp.json
+.venv/bin/python -m src.daemon audit --workspace /absolute/path/to/project
+```
+
+Explicit files take precedence over environment overrides and default paths.
+With `--workspace`, Codex and Cursor retain their project configuration paths
+unless an explicit file is supplied.
+Audit includes standard locations, active profiles, and files remembered from
+successful migrations; arbitrary inactive profiles need an explicit path. See
+[alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations)
+for supported targets, environment variables, and workspace behavior.
+
 The configurations below are for explicit standalone stdio use (including platforms
 without the macOS service). Stop the shared daemon before a full stdio rollback.
 Replace both absolute installation paths below. Set `AGENTS_CLIENT_REPO_ROOT` to
