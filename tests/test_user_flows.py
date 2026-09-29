@@ -174,6 +174,18 @@ def test_plain_save_clears_a_stale_override_marker(library, install):
     assert not (library.user_dir / "common" / "review.meta.json").exists()
 
 
+def test_unchanged_saves_still_update_the_override_marker(library, install):
+    saved = library.save("review", "# Mine\n", override=True)
+    revision_ = saved["flow"]["revision"]
+    (install / "review.md").write_text("# Review v2\n", encoding="utf-8")
+    assert library.resolve("review").metadata()["upstream_changed"] is True
+    again = library.save("user:review", "# Mine\n", override=True, expected_revision=revision_)
+    assert again["status"] == "unchanged" and again["flow"]["upstream_changed"] is False
+    (install / "review.md").unlink()
+    plain = library.save("user:review", "# Mine\n", expected_revision=revision_)
+    assert plain["status"] == "unchanged" and "overrides" not in plain["flow"]
+
+
 def test_failed_write_leaves_no_temporary_file(library, monkeypatch):
     import src.user_flows as user_flows
     def fail(*args):

@@ -345,11 +345,11 @@ class FlowLibrary:
         with file_lock(self.user_dir / ".lock"):
             path, current = self._current(scope, flow_id)
             self._check_revision(current, expected_revision)
-            if current == raw:
-                return {"status": "unchanged", "flow": self._load(scope, flow_id).metadata()}
-            if current is not None:
-                self._archive(scope, flow_id, current)
-            _atomic_write(path, raw)
+            if current != raw:
+                if current is not None:
+                    self._archive(scope, flow_id, current)
+                _atomic_write(path, raw)
+            # Update the override marker even when the text is unchanged.
             meta_path = directory / f"{flow_id}.meta.json"
             if override:
                 # Saving an override acknowledges the built-in text it was edited against.
@@ -363,6 +363,8 @@ class FlowLibrary:
                 key, origin = self.repo()
                 _atomic_write(directory / ".repo.json", json.dumps(
                     {"origin": origin, "path": str(self.repo_root)}, indent=2).encode() + b"\n")
+        if current == raw:
+            return {"status": "unchanged", "flow": self._load(scope, flow_id).metadata()}
         return {"status": "created" if current is None else "saved",
                 "flow": self._load(scope, flow_id).metadata()}
 
