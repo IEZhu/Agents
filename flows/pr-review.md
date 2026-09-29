@@ -94,13 +94,35 @@ For each available bot, distinguish these states:
 | Review completed for an earlier head | Obtain a review covering the current head |
 | Current-head review has findings | Read and handle every finding |
 | Current-head approval or completed review with no actionable findings | Record completion for that bot and head |
-| Explicit quota exhaustion, service failure, or unavailable integration | Record the evidence and continue with the other available bots |
+| Explicit quota exhaustion, rate limit, service failure, or unavailable integration | Record the evidence, pause that bot as described below, and continue with the other available bots |
 
 Use bounded waits with backoff and keep the user informed of meaningful changes.
 A wait timeout alone does not establish quota exhaustion or unavailability.
-Inspect failed requests and bot status before retrying. Avoid repeated requests
-after an explicit quota failure. If every bot is unavailable, handle all existing
-findings and continue to the merge conditions; unavailability is not approval.
+Inspect failed requests and bot status before retrying. If every bot is
+unavailable, handle all existing findings and continue to the merge conditions;
+unavailability is not approval.
+
+### Quota, rate limits and errors
+
+Recognize these bot responses by their text (observed on this repository's PRs in
+2026-09). A quota or error response is not a review of the head: it neither
+approves nor clears findings.
+
+| Bot | Evidence | Meaning | Next action |
+|---|---|---|---|
+| CodeRabbit | A comment marked `rate limited by coderabbit.ai`: "Review limit reached. Next included review available in N minutes." | Rate limit with a stated wait | Pause CodeRabbit until the comment time plus N minutes. After that, if no review of the current head has started, request one with a PR comment `@coderabbitai review`, once. |
+| Copilot | A review body "...the user who requested the review has reached their quota limit." | Account quota exhausted; no reset time is given (in 2026-09 it returned within days, not at a fixed date) | Pause Copilot. While paused, request a review at most once per 24 hours, and only when the current head still needs one. A normal review ends the pause. |
+| Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
+
+Keep each pause with its evidence (the comment or review link), the time it was
+seen and the earliest next attempt. Record it where the next session will find
+it: the [issue agent](issue-agent.md#3-state) keeps it in the issue's state
+comment; an interactive session reports it and keeps it in its working notes.
+While a bot is paused, continue with the other bots, do not re-request the
+paused bot on every push, and do not wait for it to complete the cycle. When the
+pause ends and the current head has no review from that bot, request one. A
+review round that ends with a bot still paused lists that bot as unavailable,
+with its evidence and next attempt time, in the final report.
 
 ### Optional GitHub helpers from the Agents-Core installation
 

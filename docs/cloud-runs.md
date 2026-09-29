@@ -115,3 +115,38 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 | (precaution) a session would try to route | CLAUDE.md asks every session to route; Agents-Core is not connected in the cloud | "do not route" in the prompt, as above |
 | Some launches, and a `curl` inside a session, were denied by the auto-mode classifier | the classifier judged the command a bypass | not worked around in 2026-09: rephrase the request, or run that step yourself |
 | Cloud credit counter does not move | not established | check usage in the account settings before relying on included credits |
+
+## Issue agent
+
+The issue agent runs [flows/issue-agent.md](../flows/issue-agent.md) in a cloud
+session when the owner writes an `@agent` command (`plan`, `replan`, `run_plan`,
+`run`, `fix`, `review`, `status`, `stop`, `help`) in an issue or pull request of a
+target repository. The flows live in this repository; the target can be any
+repository the routine clones.
+
+**Why a bridge.** Routine GitHub triggers cover pull request and release events.
+A trigger for `issue_comment` was accepted by the API in 2026-09 but never fired,
+so a small GitHub Actions workflow forwards comments and review-bot reviews to the
+routine's API trigger. It runs no model and sends only a pointer (repository,
+number, comment or review id); the agent reads and verifies the comment itself.
+
+**One-time setup per target repository:**
+
+1. Create a routine (for example `Private-issues`) with both repositories as
+   sources (the target and this one), model `claude-opus-5-5`, allowed tools
+   Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow, and
+   only the connectors it needs. Its prompt names the owner login, says that
+   Agents-Core MCP is unavailable (do not route), explicitly allows multi-agent
+   orchestration, and tells the session to follow `flows/issue-agent.md` for the
+   event in the `routine-fire-payload` block.
+2. In the routine's web page, add an **API** trigger and generate its token.
+3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
+   variables `CLAUDE_ROUTINE_ID` and `AGENT_OWNER`, then copy
+   [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
+   to `.github/workflows/issue-agent-bridge.yml`.
+
+The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
+pull requests, reviews), acting as the owner's account; `gh` is not installed.
+Because the agent's comments appear under the owner's login, each one starts with
+`<!-- issue-agent -->` and never with `@agent`; the bridge and the flow both ignore
+such comments. Routine runs count against the account's daily routine allowance.
