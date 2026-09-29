@@ -85,7 +85,7 @@ async def build(args):
         server.SESSION_CACHE.clear()
         if case["id"] in agents:
             agent = agents[case["id"]]
-            prompt, _hash, skills, implants, rules, tier = await server._load_and_enrich(agent, case["query"], [])
+            prompt, skills, implants, rules, tier = await server._load_and_enrich(agent, case["query"], [])
             prompt = _strip_platform_instructions(prompt)
             meta = {"agent": agent, "tier": tier, "routing_path": "fixed", "skills_loaded": list(skills),
                     "implants_loaded": list(implants), "rules_loaded": list(rules)}

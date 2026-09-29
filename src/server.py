@@ -11,7 +11,6 @@ if __name__ == "__main__" and not globals().get("_agents_bootstrapped"):
     raise SystemExit(0)
 
 import atexit
-import hashlib
 import logging
 import uuid
 import re
@@ -309,12 +308,9 @@ def _normalize_chat_history(chat_history: Optional[List[str] | str]) -> List[str
 
     return [entry for entry in chat_history if isinstance(entry, str)]
 
-def _compute_context_hash(prompt: str) -> str:
-    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
-
-async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, str, list[str], list[str], list[str], str]:
-    """Shared helper: load prompt, enrich with rules/skills/implants/capabilities.
-    Returns (final_prompt, context_hash, skills_loaded, implants_loaded, rules_loaded, effective_tier).
+async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[str], tier: str | None = None) -> tuple[str, list[str], list[str], list[str], str]:
+    """Per-query enrichment for the evaluation harnesses: load and enrich one prompt.
+    Returns (final_prompt, skills_loaded, implants_loaded, rules_loaded, effective_tier).
     """
     tier_explicit = tier is not None
     if tier is None:
@@ -386,7 +382,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         if cache_used:
             logger.info(f"Session cache hit for {agent_name} (tier={tier})")
             debug_log("_load_and_enrich", "res", {"agent": agent_name, "tier": tier, "cache": "hit", "prompt_len": len(prompt)})
-            return prompt, _compute_context_hash(prompt), skills_loaded, implants_loaded, rules_loaded, tier
+            return prompt, skills_loaded, implants_loaded, rules_loaded, tier
         # Unknown shape — log loudly and evict so the bug surfaces deterministically
         # instead of silently returning partial metadata.
         logger.warning(
@@ -412,7 +408,6 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     )
     final_prompt = enrichment.prompt
     SESSION_CACHE[cache_key] = (final_prompt, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded)
-    ctx_hash = _compute_context_hash(final_prompt)
     debug_log("_load_and_enrich", "res", {
         "agent": agent_name, "tier": tier, "cache": "miss",
         "task_mode": profile.mode if profile else None,
@@ -428,7 +423,7 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
         "implants_loaded": enrichment.implants_loaded,
         "rules_loaded": enrichment.rules_loaded,
     })
-    return final_prompt, ctx_hash, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded, tier
+    return final_prompt, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded, tier
 
 
 async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> str:

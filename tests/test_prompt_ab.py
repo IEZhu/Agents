@@ -354,7 +354,7 @@ def test_a_named_arm_must_load_its_implant_on_every_case(tmp_path, monkeypatch, 
         tier = "lite" if len(query) < 5 else "standard"
         gate = getattr(enrichment, "implants_needed", lambda query, tier: tier != "lite")
         implants = enrichment.implant_retriever.retrieve(query) if gate(query, tier) else []
-        return "prompt", "h", [], [i["metadata"]["short_name"] for i in implants], [], tier
+        return "prompt", [], [i["metadata"]["short_name"] for i in implants], [], tier
 
     fakes = {(src, "server"): SimpleNamespace(SESSION_CACHE={}, _load_and_enrich=load_and_enrich),
              (src.engine, "enrichment"): enrichment,

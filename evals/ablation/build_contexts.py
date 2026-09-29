@@ -184,7 +184,7 @@ async def main(run_dir: Path) -> None:
             implants.retrieve = lambda *a, **k: list(forced)
             enrichment.implants_needed = (lambda *a, **k: True) if forced else orig_needed
         server.SESSION_CACHE.clear()
-        prompt, _h, loaded_skills, loaded_implants, rules, tier = await server._load_and_enrich(agent, query, [])
+        prompt, loaded_skills, loaded_implants, rules, tier = await server._load_and_enrich(agent, query, [])
         prompt = _strip_platform_instructions(prompt)
         if kind == "rule" and arm == "without":
             prompt = cut_section(prompt, f"### Rule: {component.removeprefix('rule-')}")

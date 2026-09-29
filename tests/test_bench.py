@@ -1103,7 +1103,7 @@ class TestBuildMcpSystemPromptRoutingFidelity:
             cached_decision.target_agent = lookup_cache_result
 
         async def _async_load(agent_name, query, history, *_):
-            return (f"prompt-for-{agent_name}", "ctx-hash", [], [], [], "lite")
+            return (f"prompt-for-{agent_name}", [], [], [], "lite")
 
         async def _async_lookup(query, ctx):
             return cached_decision

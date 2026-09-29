@@ -97,7 +97,7 @@ def client_output(events: list[dict]) -> dict:
             "client_errors": errors, "attempted_tools": attempts, "usage": usage}
 
 
-def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None, protocol_version: int) -> tuple[dict, dict | None]:
+def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None) -> tuple[dict, dict | None]:
     """Judge successful server activations, not role names echoed in model prose."""
     failures = []
     previous = active
@@ -114,43 +114,35 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
             failures.append("server_error_result")
         if call["tool"] not in {"route_and_load", "get_agent_context", "refresh_persona_context"}:
             continue
-        if payload.get("status") not in {"SUCCESS", "SUCCESS_SAMPLED", "NO_CHANGE"}:
+        if payload.get("status") not in {"SUCCESS", "NO_CHANGE"}:
             continue
-        if protocol_version == 2:
-            if payload["status"] == "SUCCESS_SAMPLED":
-                failures.append("sampling_in_v2")
-                continue
-            failures_before_payload = len(failures)
-            persona = payload.get("persona")
-            if payload.get("protocol_version") != 2 or not isinstance(persona, dict):
-                failures.append("not_a_v2_activation")
-                continue
-            if payload["status"] == "SUCCESS":
-                expected_replaced = (active or {}).get("activation_id")
-                if payload.get("replaces_activation_id") != expected_replaced:
-                    failures.append("activation_chain_mismatch")
-                if (not all(isinstance(payload.get(key), str) for key in
-                            ("persona_block", "rules_block", "skills_block", "implants_block"))
-                        or not payload["persona_block"].strip()
-                        or not isinstance(payload.get("footer"), str) or not payload["footer"].strip()):
-                    failures.append("incomplete_bundle")
-                try:
-                    PersonaDescriptor.model_validate(persona, strict=True)
-                except ValidationError:
-                    failures.append("incomplete_descriptor")
-                if len(failures) == failures_before_payload:
-                    active = {**persona, "footer": payload["footer"]}
-                    successful_loads.append(call)
-            elif payload["status"] == "NO_CHANGE":
-                descriptor = {key: value for key, value in (active or {}).items() if key != "footer"}
-                if persona != descriptor:
-                    failures.append("no_change_changed_activation")
-            if call["tool"] == "refresh_persona_context" and len(failures) == failures_before_payload:
-                valid_refresh = True
-        elif payload.get("agent"):
-            active = {"agent": payload["agent"], "context_hash": payload.get("context_hash")}
-            if payload["status"] != "NO_CHANGE":
+        failures_before_payload = len(failures)
+        persona = payload.get("persona")
+        if payload.get("protocol_version") != 2 or not isinstance(persona, dict):
+            failures.append("not_a_v2_activation")
+            continue
+        if payload["status"] == "SUCCESS":
+            expected_replaced = (active or {}).get("activation_id")
+            if payload.get("replaces_activation_id") != expected_replaced:
+                failures.append("activation_chain_mismatch")
+            if (not all(isinstance(payload.get(key), str) for key in
+                        ("persona_block", "rules_block", "skills_block", "implants_block"))
+                    or not payload["persona_block"].strip()
+                    or not isinstance(payload.get("footer"), str) or not payload["footer"].strip()):
+                failures.append("incomplete_bundle")
+            try:
+                PersonaDescriptor.model_validate(persona, strict=True)
+            except ValidationError:
+                failures.append("incomplete_descriptor")
+            if len(failures) == failures_before_payload:
+                active = {**persona, "footer": payload["footer"]}
                 successful_loads.append(call)
+        elif payload["status"] == "NO_CHANGE":
+            descriptor = {key: value for key, value in (active or {}).items() if key != "footer"}
+            if persona != descriptor:
+                failures.append("no_change_changed_activation")
+        if call["tool"] == "refresh_persona_context" and len(failures) == failures_before_payload:
+            valid_refresh = True
     expected = turn["expected"]
     if expected == "keep":
         if selection_calls or attempted_selection:
@@ -163,7 +155,7 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
         if expected == "switch" and previous and active and previous["agent"] == active["agent"]:
             failures.append("specialization_did_not_change")
     elif expected == "refresh":
-        if protocol_version == 2 and not valid_refresh:
+        if not valid_refresh:
             failures.append("missing_successful_refresh")
         if not selection_calls or any(call["tool"] != "refresh_persona_context" for call in selection_calls):
             failures.append("refresh_used_selection")
@@ -174,10 +166,10 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
             failures.append("restore_changed_agent")
         if not successful_loads or any(call["tool"] != "get_agent_context" or not call["arguments"].get("force_reload") for call in selection_calls):
             failures.append("restore_used_selection")
-    if expected == "load" and not turn.get("direct") and protocol_version == 2:
+    if expected == "load" and not turn.get("direct"):
         if not selection_calls or selection_calls[0]["tool"] != "route_and_load":
             failures.append("initial_selection_skipped_routing")
-    if turn.get("direct") and protocol_version == 2 and any(call["tool"] == "route_and_load" for call in selection_calls):
+    if turn.get("direct") and any(call["tool"] == "route_and_load" for call in selection_calls):
         failures.append("explicit_role_was_routed")
     if not active or active.get("agent") != turn["agent"]:
         failures.append("wrong_active_agent")
@@ -189,27 +181,26 @@ def assess_turn(turn: dict, trace: list[dict], output: dict, active: dict | None
     footer_agents = re.findall(r"\*\*Agent\*\*:\s*([\w-]+)", answer)
     if not footer_agents or footer_agents[-1] != turn["agent"]:
         failures.append("wrong_footer_agent")
-    if protocol_version == 2 and active and active.get("footer") and active["footer"] not in answer:
+    if active and active.get("footer") and active["footer"] not in answer:
         failures.append("footer_differs_from_bundle")
     logs = [call for call in trace if call["tool"] == "log_interaction" and not call.get("error")]
     for call in logs:
         if call["arguments"].get("query") != turn["query"]:
             failures.append("log_query_mismatch")
-    if protocol_version == 2:
-        expected_action = "switch" if expected == "load" else expected
-        if not logs:
-            failures.append("missing_attribution_log")
-        for call in logs:
-            logged = call["arguments"]
-            descriptor = {key: value for key, value in (active or {}).items() if key != "footer"}
-            if logged.get("agent_name") != turn["agent"] or logged.get("persona") != descriptor:
-                failures.append("log_descriptor_mismatch")
-            if logged.get("persona_action") != expected_action:
-                failures.append("log_action_mismatch")
-            if payload_from(call.get("result")).get("history", {}).get("status") not in {"recorded", "duplicate"}:
-                failures.append("log_not_recorded")
-            if logged.get("response_content", "").strip() != answer.strip():
-                failures.append("log_response_differs_from_final")
+    expected_action = "switch" if expected == "load" else expected
+    if not logs:
+        failures.append("missing_attribution_log")
+    for call in logs:
+        logged = call["arguments"]
+        descriptor = {key: value for key, value in (active or {}).items() if key != "footer"}
+        if logged.get("agent_name") != turn["agent"] or logged.get("persona") != descriptor:
+            failures.append("log_descriptor_mismatch")
+        if logged.get("persona_action") != expected_action:
+            failures.append("log_action_mismatch")
+        if payload_from(call.get("result")).get("history", {}).get("status") not in {"recorded", "duplicate"}:
+            failures.append("log_not_recorded")
+        if logged.get("response_content", "").strip() != answer.strip():
+            failures.append("log_response_differs_from_final")
     if output["client_errors"]:
         failures.append("client_error")
     switched = bool(previous and active and previous["agent"] != active["agent"])
@@ -306,7 +297,7 @@ def project_interpreter(root: Path) -> str:
 
 
 def run_case(client: str, case: dict, workspace: Path, protocol: str, timeout: int,
-             source_root: Path = ROOT, protocol_version: int = 2, seed_data: Path = ROOT / "data", isolate_codex: bool = False) -> dict:
+             source_root: Path = ROOT, seed_data: Path = ROOT / "data", isolate_codex: bool = False) -> dict:
     require_process_group_support()
     python = project_interpreter(ROOT)
     workspace.mkdir(parents=True)  # Do not silently overwrite a prior experiment.
@@ -354,7 +345,7 @@ def run_case(client: str, case: dict, workspace: Path, protocol: str, timeout: i
             models.update(codex_session_models(session))
         models.update(output.pop("models"))
         trace = events_from("\n".join(trace_path.read_text(encoding="utf-8").splitlines()[before:])) if trace_path.exists() else []
-        verdict, active = assess_turn(turn, trace, output, active, protocol_version)
+        verdict, active = assess_turn(turn, trace, output, active)
         if timeout_hit or code:
             verdict["passed"] = False
             verdict["failures"].append("client_timeout" if timeout_hit else "client_exit_error")
@@ -391,7 +382,10 @@ def reassess_report(report: dict, cases: list[dict]) -> dict:
     """Regrade retained traces after an audited label/scorer fix; never rerun a model.
 
     Preserve original verdicts and run hashes so a correction remains reviewable.
+    Protocol 1 reports need the scorer from a revision before 2026-09-29.
     """
+    if report.get("protocol_version", 2) != 2:
+        raise ValueError("protocol 1 reports need the scorer from a revision before 2026-09-29")
     revised = json.loads(json.dumps(report))
     by_id = {case["id"]: case for case in cases}
     for case_result in revised["results"]:
@@ -401,7 +395,7 @@ def reassess_report(report: dict, cases: list[dict]) -> dict:
             if turn.get("context_reset") == "unknown_persona":
                 active = None
             original_failures = item["failures"]
-            verdict, active = assess_turn(turn, item["trace"], item, active, report["protocol_version"])
+            verdict, active = assess_turn(turn, item["trace"], item, active)
             process_failures = [failure for failure in original_failures if failure in {"client_timeout", "client_exit_error"}]
             verdict["failures"] = sorted(set(verdict["failures"] + process_failures))
             verdict["passed"] = not verdict["failures"]
@@ -428,7 +422,6 @@ def main():
     p.add_argument("--client", choices=["codex", "claude"], required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--protocol", type=Path, default=ROOT / "scripts/templates/routing-protocol-core.md")
-    p.add_argument("--protocol-version", type=int, choices=[1, 2], default=2)
     p.add_argument("--source-root", type=Path, default=ROOT, help="git-archive directory for baseline runtime")
     p.add_argument("--codex-isolate-global-instructions", action="store_true", help="macOS: deny child reads of global AGENTS files; does not modify them")
     p.add_argument("--seed-data", type=Path, required=True, help="frozen data seed; same directory for baseline and candidate")
@@ -455,7 +448,7 @@ def main():
         p.error("output already contains a report; use a new directory")
     version = subprocess.run([args.client, "--version"], capture_output=True, text=True, encoding="utf-8", timeout=10).stdout.strip()
     protocol = args.protocol.read_text(encoding="utf-8")
-    report = {"client_version": version, "protocol_version": args.protocol_version,
+    report = {"client_version": version, "protocol_version": 2,
               "protocol_sha256": hashlib.sha256(protocol.encode()).hexdigest(),
               "dataset_sha256": hashlib.sha256(args.dataset.read_bytes()).hexdigest(),
               "source_root": str(args.source_root.resolve()), "source_sha256": hashlib.sha256("".join(tree_revision(args.source_root / name) for name in ("src", "agents", "skills", "implants", "rules")).encode()).hexdigest(),
@@ -463,7 +456,7 @@ def main():
               "instruction_isolation": "macos-global-agents-read-deny" if args.client == "codex" and args.codex_isolate_global_instructions else "claude-bare" if args.client == "claude" else "global-agents-not-isolated", "results": []}
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:
         pending = {executor.submit(run_case, args.client, case, args.out / f"{case['id']}-{repeat}", protocol,
-                                   args.timeout, args.source_root.resolve(), args.protocol_version, args.seed_data.resolve(), args.codex_isolate_global_instructions): (case["id"], repeat)
+                                   args.timeout, args.source_root.resolve(), args.seed_data.resolve(), args.codex_isolate_global_instructions): (case["id"], repeat)
                    for repeat in range(args.repeats) for case in cases}
         for future in as_completed(pending):
             case_id, repeat = pending[future]

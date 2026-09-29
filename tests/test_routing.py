@@ -226,7 +226,7 @@ class TestPreferredImplants:
             # Short query → would infer "lite", but preferred_implants promotes to "standard".
             # Pinned to the legacy path: with the intent classifier on, a positively
             # identified greeting waives this promotion (see src/server.py).
-            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [])
             assert effective_tier == "standard"
 
@@ -247,7 +247,7 @@ class TestPreferredImplants:
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()), \
              patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
-            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [])
             assert effective_tier == "lite"
 
@@ -263,7 +263,7 @@ class TestPreferredImplants:
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()), \
              patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
-            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "Solve for x: 3x + 2 = 11", [])
             assert effective_tier == "deep"
 
@@ -280,7 +280,7 @@ class TestPreferredImplants:
              patch("src.server.load_agent_prompt", return_value="base prompt"), \
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()):
-            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "math_scientist", "hi", [], tier="lite")
             assert effective_tier == "lite"
 
@@ -318,7 +318,7 @@ class TestPreferredImplants:
              patch("src.server.load_agent_prompt", return_value="base prompt"), \
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=self._fake_enrichment()):
-            _, _, _, _, _, effective_tier = await self.srv._load_and_enrich(
+            _, _, _, _, effective_tier = await self.srv._load_and_enrich(
                 "universal_agent", "hi", [])
             assert effective_tier == "lite"
 
@@ -1296,7 +1296,7 @@ class TestWaiverIsGatedOnMode:
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=TestPreferredImplants._fake_enrichment(None)), \
              patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
-            _, _, _, _, _, effective_tier = await srv._load_and_enrich(
+            _, _, _, _, effective_tier = await srv._load_and_enrich(
                 "math_scientist", query, [])
             assert effective_tier == "standard", f"{query!r} was left at lite"
 
@@ -1309,6 +1309,6 @@ class TestWaiverIsGatedOnMode:
              patch("src.server.enrich_agent_prompt", new_callable=AsyncMock,
                    return_value=TestPreferredImplants._fake_enrichment(None)), \
              patch("src.engine.enrichment.INTENT_CLASSIFIER_ENABLED", True):
-            _, _, _, _, _, effective_tier = await server_module._load_and_enrich(
+            _, _, _, _, effective_tier = await server_module._load_and_enrich(
                 "math_scientist", "hi", [])
             assert effective_tier == "lite"
