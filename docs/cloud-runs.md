@@ -133,7 +133,31 @@ in an inline code review thread does not trigger the bridge.
 A trigger for `issue_comment` was accepted by the API in 2026-09 but never fired,
 so a small GitHub Actions workflow forwards comments and review-bot reviews to the
 routine's API trigger. It runs no model and sends only a pointer (repository,
-number, comment or review id); the agent reads and verifies the comment itself.
+number, comment or review id, and bridge status comment id); the agent reads and
+verifies the referenced comments itself.
+
+**Visible progress and failures.** The bridge posts a status comment and adds
+its own 👀 reaction to the command comment (or to the status comment for a review
+event). Once Claude verifies the event, it adds a separate reaction under the
+owner's account and posts a startup acknowledgement. The bridge waits up to five
+minutes for that acknowledgement, updates its status, and removes its own
+reaction. It stops waiting as soon as the acknowledgement arrives. This watch
+uses GitHub Actions runner time. Claude removes only its own newly created
+reaction on normal exits; pre-existing reactions are preserved. A forcibly stopped
+runner or cloud session may leave its reaction behind.
+
+A confirmed HTTP `429` is reported as a routine fire limit, with the numeric
+`Retry-After` delay when supplied. A successful fire creates a session but does
+not wait for execution. The fire token has no read access to later subscription
+quota failures or session progress. If no startup acknowledgement appears, the
+bridge reports that startup is unconfirmed, lists quota as one possible cause,
+and links the session when available. See the
+[routine fire API](https://platform.claude.com/docs/en/api/claude-code/routines-fire).
+
+The bridge does not automatically retry: each successful fire creates another
+session. Rerunning the same Actions event finds the existing trusted bridge
+status and sends no second fire. To retry, first inspect the previous session,
+then post a new command.
 
 **One-time setup per target repository:**
 
@@ -148,11 +172,16 @@ number, comment or review id); the agent reads and verifies the comment itself.
 3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
    variables `CLAUDE_ROUTINE_ID` and `AGENT_OWNER`, then copy
    [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
-   to `.github/workflows/issue-agent-bridge.yml`.
+   to `.github/workflows/issue-agent-bridge.yml`. The job needs `issues: write`
+   for status comments and reactions; it does not check out repository code.
+   See [GitHub's reaction permissions](https://docs.github.com/en/rest/reactions/reactions#create-reaction-for-an-issue-comment).
 
-When updating an existing installation, update the copied bridge on the target's
-default branch together with these flows. Update any command examples or prefix
-checks in the routine's saved prompt to `/agent` as well.
+When updating an existing installation, publish these flows first, then update
+the copied bridge on the target's default branch. For Agents.Private, merge the
+public Agents flow change before its private bridge change, so new sessions know
+how to acknowledge startup. Update any command examples or prefix checks in the
+routine's saved prompt to `/agent` as well. Older callers without
+`bridge_comment_id` remain supported, but have no bridge startup acknowledgement.
 
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
 pull requests, reviews), acting as the owner's account; `gh` is not installed.
