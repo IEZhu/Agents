@@ -33,14 +33,12 @@ also applies to AI instructions, plans, and reports.
 | [AGENTS.md](../AGENTS.md) | Short entry point for AI contributors; links to the shared protocol and working instructions |
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
 | [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
-| [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Installer's default protocol 2 instruction template |
-| [routing-protocol-v1.md](../scripts/templates/routing-protocol-v1.md) | Explicit version 1 compatibility template |
-| [memory-routing-v2.md](../scripts/templates/memory-routing-v2.md), [memory-routing-v1.md](../scripts/templates/memory-routing-v1.md) | Matching installer reminders for client memory |
+| [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template |
+| [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |
 | `agents/`, `skills/`, `implants/`, `rules/` | Runtime prompt content, selected and assembled by the server |
 
-The installer defaults to protocol 2; the MCP API and slash prompts retain version
-1 defaults unless version 2 is requested explicitly. See [routing](routing_flow.md)
-before copying a call example.
+Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
+[routing](routing_flow.md) before copying a call example.
 
 ## Evaluation guides
 

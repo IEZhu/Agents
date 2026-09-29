@@ -1,4 +1,4 @@
-"""Fresh, all-or-nothing context bundles for persona protocol version 2.
+"""Fresh, all-or-nothing context bundles for the persona protocol.
 
 Retrievers choose component IDs using the existing per-agent policies. Their
 indexed bodies are never issued here: every selected source and import is read
@@ -112,7 +112,7 @@ async def build_persona_bundle(
         # `persona.load_persona` returns NO_CHANGE for the same agent, so a
         # conversation that opens with "hi" would otherwise run its whole
         # remaining length on a `lite` bundle — no semantic skills, no implants.
-        # The v1 path can waive safely because SESSION_CACHE re-derives per query.
+        # The per-query `_load_and_enrich` path can waive safely: SESSION_CACHE re-derives per query.
         if tier == "lite" and preferred_implants:
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
@@ -141,7 +141,7 @@ async def build_persona_bundle(
     # if the activating turn happens to be a greeting, the persona keeps its
     # `## Output Format` stripped for the rest of the conversation — for
     # code_reviewer or medical_expert that is the whole response contract.
-    # The v1 path is safe because SESSION_CACHE is keyed on the query hash, so it
+    # The per-query `_load_and_enrich` path is safe: SESSION_CACHE is keyed on the query hash, so it
     # re-derives per query; suppression therefore lives only in
     # `enrichment.enrich_agent_prompt`.
     rules = await asyncio.to_thread(get_rules, fresh=True, strict=True)

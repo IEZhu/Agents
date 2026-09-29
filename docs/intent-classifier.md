@@ -7,7 +7,7 @@ task needs** (`mode`) and **how much enrichment it earns** (`tier`).
 Off by default. Enable with `INTENT_CLASSIFIER_ENABLED=1`.
 
 The measurements and review rounds below record the original implementation and
-its evaluation dataset. For current protocol 1/2 enrichment behavior, see the
+its evaluation dataset. For current enrichment behavior, see the
 [routing reference](routing_flow.md#enrichment-and-storage).
 
 ## Why
@@ -188,7 +188,7 @@ all reproduced before fixing:
   `persona.load_persona` returns `NO_CHANGE` while the same agent stays active, so
   a v2 bundle is built once and reused. If the activating turn was a greeting,
   the persona kept its `## Output Format` stripped for the whole conversation.
-  Suppression now lives only in the v1 per-query path, where `SESSION_CACHE` is
+  Suppression now lives only in the per-query path, where `SESSION_CACHE` is
   keyed on the query hash.
 - **`_CODE_ISH` used `re.DOTALL` with unanchored `.+`**, so "Select the best
   framework from this list" and "the import duties from China rose" were read as

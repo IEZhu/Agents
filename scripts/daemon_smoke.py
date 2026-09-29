@@ -103,7 +103,7 @@ async def smoke(port=18765, soak=False):
                             "clientInfo": {"name": "smoke", "version": "1"}}})
                         response.raise_for_status()
                         result = await call("route_and_load", {"query": query}, client=client)
-                        assert result["status"] != "SUCCESS_SAMPLED"
+                        assert result["protocol_version"] == 2 and result["status"] != "ERROR"
                         return time.monotonic() - began
                 sequential = [await connected(i) for i in range(20)]
                 concurrent = await asyncio.gather(*(connected(i) for i in range(20)))

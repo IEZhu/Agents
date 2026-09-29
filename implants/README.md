@@ -179,9 +179,10 @@ preferred_implants:
 With the default policy, `standard` starts with 2 slots and `deep` with 3. A longer
 preferred list raises the budget, up to `MAX_PREFERRED_IMPLANTS` (5). An inferred
 `lite` tier is promoted to `standard` for agents with declared implants; an
-explicit `lite` tier loads none. Protocol 1's optional intent classifier can waive
-promotion for a greeting and change per-query budgets. Protocol 2 retains its
-bundle across turns and always uses the tier-based budget.
+explicit `lite` tier loads none. A persona bundle is retained across turns and
+always uses the tier-based budget. On the per-query enrichment path used by the
+evaluation harnesses, the optional intent classifier can waive promotion for a
+greeting and change per-query budgets.
 
 Semantic retrieval embeds the query and role, then selects candidates below
 `IMPLANTS_RELEVANCE_THRESHOLD` (default `0.85`). Optional settings in
@@ -191,7 +192,7 @@ Semantic retrieval embeds the query and role, then selects candidates below
 |---|---|---|
 | `IMPLANT_INDEX_MODE` | `legacy`: description + body | `triggers`: description + triggers + When to Use |
 | `IMPLANT_GATING` | `legacy`: absolute distance cutoff | `zscore`: candidates must stand out from the query's distance distribution |
-| `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to protocol 1 |
+| `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to the per-query evaluation path, not to persona bundles |
 
 The alternatives affect semantic selection or per-query need, not the meaning of
 editor fields `globs` and `alwaysApply`. A protocol 2 bundle is updated through

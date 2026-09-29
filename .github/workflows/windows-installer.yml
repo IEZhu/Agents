@@ -11,7 +11,7 @@ on:
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
       - scripts/_helpers/migrate_routing_memory.py
-      - scripts/templates/*.md
+      - scripts/templates/**/*.md
       - tests/test_installer_windows.py
       - tests/test_installer_instructions.py
       - tests/test_install_instructions.py
@@ -30,7 +30,7 @@ on:
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
       - scripts/_helpers/migrate_routing_memory.py
-      - scripts/templates/*.md
+      - scripts/templates/**/*.md
       - tests/test_installer_windows.py
       - tests/test_installer_instructions.py
       - tests/test_install_instructions.py

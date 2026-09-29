@@ -2,6 +2,7 @@
 
 Date: September 20, 2026. Implementation: `c063f4a`, branch `codex/persona-switch-gate`.
 Baseline: `92c55a1` (main after PR #69).
+Protocol 1, measured here as the baseline, was removed from the server on 2026-09-29.
 
 These measurements describe the frozen runtime and protocol identified by the
 recorded hashes. Later review fixes to activation and fallback guidance, metadata

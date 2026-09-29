@@ -96,7 +96,6 @@ async def route_persona(router, query: str, history: list[str], current_persona,
     request_id = str(uuid.uuid4())
     try:
         current = parse_persona(current_persona)
-        # An explicit route request never inherits v1's sticky binding.
         tier = None
         cached = await router.lookup_cache(query, {"history_text": "\n".join(history)})
         agent_name = None

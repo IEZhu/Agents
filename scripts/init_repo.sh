@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./scripts/init_repo.sh [--skip-env] [--skip-index] [--skip-mcp]
-#   python3 scripts/install_instructions.py [--clients codex,claude] [--protocol 1|2]
+#   python3 scripts/install_instructions.py [--clients codex,claude]
 #     Update only client instructions, without running MCP or dependency setup.
 #
 # Flags:
@@ -15,9 +15,8 @@
 #   --skip-mcp     Skip MCP configuration and client instruction updates
 #   --help         Show this help message
 #
-# The default is persona protocol 2: the model keeps its role across turns and routes
+# Installs the persona protocol: the model keeps its role across turns and routes
 # only when the task needs another specialization (docs/routing_flow.md).
-# Set AGENTS_PERSONA_PROTOCOL=1 to install the version 1 compatibility protocol.
 
 set -e
 # ERR trap inherited into shell functions/subshells (see _fatal_on_err below).
@@ -39,13 +38,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_PATH="$REPO_ROOT/.venv"
 PYTHON_MIN_VERSION="3.11"
-# Select the same protocol for managed instructions, memory, and printed fallback.
-PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"
-case "$PERSONA_PROTOCOL" in
-    1) ROUTING_TEMPLATE="$REPO_ROOT/scripts/templates/routing-protocol-v1.md" ;;
-    2) ROUTING_TEMPLATE="$REPO_ROOT/scripts/templates/routing-protocol-core.md" ;;
-    *) echo "AGENTS_PERSONA_PROTOCOL must be 1 or 2" >&2; exit 1 ;;
-esac
+ROUTING_TEMPLATE="$REPO_ROOT/scripts/templates/routing-protocol-core.md"
 
 # Canonical managed-section markers — must match scripts/_helpers/inject_claude_md.py.
 # Referenced both by the CLAUDE.md injector and by the fallback instructions block
@@ -761,7 +754,7 @@ else
             elif [ -f "$CLAUDE_MD_SRC" ]; then
                 print_step "Configuring global CLAUDE.md ($CLAUDE_CODE_MD)..."
                 if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/inject_claude_md.py" "$CLAUDE_CODE_MD" "$CLAUDE_MD_SRC"; then
-                    print_success "Agents-Core protocol $PERSONA_PROTOCOL configured in global CLAUDE.md"
+                    print_success "Agents-Core persona protocol configured in global CLAUDE.md"
                     CLAUDE_MD_CONFIGURED=true
                 else
                     print_error "Failed to replace section — check markers in $CLAUDE_CODE_MD manually"
@@ -781,10 +774,10 @@ else
                 read -p "  Allow? [Y/n]: " -r
                 echo ""
                 if [[ $REPLY =~ ^[Nn] ]]; then
-                    print_warn "Skipped memory file; align any old routing reminder with protocol $PERSONA_PROTOCOL manually"
+                    print_warn "Skipped memory file; align any old routing reminder with the persona protocol manually"
                 else
                     "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/migrate_routing_memory.py" \
-                        "$CLAUDE_MEMORY_DIR" --protocol "$PERSONA_PROTOCOL" \
+                        "$CLAUDE_MEMORY_DIR" \
                         || print_error "Memory migration failed; inspect $MEMORY_FILE manually"
                 fi
                 print_step "Check your project instructions and memory for conflicting 'always route_and_load' requirements."
