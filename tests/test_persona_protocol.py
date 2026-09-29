@@ -323,6 +323,20 @@ async def test_ask_cache_miss_returns_route_required_candidates(bundle, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_legacy_client_call_with_context_hash_reaches_protocol_2_routing(monkeypatch):
+    """Protocol 1 instructions omit protocol_version and send context_hash; the MCP
+    boundary must ignore the unknown argument and route with protocol 2."""
+    route = AsyncMock(return_value=json.dumps({"protocol_version": 2, "status": "ROUTE_REQUIRED"}))
+    monkeypatch.setattr(server, "route_persona", route)
+
+    _, result = await server.mcp.call_tool("route_and_load", {"query": "SQL?", "context_hash": "0123abcd"})
+
+    assert json.loads(result["result"])["protocol_version"] == 2
+    route.assert_awaited_once()
+    assert route.await_args.args[1] == "SQL?"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["ask", "lawyer", "co_lawyer"])
 async def test_prompt_protocol_version_is_optional(command):
     prompts = {prompt.name: prompt for prompt in await server.mcp.list_prompts()}

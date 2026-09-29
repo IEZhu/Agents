@@ -913,7 +913,7 @@ def _build_retrieval_query(
     primary_trigger: str,
     query: str,
 ) -> str:
-    """Build the query passed to skill/implant retrieval inside `_load_and_enrich`.
+    """Build the query a slash prompt passes to persona-bundle skill/implant selection.
 
     For alias invocations (``invoked_cmd != primary_trigger``), prepend the
     invoked slash command so that alias-specific skill keywords — e.g.,
@@ -924,10 +924,9 @@ def _build_retrieval_query(
 
     For the primary ``trigger_command`` (and when ``invoked_cmd`` is ``None``
     or empty), return the user's query unchanged. Prepending the primary
-    trigger would:
-      - leak command-name signals (``audit``, ``review``, ``compare``) into
-        ``infer_tier()`` and force ``deep`` tier on otherwise short queries;
-      - change the session cache key, defeating cross-invocation caching.
+    trigger would leak command-name signals (``audit``, ``review``,
+    ``compare``) into tier inference and force ``deep`` tier on otherwise
+    short queries.
     """
     if invoked_cmd and invoked_cmd != primary_trigger:
         return f"{invoked_cmd} {query}"
