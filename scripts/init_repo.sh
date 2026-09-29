@@ -209,13 +209,26 @@ version_gte() {
     printf '%s\n%s' "$2" "$1" | sort -V -C
 }
 
+# Resolve client paths from the same contract used by migration and audit.
+resolve_client_path() {
+    "$PYTHON_ABS" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from src.client_paths import client_config_path, client_home
+resolver = client_home if sys.argv[2] == "home" else client_config_path
+print(resolver(sys.argv[3]))
+' "$REPO_ROOT" "$@"
+}
+
 # Inject Agents-Core MCP server entry into a JSON config file.
-# Usage: inject_mcp_config <config_path> <label>
+# Usage: inject_mcp_config <config_path> <label> <client>
 inject_mcp_config() {
     local config_path="$1"
     local label="$2"
+    local client="$3"
 
     CLAUDE_CONFIG_PATH="$config_path" \
+    MCP_CLIENT="$client" \
     MCP_PYTHON="$PYTHON_ABS" \
     MCP_SERVER="$SERVER_ABS" \
     MCP_IS_NIXOS="$IS_NIXOS" \
@@ -241,16 +254,15 @@ if sys.platform == 'darwin' and marker.exists():
     from src.file_lock import file_lock
     directory = json.loads(marker.read_text())['directory']
     destination = Path(config_path)
-    if destination.name == 'claude_desktop_config.json':
-        clients = ['desktop', 'claude-deny-desktop']
-    elif destination.parent.name == '.cursor':
-        clients = ['cursor']
-    else:
-        clients = ['claude']
+    client = os.environ['MCP_CLIENT']
+    if client not in ('claude', 'cursor', 'desktop'):
+        raise ValueError('Unsupported installer client')
     with file_lock(Path(directory) / 'control.lock', blocking=False):
         assert_service_safe(directory)
         migration = ClientMigration(directory)
-        changes = [migration.prepare(client) for client in clients]
+        changes = [migration.prepare(client, config_path=destination)]
+        if client == 'desktop':
+            changes.append(migration.prepare('claude-deny-desktop'))
         migration.apply(changes)
     print('OK: shared daemon')
     sys.exit(0)
@@ -641,27 +653,21 @@ else
 
     # --- Detect Cursor ---
     CURSOR_DETECTED=false
-    CURSOR_GLOBAL_DIR="$HOME/.cursor"
-    if [ -d "$CURSOR_GLOBAL_DIR" ]; then
+    MCP_SETTINGS_FILE="$(resolve_client_path config cursor)"
+    CURSOR_GLOBAL_DIR="$(dirname "$MCP_SETTINGS_FILE")"
+    if [ -n "${AGENTS_CURSOR_MCP_CONFIG:-}" ] || [ -d "$CURSOR_GLOBAL_DIR" ]; then
         CURSOR_DETECTED=true
-        print_success "Cursor IDE detected (~/.cursor/ exists)"
+        print_success "Cursor IDE configuration: $MCP_SETTINGS_FILE"
     else
         print_step "Cursor IDE not detected"
     fi
 
     # --- Detect Claude Desktop ---
     CLAUDE_DESKTOP_DETECTED=false
-    CLAUDE_DESKTOP_DIR=""
-    CLAUDE_DESKTOP_CONFIG=""
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        CLAUDE_DESKTOP_DIR="$HOME/Library/Application Support/Claude"
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        CLAUDE_DESKTOP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/Claude"
-    fi
-
-    if [ -n "$CLAUDE_DESKTOP_DIR" ] && [ -d "$CLAUDE_DESKTOP_DIR" ]; then
+    CLAUDE_DESKTOP_CONFIG="$(resolve_client_path config desktop)"
+    CLAUDE_DESKTOP_DIR="$(dirname "$CLAUDE_DESKTOP_CONFIG")"
+    if [ -n "${AGENTS_CLAUDE_DESKTOP_CONFIG:-}" ] || [ -d "$CLAUDE_DESKTOP_DIR" ]; then
         CLAUDE_DESKTOP_DETECTED=true
-        CLAUDE_DESKTOP_CONFIG="$CLAUDE_DESKTOP_DIR/claude_desktop_config.json"
         print_success "Claude Desktop detected ($CLAUDE_DESKTOP_DIR)"
     else
         print_step "Claude Desktop not detected"
@@ -669,7 +675,9 @@ else
 
     # --- Detect Claude Code ---
     CLAUDE_CODE_DETECTED=false
-    if check_command claude || [ -f "$HOME/.claude.json" ] || [ -d "$HOME/.claude" ]; then
+    CLAUDE_CODE_DIR="$(resolve_client_path home claude)"
+    CLAUDE_CODE_MCP="$(resolve_client_path config claude)"
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ] || check_command claude || [ -f "$CLAUDE_CODE_MCP" ] || [ -d "$CLAUDE_CODE_DIR" ]; then
         CLAUDE_CODE_DETECTED=true
         print_success "Claude Code detected"
     else
@@ -680,8 +688,8 @@ else
 
     # --- Configure Cursor ---
     if [ "$CURSOR_DETECTED" = true ]; then
-        print_step "Configuring Cursor MCP (~/.cursor/mcp.json)..."
-        MCP_SETTINGS_FILE="$CURSOR_GLOBAL_DIR/mcp.json"
+        print_step "Configuring Cursor MCP ($MCP_SETTINGS_FILE)..."
+        mkdir -p "$CURSOR_GLOBAL_DIR"
 
         if [ ! -f "$MCP_SETTINGS_FILE" ]; then
             echo '{ "mcpServers": {} }' > "$MCP_SETTINGS_FILE"
@@ -690,7 +698,7 @@ else
         # Backup before modifying
         cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.backup.$(date +%s)"
 
-        if inject_mcp_config "$MCP_SETTINGS_FILE" "~/.cursor/mcp.json"; then
+        if inject_mcp_config "$MCP_SETTINGS_FILE" "$MCP_SETTINGS_FILE" cursor; then
             CONFIGURED_ENVS+=("Cursor")
         fi
     fi
@@ -698,6 +706,7 @@ else
     # --- Configure Claude Desktop ---
     if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
         print_step "Configuring Claude Desktop MCP..."
+        mkdir -p "$CLAUDE_DESKTOP_DIR"
 
         if [ ! -f "$CLAUDE_DESKTOP_CONFIG" ]; then
             echo '{}' > "$CLAUDE_DESKTOP_CONFIG"
@@ -706,24 +715,20 @@ else
         # Backup before modifying
         cp "$CLAUDE_DESKTOP_CONFIG" "${CLAUDE_DESKTOP_CONFIG}.backup.$(date +%s)"
 
-        if inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config"; then
+        if inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config" desktop; then
             CONFIGURED_ENVS+=("Claude Desktop")
         fi
     fi
 
     # --- Configure Claude Code ---
     if [ "$CLAUDE_CODE_DETECTED" = true ]; then
-        CLAUDE_CODE_DIR="$HOME/.claude"
-        # MCP servers must go in ~/.claude.json (not settings.json)
-        CLAUDE_CODE_MCP="$HOME/.claude.json"
-
-        # Ensure ~/.claude/ directory exists
+        # The selected profile holds its instructions, permissions, and memory.
         if [ -e "$CLAUDE_CODE_DIR" ] && [ ! -d "$CLAUDE_CODE_DIR" ]; then
             print_error "$CLAUDE_CODE_DIR exists but is not a directory — skipping Claude Code configuration"
         else
             mkdir -p "$CLAUDE_CODE_DIR"
 
-            # 1. MCP server in ~/.claude.json (the only user-scope MCP config Claude Code reads)
+            # 1. MCP server in the selected profile's user-scope registry.
             print_step "Configuring Claude Code MCP ($CLAUDE_CODE_MCP)..."
 
             if [ ! -f "$CLAUDE_CODE_MCP" ]; then
@@ -733,7 +738,7 @@ else
             # Backup before modifying
             cp "$CLAUDE_CODE_MCP" "${CLAUDE_CODE_MCP}.backup.$(date +%s)"
 
-            if inject_mcp_config "$CLAUDE_CODE_MCP" "~/.claude.json"; then
+            if inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude; then
                 CONFIGURED_ENVS+=("Claude Code")
             fi
 
@@ -786,7 +791,7 @@ else
                 print_warn "Skipping memory setup — global CLAUDE.md routing section was not configured"
             fi
 
-        fi # end: ~/.claude is a directory check
+        fi # end: selected Claude profile is a directory check
     fi
 
     # --- Configure Codex instructions ---

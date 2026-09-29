@@ -29,6 +29,7 @@ def test_migration_checks_admission_before_reading_token_or_preparing_files(tmp_
     monkeypatch.setattr(sys, "path", sys.path.copy())
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setenv("CLAUDE_CONFIG_PATH", str(home / "Library/Application Support/Claude/claude_desktop_config.json"))
+    monkeypatch.setenv("MCP_CLIENT", "desktop")
     monkeypatch.setenv("MCP_PYTHON", sys.executable)
     monkeypatch.setenv("MCP_SERVER", str(root / "src/server.py"))
     script = (Path(__file__).resolve().parents[1] / "scripts/init_repo.sh").read_text()
