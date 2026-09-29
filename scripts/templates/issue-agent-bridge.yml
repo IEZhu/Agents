@@ -2,7 +2,7 @@
 # Copy to .github/workflows/issue-agent-bridge.yml in the target repository.
 #
 # Claude Code routine GitHub triggers cover pull request and release events only,
-# so this workflow forwards @agent comments and review-bot reviews to the routine's
+# so this workflow forwards /agent comments and review-bot reviews to the routine's
 # API trigger. It runs no model and passes only a pointer to the event; the agent
 # re-reads and re-verifies the comment itself.
 #
@@ -28,12 +28,12 @@ jobs:
   fire:
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    # Agent comments carry "<!-- issue-agent" and never start with @agent, so the
+    # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
     # agent cannot trigger itself even though it posts as the owner.
     if: >-
       (github.event_name == 'issue_comment'
         && github.event.comment.user.login == vars.AGENT_OWNER
-        && startsWith(github.event.comment.body, '@agent')
+        && startsWith(github.event.comment.body, '/agent')
         && !contains(github.event.comment.body, '<!-- issue-agent'))
       || (github.event_name == 'pull_request_review'
         && contains(fromJSON('["copilot-pull-request-reviewer[bot]", "coderabbitai[bot]"]'), github.event.review.user.login)
@@ -53,9 +53,9 @@ jobs:
             comment_id=${{ github.event.comment.id }}
             review_id=${{ github.event.review.id }}
         run: |
-          # "@agent" must be a whole word: followed by whitespace or the end.
-          if [ "$EVENT" = issue_comment ] && ! printf '%s' "$BODY" | head -n 1 | grep -Eq '^@agent([[:space:]]|$)'; then
-            echo "Not an @agent command"; exit 0
+          # "/agent" must be a whole word: followed by whitespace or the end.
+          if [ "$EVENT" = issue_comment ] && ! printf '%s' "$BODY" | head -n 1 | grep -Eq '^/agent([[:space:]]|$)'; then
+            echo "Not a /agent command"; exit 0
           fi
           jq -n --arg text "$TEXT" '{text: $text}' |
             curl -fsS -X POST "https://api.anthropic.com/v1/claude_code/routines/${ROUTINE_ID}/fire" \

@@ -11,9 +11,9 @@ and the [documentation map](../docs/README.md) for supporting references.
 |---|---|---|
 | [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
 | [PR/MR review](pr-review.md) | Handle review findings, update the description, and repeat bot reviews | A merged request or a precise blocker, with a report in the invocation language |
-| [Issue agent](issue-agent.md) | Entry point of the cloud issue agent: verify an `@agent` command, keep state in the issue, dispatch | The command's result and an updated state comment |
-| [Issue plan](issue-plan.md) | `@agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
-| [Issue implementation](issue-implementation.md) | `@agent run_plan` / `run`: branch, implement, self-review, independent review, pre-mortem, PR | A pull request handed to PR/MR review, never merged |
+| [Issue agent](issue-agent.md) | Entry point of the cloud issue agent: verify a `/agent` command, keep state in the issue, dispatch | The command's result and an updated state comment |
+| [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
+| [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: branch, implement, self-review, independent review, pre-mortem, PR | A pull request handed to PR/MR review, never merged |
 
 ## Run a flow
 

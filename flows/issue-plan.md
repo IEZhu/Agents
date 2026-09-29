@@ -1,7 +1,7 @@
 # Issue agent: plan and replan
 
-Called by the [issue agent](issue-agent.md) for `@agent plan`, `@agent replan`
-and the planning half of `@agent run`. It turns an issue into a verified,
+Called by the [issue agent](issue-agent.md) for `/agent plan`, `/agent replan`
+and the planning half of `/agent run`. It turns an issue into a verified,
 reviewable implementation plan and publishes it as a Markdown comment. It never
 changes the repository.
 
@@ -28,7 +28,7 @@ Check that the request is:
 If a gap changes what gets built, stop and ask. Post the questions as a numbered
 list, each explaining why it matters and offering a recommended default. Record
 the comment in `questions_comment_id`, set the phase to `needs_info` and end.
-The owner's next `@agent ...` answer resumes planning from this step. Do not ask
+The owner's next `/agent ...` answer resumes planning from this step. Do not ask
 about things you can determine from the code or the thread.
 
 ## 3. Write the plan
@@ -61,7 +61,7 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 **Done when:** observable criteria.
 **Changes since v1:** (replan only) ...
 
-To execute: `@agent run_plan v2`. To change it: `@agent replan <what to change>`.
+To execute: `/agent run_plan v2`. To change it: `/agent replan <what to change>`.
 ```
 
 Add a **Mermaid diagram** when the plan has more than two steps, branches, or
@@ -99,5 +99,5 @@ explore parts in parallel; keep the final plan in one comment.
    `<!-- issue-agent:plan vN -->` as authoritative if it is newer than the state
    entry (a session can end between posting and saving), take the baseline from
    its plan-base line, and repair the state.
-3. For `@agent run`, continue directly with
+3. For `/agent run`, continue directly with
    [issue-implementation](issue-implementation.md) using this version.

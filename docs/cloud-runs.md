@@ -119,10 +119,15 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 ## Issue agent
 
 The issue agent runs [flows/issue-agent.md](../flows/issue-agent.md) in a cloud
-session when the owner writes an `@agent` command (`plan`, `replan`, `run_plan`,
+session when the owner writes a `/agent` command (`plan`, `replan`, `run_plan`,
 `run`, `fix`, `review`, `status`, `stop`, `help`) in an issue or pull request of a
 target repository. The flows live in this repository; the target can be any
 repository the routine clones.
+
+Post commands as new ordinary comments in the issue or the PR's Conversation
+tab, starting with `/agent` as the first characters. The slash prefix avoids
+mentioning an unrelated GitHub account. Editing an existing comment or replying
+in an inline code review thread does not trigger the bridge.
 
 **Why a bridge.** Routine GitHub triggers cover pull request and release events.
 A trigger for `issue_comment` was accepted by the API in 2026-09 but never fired,
@@ -145,8 +150,12 @@ number, comment or review id); the agent reads and verifies the comment itself.
    [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
    to `.github/workflows/issue-agent-bridge.yml`.
 
+When updating an existing installation, update the copied bridge on the target's
+default branch together with these flows. Update any command examples or prefix
+checks in the routine's saved prompt to `/agent` as well.
+
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
 pull requests, reviews), acting as the owner's account; `gh` is not installed.
 Because the agent's comments appear under the owner's login, each one starts with
-`<!-- issue-agent -->` and never with `@agent`; the bridge and the flow both ignore
+`<!-- issue-agent -->` and never with `/agent`; the bridge and the flow both ignore
 such comments. Routine runs count against the account's daily routine allowance.
