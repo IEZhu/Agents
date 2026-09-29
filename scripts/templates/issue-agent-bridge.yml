@@ -42,6 +42,8 @@ jobs:
     steps:
       - name: Fire the routine
         env:
+          EVENT: ${{ github.event_name }}
+          BODY: ${{ github.event.comment.body }}
           TOKEN: ${{ secrets.CLAUDE_ROUTINE_TOKEN }}
           ROUTINE_ID: ${{ vars.CLAUDE_ROUTINE_ID }}
           TEXT: >-
@@ -51,6 +53,10 @@ jobs:
             comment_id=${{ github.event.comment.id }}
             review_id=${{ github.event.review.id }}
         run: |
+          # "@agent" must be a whole word: followed by whitespace or the end.
+          if [ "$EVENT" = issue_comment ] && ! printf '%s' "$BODY" | head -n 1 | grep -Eq '^@agent([[:space:]]|$)'; then
+            echo "Not an @agent command"; exit 0
+          fi
           jq -n --arg text "$TEXT" '{text: $text}' |
             curl -fsS -X POST "https://api.anthropic.com/v1/claude_code/routines/${ROUTINE_ID}/fire" \
               -H "Authorization: Bearer ${TOKEN}" \
