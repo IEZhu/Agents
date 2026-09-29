@@ -324,30 +324,43 @@ async def test_ask_cache_miss_returns_route_required_candidates(bundle, monkeypa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["ask", "lawyer", "co_lawyer"])
-async def test_prompt_arguments_have_no_protocol_version(command):
+async def test_prompt_protocol_version_is_optional(command):
     prompts = {prompt.name: prompt for prompt in await server.mcp.list_prompts()}
     prompt = prompts[command]
     arguments = {argument.name: argument for argument in prompt.arguments}
-    assert set(arguments) == {"query", "current_persona"}
+    assert set(arguments) == {"query", "current_persona", "protocol_version"}
     assert arguments["query"].required
     assert not arguments["current_persona"].required
+    assert not arguments["protocol_version"].required
     assert "Protocol 1" not in prompt.description
-    assert "protocol_version" not in prompt.description
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["ask", "co_lawyer"])
-@pytest.mark.parametrize("version", ["1", "2"])
-async def test_prompt_rejects_stale_protocol_argument_before_loading(command, version, monkeypatch):
+async def test_prompt_accepts_explicit_protocol_2(command, monkeypatch):
+    """Installed protocol 2 instructions tell clients to pass protocol_version=2."""
+    result = json.dumps({"status": "NO_CHANGE"})
+    monkeypatch.setattr(server, "load_persona", AsyncMock(return_value=result))
+    monkeypatch.setattr(server, "route_persona", AsyncMock(return_value=result))
+
+    prompt = await server.mcp.get_prompt(command, {"query": "fictional contract", "protocol_version": "2"})
+
+    assert "NO_CHANGE" in prompt.messages[0].content.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["ask", "co_lawyer"])
+@pytest.mark.parametrize("version", ["1", "3"])
+async def test_prompt_rejects_other_protocol_versions_before_loading(command, version, monkeypatch):
     legacy, v2_load, v2_route, lookup = (AsyncMock() for _ in range(4))
     monkeypatch.setattr(server, "_load_and_enrich", legacy)
     monkeypatch.setattr(server, "load_persona", v2_load)
     monkeypatch.setattr(server, "route_persona", v2_route)
     monkeypatch.setattr(server.router, "lookup_cache", lookup)
 
-    with pytest.raises(Exception, match="protocol_version"):
-        await server.mcp.get_prompt(command, {"query": "fictional contract", "protocol_version": version})
+    prompt = await server.mcp.get_prompt(command, {"query": "fictional contract", "protocol_version": version})
 
+    assert "protocol_version=2 only" in prompt.messages[0].content.text
     for dependency in (legacy, v2_load, v2_route, lookup):
         dependency.assert_not_awaited()
 

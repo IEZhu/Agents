@@ -54,9 +54,16 @@ from src.engine.persona import load_persona, route_persona, parse_persona, error
 
 PROTOCOL_VERSION = 2
 UNSUPPORTED_PROTOCOL = (
-    "Persona protocol 1 was removed; this server supports protocol_version=2 only. "
-    "Reinstall the client instructions with scripts/init_repo.sh."
+    "Unsupported protocol_version; this server supports protocol_version=2 only "
+    "(protocol 1 was removed). Refresh the client instructions with "
+    "scripts/install_instructions.py."
 )
+
+
+def _check_prompt_protocol(protocol_version: Optional[str]) -> None:
+    """Slash prompts accept the argument protocol 2 clients were told to pass."""
+    if protocol_version not in (None, "", str(PROTOCOL_VERSION)):
+        raise ValueError(UNSUPPORTED_PROTOCOL)
 
 # Cached instance — avoids reloading .npz from disk on every read_history call.
 # HistoryStore.ensure_index() handles mtime-based staleness internally.
@@ -881,11 +888,14 @@ from mcp.server.fastmcp.prompts.base import UserMessage
 
 
 @mcp.prompt()
-async def ask(query: str, current_persona: Optional[str] = None) -> list:
+async def ask(
+    query: str, current_persona: Optional[str] = None, protocol_version: Optional[str] = None,
+) -> list:
     """Select a specialist and return a persona bundle.
-    current_persona is the retained descriptor JSON, if any.
+    current_persona is the retained descriptor JSON, if any; protocol_version is optional (2).
     """
     try:
+        _check_prompt_protocol(protocol_version)
         current = parse_persona(json.loads(current_persona)) if current_persona else None
         result = await route_persona(router, query, [], current, _is_meta_query)
         return [UserMessage(
@@ -950,9 +960,12 @@ def _register_agent_prompts():
         role = meta.get("identity", {}).get("role", "")
 
         def make_prompt(a_name, d_name, r, p_name, invoked_cmd, primary_trigger):
-            async def agent_prompt(query: str, current_persona: Optional[str] = None) -> list:
+            async def agent_prompt(
+                query: str, current_persona: Optional[str] = None, protocol_version: Optional[str] = None,
+            ) -> list:
                 retrieval_query = _build_retrieval_query(invoked_cmd, primary_trigger, query)
                 try:
+                    _check_prompt_protocol(protocol_version)
                     current = parse_persona(json.loads(current_persona)) if current_persona else None
                     result = await load_persona(router, a_name, retrieval_query, [], current)
                     return [UserMessage(

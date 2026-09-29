@@ -70,7 +70,9 @@ facts. The server does not need the whole conversation. Agent slash prompts load
 explicit roles; `/ask` requests routing. Both return the same bundles as the
 tools; pass `current_persona` as descriptor JSON when available. MCP prompt
 arguments are transported as strings, for example
-`{"query": "Explain a dictionary", "current_persona": "{...}"}`.
+`{"query": "Explain a dictionary", "current_persona": "{...}"}`. An optional
+`protocol_version` argument accepts only `"2"`; other values return the unsupported
+version message without loading a persona.
 
 `SUCCESS` contains `protocol_version`, `request_id`, `persona`,
 `replaces_activation_id`, `footer`, an application instruction, and separate
