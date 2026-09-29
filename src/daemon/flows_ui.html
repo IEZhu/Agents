@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents-Core Flows</title>
+<style nonce="{{NONCE}}">
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
+  --accent: #2f5bd3; --accent-text: #ffffff; --warn: #9a5b00; --warn-bg: #fff4e0;
+  --danger: #b3261e; --ok: #1f7a3a; --code-bg: #fbfbf9; --chip: #efeee9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #9d9c95; --line: #34332f;
+    --accent: #7ea0ff; --accent-text: #0e1320; --warn: #f0b560; --warn-bg: #3a2b12;
+    --danger: #ff8a80; --ok: #7fd49a; --code-bg: #1a1a18; --chip: #2b2a27;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0 auto 0 0; }
+select, input, button, textarea { font: inherit; color: inherit; }
+select, input { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
+main { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 57px); }
+nav { border-right: 1px solid var(--line); padding: 12px; overflow: auto; }
+nav h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 4px 6px; }
+nav h2:first-child { margin-top: 0; }
+.item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px; }
+.item:hover { background: var(--chip); }
+.item.active { background: var(--chip); font-weight: 600; }
+.item small { display: block; color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--chip); color: var(--muted); margin-left: 4px; font-weight: 400; }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.empty { color: var(--muted); padding: 4px 8px; }
+section { padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bar .grow { flex: 1; }
+.meta { color: var(--muted); font-size: 12px; word-break: break-all; }
+.panes { display: grid; grid-template-columns: 1fr; gap: 10px; flex: 1; min-height: 0; }
+.panes.split { grid-template-columns: 1fr 1fr; }
+.pane { display: flex; flex-direction: column; min-width: 0; }
+.pane label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+textarea { width: 100%; flex: 1; min-height: 60vh; resize: vertical; padding: 10px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--code-bg); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+textarea[readonly] { color: var(--muted); }
+.notice { padding: 8px 10px; border-radius: 6px; background: var(--warn-bg); color: var(--warn); }
+.notice.ok { background: var(--chip); color: var(--ok); }
+.notice.error { color: var(--danger); }
+.hidden { display: none !important; }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
+dialog form { display: flex; flex-direction: column; gap: 10px; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+@media (max-width: 760px) {
+  main { grid-template-columns: 1fr; }
+  nav { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
+  .panes.split { grid-template-columns: 1fr; }
+  textarea { min-height: 45vh; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Flows</h1>
+  <label>Repository <select id="workspace"><option value="">— none —</option></select></label>
+  <button id="new" class="primary">New flow</button>
+</header>
+<main>
+  <nav id="list"><div class="empty">Loading…</div></nav>
+  <section id="editor" class="hidden">
+    <div class="bar">
+      <strong id="title" class="grow"></strong>
+      <select id="history" title="Saved versions"></select>
+      <button id="toggle-upstream" class="hidden">Show built-in</button>
+      <button id="copy-user" class="hidden">Edit copy for me</button>
+      <button id="copy-repo" class="hidden">Edit copy for this repository</button>
+      <button id="delete" class="danger hidden">Delete</button>
+      <button id="save" class="primary">Save</button>
+    </div>
+    <div id="meta" class="meta"></div>
+    <div id="notice" class="notice hidden"></div>
+    <div id="panes" class="panes">
+      <div class="pane"><label id="main-label">Flow</label><textarea id="content" spellcheck="false"></textarea></div>
+      <div class="pane hidden" id="side"><label id="side-label"></label><textarea id="side-content" readonly spellcheck="false"></textarea></div>
+    </div>
+  </section>
+  <section id="welcome"><p class="meta">Select a flow, or create one. Personal flows are stored as Markdown in the installation's git-ignored <code>flows/.user</code>; built-in flows stay read-only and can be replaced by a local copy.</p></section>
+</main>
+<dialog id="create">
+  <form method="dialog">
+    <strong>New flow</strong>
+    <label>ID (lowercase, dashes) <input id="new-id" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+    <label>Scope <select id="new-scope"><option value="user">Personal — every repository</option><option value="repo">This repository only</option></select></label>
+    <div class="bar"><span class="grow"></span><button value="cancel">Cancel</button><button id="create-ok" class="primary" value="ok">Create</button></div>
+  </form>
+</dialog>
+<script nonce="{{NONCE}}">
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { flows: [], current: null, draft: null, dirty: false, repo: null };
+const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
+
+async function api(path, options = {}) {
+  const init = { credentials: "same-origin", ...options, headers: { "X-Agents-UI": "1", ...(options.headers || {}) } };
+  if (init.body && typeof init.body !== "string") {
+    init.body = JSON.stringify(init.body);
+    init.headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(path, init);
+  let data = {};
+  try { data = await response.json(); } catch (_) {}
+  if (response.status === 401) throw new Error("Session expired. Run: python -m src.daemon flows-ui");
+  if (!response.ok) { const error = new Error(data.error || response.statusText); error.status = response.status; throw error; }
+  return data;
+}
+
+function notice(text, kind = "") {
+  const box = $("notice");
+  box.textContent = text || "";
+  box.className = "notice" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+}
+
+function workspace() { return $("workspace").value || ""; }
+
+async function login() {
+  const match = location.hash.match(/code=([A-Za-z0-9_-]+)/);
+  if (!match) return;
+  history.replaceState(null, "", location.pathname);
+  await api("/ui/api/session", { method: "POST", body: { code: match[1] } });
+}
+
+async function loadWorkspaces() {
+  const data = await api("/ui/api/workspaces");
+  const select = $("workspace");
+  let saved = "";
+  try { saved = localStorage.getItem("flows.workspace") || ""; } catch (_) {}
+  for (const item of data.workspaces) {
+    const option = document.createElement("option");
+    option.value = item.id; option.textContent = item.name; option.title = item.path;
+    select.appendChild(option);
+  }
+  if ([...select.options].some((o) => o.value === saved)) select.value = saved;
+}
+
+async function loadList(selectId) {
+  const params = new URLSearchParams();
+  if (workspace()) params.set("workspace", workspace());
+  const data = await api("/ui/api/flows?" + params);
+  state.flows = data.flows;
+  state.repo = data.repo && data.repo.status === "available" ? data.repo : null;
+  renderList();
+  if (selectId) await openFlow(selectId);
+}
+
+function renderList() {
+  const nav = $("list");
+  nav.replaceChildren();
+  const groups = [["repo", "This repository"], ["user", "Personal"], ["builtin", "Built-in"]];
+  for (const [source, label] of groups) {
+    if (source === "repo" && !state.repo) continue;
+    const heading = document.createElement("h2");
+    heading.textContent = label;
+    nav.appendChild(heading);
+    const items = state.flows.filter((f) => f.source === source);
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty"; empty.textContent = "No flows";
+      nav.appendChild(empty);
+    }
+    for (const flow of items) {
+      const button = document.createElement("button");
+      button.className = "item" + (state.current && state.current.id === flow.id ? " active" : "");
+      button.textContent = flow.title;
+      if (flow.overrides) addChip(button, "replaces built-in");
+      if (flow.upstream_changed) addChip(button, "built-in changed", "warn");
+      if (flow.overridden_by) addChip(button, "replaced");
+      const small = document.createElement("small");
+      small.textContent = flow.id;
+      button.appendChild(small);
+      button.addEventListener("click", () => openFlow(flow.id));
+      nav.appendChild(button);
+    }
+  }
+}
+
+function addChip(parent, text, kind = "") {
+  const chip = document.createElement("span");
+  chip.className = "chip" + (kind ? " " + kind : "");
+  chip.textContent = text;
+  parent.appendChild(chip);
+}
+
+function confirmDiscard() {
+  return !state.dirty || confirm("Discard unsaved changes?");
+}
+
+async function openFlow(id, version) {
+  if (!confirmDiscard()) return;
+  const params = new URLSearchParams({ id });
+  if (workspace()) params.set("workspace", workspace());
+  if (version) params.set("version", version);
+  const data = await api("/ui/api/flow?" + params);
+  if (version) {
+    // Viewing an old version keeps the current identity and revision, so saving restores it.
+    $("content").value = data.content;
+    setDirty(true);
+    notice("Loaded version " + version + ". Save to restore it as the current text.");
+    return;
+  }
+  state.current = data.flow;
+  state.draft = null;
+  state.upstream = data.upstream || null;
+  $("content").value = data.content;
+  showEditor();
+  renderHistory(data.history || []);
+  setDirty(false);
+  notice(data.flow.upstream_changed ? "The built-in flow changed since this copy was saved. Compare with “Show built-in”." : "");
+  renderList();
+}
+
+function renderHistory(versions) {
+  const select = $("history");
+  select.replaceChildren();
+  const head = document.createElement("option");
+  head.value = ""; head.textContent = versions.length ? "History (" + versions.length + ")" : "No history";
+  select.appendChild(head);
+  for (const item of versions) {
+    const option = document.createElement("option");
+    option.value = item.version;
+    const stamp = item.version.slice(0, 15).replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)/, "$1-$2-$3 $4:$5:$6");
+    option.textContent = stamp + " UTC" + (item.deleted ? " (deleted)" : "");
+    select.appendChild(option);
+  }
+  select.disabled = !versions.length;
+}
+
+function showEditor() {
+  const flow = state.draft || state.current;
+  const builtin = flow.source === "builtin";
+  $("welcome").classList.add("hidden");
+  $("editor").classList.remove("hidden");
+  $("title").textContent = flow.title || flow.id;
+  $("meta").textContent = state.draft
+    ? "New " + (flow.source === "repo" ? "repository" : "personal") + " flow · " + flow.id
+    : [flow.id, flow.source_path, flow.repo ? "repository " + flow.repo : "", "revision " + (flow.revision || "").slice(0, 12)]
+        .filter(Boolean).join(" · ");
+  $("content").readOnly = builtin;
+  $("main-label").textContent = builtin ? "Built-in flow (read-only, tracked in git)" : "Flow";
+  $("save").classList.toggle("hidden", builtin);
+  $("copy-user").classList.toggle("hidden", !builtin);
+  $("copy-repo").classList.toggle("hidden", !builtin || !state.repo);
+  $("delete").classList.toggle("hidden", builtin || !!state.draft);
+  $("toggle-upstream").classList.toggle("hidden", !state.upstream);
+  $("history").classList.toggle("hidden", builtin || !!state.draft);
+  hideSide();
+}
+
+function setDirty(value) {
+  state.dirty = value;
+  $("save").disabled = !value;
+}
+
+function showSide(label, text) {
+  $("side-label").textContent = label;
+  $("side-content").value = text;
+  $("side").classList.remove("hidden");
+  $("panes").classList.add("split");
+}
+
+function hideSide() {
+  $("side").classList.add("hidden");
+  $("panes").classList.remove("split");
+  $("toggle-upstream").textContent = "Show built-in";
+}
+
+async function save() {
+  const flow = state.draft || state.current;
+  const body = {
+    id: flow.id, content: $("content").value, workspace: workspace(),
+    scope: flow.source, override: !!(flow.overrides),
+    expected_revision: state.draft ? null : flow.revision,
+  };
+  try {
+    const result = await api("/ui/api/flow", { method: "PUT", body });
+    setDirty(false);
+    await loadList(result.flow.id);
+    notice(result.status === "unchanged" ? "No changes." : "Saved.", "ok");
+  } catch (error) {
+    if (error.status === 409) {
+      const params = new URLSearchParams({ id: flow.id });
+      if (workspace()) params.set("workspace", workspace());
+      try {
+        const current = await api("/ui/api/flow?" + params);
+        showSide("Saved by someone else — merge into your text, then save again", current.content);
+        state.current = current.flow;
+        if (state.draft) { state.draft = null; }
+      } catch (_) {}
+      notice("This flow changed elsewhere (chat or another window). Your text is kept on the left.", "error");
+    } else {
+      notice(error.message, "error");
+    }
+  }
+}
+
+function copyBuiltin(scope) {
+  const flow = state.current;
+  const bare = flow.id.replace(/^builtin:/, "");
+  const existing = state.flows.find((f) => f.id === scope + ":" + bare);
+  if (existing) return openFlow(existing.id);
+  state.draft = { id: scope + ":" + bare, title: flow.title, source: scope, overrides: "builtin:" + bare };
+  state.upstream = { content: $("content").value };
+  showEditor();
+  setDirty(true);
+  notice("Editing a local copy. Saving it replaces the built-in flow " + (scope === "repo" ? "in this repository." : "for you everywhere."));
+}
+
+async function remove() {
+  const flow = state.current;
+  const message = flow.overrides ? "Delete this copy? The built-in flow becomes effective again." : "Delete this flow? Its text stays in history.";
+  if (!confirm(message)) return;
+  try {
+    await api("/ui/api/flow", { method: "DELETE", body: { id: flow.id, expected_revision: flow.revision, workspace: workspace() } });
+    state.current = null; setDirty(false);
+    $("editor").classList.add("hidden"); $("welcome").classList.remove("hidden");
+    await loadList();
+  } catch (error) { notice(error.message, "error"); }
+}
+
+function startCreate() {
+  if (!confirmDiscard()) return;
+  $("new-scope").querySelector('option[value="repo"]').disabled = !state.repo;
+  $("new-id").value = "";
+  $("create").showModal();
+}
+
+$("create").addEventListener("close", () => {
+  if ($("create").returnValue !== "ok") return;
+  const id = $("new-id").value.trim();
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) return;
+  const scope = $("new-scope").value;
+  if (state.flows.some((f) => f.source === "builtin" && f.id === id)) {
+    alert("A built-in flow has this ID. Open it and use “Edit copy” to replace it.");
+    return;
+  }
+  state.current = null; state.upstream = null;
+  state.draft = { id: scope + ":" + id, title: id, source: scope };
+  $("content").value = TEMPLATE;
+  showEditor(); setDirty(true); notice("");
+});
+
+$("content").addEventListener("input", () => {
+  setDirty(true);
+  if ($("notice").classList.contains("ok")) notice("");
+});
+$("save").addEventListener("click", save);
+$("delete").addEventListener("click", remove);
+$("new").addEventListener("click", startCreate);
+$("copy-user").addEventListener("click", () => copyBuiltin("user"));
+$("copy-repo").addEventListener("click", () => copyBuiltin("repo"));
+$("history").addEventListener("change", (event) => {
+  const version = event.target.value;
+  event.target.value = "";
+  if (version && state.current) openFlow(state.current.id, version);
+});
+$("toggle-upstream").addEventListener("click", () => {
+  if (!$("side").classList.contains("hidden")) return hideSide();
+  showSide("Current built-in flow", state.upstream.content);
+  $("toggle-upstream").textContent = "Hide built-in";
+});
+$("workspace").addEventListener("change", async () => {
+  if (!confirmDiscard()) return;
+  try { localStorage.setItem("flows.workspace", workspace()); } catch (_) {}
+  state.current = null; state.draft = null; setDirty(false);
+  $("editor").classList.add("hidden"); $("welcome").classList.remove("hidden");
+  await loadList();
+});
+window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); } });
+
+(async () => {
+  try {
+    await login();
+    await loadWorkspaces();
+    await loadList();
+  } catch (error) {
+    const nav = $("list");
+    nav.replaceChildren();
+    const message = document.createElement("div");
+    message.className = "empty"; message.textContent = error.message;
+    nav.appendChild(message);
+  }
+})();
+</script>
+</body>
+</html>

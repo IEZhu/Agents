@@ -49,6 +49,7 @@ from src.memory.describer import RepoDescriber
 from src.memory.history import HistoryReader, HistoryWriter
 from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
 from src.flows import FlowCatalog, FlowError, execution_bundle
+from src.user_flows import FlowLibrary
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import load_persona, route_persona, parse_persona, error_response
 
@@ -104,9 +105,11 @@ mcp = FastMCP(
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
         "Never replay an ambiguous write automatically; read the result first.\n"
-        "For requested repository workflows, use list_flows and run_flow. Flows come "
-        "from this installation; run_flow binds them to the caller's workspace and "
-        "returns needs_execution. Execute the returned instructions in the current "
+        "For requested workflows, use list_flows and run_flow. Flows are built-in, "
+        "personal (user:<id>, every repository) or per repository (repo:<id>); run_flow "
+        "binds them to the caller's workspace and returns needs_execution. When the user "
+        "asks to save, change, restore or delete a flow, use get_flow, save_flow and "
+        "delete_flow; say which scope you used. Execute the returned instructions in the current "
         "model session against repo_path, preserving user constraints. It does not "
         "perform the workflow or authorize additional actions. HTTP requires "
         "X-Agents-Workspace; never substitute the installation for a missing target.\n"
@@ -153,18 +156,92 @@ def _is_within(candidate: str, boundary: str) -> bool:
 
 # --- Tools ---
 
-@mcp.tool()
-async def list_flows() -> str:
-    """List installed Markdown workflows with IDs, titles, source paths and revisions.
+def _flow_library(ctx: Context | None) -> FlowLibrary:
+    """Built-in plus personal flows; repo: flows need the caller's workspace."""
+    try:
+        root, error = client_context(ctx, allow_install_fallback=False).workspace_root(), None
+    except (WorkspaceError, OSError, RuntimeError) as failure:
+        root, error = None, str(failure)
+    return FlowLibrary(FlowCatalog(), repo_root=root, repo_error=error)
 
-    No caller workspace is needed. Use an ID with run_flow to execute a requested
-    workflow in the caller's repository through the current model session.
+
+def _flow_error(error: Exception) -> str:
+    return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
+
+
+@mcp.tool()
+async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
+    """List Markdown workflows: built-in, personal and this repository's.
+
+    scope: all (default), builtin, user or repo. IDs: built-ins keep bare IDs
+    (e.g. pr-review); personal flows are user:<id> (every repository) and
+    repo:<id> (only the caller's repository). overridden_by marks a built-in
+    replaced by a local copy; upstream_changed marks a copy whose built-in has
+    changed since it was saved. No workspace is needed except for repo flows.
     """
     try:
-        flows = await asyncio.to_thread(FlowCatalog().list)
-        return json.dumps({"status": "success", "flows": flows}, ensure_ascii=False)
+        library = _flow_library(ctx)
+        return json.dumps(await asyncio.to_thread(library.list, scope), ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
-        return json.dumps({"status": "error", "error": str(error)})
+        return _flow_error(error)
+
+
+@mcp.tool()
+async def get_flow(flow: str, version: Optional[str] = None, ctx: Context | None = None) -> str:
+    """Read a flow's Markdown, revision and saved versions before editing it.
+
+    flow: a bare ID or builtin:/user:/repo:<id>. version: an entry from history,
+    to view or restore older text (restore = save_flow with that content).
+    For a local copy of a built-in, upstream holds the current built-in text.
+    """
+    try:
+        library = _flow_library(ctx)
+        return json.dumps(await asyncio.to_thread(library.get, flow, version), ensure_ascii=False)
+    except (FlowError, OSError, RuntimeError) as error:
+        return _flow_error(error)
+
+
+@mcp.tool()
+async def save_flow(
+    flow: str,
+    content: str,
+    scope: str = "user",
+    expected_revision: Optional[str] = None,
+    override: bool = False,
+    ctx: Context | None = None,
+) -> str:
+    """Create or update a personal flow when the user asks to save or change one.
+
+    Stored as Markdown in the installation's git-ignored flows/.user, never in a
+    repository's working tree. scope: user (all repositories, default) or repo
+    (only the caller's repository). content: the complete Markdown flow, starting
+    with a "# Title", with steps and completion criteria; not a chat transcript.
+    expected_revision: omit to create; to update, pass the revision from get_flow
+    (a mismatch returns flow_conflict: reload and reapply instead of overwriting).
+    Built-in flows are read-only: to change one for this user, save the same ID
+    with override=true. Previous text stays in history.
+    """
+    try:
+        library = _flow_library(ctx)
+        result = await asyncio.to_thread(library.save, flow, content, scope=scope,
+                                         expected_revision=expected_revision, override=override)
+        return json.dumps(result, ensure_ascii=False)
+    except (FlowError, OSError, RuntimeError) as error:
+        return _flow_error(error)
+
+
+@mcp.tool()
+async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = None) -> str:
+    """Delete a personal flow (user:/repo:) on explicit request; its text stays in history.
+
+    Deleting a local copy of a built-in makes the built-in effective again.
+    """
+    try:
+        library = _flow_library(ctx)
+        result = await asyncio.to_thread(library.delete, flow, expected_revision=expected_revision)
+        return json.dumps(result, ensure_ascii=False)
+    except (FlowError, OSError, RuntimeError) as error:
+        return _flow_error(error)
 
 
 @mcp.tool()
@@ -174,11 +251,12 @@ async def run_flow(
     repo_path: Optional[str] = None,
     ctx: Context | None = None,
 ) -> str:
-    """Start a user-requested installed flow in the CALLER's repository.
+    """Start a user-requested flow in the CALLER's repository.
 
-    flow accepts a catalog ID, ID.md or flows/ID.md. request carries the user's
-    scope, PR/MR URL and constraints such as no-merge. repo_path defaults to the
-    caller workspace; an override must be an existing directory within it.
+    flow: a bare ID, ID.md, flows/ID.md, or builtin:/user:/repo:<id>. A bare ID
+    resolves repo:, then user:, then builtin:. request carries the user's scope,
+    PR/MR URL and constraints such as no-merge. repo_path defaults to the caller
+    workspace; an override must be an existing directory within it.
     HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT or cwd.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
@@ -190,11 +268,12 @@ async def run_flow(
     try:
         client = client_context(ctx, allow_install_fallback=False)
         target = client.workspace_target(repo_path)
-        loaded = await asyncio.to_thread(FlowCatalog().load, flow)
+        library = FlowLibrary(FlowCatalog(), repo_root=client.workspace_root())
+        loaded = await asyncio.to_thread(library.resolve, flow)
         return json.dumps(execution_bundle(loaded, target, client.workspace_id, request),
                           ensure_ascii=False)
     except (FlowError, WorkspaceError, OSError, RuntimeError) as error:
-        return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
+        return _flow_error(error)
 
 
 @mcp.tool()

@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .execution import TrackedExecutor, request_jobs, finish_jobs
+from .flows_ui import FlowsUI
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class Service:
         self.startup_loop_lag_max = 0.0
         self.stop = asyncio.Event()
         self.requests = set()
+        self.flows_ui = FlowsUI(self)
 
     def health(self):
         import sys
@@ -135,6 +137,9 @@ class Service:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return
+        if scope["path"] == "/ui" or scope["path"].startswith("/ui/"):
+            # The browser editor has its own session; it never receives the bearer token.
+            return await self.flows_ui(scope, receive, send)
         request = Request(scope, receive)
         supplied = request.headers.get("authorization", "")
         if not hmac.compare_digest(supplied.encode(), ("Bearer " + self.token).encode()):
@@ -152,6 +157,10 @@ class Service:
             if self.transport is not None:
                 self.state = "ready"
             return await JSONResponse(self.health())(scope, receive, send)
+        if path == "/admin/ui/code" and request.method == "POST":
+            code = self.flows_ui.issue_code()
+            return await JSONResponse({"code": code, "url": f"http://127.0.0.1:{self.port}/ui#code={code}"})(
+                scope, receive, send)
         if path == "/admin/cache/clear" and request.method == "POST" and self.server:
             await self.server.clear_session_cache()
             return await JSONResponse({"status": "cleared"})(scope, receive, send)
