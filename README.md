@@ -196,8 +196,9 @@ The server exposes MCP tools that any compatible client can call:
 | `refresh_persona_context(query, current_persona)` | Protocol 2: refresh skills/implants for the active role |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
-| `list_flows()` | Discover Markdown workflows in this MCP installation, with IDs and content revisions |
-| `run_flow(flow, request="", repo_path=None)` | Load an installed workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
+| `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
+| `run_flow(flow, request="", repo_path=None)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
+| `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling, or when the sampling call fails, it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
