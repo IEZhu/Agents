@@ -68,7 +68,7 @@ def test_custom_home_tilde_expands(codex, monkeypatch):
 
 
 @pytest.mark.parametrize("legacy_markers", [False, True])
-def test_v1_migration_preserves_user_bytes_and_repeat_is_noop(codex, capsys, legacy_markers):
+def test_removed_v1_section_migrates_preserving_user_bytes_and_repeat_is_noop(codex, capsys, legacy_markers):
     helper, injector, home, template = codex
     destination = home / ".codex"
     destination.mkdir()
@@ -76,7 +76,9 @@ def test_v1_migration_preserves_user_bytes_and_repeat_is_noop(codex, capsys, leg
     prefix, suffix = b"# Personal rules\r\nUse Spanish.\r\n\r\n", b"\r\n\r\nKeep this\r\n"
     begin = injector.LEGACY_MARKER_BEGIN if legacy_markers else injector.MARKER_BEGIN
     end = injector.LEGACY_MARKER_END if legacy_markers else injector.MARKER_END
-    old_template = (template.parent / "routing-protocol-v1.md").read_bytes()
+    # Representative managed section written by the removed protocol 1 installer.
+    old_template = (b"# Agents-Core Routing Protocol\n\n"
+                    b"Before answering ANY user query, call route_and_load(query, context_hash=...).\n")
     original = prefix + begin.encode() + b"\n" + old_template + b"\n" + end.encode() + suffix
     target.write_bytes(original)
 
@@ -84,6 +86,7 @@ def test_v1_migration_preserves_user_bytes_and_repeat_is_noop(codex, capsys, leg
     updated = target.read_bytes()
     assert updated.startswith(prefix) and updated.endswith(suffix)
     assert template.read_bytes().strip() in updated
+    assert b"context_hash" not in updated
     assert updated.count(injector.MARKER_BEGIN.encode()) == 1
     backups = list(destination.glob("AGENTS.md.backup.*"))
     assert len(backups) == 1 and backups[0].read_bytes() == original

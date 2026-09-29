@@ -1,7 +1,7 @@
 # Plan: switch personas while preserving context
 
 Status: implementation complete; client validation results and limitations are
-[in the report](persona-switch-eval-results.md). Version 2 required explicit opt-in until 2026-09-26, when it became the installer default.
+[in the report](persona-switch-eval-results.md). Version 2 required explicit opt-in until 2026-09-26, when it became the installer default. Protocol 1 was removed on 2026-09-29; its mentions below are historical.
 Branch: `codex/persona-switch-gate`.
 
 ## 1. Goal and behavior

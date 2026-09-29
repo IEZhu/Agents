@@ -203,9 +203,10 @@ distance boosts (`SKILLS_RELEVANCE_THRESHOLD`, default `0.75`). `standard` rende
 `compiled` text; `lite` and `deep` render the full skill body. Declared
 `preferred_implants` can promote an inferred `lite` tier to `standard`.
 
-Protocol 1 enriches per query. The optional `INTENT_CLASSIFIER_ENABLED=1` policy
-can change its budgets; it is disabled by default. Protocol 2 selects skills when
-a bundle is activated or refreshed and retains them across turns. Its bundle uses
+Skills are selected when a persona bundle is activated or refreshed and are
+retained across turns. The per-query enrichment path used by the evaluation
+harnesses honours the optional `INTENT_CLASSIFIER_ENABLED=1` budgets (disabled by
+default). The bundle uses
 the tier budgets above, even when the intent classifier is enabled. Request
 `refresh_persona_context` when a continuing task needs a different skill selection.
 

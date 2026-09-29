@@ -75,8 +75,10 @@ def resolve_path(path_ref: str) -> str:
 def read_mdc(path: str, *, require_frontmatter: bool = False) -> tuple[dict, str]:
     """Read and validate a fresh MDC file, without substituting error text.
 
-    Version 2 uses this strict path so broken components cannot become part of
-    an apparently successful activation. Version 1 keeps its tolerant loaders.
+    Persona bundles use this strict path so broken components cannot become part
+    of an apparently successful activation. The per-query enrichment path
+    (``server._load_and_enrich``, used by the evaluation harnesses) keeps the
+    tolerant loaders.
     """
     with open(path, "r", encoding="utf-8") as stream:
         content = stream.read()

@@ -8,10 +8,8 @@ and `uv.lock`. The port above is the default; `install --port` can change it.
 Installation requires an existing e5-large snapshot under `FASTEMBED_CACHE_DIR`
 (default `~/.cache/fastembed`); `install` does not download the model.
 
-The daemon supports persona protocols 1 and 2. Client instructions installed by
-`init_repo` default to version 2, while MCP tools and slash prompts default to
-version 1 unless `protocol_version=2` is supplied. Transport migration does not
-rewrite that client policy. Follow [the routing protocol](routing_flow.md) when
+The daemon supports persona protocol 2 only. Transport migration does not
+rewrite client instructions. Follow [the routing protocol](routing_flow.md) when
 keeping, switching, restoring, or refreshing a role. HTTP never samples the final
 answer and does not expose `clear_session_cache`; administrative cache clearing
 uses the controller command below.

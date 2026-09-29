@@ -231,9 +231,9 @@ async def run_case(case: Case) -> Result:
     status = payload.get("status", "UNKNOWN")
     routed_agent = None
     in_candidates = False
-    if status in ("SUCCESS", "SUCCESS_SAMPLED", "NO_CHANGE"):
+    if status in ("SUCCESS", "NO_CHANGE"):
         outcome = "cache_hit"
-        routed_agent = payload.get("agent")
+        routed_agent = (payload.get("persona") or {}).get("agent")
     elif status == "ROUTE_REQUIRED":
         outcome = "route_required"
         cand_names = [c.get("name") for c in payload.get("candidates", [])]
