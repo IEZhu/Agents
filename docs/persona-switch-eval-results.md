@@ -208,13 +208,14 @@ To reproduce the evaluation, use
 source trees on Linux or macOS, one index seed, and an identical request suite combining
 persona_dialogues.jsonl and persona_compaction.jsonl. Specify `--repeats 3`, a
 separate `--out` for each run, `--source-root`, `--seed-data`, `--dataset`,
-`--protocol`, and `--protocol-version`. For Codex on macOS, add
+and `--protocol`. For Codex on macOS, add
 `--codex-isolate-global-instructions`. Run the supplemental
 persona_implicit_switch.jsonl suite separately against both protocol versions.
 The runner does not overwrite an existing output directory.
-Since 2026-09-29 the current server and templates support only protocol 2: a
-`--protocol-version 1` run needs `--source-root` and `--protocol` taken from a
-revision before that date, such as the baseline above.
+Since 2026-09-29 the server, templates and this runner support only protocol 2.
+Reproducing the protocol 1 baseline, or regrading its retained report, needs the
+runner, `--source-root` and `--protocol` from a revision before that date, such as
+the baseline above; the current `reassess_report` rejects protocol 1 reports.
 Windows evaluation runs are rejected before setup or client launch because the
 runner requires POSIX process groups to terminate clients and MCP children on
 timeout. This restriction applies to the evaluation runner, not the installer.

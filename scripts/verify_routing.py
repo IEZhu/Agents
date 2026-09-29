@@ -245,7 +245,7 @@ async def run_case(case: Case) -> Result:
     implants_loaded: list[str] = []
     enrichment_error: Optional[str] = None
     try:
-        _, _, skills_loaded, implants_loaded, _, _ = await _load_and_enrich(
+        _, skills_loaded, implants_loaded, _, _ = await _load_and_enrich(
             agent_name=case.expected_agent,
             query=case.query,
             chat_history_list=[],
