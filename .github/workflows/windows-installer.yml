@@ -9,6 +9,7 @@ on:
       - scripts/install_instructions.py
       - src/client_paths.py
       - scripts/_helpers/check_version.py
+      - scripts/_helpers/client_config_paths.py
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
       - scripts/_helpers/migrate_routing_memory.py
@@ -30,6 +31,7 @@ on:
       - scripts/install_instructions.py
       - src/client_paths.py
       - scripts/_helpers/check_version.py
+      - scripts/_helpers/client_config_paths.py
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
       - scripts/_helpers/migrate_routing_memory.py

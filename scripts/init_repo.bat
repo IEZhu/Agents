@@ -434,22 +434,25 @@ echo   %GREEN%^>%NC% Detecting IDE environments...
 echo(
 
 REM Resolve the same effective client paths used by migration and audit.
+REM Capture literal exclamation marks before restoring runtime expansion.
+setlocal DisableDelayedExpansion
 set "MCP_SETTINGS_FILE="
 set "CLAUDE_DESKTOP_CONFIG="
 set "CLAUDE_CODE_DIR="
 set "CLAUDE_CODE_MCP="
-for /f "tokens=1,* delims==" %%K in ('""%PYTHON_ABS%" -c "import os,sys;sys.path.insert(0,os.environ['REPO_ROOT']);from src.client_paths import client_config_path,client_home;print('MCP_SETTINGS_FILE='+str(client_config_path('cursor')));print('CLAUDE_DESKTOP_CONFIG='+str(client_config_path('desktop')));print('CLAUDE_CODE_DIR='+str(client_home('claude')));print('CLAUDE_CODE_MCP='+str(client_config_path('claude')))""') do set "%%K=%%L"
+for /f "tokens=1,* delims==" %%K in ('""%PYTHON_ABS%" "%HELPERS%\client_config_paths.py""') do set "%%K=%%L"
 if not defined MCP_SETTINGS_FILE exit /b 1
 if not defined CLAUDE_DESKTOP_CONFIG exit /b 1
 if not defined CLAUDE_CODE_DIR exit /b 1
 if not defined CLAUDE_CODE_MCP exit /b 1
 for %%I in ("%MCP_SETTINGS_FILE%") do set "CURSOR_DIR=%%~dpI"
 for %%I in ("%CLAUDE_DESKTOP_CONFIG%") do set "CLAUDE_DESKTOP_DIR=%%~dpI"
+setlocal EnableDelayedExpansion
 
 REM --- Detect Cursor ---
 set "CURSOR_DETECTED=false"
 if defined AGENTS_CURSOR_MCP_CONFIG set "CURSOR_DETECTED=true"
-if exist "%CURSOR_DIR%" set "CURSOR_DETECTED=true"
+if exist "!CURSOR_DIR!" set "CURSOR_DETECTED=true"
 if not "!CURSOR_DETECTED!"=="true" (
     echo   %GREEN%^>%NC% Cursor IDE not detected
     goto :detect_claude_desktop
@@ -460,7 +463,7 @@ echo   %GREEN%+%NC% Cursor IDE detected
 REM --- Detect Claude Desktop ---
 set "CLAUDE_DESKTOP_DETECTED=false"
 if defined AGENTS_CLAUDE_DESKTOP_CONFIG set "CLAUDE_DESKTOP_DETECTED=true"
-if exist "%CLAUDE_DESKTOP_DIR%" set "CLAUDE_DESKTOP_DETECTED=true"
+if exist "!CLAUDE_DESKTOP_DIR!" set "CLAUDE_DESKTOP_DETECTED=true"
 if not "!CLAUDE_DESKTOP_DETECTED!"=="true" (
     echo   %GREEN%^>%NC% Claude Desktop not detected
     goto :detect_claude_code
@@ -476,8 +479,8 @@ set "CLAUDE_MD_CONFIGURED=false"
 where claude >nul 2>&1
 if !errorlevel! equ 0 set "CLAUDE_CODE_DETECTED=true"
 if defined CLAUDE_CONFIG_DIR set "CLAUDE_CODE_DETECTED=true"
-if exist "%CLAUDE_CODE_MCP%" set "CLAUDE_CODE_DETECTED=true"
-if exist "%CLAUDE_CODE_DIR%" set "CLAUDE_CODE_DETECTED=true"
+if exist "!CLAUDE_CODE_MCP!" set "CLAUDE_CODE_DETECTED=true"
+if exist "!CLAUDE_CODE_DIR!" set "CLAUDE_CODE_DETECTED=true"
 
 if "!CLAUDE_CODE_DETECTED!"=="true" (
     echo   %GREEN%+%NC% Claude Code detected
@@ -493,13 +496,13 @@ for /f %%T in ('powershell -noprofile -command "Get-Date -UFormat '%%s'"') do se
 REM --- Configure Cursor ---
 if not "!CURSOR_DETECTED!"=="true" goto :skip_cursor
 echo   %GREEN%^>%NC% Configuring Cursor MCP...
-if not exist "%CURSOR_DIR%" mkdir "%CURSOR_DIR%"
-if not exist "%MCP_SETTINGS_FILE%" echo { "mcpServers": {} } > "%MCP_SETTINGS_FILE%"
+if not exist "!CURSOR_DIR!" mkdir "!CURSOR_DIR!"
+if not exist "!MCP_SETTINGS_FILE!" echo { "mcpServers": {} } > "!MCP_SETTINGS_FILE!"
 
 REM Backup before modifying
-copy /Y "%MCP_SETTINGS_FILE%" "%MCP_SETTINGS_FILE%.backup.%BACKUP_TS%" >nul 2>&1
+copy /Y "!MCP_SETTINGS_FILE!" "!MCP_SETTINGS_FILE!.backup.%BACKUP_TS%" >nul 2>&1
 
-"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "%MCP_SETTINGS_FILE%" "%PYTHON_ABS%" "%SERVER_ABS%"
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!MCP_SETTINGS_FILE!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Agents-Core added to Cursor mcp.json
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Cursor"
@@ -511,7 +514,7 @@ if !errorlevel! equ 0 (
 REM --- Configure Claude Desktop ---
 if not "!CLAUDE_DESKTOP_DETECTED!"=="true" goto :skip_claude_desktop
 echo   %GREEN%^>%NC% Configuring Claude Desktop MCP...
-if not exist "%CLAUDE_DESKTOP_DIR%" mkdir "%CLAUDE_DESKTOP_DIR%"
+if not exist "!CLAUDE_DESKTOP_DIR!" mkdir "!CLAUDE_DESKTOP_DIR!"
 if not exist "!CLAUDE_DESKTOP_CONFIG!" echo {} > "!CLAUDE_DESKTOP_CONFIG!"
 
 REM Backup before modifying
@@ -528,30 +531,30 @@ if !errorlevel! equ 0 (
 
 REM --- Configure Claude Code ---
 if not "!CLAUDE_CODE_DETECTED!"=="true" goto :skip_claude_code
-if not exist "%CLAUDE_CODE_DIR%" mkdir "%CLAUDE_CODE_DIR%"
+if not exist "!CLAUDE_CODE_DIR!" mkdir "!CLAUDE_CODE_DIR!"
 
 REM 1. MCP server in the selected profile's user-scope registry
-echo   %GREEN%^>%NC% Configuring Claude Code MCP (%CLAUDE_CODE_MCP%)...
-if not exist "%CLAUDE_CODE_MCP%" echo {} > "%CLAUDE_CODE_MCP%"
+echo   %GREEN%^>%NC% Configuring Claude Code MCP (!CLAUDE_CODE_MCP!)...
+if not exist "!CLAUDE_CODE_MCP!" echo {} > "!CLAUDE_CODE_MCP!"
 
 REM Backup before modifying
-copy /Y "%CLAUDE_CODE_MCP%" "%CLAUDE_CODE_MCP%.backup.%BACKUP_TS%" >nul 2>&1
+copy /Y "!CLAUDE_CODE_MCP!" "!CLAUDE_CODE_MCP!.backup.%BACKUP_TS%" >nul 2>&1
 
-"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "%CLAUDE_CODE_MCP%" "%PYTHON_ABS%" "%SERVER_ABS%"
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_CODE_MCP!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
-    echo   %GREEN%+%NC% Agents-Core added to Claude Code %CLAUDE_CODE_MCP%
+    echo   %GREEN%+%NC% Agents-Core added to Claude Code !CLAUDE_CODE_MCP!
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Claude-Code"
 ) else (
     echo   %RED%x%NC% Failed to update Claude Code config
 )
 
 REM 2. Global CLAUDE.md with routing instructions
-set "CLAUDE_CODE_MD=%CLAUDE_CODE_DIR%\CLAUDE.md"
+set "CLAUDE_CODE_MD=!CLAUDE_CODE_DIR!\CLAUDE.md"
 set "CLAUDE_MD_SRC=%ROUTING_TEMPLATE%"
 
 echo(
 echo   %CYAN%Agents-Core wants to add routing instructions to:%NC%
-echo     %CLAUDE_CODE_MD%
+echo     !CLAUDE_CODE_MD!
 echo(
 REM Default to Y so an empty Enter (or an inherited env var) doesn't flip the
 REM decision — set /p leaves the variable unchanged on empty input.
@@ -568,7 +571,7 @@ if not exist "%CLAUDE_MD_SRC%" (
     goto :skip_claude_code
 )
 
-"%PYTHON_ABS%" "%HELPERS%\inject_claude_md.py" "%CLAUDE_CODE_MD%" "%CLAUDE_MD_SRC%"
+"%PYTHON_ABS%" "%HELPERS%\inject_claude_md.py" "!CLAUDE_CODE_MD!" "%CLAUDE_MD_SRC%"
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Global CLAUDE.md configured
     set "CLAUDE_MD_CONFIGURED=true"
@@ -577,8 +580,8 @@ if !errorlevel! equ 0 (
 )
 REM Windows never created routing memory. Migrate an existing known file only.
 if "!CLAUDE_MD_CONFIGURED!"=="true" (
-    "%PYTHON_ABS%" "%HELPERS%\migrate_routing_memory.py" "%CLAUDE_CODE_DIR%\memory" --protocol "%PERSONA_PROTOCOL%" --existing-only
-    if !errorlevel! neq 0 echo   %RED%x%NC% Memory migration failed; inspect %CLAUDE_CODE_DIR%\memory manually
+    "%PYTHON_ABS%" "%HELPERS%\migrate_routing_memory.py" "!CLAUDE_CODE_DIR!\memory" --protocol "%PERSONA_PROTOCOL%" --existing-only
+    if !errorlevel! neq 0 echo   %RED%x%NC% Memory migration failed; inspect !CLAUDE_CODE_DIR!\memory manually
     echo   Check project instructions and memory for conflicting unconditional route_and_load requirements.
     echo   User-edited reminders and unrelated project memory are preserved.
 )

@@ -35,7 +35,7 @@ def profile_installer(request, tmp_path):
     (checkout / "src").mkdir()
     for name in ("__init__.py", "client_paths.py"):
         shutil.copyfile(ROOT / "src" / name, checkout / "src" / name)
-    for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py"):
+    for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py"):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
     for name in ("routing-protocol-core.md", "memory-routing-v1.md", "memory-routing-v2.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
@@ -81,21 +81,26 @@ def profile_installer(request, tmp_path):
     return run, home, checkout, templates, desktop
 
 
-@pytest.mark.parametrize("custom", [False, True], ids=["defaults", "custom-profiles"])
-def test_installer_configures_effective_paths_and_preserves_other_profiles(profile_installer, custom):
+@pytest.mark.parametrize("profile_kind", ["defaults", "custom-profiles", "single-exclamation", "paired-exclamations"])
+def test_installer_configures_effective_paths_and_preserves_other_profiles(profile_installer, profile_kind):
     run, home, checkout, templates, desktop = profile_installer
     defaults = {"claude": home / ".claude.json", "cursor": home / ".cursor/mcp.json", "desktop": desktop}
     paths = defaults
     claude_home = home / ".claude"
     overrides = {}
+    custom = profile_kind != "defaults"
     if custom:
-        claude_home = home / "alternate claude profile"
+        suffix = {"single-exclamation": "profile!literal",
+                  "paired-exclamations": "profile !segment!"}.get(profile_kind, "profile")
+        claude_home = home / f"alternate claude {suffix}"
         paths = {"claude": claude_home / ".claude.json",
-                 "cursor": home / "custom cursor profile/registration.json",
-                 "desktop": home / "custom desktop profile/registration.json"}
+                 "cursor": home / f"custom cursor {suffix}/registration.json",
+                 "desktop": home / f"custom desktop {suffix}/registration.json"}
         overrides = {"CLAUDE_CONFIG_DIR": str(claude_home),
                      "AGENTS_CURSOR_MCP_CONFIG": str(paths["cursor"]),
-                     "AGENTS_CLAUDE_DESKTOP_CONFIG": str(paths["desktop"])}
+                     "AGENTS_CLAUDE_DESKTOP_CONFIG": str(paths["desktop"]),
+                     # Make accidental cmd expansion change the path visibly.
+                     "segment": "expanded-value"}
 
     original = {"mcpServers": {"other": {"command": "unrelated"},
                                "Agents-Core": {"command": "old-python", "disabled": True}},
