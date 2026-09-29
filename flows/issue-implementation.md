@@ -1,18 +1,18 @@
 # Issue agent: implement a plan
 
-Called by the [issue agent](issue-agent.md) for `@agent run_plan [vN]` and the
-execution half of `@agent run`. It implements an approved plan on a new branch,
+Called by the [issue agent](issue-agent.md) for `/agent run_plan [vN]` and the
+execution half of `/agent run`. It implements an approved plan on a new branch,
 reviews its own work, opens a pull request and hands it to
 [pr-review](pr-review.md). It never merges.
 
 ## 1. Check the plan is current
 
 1. Load the requested plan version, or the latest one. If there is no plan,
-   reply that `@agent plan` is needed first and stop.
+   reply that `/agent plan` is needed first and stop.
 2. Compare the issue's `updated_at` and newer comments with
    `plan.issue_updated_at`. If requirements changed since the plan was written
    (new or edited body, new owner comments that are not commands), stop and ask
-   for `@agent replan`. Bot or agent comments do not count.
+   for `/agent replan`. Bot or agent comments do not count.
 3. Set the phase to `implementing` and the lock.
 
 ## 2. Create the branch
@@ -36,7 +36,7 @@ the change makes inaccurate; for broad documentation changes follow
 apply, from its contributor guide or CI. Run heavy checks one at a time.
 
 If the plan turns out to be wrong or blocked, stop, push what is safe to share,
-explain the problem in the issue and ask for `@agent replan`. Do not silently
+explain the problem in the issue and ask for `/agent replan`. Do not silently
 change the scope.
 
 ## 4. Review before opening the pull request
@@ -62,6 +62,6 @@ change the scope.
 3. Continue with [pr-review](pr-review.md) in `no-merge` mode, with the state
    comment as the durable place for bot quota pauses. Review bots finish after
    the session may end: the bridge fires the agent again when a bot submits a
-   review, which runs `@agent review` for this pull request.
+   review, which runs `/agent review` for this pull request.
 4. Reply in the issue with the PR link, what was implemented, validation results
    and anything left for the owner.
