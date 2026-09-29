@@ -438,7 +438,7 @@ set "MCP_SETTINGS_FILE="
 set "CLAUDE_DESKTOP_CONFIG="
 set "CLAUDE_CODE_DIR="
 set "CLAUDE_CODE_MCP="
-for /f "tokens=1,* delims==" %%K in ('"%PYTHON_ABS%" -c "import os,sys;sys.path.insert(0,os.environ['REPO_ROOT']);from src.client_paths import client_config_path,client_home;print('MCP_SETTINGS_FILE='+str(client_config_path('cursor')));print('CLAUDE_DESKTOP_CONFIG='+str(client_config_path('desktop')));print('CLAUDE_CODE_DIR='+str(client_home('claude')));print('CLAUDE_CODE_MCP='+str(client_config_path('claude')))"') do set "%%K=%%L"
+for /f "tokens=1,* delims==" %%K in ('""%PYTHON_ABS%" -c "import os,sys;sys.path.insert(0,os.environ['REPO_ROOT']);from src.client_paths import client_config_path,client_home;print('MCP_SETTINGS_FILE='+str(client_config_path('cursor')));print('CLAUDE_DESKTOP_CONFIG='+str(client_config_path('desktop')));print('CLAUDE_CODE_DIR='+str(client_home('claude')));print('CLAUDE_CODE_MCP='+str(client_config_path('claude')))""') do set "%%K=%%L"
 if not defined MCP_SETTINGS_FILE exit /b 1
 if not defined CLAUDE_DESKTOP_CONFIG exit /b 1
 if not defined CLAUDE_CODE_DIR exit /b 1
