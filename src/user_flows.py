@@ -95,10 +95,19 @@ def _validate_content(content: str) -> bytes:
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".tmp-", delete=False) as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(stream.name, path)
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            stream.close()
+            os.unlink(stream.name)
+            raise
+    try:
+        os.replace(stream.name, path)
+    except BaseException:
+        Path(stream.name).unlink(missing_ok=True)
+        raise
 
 
 class FlowLibrary:
@@ -347,6 +356,9 @@ class FlowLibrary:
                 meta = {"overrides": f"builtin:{flow_id}",
                         "base_revision": self.catalog.load(flow_id).revision}
                 _atomic_write(meta_path, json.dumps(meta, indent=2).encode() + b"\n")
+            else:
+                # A plain save is not a copy of a built-in any more (e.g. the built-in was removed).
+                meta_path.unlink(missing_ok=True)
             if scope == "repo":
                 key, origin = self.repo()
                 _atomic_write(directory / ".repo.json", json.dumps(

@@ -165,6 +165,25 @@ def test_history_and_restore(library):
         library.resolve("mine")
 
 
+def test_plain_save_clears_a_stale_override_marker(library, install):
+    saved = library.save("review", "# Mine\n", override=True)
+    (install / "review.md").unlink()  # The built-in is removed upstream.
+    assert library.resolve("review").metadata()["upstream_changed"] is True
+    plain = library.save("user:review", "# Mine 2\n", expected_revision=saved["flow"]["revision"])
+    assert "overrides" not in plain["flow"] and "upstream_changed" not in plain["flow"]
+    assert not (library.user_dir / "common" / "review.meta.json").exists()
+
+
+def test_failed_write_leaves_no_temporary_file(library, monkeypatch):
+    import src.user_flows as user_flows
+    def fail(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(user_flows.os, "replace", fail)
+    with pytest.raises(OSError):
+        library.save("mine", "# Mine\n")
+    assert not list((library.user_dir / "common").glob(".tmp-*"))
+
+
 @pytest.mark.parametrize("content, error", [("", "empty"), ("   \n", "empty"),
                                             ("x" * (256 * 1024 + 1), "256 KiB")])
 def test_content_validation(library, content, error):

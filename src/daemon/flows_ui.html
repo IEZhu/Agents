@@ -104,7 +104,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <script nonce="{{NONCE}}">
 "use strict";
 const $ = (id) => document.getElementById(id);
-const state = { flows: [], current: null, draft: null, dirty: false, repo: null };
+const state = { flows: [], current: null, draft: null, dirty: false, repo: null, workspace: "" };
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
 
 async function api(path, options = {}) {
@@ -147,6 +147,7 @@ async function loadWorkspaces() {
     select.appendChild(option);
   }
   if ([...select.options].some((o) => o.value === saved)) select.value = saved;
+  state.workspace = select.value;
 }
 
 async function loadList(selectId) {
@@ -375,7 +376,12 @@ $("toggle-upstream").addEventListener("click", () => {
   $("toggle-upstream").textContent = "Hide built-in";
 });
 $("workspace").addEventListener("change", async () => {
-  if (!confirmDiscard()) return;
+  if (!confirmDiscard()) {
+    // Keep the dropdown on the repository the open flow belongs to.
+    $("workspace").value = state.workspace;
+    return;
+  }
+  state.workspace = workspace();
   try { localStorage.setItem("flows.workspace", workspace()); } catch (_) {}
   state.current = null; state.draft = null; setDirty(false);
   $("editor").classList.add("hidden"); $("welcome").classList.remove("hidden");
