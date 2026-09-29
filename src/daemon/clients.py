@@ -13,6 +13,7 @@ import tomllib
 
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
+from src.client_paths import client_config_path
 
 
 SERVER = "Agents-Core"
@@ -94,6 +95,7 @@ class ClientMigration:
         self.token = (self.directory / "token").read_text().strip()
         self.registry = WorkspaceRegistry(directory)
         self.expected_versions = {}
+        self.config_targets = {}
 
     def read_config(self, path, *, as_json=True):
         path = Path(path)
@@ -122,13 +124,14 @@ class ClientMigration:
     @property
     def url(self): return f"http://127.0.0.1:{self.config['port']}/mcp"
 
-    def prepare(self, client, workspace=None, *, home=None):
+    def prepare(self, client, workspace=None, *, home=None, config_path=None):
         home = Path(home or Path.home())
         root = Path(workspace).resolve() if workspace else None
+        path = client_config_path(client, root, home=home, config_path=config_path)
+        self.config_targets[str(path)] = {"client": client, "path": str(path), "workspace": str(root) if root else None}
         identity = self.registry.register(root) if root else None
         headers = self.headers(identity)
         if client == "codex":
-            path = (root or home) / ".codex/config.toml"
             original = self.read_config(path, as_json=False)
             old_entry = tomllib.loads(original).get("mcp_servers", {}).get(SERVER, {})
             entry = transport_entry(old_entry, {})
@@ -140,33 +143,28 @@ class ClientMigration:
             else: entry["http_headers"] = headers
             return path, replace_toml_server(original, SERVER, entry), bool("http_headers" in entry)
         if client == "claude":
-            path = home / ".claude.json"
             document = self.read_config(path)
             scope = document.setdefault("projects", {}).setdefault(str(root), {}) if root else document
             servers = scope.setdefault("mcpServers", {})
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), {"type": "http", "url": self.url, "headers": headers})
         elif client == "claude-project":
             if root is None: raise ValueError("claude-project requires a workspace")
-            path = root / ".mcp.json"
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
             entry = self.bridge(identity) if tracked(path) else {"type": "http", "url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "claude-deny-desktop":
-            path = home / ".claude/settings.json"
             document = self.read_config(path)
             deny = document.setdefault("permissions", {}).setdefault("deny", [])
             for namespace in (DESKTOP_SERVER, DESKTOP_SERVER.replace("-", "_")):
                 rule = "mcp__" + namespace + "__*"
                 if rule not in deny: deny.append(rule)
         elif client == "cursor":
-            path = (root or home) / ".cursor/mcp.json"
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
             entry = self.bridge(identity) if tracked(path) else {"url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "desktop":
-            path = home / "Library/Application Support/Claude/claude_desktop_config.json"
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
             previous = servers.pop(SERVER, servers.get(DESKTOP_SERVER, {}))
@@ -176,8 +174,22 @@ class ClientMigration:
         return path, content, self.token in content
 
     def apply(self, changes, *, on_prepared=None):
+        changes = list(changes)
         if len({str(path) for path, _, _ in changes}) != len(changes):
             raise ValueError("Duplicate configuration target")
+        targets = [self.config_targets[str(path)] for path, _, _ in changes if str(path) in self.config_targets]
+        if targets:
+            # Journal this metadata with the configs so failure/restore remain atomic.
+            registry_path = self.directory / "client-configs.json"
+            if any(Path(path).absolute() == registry_path.absolute() for path, _, _ in changes):
+                raise ValueError("Client config collides with the service configuration registry")
+            previous = self.read_config(registry_path)
+            from .audit import registered_configs
+            known = registered_configs(previous)
+            merged = {record["path"]: record for record in known}
+            merged.update({record["path"]: record for record in targets})
+            content = json.dumps({"version": 1, "configs": list(merged.values())}, indent=2) + "\n"
+            changes.append((registry_path, content, False))
         backups = private_dir(self.directory / "backups" / str(time.time_ns()))
         journal = []
         for path, content, secret in changes:
@@ -188,8 +200,11 @@ class ClientMigration:
             digest = hashlib.sha256(current).hexdigest() if current is not None else None
             if str(path) in self.expected_versions and digest != self.expected_versions[str(path)]:
                 raise ValueError("Client config changed after preparation; prepare the migration again")
-            journal.append({"path": str(path), "before": base64.b64encode(path.read_bytes()).decode() if path.exists() else None,
-                            "after": base64.b64encode(content.encode()).decode()})
+            record = {"path": str(path), "before": base64.b64encode(path.read_bytes()).decode() if path.exists() else None,
+                      "after": base64.b64encode(content.encode()).decode()}
+            if path == self.directory / "client-configs.json":
+                record["inventory"] = True
+            journal.append(record)
         write_json(backups / "changes.json", journal)
         write_json(self.directory / "migration.json", {"backup": str(backups), "state": "applying"})
         if on_prepared:
@@ -217,6 +232,9 @@ class ClientMigration:
 
     def restore(self, backup, *, check=True):
         records = read_json(Path(backup) / "changes.json", [])
+        # Keep discovery metadata, including restored legacy paths. A later profile
+        # migration must not prevent restoring an unrelated earlier client backup.
+        records = [record for record in records if not record.get("inventory")]
         if check:
             for record in records:
                 path = Path(record["path"])
