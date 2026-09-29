@@ -70,7 +70,10 @@ explore parts in parallel; keep the final plan in one comment.
 
 1. Post the plan as a new comment. A replan posts a new version; it never edits
    an older plan, so each version stays reviewable.
-2. Update the state: `plan.version`, `plan.comment_id`, and
+2. Immediately update the state: `plan.version`, `plan.comment_id`, and
    `plan.issue_updated_at` set to the issue's current `updated_at`; phase `planned`.
+   Whenever a later step needs the plan, treat the newest comment carrying
+   `<!-- issue-agent:plan vN -->` as authoritative if it is newer than the state
+   entry (a session can end between posting and saving), and repair the state.
 3. For `@agent run`, continue directly with
    [issue-implementation](issue-implementation.md) using this version.

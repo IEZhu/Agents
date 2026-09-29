@@ -37,6 +37,7 @@ jobs:
         && !contains(github.event.comment.body, '<!-- issue-agent'))
       || (github.event_name == 'pull_request_review'
         && contains(fromJSON('["copilot-pull-request-reviewer[bot]", "coderabbitai[bot]"]'), github.event.review.user.login)
+        && github.event.pull_request.head.repo.full_name == github.repository
         && startsWith(github.event.pull_request.head.ref, 'claude/issue-'))
     steps:
       - name: Fire the routine
