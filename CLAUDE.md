@@ -129,9 +129,11 @@ Keep reusable model task instructions in `flows/`; see the
 [workflow catalog and authoring guide](flows/README.md).
 `list_flows()` discovers built-in, personal (`user:`) and repository (`repo:`)
 workflows; `run_flow(...)` returns their instructions bound to the caller's
-repository. `get_flow`/`save_flow`/`delete_flow` manage personal flows, stored in
-the git-ignored `flows/.user` (`src/user_flows.py`; editor in `src/daemon/flows_ui.py`). Continue executing a
-`needs_execution` bundle against its `repo_path` with the current model's tools.
+repository; a bare ID resolves `repo:`, then `user:`, then the built-in.
+`get_flow`/`save_flow`/`delete_flow` manage personal and repository flows, stored
+in the git-ignored `flows/.user` (`src/user_flows.py`; the daemon's `/ui` editor
+is `src/daemon/flows_ui.py`). Continue executing a `needs_execution` bundle
+against its `repo_path` with the current model's tools.
 The loader is in `src/flows.py`; installation source paths and target paths
 have different roles and must not be interchanged.
 For PR/MR review, follow [flows/pr-review.md](flows/pr-review.md), including

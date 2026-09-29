@@ -110,6 +110,8 @@ was the same persona and rules text re-sent within one conversation.
 
 1. Keep the persona on continuing turns: protocol 2 by default, or have v1 return
    NO_CHANGE for the same agent with a valid hash, and raise the hash-cache TTL to 1–2 h.
+   (Resolved: protocol 2 became the installer default on 2026-09-26, and protocol 1,
+   with its hash cache and sticky branch, was removed on 2026-09-29.)
 2. Return a ranked short candidate list instead of all 43 agents.
 3. Telemetry: set `session_id`, client and protocol tags and `release` (the running
    commit) on every trace (`propagate_attributes` in `src/server.py`); chain

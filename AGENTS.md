@@ -12,7 +12,7 @@ take precedence.
 - [README.md](README.md): installation, configuration and user-facing behavior.
 - [Documentation map](docs/README.md): maintained references and historical plans.
 - [Model workflows](flows/README.md): reusable task instructions to execute on request.
-- [Routing reference](docs/routing_flow.md): protocol 2 and version 1 compatibility.
+- [Routing reference](docs/routing_flow.md): protocol 2, client compatibility and migration.
 - [Session playbook](docs/session-playbook.md): worktrees, reviews and evaluations.
 - [Tests](tests/README.md): setup, focused checks and the regular suite.
 
@@ -32,6 +32,9 @@ their recorded revision; they do not override the current implementation.
   against its `repo_path`. Source files come from the MCP installation; target
   instructions, edits and checks belong to the caller. `needs_execution` requires
   the current model to continue the work; it is not a completion result.
+  Personal (`user:`) and repository (`repo:`) flows live in the installation's
+  git-ignored `flows/.user`; `get_flow`, `save_flow` and `delete_flow` manage
+  them without touching tracked flows or the caller's working tree.
 - Write all repository documentation in English, including AI instructions,
   plans, and reports. Retain other languages only for necessary passages such as
   verbatim quotations, language-specific examples or test data, and original

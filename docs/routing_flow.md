@@ -152,11 +152,12 @@ and report unavailable memory without retrying logging in a loop. For
 `needs_summary`, preserve `workspace_id`, `repo_path`, and `repo_hash` in the
 follow-up write. See [memory and errors](shared-mcp-daemon.md#memory-and-errors).
 
-Repository workflows use the same workspace identity. `list_flows()` reads the
-installation catalog without a workspace; `run_flow(...)` requires one over
-HTTP and returns instructions bound to the caller's `repo_path`. The current
-model executes the flow with its own tools and active persona. Loading a flow
-does not route, replace a persona or complete the task. See the
+Repository workflows use the same workspace identity. `list_flows()`,
+`get_flow`, `save_flow` and `delete_flow` handle built-in and personal (`user:`)
+flows without a workspace; repository (`repo:`) flows and `run_flow(...)` require
+one over HTTP. `run_flow` returns instructions bound to the caller's `repo_path`.
+The current model executes the flow with its own tools and active persona.
+Loading a flow does not route, replace a persona or complete the task. See the
 [workflow contract](../flows/README.md#through-agents-core-mcp).
 
 ## Compatibility
