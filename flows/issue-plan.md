@@ -49,6 +49,11 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 2. ...
 </details>
 
+<details open><summary>Diagram</summary>
+
+(mermaid flowchart, see below)
+</details>
+
 <details><summary>Tests and checks</summary> ... </details>
 <details><summary>Risks and pre-mortem</summary> ... </details>
 <details><summary>Out of scope</summary> ... </details>
@@ -58,6 +63,20 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 
 To execute: `@agent run_plan v2`. To change it: `@agent replan <what to change>`.
 ```
+
+Add a **Mermaid diagram** when the plan has more than two steps, branches, or
+touches several components: a `flowchart` of the steps, or of the data or control
+flow the change affects. GitHub and GitLab render a fenced block that starts with
+three backticks and `mermaid` in issue comments; other viewers still show readable
+source. Keep it small (about 15 nodes at most), one diagram per plan, and make it
+parse:
+
+- Use `flowchart TD` or `flowchart LR`; give nodes short ids and put labels in
+  double quotes, for example `A["Validate input (issue #12)"]`, so parentheses,
+  colons and non-Latin text do not break parsing.
+- Do not use HTML, Markdown links or unquoted special characters in labels.
+- Mark new or changed components with a class, for example
+  `classDef changed stroke-width:3px` and `class B,C changed`.
 
 The **pre-mortem** assumes the change has shipped and caused a problem, then
 lists the most likely causes (regressions, data loss, security, compatibility,
