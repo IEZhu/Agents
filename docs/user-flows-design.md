@@ -1,6 +1,7 @@
 # Personal flows across MCP clients
 
-Status: proposed design, not implemented. Date: 2026-09-28.
+Status: proposed design, not implemented. Date: 2026-09-28; scopes and tracked-flow
+editing added 2026-09-29.
 
 ## Decision and agreed scope
 
@@ -12,6 +13,12 @@ about runs. A repository is optional context for one run; it does not own a flow
 
 The user explicitly selected execution in the current chat and clarified that
 separating personal flows from repositories is the purpose of this change.
+A 2026-09-29 extension keeps that personal library and adds two more sources
+managed from chat and the editor: flows tracked in a project repository, and the
+flows shipped with Agents-Core. Editing a tracked flow must never dirty or switch
+the branch a user is working on; see [scopes and git-safe
+editing](#scopes-and-git-safe-editing-of-tracked-flows).
+
 This design covers one operating-system user on one machine. Background execution,
 scheduling, cross-device synchronization and multi-user collaboration require
 separate designs. No server-side LLM or workflow worker is required here.
@@ -19,15 +26,15 @@ separate designs. No server-side LLM or workflow worker is required here.
 ## Verified starting point
 
 Inspected `main` at `a27ffea` and the separate `codex/mcp-repository-flows`
-worktree at `04eaddc`. The latter is four commits ahead of that main revision;
-its changes must not be described as present in main.
+worktree at `04eaddc`. That flow branch has since merged as #99 and is present in
+`main` at `a5b109f`, which also removed persona protocol 1 (#101).
 
 | Area | Existing behavior | Consequence |
 |---|---|---|
 | Shared daemon | `src/daemon/app.py` serves MCP in one Python process and exposes authenticated health data | Add the web adapter to this process and reuse its runtime |
 | Service state | `src/daemon/state.py:state_dir` includes a hash of the installation path | Personal data needs a new stable location independent of this function |
 | Workspace | `src/daemon/workspaces.py` resolves explicit workspace identities; HTTP never uses cwd as a fallback | Library operations require no workspace; runs request one only when needed |
-| Existing flow branch | `src/flows.py` reads Markdown from `INSTALL_ROOT/flows`; `list_flows` and `run_flow` expose it | Retain the execution handoff; introduce a separate personal provider |
+| Installed flows (#99) | `src/flows.py` reads Markdown from `INSTALL_ROOT/flows`; `list_flows` and `run_flow` expose it | Retain the execution handoff; introduce personal and repository providers |
 | Existing handoff | `run_flow` returns `needs_execution`, content and its SHA-256; the client model executes | Extend with a pinned saved version and a run identity |
 | Existing telemetry | `src/server.py:log_interaction` writes project history and optional Langfuse; attribution is client-reported | Add a dedicated global run ledger |
 | Project history | `src/memory/history.py` deduplicates by content and rotates the current history file | It cannot provide reliable counts of distinct flow runs |
@@ -242,6 +249,129 @@ workspace is an error rather than a silent fallback. For other runs, no cwd or
 installation directory is inferred. A run can carry an optional project label,
 which is clearly distinguished from a validated workspace identity.
 
+## Scopes and git-safe editing of tracked flows
+
+### Three sources, one catalog
+
+| Source | Identity | Where the definition lives | Who can change it |
+|---|---|---|---|
+| Agent (personal) | `user:<slug>` | Personal SQLite library | The user, from any client or the editor |
+| Repository | `repo:<slug>` | `<repo>/.agents/flows/<slug>.md`, tracked in that repository | Whoever can commit there; locally through an overlay |
+| Built-in | `builtin:<slug>` | `INSTALL_ROOT/flows/<slug>.md`, tracked in the Agents-Core checkout | Agents-Core maintainers; locally through an overlay |
+
+"Agent level" in chat means the personal library: it follows the user into every
+project and client. "Repository level" means flows committed with a project, so
+everyone who clones it gets them. A personal flow can also carry an optional
+repository binding (the normalized `origin` URL, or the workspace UUID when there
+is no remote). The binding only filters and ranks the list for that project; it
+is not an ownership boundary and does not put the flow into the repository.
+
+`repo:` uses `.agents/flows/` rather than a top-level `flows/`, so a project's own
+unrelated `flows/` directory is never read as instructions. Reading it needs a
+resolved workspace, the same one `run_flow` already requires; its path confinement
+and 256 KiB limit apply. Repository flows are shown only for that workspace.
+
+`list_flows(scope=...)` accepts `all`, `user`, `repo` and `builtin`; the existing
+no-argument call keeps returning the installed catalog. Every entry reports its
+qualified identity, source, revision and whether a local overlay is active.
+Qualified names never shadow each other. A bare name keeps its current meaning
+(`builtin:`) for compatibility; a bare name that also exists in another scope
+returns `flow_ambiguous` with the candidates rather than guessing.
+
+### Chat management
+
+| User says | Operation |
+|---|---|
+| "Save this as my flow" / "for all projects" | Draft and publish `user:<slug>` |
+| "Save this flow for this repository only" | `user:<slug>` with a repository binding |
+| "Add a flow to this repository for the team" | Proposal branch with `.agents/flows/<slug>.md` (see below) |
+| "Change pr-review for me" | Overlay on `builtin:pr-review` |
+| "Change pr-review in Agents-Core itself" | Overlay plus a proposal branch in the Agents-Core checkout |
+| "Show my flows here" | `list_flows(scope="all")` in the current workspace |
+
+The model states the scope it chose in its reply. When the request does not
+determine the scope and the choice changes who sees the flow, it asks once.
+
+### Why tracked files are not edited in place
+
+A tracked flow file sits in a working tree that the user is using for something
+else. Writing it from chat or the browser would:
+
+- leave uncommitted changes on whatever branch is checked out, which then ride
+  into an unrelated commit or block `git pull` and `git checkout`;
+- race with the user's own edits and with other sessions sharing that checkout;
+- for built-ins, change the running installation, because the daemon reads
+  `INSTALL_ROOT/flows` directly;
+- be lost or conflict on the next installation update.
+
+The server therefore never writes into a checked-out working tree. Tracked flows
+change in two separate, explicit ways.
+
+### Local overlay (default)
+
+Editing a `repo:` or `builtin:` flow creates an overlay in the personal library:
+
+| Field | Meaning |
+|---|---|
+| `target` | Qualified identity, plus the repository identity for `repo:` |
+| `base_revision` | SHA-256 of the tracked file the edit started from |
+| `definition`, versions | Same draft/publish/restore rules as personal flows |
+| `state` | `active`, `paused`, `upstreamed` or `discarded` |
+
+While an overlay is `active`, `run_flow` returns its pinned version with
+`source="overlay"`, the target and `base_revision`. Git sees nothing: no file,
+branch or index changes. Pausing or discarding it restores the tracked version
+immediately.
+
+When the tracked file changes (a pull, an Agents-Core update), its revision no
+longer matches `base_revision`. The overlay keeps working, but the response and
+the editor mark it `upstream_changed` and offer a three-way view: base, current
+upstream, overlay. "Rebase" produces a new overlay draft against the new upstream;
+conflicts are shown, never auto-resolved. When the upstream content becomes
+identical to the overlay, the overlay turns `upstreamed` and stops taking effect.
+
+### Proposal branch (explicit)
+
+"Change it in the repository" means preparing a commit that others can review.
+The server does it without touching the user's checkout:
+
+1. Require a registered workspace (for `repo:`) or the installation checkout (for
+   `builtin:`), a clean `git` executable and a resolvable default branch.
+2. `git fetch` the default branch's remote, then create a temporary worktree under
+   the service state directory: `git worktree add --no-track -b
+   flows/<slug>-<yyyymmdd>-<short-id> <path> <remote>/<default>`. The explicit
+   `--no-track` follows the user's rule that a feature branch must not track
+   another branch's upstream.
+3. Refuse when the target file in that fresh base differs from the overlay's
+   `base_revision`; return a conflict so the user rebases the overlay first.
+4. Write only `.agents/flows/<slug>.md` (or `flows/<slug>.md` for Agents-Core),
+   commit with the repository's configured author identity and a generated
+   message, and remove the temporary worktree. The branch stays.
+5. Return the branch name and commit. Pushing and opening a PR are separate,
+   explicit steps done by the chat model with the user's own tools and
+   permissions; the server never pushes.
+
+Keep the overlay active until that change reaches the default branch, then it
+becomes `upstreamed`. The user keeps the improved flow in the meantime, and the
+proposal branch carries it to everyone else.
+
+Failure behavior: a missing `git`, no remote, a detached or unborn default branch,
+or a locked worktree each return a specific error and leave no partial branch.
+Never run `stash`, `reset`, `checkout` or `clean` in the user's working tree.
+Branch names are validated and generated, never taken verbatim from chat text.
+
+### Editor
+
+The same views serve all three sources, with source badges and filters:
+
+- Personal flows: full editing.
+- Tracked flows: read-only upstream text, an "Edit locally" action that creates an
+  overlay, and "Propose to repository" when an overlay exists.
+- Overlays: diff against upstream, `upstream_changed` warning, rebase, pause and
+  discard.
+- A tracked flow's history is its git log for that file (read-only); overlay and
+  personal histories come from the library.
+
 ## Proposed MCP and web contracts
 
 All names and paths in this section are proposals. `list_flows` and `run_flow`
@@ -249,11 +379,13 @@ already exist only on the inspected flow branch; extend them compatibly.
 
 | MCP operation | Responsibility |
 |---|---|
-| `list_flows(source, query, tags, cursor)` | Summaries and source identity; bounded pages; valid entries plus per-entry issues |
+| `list_flows(scope, query, tags, cursor)` | Summaries, qualified identity, overlay state; bounded pages; valid entries plus per-entry issues |
 | `get_flow(flow, version, view)` | Published definition, selected saved version or current draft; optional version history |
 | `save_flow_draft(flow?, definition, expected_draft_revision, mutation_id)` | Create or update a validated draft |
 | `publish_flow(flow, expected_draft_revision, expected_head, mutation_id)` | Publish atomically |
 | `set_flow_archived(flow, archived, expected_metadata_revision, mutation_id)` | Archive or unarchive |
+| `set_flow_overlay(target, state, expected_metadata_revision, mutation_id)` | Create, pause, resume, rebase or discard an overlay on a tracked flow |
+| `propose_flow_change(target, overlay_version, mutation_id)` | Create a local proposal branch and commit; never pushes |
 | `run_flow(flow, request, repo_path?, version?, inputs?, invocation_id?)` | Return pinned instructions and, for tracked invocations, a run receipt |
 | `report_flow_run(run_id, event_id, expected_sequence, event)` | Record start, checkpoint, waiting/resume or terminal report |
 | `get_flow_run(run_id)` | Restore a receipt, snapshot and current reported progress |
@@ -468,7 +600,19 @@ running versions stay pinned; legacy handoffs and missing reports do not inflate
 success. Fixed fixture data produces the documented denominators. Test disconnects,
 late reports, out-of-order events and retention boundaries.
 
-### 3. Local manager
+### 3. Repository flows and overlays
+
+Add the `repo:` provider for `.agents/flows/`, scoped listing, `flow_ambiguous`,
+overlays with base revisions and rebase, and `propose_flow_change` for both
+repository and built-in flows.
+
+Acceptance: an overlay changes `run_flow` output while `git status` in the
+target checkout stays clean; an upstream change marks the overlay and rebase
+preserves it; a proposal creates one commit on a new untracked branch from the
+fresh default branch, without changing the current branch, index or working tree;
+a stale base is refused; a failure leaves no partial branch or worktree.
+
+### 4. Local manager
 
 Add packaged UI assets, a thin web API and browser-session bootstrap. Include the
 library/editor/history/overview views and “Use in chat”. Use the same service and
@@ -490,7 +634,7 @@ Add backup/restore and schema-migration failure tests before enabling migrations
 
 Document the personal path, lifecycle, contracts, retained data, recovery and
 installation independence in README and a maintained reference. Update the
-default and v1 routing templates, then regenerate managed instructions through
+routing template, then regenerate managed instructions through
 the repository helper. Do not turn this design document into a reusable task flow
 or modify live client configurations as part of design work.
 
@@ -504,6 +648,7 @@ or modify live client configurations as part of design work.
 | Client execution and reported progress | Reuses the current model, tools and permissions | Completion and tool usage are not independently observable |
 | Structured inputs plus Markdown instructions | Easy chat authoring and readable diffs | Complex branching remains prose; executable graphs need a future runner |
 | Explicit use and independent imports | Predictable behavior and ownership | Users choose when to copy improvements from built-ins |
+| Overlays and proposal branches for tracked flows | The user's checkout and branch stay untouched; changes reach others through review | Two places to look (overlay vs upstream) and an explicit rebase when upstream moves; editing files in place is simpler but dirties branches |
 
 The first useful milestone is a personal flow created in one chat, changed in a
 second client and executed in a third without any repository owning its definition.
