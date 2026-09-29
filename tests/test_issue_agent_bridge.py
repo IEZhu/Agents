@@ -42,10 +42,11 @@ def comment(body, *, login=OWNER, user_type="User", comment_id=SOURCE_ID):
     return {"id": comment_id, "body": body, "user": {"login": login, "type": user_type}}
 
 
-def acknowledgement(*, login=OWNER, bridge_id=STATUS_ID):
+def acknowledgement(*, login=OWNER, bridge_id=STATUS_ID, user_type="User"):
     return comment(
         f"<!-- issue-agent -->\n<!-- issue-agent:started bridge_comment_id={bridge_id} -->\nWorking on it.",
         login=login,
+        user_type=user_type,
     )
 
 
@@ -141,7 +142,7 @@ class BridgeRun:
         monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_review")
         self.event = {
             "action": "submitted",
-            "review": comment("Review body", login=login),
+            "review": comment("/agent work", login=login, user_type="Bot" if login.endswith("[bot]") else "User"),
             "pull_request": {"number": 17, "head": {"ref": "claude/issue-17", "repo": {"full_name": REPO}}},
         }
 
@@ -149,6 +150,20 @@ class BridgeRun:
 @pytest.fixture
 def bridge(bridge_namespace, tmp_path, monkeypatch):
     return BridgeRun(bridge_namespace, tmp_path, monkeypatch)
+
+
+def test_workflow_subscribes_only_to_new_owner_comments(workflow):
+    assert workflow["on"] == {"issue_comment": {"types": ["created"]}}
+    condition = " ".join(workflow["jobs"]["fire"]["if"].split())
+    for guard in (
+        "github.event_name == 'issue_comment'",
+        "vars.AGENT_OWNER != ''",
+        "github.event.comment.user.type == 'User'",
+        "github.event.comment.user.login == vars.AGENT_OWNER",
+    ):
+        assert guard in condition
+    assert "pull_request_review" not in condition
+    assert "||" not in condition
 
 
 @pytest.mark.parametrize("body", ["/agent", "/agent work", "/agent\nstatus", "/agent\tstop"])
@@ -167,43 +182,75 @@ def test_noncommands_and_agent_markers_are_ignored(bridge, body):
     assert bridge.output_path.read_text() == ""
 
 
-@pytest.mark.parametrize("change", ["different_owner", "owner_case", "edited", "deleted", "unknown_event"])
-def test_untrusted_or_wrong_comment_events_are_ignored(bridge, monkeypatch, change):
+@pytest.mark.parametrize("change", ["different_owner", "owner_case", "edited", "deleted"])
+def test_untrusted_or_wrong_comment_events_are_ignored(bridge, change):
     if change == "different_owner":
         bridge.event["comment"]["user"]["login"] = "outsider"
     elif change == "owner_case":
         bridge.event["comment"]["user"]["login"] = OWNER.upper()
-    elif change == "unknown_event":
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     else:
         bridge.event["action"] = change
     bridge.run()
     assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
 
 
-@pytest.mark.parametrize("login", ["coderabbitai[bot]", "copilot-pull-request-reviewer[bot]"])
-def test_bot_review_reacts_to_status_and_sends_review_pointer(bridge, monkeypatch, login):
-    bridge.review(monkeypatch, login)
-    bridge.run()
-    assert len(bridge.fires) == 1
-    assert bridge.reactions[0]["url"].endswith(f"/issues/comments/{STATUS_ID}/reactions")
-    assert bridge.calls.index(bridge.reactions[0]) < bridge.calls.index(bridge.fires[0])
-    assert bridge.fires[0]["body"] == {"text": f"repo={REPO} event=pull_request_review number=17 comment_id= review_id={SOURCE_ID} bridge_comment_id={STATUS_ID}"}
-
-
-@pytest.mark.parametrize("change", ["human", "other_bot", "dismissed", "fork", "deleted_fork", "wrong_branch"])
-def test_review_guard_rejects_untrusted_sources(bridge, monkeypatch, change):
-    bridge.review(monkeypatch)
-    if change in {"human", "other_bot"}:
-        bridge.event["review"]["user"]["login"] = OWNER if change == "human" else "other[bot]"
-    elif change == "dismissed":
-        bridge.event["action"] = "dismissed"
-    elif change == "wrong_branch":
-        bridge.event["pull_request"]["head"]["ref"] = "feature/issue-17"
-    else:
-        bridge.event["pull_request"]["head"]["repo"] = None if change == "deleted_fork" else {"full_name": "outsider/project"}
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR", "NONE"])
+def test_other_people_cannot_authorize_commands_through_role_or_display_name(bridge, association):
+    bridge.event["comment"]["user"].update(login="another-person", name=OWNER)
+    bridge.event["comment"]["author_association"] = association
     bridge.run()
     assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("login", ["coderabbitai[bot]", "copilot-pull-request-reviewer[bot]", "github-actions[bot]", "automation-account"])
+def test_bot_comments_are_rejected_even_if_configured_as_owner(bridge, monkeypatch, login):
+    monkeypatch.setenv("AGENT_OWNER", login)
+    bridge.event["comment"]["user"].update(login=login, type="Bot")
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("user_type", ["Mannequin", None])
+def test_comment_requires_a_human_user_type(bridge, user_type):
+    if user_type is None:
+        del bridge.event["comment"]["user"]["type"]
+    else:
+        bridge.event["comment"]["user"]["type"] = user_type
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("owner_setting", [None, ""])
+def test_unconfigured_owner_fails_closed(bridge, monkeypatch, owner_setting):
+    if owner_setting is None:
+        monkeypatch.delenv("AGENT_OWNER")
+    else:
+        monkeypatch.setenv("AGENT_OWNER", owner_setting)
+    bridge.event["comment"]["user"]["login"] = ""
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("login", [OWNER, "another-person", "coderabbitai[bot]", "copilot-pull-request-reviewer[bot]", "other[bot]"])
+def test_reviews_never_dispatch_even_on_agent_branch_in_same_repository(bridge, monkeypatch, login):
+    bridge.review(monkeypatch, login)
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("event_name", ["pull_request_review", "pull_request_review_comment", "pull_request", "push"])
+def test_unsubscribed_event_is_ignored_without_comment_fields(bridge, monkeypatch, event_name):
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event_name)
+    bridge.event = {}
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
 
 
 def test_literal_command_is_never_executed_or_forwarded(bridge, tmp_path):
@@ -212,7 +259,7 @@ def test_literal_command_is_never_executed_or_forwarded(bridge, tmp_path):
     bridge.event["comment"]["body"] = command
     bridge.run()
     assert not sentinel.exists()
-    assert bridge.fires[0]["body"] == {"text": f"repo={REPO} event=issue_comment number=17 comment_id={SOURCE_ID} review_id= bridge_comment_id={STATUS_ID}"}
+    assert bridge.fires[0]["body"] == {"text": f"repo={REPO} event=issue_comment number=17 comment_id={SOURCE_ID} bridge_comment_id={STATUS_ID}"}
     assert OWNER not in bridge.fires[0]["body"]["text"]
     assert command not in json.dumps(bridge.calls)
     assert "OWNER-COMMAND-PRIVATE" not in "\n".join(bridge.statuses)
@@ -223,6 +270,7 @@ def test_literal_command_is_never_executed_or_forwarded(bridge, tmp_path):
 @pytest.mark.parametrize("bad_ack", [
     acknowledgement(login="outsider"),
     acknowledgement(login=OWNER.upper()),
+    acknowledgement(user_type="Bot"),
     acknowledgement(bridge_id=STATUS_ID + 1),
     comment(f"preface\n<!-- issue-agent -->\n<!-- issue-agent:started bridge_comment_id={STATUS_ID} -->"),
     comment(f"<!-- issue-agent -->\n\n<!-- issue-agent:started bridge_comment_id={STATUS_ID} -->"),

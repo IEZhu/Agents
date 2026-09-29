@@ -119,10 +119,18 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 ## Issue agent
 
 The issue agent runs [flows/issue-agent.md](../flows/issue-agent.md) in a cloud
-session when the owner writes a `/agent` command (`plan`, `replan`, `run_plan`,
-`run`, `fix`, `review`, `status`, `stop`, `help`) in an issue or pull request of a
-target repository. The flows live in this repository; the target can be any
-repository the routine clones.
+session when the configured owner writes a `/agent` command (`plan`, `replan`,
+`run_plan`, `run`, `fix`, `review`, `status`, `stop`, `help`) in an issue or pull
+request of a target repository. The flows live in this repository; the target
+can be any repository the routine clones.
+
+Only comments whose GitHub author login matches `AGENT_OWNER` and whose author
+type is `User` can trigger it. Set `AGENT_OWNER` to the exact login of the one
+allowed user; a missing or empty setting disables dispatch. Display names,
+mentions, and collaborator or member status grant no command access. Bot reviews
+and other people's comments are evidence within the owner's task; they do not
+start or resume sessions. To process a review after a session has ended, the
+owner sends `/agent review`.
 
 Post commands as new ordinary comments in the issue or the PR's Conversation
 tab, starting with `/agent` as the first characters. The slash prefix avoids
@@ -131,17 +139,17 @@ in an inline code review thread does not trigger the bridge.
 
 **Why a bridge.** Routine GitHub triggers cover pull request and release events.
 A trigger for `issue_comment` was accepted by the API in 2026-09 but never fired,
-so a small GitHub Actions workflow forwards comments and review-bot reviews to the
+so a small GitHub Actions workflow forwards verified owner command comments to the
 routine's API trigger. It runs no model and sends only a pointer (repository,
-number, comment or review id, and bridge status comment id); the agent reads and
+number, command comment id, and bridge status comment id); the agent reads and
 verifies the referenced comments itself.
 
 **Visible progress and failures.** The bridge posts a status comment and adds
-its own 👀 reaction to the command comment (or to the status comment for a review
-event). Once Claude verifies the event, it adds a separate reaction under the
-owner's account and posts a startup acknowledgement. The bridge waits up to five
-minutes for that acknowledgement, updates its status, and removes its own
-reaction. It stops waiting as soon as the acknowledgement arrives. This watch
+its own 👀 reaction to the command comment. Once Claude verifies the event, it
+adds a separate reaction under the owner's account and posts a startup
+acknowledgement. The bridge waits up to five minutes for that acknowledgement,
+updates its status, and removes its own reaction. It stops waiting as soon as
+the acknowledgement arrives. This watch
 uses GitHub Actions runner time. Claude removes only its own newly created
 reaction on normal exits; pre-existing reactions are preserved. A forcibly stopped
 runner or cloud session may leave its reaction behind.
@@ -180,11 +188,15 @@ When updating an existing installation, publish these flows first, then update
 the copied bridge on the target's default branch. For Agents.Private, merge the
 public Agents flow change before its private bridge change, so new sessions know
 how to acknowledge startup. Update any command examples or prefix checks in the
-routine's saved prompt to `/agent` as well. Older callers without
-`bridge_comment_id` remain supported, but have no bridge startup acknowledgement.
+routine's saved prompt to `/agent` as well, and keep its owner login aligned with
+`AGENT_OWNER`. Older comment callers without `bridge_comment_id` remain supported,
+but have no bridge startup acknowledgement. Review event payloads are rejected.
 
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
 pull requests, reviews), acting as the owner's account; `gh` is not installed.
 Because the agent's comments appear under the owner's login, each one starts with
 `<!-- issue-agent -->` and never with `/agent`; the bridge and the flow both ignore
 such comments. Routine runs count against the account's daily routine allowance.
+
+State, plan, and question comments must also pass owner-author and issue checks;
+an agent marker copied by another person does not make their comment trusted.

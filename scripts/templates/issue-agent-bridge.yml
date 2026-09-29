@@ -2,7 +2,7 @@
 # Copy to .github/workflows/issue-agent-bridge.yml in the target repository.
 #
 # Claude Code routine GitHub triggers cover pull request and release events only,
-# so this workflow forwards /agent comments and review-bot reviews to the routine's
+# so this workflow forwards only the configured owner's /agent comments to the routine's
 # API trigger. It runs no model and passes only a pointer to the event; the agent
 # re-reads and re-verifies the comment itself.
 #
@@ -15,14 +15,12 @@ name: issue-agent-bridge
 on:
   issue_comment:
     types: [created]
-  pull_request_review:
-    types: [submitted]
 
 permissions: {}
 
 concurrency:
   # Serialize redelivery without blocking status/stop behind another startup watch.
-  group: issue-agent-${{ github.event_name }}-${{ github.event.comment.id || github.event.review.id }}
+  group: issue-agent-${{ github.event.comment.id }}
   cancel-in-progress: false
 
 jobs:
@@ -34,14 +32,13 @@ jobs:
     # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
     # agent cannot trigger itself even though it posts as the owner.
     if: >-
-      (github.event_name == 'issue_comment'
-        && github.event.comment.user.login == vars.AGENT_OWNER
-        && startsWith(github.event.comment.body, '/agent')
-        && !contains(github.event.comment.body, '<!-- issue-agent'))
-      || (github.event_name == 'pull_request_review'
-        && contains(fromJSON('["copilot-pull-request-reviewer[bot]", "coderabbitai[bot]"]'), github.event.review.user.login)
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && startsWith(github.event.pull_request.head.ref, 'claude/issue-'))
+      github.event_name == 'issue_comment'
+      && github.event.action == 'created'
+      && vars.AGENT_OWNER != ''
+      && github.event.comment.user.type == 'User'
+      && github.event.comment.user.login == vars.AGENT_OWNER
+      && startsWith(github.event.comment.body, '/agent')
+      && !contains(github.event.comment.body, '<!-- issue-agent')
     steps:
       # No checkout: comments and PR code never become executable runner code.
       - name: Dispatch and confirm startup
@@ -90,24 +87,18 @@ jobs:
               env = os.environ
               with open(env["GITHUB_EVENT_PATH"]) as handle:
                   event = json.load(handle)
-              kind, repo, owner = env["GITHUB_EVENT_NAME"], env["GITHUB_REPOSITORY"], env["AGENT_OWNER"]
-              if kind == "issue_comment":
-                  source = event["comment"]
-                  body = source.get("body") or ""
-                  if (event.get("action") != "created" or source["user"]["login"] != owner
-                          or not re.match(r"^/agent(?:\s|$)", body) or "<!-- issue-agent" in body):
-                      return
-                  number = event["issue"]["number"]
-              elif kind == "pull_request_review":
-                  source, pr = event["review"], event["pull_request"]
-                  if (event.get("action") != "submitted"
-                          or source["user"]["login"] not in {"copilot-pull-request-reviewer[bot]", "coderabbitai[bot]"}
-                          or (pr["head"].get("repo") or {}).get("full_name") != repo
-                          or not pr["head"]["ref"].startswith("claude/issue-")):
-                      return
-                  number = pr["number"]
-              else:
+              kind, repo = env["GITHUB_EVENT_NAME"], env["GITHUB_REPOSITORY"]
+              owner = env.get("AGENT_OWNER", "")
+              if kind != "issue_comment" or not owner:
                   return
+              source = event["comment"]
+              user = source.get("user") or {}
+              body = source.get("body") or ""
+              if (event.get("action") != "created" or user.get("type") != "User"
+                      or user.get("login") != owner or not re.match(r"^/agent(?:\s|$)", body)
+                      or "<!-- issue-agent" in body):
+                  return
+              number = event["issue"]["number"]
 
               api = f"{env['GITHUB_API_URL']}/repos/{repo}"
               run_url = f"{env['GITHUB_SERVER_URL']}/{repo}/actions/runs/{env['GITHUB_RUN_ID']}"
@@ -151,7 +142,7 @@ jobs:
 
               since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=60)).isoformat()
               status("👀 Command received. Waiting for Claude to confirm startup (up to 5 minutes).")
-              reaction_target = source["id"] if kind == "issue_comment" else comment_id
+              reaction_target = source["id"]
               reaction_path = f"/issues/comments/{reaction_target}/reactions"
               session = ""
               fired = False
@@ -170,8 +161,7 @@ jobs:
                       status("Launch blocked: configure CLAUDE_ROUTINE_TOKEN and CLAUDE_ROUTINE_ID in this repository. Send a new command after fixing the configuration.")
                       return
                   text = (f"repo={repo} event={kind} number={number} "
-                          f"comment_id={source['id'] if kind == 'issue_comment' else ''} "
-                          f"review_id={source['id'] if kind == 'pull_request_review' else ''} "
+                          f"comment_id={source['id']} "
                           f"bridge_comment_id={comment_id}")
                   fired = True
                   code, response, headers = request(
@@ -196,7 +186,8 @@ jobs:
                   deadline = time.monotonic() + 300
                   while True:
                       for comment in comments(since, deadline):
-                          if ((comment.get("user") or {}).get("login") == owner
+                          if ((comment.get("user") or {}).get("type") == "User"
+                                  and (comment.get("user") or {}).get("login") == owner
                                   and (comment.get("body") or "").splitlines()[:2] == ["<!-- issue-agent -->", ack]):
                               status(f"Claude confirmed startup. {session}. The agent posts progress and the result in this thread.")
                               return
