@@ -88,6 +88,7 @@ uses a cached `intfloat/multilingual-e5-large` snapshot selected by its controll
 | `AGENTS_CLIENT_REPO_ROOT` | Nearest `.git` or `CLAUDE.md` above the process working directory; otherwise that directory | Explicit stdio memory target |
 | `RULES_ENABLED` | `1` | Include shared rules in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
+| `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
 
 Routing thresholds and enrichment settings are defined in
 [src/engine/config.py](src/engine/config.py). HTTP memory uses a registered
@@ -193,7 +194,7 @@ The server exposes MCP tools that any compatible client can call:
 |------|---------|
 | `route_and_load(query)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
-| `refresh_persona_context(query, current_persona)` | Protocol 2: refresh skills/implants for the active role |
+| `refresh_persona_context(query, current_persona)` | Refresh skills/implants for the active role without reselecting it |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
@@ -222,6 +223,13 @@ The tool reads and returns instructions; the current model executes them with
 its existing permissions and tools. `needs_execution` does not mean the work is
 complete. See the [workflow guide](flows/README.md#through-agents-core-mcp) for
 the response contract, target resolution, and authoring rules.
+
+Besides the built-in flows, users keep personal (`user:`) and per-repository
+(`repo:`) flows in the installation's git-ignored `flows/.user`. Ask the model to
+save, change, restore or delete one; it uses `get_flow`, `save_flow` and
+`delete_flow`. A bare flow name resolves `repo:`, then `user:`, then the built-in.
+With the shared daemon, `.venv/bin/python -m src.daemon flows-ui` opens a local
+[flow editor](docs/shared-mcp-daemon.md#flow-editor).
 
 ### Persona continuity
 
@@ -304,7 +312,9 @@ Agents/
 │   ├── startup.py        # Installation leases and isolated stdio indexes
 │   ├── self_update.py    # Standalone staged updates
 │   ├── reindex.py        # Skill and implant index rebuild
-│   ├── daemon/           # HTTP app, service control, workspaces, client migration
+│   ├── flows.py          # Built-in flow catalog and run_flow bundles
+│   ├── user_flows.py     # Personal and repository flows (flows/.user)
+│   ├── daemon/           # HTTP app, service control, workspaces, client migration, flow editor
 │   ├── engine/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh

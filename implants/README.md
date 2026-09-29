@@ -87,6 +87,7 @@ Techniques that structure sequential reasoning:
 | `reverse-cot` | Work backwards from conclusion to premises |
 | `take-a-deep-breath` | Zero-shot CoT trigger |
 | `dr-cot` | Dynamic Recursive CoT — recurse deeper only when needed |
+| `cumulative-reasoning` | Build conclusions by accumulating verified evidence one step at a time |
 
 ### Meta-Cognition
 
@@ -105,6 +106,9 @@ Techniques for self-reflection and improvement:
 | `maieutic-prompting` | Socratic method — explanation tree to find logical contradictions |
 | `rephrase-and-respond` | Clarifying ambiguous requests before answering |
 | `system-2-attention` | Input cleaning — removes bias/flattery before answering |
+| `self-refine` | Generate, critique and refine without external feedback |
+| `iteration-budget` | Stop after three failed fixes and re-examine the mental model |
+| `uncertainty-quantification` | Stakes-based confidence threshold; separate checked, recalled and inferred claims |
 
 ### Structured Thinking
 
@@ -121,6 +125,10 @@ Techniques for organizing complex reasoning:
 | `buffer-of-thoughts` | Working memory management |
 | `narrative-of-thought` | Story-based reasoning |
 | `output-automata` | Structuring output as a Finite State Machine (FSM) or script |
+| `tree-of-thought` | Explore several reasoning paths with evaluation and backtracking |
+| `chain-of-abstraction` | Abstract away details progressively to reveal the core structure |
+| `causal-reasoning` | Distinguish correlation from causation with systematic checks |
+| `second-order-thinking` | Map cascading consequences beyond the immediate effects |
 
 ### Verification & Safety
 
@@ -129,6 +137,11 @@ Techniques for ensuring correctness and safety:
 | Implant | Description |
 |---------|-------------|
 | `constitutional-critique` | Ethical review against principles |
+| `verify-assumptions` | Check one to three load-bearing facts before a design or fix recommendation |
+| `regression-first` | Localize a regression ("it worked before") before proposing a fix |
+| `premortem` | Assume the plan failed, find the causes, then mitigate |
+| `steel-man` | Build the strongest opposing argument before criticizing |
+| `multi-agent-debate` | Generate distinct perspectives, let them critique each other, synthesize |
 
 > **Moved to skills**: `fact-verification` → `skill-fact-verification`, security patterns (sandwich-defense, instructional-hierarchy, delimiters, negative-constraints) → `skill-prompt-security`
 
@@ -157,6 +170,8 @@ Techniques for breaking down complex problems:
 | `complexity-based-prompting` | Order by complexity |
 | `contextual-compression` | Compress context to essentials |
 | `prompt-chaining` | Breaking task into sequence of LLM calls |
+| `decomposed-prompting` | Split a complex task into simpler sub-prompts and combine the results |
+| `react` | Interleave reasoning with tool actions and observations |
 
 ### Efficiency
 

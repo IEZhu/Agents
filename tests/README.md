@@ -1,6 +1,6 @@
 # Tests
 
-The suite covers routing, persona protocols, prompt assembly, memory, daemon
+The suite covers routing, the persona protocol, prompt assembly, memory, daemon
 operations, installers and evaluation runners. Test discovery and default marker
 selection are configured in [pyproject.toml](../pyproject.toml).
 
@@ -60,6 +60,7 @@ Use the direct Python command when you need to select specific test files.
 | Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
 | Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
+| Personal and repository flows, flow editor | `test_user_flows.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
@@ -84,9 +85,10 @@ dependency installation, download a model, or change MCP client settings.
 The same workflow runs Codex discovery and managed-instruction migration checks.
 `test_installer_instructions.py` executes the actual template selection, skip guard
 and Codex instruction hook from each installer in temporary directories. Unix
-uses Bash; Windows uses native `cmd.exe`. These focused checks cover protocol
-selection, repeated updates, override precedence and errors without running
-dependency installation or editing real client settings.
+uses Bash; Windows uses native `cmd.exe`. These focused checks cover template
+selection (a stale `AGENTS_PERSONA_PROTOCOL` value is ignored), repeated updates,
+override precedence and errors without running dependency installation or
+editing real client settings.
 
 To run locally in PowerShell with Python 3.11+ selected:
 

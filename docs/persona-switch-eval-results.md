@@ -212,6 +212,9 @@ separate `--out` for each run, `--source-root`, `--seed-data`, `--dataset`,
 `--codex-isolate-global-instructions`. Run the supplemental
 persona_implicit_switch.jsonl suite separately against both protocol versions.
 The runner does not overwrite an existing output directory.
+Since 2026-09-29 the current server and templates support only protocol 2: a
+`--protocol-version 1` run needs `--source-root` and `--protocol` taken from a
+revision before that date, such as the baseline above.
 Windows evaluation runs are rejected before setup or client launch because the
 runner requires POSIX process groups to terminate clients and MCP children on
 timeout. This restriction applies to the evaluation runner, not the installer.

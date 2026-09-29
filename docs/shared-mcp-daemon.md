@@ -39,9 +39,9 @@ does not terminate another process occupying the port. Use `install --port NUMBE
 to select another port.
 
 Register each project directory and worktree separately. Registering the same
-realpath again returns its existing UUID. Global entries provide routing and
-personas and the flow catalog without a workspace; memory and `run_flow` require
-project configuration. After
+realpath again returns its existing UUID. Global entries provide routing,
+personas, and built-in and personal flows without a workspace; memory,
+repository (`repo:`) flows and `run_flow` require project configuration. After
 creating a clone or worktree, run `migrate --workspace /absolute/worktree` before
 connecting. Do not copy an MCP configuration containing another project's UUID.
 
@@ -143,9 +143,9 @@ HTTP never selects a project from cwd, environment variables, or client roots.
 `workspace_required` and `workspace_invalid` mean memory is unavailable: routing
 can continue, and logging must not be retried in a loop. `run_flow` also requires
 this header and never uses `repo_path` as a replacement for workspace identity.
-`list_flows`, `get_flow` and `save_flow` for built-in and personal (`user:`) flows
-work without it; `repo:` flows need it. See the [flow guide](../flows/README.md)
-for loading workflows into the caller's repository.
+`list_flows`, `get_flow`, `save_flow` and `delete_flow` for built-in and personal
+(`user:`) flows work without it; `repo:` flows need it. See the
+[flow guide](../flows/README.md) for loading workflows into the caller's repository.
 
 After `describe_repo`, pass the original `workspace_id`, `repo_path`, and
 `repo_hash` to `write_repo_summary` together with the summary. The header must
