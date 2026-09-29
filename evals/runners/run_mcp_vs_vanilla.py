@@ -318,7 +318,7 @@ async def build_mcp_system_prompt(
 ) -> tuple[str, dict[str, Any]]:
     """Replicate `src.server.route_and_load` for the no-LLM-picker portion.
 
-    Production flow on a fresh query (no sticky agent, no context_hash):
+    Production flow on a fresh query (no active persona):
       1. `router.lookup_cache(query)` — semantic cache hit?
          - Hit → apply `keyword_veto`:
              - veto == agent       → cache confirms
@@ -376,7 +376,7 @@ async def build_mcp_system_prompt(
             agent_name = _keyword_fallback()
             routing_path = "keyword_fallback"
 
-    prompt, _ctx_hash, skills, implants, rules, tier = await _load_and_enrich(agent_name, query, [])
+    prompt, skills, implants, rules, tier = await _load_and_enrich(agent_name, query, [])
     cleaned = _strip_platform_instructions(prompt)
     return cleaned, {
         "agent": agent_name,

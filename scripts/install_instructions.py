@@ -38,7 +38,7 @@ def detect_claude_home() -> Path | None:
     return None
 
 
-def install_claude_instructions(template: Path, protocol: int) -> int:
+def install_claude_instructions(template: Path) -> int:
     """Preserve personal instructions and migrate only an existing routing reminder."""
     claude_home = detect_claude_home()
     if claude_home is None:
@@ -49,7 +49,7 @@ def install_claude_instructions(template: Path, protocol: int) -> int:
     changed = inject(target, template)
     state = "configured" if changed else "already current"
     print(f"Claude Code global instructions {state}: {target}")
-    migrate(claude_home / "memory", protocol, existing_only=True)
+    migrate(claude_home / "memory", existing_only=True)
     print("Start a fresh Claude Code session to load these instructions.")
     return 0
 
@@ -64,24 +64,12 @@ def main(argv: list[str] | None = None) -> int:
         "--clients", type=parse_clients, default=("codex", "claude"), metavar="codex,claude",
         help="clients to refresh (default: both, when detected)",
     )
-    parser.add_argument(
-        "--protocol", type=int, choices=(1, 2),
-        help="persona protocol (overrides AGENTS_PERSONA_PROTOCOL; default: 2)",
-    )
     args = parser.parse_args(argv)
-    protocol = args.protocol
-    if protocol is None:
-        value = os.environ.get("AGENTS_PERSONA_PROTOCOL") or "2"
-        if value not in ("1", "2"):
-            parser.error("AGENTS_PERSONA_PROTOCOL must be 1 or 2; use --protocol to override it")
-        protocol = int(value)
-
-    name = "routing-protocol-core.md" if protocol == 2 else "routing-protocol-v1.md"
-    template = SCRIPT_DIR / "templates" / name
+    template = SCRIPT_DIR / "templates" / "routing-protocol-core.md"
     try:
         template.read_bytes()
     except OSError as exc:
-        print(f"ERROR: Could not read the protocol {protocol} template: {exc}. "
+        print(f"ERROR: Could not read the routing template: {exc}. "
               "Restore the template from the repository and rerun this command.", file=sys.stderr)
         return 1
 
@@ -91,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             if client == "codex":
                 result = codex_instructions.main([str(template)])
             else:
-                result = install_claude_instructions(template, protocol)
+                result = install_claude_instructions(template)
         except (OSError, ValueError) as exc:
             print(f"ERROR: Could not configure {client} instructions: {exc}. "
                   "Check the reported path, permissions, and routing markers, "

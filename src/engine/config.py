@@ -187,12 +187,6 @@ def _choice_env(name: str, default: str, choices: tuple[str, ...]) -> str:
 
 
 ROUTER_SIMILARITY_THRESHOLD = _float_env("ROUTER_SIMILARITY_THRESHOLD", 0.95)
-# Sticky agent: auto-switch to a different agent without LLM if cosine distance
-# is below this value. Intentionally tighter than the router's distance cutoff
-# (1 - ROUTER_SIMILARITY_THRESHOLD) — only near-duplicate queries trigger an
-# auto-switch; ambiguous cases keep the current agent for stability.
-# Tune empirically if switches are too rare.
-STICKY_SWITCH_THRESHOLD = 0.02
 
 # Keyword boosting: minimum keyword hits to consider overriding a cache decision
 KEYWORD_OVERRIDE_MIN_HITS = 1
@@ -231,8 +225,8 @@ IMPLANT_TRIGGER_BOOST = _float_env("IMPLANT_TRIGGER_BOOST", 0.85)
 #   "intent" — also require classify_intent(query).implant_budget > 0, without
 #              letting the classifier change the tier, skills or persona format
 #              (INTENT_CLASSIFIER_ENABLED switches all of those at once).
-# Protocol 1 only: the gate is per query, and the protocol 2 persona bundle is
-# built once per session, so persona_bundle.py does not apply it.
+# Per-query enrichment only (server._load_and_enrich, used by the eval harnesses):
+# the persona bundle is built once per session, so persona_bundle.py does not apply it.
 # Measured on the implant labels (evals/scripts/implant_need_gate.py): utility
 # +0.149 [95% CI +0.056, +0.242] vs production, implants per query 2.07 → 1.36.
 IMPLANT_NEED_GATE = _choice_env("IMPLANT_NEED_GATE", "off", ("off", "intent"))

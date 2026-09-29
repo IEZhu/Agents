@@ -232,7 +232,7 @@ What this shows:
 
 Shipped as `IMPLANT_NEED_GATE=intent` (default `off`). It gates only the implant
 layer: tier, skills and persona format stay on the legacy rule. It applies on the
-protocol 1 path only. The protocol 2 persona bundle is built once per session, so a
+per-query enrichment path only (protocol 1 at the time; now `server._load_and_enrich`, used by the evaluation harnesses). The protocol 2 persona bundle is built once per session, so a
 per-query gate there would drop the agent's implants for the whole conversation. That is the point
 of per-layer sensitivity, and it differs from `INTENT_CLASSIFIER_ENABLED`, which
 switches all layers at once. Before the default is flipped, the answer-quality A/B

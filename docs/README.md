@@ -21,7 +21,7 @@ also applies to AI instructions, plans, and reports.
 | Understand skills and implants | [Skills](../skills/README.md), [Implants](../implants/README.md) | `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/enrichment.py` |
 | Understand the optional intent classifier | [Intent classifier](intent-classifier.md) | `src/engine/intent.py`, `src/engine/config.py` |
 | Work in this repository | [Session playbook](session-playbook.md) | Current repository and task constraints |
-| Run or add reusable model workflows | [Workflow catalog](../flows/README.md) | `flows/*.md`, `src/flows.py`, `src/server.py`, `src/daemon/workspaces.py` |
+| Run or add reusable model workflows | [Workflow catalog](../flows/README.md), [flow editor](shared-mcp-daemon.md#flow-editor) | `flows/*.md`, `src/flows.py`, `src/user_flows.py`, `src/server.py`, `src/daemon/workspaces.py`, `src/daemon/flows_ui.py` |
 | Run tests | [Test guide](../tests/README.md) | `pyproject.toml`, `tests/conftest.py`, `scripts/run_tests.sh`, `tests/` |
 | Refresh documentation for people and AI | [Repeatable workflow](../flows/documentation-refresh.md) | The sources and checks listed in that workflow |
 | Review and merge a PR/MR | [PR/MR review flow](../flows/pr-review.md) | Live reviews, current-head checks, and repository merge rules |
@@ -33,14 +33,12 @@ also applies to AI instructions, plans, and reports.
 | [AGENTS.md](../AGENTS.md) | Short entry point for AI contributors; links to the shared protocol and working instructions |
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
 | [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
-| [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Installer's default protocol 2 instruction template |
-| [routing-protocol-v1.md](../scripts/templates/routing-protocol-v1.md) | Explicit version 1 compatibility template |
-| [memory-routing-v2.md](../scripts/templates/memory-routing-v2.md), [memory-routing-v1.md](../scripts/templates/memory-routing-v1.md) | Matching installer reminders for client memory |
+| [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template |
+| [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |
 | `agents/`, `skills/`, `implants/`, `rules/` | Runtime prompt content, selected and assembled by the server |
 
-The installer defaults to protocol 2; the MCP API and slash prompts retain version
-1 defaults unless version 2 is requested explicitly. See [routing](routing_flow.md)
-before copying a call example.
+Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
+[routing](routing_flow.md) before copying a call example.
 
 ## Evaluation guides
 
@@ -59,6 +57,7 @@ the maintained references above for current commands and behavior.
 
 | Document | Status / scope |
 |---|---|
+| [Personal flow library](user-flows-design.md) | Implemented decision record: file-based personal and repository flows, chat management and the local editor; the current reference is the [flow guide](../flows/README.md#personal-and-repository-flows) |
 | [Persona switching plan](persona-switch-plan.md) | Implemented design; current contracts are in the routing reference |
 | [Persona switching results](persona-switch-eval-results.md) | Measurements of the revisions named in the report |
 | [Memory subsystem specification](memory-subsystem-spec.md) | Implemented design with deviations in Appendix C; current transport behavior is in the routing and daemon references |

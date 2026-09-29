@@ -40,8 +40,8 @@ def installer_hook(request, tmp_path):
     templates.mkdir()
     for name in ("install_codex_instructions.py", "inject_claude_md.py"):
         shutil.copyfile(ROOT / "scripts" / "_helpers" / name, helpers / name)
-    for name in ("routing-protocol-core.md", "routing-protocol-v1.md"):
-        shutil.copyfile(ROOT / "scripts" / "templates" / name, templates / name)
+    shutil.copyfile(ROOT / "scripts" / "templates" / "routing-protocol-core.md",
+                    templates / "routing-protocol-core.md")
     codex_home = tmp_path / "custom codex home"
     profile = tmp_path / "isolated profile"
     profile.mkdir()
@@ -55,7 +55,7 @@ def installer_hook(request, tmp_path):
 
     if kind == "bash":
         source = (ROOT / "scripts" / "init_repo.sh").read_text(encoding="utf-8")
-        selector = between(source, 'PERSONA_PROTOCOL="${AGENTS_PERSONA_PROTOCOL:-2}"',
+        selector = between(source, 'ROUTING_TEMPLATE="$REPO_ROOT/scripts/templates/routing-protocol-core.md"',
                            "# Canonical managed-section markers")
         functions = between(source, "print_header() {", "# Fatal error handler")
         guard = between(source, 'if [ "$SKIP_MCP" = true ]; then',
@@ -70,7 +70,7 @@ def installer_hook(request, tmp_path):
         command = [interpreter, str(script)]
     else:
         source = (ROOT / "scripts" / "init_repo.bat").read_text(encoding="utf-8")
-        selector = between(source, 'set "PERSONA_PROTOCOL=2"',
+        selector = between(source, 'set "ROUTING_TEMPLATE=%REPO_ROOT%\\scripts\\templates\\routing-protocol-core.md"',
                            "REM ============== Pre-flight Checks")
         guard = between(source, 'if "%SKIP_MCP%"=="true" (', 'set "CONFIGURED_ENVS="')
         hook = between(source, "REM --- Configure Codex instructions ---", "REM --- MCP Summary ---")
@@ -80,26 +80,26 @@ def installer_hook(request, tmp_path):
                             + closing + "exit /b 0\n").replace("\n", "\r\n").encode("utf-8"))
         command = [interpreter, "/d", "/c", script.name]
 
-    def run(version=None, skip_mcp=False):
+    def run(protocol_env=None, skip_mcp=False):
         process_env = dict(env, SKIP_MCP="true" if skip_mcp else "false")
-        if version is None:
+        if protocol_env is None:
             process_env.pop("AGENTS_PERSONA_PROTOCOL", None)
         else:
-            process_env["AGENTS_PERSONA_PROTOCOL"] = str(version)
+            # The removed protocol selector must not affect the installed template.
+            process_env["AGENTS_PERSONA_PROTOCOL"] = protocol_env
         return subprocess.run(command, cwd=checkout, env=process_env, text=True,
                               encoding="utf-8", errors="replace", capture_output=True, timeout=15)
 
     return run, codex_home, templates
 
 
-@pytest.mark.parametrize("version", [None, 1, 2], ids=["default", "v1", "v2"])
-def test_installer_hook_selects_requested_protocol(installer_hook, version):
+@pytest.mark.parametrize("protocol_env", [None, "1", "invalid"], ids=["unset", "stale-v1", "invalid"])
+def test_installer_hook_installs_core_template(installer_hook, protocol_env):
     run, codex_home, templates = installer_hook
-    result = run(version)
+    result = run(protocol_env)
     assert result.returncode == 0, result.stdout + result.stderr
     target = codex_home / "AGENTS.md"
-    template = templates / ("routing-protocol-v1.md" if version == 1 else "routing-protocol-core.md")
-    assert template.read_bytes().strip() in target.read_bytes()
+    assert (templates / "routing-protocol-core.md").read_bytes().strip() in target.read_bytes()
     assert target.read_bytes().count(BEGIN) == 1
     assert str(target) in result.stdout and "configured" in result.stdout
     assert "fresh Codex session" in result.stdout
@@ -111,22 +111,25 @@ def test_installer_hook_migrates_preserves_and_repeats_without_backup_growth(ins
     codex_home.mkdir()
     target = codex_home / "AGENTS.md"
     original = b"# Personal rules\r\nKeep these bytes.\r\n"
-    target.write_bytes(original)
-    for version in (1, 2, 1):
-        result = run(version)
-        assert result.returncode == 0, result.stdout + result.stderr
-        template = templates / ("routing-protocol-v1.md" if version == 1 else "routing-protocol-core.md")
-        updated = target.read_bytes()
-        assert updated.startswith(original) and template.read_bytes().strip() in updated
-        assert updated.count(BEGIN) == 1
-        backups = sorted(codex_home.glob("AGENTS.md.backup.*"))
-        assert backups
-        mtime = target.stat().st_mtime_ns
-        repeated = run(version)
-        assert repeated.returncode == 0, repeated.stdout + repeated.stderr
-        assert "already current" in repeated.stdout
-        assert target.read_bytes() == updated and target.stat().st_mtime_ns == mtime
-        assert sorted(codex_home.glob("AGENTS.md.backup.*")) == backups
+    # A managed section written by the removed protocol 1 installer.
+    old = (original + BEGIN + b"\nBefore answering ANY user query, call route_and_load().\n"
+           + b"# <<< Agents-Core Routing Protocol (managed by init_repo) <<<\n")
+    target.write_bytes(old)
+    result = run()
+    assert result.returncode == 0, result.stdout + result.stderr
+    updated = target.read_bytes()
+    assert updated.startswith(original)
+    assert (templates / "routing-protocol-core.md").read_bytes().strip() in updated
+    assert b"Before answering ANY user query" not in updated
+    assert updated.count(BEGIN) == 1
+    backups = sorted(codex_home.glob("AGENTS.md.backup.*"))
+    assert [path.read_bytes() for path in backups] == [old]
+    mtime = target.stat().st_mtime_ns
+    repeated = run()
+    assert repeated.returncode == 0, repeated.stdout + repeated.stderr
+    assert "already current" in repeated.stdout
+    assert target.read_bytes() == updated and target.stat().st_mtime_ns == mtime
+    assert sorted(codex_home.glob("AGENTS.md.backup.*")) == backups
 
 
 def test_installer_hook_respects_override_precedence(installer_hook):

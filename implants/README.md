@@ -87,6 +87,7 @@ Techniques that structure sequential reasoning:
 | `reverse-cot` | Work backwards from conclusion to premises |
 | `take-a-deep-breath` | Zero-shot CoT trigger |
 | `dr-cot` | Dynamic Recursive CoT — recurse deeper only when needed |
+| `cumulative-reasoning` | Build conclusions by accumulating verified evidence one step at a time |
 
 ### Meta-Cognition
 
@@ -105,6 +106,9 @@ Techniques for self-reflection and improvement:
 | `maieutic-prompting` | Socratic method — explanation tree to find logical contradictions |
 | `rephrase-and-respond` | Clarifying ambiguous requests before answering |
 | `system-2-attention` | Input cleaning — removes bias/flattery before answering |
+| `self-refine` | Generate, critique and refine without external feedback |
+| `iteration-budget` | Stop after three failed fixes and re-examine the mental model |
+| `uncertainty-quantification` | Stakes-based confidence threshold; separate checked, recalled and inferred claims |
 
 ### Structured Thinking
 
@@ -121,6 +125,10 @@ Techniques for organizing complex reasoning:
 | `buffer-of-thoughts` | Working memory management |
 | `narrative-of-thought` | Story-based reasoning |
 | `output-automata` | Structuring output as a Finite State Machine (FSM) or script |
+| `tree-of-thought` | Explore several reasoning paths with evaluation and backtracking |
+| `chain-of-abstraction` | Abstract away details progressively to reveal the core structure |
+| `causal-reasoning` | Distinguish correlation from causation with systematic checks |
+| `second-order-thinking` | Map cascading consequences beyond the immediate effects |
 
 ### Verification & Safety
 
@@ -129,6 +137,11 @@ Techniques for ensuring correctness and safety:
 | Implant | Description |
 |---------|-------------|
 | `constitutional-critique` | Ethical review against principles |
+| `verify-assumptions` | Check one to three load-bearing facts before a design or fix recommendation |
+| `regression-first` | Localize a regression ("it worked before") before proposing a fix |
+| `premortem` | Assume the plan failed, find the causes, then mitigate |
+| `steel-man` | Build the strongest opposing argument before criticizing |
+| `multi-agent-debate` | Generate distinct perspectives, let them critique each other, synthesize |
 
 > **Moved to skills**: `fact-verification` → `skill-fact-verification`, security patterns (sandwich-defense, instructional-hierarchy, delimiters, negative-constraints) → `skill-prompt-security`
 
@@ -157,6 +170,8 @@ Techniques for breaking down complex problems:
 | `complexity-based-prompting` | Order by complexity |
 | `contextual-compression` | Compress context to essentials |
 | `prompt-chaining` | Breaking task into sequence of LLM calls |
+| `decomposed-prompting` | Split a complex task into simpler sub-prompts and combine the results |
+| `react` | Interleave reasoning with tool actions and observations |
 
 ### Efficiency
 
@@ -179,9 +194,10 @@ preferred_implants:
 With the default policy, `standard` starts with 2 slots and `deep` with 3. A longer
 preferred list raises the budget, up to `MAX_PREFERRED_IMPLANTS` (5). An inferred
 `lite` tier is promoted to `standard` for agents with declared implants; an
-explicit `lite` tier loads none. Protocol 1's optional intent classifier can waive
-promotion for a greeting and change per-query budgets. Protocol 2 retains its
-bundle across turns and always uses the tier-based budget.
+explicit `lite` tier loads none. A persona bundle is retained across turns and
+always uses the tier-based budget. On the per-query enrichment path used by the
+evaluation harnesses, the optional intent classifier can waive promotion for a
+greeting and change per-query budgets.
 
 Semantic retrieval embeds the query and role, then selects candidates below
 `IMPLANTS_RELEVANCE_THRESHOLD` (default `0.85`). Optional settings in
@@ -191,7 +207,7 @@ Semantic retrieval embeds the query and role, then selects candidates below
 |---|---|---|
 | `IMPLANT_INDEX_MODE` | `legacy`: description + body | `triggers`: description + triggers + When to Use |
 | `IMPLANT_GATING` | `legacy`: absolute distance cutoff | `zscore`: candidates must stand out from the query's distance distribution |
-| `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to protocol 1 |
+| `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to the per-query evaluation path, not to persona bundles |
 
 The alternatives affect semantic selection or per-query need, not the meaning of
 editor fields `globs` and `alwaysApply`. A protocol 2 bundle is updated through

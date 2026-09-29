@@ -2,6 +2,7 @@
 
 Date: September 20, 2026. Implementation: `c063f4a`, branch `codex/persona-switch-gate`.
 Baseline: `92c55a1` (main after PR #69).
+Protocol 1, measured here as the baseline, was removed from the server on 2026-09-29.
 
 These measurements describe the frozen runtime and protocol identified by the
 recorded hashes. Later review fixes to activation and fallback guidance, metadata
@@ -207,10 +208,14 @@ To reproduce the evaluation, use
 source trees on Linux or macOS, one index seed, and an identical request suite combining
 persona_dialogues.jsonl and persona_compaction.jsonl. Specify `--repeats 3`, a
 separate `--out` for each run, `--source-root`, `--seed-data`, `--dataset`,
-`--protocol`, and `--protocol-version`. For Codex on macOS, add
+and `--protocol`. For Codex on macOS, add
 `--codex-isolate-global-instructions`. Run the supplemental
 persona_implicit_switch.jsonl suite separately against both protocol versions.
 The runner does not overwrite an existing output directory.
+Since 2026-09-29 the server, templates and this runner support only protocol 2.
+Reproducing the protocol 1 baseline, or regrading its retained report, needs the
+runner, `--source-root` and `--protocol` from a revision before that date, such as
+the baseline above; the current `reassess_report` rejects protocol 1 reports.
 Windows evaluation runs are rejected before setup or client launch because the
 runner requires POSIX process groups to terminate clients and MCP children on
 timeout. This restriction applies to the evaluation runner, not the installer.

@@ -35,7 +35,7 @@ def run_windows_installer(tmp_path):
     env = {**os.environ, "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
            "USERPROFILE": str(profile), "APPDATA": str(profile / "AppData"),
            "LOCALAPPDATA": str(profile / "LocalAppData"), "TEST_EVENTS": str(events),
-           "AGENTS_PERSONA_PROTOCOL": "2", "PIP_NO_INDEX": "1",
+           "PIP_NO_INDEX": "1",
            "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
     for key in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
         env.pop(key, None)

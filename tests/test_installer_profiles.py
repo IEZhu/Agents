@@ -31,13 +31,14 @@ def profile_installer(request, tmp_path):
     checkout = tmp_path / "installation with spaces"
     helpers, templates = checkout / "scripts/_helpers", checkout / "scripts/templates"
     helpers.mkdir(parents=True)
-    templates.mkdir()
+    (templates / "legacy").mkdir(parents=True)
     (checkout / "src").mkdir()
     for name in ("__init__.py", "client_paths.py"):
         shutil.copyfile(ROOT / "src" / name, checkout / "src" / name)
     for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py"):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
-    for name in ("routing-protocol-core.md", "memory-routing-v1.md", "memory-routing-v2.md"):
+    for name in ("routing-protocol-core.md", "memory-routing.md",
+                 "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
     home = tmp_path / "isolated home"
     home.mkdir()
@@ -47,7 +48,7 @@ def profile_installer(request, tmp_path):
                APPDATA=str(home / "AppData/Roaming"), REPO_ROOT=str(checkout),
                PYTHON_ABS=sys.executable, SERVER_ABS=str(checkout / "src/server.py"),
                HELPERS=str(helpers), ROUTING_TEMPLATE=str(templates / "routing-protocol-core.md"),
-               PERSONA_PROTOCOL="2", IS_NIXOS="false", NIX_LD_LIB_PATH="", PYTHONUTF8="1",
+               IS_NIXOS="false", NIX_LD_LIB_PATH="", PYTHONUTF8="1",
                RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="")
     for name in ("CLAUDE_CONFIG_DIR", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG",
                  "XDG_CONFIG_HOME", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
@@ -117,7 +118,7 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
     target.write_bytes(b"Selected personal instructions\r\n")
     reminder = claude_home / "memory/feedback_agents_core_routing.md"
     reminder.parent.mkdir()
-    reminder.write_bytes((templates / "memory-routing-v1.md").read_bytes())
+    reminder.write_bytes((templates / "legacy" / "memory-routing-v1.md").read_bytes())
     preserved = {path: path.read_bytes() for path in [*defaults.values(), default_instructions]} if custom else {}
 
     result = run(overrides)
@@ -133,7 +134,7 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
         assert document["projects"] == original["projects"]
     assert target.read_bytes().startswith(b"Selected personal instructions\r\n")
     assert (templates / "routing-protocol-core.md").read_bytes().strip() in target.read_bytes()
-    assert reminder.read_bytes() == (templates / "memory-routing-v2.md").read_bytes()
+    assert reminder.read_bytes() == (templates / "memory-routing.md").read_bytes()
     assert {path: path.read_bytes() for path in preserved} == preserved
 
 

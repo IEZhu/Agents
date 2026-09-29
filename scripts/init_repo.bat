@@ -6,7 +6,7 @@ REM This script sets up the development environment after cloning.
 REM
 REM Usage:
 REM   scripts\init_repo.bat [--skip-env] [--skip-index] [--skip-mcp]
-REM   py -3 scripts\install_instructions.py [--clients codex,claude] [--protocol 1^|2]
+REM   py -3 scripts\install_instructions.py [--clients codex,claude]
 REM     Update only client instructions, without running MCP or dependency setup.
 REM
 REM Flags:
@@ -63,7 +63,7 @@ echo Agents Repository Initialization Script (Windows)
 echo(
 echo Usage:
 echo   scripts\init_repo.bat [--skip-env] [--skip-index] [--skip-mcp]
-echo   py -3 scripts\install_instructions.py [--clients codex,claude] [--protocol 1^|2]
+echo   py -3 scripts\install_instructions.py [--clients codex,claude]
 echo     Update only client instructions, without running MCP or dependency setup.
 echo(
 echo Flags:
@@ -71,20 +71,11 @@ echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
 echo   --skip-mcp     Skip MCP configuration and client instruction updates
 echo   --help         Show this help message
-echo   Persona protocol 2 is the default; set AGENTS_PERSONA_PROTOCOL=1 for version 1.
 exit /b 0
 
 :args_done
 
-REM Persona protocol 2 is the default; AGENTS_PERSONA_PROTOCOL=1 installs version 1.
-set "PERSONA_PROTOCOL=2"
-if defined AGENTS_PERSONA_PROTOCOL set "PERSONA_PROTOCOL=%AGENTS_PERSONA_PROTOCOL%"
-if not "%PERSONA_PROTOCOL%"=="1" if not "%PERSONA_PROTOCOL%"=="2" (
-    echo AGENTS_PERSONA_PROTOCOL must be 1 or 2
-    exit /b 1
-)
-set "ROUTING_TEMPLATE=%REPO_ROOT%\scripts\templates\routing-protocol-v1.md"
-if "%PERSONA_PROTOCOL%"=="2" set "ROUTING_TEMPLATE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
+set "ROUTING_TEMPLATE=%REPO_ROOT%\scripts\templates\routing-protocol-core.md"
 
 REM ============== Pre-flight Checks & Python Selection ==============
 
@@ -600,7 +591,7 @@ if !errorlevel! equ 0 (
 )
 REM Windows never created routing memory. Migrate an existing known file only.
 if "!CLAUDE_MD_CONFIGURED!"=="true" (
-    "%PYTHON_ABS%" "%HELPERS%\migrate_routing_memory.py" "!CLAUDE_CODE_DIR!\memory" --protocol "%PERSONA_PROTOCOL%" --existing-only
+    "%PYTHON_ABS%" "%HELPERS%\migrate_routing_memory.py" "!CLAUDE_CODE_DIR!\memory" --existing-only
     if !errorlevel! neq 0 echo   %RED%x%NC% Memory migration failed; inspect !CLAUDE_CODE_DIR!\memory manually
     echo   Check project instructions and memory for conflicting unconditional route_and_load requirements.
     echo   User-edited reminders and unrelated project memory are preserved.

@@ -63,11 +63,10 @@ delete previous messages from the client's context. Do not clear history, memory
 or any server cache to switch roles. A tool result is not a system message.
 
 Explicit agent slash commands load that agent directly; `/ask` explicitly requests
-routing. These existing MCP prompts default to version 1. Request their v2 bundles
-by passing `protocol_version=2` explicitly, plus `current_persona` as descriptor
-JSON when available, and apply the same replacement rules. In version 2, omitting
-the descriptor lets the explicit command set the role sequentially for the current
-conversation; do not run competing activations in the background.
+routing. Both return the same bundles: pass `current_persona` as descriptor JSON
+when available and apply the same replacement rules. Omitting the descriptor lets
+the explicit command set the role sequentially for the current conversation; do
+not run competing activations in the background.
 
 ## Finish each answer
 
@@ -88,14 +87,11 @@ failed, retain the previous descriptor and report that outcome in the log.
 
 ## Compatibility and unavailable servers
 
-Version 2 requires server support. If the tool schema lacks `protocol_version` or
-the server explicitly rejects version 2, explain the incompatibility once, record
-v1 fallback for this conversation, and stop retrying unsupported calls. Until the
-server is updated, call `route_and_load(query, context_hash=...)` before each query;
-on `ROUTE_REQUIRED` call `get_agent_context(agent_name, query)`, on `SUCCESS` apply
-`system_prompt`, on `SUCCESS_SAMPLED` return `response`, and on `NO_CHANGE` retain
-the role. Use v1 logging arguments and component lists returned by the server.
-Do not treat an ordinary loading error as protocol incompatibility.
+The server supports only this protocol. If the tool schema lacks `protocol_version`
+or `current_persona`, the server predates it: explain once that the server must be
+updated, answer without claiming an activated persona, and stop retrying
+unsupported calls. Do not treat an ordinary loading error as protocol
+incompatibility.
 
 When MCP is unavailable, this fallback overrides the footer and logging steps
 above only where their required state or tool is unavailable:
@@ -106,7 +102,7 @@ above only where their required state or tool is unavailable:
 - If no valid bundle is retained and repository files are available, load the
   known or appropriate `agents/<name>/system_prompt.mdc` manually. Attribute the
   answer to that role as a manual fallback, with MCP attribution unavailable.
-  Omit the MCP footer and descriptor-based logging; do not fabricate a v2
+  Omit the MCP footer and descriptor-based logging; do not fabricate a
   descriptor, activation ID, revision, footer, or loaded-component list. If no
   prompt is accessible either, answer without claiming an activated persona.
 - When MCP becomes available again, a retained bundle with its descriptor and

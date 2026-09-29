@@ -88,7 +88,7 @@ uses a cached `intfloat/multilingual-e5-large` snapshot selected by its controll
 | `AGENTS_CLIENT_REPO_ROOT` | Nearest `.git` or `CLAUDE.md` above the process working directory; otherwise that directory | Explicit stdio memory target |
 | `RULES_ENABLED` | `1` | Include shared rules in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
-| `AGENTS_PERSONA_PROTOCOL` | `2` in installers | Select the installed client instruction template; the MCP API still defaults to v1 |
+| `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
 
 Routing thresholds and enrichment settings are defined in
 [src/engine/config.py](src/engine/config.py). HTTP memory uses a registered
@@ -194,13 +194,14 @@ The server exposes MCP tools that any compatible client can call:
 |------|---------|
 | `route_and_load(query)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
-| `refresh_persona_context(query, current_persona)` | Protocol 2: refresh skills/implants for the active role |
+| `refresh_persona_context(query, current_persona)` | Refresh skills/implants for the active role without reselecting it |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
-| `list_flows()` | Discover Markdown workflows in this MCP installation, with IDs and content revisions |
-| `run_flow(flow, request="", repo_path=None)` | Load an installed workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
+| `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
+| `run_flow(flow, request="", repo_path=None)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
+| `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
 | `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
-| `clear_session_cache()` | Stdio only: administrative reset of the shared v1 prompt cache and sticky mappings; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
+| `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling, or when the sampling call fails, it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling, or sampling failed); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
@@ -223,7 +224,14 @@ its existing permissions and tools. `needs_execution` does not mean the work is
 complete. See the [workflow guide](flows/README.md#through-agents-core-mcp) for
 the response contract, target resolution, and authoring rules.
 
-### Persona continuity (protocol 2, default)
+Besides the built-in flows, users keep personal (`user:`) and per-repository
+(`repo:`) flows in the installation's git-ignored `flows/.user`. Ask the model to
+save, change, restore or delete one; it uses `get_flow`, `save_flow` and
+`delete_flow`. A bare flow name resolves `repo:`, then `user:`, then the built-in.
+With the shared daemon, `.venv/bin/python -m src.daemon flows-ui` opens a local
+[flow editor](docs/shared-mcp-daemon.md#flow-editor).
+
+### Persona continuity
 
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
@@ -231,15 +239,17 @@ enrichment calls. A needed specialization change triggers routing; a known
 requested role loads directly. Lost instructions restore the known role; a
 justified refresh rebuilds its context without reselecting it.
 
-Version 2 returns separate persona, rules, skills and implants blocks, an
+The server returns separate persona, rules, skills and implants blocks, an
 activation descriptor and an exact footer. Every successful switch, restore or
 refresh replaces all four blocks, including changed or removed rules, while
 preserving higher-priority instructions, conversation facts, goals, permissions
 and tool results. This is logical replacement: MCP cannot physically delete old
-messages. No history or cache clearing is required. Calls without `protocol_version=2`
-retain the version 1 API and `context_hash` behavior. V2 never uses sampling.
+messages. No history or cache clearing is required. The server never samples an
+answer.
 
-The installer defaults to version 2 since 2026-09-26. Under version 1, 96% of
+This is protocol 2, the only protocol since 2026-09-29; the installers made it the
+default on 2026-09-26. Clients pass `protocol_version=2` (also the default); any
+other value returns `ERROR` without loading a persona. Under the removed protocol 1, 96% of
 routed turns in 30 days of telemetry returned ROUTE_REQUIRED, and when the turn
 continued a conversation the model re-picked the agent already active 73% of the
 time, re-sending its full prompt ([analysis](evals/telemetry/README.md)); in the
@@ -247,25 +257,17 @@ time, re-sending its full prompt ([analysis](evals/telemetry/README.md)); in the
 selection calls on continuing turns and switched roles correctly in every completed
 case. That report also records the remaining gaps for each tested client/model;
 they do not establish support for other applications or native context compaction.
-To install version 1 instead:
+
+Both installers apply the protocol to detected Codex global instructions as well
+as the Claude instruction setup. The checked-in `CLAUDE.md` uses the same
+template; the global installer does not change this tracked file. After editing
+the template, refresh this checkout's managed section:
 
 ```bash
-AGENTS_PERSONA_PROTOCOL=1 ./scripts/init_repo.sh
+.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
 ```
 
-On Windows, set `AGENTS_PERSONA_PROTOCOL=1` before running `scripts\init_repo.bat`.
-Use the same setting on reruns. Both installers apply the selected protocol to
-detected Codex global instructions as well as the Claude instruction setup.
-The checked-in `CLAUDE.md` also uses v2; the global
-installer does not change this tracked file. To switch this checkout to another
-version, replace its managed section:
-
-```bash
-.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-v1.md
-```
-
-On Windows, use `.venv\Scripts\python.exe` for the same command. To return this
-checkout to v2, use `scripts/templates/routing-protocol-core.md` as the source.
+On Windows, use `.venv\Scripts\python.exe` for the same command.
 Repository notes outside the markers are preserved. Managed instruction sections
 are backed up and replaced by markers. For each managed instruction or routing
 memory file, the helper keeps the three newest generated timestamp backups;
@@ -273,15 +275,16 @@ unchanged instructions create no new backup. Backup creation reserves a distinct
 name even when successive writes have the same timestamp. Named manual backups
 and other backup formats are preserved. This limit does not apply to MCP configuration
 backups. Only exact known installer-generated
-routing memory is migrated; edited reminders are preserved with a path-specific warning. Windows
+routing memory is migrated, including reminders written for protocol 1
+([legacy copies](scripts/templates/legacy/README.md)); edited reminders are preserved with a path-specific warning. Windows
 does not create an absent memory reminder. Review your own project instructions
 and memory for conflicting unconditional `route_and_load` requirements; these
 are not automatically rewritten.
 
-To roll back, restore the managed section and reminder from backups, preserving
-later user edits, or rerun with `AGENTS_PERSONA_PROTOCOL=1`. Do not clear dialogue
-history. A v2 client encountering an old server reports the mismatch once and
-uses v1 until the server is updated.
+Client instructions still written for protocol 1 no longer match this server:
+their calls receive protocol 2 bundles they do not describe. Rerun the installer or `scripts/install_instructions.py` to replace them.
+A client whose server predates protocol 2 reports the mismatch once and answers
+without an activated persona until the server is updated.
 
 See [routing, compatibility and migration](docs/routing_flow.md) and the
 [client protocol](scripts/templates/routing-protocol-core.md) for the complete
@@ -309,7 +312,9 @@ Agents/
 │   ├── startup.py        # Installation leases and isolated stdio indexes
 │   ├── self_update.py    # Standalone staged updates
 │   ├── reindex.py        # Skill and implant index rebuild
-│   ├── daemon/           # HTTP app, service control, workspaces, client migration
+│   ├── flows.py          # Built-in flow catalog and run_flow bundles
+│   ├── user_flows.py     # Personal and repository flows (flows/.user)
+│   ├── daemon/           # HTTP app, service control, workspaces, client migration, flow editor
 │   ├── engine/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
@@ -383,10 +388,7 @@ python3 scripts/install_instructions.py
 
 On Windows, use `py -3 scripts\install_instructions.py`. The command needs Python
 3.11 or newer and only uses its standard library; no virtual environment is
-required. Add `--clients codex` to update only Codex. An unset or empty
-`AGENTS_PERSONA_PROTOCOL` selects protocol 2; `AGENTS_PERSONA_PROTOCOL=1` selects
-version 1, and an explicit `--protocol 1` or
-`--protocol 2` overrides that environment setting. The command uses the installer's
+required. Add `--clients codex` to update only Codex. The command uses the installer's
 managed-section replacement and backup retention. It migrates an existing exact
 generated Claude routing reminder and its entry in `~/.claude/memory/MEMORY.md`,
 but does not create an absent reminder.

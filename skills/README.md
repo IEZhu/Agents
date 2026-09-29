@@ -86,6 +86,12 @@ Persona for this skill.
 | `skill-mcp-development` | MCP server development best practices |
 | `skill-blender-scripting` | Blender Python (bpy) scripting, manifold geometry, 3D printing |
 | `skill-roblox-development` | Roblox Luau patterns, DataStore, anti-exploit, performance |
+| `skill-code-generation` | Code generation with tests, documentation, error handling and validation |
+| `skill-dev-api-design` | REST, GraphQL and gRPC API design: schemas, versioning, errors, pagination |
+| `skill-dev-performance` | Profiling, bottleneck identification, optimization patterns, benchmarking |
+| `skill-dev-testing` | Unit, integration, E2E and property-based testing; TDD/BDD workflow |
+| `skill-system-design` | Distributed systems, scalability patterns, trade-offs, C4 model, capacity planning |
+| `skill-ux-principles` | Gestalt laws, Nielsen heuristics, WCAG accessibility, design tokens, information architecture |
 
 ### Analysis & Research
 
@@ -99,6 +105,13 @@ Persona for this skill.
 | `skill-fact-verification` | Source triangulation, chain-of-verification, anomaly detection |
 | `skill-wayback-machine` | Temporal forensic layer via Archive.org Wayback Machine |
 | `skill-confidence-markers` | Calibrated confidence markers (HIGH/MEDIUM/LOW + domain variants) on findings/recommendations/solutions â€” deliberate, not per-sentence |
+| `skill-epistemic-method` | Epistemic gap analysis: semantic voids, time-slicing, cui bono |
+| `skill-forensic-process` | Forensic data processing: timeline reconstruction, deduplication, fact extraction, triangulation |
+| `skill-source-trust-tiers` | Source credibility tiers and triangulation |
+| `skill-web-search` | When to search, tool-selection ladder, query formulation and search operators |
+| `skill-mathematical-reasoning` | Step-by-step proofs, dimensional analysis, estimation, formal notation, verification |
+| `skill-decision-frameworks` | Inversion, Eisenhower Matrix, reversibility test, devil's advocate |
+| `skill-product-frameworks` | RICE, MoSCoW, user stories, PRD, OKR, Jobs-to-be-Done |
 
 > **Note**: `skill-confidence-markers` holds the confidence-LABELING mechanics that used to live inside `rule-honest-uncertainty`. The rule keeps the universal honesty principle (calibrate to evidence; never imply you verified what you only recalled), while the per-context labeling discipline is **opt-in via `core_skills`** on agents that emit explicit markers (e.g. `security_expert`, `software_engineer`, `debate_moderator`) â€” rules stay universal, per-agent behavior lives in skills.
 
@@ -113,6 +126,12 @@ Persona for this skill.
 | `skill-literary-devices` | Literary devices, tropes, sound symbolism |
 | `skill-narrative-craft` | Story building, voice, pacing, emotional arcs |
 | `skill-content-structure` | Form-matching: reads the register first; plain prose for conversational, story, spoken-script, manuscript and age-targeted answers (verse form for poems and songs), with no headers, bold lead-ins or bullet lists; BLUF/headers/MECE for analytical, reference, technical, troubleshooting and how-to answers |
+| `skill-creative-craft` | Creative writing craft: show don't tell, point of view, subtext |
+| `skill-report-formats` | Reusable analytical-report models: executive summary, key findings, risk assessment, decision matrix, recommendations |
+| `skill-structured-output` | JSON Schema, XML tags, validated formats, parsing pipelines |
+| `skill-caveman-tokenomics` | Terse, answer-first output without filler |
+| `skill-pedagogy` | Socratic method, scaffolding, zone of proximal development, active recall, spaced repetition |
+| `skill-consultative-intake` | Phased handling of ambiguous requests: clarify, confirm, then execute |
 
 > **Note**: `skill-content-structure` was briefly promoted to an always-on `rule-content-structure`, then demoted back to a skill â€” its behavior is per-context (analytical vs creative vs manuscript), not a flat universal directive, so it does not belong in the rules layer. It is now **opt-in via `core_skills`** on analytical/technical/reference agents and is excluded from pure-prose/therapeutic agents (e.g. `literary_writer`, `psychologist`).
 
@@ -139,8 +158,11 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 |-------|-------------|
 | `skill-bio-mechanism` | Biological mechanisms and pathways |
 | `skill-bio-protocols` | Health optimization protocols |
+| `skill-bio-protocol-design` | Mechanism-first protocol design: dosage, timing, duration, safety stops |
 | `skill-psy-cbt` | Cognitive Behavioral Therapy techniques |
 | `skill-psy-nvc` | Nonviolent Communication framework |
+| `skill-psy-child-dev` | Child developmental psychology: age stages, play and narrative therapy, attachment theory |
+| `skill-psy-digital-wellbeing` | Screen time, social media, cyberbullying and gaming for children and adolescents |
 | `skill-purchase-research` | Decision matrix methodology |
 | `skill-3d-platforms` | 3D printing platforms knowledge |
 | `skill-3d-print-search` | 3D model search strategies |
@@ -154,6 +176,11 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 | `skill-prompt-techniques` | Mega-Prompting, Few-Shot, Tone Transfer, Directional Stimulus |
 | `skill-prompt-security` | Sandwich Defense, Instructional Hierarchy, Delimiters, Negative Constraints |
 | `skill-error-recovery` | Universal error handling protocol |
+| `skill-prompt-design-process` | Prompt design process: role, task and constraints, few-shot examples, evaluation loop |
+| `skill-agent-handoff` | When and how to transfer tasks between specialized agents |
+| `skill-agentic-loops` | Checkpoints, convergence criteria, budgets and error recovery for long-running agent loops |
+| `skill-multi-step-planning` | Decompose goals into steps with dependencies, checkpoints and exit criteria |
+| `skill-react-pattern` | Thought-Action-Observation loops for tool-using agents |
 
 ## Loading Methods (3-Tier Per-Agent Model)
 
@@ -203,9 +230,10 @@ distance boosts (`SKILLS_RELEVANCE_THRESHOLD`, default `0.75`). `standard` rende
 `compiled` text; `lite` and `deep` render the full skill body. Declared
 `preferred_implants` can promote an inferred `lite` tier to `standard`.
 
-Protocol 1 enriches per query. The optional `INTENT_CLASSIFIER_ENABLED=1` policy
-can change its budgets; it is disabled by default. Protocol 2 selects skills when
-a bundle is activated or refreshed and retains them across turns. Its bundle uses
+Skills are selected when a persona bundle is activated or refreshed and are
+retained across turns. The per-query enrichment path used by the evaluation
+harnesses honours the optional `INTENT_CLASSIFIER_ENABLED=1` budgets (disabled by
+default). The bundle uses
 the tier budgets above, even when the intent classifier is enabled. Request
 `refresh_persona_context` when a continuing task needs a different skill selection.
 
