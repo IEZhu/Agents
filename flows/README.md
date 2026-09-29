@@ -69,7 +69,9 @@ Absolute paths outside it and escaping symlinks are rejected.
   unavailable working directory fails instead of falling back to the installation.
 
 `list_flows` returns `status="success"` and a `flows` array. Each item contains
-`id`, `title`, `source_path`, and a SHA-256 `revision`. `run_flow` returns
+`id`, `title`, `source_path`, a SHA-256 `revision` and its `source`; see
+[personal and repository flows](#personal-and-repository-flows) for the other
+sources and fields. `run_flow` returns
 `status="needs_execution"`, the same metadata under `flow`, the full `content`,
 `repo_path`, `workspace_id` (null on stdio), `request`, and execution `instruction`.
 The client model must continue through the flow's completion criteria using its
@@ -94,6 +96,51 @@ Adding a valid Markdown file exposes it through these generic MCP tools on the
 next call, without registering another tool or restarting the server. It does
 not create a slash command or a scheduled task. Content is read fresh each time;
 the revision identifies the exact instructions supplied to the model.
+
+## Personal and repository flows
+
+Besides the built-in flows in this directory, each user keeps their own flows,
+managed from chat or the [local editor](../docs/shared-mcp-daemon.md#flow-editor):
+
+| Source | ID | Stored in the installation | Visible |
+|---|---|---|---|
+| Built-in | `pr-review` (also `builtin:pr-review`) | `flows/<id>.md`, tracked in git | Everywhere, read-only |
+| Personal | `user:<id>` | `flows/.user/common/<id>.md` | In every repository |
+| Repository | `repo:<id>` | `flows/.user/repos/<repo-key>/<id>.md` | Only in that repository |
+
+`flows/.user` is ignored by git (the repository ignores every dot-directory), so
+saving a flow never dirties or switches a branch, neither in this installation nor
+in the caller's repository. Installation updates fast-forward and leave it alone.
+`AGENTS_USER_FLOWS_DIR` moves the library elsewhere. The repository key is the
+normalized `origin` remote without credentials, for example
+`github.com-owner-project`, so clones of one remote share their flows; without a
+remote it is the folder name plus a path hash. `repo:` flows need the caller's
+workspace, like `run_flow`.
+
+Ask in chat, for example "save this as my flow", "save it only for this
+repository", "change pr-review for me" or "restore the previous version". The
+model uses these tools and says which scope it chose:
+
+| Tool | Purpose |
+|---|---|
+| `list_flows(scope="all")` | `all`, `builtin`, `user` or `repo`; `repo` reports whether the repository scope is available |
+| `get_flow(flow, version=None)` | Text, revision and saved versions; for a local copy of a built-in, `upstream` holds the current built-in text |
+| `save_flow(flow, content, scope="user", expected_revision=None, override=False)` | Create (no revision) or update (revision from `get_flow`) a personal or repository flow |
+| `delete_flow(flow, expected_revision)` | Delete a personal or repository flow; its text stays in history |
+
+A bare name resolves `repo:`, then `user:`, then the built-in. Built-in flows are
+never edited in place: saving the same ID with `override=true` creates a local copy
+that replaces it for this user (`user:`) or this repository (`repo:`). The listing
+marks the built-in `overridden_by`. When the built-in text later changes, the copy
+reports `upstream_changed` until it is saved again; deleting the copy restores the
+built-in. Without `override=true`, reusing a built-in ID is rejected
+(`flow_shadows_builtin`), so a bare name never silently changes meaning.
+
+Every save or delete keeps the previous text in `flows/.user/.history`; restoring
+is `get_flow(flow, version=...)` followed by `save_flow` with that text. An update
+with an outdated `expected_revision` returns `flow_conflict` with the current
+revision instead of overwriting a change made from another chat or the editor.
+Writes are atomic and serialized by a lock, so concurrent clients are safe.
 
 ## Author a flow
 

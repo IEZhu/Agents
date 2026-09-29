@@ -114,6 +114,28 @@ are counted as `streams`, not as work, and drain ends them cleanly
 so a client's next request reaches the restarted process without a new session.
 A request sent during the stop window fails and can be retried.
 
+## Flow editor
+
+```bash
+.venv/bin/python -m src.daemon flows-ui          # opens the browser
+.venv/bin/python -m src.daemon flows-ui --no-open
+```
+
+The daemon serves a local editor for [personal and repository
+flows](../flows/README.md#personal-and-repository-flows) at `/ui`. It lists
+built-in, personal and repository flows (pick a registered workspace for the
+last), edits and creates them, shows saved versions, compares a local copy with
+its built-in flow and reports conflicts with edits made from chat.
+
+Access is separate from MCP. The command obtains a one-use code (valid two
+minutes) with the service token and opens `/ui#code=...`; the page exchanges it
+for an HttpOnly, SameSite=Strict cookie limited to `/ui` (30 minutes idle, eight
+hours maximum). The browser never receives the bearer token, and the cookie
+cannot call `/mcp` or administration. Requests must use the loopback Host;
+changes also need a same-origin `Origin` and the `X-Agents-UI` header. The page
+loads no external assets and runs under a nonce-based Content Security Policy.
+Sessions live in daemon memory, so a restart requires running the command again.
+
 ## Memory and errors
 
 HTTP never selects a project from cwd, environment variables, or client roots.
@@ -121,8 +143,9 @@ HTTP never selects a project from cwd, environment variables, or client roots.
 `workspace_required` and `workspace_invalid` mean memory is unavailable: routing
 can continue, and logging must not be retried in a loop. `run_flow` also requires
 this header and never uses `repo_path` as a replacement for workspace identity.
-`list_flows` works without it. See the [flow guide](../flows/README.md) for loading
-installation workflows into the caller's repository.
+`list_flows`, `get_flow` and `save_flow` for built-in and personal (`user:`) flows
+work without it; `repo:` flows need it. See the [flow guide](../flows/README.md)
+for loading workflows into the caller's repository.
 
 After `describe_repo`, pass the original `workspace_id`, `repo_path`, and
 `repo_hash` to `write_repo_summary` together with the summary. The header must

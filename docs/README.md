@@ -57,6 +57,7 @@ the maintained references above for current commands and behavior.
 
 | Document | Status / scope |
 |---|---|
+| [Personal flow library](user-flows-design.md) | Implemented decision record: file-based personal and repository flows, chat management and the local editor; the current reference is the [flow guide](../flows/README.md#personal-and-repository-flows) |
 | [Persona switching plan](persona-switch-plan.md) | Implemented design; current contracts are in the routing reference |
 | [Persona switching results](persona-switch-eval-results.md) | Measurements of the revisions named in the report |
 | [Memory subsystem specification](memory-subsystem-spec.md) | Implemented design with deviations in Appendix C; current transport behavior is in the routing and daemon references |

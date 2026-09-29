@@ -182,6 +182,8 @@ def main(argv=None):
     serve = commands.add_parser("serve"); serve.add_argument("--probation")
     for command in ("start", "status", "stop", "restart", "uninstall", "update", "recover", "clear-cache", "audit"):
         commands.add_parser(command)
+    flows_ui = commands.add_parser("flows-ui", help="open the local flow editor in a browser")
+    flows_ui.add_argument("--no-open", action="store_true", help="print the one-use URL only")
     workspace = commands.add_parser("workspace")
     workspace.add_argument("action", choices=["register", "list"]); workspace.add_argument("path", nargs="?")
     migrate = commands.add_parser("migrate")
@@ -233,6 +235,13 @@ def main(argv=None):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
+    elif args.command == "flows-ui":
+        result = controller.request("/admin/ui/code", method="POST")
+        if "url" in result and not args.no_open:
+            import webbrowser
+            webbrowser.open(result["url"])
+        result = {"url": result.get("url"), "error": result.get("error"),
+                  "note": "one-use link, valid for 2 minutes"}
     elif args.command == "auto-update":
         from . import autoupdate
         if args.action == "enable":
