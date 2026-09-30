@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import src.server as server
+from src.engine import config as engine_config
 from src.engine import persona
 from src.schemas.protocol import PersonaDescriptor, RouterDecision
 
@@ -215,6 +216,26 @@ async def test_logging_records_client_reported_activation(monkeypatch):
     assert response["attribution"] == "client-reported"
     written_action = writer.return_value.append_entry.call_args.args[1]
     assert active.activation_id in written_action and active.bundle_revision in written_action
+
+
+@pytest.mark.asyncio
+async def test_logging_refuses_history_in_windows_directory(tmp_path, monkeypatch):
+    """Regression: a stdio server started in C:\\Windows\\System32 wrote history.md there."""
+    windows = tmp_path / "Windows"
+    (windows / "System32").mkdir(parents=True)
+    # The marker keeps the walk-up inside tmp_path; its directory is still refused.
+    (windows / "CLAUDE.md").write_text("")
+    monkeypatch.setattr(engine_config, "_windows_directory", lambda: windows.resolve())
+    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+    monkeypatch.chdir(windows / "System32")
+    engine_config._reset_client_repo_root_cache()
+    try:
+        response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
+    finally:
+        engine_config._reset_client_repo_root_cache()
+    assert response["status"] == "ERROR"
+    assert response["message"].startswith("workspace_required: refusing")
+    assert sorted(path.name for path in windows.rglob("*")) == ["CLAUDE.md", "System32"]
 
 
 @pytest.mark.asyncio

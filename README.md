@@ -85,7 +85,7 @@ uses a cached `intfloat/multilingual-e5-large` snapshot selected by its controll
 |---|---|---|
 | `EMBEDDING_MODEL` | Multilingual MiniLM above | Standalone embedding model |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache |
-| `AGENTS_CLIENT_REPO_ROOT` | Nearest `.git` or `CLAUDE.md` above the process working directory; otherwise that directory | Explicit stdio memory target |
+| `AGENTS_CLIENT_REPO_ROOT` | Nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the process working directory; otherwise that directory, but never a filesystem root or the Windows directory | Explicit stdio memory target |
 | `RULES_ENABLED` | `1` | Include shared rules in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
@@ -215,8 +215,9 @@ pass the PR/MR URL and constraints in `request`, such as `no-merge`.
 
 The flow files stay in the MCP installation. Inspection, edits, tests and PR/MR
 actions target the caller's repository. HTTP requires a registered workspace in
-`X-Agents-Workspace`; stdio uses `AGENTS_CLIENT_REPO_ROOT` or the server's working
-directory. An optional `repo_path` must stay within that workspace. A missing
+`X-Agents-Workspace`; stdio uses `AGENTS_CLIENT_REPO_ROOT`, `CLAUDE_PROJECT_DIR` or
+the server's working directory, never a filesystem root or the Windows directory.
+An optional `repo_path` must stay within that workspace. A missing
 HTTP workspace is an error, even when `repo_path` is supplied.
 
 The tool reads and returns instructions; the current model executes them with
@@ -543,8 +544,14 @@ client project:
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
 
 Over stdio, the project is resolved from `AGENTS_CLIENT_REPO_ROOT`, then the
-nearest `.git` or `CLAUDE.md` above the launch directory, then the launch directory
-itself. Over HTTP, memory requires the registered `X-Agents-Workspace` header;
+nearest `.git` or `CLAUDE.md` at or above the start directory, then the start
+directory itself. The start directory is `CLAUDE_PROJECT_DIR`, which Claude Code
+exports to the servers it starts, or else the launch directory. A filesystem root
+or a directory inside the Windows directory is refused with `workspace_required`.
+The Claude desktop app, for example, starts the servers in
+`claude_desktop_config.json` in `C:\Windows\System32` without a project hint;
+register Agents-Core with Claude Code instead, or set `AGENTS_CLIENT_REPO_ROOT` in
+the entry's `env`. Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. If a memory tool
 returns `workspace_required` or `workspace_invalid`, routing remains available.
 Register the project before retrying memory operations; do not retry logging in a loop.

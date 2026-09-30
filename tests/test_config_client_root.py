@@ -1,4 +1,4 @@
-"""Resolution of ``get_client_repo_root()`` — env → walk-up → cwd.
+"""Resolution of ``get_client_repo_root()`` — env → walk-up → start dir.
 
 Issue #36: per-repo memory requires the client repo root to be resolved
 dynamically so one global install can serve many client repos.
@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 
 import pytest
 
+from src.daemon.workspaces import WorkspaceError, client_context
 from src.engine import config as engine_config
 
 
@@ -20,6 +22,22 @@ def _reset_cache():
     engine_config._reset_client_repo_root_cache()
     yield
     engine_config._reset_client_repo_root_cache()
+
+
+@pytest.fixture
+def fake_windows(tmp_path, monkeypatch):
+    """A stand-in for ``%SystemRoot%`` under tmp_path, on any platform.
+
+    The marker is renamed to something that exists nowhere, so the walk-up
+    cannot escape tmp_path into a marked ancestor: a root falls back to its
+    start directory, as C:\\Windows\\System32 did.
+    """
+    windows = tmp_path / "Windows"
+    (windows / "System32").mkdir(parents=True)
+    monkeypatch.setattr(engine_config, "_windows_directory", lambda: windows.resolve())
+    monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
+    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+    return windows
 
 
 class TestResolutionOrder:
@@ -74,6 +92,33 @@ class TestResolutionOrder:
         monkeypatch.chdir(nested)
         assert engine_config.get_client_repo_root() == str(tmp_path.resolve())
 
+    def test_claude_project_dir_beats_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        project = tmp_path / "project"
+        (project / ".git").mkdir(parents=True)
+        (project / "pkg").mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        (elsewhere / ".git").mkdir(parents=True)
+        monkeypatch.chdir(elsewhere)
+        # Claude Code exports its project directory to the servers it spawns;
+        # the walk-up starts there, not in the server's cwd.
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project / "pkg"))
+        assert engine_config.get_client_repo_root() == str(project.resolve())
+
+    def test_env_override_beats_claude_project_dir(self, tmp_path, monkeypatch):
+        override = tmp_path / "override"
+        override.mkdir()
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(override))
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+        assert engine_config.get_client_repo_root() == os.path.realpath(str(override))
+
+    def test_missing_claude_project_dir_falls_back_to_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "deleted"))
+        assert engine_config.get_client_repo_root() == str(tmp_path.resolve())
+
     def test_cwd_unavailable_falls_back_to_install_root(self, monkeypatch, caplog):
         """os.getcwd() raises FileNotFoundError when the cwd was deleted.
 
@@ -102,6 +147,54 @@ class TestResolutionOrder:
         # filesystems often have .git at / or elsewhere in the ancestry.
         resolved = engine_config.get_client_repo_root()
         assert os.path.isabs(resolved)
+
+
+class TestUnsafeRootsRefused:
+    """An inferred root outside any project fails loudly instead of receiving memory.
+
+    Regression: the Claude desktop app starts stdio servers in
+    C:\\Windows\\System32 without a project hint, and log_interaction appended
+    to C:\\Windows\\System32\\history.md.
+    """
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="needs the real Windows directory")
+    def test_windows_system32_cwd_is_refused(self, monkeypatch):
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        monkeypatch.chdir(os.path.join(os.environ["SystemRoot"], "System32"))
+        with pytest.raises(engine_config.ClientRootError, match="refusing"):
+            engine_config.get_client_repo_root()
+
+    def test_filesystem_root_cwd_is_refused(self, tmp_path, monkeypatch):
+        # launchd and systemd start services in "/"; a marker there changes nothing.
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        monkeypatch.chdir(tmp_path.anchor)
+        with pytest.raises(engine_config.ClientRootError, match="filesystem root"):
+            engine_config.get_client_repo_root()
+
+    def test_cwd_inside_windows_directory_is_refused(self, fake_windows, monkeypatch):
+        monkeypatch.chdir(fake_windows / "System32")
+        with pytest.raises(engine_config.ClientRootError, match="inside the Windows directory"):
+            engine_config.get_client_repo_root()
+
+    def test_marker_inside_windows_directory_is_refused(self, fake_windows, monkeypatch):
+        # A marker there, say a CLAUDE.md written by describe_repo, is no project.
+        (fake_windows / engine_config._CLIENT_ROOT_MARKERS[0]).write_text("")
+        monkeypatch.chdir(fake_windows / "System32")
+        with pytest.raises(engine_config.ClientRootError, match="inside the Windows directory"):
+            engine_config.get_client_repo_root()
+
+    def test_claude_project_dir_inside_windows_directory_is_refused(self, fake_windows, monkeypatch):
+        # e.g. `claude` started from an elevated prompt, which opens in System32
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(fake_windows / "System32"))
+        with pytest.raises(engine_config.ClientRootError, match="from CLAUDE_PROJECT_DIR"):
+            engine_config.get_client_repo_root()
+
+    def test_stdio_memory_tools_get_workspace_required(self, fake_windows, monkeypatch):
+        monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+        monkeypatch.chdir(fake_windows / "System32")
+        context = client_context()
+        with pytest.raises(WorkspaceError, match="^workspace_required: refusing"):
+            context.require_root()
 
 
 class TestInstallRootUnchanged:

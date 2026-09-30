@@ -30,6 +30,10 @@ FLOWS_DIR = os.path.join(INSTALL_ROOT, "flows")
 _CLIENT_ROOT_MARKERS = (".git", "CLAUDE.md")
 
 
+class ClientRootError(RuntimeError):
+    """No safe client repo root can be inferred for per-repo memory or flows."""
+
+
 def _find_marker_upwards(start: Path) -> Optional[Path]:
     """Walk up from *start* until a directory containing any of
     `_CLIENT_ROOT_MARKERS` is found. Returns that directory, or None."""
@@ -43,19 +47,47 @@ def _find_marker_upwards(start: Path) -> Optional[Path]:
     return None
 
 
+def _windows_directory() -> Optional[Path]:
+    """`%SystemRoot%` (normally C:\\Windows) on Windows, otherwise None."""
+    if os.name != "nt":
+        return None
+    system_root = os.environ.get("SystemRoot") or os.environ.get("windir")
+    return Path(os.path.realpath(system_root)) if system_root else None
+
+
+def _unsafe_client_root_reason(root: Path) -> Optional[str]:
+    """Why an inferred *root* must not be used as a client repo, or None.
+
+    Clients may start stdio servers outside any project. The Claude desktop
+    app starts them in C:\\Windows\\System32, where an unfiltered administrator
+    token let history.md be appended without an error.
+    """
+    if root.parent == root:
+        return "it is a filesystem root"
+    windows_dir = _windows_directory()
+    if windows_dir is not None and root.is_relative_to(windows_dir):
+        return f"it is inside the Windows directory {windows_dir}"
+    return None
+
+
 def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
     """Resolve the client repo that owns this MCP session's per-repo memory.
 
     Resolution order:
       1. `AGENTS_CLIENT_REPO_ROOT` env var — authoritative override.
-      2. Walk up from `os.getcwd()` to the nearest directory containing
+      2. Walk up from the start directory to the nearest directory containing
          `.git` or `CLAUDE.md`.
-      3. Fallback: `os.getcwd()`.
+      3. Fallback: the start directory itself.
+
+    The start directory is `CLAUDE_PROJECT_DIR` when it names an existing
+    directory (Claude Code exports it to the stdio servers it spawns), else
+    `os.getcwd()`. Steps 2-3 raise `ClientRootError` instead of returning a
+    filesystem root or a directory inside the Windows directory.
 
     With allow_install_fallback=False, an unavailable cwd raises OSError
     instead of selecting the installation as the target of a workflow.
-    Memoized for the process lifetime. Tests reset via
-    `_reset_client_repo_root_cache()`.
+    Memoized for the process lifetime; failures are not cached. Tests reset
+    via `_reset_client_repo_root_cache()`.
     """
     root, used_install_fallback = _resolve_client_repo_root()
     if used_install_fallback and not allow_install_fallback:
@@ -74,35 +106,47 @@ def _resolve_client_repo_root() -> tuple[str, bool]:
         logger.debug("client-repo-root: env override -> %s", resolved)
         return resolved, False
 
-    # `os.getcwd()` raises FileNotFoundError when the process' cwd has been
-    # deleted (long-running daemons started from ephemeral dirs). Without
-    # this guard the first memory-tool call would crash the whole session.
-    # Fall back to INSTALL_ROOT and warn loudly so the anomaly is visible.
-    try:
-        cwd = Path(os.getcwd())
-    except (FileNotFoundError, OSError) as err:
-        logger.warning(
-            "client-repo-root: cwd unavailable (%s); falling back to INSTALL_ROOT. "
-            "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
-            err,
-        )
-        return INSTALL_ROOT, True
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir and os.path.isdir(project_dir):
+        start, source = Path(project_dir), "CLAUDE_PROJECT_DIR"
+    else:
+        # `os.getcwd()` raises FileNotFoundError when the process' cwd has been
+        # deleted (long-running daemons started from ephemeral dirs). Without
+        # this guard the first memory-tool call would crash the whole session.
+        # Fall back to INSTALL_ROOT and warn loudly so the anomaly is visible.
+        try:
+            start, source = Path(os.getcwd()), "cwd"
+        except (FileNotFoundError, OSError) as err:
+            logger.warning(
+                "client-repo-root: cwd unavailable (%s); falling back to INSTALL_ROOT. "
+                "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
+                err,
+            )
+            return INSTALL_ROOT, True
 
-    marker = _find_marker_upwards(cwd)
-    if marker is not None:
-        logger.debug("client-repo-root: walk-up marker -> %s", marker)
-        return str(marker), False
+    root = _find_marker_upwards(start)
+    if root is not None:
+        logger.debug("client-repo-root: walk-up marker from %s -> %s", source, root)
+    else:
+        try:
+            root = start.resolve()
+        except OSError as err:
+            logger.warning(
+                "client-repo-root: %s resolve failed (%s); falling back to INSTALL_ROOT.",
+                source,
+                err,
+            )
+            return INSTALL_ROOT, True
+        logger.debug("client-repo-root: fallback %s -> %s", source, root)
 
-    try:
-        fallback = str(cwd.resolve())
-    except OSError as err:
-        logger.warning(
-            "client-repo-root: cwd resolve failed (%s); falling back to INSTALL_ROOT.",
-            err,
+    reason = _unsafe_client_root_reason(root)
+    if reason is not None:
+        raise ClientRootError(
+            f"refusing {root} (from {source} {start}) as the client repo root for "
+            f"per-repo memory and flows: {reason}. Start the MCP server in the "
+            "project directory, as Claude Code does, or set AGENTS_CLIENT_REPO_ROOT."
         )
-        return INSTALL_ROOT, True
-    logger.debug("client-repo-root: fallback cwd -> %s", fallback)
-    return fallback, False
+    return str(root), False
 
 
 def _reset_client_repo_root_cache() -> None:
