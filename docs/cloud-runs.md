@@ -129,8 +129,16 @@ Actions event author type is `User` can trigger it. Set `AGENT_OWNER` to the exa
 login of the one allowed user; a missing or empty setting disables dispatch.
 Display names, mentions, and collaborator or member status grant no command access. Bot reviews
 and other people's comments are evidence within the owner's task; they do not
-start or resume sessions. To process a review after a session has ended, the
-owner sends `/agent review`.
+start or resume sessions.
+
+`/agent run_plan` and `/agent run` include the complete bot review cycle after
+implementation. The same cloud session opens the PR, waits for available bots,
+handles findings, pushes fixes and obtains fresh reviews of the resulting head
+under [pr-review](../flows/pr-review.md) in `no-merge` mode. It keeps its issue
+lock during review and records the current head, bot results and pending work in
+the trusted state summary. PR creation is an intermediate milestone. The owner
+uses `/agent review` to recover after an actual interruption or request later
+review work; it is not a required follow-up to a successful implementation run.
 
 Post commands as new ordinary comments in the issue or the PR's Conversation
 tab, starting with `/agent` as the first characters. The slash prefix avoids
@@ -156,7 +164,10 @@ polling.
 On every normal exit, Claude posts a new comment on the original issue or PR
 whose first two lines are `<!-- issue-agent -->` and
 `<!-- issue-agent:finished bridge_comment_id=123 -->`, using the verified receipt
-ID. A separate handling path in the bridge validates the owner's completion,
+ID. For implementation commands, this happens after the required review cycle
+or an owner stop or actual blocker; a pending review or wait timeout alone does
+not end the run. An interrupted run reports what remains and how to resume.
+A separate handling path in the bridge validates the owner's completion,
 the trusted bridge receipt, and its original command, then removes only the
 recorded bridge reaction. Completion never fires another routine. The final
 reply records the outcome; the bridge receipt records delivery and startup.
@@ -201,9 +212,14 @@ its tests exercise both that installed workflow and the reusable template.
    own owner. The prompt says that Agents-Core MCP is unavailable (do not route),
    explicitly allows multi-agent
    orchestration, and tells the session to follow `flows/issue-agent.md` for the
-   event in the `routine-fire-payload` block. Restrict that prompt to the
-   exact target repository; a routine restricted to Agents.Private must not
-   process IEZhu/Agents commands.
+   event in the `routine-fire-payload` block. The saved prompt must explicitly
+   require `run_plan` and `run` to continue in the same session through the full
+   `no-merge` bot review cycle: wait for reviews, handle findings and repeat after
+   fixes until the flow's completion conditions hold. Opening the PR does not
+   end the run; only completion, an owner stop or an observed blocker permits
+   the final outcome and completion receipt. Restrict that prompt to the exact
+   target repository; a routine restricted to Agents.Private must not process
+   IEZhu/Agents commands.
 2. In the routine's web page, add an **API** trigger and generate its token.
 3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
    variables `CLAUDE_ROUTINE_ID` and `AGENT_OWNER`, then copy
@@ -229,7 +245,8 @@ its tests exercise both that installed workflow and the reusable template.
 When updating an existing installation, first pin the verified owner identity
 in the routine prompt. Keep its login aligned with the repository's `AGENT_OWNER`
 and name the numeric ID `AGENT_OWNER_ID`; this is a cloud verification setting,
-not another Actions variable. Update any saved command examples or prefix checks
+not another Actions variable. Apply the same requirement to complete review in
+existing routine prompts. Update any saved command examples or prefix checks
 to `/agent` as well. Then publish these flows before updating the copied bridge
 on the target's default branch. For Agents.Private, merge the public Agents flow
 change before its private bridge change, so new sessions know how to acknowledge

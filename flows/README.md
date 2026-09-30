@@ -13,7 +13,7 @@ and the [documentation map](../docs/README.md) for supporting references.
 | [PR/MR review](pr-review.md) | Handle review findings, update the description, and repeat bot reviews | A merged request or a precise blocker, with a report in the invocation language |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
-| [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: branch, implement, self-review, independent review, pre-mortem, PR | A pull request handed to PR/MR review, never merged |
+| [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 
 ## Run a flow
 

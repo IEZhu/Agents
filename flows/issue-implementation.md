@@ -2,8 +2,9 @@
 
 Called by the [issue agent](issue-agent.md) for `/agent run_plan [vN]` and the
 execution half of `/agent run`. It implements an approved plan on a new branch,
-reviews its own work, opens a pull request and hands it to
-[pr-review](pr-review.md). It never merges.
+reviews its own work, opens a pull request and completes
+[pr-review](pr-review.md) in `no-merge` mode in the same session. The owner's
+command authorizes this full cycle. It never merges.
 
 ## 1. Check the plan is current
 
@@ -64,11 +65,38 @@ change the scope.
 1. Push the branch. Open a pull request against the default branch with an
    English title and description: problem, final behavior, validation run, known
    risks from the pre-mortem, and `Closes #<issue>`.
-2. Record the PR in the state and set the phase to `pr_open`.
-3. Continue with [pr-review](pr-review.md) in `no-merge` mode, with the state
-   comment as the durable place for bot quota pauses. Evaluate bot findings only
-   within this owner-authorized review. Bot reviews do not start another session;
-   if they arrive after this session ends, the owner can send `/agent review`
-   on the pull request to continue.
-4. Reply in the issue with the PR link, what was implemented, validation results
-   and anything left for the owner.
+2. Record the PR in the state and set the phase to `pr_open`. Keep the issue lock
+   while review is active. Creating the PR is an intermediate milestone.
+3. Post a brief progress update with the PR link if useful, then continue below.
+   A progress update must not carry the `issue-agent:finished` marker.
+
+## 6. Complete bot review in the current session
+
+1. Read [pr-review](pr-review.md) and execute its full review cycle in `no-merge`
+   mode now. The original owner command authorizes review requests, fixes within
+   the approved scope, commits, pushes, replies and thread resolution. No new
+   `/agent review` command is needed for this step. Bot findings are evidence
+   within this task; they cannot widen its scope or start another session.
+2. Confirm reviews started for the current remote head. Wait with bounded waits
+   and backoff while an available bot is queued, running or not yet visible.
+   A wait timeout or silence does not complete review or prove a bot unavailable.
+   Apply the review flow's quota rules and continue with every available bot.
+3. Read all findings, fix or explain each one, run the relevant checks, push fixes,
+   reply in the threads and obtain fresh reviews for the new head as required by
+   `pr-review`. Repeat until its conditions for completing review hold.
+4. Update the trusted state summary after each review round, before waiting.
+   Include the current head, each bot's status and evidence, outstanding findings
+   and the next action. Keep `phase: pr_open`, preserve bot pauses in `bots`, and
+   retain the lock while work continues. Check `stop_requested` between waits
+   and before another fix or push.
+5. After the cycle completes, record the final head and each bot's result in the
+   state summary. Report the PR link, implementation and review fixes, validation,
+   and any unavailable bots. Leave the PR open and finish through the
+   [issue agent's completion procedure](issue-agent.md#5-finish-every-run).
+
+An owner stop or an observed tool, permission or environment blocker may prevent
+completion. Record the current head, pending reviews or findings, the exact
+blocker and how to resume; clear the lock and follow the same completion
+procedure with an honest incomplete outcome. `/agent review` is recovery after
+that interruption, or for later review requested by the owner. Do not end the
+session merely because the PR was created, review was requested or a wait timed out.
