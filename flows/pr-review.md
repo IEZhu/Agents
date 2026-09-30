@@ -96,6 +96,28 @@ For each available bot, distinguish these states:
 | Current-head approval or completed review with no actionable findings | Record completion for that bot and head |
 | Explicit quota exhaustion, rate limit, service failure, or unavailable integration | Record the evidence, pause that bot as described below, and continue with the other available bots |
 
+### Verify completion evidence
+
+Before declaring a bot's review complete, re-read the remote head and the full
+review output covering that exact SHA. For a bot that publishes a separate
+review status or check, also require its latest run for that head to finish
+successfully. On GitHub, inspect commit statuses as well as check runs; a bot
+may use either. For a bot without a separate run status, a substantive completed
+review of the whole PR, including an explicit no-findings result, is sufficient.
+
+For CodeRabbit, verify its successful current-head status or check, completed
+walkthrough and reviewed commit range. A `pending` / `in_progress` status for
+the current run or a walkthrough saying review is still in progress requires
+further waiting, even when all existing threads are resolved.
+
+A bot may create an empty `COMMENTED` review on the current SHA when replying
+in an older thread. That review, or a reply confirming one finding is fixed,
+does not establish that the bot completed its review of the whole PR. A
+successful status alone does not clear actionable findings. If the available
+signals disagree, investigate and keep the review pending. Explicit
+unavailability is handled under the rules below. Record the head, evidence
+links and completion times in the working record and final report.
+
 Use bounded waits with backoff and keep the user informed of meaningful changes.
 A wait timeout alone does not establish quota exhaustion or unavailability.
 Inspect failed requests and bot status before retrying. If every bot is
