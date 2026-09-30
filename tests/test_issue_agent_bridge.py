@@ -1,4 +1,4 @@
-"""Exercise the executable workflow template without GitHub or Claude access."""
+"""Exercise the template and installed bridge without GitHub or Claude access."""
 
 import io
 import json
@@ -14,7 +14,9 @@ import pytest
 import yaml
 
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "scripts/templates/issue-agent-bridge.yml"
+ROOT = Path(__file__).resolve().parents[1]
+TEMPLATE = ROOT / "scripts/templates/issue-agent-bridge.yml"
+INSTALLED = ROOT / ".github/workflows/issue-agent-bridge.yml"
 OWNER = "repository-owner"
 REPO = "example/project"
 GH_TOKEN = "github-secret-test-token"
@@ -24,17 +26,22 @@ SOURCE_ID = 1234
 RAW_PRIVATE = "private-account-and-response-body"
 
 
+@pytest.fixture(params=[TEMPLATE, INSTALLED], ids=["template", "installed"])
+def workflow_path(request):
+    return request.param
+
+
 @pytest.fixture
-def workflow():
+def workflow(workflow_path):
     # BaseLoader preserves GitHub's `on` key instead of interpreting it as True.
-    return yaml.load(TEMPLATE.read_text(), Loader=yaml.BaseLoader)
+    return yaml.load(workflow_path.read_text(), Loader=yaml.BaseLoader)
 
 
 @pytest.fixture
-def bridge_namespace(workflow):
+def bridge_namespace(workflow, workflow_path):
     step = next(step for step in workflow["jobs"]["fire"]["steps"] if step.get("id") == "dispatch")
     namespace = {"__name__": "bridge_under_test"}
-    exec(compile(step["run"], str(TEMPLATE), "exec"), namespace)
+    exec(compile(step["run"], str(workflow_path), "exec"), namespace)
     return namespace
 
 
@@ -166,7 +173,7 @@ def test_workflow_subscribes_only_to_new_owner_comments(workflow):
     assert "||" not in condition
 
 
-@pytest.mark.parametrize("body", ["/agent", "/agent work", "/agent\nstatus", "/agent\tstop"])
+@pytest.mark.parametrize("body", ["/agent", "/agent work", "/agent plan", "/agent\nstatus", "/agent\tstop"])
 def test_owner_exact_command_is_dispatched(bridge, body):
     bridge.event["comment"]["body"] = body
     bridge.run()
@@ -513,10 +520,10 @@ def test_cleanup_deletes_only_recorded_reaction_and_accepts_already_removed(work
 
 
 @pytest.fixture
-def completion_namespace(workflow):
+def completion_namespace(workflow, workflow_path):
     step = next(step for step in workflow["jobs"]["complete"]["steps"] if step.get("id") == "cleanup")
     namespace = {"__name__": "completion_under_test"}
-    exec(compile(step["run"], str(TEMPLATE), "exec"), namespace)
+    exec(compile(step["run"], str(workflow_path), "exec"), namespace)
     assert "request" in namespace, "Completion API access must be replaced before running the test"
     return namespace
 
