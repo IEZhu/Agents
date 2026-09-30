@@ -69,6 +69,10 @@ TEST_DATA_DIR = _isolated_data_dir()
 # The router prefers this variable over config.DATA_DIR; a value inherited from
 # a stdio/daemon environment would point it at live router state.
 os.environ["AGENTS_ROUTER_DATA_DIR"] = os.path.join(TEST_DATA_DIR, "router")
+# Claude Code exports its project to the servers and hooks it starts. Inherited,
+# it would outrank the cwd that client-root tests control and aim memory and
+# flows at the live project.
+os.environ.pop("CLAUDE_PROJECT_DIR", None)
 
 from src.engine import config as _config  # noqa: E402  (must follow the env pins)
 

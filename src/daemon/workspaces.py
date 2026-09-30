@@ -109,8 +109,13 @@ def client_context(ctx=None, *, allow_install_fallback=True):
     if os.environ.get("AGENTS_TRANSPORT") == "http":
         # Prompts/tools must forward their MCP context explicitly.
         raise WorkspaceError("workspace_required")
-    from src.engine.config import get_client_repo_root
-    root = get_client_repo_root(allow_install_fallback=allow_install_fallback)
+    from src.engine.config import ClientRootError, get_client_repo_root
+    try:
+        root = get_client_repo_root(allow_install_fallback=allow_install_fallback)
+    except ClientRootError as error:
+        # Same contract as an HTTP request without a workspace: memory tools
+        # and repository flows fail, routing continues.
+        return ClientContext(str(uuid.uuid4()), "stdio", error=f"workspace_required: {error}")
     return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve())
 
 
