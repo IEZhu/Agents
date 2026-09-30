@@ -56,7 +56,7 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 
 <details open><summary>Diagram</summary>
 
-(mermaid flowchart, see below)
+(optional: a mermaid flowchart only when it helps, see below; omit this whole block otherwise)
 </details>
 
 <details><summary>Tests and checks</summary> ... </details>
