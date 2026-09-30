@@ -159,6 +159,32 @@ def bridge(bridge_namespace, tmp_path, monkeypatch):
     return BridgeRun(bridge_namespace, tmp_path, monkeypatch)
 
 
+def test_dispatch_permissions_cover_issue_and_pull_request_comments(workflow):
+    assert workflow["permissions"] == {}
+    assert workflow["jobs"]["fire"]["permissions"] == {
+        "issues": "write",
+        "pull-requests": "write",
+    }
+
+
+def test_completion_permissions_limit_pull_requests_to_read(workflow):
+    assert workflow["permissions"] == {}
+    assert workflow["jobs"]["complete"]["permissions"] == {
+        "issues": "write",
+        "pull-requests": "read",
+    }
+
+
+def test_owner_review_command_on_pull_request_starts_once(bridge):
+    bridge.event["issue"]["pull_request"] = {"url": f"https://api.github.test/repos/{REPO}/pulls/17"}
+    bridge.event["comment"]["body"] = "/agent review"
+    bridge.run()
+    assert len(bridge.fires) == 1
+    assert "event=issue_comment number=17" in bridge.fires[0]["body"]["text"]
+    assert bridge.reactions[0]["url"].endswith(f"/issues/comments/{SOURCE_ID}/reactions")
+    assert "Claude confirmed startup" in bridge.statuses[-1]
+
+
 def test_workflow_subscribes_only_to_new_owner_comments(workflow):
     assert workflow["on"] == {"issue_comment": {"types": ["created"]}}
     condition = " ".join(workflow["jobs"]["fire"]["if"].split())

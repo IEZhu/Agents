@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       issues: write
+      pull-requests: write  # Post and update status comments in PR conversations.
     # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
     # agent cannot trigger itself even though it posts as the owner.
     if: >-
@@ -241,6 +242,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       issues: write
+      pull-requests: read  # Verify PR comments; reaction deletion uses issues: write.
     if: >-
       github.event_name == 'issue_comment'
       && github.event.action == 'created'
