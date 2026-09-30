@@ -36,8 +36,10 @@ read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
 | `AGENTS_BRANCH` | `main` | Branch to install |
 | `AGENTS_ASSUME_YES` | unset | `1` skips the confirmation |
 
-The installer never uses `sudo` and refuses to update a checkout with local
-changes. For step-by-step confirmations use the manual install below. Windows
+The installer never uses `sudo`. An update is refused when the checkout has
+uncommitted changes to tracked files (commit or stash them first). Untracked files
+do not block an update and are left in place; `git pull --ff-only` aborts without
+touching them if an incoming file would overwrite one. For step-by-step confirmations use the manual install below. Windows
 keeps `init_repo.bat`.
 
 ### After Cloning

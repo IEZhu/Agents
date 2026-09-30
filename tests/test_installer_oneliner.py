@@ -75,6 +75,19 @@ def test_dirty_checkout_is_refused(tmp_path, upstream):
     assert "local changes" in result.stderr
 
 
+def test_untracked_file_survives_update(tmp_path, upstream):
+    assert run_install(tmp_path, upstream).returncode == 0
+    checkout = tmp_path / "home/.agents-core"
+    (checkout / "notes.txt").write_text("mine")
+    (upstream / "new.txt").write_text("x")
+    git("add", "-A", cwd=upstream)
+    git("commit", "-q", "-m", "more", cwd=upstream)
+    result = run_install(tmp_path, upstream)
+    assert result.returncode == 0, result.stderr
+    assert (checkout / "new.txt").exists()
+    assert (checkout / "notes.txt").read_text() == "mine"
+
+
 def test_non_checkout_directory_is_refused(tmp_path, upstream):
     target = tmp_path / "home/.agents-core"
     target.mkdir(parents=True)

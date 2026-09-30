@@ -79,8 +79,9 @@ main() {
     fi
 
     if [ -d "$home_dir/.git" ]; then
+        # Only tracked changes block an update; untracked files are left alone.
         if [ -n "$(git -C "$home_dir" status --porcelain --untracked-files=no)" ]; then
-            echo "install.sh: $home_dir has local changes; commit or stash them first." >&2
+            echo "install.sh: $home_dir has local changes to tracked files; commit or stash them first." >&2
             return 1
         fi
         git -C "$home_dir" fetch --quiet origin "$branch"
