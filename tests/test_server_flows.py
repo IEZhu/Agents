@@ -99,6 +99,22 @@ async def test_no_install_fallback_when_stdio_cwd_is_lost(environment, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_stdio_cwd_in_windows_directory_is_refused(environment, tmp_path, monkeypatch):
+    # The Claude desktop app starts stdio servers in C:\Windows\System32.
+    windows = tmp_path / "Windows"
+    (windows / "System32").mkdir(parents=True)
+    (windows / "CLAUDE.md").write_text("")  # keeps the walk-up inside tmp_path
+    monkeypatch.setattr(config, "_windows_directory", lambda: windows.resolve())
+    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
+    monkeypatch.chdir(windows / "System32")
+    result = json.loads(await server.run_flow("check"))
+    assert result["status"] == "error"
+    assert result["error"].startswith("workspace_required: refusing")
+    listing = json.loads(await server.list_flows())
+    assert listing["status"] == "success" and listing["repo"]["status"] == "unavailable"
+
+
+@pytest.mark.asyncio
 async def test_error_results_and_listing_without_workspace(environment, monkeypatch):
     monkeypatch.setenv("AGENTS_TRANSPORT", "http")
     catalog = json.loads(await server.list_flows())

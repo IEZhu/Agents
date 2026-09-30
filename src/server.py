@@ -256,7 +256,8 @@ async def run_flow(
     resolves repo:, then user:, then builtin:. request carries the user's scope,
     PR/MR URL and constraints such as no-merge. repo_path defaults to the caller
     workspace; an override must be an existing directory within it.
-    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT or cwd.
+    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT,
+    CLAUDE_PROJECT_DIR or cwd, never a system directory.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.

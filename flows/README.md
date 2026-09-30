@@ -67,7 +67,9 @@ Absolute paths outside it and escaping symlinks are rejected.
   connection without it can list flows but cannot start one. See
   [workspace setup](../docs/shared-mcp-daemon.md).
 - **Stdio:** the target comes from `AGENTS_CLIENT_REPO_ROOT`, then the nearest
-  `.git` or `CLAUDE.md` above the server's working directory, then that directory.
+  `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` (exported by Claude Code)
+  or the server's working directory, then that directory. A filesystem root or a
+  directory inside the Windows directory is refused with `workspace_required`.
   Set the variable when the client launches MCP from another directory. An
   unavailable working directory fails instead of falling back to the installation.
 
