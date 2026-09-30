@@ -206,11 +206,12 @@ rewritten automatically.
 To reproduce the evaluation, use
 [run_persona_dialogues.py](../evals/runners/run_persona_dialogues.py). Freeze two
 source trees on Linux or macOS, one index seed, and an identical request suite combining
-persona_dialogues.jsonl and persona_compaction.jsonl. Specify `--repeats 3`, a
-separate `--out` for each run, `--source-root`, `--seed-data`, `--dataset`,
-and `--protocol`. For Codex on macOS, add
-`--codex-isolate-global-instructions`. Run the supplemental
-persona_implicit_switch.jsonl suite separately against both protocol versions.
+persona_dialogues.jsonl and persona_compaction.jsonl. Specify `--client codex` or
+`--client claude`, `--repeats 3`, a separate `--out` for each run,
+`--source-root`, `--seed-data`, `--dataset`, and `--protocol`. For Codex on
+macOS, add `--codex-isolate-global-instructions`. Run the supplemental
+persona_implicit_switch.jsonl suite separately for each protocol version; protocol
+1 needs the older runner described below.
 The runner does not overwrite an existing output directory.
 Since 2026-09-29 the server, templates and this runner support only protocol 2.
 Reproducing the protocol 1 baseline, or regrading its retained report, needs the

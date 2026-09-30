@@ -1,7 +1,7 @@
 # Agents-Core Memory Subsystem: `describe` + `history.md`
 
 > Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
-> Status: implemented 2026-04-15. See Appendix C for deviations between the plan and the actual implementation.
+> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), the `write_repo_summary` fallback, persona attribution in `log_interaction` and sidecar locks. The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
 
 > **Update 2026-04-15 (post-implementation):** The standalone `record_history` MCP tool was merged
 > into `log_interaction`. Now `log_interaction(...)` always appends to `history.md` (with optional
@@ -27,10 +27,10 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. Already used in `route_and_load` (`src/server.py:196`). A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
-| `history.md` location | **Repo root, gitignored by default** | The file stays as local per-repo memory next to the code, but is gitignored by default to avoid polluting PRs and leaking secrets. Teams can remove it from `.gitignore` to opt into a versioned approach. |
+| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. `src/server.py` wraps the call in `_sample_with_agent`; since protocol 1 was removed (#101), `describe_repo` is its only caller and persona routing never samples. A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
+| `history.md` location | **Repo root; ignored in the Agents-Core checkout only** | The file stays next to the code as local per-repo memory. Agents-Core's own `.gitignore` excludes `history.md` and `history/`, but nothing adds these entries to a client project. By default the log stores raw prompts and responses, so add both entries to the client's ignore rules unless the team wants a versioned log. |
 | History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
-| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and incrementally refreshed by mtime. |
+| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and fully rebuilt when the SHA-256 of `history.md` plus the embedding configuration fingerprint differs from the stored `.history_fingerprint`, or the store file is missing. The index is keyed by workspace and kept outside the client repository (see [service memory behavior](shared-mcp-daemon.md#memory-and-errors)). |
 
 ### Prior Art Comparison
 
@@ -67,7 +67,9 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 
 ```
 describe_repo(repo_path?, force_refresh=False)
-  ├─ RepoDescriber.compute_repo_hash()       # MD5 of pyproject/package.json/top-level dirs/README head
+  ├─ RepoDescriber.compute_repo_hash()       # MD5 of top-level names, depth-1/2 dir names,
+  │                                          # root manifests, README head (skips memory files,
+  │                                          # excluded dirs, dot-entries except .env.example)
   ├─ if hash unchanged and not force → return {status:"up-to-date"}
   ├─ tree walk (depth ≤ 3, excluding vendor) + reading key files → CONTEXT_BUNDLE
   ├─ render DESCRIBE_PROMPT (template) with CONTEXT_BUNDLE
@@ -87,16 +89,17 @@ write_repo_summary(summary, repo_hash, repo_path?, workspace_id?)
   └─ return {status, path, hash, word_count, in_word_budget, summary_preview}
 
 log_interaction(..., intent, action, outcome, files?, tags?)
-  ├─ HistoryWriter.compute_entry_hash()      # SHA256(intent+action+outcome)[:12]
+  ├─ HistoryWriter.compute_entry_hash()      # SHA256(intent \x1f action \x1f outcome)[:12]
   ├─ scan last 50 entries for duplicate → return {status:"duplicate"} on match
   ├─ format markdown entry
-  ├─ fcntl.flock + atomic append to history.md
+  ├─ sidecar lock + fcntl.flock (POSIX) + append to history.md
   ├─ maybe_rotate() if file > 512 KB → archive to history/YYYY-MM.md
   └─ return {status:"recorded", entry_id, path}
 
 read_history(limit=20, since?, query?)
   ├─ if query:
-  │    ├─ HistoryStore.ensure_index()        # lazy: rebuild if file mtime > store mtime
+  │    ├─ HistoryStore.ensure_index()        # lazy: full rebuild when history.md content
+  │    │                                     # or the embedding fingerprint changes
   │    └─ semantic search via NumpyVectorStore + embedder
   └─ else:
        └─ HistoryReader.read_recent()        # parse bottom-up, filter by since
@@ -108,7 +111,7 @@ read_history(limit=20, since?, query?)
 |---|---|
 | `src/memory/__init__.py` | Package marker |
 | `src/memory/config.py` | Constants: markers, thresholds; path constants (`HISTORY_FILE`, `CLAUDE_MD_FILE`, `MEMORY_DATA_DIR`, `DESCRIBE_HASH_FILE`, `HISTORY_ARCHIVE_DIR`) are exposed via PEP 562 `__getattr__` so they resolve lazily against `get_client_repo_root()` / `get_client_data_dir()` — see issue #36. |
-| `src/memory/managed_section.py` | Pure Python port of the marker editor from `scripts/init_repo.sh:636-672`. Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
+| `src/memory/managed_section.py` | Pure Python port of the inline marker editor in `scripts/init_repo.sh` (April 2026). Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
 | `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → upsert of the summary (sampled by the server, or sent back through `write_repo_summary`) |
 | `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (wrapper around NumpyVectorStore) |
 | `tests/test_managed_section.py` | Marker editor tests (style of `tests/test_vector_store.py`) |
@@ -126,17 +129,17 @@ read_history(limit=20, since?, query?)
 
 | Existing | Location | Where reused |
 |---|---|---|
-| FastMCP `@mcp.tool()` decorator + JSON-string returns | `src/server.py:70-608` | All new tools — same registration pattern |
-| MCP sampling via `ctx.session.create_message(...)` | `src/server.py:196` | `describe_repo` uses the same sampling call when the client supports it; otherwise it returns `needs_summary` and `write_repo_summary` persists the result |
-| Marker editor for CLAUDE.md (inline Python) | `scripts/init_repo.sh:636-672` | Ported literally to `src/memory/managed_section.py` — bash installer and MCP tool share one implementation |
-| `SkillRetriever._compute_dir_hash` + `_needs_reindex` | `src/engine/skills.py:32-51` | `RepoDescriber._compute_repo_hash` + `_needs_refresh` |
-| `NumpyVectorStore` (atomic .npz+.json, thread-safe) | `src/engine/vector_store.py:39` | `HistoryStore` for semantic recall |
-| `embed_texts` / `embed_query` (FastEmbed) | `src/engine/embedder.py:83,89` | Vectorization of entries and queries |
-| `LanguageDetector` | `src/engine/language.py:39` | Language tagging of entries |
-| `debug_log` | `src/utils/debug_logger.py:18` | Instrumentation of all tools |
+| FastMCP `@mcp.tool()` decorator + JSON-string returns | `src/server.py` | All new tools — same registration pattern |
+| MCP sampling via `ctx.session.create_message(...)` | `src/server.py` (`_sample_with_agent`) | `describe_repo` uses the same sampling call when the client supports it; otherwise it returns `needs_summary` and `write_repo_summary` persists the result |
+| Marker editor for CLAUDE.md (inline Python) | Inline marker editor in `scripts/init_repo.sh` (April 2026) | Ported to `src/memory/managed_section.py`. The installers never imported it: they edit the routing section with `scripts/_helpers/inject_claude_md.py`, a separate implementation that also migrates the legacy routing marker pair. Only `describe_repo`/`write_repo_summary` use `managed_section` |
+| `SkillRetriever._compute_dir_hash` + `_needs_reindex` | `src/engine/skills.py` | `RepoDescriber.compute_repo_hash` + `plan()` |
+| `NumpyVectorStore` (atomic .npz+.json, thread-safe) | `src/engine/vector_store.py` | `HistoryStore` for semantic recall |
+| `embed_texts` / `embed_query` (FastEmbed) | `src/engine/embedder.py` | Vectorization of entries and queries |
+| `LanguageDetector` | `src/engine/language.py` | Planned language tagging of entries; not implemented (Appendix C) |
+| `debug_log` | `src/utils/debug_logger.py` | Instrumentation of all tools |
 | `@observe` from `langfuse_compat` | `src/utils/langfuse_compat.py` | Optional observability |
 | `INSTALL_ROOT`, `INSTALL_DATA_DIR`, `get_client_repo_root()`, `get_client_data_dir()` | `src/engine/config.py` | Two-root model: install-scoped (shipped assets + shared indexes) vs client-scoped (per-repo memory). Deprecated aliases `REPO_ROOT`/`DATA_DIR` map to the install-scoped values via PEP 562 `__getattr__`. |
-| pytest fixtures (`tmp_path`, `populated_store`) | `tests/test_vector_store.py:12-31` | Mirrored for new tests |
+| pytest fixtures (`tmp_path`, `populated_store`) | `tests/test_vector_store.py` | Mirrored for new tests |
 
 ---
 
@@ -181,7 +184,7 @@ Two marker pairs coexist. The new pair is placed **below** the existing routing-
 # <<< Agents-Core Repository Memory (managed by describe_repo) <<<
 ```
 
-**Word budget:** 800–1500 (enforced by tests). Hard cap to prevent `CLAUDE.md` from bloating the context window.
+**Word budget:** the prompt asks for 800–1500 words to keep `CLAUDE.md` from bloating the context window, and responses report `word_count` and `in_word_budget`. The budget is not enforced and has no upper cap: `write_summary` persists any summary of at least 200 words (`MIN_PERSIST_WORD_COUNT`) that contains a `##`/`###` heading, and rejects anything shorter or without a heading.
 
 ### 4.2 `history.md` (append-only, repo root)
 
@@ -199,16 +202,16 @@ Entry template:
 ## 2026-04-15T14:32:00Z | a1b2c3d4e5f6
 **Intent:** Enable semantic recall of past actions for context loading.
 **Action:** Added `HistoryStore` on top of `NumpyVectorStore` in `src/memory/history.py`; entries are embedded lazily.
-**Outcome:** `pytest tests/test_history.py::test_semantic_search_returns_relevant` passes; index rebuilds when history.md mtime grows.
+**Outcome:** `pytest tests/test_history.py::test_semantic_search_returns_relevant` passes; index rebuilds when history.md content changes.
 **Files:** src/memory/history.py, tests/test_history.py
 **Tags:** #feature #memory
 ```
 
 **Rules:**
-- `entry_id` (12-hex suffix in the heading) = `sha256(intent+action+outcome)[:12]`. Stable, deduplicated.
+- `entry_id` (12-hex suffix in the heading) is the first 12 hex digits of `sha256(intent + "\x1f" + action + "\x1f" + outcome)`, computed over the stripped UTF-8 fields. Stable, deduplicated.
 - Dedup: scan the last 50 entries by id before append. Duplicates short-circuit.
 - Append-only. Past entries are never edited or deleted.
-- `fcntl.flock(LOCK_EX)` for writes (protects against concurrent sessions).
+- Writes take a stable sidecar lock next to the target: `.history.md.lock` for history appends and index rebuilds, `.CLAUDE.md.lock` for managed-section writes, and `.agents-description.lock` in the described `repo_path` for summary writes. On POSIX each is an `flock` on a lock file that persists in the client repository and serializes concurrent sessions across processes; on Windows the lock is in memory and serializes only threads within one process. History appends also hold a process-wide mutex and `fcntl.flock` on `history.md` itself.
 - Rotation: when `os.path.getsize > 512 KB` — move file to `history/YYYY-MM.md` (month from the last entry's timestamp), create a fresh `history.md` with a header pointing to the archive.
 - UTF-8, `\n` line endings.
 - `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
@@ -218,7 +221,7 @@ Entry template:
 ```python
 @mcp.tool()
 async def describe_repo(
-    ctx: Context,
+    ctx: Context | None = None,
     repo_path: str | None = None,
     force_refresh: bool = False,
 ) -> str:
@@ -227,8 +230,15 @@ async def describe_repo(
     section of CLAUDE.md. Without sampling, or when the sampling call fails, it
     writes nothing and returns needs_summary; write_repo_summary persists it.
 
+    repo_path defaults to the client workspace root. A relative path resolves
+    against that root, and the path must be an existing directory inside it;
+    otherwise the tool returns an error. The same rule applies to
+    write_repo_summary.
+
     Returns JSON whose fields depend on status:
-      refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
+      refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
+        (action: created, appended or replaced)
+      up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
       rejected, repo changed while sampling: {status, reason}
       rejected, sampled summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
@@ -250,7 +260,7 @@ async def write_repo_summary(
     is rejected (call describe_repo again).
 
     Returns JSON whose fields depend on status:
-      refreshed: {status, path, hash, word_count, in_word_budget, summary_preview}
+      refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
       rejected, stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
@@ -262,16 +272,27 @@ async def log_interaction(
     agent_name: str,
     query: str,
     response_content: str,
+    request_id: str | None = None,
+    reasoning: str | None = None,
     intent: str | None = None,
     action: str | None = None,
     outcome: str | None = None,
     files: list[str] | None = None,
     tags: list[str] | None = None,
+    persona: PersonaDescriptor | None = None,
+    persona_action: Literal["keep", "switch", "refresh", "restore"] | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """End-of-turn logger. Always appends to history.md (append-only, deduped by
     content hash) and optionally sends a Langfuse generation trace.
 
-    Returns JSON: {request_id, langfuse: {status}, history: {status, entry_id, path}}.
+    Returns JSON: {request_id, langfuse: {status, trace_id?, error?},
+    history: {status, entry_id?, path?, timestamp?, rotated_to?, error?}}.
+    With a persona descriptor, the payload also carries persona, persona_action
+    and attribution: "client-reported", and the entry's Action text ends with
+    "Persona (client-reported): ...". A missing or invalid workspace, a
+    persona whose agent differs from agent_name, or persona_action without
+    persona returns a protocol 2 ERROR response instead.
     """
 
 @mcp.tool()
@@ -279,11 +300,14 @@ async def read_history(
     limit: int = 20,
     since: str | None = None,
     query: str | None = None,
+    ctx: Context | None = None,
 ) -> str:
     """Read recent entries (limit/since) or run a lazy semantic search (query).
+    limit is clamped to 1–500.
 
     Returns JSON: {entries: [...], total, mode}.
     mode ∈ {"recency", "semantic"}.
+    A missing or invalid workspace, or any failure, returns {status, error}.
 
     Entry shape depends on mode:
     - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
@@ -297,7 +321,7 @@ All tools return JSON strings (following the existing pattern in `src/server.py`
 
 ## 5. Describe Prompt (central artifact)
 
-`RepoDescriber` builds this prompt and sends it via `ctx.session.create_message(...)`. The `{{CONTEXT_BUNDLE}}` placeholder is filled deterministically: file tree (depth ≤ 3), `pyproject.toml` / `package.json` / `Cargo.toml` / `go.mod`, README.md (first 200 lines), entry-point file headers, sample `.mdc` frontmatter, test list, scripts.
+`RepoDescriber` builds this prompt and sends it via `ctx.session.create_message(...)`. The `{{CONTEXT_BUNDLE}}` placeholder is filled deterministically with three parts: the directory tree to depth 3 (skipping `DESCRIBE_EXCLUDED_DIRS`, dot-entries other than `.env.example`, and the contents of symlinked directories); the full text of each root manifest that is a regular file and not a symlink (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `requirements.txt`, `Pipfile`, `Gemfile`, `composer.json`); and the first 200 lines of `README.md`.
 
 > The prompt text is kept in English intentionally — future Claude sessions in any language context will be able to execute it, and the output structure matches the English sections of `CLAUDE.md`.
 
@@ -369,7 +393,7 @@ Table: term | definition. Domain-specific terms only. Max 15.
 
 1. Create `src/memory/__init__.py` (empty).
 2. Create `src/memory/config.py` with constants: `MEMORY_DATA_DIR`, `HISTORY_FILE`, `DESCRIBE_HASH_FILE`, `DESCRIBE_MARKER_BEGIN/END`, `HISTORY_VECTOR_STORE_NAME`, `HISTORY_ROTATION_THRESHOLD_KB = 512`. All paths bound to `REPO_ROOT`/`DATA_DIR` from `src/engine/config.py`.
-3. Create `src/memory/managed_section.py` with `upsert_section`, `read_section`, `remove_section`. Port inline Python from `scripts/init_repo.sh:636-672` line-by-line, add atomic writes via `tempfile.NamedTemporaryFile` + `os.replace`. Validate marker uniqueness; raise on partial markers.
+3. Create `src/memory/managed_section.py` with `upsert_section`, `read_section`, `remove_section`. Port the inline marker editor in `scripts/init_repo.sh` (April 2026) line-by-line, add atomic writes via `tempfile.NamedTemporaryFile` + `os.replace`. Validate marker uniqueness; raise on partial markers.
 4. Write `tests/test_managed_section.py`: create, replace, append, partial-marker rejection, content outside markers preserved, atomic write on failure.
 
 ### Phase 2 — Describe (1 PR)
@@ -377,7 +401,7 @@ Table: term | definition. Domain-specific terms only. Max 15.
 5. Create `src/memory/describer.py`:
    - `RepoDescriber.__init__(repo_path)`.
    - `_compute_repo_hash()` — MD5 of: sorted top-level file names, `pyproject.toml` contents, `package.json` contents, depth-1 + depth-2 directory names, first 200 lines of README.md.
-   - `_needs_refresh(force) → (bool, hash)` — pattern from `src/engine/skills.py:43-51`.
+   - `_needs_refresh(force) → (bool, hash)` — pattern from `SkillRetriever._needs_reindex` in `src/engine/skills.py`.
    - `_build_context_bundle() → str` — renders the `{{CONTEXT_BUNDLE}}` block: tree (`Path.rglob` with filters, depth ≤ 3, excluding `node_modules`, `.venv`, `__pycache__`, `.git`, `data/`), key file contents, sample `.mdc` frontmatter.
    - `_render_prompt(bundle, repo_name) → str` — substitutes placeholders in the describe prompt template (stored as a multiline constant in the module).
    - `async describe(ctx, force=False) → dict` — orchestrator: if no refresh needed — return cached summary read via `managed_section.read_section`; otherwise build prompt, call `ctx.session.create_message(...)` (sampling), `managed_section.upsert_section(CLAUDE.md, …, generated)`, save hash, return status. Without sampling, or when the sampling call fails, write nothing and return `needs_summary` with the prompt; `write_repo_summary` later persists the model's summary after re-checking the repo hash.
@@ -474,7 +498,7 @@ Table: term | definition. Domain-specific terms only. Max 15.
 **Created:**
 - `src/memory/__init__.py`
 - `src/memory/config.py` — constants
-- `src/memory/managed_section.py` — marker editor (port from `scripts/init_repo.sh:636-672`)
+- `src/memory/managed_section.py` — marker editor (port from the inline editor in `scripts/init_repo.sh`, April 2026)
 - `src/memory/describer.py` — `RepoDescriber` + describe prompt template
 - `src/memory/history.py` — `HistoryWriter`, `HistoryReader`, `HistoryStore`
 - `tests/test_managed_section.py`
@@ -489,7 +513,7 @@ Table: term | definition. Domain-specific terms only. Max 15.
 
 ## Appendix C. Implementation Notes (what actually shipped)
 
-The implementation as of 2026-04-15 matches the spec. Clarifications that emerged during coding:
+The implementation as of 2026-04-15 matched the spec, apart from the clarifications that emerged during coding (items 1–10). Items 11–16 record deviations and later changes found when this document was checked against the code on 2026-09-30.
 
 1. **Module `src/memory/config.py`** adds constants not explicitly mentioned in the plan: `CLAUDE_MD_FILE`, `HISTORY_ARCHIVE_DIR`, `DESCRIBE_TREE_MAX_DEPTH`, `DESCRIBE_README_HEAD_LINES`, `DESCRIBE_EXCLUDED_DIRS`, `DESCRIBE_WORD_MIN/MAX`. All are derived from values mentioned in the spec (512 KB, 800–1500 words, depth ≤ 3).
 
@@ -501,15 +525,27 @@ The implementation as of 2026-04-15 matches the spec. Clarifications that emerge
 
 5. **`HistoryStore.search` accepts `embed_query` / `embed_texts` as arguments** (DI). By default they load `src.engine.embedder.*`; in tests a `FakeEmbedder` with deterministic vectors is injected, requiring no real model download.
 
-6. **fcntl wrapper** `_lock_exclusive` / `_unlock` in `history.py` — no-op on Windows so the module imports cross-platform.
+6. **fcntl wrapper** `_lock_exclusive` / `_unlock` in `history.py` — no-op on Windows so the module imports cross-platform. Stable sidecar lock files were added later for history, managed-section and summary writes (see 4.2); without `fcntl` they serialize only threads within one process.
 
 7. **Tag normalization:** hashtags without a `#` prefix are automatically prefixed (`"feature"` → `"#feature"`).
 
 8. **Rotation merge:** if `history/YYYY-MM.md` already exists at rotation time (multiple rotations in one month), the new snapshot is appended with a `<!-- merged on rotation -->` separator rather than overwriting the existing archive.
 
-9. **CLI instruction in `CLAUDE.md`** added as item `4. Repository memory (first session per repo)` — a separate section within the Routing Flow to avoid confusion with post-flight step 3.
+9. **CLI instruction in `CLAUDE.md`** added as item `4. Repository memory (first session per repo)` — a separate section within the Routing Flow to avoid confusion with post-flight step 3. **Removed on 2026-09-20** with the persona continuity protocol: the current managed section (`scripts/templates/routing-protocol-core.md`) only requires `log_interaction` at the end of each answer. The closing message of `scripts/init_repo.sh` and `scripts/init_repo.bat` suggests `describe_repo`, which is also available as the `describe_repo` MCP prompt (optional `force` argument).
 
 10. **README.md** contains a `Repository Memory` section with a link to this spec and a mention of the `.gitignore` opt-out.
+
+11. **Word budget is reported, not enforced** (see 4.1). A summary of at least 200 words with a heading persists even outside the 800–1500 range, as `tests/test_describer.py::TestWriteSummary::test_word_count_below_budget_still_persists` pins. No test requires the range, as 7.1 planned.
+
+12. **Context bundle and hash.** Entry-point file headers, `.mdc` frontmatter samples, a test list and scripts were not added to the context bundle. Both the bundle and the repo hash cover all eleven root manifests listed in section 5, not only `pyproject.toml` and `package.json`.
+
+13. **History index.** `ensure_index()` does not compare mtimes or embed incrementally: it re-embeds every entry when the content fingerprint changes (see the design decisions in section 1). The index is keyed by workspace and lives in private daemon state over HTTP, or in a leased stdio slot of the installation (temporary storage where process locking is unavailable), not in the client repository.
+
+14. **Marker editor not shared.** The installers never imported `managed_section`; they use `scripts/_helpers/inject_claude_md.py` (see 3.3).
+
+15. **Language tagging** of history entries (planned reuse of `LanguageDetector`) was not implemented. Entries carry only Intent, Action and Outcome, plus optional Files, Tags and Meta lines.
+
+16. **Later tool additions.** `log_interaction` gained client-reported persona attribution and protocol ERROR responses, and all memory tools resolve the client workspace per request (HTTP requires `X-Agents-Workspace`); see 4.3 and [service memory behavior](shared-mcp-daemon.md#memory-and-errors).
 
 ---
 

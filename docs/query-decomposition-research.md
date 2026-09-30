@@ -2,6 +2,15 @@
 
 # Ideas I1–I7 and a multidimensional query classifier: research evidence and its relationship to our measurements F1–F10
 
+Status: research synthesis of 2026-09-23 (branch `feat/factuality-layer`). It
+records proposals and an experiment plan (E0–E4), not current behavior; code
+references and the "Currently in `classify_intent`" column describe that date.
+F1–F6 are the measurements recorded in the
+[layer sensitivity plan](layer-sensitivity-plan.md); F7–F10 are the observations
+listed in section 4. Current settings:
+[implants](../implants/README.md#1-agent-preferences-and-semantic-retrieval) and
+[intent classifier](intent-classifier.md).
+
 ## 1. Summary
 
 - **Our measurements are weaker than they appear, and this needs to be addressed before drawing conclusions.** I checked the composition of the evaluation set (`routing.jsonl` and `implant_labels.jsonl`, branch feat/factuality-layer):
@@ -145,7 +154,7 @@ There are no studies of calibrating multiple layers within a single prompt assem
 
 ### Constraints that determine what is feasible
 
-- `classify_intent` runs on the hot path: it is pure, synchronous, and uses only the standard library. An embedding-based centroid approach was rejected because it added 12–53 ms, with p95 of 37–58 ms (intent.py docstring).
+- `classify_intent` runs on the hot path: it is pure, synchronous, and uses only the standard library. An embedding-based centroid approach was rejected because it added 12–53 ms to a hot path whose p95 is 37–58 ms (intent.py docstring).
 - Every dimension therefore falls into one of three classes:
   - **R**: regular expressions in `intent.py`;
   - **H**: a lightweight head (LR, kNN, or SetFit) over the query embedding that skills, implants, and the router **already compute** (see [`SkillRetriever.retrieve`](../src/engine/skills.py), [`ImplantRetriever.retrieve`](../src/engine/implants.py), and [`SemanticRouter.query_nearest`](../src/engine/router.py)). It belongs in enrichment or the router, not intent.py. The additional latency is only the head itself; it must be measured;

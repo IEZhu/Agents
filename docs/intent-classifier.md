@@ -4,10 +4,18 @@ Replaces `infer_tier`'s single length axis with two orthogonal ones, per
 [#64](https://github.com/IEZhu/Agents/issues/64): **what kind of reasoning the
 task needs** (`mode`) and **how much enrichment it earns** (`tier`).
 
-Off by default. Enable with `INTENT_CLASSIFIER_ENABLED=1`.
+Off by default. Enable with `INTENT_CLASSIFIER_ENABLED=1`; see
+[Configuration](#configuration).
 
-The measurements and review rounds below record the original implementation and
-its evaluation dataset. For current enrichment behavior, see the
+The measurements and review rounds below record the original implementation
+(September 2026) and its evaluation dataset. They describe
+`server._load_and_enrich`, which was the per-query production path at the time;
+since protocol 1 was removed ([#101](https://github.com/IEZhu/Agents/pull/101)),
+only the evaluation harnesses use it. When the classifier is enabled, the MCP
+persona bundle takes only its initial tier from it: an inferred `lite` is always
+promoted to `standard` when the agent declares preferred implants, with no
+greeting waiver, and format suppression, per-query budgets and
+`IMPLANT_NEED_GATE` do not apply. For current enrichment behavior, see the
 [routing reference](routing_flow.md#enrichment-and-storage).
 
 ## Why
@@ -22,9 +30,11 @@ return "standard"
 
 Two measured consequences:
 
-- On the MCP-vs-vanilla bench (`evals/reports/2026-06-06_234304_mcp_vs_vanilla_gemini.json`)
-  40 of 50 queries landed in the heaviest `deep` tier, the MCP arm cost 12.6× the
-  input tokens of vanilla, and the quality outcome was a statistical tie.
+- On the MCP-vs-vanilla bench (local run report
+  `2026-06-06_234304_mcp_vs_vanilla_gemini.json`, not committed because
+  `evals/reports/*` is git-ignored) 40 of 50 queries landed in the heaviest
+  `deep` tier, the MCP arm cost 12.6× the input tokens of vanilla, and the
+  quality outcome was a statistical tie.
   **35 of those 40 deep assignments came from `len > 300` alone.** Length is not
   cognitive depth.
 - On the golden set (`evals/datasets/routing.jsonl`, 110 labeled samples) the rule
@@ -36,9 +46,12 @@ query merely containing `план`, `compare`, `design` or `review`.
 
 ## Design
 
-`classify_intent(query) -> TaskProfile` is **pure, synchronous, embedding-free and
-dependency-free**. It runs on the hot path before any `await` in
-`route_and_load`, and is unit-testable with no vector store.
+`classify_intent(query, *, history=None) -> TaskProfile` is **pure, synchronous,
+embedding-free and dependency-free**; `history` is accepted but not yet used.
+When the classifier is enabled, `enrichment.resolve_profile` and `infer_tier`
+call it at two sites: `build_persona_bundle`, after the persona file is read,
+each time a bundle is built; and the per-query evaluation path
+`server._load_and_enrich`. It is unit-testable with no vector store.
 [tests/conftest.py](../tests/conftest.py) now redirects derived stores and updater
 state into temporary storage before collection, so importing `enrichment` in the
 suite does not reindex the live stores. Model loading may still be necessary;
@@ -71,6 +84,23 @@ An embedding-centroid variant was considered and rejected: it moves ~3.6% of
 input tokens while adding 12–53 ms to a hot path whose p95 is 37–58 ms, and it
 adds a persisted centroid artifact that can drift out of sync with
 `EMBEDDING_MODEL` exactly the way `data/.skills_hash` already does.
+
+## Configuration
+
+| Variable | Default | Effect |
+|---|---|---|
+| `INTENT_CLASSIFIER_ENABLED` | `0` | `1` or `true` makes `infer_tier` and `resolve_profile` use the classifier |
+| `INTENT_DEEP_AT` | `5` | Structural points that promote a mode's default tier one step; minimum 3 |
+| `INTENT_LONG_CHARS` | `150` | Longer queries score one point; an unmatched query up to this length falls back to `retrieve`, a longer one to `create` |
+| `INTENT_VERY_LONG_CHARS` | `500` | Longer queries score two points instead of one |
+| `INTENT_CONVERSE_MAX_CHARS` | `60` | A pure greeting is `converse` only up to this length |
+
+A non-integer or out-of-range value logs a warning and uses the default; the
+length settings must be at least 1. `IMPLANT_NEED_GATE=intent` (default `off`)
+calls `classify_intent` even when the classifier is off: a query loads implants
+only when the classifier's implant budget is above zero, while the tier, skills
+and persona format stay on the legacy rule. It applies only to
+`server._load_and_enrich`, not to persona bundles.
 
 ## Results
 
@@ -257,7 +287,7 @@ Eleven findings, four high. Three recurred from earlier rounds in new places.
   `_MATHY` guard; `confidence` documented as diagnostic rather than claiming a
   consumer; and `run_tier`'s bad-label guard no longer inflates `over`.
 
-**Format suppression reaches about half of production traffic.** Only 23 of 43
+**Format suppression reached about half of production traffic.** Only 23 of 43
 personas title the section `## Output Format`; the rest use `### 2. Output
 Format`, `### 4. OUTPUT FORMAT` or `**Output Format** (Phase 1):`. The feature is
 a no-op for those agents. Not fixed here: matching looser headings raises the risk
@@ -299,6 +329,17 @@ familiar lexical class, now at medium and low rather than high.
 Accuracy moves 78/110 → 77/110 — one golden-set hit traded for those fixes — while
 deep-share improves to 26.4% and the prompt shrink to 8.4%.
 
+## Fence fixes outside the review rounds
+
+A fix from the PR #72 bot review (2026-09-22, before the fifth round) anchored `_CODE_FENCE` to the start
+of a line, so inline backticks in prose stopped counting, and added `~~~` fences.
+Two fixes on 2026-09-26 accept only CommonMark fence openers: at most three
+leading spaces, then three or more backticks with no later backtick on that line,
+or three or more tildes. Indented code (four spaces or a tab) and a fence nested four or more
+spaces deep in a list item do not count. `classify_intent` trims only leading
+blank lines and trailing whitespace, so the first line keeps the indentation this
+rule checks. `_structural_score` and `_detect_mode` share the pattern.
+
 ## Back-compat
 
 `tier` never stops being the string it was:
@@ -308,20 +349,23 @@ deep-share improves to 26.4% and the prompt shrink to 8.4%.
   `_legacy_infer_tier` (kept verbatim and callable, as the A/B's control arm).
 - `resolve_profile()` returns `None` when the flag is off, which is the signal to
   every downstream layer to keep deriving the budget from the tier exactly as
-  before. Both `pytest tests/` runs — flag off and flag on — pass 1077 tests.
+  before. After the fifth review round (2026-09-22), both `pytest tests/` runs,
+  flag off and flag on, passed 1077 tests.
 - The session cache key carries `profile.cache_token` instead of the bare tier,
   because once render mode and pool size are decoupled from the tier, two
   profiles can share a tier and build different prompts. The token is colon-free,
   so the documented `agent:query_hash:X` three-segment shape survives.
 - The agent's declared `preferred_implants` remain a **floor** on the implant
-  count (43 of 43 agents declare some; dropping that term would silently starve
-  every persona). `tests/test_intent.py::TestImplantBudgetParity` pins the
-  unified formula against the legacy per-tier branches.
+  count (43 of 43 agents declared some in September 2026; dropping that term would
+  silently starve every persona). `tests/test_intent.py::TestImplantBudgetParity`
+  pins the unified formula against the legacy per-tier branches.
 
 ## Not done here
 
 - `mode → method bundle` (per-mode implants and cross-cutting skills) from #64.
-  Today `mode` drives only `suppress_persona_format`; the budget still flows
+  Today `mode` reaches the MCP persona bundle only through the tier. In the
+  per-query evaluation path it also drives `suppress_persona_format` and the
+  `converse` waiver of the `lite → standard` promotion; the budget still flows
   through the tier. Wiring implants per mode needs the generation A/B first,
   since it changes *which* implants load, not just how many.
 - Rendering `compiled` at the `deep` tier. This is the single largest remaining
