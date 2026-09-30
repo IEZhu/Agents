@@ -125,6 +125,20 @@ def test_ram_to_model_choice(tmp_path, gb_kb, expected):
     assert out == expected
 
 
+def test_ram_to_model_choice_sysctl(tmp_path):
+    source = (ROOT / "scripts/init_repo.sh").read_text()
+    start = source.index("detect_default_model_choice() {")
+    body = source[start:source.index("\n}\n", start) + 3]
+    body = body.replace("/proc/meminfo", str(tmp_path / "missing-meminfo"))
+    sysctl = tmp_path / "sysctl"
+    sysctl.write_text("#!/bin/sh\nprintf '%s\\n' 68719476736\n")
+    sysctl.chmod(0o755)
+    out = subprocess.run([BASH, "-c", body + "\ndetect_default_model_choice"],
+                         capture_output=True, text=True, check=True,
+                         env=dict(os.environ, PATH=str(tmp_path))).stdout.strip()
+    assert out == "1"
+
+
 def test_init_repo_documents_yes_flag():
     source = (ROOT / "scripts/init_repo.sh").read_text()
     assert "--yes|-y)" in source and "AGENTS_ASSUME_YES" in source
