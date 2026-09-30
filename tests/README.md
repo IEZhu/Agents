@@ -60,7 +60,7 @@ Use the direct Python command when you need to select specific test files.
 | Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
 | Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
-| Cloud issue-agent dispatch, startup acknowledgement and reactions | `test_issue_agent_bridge.py` (mocked APIs; no live sessions) |
+| Cloud issue-agent dispatch, startup acknowledgement and reactions | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
 | Personal and repository flows, flow editor | `test_user_flows.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |

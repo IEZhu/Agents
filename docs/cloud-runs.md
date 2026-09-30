@@ -182,8 +182,17 @@ then post a new command.
 
 **One-time setup per target repository:**
 
-1. Create a routine (for example `Private-issues`) with both repositories as
-   sources (the target and this one), model `claude-opus-5-5`, allowed tools
+Each target needs its own active bridge on its default branch and its own
+repository settings. A workflow under `scripts/templates/` does not run, and
+installing the bridge in Agents.Private does not enable commands in IEZhu/Agents.
+Agents-Core installs the bridge at
+[.github/workflows/issue-agent-bridge.yml](../.github/workflows/issue-agent-bridge.yml);
+its tests exercise both that installed workflow and the reusable template.
+
+1. Create a dedicated routine for the target (for example `Agents-issues` for
+   IEZhu/Agents or `Private-issues` for Agents.Private). Select the target and
+   this repository as sources; when the target is IEZhu/Agents, select it once.
+   Set model `claude-opus-5-5`, allowed tools
    Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow, and
    only the connectors it needs. Look up the owner's GitHub account and verify
    its login and numeric user ID before pinning `AGENT_OWNER` and
@@ -192,7 +201,9 @@ then post a new command.
    own owner. The prompt says that Agents-Core MCP is unavailable (do not route),
    explicitly allows multi-agent
    orchestration, and tells the session to follow `flows/issue-agent.md` for the
-   event in the `routine-fire-payload` block.
+   event in the `routine-fire-payload` block. Restrict that prompt to the
+   exact target repository; a routine restricted to Agents.Private must not
+   process IEZhu/Agents commands.
 2. In the routine's web page, add an **API** trigger and generate its token.
 3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
    variables `CLAUDE_ROUTINE_ID` and `AGENT_OWNER`, then copy
@@ -200,6 +211,11 @@ then post a new command.
    to `.github/workflows/issue-agent-bridge.yml`. The job needs `issues: write`
    for status comments and reactions; it does not check out repository code.
    See [GitHub's reaction permissions](https://docs.github.com/en/rest/reactions/reactions#create-reaction-for-an-issue-comment).
+4. Verify a new owner `/agent status` comment in that exact target repository.
+   Confirm the startup reply, final reply, and automatic reaction cleanup.
+   Comments created before installation are not replayed; post a new command
+   after setup is complete. A successful probe in another repository does not
+   verify this installation.
 
 When updating an existing installation, first pin the verified owner identity
 in the routine prompt. Keep its login aligned with the repository's `AGENT_OWNER`

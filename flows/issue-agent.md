@@ -6,9 +6,10 @@ of a target repository. It verifies the command, loads the agent's state from th
 issue, runs the matching flow and records the new state. Setup is described in
 [cloud runs](../docs/cloud-runs.md#issue-agent).
 
-The session works in two checkouts: this repository (Agents-Core, the source of
-the flows) and the **target repository** where the command was written. All
-edits, branches, commits and pull requests belong to the target. Read the
+The session needs this repository (Agents-Core, the source of the flows) and
+the **target repository** where the command was written. When Agents-Core is
+also the target, one checkout serves both roles; otherwise use two checkouts.
+All edits, branches, commits and pull requests belong to the target. Read the
 target's `AGENTS.md`, `CLAUDE.md` and contribution rules before changing it.
 Agents-Core MCP is not available in the cloud: do not route personas; follow the
 flows directly.
