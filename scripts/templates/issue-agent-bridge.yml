@@ -2,7 +2,7 @@
 # Copy to .github/workflows/issue-agent-bridge.yml in the target repository.
 #
 # Claude Code routine GitHub triggers cover pull request and release events only,
-# so this workflow forwards /agent comments and review-bot reviews to the routine's
+# so this workflow forwards only the configured owner's /agent comments to the routine's
 # API trigger. It runs no model and passes only a pointer to the event; the agent
 # re-reads and re-verifies the comment itself.
 #
@@ -15,52 +15,214 @@ name: issue-agent-bridge
 on:
   issue_comment:
     types: [created]
-  pull_request_review:
-    types: [submitted]
 
 permissions: {}
 
 concurrency:
-  group: issue-agent-${{ github.event.issue.number || github.event.pull_request.number }}
+  # Serialize redelivery without blocking status/stop behind another startup watch.
+  group: issue-agent-${{ github.event.comment.id }}
   cancel-in-progress: false
 
 jobs:
   fire:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
+    permissions:
+      issues: write
     # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
     # agent cannot trigger itself even though it posts as the owner.
     if: >-
-      (github.event_name == 'issue_comment'
-        && github.event.comment.user.login == vars.AGENT_OWNER
-        && startsWith(github.event.comment.body, '/agent')
-        && !contains(github.event.comment.body, '<!-- issue-agent'))
-      || (github.event_name == 'pull_request_review'
-        && contains(fromJSON('["copilot-pull-request-reviewer[bot]", "coderabbitai[bot]"]'), github.event.review.user.login)
-        && github.event.pull_request.head.repo.full_name == github.repository
-        && startsWith(github.event.pull_request.head.ref, 'claude/issue-'))
+      github.event_name == 'issue_comment'
+      && github.event.action == 'created'
+      && vars.AGENT_OWNER != ''
+      && github.event.comment.user.type == 'User'
+      && github.event.comment.user.login == vars.AGENT_OWNER
+      && startsWith(github.event.comment.body, '/agent')
+      && !contains(github.event.comment.body, '<!-- issue-agent')
     steps:
-      - name: Fire the routine
+      # No checkout: comments and PR code never become executable runner code.
+      - name: Dispatch and confirm startup
+        id: dispatch
         env:
-          EVENT: ${{ github.event_name }}
-          BODY: ${{ github.event.comment.body }}
-          TOKEN: ${{ secrets.CLAUDE_ROUTINE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          AGENT_OWNER: ${{ vars.AGENT_OWNER }}
+          ROUTINE_TOKEN: ${{ secrets.CLAUDE_ROUTINE_TOKEN }}
           ROUTINE_ID: ${{ vars.CLAUDE_ROUTINE_ID }}
-          TEXT: >-
-            repo=${{ github.repository }}
-            event=${{ github.event_name }}
-            number=${{ github.event.issue.number || github.event.pull_request.number }}
-            comment_id=${{ github.event.comment.id }}
-            review_id=${{ github.event.review.id }}
+        shell: python
         run: |
-          # "/agent" must be a whole word: followed by whitespace or the end.
-          if [ "$EVENT" = issue_comment ] && ! printf '%s' "$BODY" | head -n 1 | grep -Eq '^/agent([[:space:]]|$)'; then
-            echo "Not a /agent command"; exit 0
+          import datetime
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          def request(method, url, token, body=None, anthropic=False):
+              headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+              if anthropic:
+                  headers["anthropic-version"] = "2023-06-01"
+              else:
+                  headers.update({"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+              req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
+                                           headers=headers, method=method)
+              try:
+                  with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
+                      data = response.read()
+                      try:
+                          parsed = json.loads(data) if data else None
+                      except (ValueError, UnicodeError):
+                          parsed = None
+                      return response.status, parsed, response.headers
+              except urllib.error.HTTPError as error:
+                  # Never print API bodies, which may contain sensitive account details.
+                  return error.code, None, error.headers
+
+          def main():
+              env = os.environ
+              with open(env["GITHUB_EVENT_PATH"]) as handle:
+                  event = json.load(handle)
+              kind, repo = env["GITHUB_EVENT_NAME"], env["GITHUB_REPOSITORY"]
+              owner = env.get("AGENT_OWNER", "")
+              if kind != "issue_comment" or not owner:
+                  return
+              source = event["comment"]
+              user = source.get("user") or {}
+              body = source.get("body") or ""
+              if (event.get("action") != "created" or user.get("type") != "User"
+                      or user.get("login") != owner or not re.match(r"^/agent(?:\s|$)", body)
+                      or "<!-- issue-agent" in body):
+                  return
+              number = event["issue"]["number"]
+
+              api = f"{env['GITHUB_API_URL']}/repos/{repo}"
+              run_url = f"{env['GITHUB_SERVER_URL']}/{repo}/actions/runs/{env['GITHUB_RUN_ID']}"
+              marker = f"<!-- issue-agent:bridge event={kind} id={source['id']} -->"
+              comment_id = None
+
+              def github(method, path, body=None):
+                  code, data, _ = request(method, api + path, env["GH_TOKEN"], body)
+                  if not 200 <= code < 300:
+                      raise RuntimeError(f"GitHub API returned HTTP {code}")
+                  return data
+
+              def comments(since=None, deadline=None):
+                  query = "per_page=100"
+                  if since:
+                      query += "&since=" + urllib.parse.quote(since, safe="")
+                  for page in range(1, 101):
+                      if deadline is not None and time.monotonic() >= deadline:
+                          return
+                      batch = github("GET", f"/issues/{number}/comments?{query}&page={page}")
+                      yield from batch
+                      if len(batch) < 100:
+                          return
+                  raise RuntimeError("Comment pagination limit reached")
+
+              def status(message):
+                  nonlocal comment_id
+                  data = {"body": f"{marker}\n{message}\n\n[Bridge run]({run_url})."}
+                  if comment_id is None:
+                      comment_id = github("POST", f"/issues/{number}/comments", data)["id"]
+                  else:
+                      github("PATCH", f"/issues/comments/{comment_id}", data)
+
+              # A receipt prevents duplicate sessions after Actions reruns, including ambiguous failures.
+              for comment in comments():
+                  user = comment.get("user") or {}
+                  if (user.get("login") == "github-actions[bot]" and user.get("type") == "Bot"
+                          and (comment.get("body") or "").splitlines()[:1] == [marker]):
+                      print("This event already has a bridge receipt; no second session was created.")
+                      return
+
+              since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=60)).isoformat()
+              status("👀 Command received. Waiting for Claude to confirm startup (up to 5 minutes).")
+              reaction_target = source["id"]
+              reaction_path = f"/issues/comments/{reaction_target}/reactions"
+              session = ""
+              fired = False
+              try:
+                  try:
+                      code, reaction, _ = request("POST", api + reaction_path, env["GH_TOKEN"], {"content": "eyes"})
+                      if code == 201:
+                          # Only remove a reaction created by this run, never a pre-existing one.
+                          with open(env["GITHUB_OUTPUT"], "a") as output:
+                              output.write(f"reaction_path={reaction_path}/{reaction['id']}\n")
+                      elif code != 200:
+                          print("::warning::Could not add the bridge reaction; continuing dispatch.")
+                  except Exception:
+                      print("::warning::Could not add the bridge reaction; continuing dispatch.")
+                  if not env.get("ROUTINE_TOKEN") or not re.fullmatch(r"trig_[A-Za-z0-9]+", env.get("ROUTINE_ID", "")):
+                      status("Launch blocked: configure CLAUDE_ROUTINE_TOKEN and CLAUDE_ROUTINE_ID in this repository. Send a new command after fixing the configuration.")
+                      return
+                  text = (f"repo={repo} event={kind} number={number} "
+                          f"comment_id={source['id']} "
+                          f"bridge_comment_id={comment_id}")
+                  fired = True
+                  code, response, headers = request(
+                      "POST", f"https://api.anthropic.com/v1/claude_code/routines/{env['ROUTINE_ID']}/fire",
+                      env["ROUTINE_TOKEN"], {"text": text}, anthropic=True)
+                  if code == 429:
+                      retry = headers.get("Retry-After", "")
+                      wait = f" Retry after {int(retry)} seconds." if re.fullmatch(r"[0-9]{1,8}", retry) else " Try again after the limit resets."
+                      status("Claude rejected the launch: the routine API rate limit was reached." + wait + " Send a new `/agent` command then; no automatic retry was made.")
+                      return
+                  if code != 200:
+                      certainty = "Launch rejected" if 400 <= code < 500 else "Launch not confirmed"
+                      status(f"{certainty}: Claude API returned HTTP {code}. Check the routine before sending a new command; no automatic retry was made.")
+                      return
+                  session_id = response.get("claude_code_session_id", "") if isinstance(response, dict) else ""
+                  if not isinstance(session_id, str) or not re.fullmatch(r"session_[A-Za-z0-9]+", session_id):
+                      status("Claude accepted the request, but returned no usable session ID. Check the routine before sending a new command; no automatic retry was made.")
+                      return
+                  session = f"[Claude session](https://claude.ai/code/{session_id})"
+                  status(f"Session created: {session}. Waiting for Claude to confirm startup (up to 5 minutes).")
+                  ack = f"<!-- issue-agent:started bridge_comment_id={comment_id} -->"
+                  deadline = time.monotonic() + 300
+                  while True:
+                      for comment in comments(since, deadline):
+                          if ((comment.get("user") or {}).get("type") == "User"
+                                  and (comment.get("user") or {}).get("login") == owner
+                                  and (comment.get("body") or "").splitlines()[:2] == ["<!-- issue-agent -->", ack]):
+                              status(f"Claude confirmed startup. {session}. The agent posts progress and the result in this thread.")
+                              return
+                      remaining = deadline - time.monotonic()
+                      if remaining <= 0:
+                          break
+                      time.sleep(min(15, remaining))
+                  status(f"Claude did not confirm startup within 5 minutes. {session}. "
+                         "A session usage limit or a startup problem may be blocking it. Open the session for details. "
+                         "No automatic retry was made. If it is still running, wait; otherwise send a new `/agent` "
+                         "command after resolving the problem.")
+              except Exception:
+                  # Transport exceptions can embed URLs or account data; keep them out of logs.
+                  message = ("Launch or startup confirmation is uncertain." if fired else "The bridge could not prepare the launch.")
+                  status(f"{message} {session} Check the routine and this workflow before sending a new command; no automatic retry was made.")
+                  raise RuntimeError("Bridge failed; see its status comment.") from None
+
+          if __name__ == "__main__":
+              main()
+
+      - name: Clear the bridge reaction
+        if: ${{ always() && steps.dispatch.outputs.reaction_path != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REACTION_PATH: ${{ steps.dispatch.outputs.reaction_path }}
+        shell: bash
+        run: |
+          # The routine owns its separate processing reaction and removes it on completion.
+          code=$(curl --silent --show-error --max-time 15 --request DELETE \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output /dev/null --write-out '%{http_code}' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}${REACTION_PATH}")
+          if [ "$code" != 204 ] && [ "$code" != 404 ]; then
+            echo "::warning::Could not clear the bridge reaction (HTTP $code)."
+            exit 1
           fi
-          jq -n --arg text "$TEXT" '{text: $text}' |
-            curl -fsS -X POST "https://api.anthropic.com/v1/claude_code/routines/${ROUTINE_ID}/fire" \
-              -H "Authorization: Bearer ${TOKEN}" \
-              -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-              -H "anthropic-version: 2023-06-01" \
-              -H "Content-Type: application/json" \
-              --data-binary @- -o /dev/null
