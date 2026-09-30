@@ -167,11 +167,11 @@ def test_dispatch_permissions_cover_issue_and_pull_request_comments(workflow):
     }
 
 
-def test_completion_permissions_limit_pull_requests_to_read(workflow):
+def test_completion_permissions_cover_issue_and_pull_request_reactions(workflow):
     assert workflow["permissions"] == {}
     assert workflow["jobs"]["complete"]["permissions"] == {
         "issues": "write",
-        "pull-requests": "read",
+        "pull-requests": "write",
     }
 
 
@@ -566,7 +566,7 @@ class CompletionRun:
         self.event_path = tmp_path / "completion.json"
         self.calls = []
         self.delete_status = 204
-        self.receipt_status = self.source_status = 200
+        self.receipt_status = self.source_status = self.list_status = 200
         issue_url = f"https://api.github.test/repos/{REPO}/issues/17"
         self.event = {
             "action": "created", "issue": {"number": 17},
@@ -606,9 +606,10 @@ class CompletionRun:
             query = urllib.parse.parse_qs(parsed.query)
             assert query["per_page"] == ["100"]
             page = int(query["page"][0])
-            return 200, self.reactions[(page - 1) * 100:page * 100], {}
+            return self.list_status, self.reactions[(page - 1) * 100:page * 100], {}
         if method == "DELETE" and path == f"/issues/comments/{SOURCE_ID}/reactions/501":
-            self.reactions = [item for item in self.reactions if item["id"] != 501]
+            if self.delete_status in {204, 404}:
+                self.reactions = [item for item in self.reactions if item["id"] != 501]
             return self.delete_status, None, {}
         pytest.fail(f"Completion attempted an unexpected request: {method} {url}")
 
@@ -618,7 +619,7 @@ class CompletionRun:
 
     def run(self):
         self.event_path.write_text(json.dumps(self.event))
-        self.namespace["main"]()
+        self.namespace["run"]()
 
 
 @pytest.fixture
@@ -649,6 +650,73 @@ def test_completion_deletes_only_recorded_bot_eyes_and_reruns_safely(completion)
     assert completion.deletes[0]["url"].endswith(f"/issues/comments/{SOURCE_ID}/reactions/501")
     assert completion.reactions == others
     assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls)
+
+
+def test_pr_completion_deletes_reaction_with_workflow_write_permission(completion, workflow, monkeypatch):
+    """Emulate PR DELETE authorization offline; a live run must verify the token."""
+    completion.event["issue"]["pull_request"] = {"url": f"https://api.github.test/repos/{REPO}/pulls/17"}
+    others = [bot_reaction(502), bot_reaction(503, login=OWNER, user_type="User")]
+    completion.reactions = others + [bot_reaction()]
+
+    def permission_checked_request(method, url, token, body=None):
+        if method == "DELETE" and workflow["jobs"]["complete"]["permissions"].get("pull-requests") != "write":
+            completion.delete_status = 403
+        return completion.request(method, url, token, body)
+
+    monkeypatch.setitem(completion.namespace, "request", permission_checked_request)
+    completion.run()
+    assert len(completion.deletes) == 1
+    assert completion.reactions == others
+    assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls)
+
+
+@pytest.mark.parametrize("status_field, stage, method, code", [
+    ("receipt_status", "read bridge receipt", "GET", 403),
+    ("source_status", "read source command", "GET", 403),
+    ("list_status", "list command reactions", "GET", 403),
+    ("delete_status", "delete command reaction", "DELETE", 403),
+    ("delete_status", "delete command reaction", "DELETE", 503),
+])
+def test_completion_http_failure_reports_only_safe_stage_method_and_status(
+    completion, monkeypatch, capsys, status_field, stage, method, code,
+):
+    setattr(completion, status_field, code)
+
+    def private_error_response(method, url, token, body=None):
+        status, data, headers = completion.request(method, url, token, body)
+        if status >= 400:
+            return status, {"detail": RAW_PRIVATE, "token": GH_TOKEN}, {"X-Private": ROUTINE_TOKEN}
+        return status, data, headers
+
+    monkeypatch.setitem(completion.namespace, "request", private_error_response)
+    with pytest.raises(RuntimeError) as error:
+        completion.run()
+    assert str(error.value) == f"GitHub {stage} ({method}) returned HTTP {code}."
+    assert error.value.__suppress_context__
+    assert error.value.__cause__ is None
+    assert completion.reactions == [bot_reaction()]
+    assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls)
+    public = str(error.value) + str(capsys.readouterr())
+    for secret in (RAW_PRIVATE, GH_TOKEN, ROUTINE_TOKEN):
+        assert secret not in public
+
+
+def test_completion_transport_failure_stays_generic_and_preserves_reaction(completion, monkeypatch, capsys):
+    def timed_out_delete(method, url, token, body=None):
+        if method == "DELETE":
+            raise TimeoutError(f"{RAW_PRIVATE} {GH_TOKEN} {ROUTINE_TOKEN}")
+        return completion.request(method, url, token, body)
+
+    monkeypatch.setitem(completion.namespace, "request", timed_out_delete)
+    with pytest.raises(RuntimeError) as error:
+        completion.run()
+    assert str(error.value) == "Could not clear the completed command reaction."
+    assert error.value.__suppress_context__
+    assert error.value.__cause__ is None
+    assert completion.reactions == [bot_reaction()]
+    public = str(error.value) + str(capsys.readouterr())
+    for secret in (RAW_PRIVATE, GH_TOKEN, ROUTINE_TOKEN):
+        assert secret not in public
 
 
 def test_completion_finds_recorded_reaction_on_second_page(completion):

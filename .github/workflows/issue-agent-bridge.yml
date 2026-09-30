@@ -242,7 +242,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       issues: write
-      pull-requests: read  # Verify PR comments; reaction deletion uses issues: write.
+      pull-requests: write  # Remove the recorded reaction from PR conversation comments.
     if: >-
       github.event_name == 'issue_comment'
       && github.event.action == 'created'
@@ -264,6 +264,9 @@ jobs:
           import re
           import urllib.error
           import urllib.request
+
+          class GitHubError(RuntimeError):
+              pass
 
           class NoRedirect(urllib.request.HTTPRedirectHandler):
               def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -302,15 +305,15 @@ jobs:
               api = f"{env['GITHUB_API_URL']}/repos/{env['GITHUB_REPOSITORY']}"
               issue_url = f"{api}/issues/{event['issue']['number']}"
 
-              def github(method, path):
+              def github(method, path, stage):
                   code, data, _ = request(method, api + path, env["GH_TOKEN"])
                   if code == 404:
                       return None
                   if not 200 <= code < 300:
-                      raise RuntimeError(f"GitHub API returned HTTP {code}")
+                      raise GitHubError(f"GitHub {stage} ({method}) returned HTTP {int(code)}.")
                   return data
 
-              receipt = github("GET", f"/issues/comments/{match[1]}")
+              receipt = github("GET", f"/issues/comments/{match[1]}", "read bridge receipt")
               if (not receipt or receipt.get("issue_url") != issue_url
                       or not author(receipt, "github-actions[bot]", "Bot")):
                   return
@@ -321,25 +324,30 @@ jobs:
               reaction = re.fullmatch(r"<!-- issue-agent:reaction id=([1-9][0-9]*) -->", lines[1])
               if not command or not reaction:
                   return
-              source = github("GET", f"/issues/comments/{command[1]}")
+              source = github("GET", f"/issues/comments/{command[1]}", "read source command")
               if (not source or source.get("issue_url") != issue_url or not author(source, owner, "User")
                       or not re.match(r"^/agent(?:\s|$)", source.get("body") or "")
                       or "<!-- issue-agent" in (source.get("body") or "")):
                   return
               path = f"/issues/comments/{command[1]}/reactions"
               for page in range(1, 101):
-                  batch = github("GET", f"{path}?per_page=100&page={page}") or []
+                  batch = github("GET", f"{path}?per_page=100&page={page}", "list command reactions") or []
                   for item in batch:
                       if (item.get("id") == int(reaction[1]) and item.get("content") == "eyes"
                               and author(item, "github-actions[bot]", "Bot")):
-                          github("DELETE", f"{path}/{reaction[1]}")
+                          github("DELETE", f"{path}/{reaction[1]}", "delete command reaction")
                           return
                   if len(batch) < 100:
                       return
               raise RuntimeError("Reaction pagination limit reached")
 
-          if __name__ == "__main__":
+          def run():
               try:
                   main()
+              except GitHubError as error:
+                  raise RuntimeError(str(error)) from None
               except Exception:
                   raise RuntimeError("Could not clear the completed command reaction.") from None
+
+          if __name__ == "__main__":
+              run()
