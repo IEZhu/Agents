@@ -208,11 +208,16 @@ its tests exercise both that installed workflow and the reusable template.
 3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
    variables `CLAUDE_ROUTINE_ID` and `AGENT_OWNER`, then copy
    [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
-   to `.github/workflows/issue-agent-bridge.yml`. The job needs `issues: write`
-   for status comments and reactions; it does not check out repository code.
-   See [GitHub's reaction permissions](https://docs.github.com/en/rest/reactions/reactions#create-reaction-for-an-issue-comment).
-4. Verify a new owner `/agent status` comment in that exact target repository.
-   Confirm the startup reply, final reply, and automatic reaction cleanup.
+   to `.github/workflows/issue-agent-bridge.yml`. Both jobs need `issues: write`
+   for issue comments and reactions. The dispatch job also needs
+   `pull-requests: write` to post and update status comments in PR conversations;
+   the completion job needs only `pull-requests: read` to verify those comments.
+   Neither job checks out repository code. See GitHub's
+   [comment permissions](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
+   and [reaction permissions](https://docs.github.com/en/rest/reactions/reactions#delete-an-issue-comment-reaction).
+4. Verify new owner `/agent status` comments on an issue and in a PR's
+   Conversation tab in that exact target repository. Confirm the startup reply,
+   final reply, and automatic reaction cleanup in both places.
    Comments created before installation are not replayed; post a new command
    after setup is complete. A successful probe in another repository does not
    verify this installation.
