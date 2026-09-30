@@ -5,15 +5,20 @@
 # This script sets up the development environment after cloning.
 #
 # Usage:
-#   ./scripts/init_repo.sh [--skip-env] [--skip-index] [--skip-mcp]
+#   ./scripts/init_repo.sh [--yes] [--skip-env] [--skip-index] [--skip-mcp]
 #   python3 scripts/install_instructions.py [--clients codex,claude]
 #     Update only client instructions, without running MCP or dependency setup.
 #
 # Flags:
+#   --yes, -y      Accept defaults without prompting (also AGENTS_ASSUME_YES=1).
+#                  Picks the embedding model from installed RAM, keeps an
+#                  existing venv, and allows the client instruction updates.
 #   --skip-env     Skip .env file creation (useful if already configured)
 #   --skip-index   Skip embedding model download and index pre-build
 #   --skip-mcp     Skip MCP configuration and client instruction updates
 #   --help         Show this help message
+#
+# One-command install (macOS/Linux): see install.sh and README "Quick Start".
 #
 # Installs the persona protocol: the model keeps its role across turns and routes
 # only when the task needs another specialization (docs/routing_flow.md).
@@ -68,6 +73,10 @@ fi
 SKIP_ENV=false
 SKIP_INDEX=false
 SKIP_MCP=false
+case "${AGENTS_ASSUME_YES:-}" in
+    1|true|yes) ASSUME_YES=true ;;
+    *) ASSUME_YES=false ;;
+esac
 
 for arg in "$@"; do
     case $arg in
@@ -83,6 +92,10 @@ for arg in "$@"; do
             SKIP_MCP=true
             shift
             ;;
+        --yes|-y)
+            ASSUME_YES=true
+            shift
+            ;;
         --help|-h)
             sed -n '2,/^$/{ s/^# //; s/^#//; p; }' "$0"
             exit 0
@@ -91,6 +104,30 @@ for arg in "$@"; do
 done
 
 # ============== Helper Functions ==============
+
+# Picks the default embedding model choice (1 Full, 2 Balanced, 3 Light) from RAM.
+# Prints 2 (Balanced) when RAM cannot be detected.
+detect_default_model_choice() {
+    local kb=0 bytes=0 gb
+    if [ -r /proc/meminfo ]; then
+        kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
+        gb=$(( ${kb:-0} / 1024 / 1024 ))
+    elif command -v sysctl >/dev/null 2>&1; then
+        bytes=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+        gb=$(( ${bytes:-0} / 1024 / 1024 / 1024 ))
+    else
+        gb=0
+    fi
+    if [ "${gb:-0}" -ge 32 ]; then
+        echo 1
+    elif [ "${gb:-0}" -ge 16 ]; then
+        echo 2
+    elif [ "${gb:-0}" -gt 0 ]; then
+        echo 3
+    else
+        echo 2
+    fi
+}
 
 print_header() {
     echo ""
@@ -438,8 +475,17 @@ if [ -d "$VENV_PATH" ]; then
 
     echo ""
     print_warn "Do you want to recreate it and reinstall all packages?"
-    read -p "  Reinstall? [y/N]: " -r
-    echo
+    if [ "$ASSUME_YES" = true ]; then
+        # Destructive: recreate only when the existing venv is unusable.
+        REPLY=n
+        if [ "$VENV_PYTHON_VER" = "unknown" ] || ! version_gte "$VENV_PYTHON_VER" "$PYTHON_MIN_VERSION"; then
+            REPLY=y
+        fi
+        print_step "--yes: reinstall answer '$REPLY'"
+    else
+        read -p "  Reinstall? [y/N]: " -r
+        echo
+    fi
     if [[ $REPLY =~ ^[Yy] ]]; then
         print_step "Removing existing venv..."
         rm -rf "$VENV_PATH"
@@ -521,8 +567,14 @@ if [ "$SKIP_INDEX" = false ]; then
         echo -e "    ${GREEN}3)${NC} Light    — sentence-transformers/all-MiniLM-L6-v2            ~22 MB   384d   English"
         echo -e "               Minimal footprint. English queries only."
         echo ""
-        read -r -p "  Choice [1/2/3] (default: 2): " MODEL_CHOICE
-        MODEL_CHOICE="${MODEL_CHOICE:-2}"
+        DEFAULT_MODEL_CHOICE="$(detect_default_model_choice)"
+        if [ "$ASSUME_YES" = true ]; then
+            MODEL_CHOICE="$DEFAULT_MODEL_CHOICE"
+            print_step "--yes: embedding model choice $MODEL_CHOICE (detected from RAM)"
+        else
+            read -r -p "  Choice [1/2/3] (default: $DEFAULT_MODEL_CHOICE): " MODEL_CHOICE
+            MODEL_CHOICE="${MODEL_CHOICE:-$DEFAULT_MODEL_CHOICE}"
+        fi
 
         case "$MODEL_CHOICE" in
             1)
@@ -750,7 +802,7 @@ else
             echo -e "  ${CYAN}Agents-Core wants to add routing instructions to:${NC}"
             echo "    $CLAUDE_CODE_MD"
             echo ""
-            read -p "  Allow? [Y/n]: " -r
+            if [ "$ASSUME_YES" = true ]; then REPLY=y; else read -p "  Allow? [Y/n]: " -r; fi
             echo ""
 
             CLAUDE_MD_CONFIGURED=false
@@ -776,7 +828,7 @@ else
                 echo -e "  ${CYAN}Agents-Core wants to configure its routing reminder:${NC}"
                 echo "    $MEMORY_FILE"
                 echo ""
-                read -p "  Allow? [Y/n]: " -r
+                if [ "$ASSUME_YES" = true ]; then REPLY=y; else read -p "  Allow? [Y/n]: " -r; fi
                 echo ""
                 if [[ $REPLY =~ ^[Nn] ]]; then
                     print_warn "Skipped memory file; align any old routing reminder with the persona protocol manually"
