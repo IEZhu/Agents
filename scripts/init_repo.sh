@@ -111,13 +111,14 @@ detect_default_model_choice() {
     local kb=0 bytes=0 gb
     if [ -r /proc/meminfo ]; then
         kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-        gb=$(( ${kb:-0} / 1024 / 1024 ))
+        gb=$(( (${kb:-0} + 1048575) / 1048576 ))
     elif command -v sysctl >/dev/null 2>&1; then
         bytes=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
         gb=$(( ${bytes:-0} / 1024 / 1024 / 1024 ))
     else
         gb=0
     fi
+    # MemTotal sits slightly below installed RAM, hence the rounding up above.
     if [ "${gb:-0}" -ge 32 ]; then
         echo 1
     elif [ "${gb:-0}" -ge 16 ]; then
@@ -502,7 +503,8 @@ if [ -d "$VENV_PATH" ]; then
             exit 1
         fi
         print_step "Using existing virtual environment"
-        SKIP_INSTALL=true
+        # Under --yes (also used by install.sh updates) still refresh dependencies.
+        if [ "$ASSUME_YES" = true ]; then SKIP_INSTALL=false; else SKIP_INSTALL=true; fi
     fi
 else
     print_step "Creating virtual environment using $SELECTED_PYTHON..."

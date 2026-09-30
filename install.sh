@@ -59,7 +59,10 @@ main() {
 
     if [ "$assume_yes" = false ]; then
         local reply=""
-        read -r -p "Proceed with these defaults? [Y/n]: " reply </dev/tty || reply=""
+        if ! read -r -p "Proceed with these defaults? [Y/n]: " reply </dev/tty; then
+            echo "install.sh: no answer received; aborting." >&2
+            return 1
+        fi
         case "$reply" in
             [Nn]*)
                 echo "Aborted. For step-by-step prompts run: git clone $repo_url \"$home_dir\" && \"$home_dir/scripts/init_repo.sh\""
@@ -69,6 +72,10 @@ main() {
     fi
 
     if [ -d "$home_dir/.git" ]; then
+        if [ ! -f "$home_dir/scripts/init_repo.sh" ]; then
+            echo "install.sh: $home_dir is a git repository but not an Agents-Core checkout." >&2
+            return 1
+        fi
         if [ -n "$(git -C "$home_dir" status --porcelain --untracked-files=no)" ]; then
             echo "install.sh: $home_dir has local changes; commit or stash them first." >&2
             return 1

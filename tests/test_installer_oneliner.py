@@ -93,7 +93,7 @@ def test_missing_git_fails_clearly(tmp_path, upstream):
 
 
 @pytest.mark.parametrize("gb_kb,expected", [(64 * 1024 * 1024, "1"), (16 * 1024 * 1024, "2"),
-                                             (8 * 1024 * 1024, "3")])
+                                             (8 * 1024 * 1024, "3"), (16 * 1024 * 1024 - 400000, "2"), (32 * 1024 * 1024 - 800000, "1")])
 def test_ram_to_model_choice(tmp_path, gb_kb, expected):
     source = (ROOT / "scripts/init_repo.sh").read_text()
     start = source.index("detect_default_model_choice() {")

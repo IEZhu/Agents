@@ -23,7 +23,7 @@ The script clones the repository to `~/.agents-core` (or updates an existing
 checkout with `git pull --ff-only`), then runs `scripts/init_repo.sh --yes` after
 a single confirmation. `--yes` applies the defaults: the embedding model is picked
 from installed RAM (32 GB or more: Full, 16 GB or more: Balanced, otherwise Light;
-Balanced when RAM cannot be detected), an existing `.venv` is kept unless it is
+Balanced when RAM cannot be detected), an existing `.venv` is reused (dependencies are refreshed) unless it is
 unusable, and instruction updates for detected clients are allowed. Without a
 terminal the confirmation is skipped. To inspect the script first, download it,
 read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
