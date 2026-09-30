@@ -157,12 +157,19 @@ source of commands.
 
 Rules:
 
+- **Clock.** Never infer the current time from comment timestamps, the state or
+  memory. Read it with `date -u +%Y-%m-%dT%H:%M:%SZ` at the start of the run and
+  again before every time comparison (lock age, bot pauses, stale runs), and
+  compare parsed timestamps, not strings. A bot pause has ended only when
+  `now >= next_attempt`. When reporting a pause, give its `next_attempt` in UTC and
+  either "ended" or the minutes left, computed from that measured `now`.
 - **Idempotency.** If `last_command_id` already equals the command's id, the
   command was handled; post only the completion receipt when a verified bridge
   exists, then stop without another outcome reply. Set it as soon as the command
   is accepted.
 - **One run per issue.** The lock is advisory, not atomic: the owner must not send
-  overlapping commands for the same issue. If `lock_at` is set and younger than
+  overlapping commands for the same issue. Measure the lock's age with the clock
+  rule below. If `lock_at` is set and younger than
   three hours and the command is not `stop` or `status`, reply that a run is in
   progress (link the session) and stop. Set `lock_at` and `session` when starting
   work, then re-read the state: if another session's id is there, stop without

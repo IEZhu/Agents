@@ -56,7 +56,7 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 
 <details open><summary>Diagram</summary>
 
-(mermaid flowchart, see below)
+(optional: a mermaid flowchart only when it helps, see below; omit this whole block otherwise)
 </details>
 
 <details><summary>Tests and checks</summary> ... </details>
@@ -69,9 +69,11 @@ Use this structure, in the issue's language, with paths and identifiers in Engli
 To execute: `/agent run_plan v2`. To change it: `/agent replan <what to change>`.
 ```
 
-Add a **Mermaid diagram** when the plan has more than two steps, branches, or
-touches several components: a `flowchart` of the steps, or of the data or control
-flow the change affects. GitHub and GitLab render a fenced block that starts with
+Add a **Mermaid diagram** when it makes the plan easier to follow: the work has
+branches or conditions, touches several components, or has an order that is
+hard to see in the list. Draw a `flowchart` of the steps, or of the data or
+control flow the change affects. Skip it for a short linear plan, such as an edit
+to one file; a diagram that only repeats the step list adds nothing. GitHub and GitLab render a fenced block that starts with
 three backticks and `mermaid` in issue comments; other viewers still show readable
 source. Keep it small (about 15 nodes at most), one diagram per plan, and make it
 parse:
