@@ -115,7 +115,10 @@ approves nor clears findings.
 | Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
 
 Keep each pause with its evidence (the comment or review link), the time it was
-seen and the earliest next attempt. Record it where the next session will find
+seen and the earliest next attempt. Compute times from the clock (`date -u`), not
+from memory or other timestamps: `next_attempt` is the evidence time plus the
+stated wait, and a pause has ended only when the measured current time is at or
+after it. Record it where the next session will find
 it: the [issue agent](issue-agent.md#3-state) keeps it in the issue's state
 comment; an interactive session reports it and keeps it in its working notes.
 While a bot is paused, continue with the other bots, do not re-request the
