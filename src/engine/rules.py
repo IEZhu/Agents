@@ -5,12 +5,24 @@ Rules apply to every agent without exception. Anything per-agent belongs in
 ``capable_skills`` frontmatter. The architectural invariant is enforced in ``load_all_rules`` —
 any rule with ``applies_to`` or ``exclude_agents`` fields is rejected and logged.
 
-Rules are lazy-loaded via ``get_rules()``, sorted by ``priority`` (lower first),
-and formatted as a single ``## Rules`` markdown block prepended to the dynamic
-context in ``enrichment.py``. The loaded set is memoized into a process-local
-cache after the first call; there is no semantic retrieval, and rules are only
-re-read from disk when ``invalidate_cache()`` is called (e.g. by tests or after
-editing files at runtime).
+``get_rules()`` returns every rule sorted by ``priority`` (lower first), then
+``name``; ``format_rules_for_prompt()`` renders them as one
+``## Rules (always-on)`` markdown block. There is no semantic retrieval. Two
+paths use it:
+
+- Protocol 2 persona bundles (``persona_bundle.build_persona_bundle``) call
+  ``get_rules(fresh=True, strict=True)`` on every bundle build and return the
+  block as a separate ``rules_block``. This bypasses the cache and re-reads the
+  files, so edited rules reach the next bundle without a restart. An invalid
+  rule, a duplicate ``name`` or an empty set raises, and the activation returns
+  ``ERROR``. The shared daemon runs the same strict load during warmup.
+- The per-query ``server._load_and_enrich``/``enrich_agent_prompt`` path (used
+  by the evaluation harnesses) calls the lenient ``get_rules()`` and puts the
+  block first in the dynamic context in ``enrichment.py``. It skips an invalid
+  file with a logged error and memoizes the loaded set in a process-local cache
+  until ``invalidate_cache()`` is called (e.g. by tests).
+
+``RULES_ENABLED=0`` makes ``get_rules()`` return an empty list on both paths.
 """
 
 from __future__ import annotations
@@ -130,8 +142,9 @@ def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
 def load_all_rules(*, strict: bool = False) -> List[Rule]:
     """Read every ``rules/rule-*.mdc`` and return a list sorted by priority.
 
-    Reload-safe: call ``invalidate_cache()`` after editing files on disk.
-    Rejects rules with ``applies_to`` or ``exclude_agents`` (architectural
+    Always reads from disk; only the lenient ``get_rules()`` call is memoized.
+    With ``strict=True`` an invalid or duplicate rule raises instead of being
+    skipped. Rejects rules with ``applies_to`` or ``exclude_agents`` (architectural
     invariant — see module docstring).
     """
     rules: List[Rule] = []
@@ -169,10 +182,12 @@ def load_all_rules(*, strict: bool = False) -> List[Rule]:
 
 
 def get_rules(*, fresh: bool = False, strict: bool = False) -> List[Rule]:
-    """Cached entry point used by the enrichment pipeline.
+    """Entry point for persona bundles and per-query enrichment.
 
-    Returns an empty list when ``RULES_ENABLED=0`` so the layer can be
-    disabled for diagnostics without removing files.
+    The default lenient call is memoized. ``fresh`` or ``strict`` bypasses the
+    cache and reads the files again; persona bundles pass both. Returns an
+    empty list when ``RULES_ENABLED=0`` so the layer can be disabled for
+    diagnostics without removing files.
     """
     global _cache
     if not RULES_ENABLED:
@@ -191,7 +206,7 @@ def invalidate_cache() -> None:
 
 
 def format_rules_for_prompt(rules: List[Rule]) -> str:
-    """Render the rules list as a single ``## Rules`` markdown block.
+    """Render the rules list as a single ``## Rules (always-on)`` markdown block.
 
     A leading H1 heading inside a rule body (e.g. ``# No fabrication``) is
     stripped — each rule is already wrapped under ``### Rule: <name>``, so an

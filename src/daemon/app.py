@@ -29,7 +29,7 @@ def load_runtime(port):
     from src.engine.rules import get_rules
     from src.engine.fingerprint import configuration_revision
     embed_query("warmup")  # failure prevents ready
-    # Rule warmup uses the same loader as normal enrichment.
+    # Rule warmup runs the strict load that persona bundles use; failure prevents ready.
     get_rules(strict=True)
     configuration_revision()
     server.mcp.settings.host = "127.0.0.1"

@@ -144,7 +144,7 @@ case "$cmd" in
 
     prepare)
         require_datasets
-        echo -e "${GREEN}▶ Sampling 110 queries → _unlabeled.jsonl${NC}"
+        echo -e "${GREEN}▶ Sampling queries (DEFAULT_ALLOC in label_with_claude.py) → _unlabeled.jsonl${NC}"
         echo "================================================"
         "$PYTHON_BIN" -m evals.scripts.label_with_claude --prepare "$@"
         echo ""

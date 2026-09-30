@@ -951,8 +951,8 @@ async def main_async(args: argparse.Namespace) -> int:
     model = args.model or provider.default_model
     # Judge selection precedence: CLI flag > env var > arm provider default.
     # `JUDGE_PROVIDER` / `JUDGE_MODEL` env vars let users swap judges without
-    # editing scripts — e.g. `./scripts/set_judge.sh opus` updates .env once
-    # and every subsequent bench run picks it up.
+    # editing scripts: set them in `.env` (see env.example), which the bench
+    # scripts source, or pass `--judge-provider` / `--judge-model`.
     judge_provider_name = args.judge_provider or judge_env_default("JUDGE_PROVIDER", args.provider) or args.provider
     judge_provider = get_provider(judge_provider_name)
     judge_model = args.judge_model or judge_env_default("JUDGE_MODEL", judge_provider.name) or judge_provider.default_judge_model
