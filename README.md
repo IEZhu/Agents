@@ -13,6 +13,35 @@ A local MCP server that loads specialized agent personas, domain skills, shared 
 
 ## 🚀 Quick Start
 
+### One-command install (macOS and Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WonderMr/Agents/main/install.sh | bash
+```
+
+The script clones the repository to `~/.agents-core` (or updates an existing
+checkout with `git pull --ff-only`), then runs `scripts/init_repo.sh --yes` after
+a single confirmation. `--yes` applies the defaults: the embedding model is picked
+from installed RAM (32 GB or more: Full, 16 GB or more: Balanced, otherwise Light;
+Balanced when RAM cannot be detected), an existing `.venv` is reused (dependencies are refreshed) unless it is
+unusable, and instruction updates for detected clients are allowed. Without a
+terminal the confirmation is skipped. To inspect the script first, download it,
+read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
+`... | bash -s -- --skip-index`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AGENTS_HOME` | `~/.agents-core` | Install directory |
+| `AGENTS_REPO_URL` | `https://github.com/WonderMr/Agents.git` | Repository to clone |
+| `AGENTS_BRANCH` | `main` | Branch to install |
+| `AGENTS_ASSUME_YES` | unset | `1` skips the confirmation |
+
+The installer never uses `sudo`. An update is refused when the checkout has
+uncommitted changes to tracked files (commit or stash them first). Untracked files
+do not block an update and are left in place; `git pull --ff-only` aborts without
+touching them if an incoming file would overwrite one. For step-by-step confirmations use the manual install below. Windows
+keeps `init_repo.bat`.
+
 ### After Cloning
 
 Use Python 3.11 or newer, as required by [pyproject.toml](pyproject.toml).
@@ -34,7 +63,7 @@ clients and install protocol 2 instructions in the global Claude configuration.
 When Codex is detected, it automatically installs the same protocol in Codex's
 global instructions. This instruction update is separate from connecting Codex to
 MCP; see [Codex instruction installation](#codex-instruction-installation).
-Use `./scripts/init_repo.sh --help` for the available skip options. For the shared
+Use `./scripts/init_repo.sh --help` for the available options (`--yes` accepts all defaults). For the shared
 macOS service and client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 
 For an existing installation, refresh global Codex and Claude instructions with
