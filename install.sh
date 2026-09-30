@@ -18,6 +18,9 @@
 # never runs a partial script.
 main() {
     set -euo pipefail
+    # Inherited Git variables (hooks, wrappers) could redirect git to another repository.
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
+          GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
     local repo_url="${AGENTS_REPO_URL:-https://github.com/WonderMr/Agents.git}"
@@ -44,6 +47,10 @@ main() {
 
     local action="clone into"
     if [ -d "$home_dir/.git" ]; then
+        if [ ! -f "$home_dir/scripts/init_repo.sh" ]; then
+            echo "install.sh: $home_dir is a git repository but not an Agents-Core checkout." >&2
+            return 1
+        fi
         action="update (git pull --ff-only) in"
     elif [ -e "$home_dir" ] && [ -n "$(ls -A "$home_dir" 2>/dev/null)" ]; then
         echo "install.sh: $home_dir exists and is not an Agents-Core checkout." >&2
@@ -72,10 +79,6 @@ main() {
     fi
 
     if [ -d "$home_dir/.git" ]; then
-        if [ ! -f "$home_dir/scripts/init_repo.sh" ]; then
-            echo "install.sh: $home_dir is a git repository but not an Agents-Core checkout." >&2
-            return 1
-        fi
         if [ -n "$(git -C "$home_dir" status --porcelain --untracked-files=no)" ]; then
             echo "install.sh: $home_dir has local changes; commit or stash them first." >&2
             return 1

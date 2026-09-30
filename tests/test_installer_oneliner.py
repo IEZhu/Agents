@@ -84,6 +84,25 @@ def test_non_checkout_directory_is_refused(tmp_path, upstream):
     assert "not an Agents-Core checkout" in result.stderr
 
 
+def test_unrelated_git_repo_is_refused_early(tmp_path, upstream):
+    target = tmp_path / "home/.agents-core"
+    target.mkdir(parents=True)
+    git("init", "-q", "-b", "main", cwd=target)
+    result = run_install(tmp_path, upstream)
+    assert result.returncode != 0
+    assert "not an Agents-Core checkout" in result.stderr
+    assert "Agents-Core installer" not in result.stdout
+
+
+def test_inherited_git_dir_is_ignored(tmp_path, upstream):
+    other = tmp_path / "other"
+    other.mkdir()
+    git("init", "-q", "-b", "main", cwd=other)
+    result = run_install(tmp_path, upstream, extra_env={"GIT_DIR": str(other / ".git")})
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "home/.agents-core/ran.txt").exists()
+
+
 def test_missing_git_fails_clearly(tmp_path, upstream):
     empty = tmp_path / "empty-bin"
     empty.mkdir()
