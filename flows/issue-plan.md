@@ -101,7 +101,8 @@ explore parts in parallel; keep the final plan in one comment.
 2. Immediately update the state: `plan.version`, `plan.comment_id`, and
    `plan.issue_updated_at` set to that plan-base value; phase `planned`.
    Whenever a later step needs the plan, select only comments in this issue
-   authored by the configured owner with type `User` and carrying
+   that pass the [configured owner identity checks](issue-agent.md#1-verify-the-event),
+   including the numeric ID and connector `type` rule, and carry
    `<!-- issue-agent:plan vN -->`. Treat the newest such trusted plan as
    authoritative if it is newer than the trusted state entry (a session can end
    between posting and saving), take the baseline from its plan-base line, and

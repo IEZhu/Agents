@@ -124,10 +124,10 @@ session when the configured owner writes a `/agent` command (`plan`, `replan`,
 request of a target repository. The flows live in this repository; the target
 can be any repository the routine clones.
 
-Only comments whose GitHub author login matches `AGENT_OWNER` and whose author
-type is `User` can trigger it. Set `AGENT_OWNER` to the exact login of the one
-allowed user; a missing or empty setting disables dispatch. Display names,
-mentions, and collaborator or member status grant no command access. Bot reviews
+Only comments whose GitHub author login matches `AGENT_OWNER` and whose raw
+Actions event author type is `User` can trigger it. Set `AGENT_OWNER` to the exact
+login of the one allowed user; a missing or empty setting disables dispatch.
+Display names, mentions, and collaborator or member status grant no command access. Bot reviews
 and other people's comments are evidence within the owner's task; they do not
 start or resume sessions. To process a review after a session has ended, the
 owner sends `/agent review`.
@@ -145,21 +145,34 @@ number, command comment id, and bridge status comment id); the agent reads and
 verifies the referenced comments itself.
 
 **Visible progress and failures.** The bridge posts a status comment and adds
-its own 👀 reaction to the command comment. Once Claude verifies the event, it
-adds a separate reaction under the owner's account and posts a startup
-acknowledgement. The bridge waits up to five minutes for that acknowledgement,
-updates its status, and removes its own reaction. It stops waiting as soon as
-the acknowledgement arrives. This watch
-uses GitHub Actions runner time. Claude removes only its own newly created
-reaction on normal exits; pre-existing reactions are preserved. A forcibly stopped
-runner or cloud session may leave its reaction behind.
+its own 👀 reaction to the command comment, recording a newly created reaction
+as `<!-- issue-agent:reaction id=501 -->` on the receipt's second line. Claude
+posts a startup acknowledgement after verifying the event; it adds no separate
+owner reaction. The bridge waits up to five minutes for that acknowledgement,
+then stops polling and leaves its reaction in place while Claude works. This
+startup watch uses GitHub Actions runner time; completion requires no ongoing
+polling.
+
+On every normal exit, Claude posts a new comment on the original issue or PR
+whose first two lines are `<!-- issue-agent -->` and
+`<!-- issue-agent:finished bridge_comment_id=123 -->`, using the verified receipt
+ID. A separate handling path in the bridge validates the owner's completion,
+the trusted bridge receipt, and its original command, then removes only the
+recorded bridge reaction. Completion never fires another routine. The final
+reply records the outcome; the bridge receipt records delivery and startup.
+Pre-existing reactions are preserved. A forcibly stopped runner or cloud session,
+or a failed completion callback, may leave a reaction behind. Startup timeout
+removes the bridge reaction, so a session that starts later may run without 👀.
 
 A confirmed HTTP `429` is reported as a routine fire limit, with the numeric
 `Retry-After` delay when supplied. A successful fire creates a session but does
 not wait for execution. The fire token has no read access to later subscription
-quota failures or session progress. If no startup acknowledgement appears, the
-bridge reports that startup is unconfirmed, lists quota as one possible cause,
-and links the session when available. See the
+quota failures or session progress. HTTP `200` without a usable session ID still
+starts the acknowledgement watch; the bridge does not retry or assume that the
+launch failed. A known session URL may also appear in Claude's acknowledgement.
+If no startup acknowledgement appears, the bridge reports that startup is
+unconfirmed, lists quota as one possible cause,
+links the session when available, and clears its newly created reaction. See the
 [routine fire API](https://platform.claude.com/docs/en/api/claude-code/routines-fire).
 
 The bridge does not automatically retry: each successful fire creates another
@@ -172,8 +185,12 @@ then post a new command.
 1. Create a routine (for example `Private-issues`) with both repositories as
    sources (the target and this one), model `claude-opus-5-5`, allowed tools
    Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow, and
-   only the connectors it needs. Its prompt names the owner login, says that
-   Agents-Core MCP is unavailable (do not route), explicitly allows multi-agent
+   only the connectors it needs. Look up the owner's GitHub account and verify
+   its login and numeric user ID before pinning `AGENT_OWNER` and
+   `AGENT_OWNER_ID` in the routine prompt. For the GitHub.com `WonderMr` account,
+   the verified numeric ID is `5370211`; other installations must verify their
+   own owner. The prompt says that Agents-Core MCP is unavailable (do not route),
+   explicitly allows multi-agent
    orchestration, and tells the session to follow `flows/issue-agent.md` for the
    event in the `routine-fire-payload` block.
 2. In the routine's web page, add an **API** trigger and generate its token.
@@ -184,19 +201,33 @@ then post a new command.
    for status comments and reactions; it does not check out repository code.
    See [GitHub's reaction permissions](https://docs.github.com/en/rest/reactions/reactions#create-reaction-for-an-issue-comment).
 
-When updating an existing installation, publish these flows first, then update
-the copied bridge on the target's default branch. For Agents.Private, merge the
-public Agents flow change before its private bridge change, so new sessions know
-how to acknowledge startup. Update any command examples or prefix checks in the
-routine's saved prompt to `/agent` as well, and keep its owner login aligned with
-`AGENT_OWNER`. Older comment callers without `bridge_comment_id` remain supported,
-but have no bridge startup acknowledgement. Review event payloads are rejected.
+When updating an existing installation, first pin the verified owner identity
+in the routine prompt. Keep its login aligned with the repository's `AGENT_OWNER`
+and name the numeric ID `AGENT_OWNER_ID`; this is a cloud verification setting,
+not another Actions variable. Update any saved command examples or prefix checks
+to `/agent` as well. Then publish these flows before updating the copied bridge
+on the target's default branch. For Agents.Private, merge the public Agents flow
+change before its private bridge change, so new sessions know how to acknowledge
+startup and signal completion. Older comment callers without `bridge_comment_id` remain supported,
+but have no bridge startup acknowledgement or reaction cleanup callback. Review
+event payloads are rejected.
 
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
 pull requests, reviews), acting as the owner's account; `gh` is not installed.
 Because the agent's comments appear under the owner's login, each one starts with
-`<!-- issue-agent -->` and never with `/agent`; the bridge and the flow both ignore
-such comments. Routine runs count against the account's daily routine allowance.
+`<!-- issue-agent -->` and never with `/agent`. Such comments cannot start a
+routine; only the exact completion marker invokes reaction cleanup. Routine runs
+count against the account's daily routine allowance.
 
-State, plan, and question comments must also pass owner-author and issue checks;
-an agent marker copied by another person does not make their comment trusted.
+**Connector identity checks.** Cloud GitHub tools can omit an author's `type`.
+The cloud flow requires the referenced comment's exact pinned owner login and
+numeric ID for commands, state, plans, and questions. If `type` is present, it
+must be `User`; if omitted, the pinned identity still permits verification.
+A missing author ID, a display name, repository role, or `get_me` alone cannot
+establish the comment's author. Issue and marker checks still apply.
+
+On GitHub.com, bridge receipts must identify `github-actions[bot]` with numeric
+ID `41898282`; a supplied `type` must be `Bot`. Only that verified identity permits
+an omitted `type`. Another GitHub host requires its own verified, explicitly
+configured bridge bot identity. These connector rules do not relax the raw
+Actions event checks, which still require `User` and the configured owner login.

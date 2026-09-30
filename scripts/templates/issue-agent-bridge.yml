@@ -104,6 +104,7 @@ jobs:
               run_url = f"{env['GITHUB_SERVER_URL']}/{repo}/actions/runs/{env['GITHUB_RUN_ID']}"
               marker = f"<!-- issue-agent:bridge event={kind} id={source['id']} -->"
               comment_id = None
+              reaction_marker = ""
 
               def github(method, path, body=None):
                   code, data, _ = request(method, api + path, env["GH_TOKEN"], body)
@@ -126,7 +127,7 @@ jobs:
 
               def status(message):
                   nonlocal comment_id
-                  data = {"body": f"{marker}\n{message}\n\n[Bridge run]({run_url})."}
+                  data = {"body": f"{marker}\n{reaction_marker}{message}\n\n[Bridge run]({run_url})."}
                   if comment_id is None:
                       comment_id = github("POST", f"/issues/{number}/comments", data)["id"]
                   else:
@@ -153,6 +154,7 @@ jobs:
                           # Only remove a reaction created by this run, never a pre-existing one.
                           with open(env["GITHUB_OUTPUT"], "a") as output:
                               output.write(f"reaction_path={reaction_path}/{reaction['id']}\n")
+                          reaction_marker = f"<!-- issue-agent:reaction id={reaction['id']} -->\n"
                       elif code != 200:
                           print("::warning::Could not add the bridge reaction; continuing dispatch.")
                   except Exception:
@@ -163,6 +165,8 @@ jobs:
                   text = (f"repo={repo} event={kind} number={number} "
                           f"comment_id={source['id']} "
                           f"bridge_comment_id={comment_id}")
+                  # Persist cleanup ownership before Claude can post its completion.
+                  status("👀 Command received. Waiting for Claude to confirm startup (up to 5 minutes).")
                   fired = True
                   code, response, headers = request(
                       "POST", f"https://api.anthropic.com/v1/claude_code/routines/{env['ROUTINE_ID']}/fire",
@@ -177,11 +181,13 @@ jobs:
                       status(f"{certainty}: Claude API returned HTTP {code}. Check the routine before sending a new command; no automatic retry was made.")
                       return
                   session_id = response.get("claude_code_session_id", "") if isinstance(response, dict) else ""
-                  if not isinstance(session_id, str) or not re.fullmatch(r"session_[A-Za-z0-9]+", session_id):
-                      status("Claude accepted the request, but returned no usable session ID. Check the routine before sending a new command; no automatic retry was made.")
-                      return
-                  session = f"[Claude session](https://claude.ai/code/{session_id})"
-                  status(f"Session created: {session}. Waiting for Claude to confirm startup (up to 5 minutes).")
+                  if isinstance(session_id, str) and re.fullmatch(r"session_[A-Za-z0-9]+", session_id):
+                      session = f"[Claude session](https://claude.ai/code/{session_id})"
+                      status(f"Session created: {session}. Waiting for Claude to confirm startup (up to 5 minutes).")
+                  else:
+                      session = f"[Claude routine](https://claude.ai/code/routines/{env['ROUTINE_ID']})"
+                      status(f"Claude accepted the request, but returned no usable session ID. {session}. "
+                             "Waiting for Claude to confirm startup (up to 5 minutes); no automatic retry was made.")
                   ack = f"<!-- issue-agent:started bridge_comment_id={comment_id} -->"
                   deadline = time.monotonic() + 300
                   while True:
@@ -190,13 +196,16 @@ jobs:
                                   and (comment.get("user") or {}).get("login") == owner
                                   and (comment.get("body") or "").splitlines()[:2] == ["<!-- issue-agent -->", ack]):
                               status(f"Claude confirmed startup. {session}. The agent posts progress and the result in this thread.")
+                              if reaction_marker:
+                                  with open(env["GITHUB_OUTPUT"], "a") as output:
+                                      output.write("keep_reaction=true\n")
                               return
                       remaining = deadline - time.monotonic()
                       if remaining <= 0:
                           break
                       time.sleep(min(15, remaining))
                   status(f"Claude did not confirm startup within 5 minutes. {session}. "
-                         "A session usage limit or a startup problem may be blocking it. Open the session for details. "
+                         "A session usage limit or a startup problem may be blocking it. Open the session or routine for details. "
                          "No automatic retry was made. If it is still running, wait; otherwise send a new `/agent` "
                          "command after resolving the problem.")
               except Exception:
@@ -209,13 +218,13 @@ jobs:
               main()
 
       - name: Clear the bridge reaction
-        if: ${{ always() && steps.dispatch.outputs.reaction_path != '' }}
+        if: ${{ always() && steps.dispatch.outputs.reaction_path != '' && steps.dispatch.outputs.keep_reaction != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REACTION_PATH: ${{ steps.dispatch.outputs.reaction_path }}
         shell: bash
         run: |
-          # The routine owns its separate processing reaction and removes it on completion.
+          # Failed or unconfirmed startup: remove only this run's reaction.
           code=$(curl --silent --show-error --max-time 15 --request DELETE \
             --header "Authorization: Bearer ${GH_TOKEN}" \
             --header "Accept: application/vnd.github+json" \
@@ -226,3 +235,109 @@ jobs:
             echo "::warning::Could not clear the bridge reaction (HTTP $code)."
             exit 1
           fi
+
+  complete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    if: >-
+      github.event_name == 'issue_comment'
+      && github.event.action == 'created'
+      && vars.AGENT_OWNER != ''
+      && github.event.comment.user.type == 'User'
+      && github.event.comment.user.login == vars.AGENT_OWNER
+      && startsWith(github.event.comment.body, '<!-- issue-agent -->')
+      && contains(github.event.comment.body, '<!-- issue-agent:finished bridge_comment_id=')
+    steps:
+      - name: Clear the completed command reaction
+        id: cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENT_OWNER: ${{ vars.AGENT_OWNER }}
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          def request(method, url, token, body=None):
+              req = urllib.request.Request(url, method=method, headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+              try:
+                  with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
+                      data = response.read()
+                      return response.status, json.loads(data) if data else None, response.headers
+              except urllib.error.HTTPError as error:
+                  return error.code, None, error.headers
+
+          def main():
+              env = os.environ
+              with open(env["GITHUB_EVENT_PATH"]) as handle:
+                  event = json.load(handle)
+              owner = env.get("AGENT_OWNER", "")
+              if env["GITHUB_EVENT_NAME"] != "issue_comment" or not owner or event.get("action") != "created":
+                  return
+
+              def author(comment, login, user_type):
+                  user = comment.get("user") or {}
+                  return user.get("login") == login and user.get("type") == user_type
+
+              completion = event["comment"]
+              lines = (completion.get("body") or "").splitlines()
+              if not author(completion, owner, "User") or len(lines) < 2 or lines[0] != "<!-- issue-agent -->":
+                  return
+              match = re.fullmatch(r"<!-- issue-agent:finished bridge_comment_id=([1-9][0-9]*) -->", lines[1])
+              if not match:
+                  return
+              api = f"{env['GITHUB_API_URL']}/repos/{env['GITHUB_REPOSITORY']}"
+              issue_url = f"{api}/issues/{event['issue']['number']}"
+
+              def github(method, path):
+                  code, data, _ = request(method, api + path, env["GH_TOKEN"])
+                  if code == 404:
+                      return None
+                  if not 200 <= code < 300:
+                      raise RuntimeError(f"GitHub API returned HTTP {code}")
+                  return data
+
+              receipt = github("GET", f"/issues/comments/{match[1]}")
+              if (not receipt or receipt.get("issue_url") != issue_url
+                      or not author(receipt, "github-actions[bot]", "Bot")):
+                  return
+              lines = (receipt.get("body") or "").splitlines()
+              if len(lines) < 2:
+                  return
+              command = re.fullmatch(r"<!-- issue-agent:bridge event=issue_comment id=([1-9][0-9]*) -->", lines[0])
+              reaction = re.fullmatch(r"<!-- issue-agent:reaction id=([1-9][0-9]*) -->", lines[1])
+              if not command or not reaction:
+                  return
+              source = github("GET", f"/issues/comments/{command[1]}")
+              if (not source or source.get("issue_url") != issue_url or not author(source, owner, "User")
+                      or not re.match(r"^/agent(?:\s|$)", source.get("body") or "")
+                      or "<!-- issue-agent" in (source.get("body") or "")):
+                  return
+              path = f"/issues/comments/{command[1]}/reactions"
+              for page in range(1, 101):
+                  batch = github("GET", f"{path}?per_page=100&page={page}") or []
+                  for item in batch:
+                      if (item.get("id") == int(reaction[1]) and item.get("content") == "eyes"
+                              and author(item, "github-actions[bot]", "Bot")):
+                          github("DELETE", f"{path}/{reaction[1]}")
+                          return
+                  if len(batch) < 100:
+                      return
+              raise RuntimeError("Reaction pagination limit reached")
+
+          if __name__ == "__main__":
+              try:
+                  main()
+              except Exception:
+                  raise RuntimeError("Could not clear the completed command reaction.") from None
