@@ -894,3 +894,31 @@ def test_directory_overlay_blocks_delete_and_reset_without_changes(install, tmp_
         library.set_persona("mine", None, reset=True)
     assert (tmp_path / "lib" / "common" / "mine.md").is_file() and (odd / "keep").is_dir()
     assert "persona_error" in library.resolve("mine").metadata()
+
+
+def test_agent_with_invalid_identity_is_rejected_like_the_bundle(install, tmp_path, known_components):
+    path = known_components / "agents" / "code_reviewer" / "system_prompt.mdc"
+    path.write_text("---\nidentity: {name: someone_else, role: Role}\n---\nBody\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="identity does not match"):
+        library.set_persona("review", {"agent": "code_reviewer"})
+
+
+def test_infinite_priority_on_an_unselected_rule_is_skipped(install, tmp_path, known_components):
+    (known_components / "rules" / "rule-inf.mdc").write_text(
+        "---\nname: inf\ndescription: I\ncategory: x\npriority: .inf\n---\nI\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert library.set_persona("review", {"agent": "code_reviewer", "rules": ["truth"]})["status"] == "saved"
+    with pytest.raises(FlowError, match="inf"):
+        library.set_persona("review", {"agent": "code_reviewer", "rules": ["inf"]})
+
+
+def test_symlink_loop_in_personas_is_a_persona_error(install, tmp_path):
+    personas = tmp_path / "lib" / "personas"
+    personas.mkdir(parents=True)
+    (personas / "builtin").symlink_to(personas / "builtin", target_is_directory=True)
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    listed = {flow["id"]: flow for flow in library.list("builtin")["flows"]}
+    # Depending on the Python version resolve() or the read reports the loop;
+    # either way the flow stays listed with a persona error.
+    assert listed["review"]["persona_error"].startswith("flow_invalid:")

@@ -48,6 +48,21 @@ class ComponentSelection:
     rules: tuple[str, ...] | None = None
 
 
+def read_agent(agent_name: str) -> tuple[str, dict, str, str]:
+    """``(path, metadata, body, scope)`` of an agent, validated as a bundle needs it."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", agent_name):
+        raise ValueError(f"Invalid agent name: {agent_name!r}")
+    path = resolve_path(f"@agents/{agent_name}/system_prompt.mdc")
+    metadata, body = read_mdc(path, require_frontmatter=True)
+    identity = metadata.get("identity")
+    if not isinstance(identity, dict) or identity.get("name") != agent_name:
+        raise ValueError(f"Agent metadata identity does not match {agent_name}")
+    scope = identity.get("role")
+    if not isinstance(scope, str) or not scope.strip():
+        raise ValueError(f"Agent {agent_name} has no competency description")
+    return path, metadata, body, scope
+
+
 def _component_id(value: str) -> str:
     value = value.removesuffix(".mdc")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
@@ -105,16 +120,7 @@ async def build_persona_bundle(
     ``selection`` replaces the chosen kinds of components with exact lists.
     """
     selection = selection or ComponentSelection()
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", agent_name):
-        raise ValueError(f"Invalid agent name: {agent_name!r}")
-    path = resolve_path(f"@agents/{agent_name}/system_prompt.mdc")
-    metadata, body = await asyncio.to_thread(read_mdc, path, require_frontmatter=True)
-    identity = metadata.get("identity")
-    if not isinstance(identity, dict) or identity.get("name") != agent_name:
-        raise ValueError(f"Agent metadata identity does not match {agent_name}")
-    scope = identity.get("role")
-    if not isinstance(scope, str) or not scope.strip():
-        raise ValueError(f"Agent {agent_name} has no competency description")
+    path, metadata, body, scope = await asyncio.to_thread(read_agent, agent_name)
 
     # Components switched off in the web UI are skipped, never an error: they leave
     # the blocks, the *_loaded lists, the footer and so the revision. Read fresh on

@@ -1277,9 +1277,10 @@ async function savePersona(reset) {
   // showing a choice that is no longer stored.
   state.personaPending = true;
   $("persona-save").disabled = $("persona-reset").disabled = true;
+  const gen = state.gen;  // any later selection, even one still loading, supersedes this save
   try {
     const result = await api("/ui/api/flow/persona", { method: "PUT", body });
-    if (state.current !== flow) return;  // another flow was opened meanwhile
+    if (state.current !== flow || state.gen !== gen) return;
     // Only the persona fields: the text and its revision stay as the editor loaded them,
     // so a text save still detects a concurrent edit.
     const updated = Object.assign({}, flow, {
