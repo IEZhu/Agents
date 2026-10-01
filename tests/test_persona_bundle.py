@@ -437,3 +437,17 @@ async def test_empty_rule_selection_reads_no_rule_files(bundle_tree):
     bundle = await build_persona_bundle("engineer", "R", tier="deep",
                                         selection=ComponentSelection(rules=()))
     assert bundle.rules_loaded == [] and bundle.rules_block == ""
+
+
+@pytest.mark.asyncio
+async def test_selected_rules_ignore_a_broken_unselected_rule(bundle_tree):
+    tree, _ = bundle_tree
+    (tree / "rules/rule-broken.mdc").write_text("no frontmatter", encoding="utf-8")
+    write_mdc(tree / "rules/rule-copy.mdc", {"name": "dup", "priority": 2}, "A")
+    write_mdc(tree / "rules/rule-copy2.mdc", {"name": "dup", "priority": 2}, "B")
+    bundle = await build_persona_bundle("engineer", "R", tier="deep",
+                                        selection=ComponentSelection(rules=("truth",)))
+    assert bundle.rules_loaded == ["truth"]
+    with pytest.raises(ValueError, match="Duplicate"):
+        await build_persona_bundle("engineer", "R", tier="deep",
+                                   selection=ComponentSelection(rules=("dup",)))

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from src import component_toggles
 from src.engine import enrichment
 from src.engine.config import IMPLANTS_DEEP_TIER_DEFAULT, MAX_PREFERRED_IMPLANTS
-from src.engine.rules import format_rules_for_prompt, get_rules
+from src.engine.rules import format_rules_for_prompt, get_rules, load_selected_rules
 from src.utils.prompt_loader import process_imports, read_mdc, resolve_path
 
 
@@ -171,15 +171,8 @@ async def build_persona_bundle(
     # `enrichment.enrich_agent_prompt`.
     if selection.rules is None:
         rules = await asyncio.to_thread(get_rules, fresh=True, strict=True, apply_toggles=True)
-    elif not selection.rules:
-        rules = []  # No rule files are read, so a broken unselected rule cannot block it.
     else:
-        available = await asyncio.to_thread(get_rules, fresh=True, strict=True)
-        missing = set(selection.rules) - {rule.name for rule in available}
-        if missing and available:
-            raise ValueError(f"Unknown rules: {', '.join(sorted(missing))}")
-        # Kept in priority order, as the default is; RULES_ENABLED=0 leaves none.
-        rules = [rule for rule in available if rule.name in selection.rules]
+        rules = await asyncio.to_thread(load_selected_rules, selection.rules)
     rules_block = format_rules_for_prompt(rules)
 
     if selection.skills is not None:

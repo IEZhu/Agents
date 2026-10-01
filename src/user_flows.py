@@ -503,6 +503,10 @@ class FlowLibrary:
         path = self._persona_path(scope, flow_id)
         self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         with file_lock(self.user_dir / ".lock"):
+            # A delete may have finished meanwhile: never leave an orphan overlay
+            # that a recreated flow would inherit.
+            if not self._exists(scope, flow_id):
+                raise FlowError("flow_not_found: use list_flows to discover available flows")
             if reset:
                 path.unlink(missing_ok=True)  # Removes a symlink itself, never its target.
             elif path.is_symlink():
