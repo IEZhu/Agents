@@ -212,6 +212,7 @@ async def test_logging_checks_attribution_before_writing(monkeypatch):
     monkeypatch.setattr(server, "HistoryWriter", writer)
     response = json.loads(await server.log_interaction("lawyer", "q", "r", persona=descriptor(), persona_action="keep"))
     assert response["status"] == "ERROR"
+    assert response["instruction"].startswith("Nothing was logged.")
     writer.assert_not_called()
 
 

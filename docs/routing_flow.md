@@ -33,9 +33,10 @@ flowchart TD
     Apply --> Answer
 ```
 
-Protocol 2 is the only protocol. MCP tools default to `protocol_version=2`,
-and clients pass it explicitly; any other value returns `ERROR` without loading a
-persona. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
+Protocol 2 is the only protocol. `route_and_load` and `get_agent_context` default
+to `protocol_version=2`, and clients pass it explicitly; any other value returns
+`ERROR` without loading a persona. `refresh_persona_context` and `log_interaction`
+take no `protocol_version`. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
 does not select a persona protocol.
 
 ## Client decisions

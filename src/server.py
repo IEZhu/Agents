@@ -94,8 +94,9 @@ mcp = FastMCP(
         "`get_agent_context(agent_name, query, protocol_version=2, current_persona=...)`; "
         "retain the previous activation until SUCCESS.\n"
         "- NO_CHANGE → keep the current blocks, descriptor and footer unchanged.\n"
-        "- ERROR → keep the previous activation; report that the requested bundle was not "
-        "applied. Do not partially activate returned content.\n"
+        "- ERROR → keep the previous activation, report the failed operation and follow the "
+        "response's `instruction`; for persona tools the requested bundle was not applied. "
+        "Do not partially activate returned content.\n"
         "The server never samples an answer. The ask and agent slash prompts return the "
         "same bundles; pass current_persona as descriptor JSON when available.\n\n"
         "Respond in the same language as the user's query (auto-detect). "
@@ -680,8 +681,8 @@ async def log_interaction(
             raise ValueError("Invalid persona_action")
     except ValueError as error:
         return error_response(error, request_id, instruction=(
-            "Nothing was logged. Keep the current activation, report unavailable "
-            "logging if the workspace is missing, and do not retry logging in a loop."
+            "Nothing was logged. Keep the current activation; on workspace_required or "
+            "workspace_invalid report unavailable logging, and do not retry logging in a loop."
         ))
     attribution = ({
         "persona": active.model_dump(), "persona_action": persona_action,
