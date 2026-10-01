@@ -19,7 +19,8 @@ branch (for example `git show origin/main:flows/pr-review.md`), never from a
 pull request's working tree: when Agents-Core is also the target, the shared
 checkout may be on a branch that changes them. Before following each called
 flow, load its persona as described in [running a flow's persona without
-MCP](README.md#without-agents-core-mcp). The persona follows the flow whose
+MCP](README.md#without-agents-core-mcp), reading that procedure from the
+default branch too (`git show origin/main:flows/README.md`). The persona follows the flow whose
 steps are executing: `/agent run` plans, then implements, then reviews, and the
 implementation persona returns when `pr-review` hands back to
 `issue-implementation`. `/agent fix` applies its change with the persona
