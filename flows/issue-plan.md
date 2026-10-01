@@ -1,3 +1,9 @@
+---
+persona:
+  agent: system_architect
+  skills: [skill-content-structure, skill-system-design, skill-multi-step-planning, skill-decision-frameworks, skill-dev-api-design]
+  implants: [implant-step-back-prompting, implant-verify-assumptions, implant-premortem]
+---
 # Issue agent: plan and replan
 
 Called by the [issue agent](issue-agent.md) for `/agent plan`, `/agent replan`
