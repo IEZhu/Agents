@@ -100,3 +100,25 @@ def test_async_tool_skips_tracing_and_import_while_warming(clean_compat, monkeyp
 
     assert asyncio.run(async_fn(3)) == 6
     assert not langfuse_compat._initialized
+
+
+def test_async_tool_skips_tracing_after_a_failed_readiness(clean_compat, monkeypatch):
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-real")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-real")
+    from src.engine import readiness
+    readiness.reset_for_tests()
+    try:
+        readiness.start([("boom", lambda: 1 / 0)])
+        import time
+        deadline = time.monotonic() + 5
+        while readiness.state() != "failed" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        monkeypatch.setattr(langfuse_compat, "_init", lambda: pytest.fail("import must not run after a failed init"))
+
+        @langfuse_compat.observe(name="async")
+        async def async_fn(x):
+            return x + 1
+
+        assert asyncio.run(async_fn(1)) == 2
+    finally:
+        readiness.reset_for_tests()

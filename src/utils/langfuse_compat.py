@@ -120,7 +120,7 @@ def observe(*args, **kwargs):
             async def wrapper(*a, **k):
                 if not _initialized:
                     from src.engine import readiness
-                    if readiness.is_warming():  # untraced: the slow import must not outlast the warm-up cap
+                    if readiness.is_warming() or readiness.state() == "failed":  # untraced: the slow import must not delay the warming_up or init-failure answer
                         return await fn(*a, **k)
                     await asyncio.to_thread(_init)  # keep the import off the event loop
                 return await resolve()(*a, **k)

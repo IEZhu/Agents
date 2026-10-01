@@ -224,8 +224,8 @@ when readiness completes.
 
 Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
 (default 20): `route_and_load`, `get_agent_context`, `refresh_persona_context`,
-`load_implants`, `read_history` with `query`, and the `ask` and per-agent
-prompts. Past the cap, persona tools return `ERROR` whose message starts with
+`load_implants`, `read_history` with `query`, `run_flow` when the selected flow
+declares a persona, and the `ask` and per-agent prompts. Past the cap, persona tools return `ERROR` (for `run_flow`, in `persona_activation`) whose message starts with
 `warming_up` (the bundle was not applied; retry in a few seconds), `load_implants`
 and `read_history` return a `warming_up` text or status, and prompts embed the
 same error in their message. A failed initialization is stored and returned as an
