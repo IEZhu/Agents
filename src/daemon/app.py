@@ -13,6 +13,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from src.version import agents_core_version
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
@@ -34,6 +35,8 @@ def load_runtime(port):
     configuration_revision()
     server.mcp.settings.host = "127.0.0.1"
     server.mcp.settings.port = port
+    from src.engine.persona import configure_ui_port
+    configure_ui_port(port)
     server.mcp.settings.stateless_http = True
     server.mcp.settings.json_response = True
     server.mcp.remove_tool("clear_session_cache")
@@ -71,6 +74,7 @@ class Service:
         inference = getattr(sys.modules.get("src.engine.embedder"), "_inference", None)
         return {"state": self.state, "service": "Agents-Core", "boot_id": self.boot_id,
                 "pid": os.getpid(), "version": importlib.metadata.version("mcp"),
+                "agents_core_version": agents_core_version(),
                 "install_root": str(Path(__file__).resolve().parents[2]),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
@@ -116,6 +120,8 @@ class Service:
     @asynccontextmanager
     async def lifespan(self, app):
         self.io = TrackedExecutor()
+        # Fix the version before the first request can compute it on the event loop.
+        await asyncio.to_thread(agents_core_version)
         asyncio.get_running_loop().set_default_executor(self.io)
         runtime = asyncio.create_task(self.start_runtime())
         diagnostics = asyncio.create_task(self.retain_diagnostics())

@@ -320,6 +320,10 @@ async def test_editor_access_control(editor):
     page = await http.get("/ui")
     assert page.status_code == 200 and "nonce-" in page.headers["content-security-policy"]
     assert "{{NONCE}}" not in page.text
+    assert "{{VERSION}}" not in page.text
+    from src.version import agents_core_version
+    assert f"Agents-Core {agents_core_version()}" in page.text
+    assert "python -m src.daemon flows-ui" in page.text  # sign-in page names the command
     assert (await http.get("/ui/api/flows")).status_code == 401
     assert (await http.post("/admin/ui/code")).status_code == 401
     # The bearer token does not open the editor API, and the page is loopback-only.

@@ -351,7 +351,8 @@ requested role loads directly. Lost instructions restore the known role; a
 justified refresh rebuilds its context without reselecting it.
 
 The server returns separate persona, rules, skills and implants blocks, an
-activation descriptor and an exact footer. Every successful switch, restore or
+activation descriptor and an exact footer (the four labelled component lists, then
+a muted `Agents-Core <version>` segment, with the web UI link under the daemon). Every successful switch, restore or
 refresh replaces all four blocks, including changed or removed rules, while
 preserving higher-priority instructions, conversation facts, goals, permissions
 and tool results. This is logical replacement: MCP cannot physically delete old

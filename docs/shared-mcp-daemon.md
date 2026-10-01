@@ -249,7 +249,9 @@ counts (`inflight` for work, `streams` for open client notification streams),
 When the service does not respond, `status` also reports `supervised` (launchd
 has the job loaded), `maintenance` and `transaction`; a `transaction` that remains
 while no controller command is running requires `recover`. `/health` requires a
-bearer token. Readiness means the model and indexes have warmed successfully.
+bearer token and, besides the MCP SDK `version`, returns `agents_core_version`
+(the Agents-Core version shown in the footer, see
+[routing reference](routing_flow.md)). Readiness means the model and indexes have warmed successfully.
 Admission is bounded at 32 work requests, plus up to 32 open notification streams
 counted separately, with eight I/O workers and one inference worker. Capacity
 exhaustion returns busy. Cancelling an HTTP waiter retains the quota for its
@@ -299,6 +301,9 @@ cannot call `/mcp` or administration. Requests must use the loopback Host;
 changes also need a same-origin `Origin` and the `X-Agents-UI` header. The page
 loads no external assets and runs under a nonce-based Content Security Policy.
 Sessions live in daemon memory, so a restart requires running the command again.
+Opening `/ui` without a session shows a sign-in page that names the command. The
+header shows the Agents-Core version. The persona footer links to the bare
+`http://127.0.0.1:<port>/ui` address, which never carries a code.
 
 ## Memory and errors
 
