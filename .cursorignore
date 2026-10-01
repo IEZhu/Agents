@@ -1,5 +1,5 @@
 # ===========================================
-# .cursorignore — экономия токенов Cursor AI
+# .cursorignore: saves Cursor AI tokens
 # ===========================================
 
 # Python cache
@@ -18,7 +18,7 @@ env/
 # Git internals
 .git/
 
-# IDE settings (не нужны AI)
+# IDE settings (not needed by AI)
 .vscode/
 .idea/
 
@@ -47,13 +47,13 @@ logs/
 *.pem
 *.key
 
-# Lock files (много строк, мало смысла)
+# Lock files (many lines, little meaning)
 *.lock
 package-lock.json
 poetry.lock
 
 
-# Временные файлы
+# Temporary files
 *.tmp
 *.temp
 *.swp

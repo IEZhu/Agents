@@ -20,8 +20,10 @@ flowchart TD
     Fit -->|No, known requested role| Direct[Direct agent load]
     Fit -->|No, implicit change| Route
     Route --> Choice{Confident cached decision?}
-    Choice -->|No| Pick[ROUTE_REQUIRED: client selects candidate]
+    Choice -->|No, substantive request| Pick[ROUTE_REQUIRED: client selects candidate]
+    Choice -->|No, standalone greeting or acknowledgement| Meta[Load universal_agent at lite tier]
     Choice -->|Yes| Bundle[Assemble and validate full bundle]
+    Meta --> Bundle
     Pick --> Direct
     Direct --> Bundle
     Restore --> Bundle
@@ -50,11 +52,12 @@ See the complete [client protocol](../scripts/templates/routing-protocol-core.md
 The installers switched to version 2 on 2026-09-26, and protocol 1 was removed on
 2026-09-29. The switch rests on two measurements:
 in 30 days of telemetry under v1, 96% of routed turns returned ROUTE_REQUIRED and
-continuing turns re-picked the active agent 73% of the time, re-sending its prompt
-([telemetry analysis](../evals/telemetry/README.md)); in the dialogue evaluation,
-v2 made no selection calls on continuing turns and switched roles correctly in
-every completed case. Server contract tests alone do not establish support for a
-client and model; see the [measured results and remaining validation gaps](persona-switch-eval-results.md).
+73% of ROUTE_REQUIRED calls ended with the model re-picking the agent it already
+had, re-sending its prompt ([telemetry analysis](../evals/telemetry/README.md));
+in the dialogue evaluation, v2 made no selection calls on continuing turns and
+switched roles correctly in every completed case. Server contract tests alone do
+not establish support for a client and model; see the
+[measured results and remaining validation gaps](persona-switch-eval-results.md).
 
 ## API
 
@@ -64,6 +67,16 @@ client and model; see the [measured results and remaining validation gaps](perso
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
 | `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency and records declared attribution |
+
+When the semantic cache has no decision, `route_and_load` loads `universal_agent`
+at the lite tier instead of returning `ROUTE_REQUIRED` for a standalone greeting,
+acknowledgement or capability question, such as `hi`, `ok`, `thanks`, `continue`
+or `what can you do`. Arbitrary short strings and greeting prefixes do not
+qualify: `SQL?`, `Taxes?`, and greetings followed by a task remain substantive.
+Such a request returns `NO_CHANGE` only when the supplied descriptor is already
+`universal_agent`; with a specialist descriptor it switches to `universal_agent`.
+A specialist survives acknowledgements because the client keeps it locally and
+does not route them.
 
 Pass a relevant `chat_history` excerpt when a routed request depends on earlier
 facts. The server does not need the whole conversation. Agent slash prompts load
@@ -78,9 +91,12 @@ version message without loading a persona.
 `replaces_activation_id`, `footer`, an application instruction, and separate
 `persona_block`, `rules_block`, `skills_block`, `implants_block`. The descriptor
 contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revision`,
-metadata `scope`, and canonical `skills_loaded`, `implants_loaded`, `rules_loaded`.
-The revision reflects the issued texts, resolved imports, component IDs and order,
-plus the agent identity and scope used by the local suitability assessment.
+metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
+`implants_loaded` (each implant's `short_name`, or its file ID when none is
+declared) and `rules_loaded` (rule names). The footer shows these lists.
+The revision reflects the issued texts, resolved imports, the component lists and
+their order, plus the agent identity and scope used by the local suitability
+assessment.
 It is neither a conversation identifier nor an authentication token.
 
 The client applies a response only if `replaces_activation_id` matches its active
@@ -110,7 +126,14 @@ action (`keep`, `switch`, `refresh`, or `restore`). Then deliver the answer.
 Agent metadata declares core, preferred and capable skills, plus preferred
 implants. Tier inference selects lite, standard or deep depth; an inferred lite
 request is promoted to standard when the agent declares preferred implants.
-Explicit lite remains lite.
+Clients cannot pass a tier. Only the meta route described under [API](#api)
+requests lite explicitly, and that tier is not promoted: the resulting
+`universal_agent` bundle has only core skills and no implants until a switch,
+restore or refresh. The meta load is cached like other loads (see below), so a
+later greeting within the cache distance takes the cached path instead: its tier
+is inferred, and an inferred lite tier is promoted to standard because
+`universal_agent` declares preferred implants. A greeting therefore yields a lite
+bundle only when the routing cache holds no close match.
 Mandatory rules and core skills are distinct from extra retrieved components.
 Standard and deep tiers select relevant extras under the agent's declared skill
 constraints. Refresh reads current source content before calculating its revision.
@@ -123,7 +146,14 @@ suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
 persists across later requests until a switch, restore, or refresh.
 
 The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
-bounded persistent routing cache. The embedding model and thresholds come from
+bounded persistent routing cache. Every `SUCCESS` other than a restore or refresh
+stores the query and the loaded agent: routed loads, `get_agent_context` calls
+(including selections after `ROUTE_REQUIRED`), agent slash prompts and the meta
+route to `universal_agent`. `route_and_load` then reuses a stored decision without
+`ROUTE_REQUIRED` for a query within cosine distance `1 - ROUTER_SIMILARITY_THRESHOLD`
+(0.05 by default), unless keyword validation overrides or rejects it. The cache
+keeps its 500 newest entries; [Runtime and project boundaries](#runtime-and-project-boundaries)
+says where it lives. The embedding model and thresholds come from
 `src/engine/config.py`; no external model is called to decide `keep`. The
 enriched-prompt TTL cache of the per-query path is separate from client persona state.
 
@@ -136,27 +166,38 @@ their revision. `src/schemas/protocol.py` defines the descriptors and responses.
 Each client conversation owns its activation; the shared HTTP daemon does not
 hold one global active persona for all clients.
 
-The daemon keeps derived router and history indexes in private service state.
+The daemon keeps derived router and history indexes in private service state;
+its routing cache is shared by all HTTP clients and workspaces.
 Standalone startup leases separate `data/stdio/` slots for concurrent processes
-when process locking is available; without it, startup uses temporary derived
-storage. Skill and implant indexes are installation data. The bounded
-enriched-prompt cache is process-local. Over stdio, `clear_session_cache()`
-clears it; for HTTP, use `.venv/bin/python -m src.daemon clear-cache`.
+when process locking is available, each with its own routing cache; without it,
+startup uses temporary derived storage. Skill and implant indexes are installation
+data. The bounded enriched-prompt cache is process-local. Over stdio,
+`clear_session_cache()` clears it; for HTTP, use
+`.venv/bin/python -m src.daemon clear-cache`. Neither clears the routing cache.
 Cache clearing is an administrative action and is not required for persona changes.
 
 HTTP repository memory requires `X-Agents-Workspace` with a registered workspace
 UUID. Global connections can route and load personas without that header, but
 `describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
-a valid workspace. On `workspace_required` or `workspace_invalid`, keep routing
-and report unavailable memory without retrying logging in a loop. For
-`needs_summary`, preserve `workspace_id`, `repo_path`, and `repo_hash` in the
-follow-up write. See [memory and errors](shared-mcp-daemon.md#memory-and-errors).
+a valid workspace. Over stdio, the workspace is the client root from
+`AGENTS_CLIENT_REPO_ROOT`, or one inferred from `CLAUDE_PROJECT_DIR` or the working
+directory; an inferred filesystem root, or on Windows a directory inside the
+Windows directory, is refused with `workspace_required` (resolution order:
+[Repository Memory](../README.md#-repository-memory)). On `workspace_required`
+or `workspace_invalid`, keep routing and report unavailable memory without
+retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
+`repo_path`, and `repo_hash` in the follow-up write. See
+[memory and errors](shared-mcp-daemon.md#memory-and-errors).
 
 Repository workflows use the same workspace identity. `list_flows()`,
 `get_flow`, `save_flow` and `delete_flow` handle built-in and personal (`user:`)
 flows without a workspace; repository (`repo:`) flows and `run_flow(...)` require
-one over HTTP. `run_flow` returns instructions bound to the caller's `repo_path`.
-The current model executes the flow with its own tools and active persona.
+one over HTTP. Over stdio they use the resolved client root. Without a usable
+workspace, `run_flow` fails with `workspace_required`, and `get_flow`,
+`save_flow` or `delete_flow` on a `repo:` flow fail with
+`repo_scope_unavailable`; neither falls back to the installation. `run_flow`
+returns instructions bound to the caller's `repo_path`. The current model executes
+the flow with its own tools and active persona.
 Loading a flow does not route, replace a persona or complete the task. See the
 [workflow contract](../flows/README.md#through-agents-core-mcp).
 
@@ -167,11 +208,6 @@ Loading a flow does not route, replace a persona or complete the task. See the
 | Protocol 1 | Current | Calls omit `protocol_version` and receive protocol 2 bundles the instructions do not describe (an unknown `context_hash` is ignored); reinstall the instructions |
 | Protocol 2 | Current | Conditional routing, structured bundles, no sampling |
 | Protocol 2 | Predates protocol 2 | One incompatibility notice, then answers without an activated persona until the server is updated |
-
-Meta detection during routing recognizes standalone greetings/acknowledgements,
-not arbitrary short strings or greeting prefixes. `SQL?`, `Taxes?`, and greetings followed by a
-task remain substantive. A known role survives standalone acknowledgements;
-without one, the server cannot return `NO_CHANGE`.
 
 When MCP is unavailable, its footer and logging requirements have an explicit
 fallback. A retained valid bundle keeps its descriptor and exact footer when
@@ -187,36 +223,32 @@ because connectivity returns.
 ## Installation, migration and rollback
 
 `./scripts/init_repo.sh` (Windows: `scripts\init_repo.bat`) installs the protocol.
+The [one-command `install.sh`](../README.md#one-command-install-macos-and-linux)
+(macOS and Linux) clones or updates the checkout (default `~/.agents-core`) and
+runs `scripts/init_repo.sh --yes`, which accepts the global instruction and
+routing-reminder prompts without asking.
 
-To update instructions without rerunning installation, use
-`python3 scripts/install_instructions.py` (Windows:
-`py -3 scripts\install_instructions.py`). This standalone command requires Python
-3.11 or newer, uses only the standard library, and updates detected Codex and
-Claude clients by default. Use `--clients codex` to restrict the update.
-It updates global managed instructions, an existing exact generated Claude
-routing reminder, and that reminder's entry in `~/.claude/memory/MEMORY.md`.
-It does not create an absent reminder or change dependencies, `.env`, vector
-indexes, MCP registrations or the shared service.
+Instruction installation and refresh (`scripts/install_instructions.py`, Codex
+detection and target files) are described in
+[Codex instruction installation](../README.md#codex-instruction-installation);
+they do not register MCP connections. On macOS, the shared daemon's
+`migrate --clients codex` configures Codex's connection (see
+[daemon installation and client migration](shared-mcp-daemon.md#installation-and-client-migration));
+for standalone stdio, add the `[mcp_servers."Agents-Core"]` entry from
+[Codex configuration](../README.md#codex-configtoml) manually.
 
-Both installers automatically install the protocol in Codex's global
-instructions during client setup, unless `--skip-mcp` is used. Detection accepts
-`CODEX_HOME`, an existing default `~/.codex` directory, or an available `codex`
-command. A non-empty `CODEX_HOME` selects the profile directory; otherwise
-`~/.codex` is used. Within that directory the helper updates a non-empty
-`AGENTS.override.md`, falling back to `AGENTS.md`. The file's unrelated content is
-preserved. See [Codex instruction installation](../README.md#codex-instruction-installation)
-for a targeted update command and the official instruction-discovery reference.
-
-This installs persona instructions only. It does not register Codex's MCP
-connection or restart the shared service. The existing daemon
-`migrate --clients codex` command configures the macOS connection; see
-[daemon installation and client migration](shared-mcp-daemon.md#installation-and-client-migration).
-Start a fresh Codex session so updated instructions are loaded.
+The installers and `scripts/install_instructions.py` use the same Claude profile:
+`$CLAUDE_CONFIG_DIR` when that variable is non-empty, otherwise `~/.claude`. It
+holds `CLAUDE.md` and `memory/`. A non-empty `CLAUDE_CONFIG_DIR`, an existing
+profile directory or `~/.claude.json`, or an available `claude` command counts as
+a detected Claude client.
 
 The checked-in `CLAUDE.md` uses the same managed section. Global installation does
 not modify this tracked file. After editing the template, run
 `.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md`
 (or use `.venv\Scripts\python.exe` on Windows). Only the managed section is replaced; repository notes outside it remain intact.
+When the section changes, the helper leaves an untracked
+`CLAUDE.md.backup.<timestamp>` in the checkout; leave it out of the commit.
 
 Both installers replace only the marked routing section and back up changed
 files. The shared instruction writer retains the three newest backups per file
@@ -226,10 +258,13 @@ regular files after a successful write or an unchanged-content check. An
 unchanged update creates no backup. Backup creation reserves a distinct name even
 when the clock returns a timestamp already in use. Named manual backups, other
 filename formats and symlink backups are preserved; MCP configuration backups use separate logic.
-Malformed routing markers stop the update without rewriting the target.
+Malformed routing markers stop the update without rewriting the target. A
+symlinked instruction, reminder or index file is refused unchanged; update its
+target manually.
 
-The installers migrate `~/.claude/memory/feedback_agents_core_routing.md` only when its
-bytes exactly match the current template or a previously generated one in
+The installers migrate `feedback_agents_core_routing.md` in the Claude profile's
+`memory/` directory only when its bytes exactly match the current template or a
+previously generated one in
 [`scripts/templates/legacy/`](../scripts/templates/legacy/README.md), including the
 protocol 1 reminder; the old protocol 1 index line is replaced too. A changed reminder or index
 entry is preserved with a warning naming the file and manual correction. Windows
@@ -253,7 +288,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

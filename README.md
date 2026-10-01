@@ -15,38 +15,67 @@ A local MCP server that loads specialized agent personas, domain skills, shared 
 
 ### One-command install (macOS and Linux)
 
+Requires `git`, `curl`, and Python 3.11 or newer as `python3`, with `pip3` on
+`PATH` (see [After Cloning](#after-cloning)).
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WonderMr/Agents/main/install.sh | bash
 ```
 
 The script clones the repository to `~/.agents-core` (or updates an existing
-checkout with `git pull --ff-only`), then runs `scripts/init_repo.sh --yes` after
-a single confirmation. `--yes` applies the defaults: the embedding model is picked
-from installed RAM (32 GB or more: Full, 16 GB or more: Balanced, otherwise Light;
-Balanced when RAM cannot be detected), an existing `.venv` is reused (dependencies are refreshed) unless it is
-unusable, and instruction updates for detected clients are allowed. Without a
-terminal the confirmation is skipped. To inspect the script first, download it,
-read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
-`... | bash -s -- --skip-index`.
+checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
+`--yes` applies the defaults:
+
+- an `EMBEDDING_MODEL` already set in `.env` is kept; otherwise the model is
+  chosen from installed RAM (see [Environment Variables](#environment-variables));
+- an existing `.venv` is reused and its dependencies are refreshed; it is
+  recreated only when its Python version is unknown or older than 3.11;
+- the Claude instruction and routing-reminder prompts are accepted. Client
+  registration and Codex instructions never ask (see [After Cloning](#after-cloning)).
+
+Without a terminal the confirmation is skipped. To inspect the script first,
+download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
+`... | bash -s -- --skip-index`; `--skip-mcp` leaves client configurations and
+instructions unchanged.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |
-| `AGENTS_REPO_URL` | `https://github.com/WonderMr/Agents.git` | Repository to clone |
-| `AGENTS_BRANCH` | `main` | Branch to install |
-| `AGENTS_ASSUME_YES` | unset | `1` skips the confirmation |
+| `AGENTS_REPO_URL` | `https://github.com/WonderMr/Agents.git` | Repository for a fresh clone |
+| `AGENTS_BRANCH` | `main` | Branch to install; the standalone auto-updater acts only on `AGENTS_AUTO_UPDATE_BRANCH` (default `main`) |
+| `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
 
-The installer never uses `sudo`. An update is refused when the checkout has
-uncommitted changes to tracked files (commit or stash them first). Untracked files
-do not block an update and are left in place; `git pull --ff-only` aborts without
-touching them if an incoming file would overwrite one. For step-by-step confirmations use the manual install below. Windows
-keeps `init_repo.bat`.
+The installer never uses `sudo`. It refuses a non-empty `AGENTS_HOME` that is not
+an Agents-Core checkout.
+
+Rerunning it updates an existing checkout: it checks out `AGENTS_BRANCH`,
+fast-forwards it from the checkout's `origin`, then reruns setup, which refreshes
+dependencies in `.venv` and the indexes in place. First close the client sessions
+that run this installation's stdio server, as for any manual Git operation or
+rebuild. If this checkout serves the shared macOS service, update it with
+`.venv/bin/python -m src.daemon update` instead (see [Updates](#updates)).
+An update is refused when the checkout has uncommitted changes to tracked files
+(commit or stash them first). Untracked files do not block an update and are left
+in place; `git pull --ff-only` aborts without touching them if an incoming file
+would overwrite one.
+
+For step-by-step prompts, or on Windows, use [After Cloning](#after-cloning).
 
 ### After Cloning
 
 Use Python 3.11 or newer, as required by [pyproject.toml](pyproject.toml).
+On macOS and Linux, setup uses the `python3` on `PATH`, which needs the `venv`
+module, and requires `pip3` on `PATH`. It does not look for versioned names such
+as `python3.12`, and the macOS Command Line Tools `python3` is too old. On
+Windows, `init_repo.bat` tries `py -3`, `python` and `python3`.
 An existing `.venv` must also use a supported version. If it uses an older Python,
 choose to recreate it when the installer asks; setup stops if you decline.
+On NixOS, enable `programs.nix-ld` first: setup adds its library directory to
+`LD_LIBRARY_PATH` for the indexing run and in each MCP registration's `env`.
+Without it, setup only warns, and NumPy can fail to load `libstdc++`. Commands you
+run yourself (such as `src.reindex` or tests) and client entries you write by hand
+need `LD_LIBRARY_PATH=/run/current-system/sw/share/nix-ld/lib` too; for a manual
+Codex entry, set it in `[mcp_servers."Agents-Core".env]`.
 
 ```bash
 git clone <repository-url>
@@ -56,15 +85,35 @@ cd Agents
 ./scripts/init_repo.sh
 ```
 
-The interactive script creates or reuses `.venv/`, installs dependencies, creates
-`.env`, selects and downloads an embedding model, and builds the skill and implant
-indexes. It can also configure detected Cursor, Claude Code, and Claude Desktop
-clients and install protocol 2 instructions in the global Claude configuration.
-When Codex is detected, it automatically installs the same protocol in Codex's
-global instructions. This instruction update is separate from connecting Codex to
-MCP; see [Codex instruction installation](#codex-instruction-installation).
-Use `./scripts/init_repo.sh --help` for the available options (`--yes` accepts all defaults). For the shared
-macOS service and client connections, continue with [MCP client configuration](#-mcp-client-configuration).
+On Windows, run `scripts\init_repo.bat`. It accepts `--skip-env`, `--skip-index`
+and `--skip-mcp`, but not `--yes`.
+
+The interactive script:
+
+- creates `.env` from `env.example` (or adds keys missing from an existing one),
+  creates `.venv/` and installs dependencies, selects and downloads an embedding
+  model, and builds the skill and implant indexes. When `.venv/` exists and you
+  keep it (the default answer), dependencies are not reinstalled; answer `y` to
+  recreate it, pass `--yes`, or run `.venv/bin/pip install -r requirements.txt`;
+- registers Agents-Core without asking as a standalone stdio server in each
+  detected client's user-level configuration (Claude Code `~/.claude.json`, Cursor
+  `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json`), after
+  copying each file to `<file>.backup.<epoch>`;
+- asks before installing protocol 2 instructions in the global Claude
+  configuration. When Codex is detected, it installs the same protocol in Codex's
+  global instructions without asking; this does not connect Codex to MCP (see
+  [Codex instruction installation](#codex-instruction-installation));
+- targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
+  `AGENTS_CURSOR_MCP_CONFIG` or `AGENTS_CLAUDE_DESKTOP_CONFIG` is exported in the
+  shell that runs setup. Setup does not read them from `.env`, and a set variable
+  also counts as detecting that client (see [alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations));
+- on macOS, once the shared service is installed, keeps these clients on the
+  service instead of writing standalone stdio entries. Do not rerun setup while
+  the service runs (see [service updates](docs/shared-mcp-daemon.md#updates-and-recovery)).
+
+`--skip-mcp` skips all client changes. Use `./scripts/init_repo.sh --help` for the
+available options (`--yes` accepts all defaults). For the shared macOS service and
+client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 
 For an existing installation, refresh global Codex and Claude instructions with
 `python3 scripts/install_instructions.py`. This standalone command needs Python
@@ -75,7 +124,7 @@ For an existing installation, refresh global Codex and Claude instructions with
 ```bash
 # Create and activate virtual environment
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -94,34 +143,57 @@ python -m src.reindex
 
 ### Environment Variables
 
-The core router needs no external API key. Keep optional integration keys empty
-unless you use the corresponding service. Configure `.env` using [env.example](env.example):
+The core router needs no external API key. Configure `.env` using
+[env.example](env.example). Setup creates `.env` from it, so a new `.env` starts
+with these values, including placeholder keys:
 
 ```env
-LANGFUSE_PUBLIC_KEY=          # Optional: observability
-LANGFUSE_SECRET_KEY=          # Optional: observability
+LANGFUSE_PUBLIC_KEY=pk-lf-...   # Optional: observability
+LANGFUSE_SECRET_KEY=sk-lf-...   # Optional: observability
 LANGFUSE_HOST=https://cloud.langfuse.com
-ANTHROPIC_API_KEY=            # Optional: for document OCR
-AGENTS_DEBUG=0                # Set to 1 for per-call JSON debug logs
+ANTHROPIC_API_KEY=sk-ant-...    # Optional: for document OCR
+AGENTS_DEBUG=0                  # Set to 1 for per-call JSON debug logs
 ```
 
+Any non-empty Langfuse key pair enables tracing. To run without Langfuse, set both
+to empty values (`LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=`). Do not delete
+or comment out the lines: setup, including an `install.sh` update, re-adds missing
+keys with the placeholder values. The optional
+[document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
+`ANTHROPIC_API_KEY`.
+
 Embeddings run locally through FastEmbed (ONNX Runtime); the initial model download
-requires network access. Standalone stdio defaults to
-`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. The shared daemon
-uses a cached `intfloat/multilingual-e5-large` snapshot selected by its controller.
+requires network access. Setup writes the selected model to `EMBEDDING_MODEL` in
+`.env` and keeps an existing setting on later runs. Full is
+`intfloat/multilingual-e5-large`, Balanced is
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, and Light is the
+English-only `sentence-transformers/all-MiniLM-L6-v2`. `scripts/init_repo.sh`
+offers a default based on installed RAM, which `--yes` applies: Full with 32 GB or
+more, Balanced with 16 GB or more, otherwise Light (Balanced when RAM cannot be
+detected); `init_repo.bat` defaults to Balanced. When `EMBEDDING_MODEL` is
+unset, for example after `--skip-index` (which also skips the model choice),
+standalone stdio uses Balanced. To change the model, edit `EMBEDDING_MODEL` and,
+with server sessions stopped, run `.venv/bin/python -m src.reindex`. The
+[shared macOS service](#shared-macos-service) always uses a cached Full snapshot
+selected by its controller.
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `EMBEDDING_MODEL` | Multilingual MiniLM above | Standalone embedding model |
-| `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache |
-| `AGENTS_CLIENT_REPO_ROOT` | Nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the process working directory; otherwise that directory, but never a filesystem root or the Windows directory | Explicit stdio memory target |
-| `RULES_ENABLED` | `1` | Include shared rules in loaded context |
+| `EMBEDDING_MODEL` | Balanced (multilingual MiniLM) when unset | Standalone embedding model |
+| `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: inferred from `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target, used as given. Set it in an MCP entry's `env`, never in the installation `.env`, which every stdio session loads |
+| `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
-| `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
+| `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
 
 Routing thresholds and enrichment settings are defined in
-[src/engine/config.py](src/engine/config.py). HTTP memory uses a registered
-workspace header instead of `AGENTS_CLIENT_REPO_ROOT`.
+[src/engine/config.py](src/engine/config.py). Its environment overrides, such as
+`ROUTER_SIMILARITY_THRESHOLD`, `SKILLS_RELEVANCE_THRESHOLD`,
+`IMPLANTS_RELEVANCE_THRESHOLD`, the
+[`IMPLANT_*` settings](implants/README.md#1-agent-preferences-and-semantic-retrieval) and the
+[intent classifier](docs/intent-classifier.md) thresholds in `env.example`, are
+tuning and evaluation settings; normally keep their defaults. HTTP memory uses a
+registered workspace header instead of `AGENTS_CLIENT_REPO_ROOT`.
 
 ### Updates
 
@@ -129,7 +201,9 @@ The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
 updates are opt-in through `.venv/bin/python -m src.daemon auto-update enable`.
 See [service updates and recovery](docs/shared-mcp-daemon.md#updates-and-recovery).
-The daemon disables the standalone updater described below.
+While the service runs, do not update its checkout with `install.sh`, `git pull` or
+`scripts/init_repo.sh`: they bypass drain, maintenance, index backup, probation
+and rollback. The daemon disables the standalone updater described below.
 
 #### Standalone stdio auto-update
 
@@ -142,21 +216,15 @@ mid-session:
    builds the new version's vector stores in an isolated git worktree under
    `data/.prepared/<sha>`, then writes a marker. The live tree and stores are
    untouched.
-2. **Activate** (next idle start): if a valid prepared update exists and no other
-   server session is using this installation, the server
+2. **Activate** (next idle start): if a valid prepared update exists, the server
    fast-forwards the live tree (local, no network) and atomically moves the
    pre-built stores into `data/` — the expensive embedding already happened in
-   phase 1. Existing sessions hold a shared installation lock for their lifetime;
-   overlapping starts keep serving the current version and leave the update
-   pending. A start during activation waits before importing application code.
-   After waiting, it reloads both the bootstrap and server code under the lease.
-   Background preparation uses a separate lock and does not delay startup.
-   Git/reindex children inherit the relevant leases, so an orphan worker remains
-   protected until it exits even if its server process has already stopped.
-   Timed-out commands have their process group terminated. A separate inherited
-   completion pipe keeps rollback and lease release waiting for any remaining
-   descriptor holders, including detached descendants; this safety wait can
-   exceed the command timeout.
+   phase 1. Activation runs only at a start with no other server session of this
+   installation, including the shared daemon; otherwise the update stays pending.
+   A start that overlaps activation waits and then loads the new code. Git and
+   reindex children keep the installation leased until they and their
+   descendants exit, so this wait can exceed the command timeout. Background
+   preparation uses a separate lock and does not delay startup.
 
 It is **safe by default**:
 
@@ -166,18 +234,23 @@ It is **safe by default**:
   or switch branches);
 - a failed staged build discards the worktree and leaves the install as-is; crash
   recovery also uses the store's torn-pair detection and content-hash re-embed;
-- staging roots, worktree paths, and store artifacts must not contain symlinks;
-  redirected paths are rejected before reading, moving, or pruning their targets;
-- store activation invalidates all hashes before moving files and publishes new
-  hashes only after all pairs have moved. Any batch failure invalidates all hashes
-  again; if that cannot be completed, the recovery journal keeps startup blocked;
-- source paths in staged metadata are rebased to the live checkout before
-  publication, while the vector files and their matching save versions are retained;
+- staging and store paths must not contain symlinks; store moves are covered by
+  the recovery journal below, so an interrupted move blocks startup instead of
+  serving mixed indexes;
 - offline/fetch/build failures leave the current version available. A failed
   activation merge (including a timeout after HEAD moved) restores the old tree.
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's
-  state unknown, startup stops instead of serving mixed versions.
-  Dependencies are **not** auto-installed.
+  state unknown, startup stops instead of serving mixed versions;
+- dependencies are **not** auto-installed. When `requirements.txt` or
+  `pyproject.toml` changed, the updater only logs a warning. The staged updater
+  warns while preparing, before the live checkout has the new manifests, and
+  builds with the current environment, in which the activated code then also
+  runs. For such an update, stop the server sessions and update manually:
+  `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`, then
+  `.venv/bin/python -m src.reindex`. If it has already activated, stop the
+  sessions and install the dependencies before restarting. Only with
+  `AGENTS_AUTO_UPDATE_STAGING=0` is the new `requirements.txt` already in place
+  when the warning appears.
 
 Lifetime locks require POSIX `flock` (Linux/macOS). On platforms without it the
 server runs with automatic updates disabled. When upgrading from a version that
@@ -221,19 +294,26 @@ The server exposes MCP tools that any compatible client can call:
 
 | Tool | Purpose |
 |------|---------|
-| `route_and_load(query)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
-| `get_agent_context(agent_name, query)` | Direct agent loading when the target is already known |
+| `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
+| `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona)` | Refresh skills/implants for the active role without reselecting it |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
 | `run_flow(flow, request="", repo_path=None)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
 | `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
-| `log_interaction(agent_name, query, response_content, intent?, action?, outcome?, files?, tags?)` | End-of-turn logger — appends to `history.md` (deduped by content hash) and, if configured, sends a Langfuse generation trace |
+| `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `persona` is the active descriptor, `persona_action` is `keep`, `switch`, `refresh` or `restore` |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
-| `describe_repo(repo_path=None, force_refresh=False)` | One-shot repo bootstrap — writes a structured summary into the managed Repository Memory section of CLAUDE.md via sampling; without sampling, or when the sampling call fails, it returns `needs_summary` with the prompt and writes nothing until `write_repo_summary` is called |
-| `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary when `describe_repo` returns `needs_summary` (no sampling, or sampling failed); pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
+| `describe_repo(repo_path=None, force_refresh=False)` | Repository summary bootstrap; returns `needs_summary` when sampling is unavailable (always over HTTP) or fails ([details](#-repository-memory)) |
+| `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary after `needs_summary`; pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?)` | Recent entries or lazy semantic recall over the action log |
+
+The server also registers MCP prompts (slash commands): `ask` routes like
+`route_and_load`; one prompt per agent `routing.trigger_command` and per
+`routing.aliases` entry loads that agent directly; `describe_repo` (optional
+`force=true`) drives the repository memory bootstrap. Agent and `ask` prompts
+accept `current_persona` as descriptor JSON. See the [protocol API](docs/routing_flow.md#api)
+for parameters and responses.
 
 ### Workflows in the caller's repository
 
@@ -244,10 +324,10 @@ pass the PR/MR URL and constraints in `request`, such as `no-merge`.
 
 The flow files stay in the MCP installation. Inspection, edits, tests and PR/MR
 actions target the caller's repository. HTTP requires a registered workspace in
-`X-Agents-Workspace`; stdio uses `AGENTS_CLIENT_REPO_ROOT`, `CLAUDE_PROJECT_DIR` or
-the server's working directory, never a filesystem root or the Windows directory.
-An optional `repo_path` must stay within that workspace. A missing
-HTTP workspace is an error, even when `repo_path` is supplied.
+`X-Agents-Workspace`, even when `repo_path` is supplied. Stdio uses the project
+resolved as described in [Repository Memory](#-repository-memory), and a workflow
+fails instead of falling back to the installation. An optional `repo_path` must
+stay within that workspace.
 
 The tool reads and returns instructions; the current model executes them with
 its existing permissions and tools. `needs_execution` does not mean the work is
@@ -277,39 +357,28 @@ and tool results. This is logical replacement: MCP cannot physically delete old
 messages. No history or cache clearing is required. The server never samples an
 answer.
 
-This is protocol 2, the only protocol since 2026-09-29; the installers made it the
-default on 2026-09-26. Clients pass `protocol_version=2` (also the default); any
-other value returns `ERROR` without loading a persona. Under the removed protocol 1, 96% of
-routed turns in 30 days of telemetry returned ROUTE_REQUIRED, and when the turn
-continued a conversation the model re-picked the agent already active 73% of the
-time, re-sending its full prompt ([analysis](evals/telemetry/README.md)); in the
-[dialogue evaluation](docs/persona-switch-eval-results.md), version 2 made no
-selection calls on continuing turns and switched roles correctly in every completed
-case. That report also records the remaining gaps for each tested client/model;
-they do not establish support for other applications or native context compaction.
+Protocol 2 is the only protocol since 2026-09-29 (installer default since
+2026-09-26). Clients pass `protocol_version=2` (also the default); any other value
+returns `ERROR` without loading a persona. [Client decisions](docs/routing_flow.md#client-decisions)
+records the telemetry and evaluation evidence for the switch and links the
+remaining validation gaps for each tested client/model.
 
-Both installers apply the protocol to detected Codex global instructions as well
-as the Claude instruction setup. The checked-in `CLAUDE.md` uses the same
-template; the global installer does not change this tracked file. After editing
-the template, refresh this checkout's managed section:
+The checked-in `CLAUDE.md` uses the same template; the global installer does not
+change this tracked file. After editing the template, refresh this checkout's
+managed section:
 
 ```bash
 .venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
 ```
 
 On Windows, use `.venv\Scripts\python.exe` for the same command.
-Repository notes outside the markers are preserved. Managed instruction sections
-are backed up and replaced by markers. For each managed instruction or routing
-memory file, the helper keeps the three newest generated timestamp backups;
-unchanged instructions create no new backup. Backup creation reserves a distinct
-name even when successive writes have the same timestamp. Named manual backups
-and other backup formats are preserved. This limit does not apply to MCP configuration
-backups. Only exact known installer-generated
-routing memory is migrated, including reminders written for protocol 1
-([legacy copies](scripts/templates/legacy/README.md)); edited reminders are preserved with a path-specific warning. Windows
-does not create an absent memory reminder. Review your own project instructions
-and memory for conflicting unconditional `route_and_load` requirements; these
-are not automatically rewritten.
+The helper replaces only the text between the markers and preserves repository
+notes outside them. When the section changes, it leaves an untracked
+`CLAUDE.md.backup.<timestamp>` in the checkout; do not commit it. Backup retention
+and routing-reminder migration are described in
+[installation, migration and rollback](docs/routing_flow.md#installation-migration-and-rollback).
+Review your own project instructions and memory for conflicting unconditional
+`route_and_load` requirements; these are not automatically rewritten.
 
 Client instructions still written for protocol 1 no longer match this server:
 their calls receive protocol 2 bundles they do not describe. Rerun the installer or `scripts/install_instructions.py` to replace them.
@@ -327,16 +396,19 @@ passing server tests alone does not establish it.
 
 ```
 Agents/
+├── .github/workflows/    # Windows installer CI and the issue-agent bridge
 ├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
-│   ├── common/           # Shared resources and agent-schema.json
-│   └── schemas/          # Additional schemas
+│   ├── common/           # agent-schema.json (frontmatter contract) and unused legacy
+│   │                     #   core-protocol.mdc and response-footer.mdc
+│   └── schemas/          # Output schemas named in agent prompts, and the unused
+│                         #   legacy agent-frontmatter.schema.json (not the contract)
 ├── skills/               # Reusable knowledge chunks (RAG)
 │   └── skill-*.mdc
 ├── implants/             # Cognitive reasoning strategies (RAG)
 │   └── implant-*.mdc
-├── rules/                # Shared directives (rule-*.mdc)
+├── rules/                # Shared directives (rule-*.mdc; see rules/README.md)
 ├── src/
 │   ├── server.py         # FastMCP tools, prompts, and standalone entrypoint
 │   ├── startup.py        # Installation leases and isolated stdio indexes
@@ -344,7 +416,10 @@ Agents/
 │   ├── reindex.py        # Skill and implant index rebuild
 │   ├── flows.py          # Built-in flow catalog and run_flow bundles
 │   ├── user_flows.py     # Personal and repository flows (flows/.user)
+│   ├── client_paths.py   # Client configuration paths shared by installers and migration
+│   ├── file_lock.py      # Stable sidecar file locks
 │   ├── daemon/           # HTTP app, service control, workspaces, client migration, flow editor
+│   ├── mcp_servers/      # Optional document OCR server and the MCP server template
 │   ├── engine/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
@@ -368,12 +443,14 @@ Agents/
 │       └── langfuse_compat.py  # Optional Langfuse layer
 ├── bridge/               # Node stdio bridge to the shared HTTP service
 ├── scripts/              # Setup, validation, test, and maintenance commands
-├── scripts/templates/    # Versioned client instruction templates
+├── scripts/templates/    # Versioned client instruction templates and the issue-agent bridge workflow
 ├── tests/                # Deterministic and opt-in integration tests
 ├── evals/                # Routing, enrichment, and client dialogue evaluations
 ├── docs/                 # Guides and reference documents
 ├── flows/                # Markdown workflows served to caller repositories through MCP
 ├── data/                 # Installation indexes and leased stdio state (ignored)
+├── install.sh            # One-command installer (macOS and Linux)
+├── env.example           # Template for .env
 ├── pyproject.toml        # Python project metadata
 └── requirements.txt
 ```
@@ -385,7 +462,7 @@ Agents/
 | **Agents** | Specialized personas with unique system prompts |
 | **Skills** | Domain-specific knowledge chunks (retrieved via RAG) |
 | **Implants** | Cognitive patterns & reasoning strategies |
-| **Rules** | Shared directives included in every loaded bundle when enabled |
+| **Rules** | [Shared directives](rules/README.md) included in every loaded bundle when enabled |
 | **Router** | Semantic matching + caching for fast agent selection |
 | **Persona bundle** | Versioned role instructions, rules, skills, and implants retained by the client |
 | **Memory** | Per-project summary and action history |
@@ -420,23 +497,33 @@ On Windows, use `py -3 scripts\install_instructions.py`. The command needs Pytho
 3.11 or newer and only uses its standard library; no virtual environment is
 required. Add `--clients codex` to update only Codex. The command uses the installer's
 managed-section replacement and backup retention. It migrates an existing exact
-generated Claude routing reminder and its entry in `~/.claude/memory/MEMORY.md`,
-but does not create an absent reminder.
+generated Claude routing reminder and its entry in `memory/MEMORY.md` of the Claude
+configuration directory (`$CLAUDE_CONFIG_DIR` when set, otherwise `~/.claude`),
+but does not create an absent reminder. Like the installers, it reads
+`CLAUDE_CONFIG_DIR` and `CODEX_HOME` from its environment.
 
 This command updates global instructions, that reminder and its memory-index
 entry, and their managed backups. It does not install dependencies, change `.env`
 or vector indexes, register MCP connections, or change
 service configuration. The shared daemon migration below configures Codex's MCP
-connection on macOS. Refreshing instructions alone does not require restarting the
-daemon.
+connection on macOS; without the service, add the [standalone Codex entry](#codex-configtoml).
+Refreshing instructions alone does not require restarting the daemon.
 
 ### Shared macOS service
 
 On macOS, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
-Before the first migration, follow the maintenance and baseline steps in
-[service operations](docs/shared-mcp-daemon.md#installation-and-client-migration).
-The service requires a locally cached e5-large model; choose that model during
-setup if you plan to use the daemon. The Desktop bridge requires Node 22 or newer.
+Before `install`, capture a baseline and stop this installation's stdio servers,
+either by disabling Agents-Core in open clients or by ending those sessions;
+`install` fails while any of them holds the installation lease. See
+[installation and client migration](docs/shared-mcp-daemon.md#installation-and-client-migration).
+The service uses a cached `intfloat/multilingual-e5-large` snapshot, which
+`install` does not download: choose Full during setup, or set `EMBEDDING_MODEL`
+to it in `.env` and run `.venv/bin/python -m src.reindex` with stdio sessions
+stopped. Export a custom `FASTEMBED_CACHE_DIR` in the shell before `install`,
+which does not read it from `.env`. Desktop and tracked project configurations use
+the Node 22+ bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
+Run controller commands from the installation checkout (`~/.agents-core`, or
+`AGENTS_HOME`, for the one-command installer).
 
 ```bash
 .venv/bin/python -m src.daemon install
@@ -452,10 +539,11 @@ Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback.
 
-Client migration honors `CLAUDE_CONFIG_DIR` and `CODEX_HOME` from the environment
-of the controller command. Use `--client-config CLIENT=/absolute/config/file`
-for an explicit configuration file, including alternate Cursor or Claude Desktop
-configurations. For example:
+Setup, migration and audit read `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+`AGENTS_CURSOR_MCP_CONFIG` and `AGENTS_CLAUDE_DESKTOP_CONFIG` only from the
+environment of the command; `--client-config CLIENT=/absolute/file` selects an
+explicit file (see [alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations)).
+For example:
 
 ```bash
 CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --clients claude
@@ -463,18 +551,14 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --
 .venv/bin/python -m src.daemon audit --workspace /absolute/path/to/project
 ```
 
-Explicit files take precedence over environment overrides and default paths.
-With `--workspace`, Codex and Cursor retain their project configuration paths
-unless an explicit file is supplied.
-Audit includes standard locations, active profiles, and files remembered from
-successful migrations; arbitrary inactive profiles need an explicit path. See
-[alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations)
-for supported targets, environment variables, and workspace behavior.
-
 The configurations below are for explicit standalone stdio use (including platforms
-without the macOS service). Stop the shared daemon before a full stdio rollback.
-Replace both absolute installation paths below. Set `AGENTS_CLIENT_REPO_ROOT` to
-the client project when its launch directory is not reliable.
+without the macOS service). To return from the shared service to stdio, run
+`restore-clients` and then `uninstall` (see
+[rollback](docs/shared-mcp-daemon.md#updates-and-recovery)); setup writes
+standalone stdio registrations again only after `uninstall`. Replace both absolute
+installation paths below (the one-command installer uses `~/.agents-core`; expand
+`~`). Set `AGENTS_CLIENT_REPO_ROOT` to the client project when its launch
+directory is not reliable.
 
 ### Claude Code (`.mcp.json` in project root)
 
@@ -508,6 +592,22 @@ the client project when its launch directory is not reliable.
 }
 ```
 
+### Codex (`config.toml`)
+
+Setup installs Codex instructions but does not register this server; without an
+entry, Codex follows the instructions' MCP-unavailable fallback. Add to
+`~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
+
+```toml
+[mcp_servers."Agents-Core"]
+command = "/absolute/path/to/Agents/.venv/bin/python"
+args = ["/absolute/path/to/Agents/src/server.py"]
+```
+
+Set `AGENTS_CLIENT_REPO_ROOT` in an `[mcp_servers."Agents-Core".env]` table only in
+a trusted project's `.codex/config.toml`. In the user-level file it would direct
+every session's memory and flows to that one project.
+
 ### Generic stdio
 
 ```bash
@@ -533,6 +633,9 @@ identity:
 routing:
   domain_keywords: ["keyword1", "keyword2"]
   trigger_command: "/my_command"
+core_skills: []             # required lists of skill IDs, may be empty
+preferred_skills: []
+capable_skills: []
 ---
 # My Agent System Prompt
 
@@ -540,7 +643,15 @@ routing:
 You are an expert in X...
 ```
 
-Validate the frontmatter with `.venv/bin/python scripts/validate_agents.py`.
+`identity.name` must match the directory name, or the agent fails to load.
+`trigger_command` and each optional `routing.aliases` entry become MCP slash
+prompts. See [Skill tiers](#skill-tiers) and the
+[field reference](agents/README.md#agent-source-and-metadata), including the
+optional `preferred_implants`.
+
+Validate the frontmatter with `.venv/bin/python scripts/validate_agents.py`. It
+checks required fields and ID format, not whether the listed files exist; a
+missing core skill or preferred implant file can make activation return `ERROR`.
 The MCP server discovers the agent on its next startup; restart the shared daemon
 through its controller when using that transport. The schema is
 [agents/common/agent-schema.json](agents/common/agent-schema.json).
@@ -559,7 +670,7 @@ capable_skills: [skill-dev-testing, skill-git-conventions]
 - `preferred_skills` join the semantic pool with their distance multiplied by a boost factor (0.7), so they win close matches.
 - `capable_skills` join the same pool at their base distance.
 
-Skills outside the three lists are never loaded for that agent. Guidance that applies to every agent belongs in `rules/`, not in a skill.
+Skills outside the three lists are never loaded for that agent. Guidance that applies to every agent belongs in [`rules/`](rules/README.md), not in a skill.
 
 ---
 
@@ -568,26 +679,32 @@ Skills outside the three lists are never loaded for that agent. Guidance that ap
 The server stores repository summaries and action history separately for each
 client project:
 
-- **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Without sampling, or when the sampling call fails, it writes nothing and returns `needs_summary` (the prompt plus `repo_hash`, `repo_path` and `workspace_id`), and the caller persists its own summary with `write_repo_summary`. Idempotent: re-runs are no-ops unless the repo manifest changes or `force_refresh=True`.
+- **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Without sampling, or when the sampling call fails, it writes nothing and returns `needs_summary` (the prompt plus `repo_hash`, `repo_path` and `workspace_id`), and the caller persists its own summary with `write_repo_summary`. The shared HTTP daemon never samples, so a needed refresh over HTTP always returns `needs_summary`. Idempotent: re-runs are no-ops unless the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`.
 - **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
 
-Over stdio, the project is resolved from `AGENTS_CLIENT_REPO_ROOT`, then the
-nearest `.git` or `CLAUDE.md` at or above the start directory, then the start
-directory itself. The start directory is `CLAUDE_PROJECT_DIR`, which Claude Code
-exports to the servers it starts, or else the launch directory. A filesystem root
-or a directory inside the Windows directory is refused with `workspace_required`.
-The Claude desktop app, for example, starts the servers in
-`claude_desktop_config.json` in `C:\Windows\System32` without a project hint;
-register Agents-Core with Claude Code instead, or set `AGENTS_CLIENT_REPO_ROOT` in
-the entry's `env`. Over HTTP, memory requires the registered `X-Agents-Workspace` header;
+Over stdio, the project is `AGENTS_CLIENT_REPO_ROOT` when set, used as given;
+otherwise the nearest `.git` or `CLAUDE.md` at or above the start directory, then
+the start directory itself. The start directory is `CLAUDE_PROJECT_DIR`, which Claude Code
+exports to the servers it starts, or else the launch directory. An inferred root
+that is a filesystem root or, on Windows, lies inside the Windows directory is
+refused with `workspace_required`. On Windows, for example, the Claude desktop app
+starts the servers in `claude_desktop_config.json` in `C:\Windows\System32` without
+a project hint; register Agents-Core with Claude Code instead, or set
+`AGENTS_CLIENT_REPO_ROOT` in the entry's `env`. If the launch directory no longer
+exists, memory falls back to the installation and workflows return an error.
+Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. If a memory tool
 returns `workspace_required` or `workspace_invalid`, routing remains available.
-Register the project before retrying memory operations; do not retry logging in a loop.
+For HTTP, register the project with `migrate --workspace /absolute/project` (see
+[service operations](docs/shared-mcp-daemon.md#installation-and-client-migration))
+and reconnect MCP before retrying memory operations; for stdio, set
+`AGENTS_CLIENT_REPO_ROOT` as described above. Do not retry logging in a loop.
 
 Source history and `CLAUDE.md` stay in the project. The summary hash is stored in
 the project's `data/memory/`. Derived router and history indexes live in private
-daemon state or in leased `data/stdio/` slots for standalone processes. These
+daemon state or, for standalone processes, in leased `data/stdio/` slots of the
+installation (a temporary per-process directory on Windows). These
 indexes can be rebuilt without deleting the source history.
 
 See [service memory behavior](docs/shared-mcp-daemon.md#memory-and-errors) for the
@@ -605,8 +722,11 @@ committing its action log.
 
 Selected routing, loading, retrieval, and memory operations are instrumented with
 Langfuse. `log_interaction` records the answer and declared persona attribution;
-its history and Langfuse results are reported separately. Configure the Langfuse
-keys in `.env`, or leave them blank for local-only operation. Set
+its history and Langfuse results are reported separately. Set real Langfuse keys
+in `.env` to enable it. For local-only operation, set both keys to empty values
+(`LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=`) instead of deleting or
+commenting out the lines, which setup would restore with placeholders (see
+[Environment Variables](#environment-variables)). Set
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.
 
 ---
@@ -617,18 +737,16 @@ Read [AGENTS.md](AGENTS.md) for contributor instructions, [the documentation
 refresh process](flows/documentation-refresh.md) for documentation work, and
 [tests/README.md](tests/README.md) for the test matrix.
 
-Store reusable task instructions for models in `flows/` and list them in
-[flows/README.md](flows/README.md). To run one, point the model to its Markdown
-file, for example: `Run flows/documentation-refresh.md.`
-From another repository, use `run_flow(flow="documentation-refresh")` through
-Agents-Core MCP; no copy of the flow file is needed in that repository.
-For review through merge, use `Run flows/pr-review.md for <PR or MR URL>.`
-The [PR/MR flow](flows/pr-review.md) covers concise English descriptions, bot
-review cycles, replies, and a final report in the request's language.
+Keep reusable model task instructions in `flows/` and list them in the
+[workflow catalog](flows/README.md), which explains how to run them locally or
+through `run_flow`.
 
 ### Validation
 
-Run these commands from the checkout root with its environment installed:
+Run these commands from the checkout root in the test environment described in
+[tests/README.md](tests/README.md#environment) (`requirements.txt` plus
+`-e '.[evals]'`). The environment that setup creates installs only
+`requirements.txt` and cannot run the whole suite:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
@@ -641,16 +759,9 @@ include them. Bridge changes also require `node --test bridge/test.mjs`.
 The test configuration isolates derived indexes in temporary storage; tests that
 load embeddings still need the selected model to be available.
 
-### Running Server Manually
-
-```bash
-source .venv/bin/activate
-python src/server.py
-```
-
 ### Debug Logging
 
-Enable detailed per-call JSON logging:
+Enable detailed per-call JSON logging when [running the server manually](#generic-stdio):
 
 ```bash
 AGENTS_DEBUG=1 python src/server.py
@@ -659,7 +770,10 @@ AGENTS_DEBUG=1 python src/server.py
 Standalone debug logs are written under the client project's `logs/`; HTTP
 debug logs are written under the daemon's private `debug/` directory. Files use
 `{YYYY-MM-DD}/{HH-MM-SS.fff}_{uuid}_{tool}_{direction}.json`. Logging is disabled
-unless `AGENTS_DEBUG=1` (or `true`).
+unless `AGENTS_DEBUG=1` (or `true`). Standalone logs are never pruned and can
+contain query text; `logs/` is ignored only in this checkout, so exclude it in the
+client project or delete the files after diagnosis. The daemon keeps its debug
+files for at most seven days and 100 MiB.
 
 ---
 

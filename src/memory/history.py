@@ -11,9 +11,10 @@ Three classes:
   recency / ``since`` queries.
 
 * ``HistoryStore`` — lazy ``NumpyVectorStore`` wrapper. Built only on the
-  first ``read_history(query=...)`` call; rebuilds when the markdown file
-  is newer than the persisted store. The embedder is imported lazily so
-  ``HistoryWriter``/``HistoryReader`` users never pay the numpy cost.
+  first ``read_history(query=...)`` call; rebuilds when the content of the
+  markdown file or the embedding fingerprint changes. The embedder is
+  imported lazily so ``HistoryWriter``/``HistoryReader`` users never pay the
+  numpy cost.
 """
 
 from __future__ import annotations
@@ -444,7 +445,12 @@ class HistoryStore:
             return out
 
     def ensure_index(self, embed_texts=None):
-        """Build / refresh the vector index if the markdown file is newer.
+        """Build / refresh the vector index when its content fingerprint changes.
+
+        The fingerprint is sha256(history.md) plus the embedding fingerprint
+        (``src.engine.fingerprint.fingerprint``: model, revision, index schema,
+        preprocessing, fastembed version), compared with ``.history_fingerprint``
+        in ``data_dir``; a missing index file also triggers a rebuild.
 
         Thread-safe: serialized via ``_index_lock`` so concurrent
         ``read_history(query=...)`` calls don't race on rebuild.

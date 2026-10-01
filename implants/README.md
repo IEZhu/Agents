@@ -17,7 +17,7 @@ Implants are **cognitive patterns** that enhance how agents think and reason. Un
 | **Scope** | Applies to ANY domain | Specific to ONE domain |
 | **Example** | "Draft → Verify → Correct" (CoV) | "SOLID, DRY, KISS" (clean code) |
 | **Teaches** | HOW to think | WHAT to know |
-| **Frontmatter** | `short_name`, `one_liner`, `globs: []` | `compiled` (required), `globs` (optional), Role in description |
+| **Frontmatter** | `short_name`, `one_liner`, `triggers` (required), `globs: []` | `compiled` (required), `keywords` and `globs` (optional), Role in description |
 
 **NOT implants** (move to skills):
 - Prompt engineering techniques (how to write prompts) → `skill-prompt-techniques`
@@ -51,7 +51,7 @@ globs: []              # Editor metadata; MCP retrieval does not use this field
 alwaysApply: false     # Editor metadata; MCP retrieval does not use this field
 short_name: MyTechnique     # CamelCase short name for display
 one_liner: brief action phrase  # Lowercase, no period, describes what it does
-triggers:                      # User-side task phrases for optional retrieval modes
+triggers:                      # Required: user-side task phrases (see retrieval settings below)
   - compare conflicting sources
 ---
 ## Pattern
@@ -78,7 +78,7 @@ Techniques that structure sequential reasoning:
 |---------|-------------|
 | `chain-of-note` | RAG annotation — annotate relevance before synthesis |
 | `chain-of-code` | Pseudocode-driven reasoning for logic puzzles and multi-step math |
-| `chain-of-draft` | Iterative drafting for complex outputs |
+| `chain-of-draft` | Compressed reasoning: 3-5 word thesis steps instead of full CoT, to save tokens |
 | `chain-of-symbol` | Symbolic reasoning for logic problems |
 | `chain-of-table` | Tabular reasoning for structured data |
 | `chain-of-verification` | Draft-verify-correct cycle to reduce hallucinations |
@@ -96,12 +96,13 @@ Techniques for self-reflection and improvement:
 | Implant | Description |
 |---------|-------------|
 | `self-consistency` | Generate multiple answers, select consensus |
+| `complexity-based-prompting` | Generate several reasoning chains and keep the most detailed sound one |
 | `self-discover` | Discover own reasoning patterns |
 | `metacognitive-prompting` | Reflect on thinking process |
 | `recursion-of-thought` | Recursive problem decomposition |
 | `reflexion` | Self-critique Actor-Critic-Reflector cycle for high-stakes tasks |
 | `step-back-prompting` | Abstract principle first, then apply to specifics |
-| `active-prompting` | Actively select most informative examples |
+| `active-prompting` | Quick answer with a confidence check; switch to full CoT only when confidence is low |
 | `automatic-reasoning` | Alternates reasoning with tool calls (calc, search) |
 | `maieutic-prompting` | Socratic method — explanation tree to find logical contradictions |
 | `rephrase-and-respond` | Clarifying ambiguous requests before answering |
@@ -122,7 +123,7 @@ Techniques for organizing complex reasoning:
 | `logic-of-thought` | Formal logical reasoning: propositions → inference → conclusion |
 | `program-of-thoughts` | Write executable code to solve calculations |
 | `thread-of-thought` | Maintain coherent reasoning thread |
-| `buffer-of-thoughts` | Working memory management |
+| `buffer-of-thoughts` | Extract a reusable meta-template for repetitive task types, then instantiate it |
 | `narrative-of-thought` | Story-based reasoning |
 | `output-automata` | Structuring output as a Finite State Machine (FSM) or script |
 | `tree-of-thought` | Explore several reasoning paths with evaluation and backtracking |
@@ -167,7 +168,6 @@ Techniques for breaking down complex problems:
 |---------|-------------|
 | `least-to-most-prompting` | Solve simpler sub-problems first |
 | `plan-and-solve-plus` | Atomic planning before execution for multi-step tasks |
-| `complexity-based-prompting` | Order by complexity |
 | `contextual-compression` | Compress context to essentials |
 | `prompt-chaining` | Breaking task into sequence of LLM calls |
 | `decomposed-prompting` | Split a complex task into simpler sub-prompts and combine the results |
@@ -208,6 +208,12 @@ Semantic retrieval embeds the query and role, then selects candidates below
 | `IMPLANT_INDEX_MODE` | `legacy`: description + body | `triggers`: description + triggers + When to Use |
 | `IMPLANT_GATING` | `legacy`: absolute distance cutoff | `zscore`: candidates must stand out from the query's distance distribution |
 | `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to the per-query evaluation path, not to persona bundles |
+
+With `IMPLANT_GATING=zscore`, a candidate's distance must be at least
+`IMPLANT_GATE_Z` (default `1.5`, range 0–5) standard deviations below the query's
+mean distance, and `IMPLANT_TRIGGER_BOOST` (default `0.85`, range 0–1) multiplies
+an implant's distance when one of its `triggers` occurs in the query as a whole
+phrase, ignoring case. Invalid or out-of-range values fall back to the default.
 
 The alternatives affect semantic selection or per-query need, not the meaning of
 editor fields `globs` and `alwaysApply`. A protocol 2 bundle is updated through
@@ -253,6 +259,8 @@ not replace a protocol 2 persona descriptor or its footer.
    alwaysApply: false
    short_name: MyTechnique
    one_liner: brief action phrase describing what it does
+   triggers:                 # Required; tests/test_implant_gating.py checks every implant
+     - compare conflicting sources
    ---
    ## Pattern
    1. **Step One**: First step of the technique
@@ -277,9 +285,15 @@ not replace a protocol 2 persona descriptor or its footer.
    for a direct preference. Otherwise it participates in semantic retrieval.
 
 4. **Rebuild the index and reload the context**: Server startup detects changed
-   implant files and rebuilds the index. For a manual rebuild, use the installation's
-   interpreter to run `python -m src.reindex` while its service and stdio readers
-   are stopped. For a shared daemon, follow the [maintenance workflow](../docs/shared-mcp-daemon.md).
+   implant files and rebuilds the index. For a shared daemon, run
+   `.venv/bin/python -m src.daemon restart`
+   ([service control](../docs/shared-mcp-daemon.md#service-control)); its warmup
+   rebuilds changed indexes with the service's `intfloat/multilingual-e5-large`
+   model before it reports ready. A manual `python -m src.reindex` does not replace
+   that step: it embeds with `.env`'s `EMBEDDING_MODEL`, and the daemon rebuilds
+   again when the model fingerprint differs. For standalone stdio, reconnect the
+   server, or rebuild manually with the installation's interpreter
+   (`python -m src.reindex`) while its service and stdio readers are stopped.
    Refresh retained protocol 2 bundles to deliver the updated text.
 
 ## Best Practices

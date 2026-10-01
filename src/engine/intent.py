@@ -604,12 +604,12 @@ def _resolve_tier(mode: TaskMode, score: int) -> Tier:
 def _classify_cached(text: str) -> TaskProfile:
     """Memoized core. Safe to cache: the function is pure and TaskProfile frozen.
 
-    ``route_and_load`` classifies the same string up to three times per request
-    (the ROUTE_REQUIRED payload, ``_load_and_enrich``'s tier, then the profile),
-    synchronously on the event loop, and the scan is linear in query length: on
-    this checkout a 100 KB query costs ~12 ms per pass. A query carrying a pasted
-    file is an ordinary MCP payload, so the repeats are the problem, not the scan.
-    The cache is small because the keys are whole queries.
+    ``persona_bundle.build_persona_bundle`` classifies a query once per bundle,
+    and the eval-only ``server._load_and_enrich`` twice per call (its tier, then
+    the profile), synchronously on the event loop. The scan is linear in query
+    length: on this checkout a 100 KB query costs ~12 ms per pass. A query
+    carrying a pasted file is an ordinary MCP payload, so the repeats are the
+    problem, not the scan. The cache is small because the keys are whole queries.
     """
     signals: list[str] = []
     mode, confidence = _detect_mode(text, signals)

@@ -6,6 +6,9 @@
 
 3D Print Finder is a specialized agent that searches ALL major 3D model platforms, ranks results by quality and printability, and provides FDM-optimized print recommendations.
 
+This page summarizes the agent. When the two differ,
+[`system_prompt.mdc`](system_prompt.mdc) is authoritative.
+
 ## Key Features
 
 ### 🌐 Comprehensive Platform Coverage
@@ -56,11 +59,14 @@ For each top model, provides:
 /3dprint [search query]
 ```
 
-### Via Context
-Open any file in `agents/3d_print_finder/` or mention 3D printing keywords.
+The `/3dprint` MCP slash prompt loads this agent directly.
 
-### Manual Routing
-Keywords: `3d print`, `stl`, `thingiverse`, `printables`, `3d model`
+### Via MCP Routing
+Ask in ordinary conversation. `route_and_load` can select this agent from the
+request, or return it among candidates; see
+[the routing protocol](../../docs/routing_flow.md). The routing
+keywords are `routing.domain_keywords` in the
+[`system_prompt.mdc`](system_prompt.mdc) frontmatter.
 
 ## Usage Examples
 
@@ -277,9 +283,16 @@ agents/3d_print_finder/
 
 ## Integration
 
-This agent integrates with:
-- **Skill: 3D Print Search** (`@skills/skill-3d-print-search.mdc`)
-- **Skill: Critical Analysis** (`@skills/skill-analysis-critical.mdc`)
+The [`system_prompt.mdc`](system_prompt.mdc) frontmatter declares the agent's
+skills and implants. The core skill
+[`skill-3d-platforms`](../../skills/skill-3d-platforms.mdc) loads at every tier
+and carries the platform registry. The preferred pool includes
+[`skill-3d-print-search`](../../skills/skill-3d-print-search.mdc), which holds
+the PQRS formula, and
+[`skill-analysis-critical`](../../skills/skill-analysis-critical.mdc). See that
+frontmatter for the complete lists, and the
+[agent metadata reference](../README.md#agent-source-and-metadata) for how they
+load.
 
 ## Changelog
 

@@ -2,10 +2,15 @@
 
 Long fan-out evals, such as a batch of the component ablation sweep (dozens of agents
 writing cases, answering and judging), are run in Claude Code cloud sessions rather
-than on a laptop. This page is the procedure that worked for the 2026-09 sweep and the
-traps met on the way. The eval itself is described in
+than on a laptop. The sections up to [Traps met in 2026-09](#traps-met-in-2026-09)
+record the procedure that worked for the 2026-09 sweep and the traps met on the way.
+The eval itself is described in
 [`evals/ablation/README.md`](../evals/ablation/README.md), which is also the runbook the
 cloud session follows.
+
+The [Issue agent](#issue-agent) section is the maintained setup and operations
+reference for the cloud issue agent that runs
+[flows/issue-agent.md](../flows/issue-agent.md).
 
 ## The short version
 
@@ -156,9 +161,10 @@ verifies the referenced comments itself.
 its own 👀 reaction to the command comment, recording a newly created reaction
 as `<!-- issue-agent:reaction id=501 -->` on the receipt's second line. Claude
 posts a startup acknowledgement after verifying the event; it adds no separate
-owner reaction. The bridge waits up to five minutes for that acknowledgement,
-then stops polling and leaves its reaction in place while Claude works. This
-startup watch uses GitHub Actions runner time; completion requires no ongoing
+owner reaction. The bridge waits up to five minutes for that acknowledgement.
+When it arrives, the bridge stops polling and leaves its reaction in place while
+Claude works; on a launch failure or timeout it removes the reaction it created.
+This startup watch uses GitHub Actions runner time; completion requires no ongoing
 polling.
 
 On every normal exit, Claude posts a new comment on the original issue or PR
@@ -175,14 +181,17 @@ Pre-existing reactions are preserved. A forcibly stopped runner or cloud session
 or a failed completion callback, may leave a reaction behind. Startup timeout
 removes the bridge reaction, so a session that starts later may run without 👀.
 
-A confirmed HTTP `429` is reported as a routine fire limit, with the numeric
-`Retry-After` delay when supplied. A successful fire creates a session but does
-not wait for execution. The fire token has no read access to later subscription
-quota failures or session progress. HTTP `200` without a usable session ID still
-starts the acknowledgement watch; the bridge does not retry or assume that the
-launch failed. A known session URL may also appear in Claude's acknowledgement.
-If no startup acknowledgement appears, the bridge reports that startup is
-unconfirmed, lists quota as one possible cause,
+A missing `CLAUDE_ROUTINE_TOKEN` or a `CLAUDE_ROUTINE_ID` that is not a `trig_...`
+ID is reported as `Launch blocked`, and nothing is fired. A confirmed HTTP `429`
+is reported as a routine fire limit, with the numeric `Retry-After` delay when
+supplied. Any other non-`200` response is reported, with its HTTP code, as
+`Launch rejected` (4xx) or `Launch not confirmed` (other codes). A successful
+fire creates a session but does not wait for execution. The fire token has no
+read access to later subscription quota failures or session progress. HTTP `200`
+without a usable session ID still starts the acknowledgement watch; the bridge
+does not retry or assume that the launch failed. A known session URL may also
+appear in Claude's acknowledgement. If no startup acknowledgement appears, the
+bridge reports that startup is unconfirmed, lists quota as one possible cause,
 links the session when available, and clears its newly created reaction. See the
 [routine fire API](https://platform.claude.com/docs/en/api/claude-code/routines-fire).
 
@@ -193,37 +202,42 @@ then post a new command.
 
 **One-time setup per target repository:**
 
-Each target needs its own active bridge on its default branch and its own
-repository settings. A workflow under `scripts/templates/` does not run, and
-installing the bridge in Agents.Private does not enable commands in IEZhu/Agents.
+Each target needs its own active bridge on its default branch, its own
+repository settings, and the Claude GitHub App ([GitHub access](#one-time-setup));
+without the App, the session cannot push its `claude/` branches to the target.
+A workflow under `scripts/templates/` does not run, and installing the bridge in
+WonderMr/Agents.Private does not enable commands in IEZhu/Agents.
 Agents-Core installs the bridge at
 [.github/workflows/issue-agent-bridge.yml](../.github/workflows/issue-agent-bridge.yml);
 its tests exercise both that installed workflow and the reusable template.
 
 1. Create a dedicated routine for the target (for example `Agents-issues` for
-   IEZhu/Agents or `Private-issues` for Agents.Private). Select the target and
-   this repository as sources; when the target is IEZhu/Agents, select it once.
-   Set model `claude-opus-5-5`, allowed tools
+   IEZhu/Agents or `Private-issues` for WonderMr/Agents.Private). Select the
+   target and this repository as sources; when the target is IEZhu/Agents,
+   select it once. Set model `claude-opus-5-5`, allowed tools
    Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow, and
    only the connectors it needs. Look up the owner's GitHub account and verify
    its login and numeric user ID before pinning `AGENT_OWNER` and
    `AGENT_OWNER_ID` in the routine prompt. For the GitHub.com `WonderMr` account,
    the verified numeric ID is `5370211`; other installations must verify their
    own owner. The prompt says that Agents-Core MCP is unavailable (do not route),
-   explicitly allows multi-agent
-   orchestration, and tells the session to follow `flows/issue-agent.md` for the
-   event in the `routine-fire-payload` block. The saved prompt must explicitly
-   require `run_plan` and `run` to continue in the same session through the full
+   explicitly allows multi-agent orchestration, names the commit author for the
+   target (see [issue-implementation](../flows/issue-implementation.md#2-create-the-branch)),
+   and tells the session to follow `flows/issue-agent.md` for the event in the
+   `routine-fire-payload` block. The saved prompt must explicitly require
+   `run_plan` and `run` to continue in the same session through the full
    `no-merge` bot review cycle: wait for reviews, handle findings and repeat after
    fixes until the flow's completion conditions hold. Opening the PR does not
    end the run; only completion, an owner stop or an observed blocker permits
    the final outcome and completion receipt. Restrict that prompt to the exact
-   target repository; a routine restricted to Agents.Private must not process
-   IEZhu/Agents commands.
+   target repository, written as `GITHUB_REPOSITORY` reports it (the bridge
+   sends that value as `repo`, and a renamed or transferred repository's old
+   name does not match); a routine restricted to WonderMr/Agents.Private must
+   not process IEZhu/Agents commands.
 2. In the routine's web page, add an **API** trigger and generate its token.
 3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
-   variables `CLAUDE_ROUTINE_ID` and `AGENT_OWNER`, then copy
-   [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
+   variables `CLAUDE_ROUTINE_ID` (the routine's `trig_...` ID) and `AGENT_OWNER`,
+   then copy [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
    to `.github/workflows/issue-agent-bridge.yml`. Give both jobs `issues: write`
    for issue comments and reactions, plus `pull-requests: write` for PR
    conversations. The dispatch job posts status comments and processing reactions;
@@ -257,7 +271,7 @@ event payloads are rejected.
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
 pull requests, reviews), acting as the owner's account; `gh` is not installed.
 Because the agent's comments appear under the owner's login, each one starts with
-`<!-- issue-agent -->` and never with `/agent`. Such comments cannot start a
+an `<!-- issue-agent` marker and never with `/agent`. Such comments cannot start a
 routine; only the exact completion marker invokes reaction cleanup. Routine runs
 count against the account's daily routine allowance.
 

@@ -48,7 +48,9 @@ By kind (sign of robust with minus robust without):
   skill-creative-craft, skill-fact-verification, skill-jurisdiction-kz, skill-mcp-development,
   skill-prompt-security, skill-psy-digital-wellbeing, skill-reasoning-logic.
 
-Next step: re-test the flagged components on 6 fresh cases each before changing or removing any.
+Next step (done on 2026-09-26; see
+[Re-test of flagged components](#re-test-of-flagged-components-2026-09-26)): re-test the flagged
+components on 6 fresh cases each before changing or removing any.
 
 ## Full table
 

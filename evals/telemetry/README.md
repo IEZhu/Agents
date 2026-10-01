@@ -1,9 +1,14 @@
 # Langfuse telemetry: export and analysis
 
-Agents-Core sends a trace to Langfuse for each MCP tool call (`route_and_load`,
-`get_agent_context`, `retrieve_skills`, `retrieve_implants`, `read_history`) and one per
-`log_interaction`, whose `response` generation holds the logged query and answer. These
-scripts export that data and summarise it.
+When Langfuse keys are configured and `LANGFUSE_TRACING_ENABLED` is not `false`,
+Agents-Core traces the MCP tools `route_and_load`, `get_agent_context`,
+`load_implants`, `describe_repo`, `write_repo_summary` and `read_history`, and records
+skill and implant retrieval as `retrieve_skills` and `retrieve_implants` observations.
+Each `log_interaction` sends one `agent_interaction` trace whose `response` generation
+holds the logged query and answer. `refresh_persona_context`, `list_agents`,
+`clear_session_cache` and the flow tools are not traced, so a protocol 2 refresh
+appears only through its retrieval observations. These scripts export that data and
+summarise it.
 
 ## Procedure
 
@@ -24,9 +29,9 @@ The export uses the v2 observations API with cursor pagination; the legacy
 Cloud on 2026-11-16. `traces.jsonl` is rebuilt from each trace's root observation, in
 the shape the legacy endpoint returned, so `extract.py` reads either. Checked against
 a legacy export of the same period, every extracted table matched apart from rows at the
-cut-off second. 30 days (about 4,500 observations) export in a few minutes. The CSV
-tables are small and contain no query or answer text; the raw JSONL files do, so keep
-them local.
+cut-off second. The 2026-09 export (30 days, about 4,500 observations) took a few
+minutes. The CSV tables are small and contain no query or answer text; the raw JSONL
+files do, so keep them local.
 
 Read the numbers with the caveats below before drawing conclusions: several metrics
 are shaped by how the data is logged rather than by behaviour.

@@ -1,9 +1,12 @@
 # Running evals on a local model
 
 The `local` provider runs the eval harness against an OpenAI-compatible local
-server. Use it when no cloud API is reachable, and for cheap regression and A/B
-runs. It covers `evals/scripts/compare_rules.py` and
-`evals/runners/run_mcp_vs_vanilla.py`. The persona dialogue runner drives the
+server. Use it when no cloud API is reachable, for regression checks and for smoke
+tests of the harness. For A/B runs prefer the much faster hosted `openrouter`
+provider ([The same models, hosted](#the-same-models-hosted-openrouter)). This page
+covers `evals/scripts/compare_rules.py`, `evals/scripts/prompt_ab.py` and
+`evals/runners/run_mcp_vs_vanilla.py`. `compare_rules` and `prompt_ab` also accept
+`openrouter`; `run_mcp_vs_vanilla` does not. The persona dialogue runner drives the
 `codex`/`claude` CLIs and is not covered.
 
 Only Ollama has been verified. LM Studio, llama.cpp `llama-server` and
@@ -21,7 +24,9 @@ python -m evals.scripts.local_ab --answer-model qwen3:8b --judge-model qwen3:8b 
 ```
 
 `local_ab` needs Ollama. For another OpenAI-compatible server, run
-`compare_rules` by hand (see "Run an eval" below).
+`compare_rules` by hand (see "Run an eval" below). `local_ab` also needs macOS or
+Linux; on Windows it exits with code 2, so start the server by hand and run
+`compare_rules` or `prompt_ab` directly.
 
 What `local_ab` does:
 
@@ -74,8 +79,8 @@ OLLAMA_HOST=127.0.0.1:11435 OLLAMA_CONTEXT_LENGTH=16384 OLLAMA_KEEP_ALIVE=30m \
 
 - **Port 11435** avoids clashing with a leftover `ollama serve` on 11434.
 - **`OLLAMA_CONTEXT_LENGTH=16384`**:
-  - Measured on the 31 no-fabrication cases of `feat/factuality-layer` (22 of
-    them are on this branch), with the qwen3 tokenizer: the enriched MCP
+  - Measured on 2026-09-23 on the 31 cases now in
+    `evals/datasets/no_fabrication.jsonl`, with the qwen3 tokenizer: the enriched MCP
     prompts were 2,478 tokens at the median and 6,893 at most (`sysadmin`).
     16k leaves room for the 800-token answer; `local_ab` uses 12k to save KV
     memory, which still fits.
@@ -166,7 +171,7 @@ python -m evals.runners.run_mcp_vs_vanilla --provider local --n 10 \
 | `LOCAL_LLM_JUDGE_MODEL` | = `LOCAL_LLM_MODEL` | grader / pairwise judge |
 | `LOCAL_LLM_TEMPERATURE` | `0` | answers only: `0` = greedy and repeatable; set e.g. `0.7` to sample. Graders, judges and router picks always run at `0` |
 | `LOCAL_LLM_SEED` | `7` | base seed when sampling; prompt_ab derives each answer's seed from its arm, case and sample (other callers: base + call index) |
-| `LOCAL_LLM_THINKING` | `0` | `1` turns thinking on for calls of ≥1024 tokens (answers); router picks, graders and judges keep it off |
+| `LOCAL_LLM_THINKING` | `0` | `1` turns thinking on for answer calls with a budget of ≥1024 tokens: `run_mcp_vs_vanilla` answers (default 8192) and `prompt_ab` with `--max-tokens 1024` or more. `compare_rules` answers (800 tokens) never think; router picks, graders and judges keep it off |
 | `LOCAL_LLM_TIMEOUT` | `900` | client timeout in seconds |
 | `LOCAL_LLM_API_KEY` | `local` | only for servers that check a key |
 
@@ -187,19 +192,19 @@ arm difference comes from the answers, not from evaluator or routing noise.
 
 - **One agent per case.** The answer model picks it once from the agent catalog (the
   production `ROUTE_REQUIRED` path); every arm enriches for that agent.
-- **Each arm builds prompts with its own revision.** `_prompt_builder.py` runs in a
-  throwaway worktree of the arm's revision, so its code and content are the ones under
-  test. The per-query prompt cache is cleared before every case. A named implant arm
-  loads its implants on lite cases only on revisions with `enrichment.implants_needed`
-  (80bc71c or later); on older ones the build stops at the first case that did not load
-  them.
+- **Each arm builds prompts with its own revision.** This checkout's `_prompt_builder.py`
+  runs in a throwaway worktree of the arm's revision, so the revision's code and content
+  are the ones under test. The per-query prompt cache is cleared before every case. The
+  builder expects `server._load_and_enrich` in the shape it has had since c5d89f7 (#105,
+  2026-09-29): an arm at an earlier revision fails at its first case, so every arm must
+  be at c5d89f7 or later.
 - **Answer first, grade second, resumable.** Answers go to `answers.jsonl` and grades to
   `grades.jsonl` in `--out-dir`; a rerun skips what is already there.
 
 ```bash
 # revisions and flags: every arm is reported against the first one
 python -m evals.scripts.local_ab --temperature 0.7 -- prompt_ab revisions --samples 3 \
-  --arm old=3a4fc5f --arm new=HEAD --arm gate=HEAD:IMPLANT_NEED_GATE=intent --out-dir /abs/dir
+  --arm old=main --arm new=HEAD --arm gate=HEAD:IMPLANT_NEED_GATE=intent --out-dir /abs/dir
 # implants: none, each implant alone, production, and two noise floors; greedy
 python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
 ```
@@ -209,19 +214,24 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   `none_repeat` repeats `none` in the same order; `none_reversed` repeats it last and in
   reverse order, so its cached neighbours differ. Read an implant's "answers changed"
   against both floors.
-- **State.** `manifest.json` in `--out-dir` pins the model, grader, temperature, answer
-  budget, embedding model, request settings (reasoning effort, seed and seed scheme, grader temperature, local or SDK endpoint URL),
+- **State.** `manifest.json` in `--out-dir` pins the mode, provider and OpenRouter
+  routing, model, grader, temperature, sample count, answer budget, embedding model,
+  request settings (reasoning effort, seed and seed scheme, grader temperature, local
+  or SDK endpoint URL), the engine variables set in your shell that
+  `src/engine/config.py` reads (plus `AGENTS_MODEL_PATH`/`AGENTS_MODEL_ARTIFACT`),
   dataset, agents file, each arm's commit and a hash of the harness code (`prompt_ab.py`,
   `_prompt_builder.py`, `compare_rules.py`, `_providers.py`, and `run_mcp_vs_vanilla.py`,
-  whose picker chooses the agents). A rerun with other settings
-  or after an edit to that code is refused, and
+  whose picker chooses the agents). A rerun with other settings, from a shell that
+  exports different engine variables, or after an edit to that code is refused, and
   so is one that reorders the arms already run; adding arms is allowed, after the first
   arm, which stays the baseline. A directory with an agent map, prompts, answers or
   grades but no `manifest.json` is refused, unless the map is the `--agents` file itself,
-  and so are prompts, answers or grades whose generated agent map is missing.
-  Cached prompt
-  files are reused only if they were built with the current embedding model.
-- Relative paths are resolved against the directory you run from.
+  and so are prompts, answers or grades whose generated agent map is missing. Cached
+  prompt files are reused only if they were built with the current embedding model.
+- A direct `prompt_ab` run resolves relative paths against the directory you run from.
+  Under `local_ab -- prompt_ab ...` the child runs from the repository root, so pass
+  absolute `--out-dir`, `--dataset` and `--agents` paths, as in the examples, and keep
+  `--out-dir` outside the repository.
 
 ### The same models, hosted (OpenRouter)
 
@@ -265,6 +275,20 @@ python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8
 - `--concurrency` parallelises calls within an arm; arms still run in order, so a later
   arm can reuse an earlier arm's answer to an identical prompt. The local provider
   refuses it.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OPENROUTER_API_KEY` | none | required |
+| `OPENROUTER_PROVIDER` | none | endpoint slugs, comma-separated; `prompt_ab` and `compare_rules` require it |
+| `OPENROUTER_MODEL` | `google/gemma-4-31b-it` | model under test |
+| `OPENROUTER_JUDGE_MODEL` | = `OPENROUTER_MODEL` | grader / pairwise judge; set it or pass `--judge-model`, or the model grades itself. `JUDGE_MODEL` is ignored |
+| `OPENROUTER_TEMPERATURE` | `0` | answers only; `default` omits it |
+| `OPENROUTER_GRADER_TEMPERATURE` | `0` | graders, judges and router picks; `default` omits it |
+| `OPENROUTER_SEED` | `7` | base seed; `none` omits it |
+| `OPENROUTER_REASONING` | `off` | `low`, `medium` or `high` for answers |
+| `OPENROUTER_TIMEOUT` | `300` | client timeout in seconds |
+| `OPENROUTER_MAX_RETRIES` | `6` | SDK retries per call |
+| `OPENROUTER_RATE_LIMIT_WAIT` | `900` | seconds spent retrying 429s, pausing 5 s and doubling up to 60 s |
 
 ## Server behaviour the client relies on
 
@@ -330,7 +354,8 @@ candidate targets. For a real read, use the answer/judge pair above with
 
 Setup: `compare_rules` on 31 cases, baseline `rule-no-fabrication.compressed`
 vs candidate `rule-no-fabrication.factuality`. The candidate fixture and 9 of
-the 31 cases live on branch `feat/factuality-layer`, not on this branch. The
+the 31 cases were then on branch `feat/factuality-layer`; all of them are now in
+`evals/fixtures/` and `evals/datasets/no_fabrication.jsonl`. The
 server ran with one model loaded at a time, `OLLAMA_KV_CACHE_TYPE=q8_0`, flash attention and a 12k
 context. Lowest free memory seen was 11%, and the memory watchdog never fired.
 Both runs used the grader prompt from before commit 8364f65. The t=0.7 run also

@@ -17,7 +17,7 @@ Skills are **knowledge modules** — compact chunks of domain expertise that age
 | **Scope** | Specific to ONE domain | Applies to ANY domain |
 | **Example** | "SOLID, DRY, KISS" (clean code) | "Draft → Verify → Correct" (CoV) |
 | **Teaches** | WHAT to know | HOW to think |
-| **Frontmatter** | `compiled` (required), `globs` (optional), Role in description | `short_name`, `one_liner`, `globs: []` |
+| **Frontmatter** | `compiled` (required), `keywords` and `globs` (optional), Role in description | `short_name`, `one_liner`, `triggers` (required), `globs: []` |
 
 **Skills CAN reference implants** as "use this reasoning technique here" (e.g., `skill-analysis-critical` points to `implant-chain-of-verification`), but must NOT duplicate implant content.
 
@@ -58,6 +58,10 @@ keywords:                       # Phrases that boost preferred/capable skills
                                 # look-around (no `\w` immediately before /
                                 # after the literal). Phrases containing
                                 # punctuation (e.g. ``(CoVe)``) are fine.
+as_of: "YYYY-MM-DD"             # Freshness fields for volatile facts;
+review_after_days: 180          # required for skill-jurisdiction-*
+sources:                        # (see below)
+  - https://example.org/source
 ---
 ## Role
 Persona for this skill.
@@ -73,6 +77,13 @@ Persona for this skill.
 ## Actions
 - `action()`: What it does
 ```
+
+A skill that states volatile facts, such as tax rates, thresholds or versions,
+declares `as_of` (the ISO date of the last check), `review_after_days` and a
+`sources` list of URLs; every `skill-jurisdiction-*` skill must declare all three.
+[`tests/test_skill_freshness.py`](../tests/test_skill_freshness.py) fails once
+`as_of + review_after_days` has passed (180 days when `review_after_days` is
+omitted). Re-check the figures against `sources`, then update `as_of`.
 
 ## Skill Categories
 
@@ -141,7 +152,7 @@ Persona for this skill.
 |-------|-------------|
 | `skill-legal-citation` | Verbatim statute citation, jurisdiction discipline, conflict-of-laws (lex specialis/posterior) |
 | `skill-jurisdiction-co` | Colombia — Constitución 1991, SAS, DIAN, RUT, acción de tutela, ICA, Estatuto Tributario |
-| `skill-jurisdiction-cy` | Cyprus — Cap. 113, IP Box 2.5%, non-dom 17yr, DTT network 65+, EU acquis |
+| `skill-jurisdiction-cy` | Cyprus — Cap. 113, corporate tax 15% (from 2026), IP Box ~3%, non-dom 17yr, DTT network 65+, EU acquis |
 | `skill-jurisdiction-ge` | Georgia — Virtual Zone IT, micro-business 0%, Estonian-model profit tax, NAPR |
 | `skill-jurisdiction-kz` | Kazakhstan — AIFC common law zone, Astana Hub, ТОО, НК РК |
 | `skill-jurisdiction-mx` | Mexico — amparo, CFDI, PTU 10%, fideicomiso, SAT, RFC, federal vs estado |
@@ -233,14 +244,12 @@ distance boosts (`SKILLS_RELEVANCE_THRESHOLD`, default `0.75`). `standard` rende
 Skills are selected when a persona bundle is activated or refreshed and are
 retained across turns. The per-query enrichment path used by the evaluation
 harnesses honours the optional `INTENT_CLASSIFIER_ENABLED=1` budgets (disabled by
-default). The bundle uses
-the tier budgets above, even when the intent classifier is enabled. Request
+default). The bundle uses the tier budgets above, even when the intent classifier
+is enabled. Request
 `refresh_persona_context` when a continuing task needs a different skill selection.
 
-Universal rules are a separate layer from skills: `rules/rule-*.mdc` files load
-for every agent, ordered by priority, without semantic retrieval. Rules with
-per-agent `applies_to` or `exclude_agents` fields are rejected. `RULES_ENABLED=0`
-disables this layer for diagnostics.
+Universal rules are a separate layer: every bundle carries all of them, without
+semantic retrieval. See the [rules reference](../rules/README.md).
 
 ## Creating a New Skill
 
@@ -271,6 +280,9 @@ disables this layer for diagnostics.
    - `another_action()`: What this does
    ```
 
+   Add the [freshness fields](#frontmatter-schema) when the skill states rates,
+   thresholds or other facts that change over time.
+
 3. **Attach to one or more agents** by listing it in the agent's
    `core_skills`, `preferred_skills`, or `capable_skills`:
    ```yaml
@@ -279,10 +291,23 @@ disables this layer for diagnostics.
    ```
 
 4. **Rebuild the index and reload the context**: Server startup detects changed
-   skill files and rebuilds the index. For a manual rebuild, use the installation's
-   interpreter to run `python -m src.reindex` while its service and stdio readers
-   are stopped. For a shared daemon, follow the [maintenance workflow](../docs/shared-mcp-daemon.md).
+   skill files and rebuilds the index. For a shared daemon, run
+   `.venv/bin/python -m src.daemon restart`
+   ([service control](../docs/shared-mcp-daemon.md#service-control)); its warmup
+   rebuilds changed indexes with the service's `intfloat/multilingual-e5-large`
+   model before it reports ready. A manual `python -m src.reindex` does not replace
+   that step: it embeds with `.env`'s `EMBEDDING_MODEL`, and the daemon rebuilds
+   again when the model fingerprint differs. For standalone stdio, reconnect the
+   server, or rebuild manually with the installation's interpreter
+   (`python -m src.reindex`) while its service and stdio readers are stopped.
    A retained protocol 2 bundle needs `refresh_persona_context` to use the changes.
+
+   In an installation checkout that receives updates (such as `~/.agents-core`
+   on `main`), a new untracked skill file does not block updates. Changing
+   tracked files, including an agent's skill lists in step 3, or committing
+   locally makes the standalone updater, the daemon's `update` and `auto-update`,
+   and `install.sh` skip or refuse updates until the change is removed or
+   upstreamed; see [Updates](../README.md#updates).
 
 ## Best Practices
 

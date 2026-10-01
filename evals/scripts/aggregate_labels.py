@@ -10,7 +10,7 @@ Writes:
                                   (no raw query text — only labels + source pointers + sha256)
 
 Validation:
-  - expected_agent must be in the on-disk agent catalog (51 valid names)
+  - expected_agent must be in the on-disk agent catalog
   - expected_skills filtered to skills that exist on disk; invalid ones logged + dropped
   - missing labels (source row not labeled) reported
 

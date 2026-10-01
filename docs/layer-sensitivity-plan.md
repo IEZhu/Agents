@@ -1,6 +1,11 @@
 # Layer sensitivity: calibrate each selection layer separately
 
-Status: proposal, 2026-09-22. Measurements below come from the branch
+Status: proposal of 2026-09-22, partially implemented. The implant flags listed
+in [Rollout](#6-rollout) shipped with legacy/off defaults, and every implant
+declares `triggers`; `anti_triggers`, `SKILL_GATING`, shadow mode and the
+calibration head are not implemented. Current settings:
+[implants](../implants/README.md#1-agent-preferences-and-semantic-retrieval) and
+[intent classifier](intent-classifier.md). Measurements below come from the branch
 `feat/factuality-layer` (110 labelled samples in `evals/datasets/routing.jsonl`,
 embedding model `intfloat/multilingual-e5-large`, the install's model).
 *Correction (2026-09-23):* this line used to name MiniLM, the code default. The

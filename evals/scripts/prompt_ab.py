@@ -13,7 +13,8 @@ Both experiments share one pipeline:
 
 Modes:
   revisions  Arms are revisions plus env flags, `label=rev[:KEY=VAL,...]`, e.g.
-             old=3a4fc5f new=HEAD gate=HEAD:IMPLANT_NEED_GATE=intent. Each arm is
+             old=main new=HEAD gate=HEAD:IMPLANT_NEED_GATE=intent. Every arm must
+             be at c5d89f7 or later (see _prompt_builder.py). Each arm is
              reported against the first one. Cases whose prompt is identical to
              one already answered reuse those answers.
   implants   One revision. Arms: `none` (no implant), each implant alone,
@@ -24,8 +25,9 @@ Modes:
              that differs from `none` by more than the floors do was changed by
              the implant.
 
-Run it under evals/scripts/local_ab.py for local models, e.g.
-    python -m evals.scripts.local_ab -- prompt_ab implants --out-dir DIR
+Run it under evals/scripts/local_ab.py for local models (local_ab starts it
+from the repository root, so give an absolute --out-dir), e.g.
+    python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
 or against hosted models through OpenRouter, with concurrent requests:
     OPENROUTER_PROVIDER=novita/bf16 python -m evals.scripts.prompt_ab implants \
         --provider openrouter --model google/gemma-4-31b-it --concurrency 8 --out-dir DIR

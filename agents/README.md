@@ -1,7 +1,9 @@
 # Agent Catalog
 
-Reference of available agents, their primary triggers, and their roles. The MCP
-tool `list_agents` returns this catalog with metadata.
+Reference of available agents grouped by category, with their primary triggers
+and roles. The MCP tool `list_agents` returns the same agents: each directory
+`name` with the frontmatter `display_name`, `role` and `trigger_command`. It
+omits the categories and `routing.aliases`, such as the legacy lawyer commands.
 
 ## Selecting and keeping a role
 
@@ -38,7 +40,8 @@ The [schema](common/agent-schema.json) defines the fields:
 Use canonical component IDs such as `skill-tech-writing` and
 `implant-chain-of-verification`. Skills outside the three skill lists are excluded.
 See [skills](../skills/README.md) and [implants](../implants/README.md) for loading
-budgets and authoring conventions. Universal directives belong in `rules/rule-*.mdc`;
+budgets and authoring conventions. Universal directives belong in
+[`rules/rule-*.mdc`](../rules/README.md);
 per-agent guidance belongs in the agent or its skills. The former global
 `core_skills.yaml` and `agents/capabilities/registry.yaml` mechanisms have been
 removed.
@@ -56,7 +59,7 @@ ones; it does not accumulate the previous role's instructions.
 | `data_analyst` | `/analyse_data` | Data Analysis & Pattern Recognition Expert |
 | `data_forensic` | `/forensic` | Forensic Data Processor & Timeline Architect |
 | `black_hole_finder` | `/find_black_hole` | Agnotological Detective / Epistemic Gap Analyst |
-| `website_analyst` | `/site_audit` | Web Project Analyst: business models, traffic, monetization |
+| `website_analyst` | `/site_audit` | Web Project Analyst: business models, traffic, monetization, stakeholders |
 | `instagram_analyst` | `/instagram` | Social Media Profile Auditor |
 
 ## Development & Engineering
@@ -64,13 +67,13 @@ ones; it does not accumulate the previous role's instructions.
 | Agent | Trigger | Role |
 |---|---|---|
 | `software_engineer` | `/dev` | Senior Full Stack Engineer — Code Implementation, Debugging & Refactoring |
-| `code_reviewer` | `/review` | Code Review & PR Analyst |
+| `code_reviewer` | `/review` | Code Review & PR Analyst (Security-Aware, Performance-Conscious) |
 | `system_architect` | `/architect` | Distributed Systems & Architecture Designer — Scalability, Trade-offs, C4 Modeling |
 | `mcp_builder` | `/new_mcp` | MCP Server Architect & Generator |
 | `agent_builder` | `/new_agent` | Agent Prompt & Persona Designer for the Agents Framework |
 | `security_expert` | `/security_audit` | Application & Infrastructure Security Analyst — Vulnerability Assessment, Threat Modeling, Zero-Trust |
 | `prompt_engineer` | `/prompt` | Prompt Design & Optimization Specialist |
-| `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development |
+| `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development: Scripts, Level Design, Optimization, Monetization |
 | `blender_scripter` | `/blender` | Blender Python (bpy) Scripting Specialist — Procedural 3D-Printable Model Generation |
 
 ## Infrastructure & Operations
@@ -87,7 +90,7 @@ ones; it does not accumulate the previous role's instructions.
 | Agent | Trigger | Role |
 |---|---|---|
 | `tech_writer` | `/docs` | Technical Writer & Documentation Expert |
-| `literary_writer` | `/literary` | Master of artistic prose |
+| `literary_writer` | `/literary` | Master of artistic prose — creator of elegant prose with lyrical nuances and deep meanings |
 | `semantic_expert` | `/semantic_parse` | Meeting Transcript Analyst — Semantic Reconstruction, Decision Extraction, Action Items |
 | `presentation_coach` | `/present` | Presentation Structure and Psychology Expert |
 | `diagram_architect` | `/diagram` | Mermaid.js Visualization Specialist |
@@ -98,9 +101,9 @@ ones; it does not accumulate the previous role's instructions.
 |---|---|---|
 | `medical_expert` | `/medical` | Clinical Reasoning & Medical Analysis Specialist — Differential Diagnosis, Drug Interactions, Lab Interpretation |
 | `psychologist` | `/psy_session` | Cognitive-Behavioral Psychologist & Mental Health Consultant |
-| `child_psychologist` | `/child_psy` | Child & Adolescent Psychologist (digital generation) |
+| `child_psychologist` | `/child_psy` | Child & Adolescent Psychologist specializing in the digital generation |
 | `bio_hacker` | `/bio_protocol` | Biohacking & Supplement Protocol Designer — Sleep, Focus, Energy Optimization |
-| `fitness_coach` | `/workout` | Scientific Fitness Coach (spine rehabilitation) |
+| `fitness_coach` | `/workout` | Scientific fitness coach focused on spine rehabilitation |
 
 ## Education & Science
 
@@ -137,12 +140,12 @@ The single `lawyer` agent replaced nine country-specific clones (`colombian_lawy
 
 | Agent | Trigger | Role |
 |---|---|---|
-| `document_ocr_expert` | `/ocr` | PDF/image text extraction (incl. handwriting) |
+| `document_ocr_expert` | `/ocr` | Specialist in extracting text from PDF and images, including handwritten text |
 | `purchase_researcher` | `/purchase` | Premium Product Advisor & Comparison Specialist |
-| `3d_print_finder` | `/3dprint` | 3D Model Search & Print Optimization |
+| `3d_print_finder` | `/3dprint` | 3D Model Search Specialist & Print Optimization Advisor |
 | `install_to_repo` | `/install_agents` | Agent Framework Installer & Repository Scaffolder |
 
 ---
 
 **Total agents**: 43
-**Updated**: 2026-09-28
+**Updated**: 2026-09-30

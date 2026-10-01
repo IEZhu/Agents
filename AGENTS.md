@@ -23,7 +23,9 @@ their recorded revision; they do not override the current implementation.
 
 - Inspect the branch, worktrees and existing changes first. Keep unrelated work
   intact; use an isolated worktree when the current checkout is busy.
-- Use a `codex/` branch for new work unless the user specifies another name.
+- Use a `codex/` branch for new work unless the user or the invoked flow specifies
+  another name; for example, [issue implementation](flows/issue-implementation.md)
+  requires `claude/issue-<number>-<short-slug>`.
 - Put reusable task instructions for models in `flows/<descriptive-name>.md`
   and add them to [flows/README.md](flows/README.md). Follow the selected flow
   when the user invokes it by path.
@@ -43,11 +45,17 @@ their recorded revision; they do not override the current implementation.
 - Update documentation when changing a public tool, configuration default,
   installer, command or AI instruction. The source-to-document map and review
   steps are in [documentation-refresh.md](flows/documentation-refresh.md).
-- The source of the default routing section is
+- The source of the managed routing section is
   [routing-protocol-core.md](scripts/templates/routing-protocol-core.md).
   Edit the template first when changing that contract, then update the managed
-  section with `scripts/_helpers/inject_claude_md.py`. Keep repository notes and
-  Repository Memory outside the routing markers.
+  section with `scripts/_helpers/inject_claude_md.py`. A contract change also
+  updates the MCP initialization instructions in `src/server.py`,
+  `APPLY_INSTRUCTION` in `src/engine/persona.py` and, where it restates the
+  change, [memory-routing.md](scripts/templates/memory-routing.md), after saving
+  its previous copy as described in
+  [legacy/README.md](scripts/templates/legacy/README.md). No test compares these
+  restatements with the template. Keep repository notes and Repository Memory
+  outside the routing markers.
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.

@@ -65,8 +65,9 @@ def _check_prompt_protocol(protocol_version: Optional[str]) -> None:
     if protocol_version not in (None, "", str(PROTOCOL_VERSION)):
         raise ValueError(UNSUPPORTED_PROTOCOL)
 
-# Cached instance — avoids reloading .npz from disk on every read_history call.
-# HistoryStore.ensure_index() handles mtime-based staleness internally.
+# Per-workspace HistoryStore cache (bounded LRU) — avoids reloading .npz from disk
+# on every read_history call. HistoryStore.ensure_index() rebuilds a stale index
+# from a content fingerprint.
 _history_stores = HistoryStores()
 
 mcp = FastMCP(
@@ -256,8 +257,9 @@ async def run_flow(
     resolves repo:, then user:, then builtin:. request carries the user's scope,
     PR/MR URL and constraints such as no-merge. repo_path defaults to the caller
     workspace; an override must be an existing directory within it.
-    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT,
-    CLAUDE_PROJECT_DIR or cwd, never a system directory.
+    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT as
+    given, else the project inferred from CLAUDE_PROJECT_DIR or cwd; an inferred
+    filesystem root or a directory inside the Windows directory is refused.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.
@@ -661,8 +663,9 @@ async def log_interaction(
       ``langfuse_compat``.
 
     Returns JSON: ``{request_id, langfuse: {status, trace_id?, error?},
-    history: {status, entry_id?, path?, error?}}``. A failure in one sink does
-    not prevent the other.
+    history: {status, entry_id?, path?, timestamp?, rotated_to?, error?}}``.
+    A failure in one sink does not prevent the other. An unavailable workspace
+    or invalid attribution writes nothing and returns a protocol ERROR.
     """
     try:
         client = client_context(ctx)
@@ -783,7 +786,9 @@ async def describe_repo(
     section automatically and skip re-exploring the codebase.
 
     Returns JSON whose fields depend on status:
-      refreshed, up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
+      refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
+        (action: created, appended or replaced)
+      up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
       rejected, repo changed while sampling: {status, reason}
       rejected, sampled summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
@@ -866,7 +871,7 @@ async def write_repo_summary(
     that response unchanged.
 
     Returns JSON whose fields depend on status:
-      refreshed: {status, path, hash, word_count, in_word_budget, summary_preview}
+      refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
       rejected, stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
@@ -911,9 +916,9 @@ async def read_history(
     - Without ``query``: returns up to ``limit`` newest entries; ``since``
       (ISO8601 prefix) optionally filters for entries at or after that
       timestamp.
-    - With ``query``: builds the vector index on first use (or refreshes
-      it if history.md is newer than the stored embeddings), then returns
-      semantically nearest entries with cosine distance.
+    - With ``query``: builds the vector index on first use (and rebuilds it
+      when the content of history.md or the embedding configuration changes),
+      then returns semantically nearest entries with cosine distance.
 
     Returns JSON:
       {entries: [...], total, mode}
@@ -1114,13 +1119,18 @@ def _warmup_embedding_model():
 
 
 def _warmup_rules():
-    """Pre-load and cache the always-on rules layer at startup.
+    """Pre-load the lenient rules cache at startup.
 
     ``get_rules()`` does sync filesystem I/O on its first call (parsing
-    ``rules/rule-*.mdc``). It's invoked from ``get_dynamic_context_string``
-    on the async path, so without this warmup the very first request would
-    block the event loop while reading the rule files. Rules are static
-    for the process lifetime, so a single eager load amortizes the cost.
+    ``rules/rule-*.mdc``) and then serves that cache for the process lifetime.
+    Only the per-query evaluation path (``_load_and_enrich`` via
+    ``get_dynamic_context_string``) uses the cache, and it calls the loader on
+    the event loop, so the warmup keeps its first request from blocking.
+    Protocol 2 bundles do not use this cache: they re-read the rules in strict
+    mode on every build, so rule edits apply to the next bundle. The lenient
+    load skips invalid files and a failure here is only logged, so stdio starts
+    even with an invalid rule set (unlike the daemon's strict warmup, which
+    blocks readiness); each activation then returns ERROR.
     """
     try:
         from src.engine.rules import get_rules

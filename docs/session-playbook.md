@@ -5,7 +5,7 @@ review rounds that followed). [AGENTS.md](../AGENTS.md) is the contributor entry
 point; [CLAUDE.md](../CLAUDE.md) covers the routing protocol and the code layout.
 This page covers how to work. For documentation maintenance, execute
 [documentation-refresh.md](../flows/documentation-refresh.md). Related pages: [cloud-runs.md](cloud-runs.md)
-for evals in cloud sessions, [`evals/ablation/README.md`](../evals/ablation/README.md)
+for evals and the issue agent in cloud sessions, [`evals/ablation/README.md`](../evals/ablation/README.md)
 for the ablation runbook, [`evals/telemetry/README.md`](../evals/telemetry/README.md)
 for Langfuse analysis.
 
@@ -23,8 +23,10 @@ for Langfuse analysis.
   under `.worktrees/` or `.claude/worktrees/`. Check existing worktrees first and
   remove only your completed worktree once its changes are preserved and it is clean.
 - **One heavy process at a time.** The development laptop has rebooted under parallel
-  pytest runs and embedding-model loads. Run the full suite once, alone:
-  `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q`.
+  pytest runs and embedding-model loads. Run the regular suite, which excludes tests
+  marked `slow`, once and alone:
+  `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q`; add `-m ''`
+  to include slow tests.
   Run targeted test files while iterating; [tests/README.md](../tests/README.md)
   covers setup, slow tests and worktree isolation.
 - **Keep eval outputs out of the repository and out of temporary directories** that
@@ -37,8 +39,9 @@ for Langfuse analysis.
   A local `keep` retains the existing bundle. The running router and retrieval
   indexes are separate state: after changing agent membership, routing metadata
   or indexed skill/implant content or metadata, reload the serving process so
-  those changes are indexed. Use the [daemon procedure](shared-mcp-daemon.md) for HTTP and reconnect
-  the server for stdio. See [routing](routing_flow.md) for refresh semantics.
+  those changes are indexed. For HTTP, run `.venv/bin/python -m src.daemon restart`
+  ([service control](shared-mcp-daemon.md#service-control)); for stdio, reconnect
+  the server. See [routing](routing_flow.md) for refresh semantics.
 
 ## PR review loop
 
@@ -49,8 +52,11 @@ without long dashes or judgments about findings.
 
 CodeRabbit and Copilot start the first review automatically in the expected GitHub
 setup. Confirm that they started. CodeRabbit normally reviews later pushes;
-re-request Copilot manually after each pushed fix commit and preserve its lite
-configuration. Continue with the available bots if one exhausts its quota. Use the
+re-request Copilot explicitly after each pushed fix commit while it is available,
+and preserve its lite configuration. When a bot reports a quota limit, rate limit or error,
+follow the flow's [quota rules](../flows/pr-review.md#quota-rate-limits-and-errors):
+record the evidence and the next attempt time, pause that bot instead of
+re-requesting it on every push, and continue with the available bots. Use the
 flow's current-head review, validation, and merge conditions before finishing.
 
 **Merged PRs.** Unresolved threads on merged or closed PRs are still answered:
@@ -58,6 +64,14 @@ flow's current-head review, validation, and merge conditions before finishing.
 
 ## Evals
 
+- Routing, retrieval and tier regressions use the deterministic harness:
+  `./scripts/eval.sh run` scores `evals/datasets/routing.jsonl`. To compare with the
+  committed `evals/reports/baseline.md`, run `save`, then `diff <report>`; `baseline`
+  rewrites that file. The harness needs the `evals` extra, fetches query texts from
+  Hugging Face unless `evals/datasets/_unlabeled.jsonl` exists locally, and loads the
+  embedding model, so run it alone. `./scripts/eval.sh help` lists the other
+  commands. `bench` (MCP vs vanilla) and the `scripts/bench_*.sh` wrappers read API
+  keys, endpoints and the judge from `.env`.
 - Run A/B evals against hosted models (OpenRouter), not local ones: local models on the
   laptop are too slow, and hosted models are not deterministic even at temperature 0,
   so compare across samples. `evals/LOCAL_MODELS.md` documents `prompt_ab`.

@@ -23,9 +23,11 @@ FLOWS_DIR = os.path.join(INSTALL_ROOT, "flows")
 
 # --- Client repo root (per-session, per-repo memory artifacts) ---------------
 # Where the serving MCP session's journal lives: history.md, history/ archive,
-# managed CLAUDE.md section, describe_hash, history_store vector index, and
-# AGENTS_DEBUG logs. Resolved lazily so a single install serving many client
-# repos keeps their memory isolated (issue #36).
+# managed CLAUDE.md section, data/memory/.describe_hash, and stdio AGENTS_DEBUG
+# logs. History vector indexes live in private daemon state (HTTP) or the
+# installation's leased data/stdio/ slot, not in the client repo. Resolved
+# lazily so a single install serving many client repos keeps their memory
+# isolated (issue #36).
 
 _CLIENT_ROOT_MARKERS = (".git", "CLAUDE.md")
 
@@ -155,12 +157,19 @@ def _reset_client_repo_root_cache() -> None:
 
 
 def get_client_data_dir() -> str:
-    """`{client_repo_root}/data` — per-repo `history_store` and `.describe_hash`."""
+    """`{client_repo_root}/data` — holds `memory/.describe_hash`.
+
+    `memory/` is also the legacy default `HistoryStore` data directory; the
+    server passes its own directory in daemon state or the stdio slot.
+    """
     return os.path.join(get_client_repo_root(), "data")
 
 
 def get_debug_log_dir() -> str:
-    """`{client_repo_root}/logs` — per-call JSON debug logs (when `AGENTS_DEBUG=1`)."""
+    """Per-call JSON debug logs (when `AGENTS_DEBUG=1`).
+
+    `{client_repo_root}/logs` for stdio; `debug/` in daemon state over HTTP.
+    """
     if os.environ.get("AGENTS_TRANSPORT") == "http":
         from src.daemon.state import state_dir
         return str(state_dir() / "debug")
@@ -298,7 +307,8 @@ INTENT_CONVERSE_MAX_CHARS = _int_env("INTENT_CONVERSE_MAX_CHARS", 60, lo=1)
 SESSION_CACHE_MAX_SIZE = 128
 SESSION_CACHE_TTL_SECONDS = 600
 
-# Debug logging — set AGENTS_DEBUG=1 in .env to write per-call JSON files to logs/
+# Debug logging — set AGENTS_DEBUG=1 in .env to write per-call JSON files to
+# get_debug_log_dir().
 AGENTS_DEBUG = os.getenv("AGENTS_DEBUG", "").lower() in ("1", "true")
 
 # Rules layer — universal directives loaded into every enriched prompt.

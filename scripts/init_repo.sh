@@ -11,8 +11,10 @@
 #
 # Flags:
 #   --yes, -y      Accept defaults without prompting (also AGENTS_ASSUME_YES=1).
-#                  Picks the embedding model from installed RAM, keeps an
-#                  existing venv, and allows the client instruction updates.
+#                  Picks the embedding model from installed RAM if none is
+#                  configured, reuses an existing venv and refreshes its
+#                  dependencies (recreating it if its Python version is unknown
+#                  or older than 3.11), and allows the client instruction updates.
 #   --skip-env     Skip .env file creation (useful if already configured)
 #   --skip-index   Skip embedding model download and index pre-build
 #   --skip-mcp     Skip MCP configuration and client instruction updates
@@ -445,10 +447,10 @@ if [ "$SKIP_ENV" = false ]; then
         cp "$ENV_EXAMPLE" "$ENV_FILE"
         print_success ".env created successfully!"
         echo ""
-        echo -e "  ${YELLOW}⚠ Required configuration:${NC}"
-        echo "    • LANGFUSE_PUBLIC_KEY - LangFuse public key (optional)"
-        echo "    • LANGFUSE_SECRET_KEY - LangFuse secret key (optional)"
-        echo "    • ANTHROPIC_API_KEY   - For document OCR (optional)"
+        echo -e "  ${YELLOW}⚠ Review the placeholder keys in .env (all optional):${NC}"
+        echo "    • LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY - Langfuse tracing:"
+        echo "      set real keys, or clear both values; the placeholders enable tracing"
+        echo "    • ANTHROPIC_API_KEY   - For document OCR"
         echo ""
     fi
 else
@@ -919,8 +921,8 @@ if [ "$SKIP_MCP" = false ] && [ ${#CONFIGURED_ENVS[@]} -gt 0 ]; then
     done
 fi
 
-echo "  $STEP. Test with a command:"
-echo -e "     ${CYAN}/route${NC} — check available agents"
+echo "  $STEP. Test it in a new client session: ask the model to call"
+echo -e "     ${CYAN}list_agents()${NC}, or run the ${CYAN}ask${NC} MCP prompt with a task"
 echo ""
 
 # ============== Health Check ==============

@@ -176,8 +176,8 @@ Rules:
   exists, then stop without another outcome reply. Set it as soon as the command
   is accepted.
 - **One run per issue.** The lock is advisory, not atomic: the owner must not send
-  overlapping commands for the same issue. Measure the lock's age with the clock
-  rule below. If `lock_at` is set and younger than
+  overlapping commands for the same issue. Measure the lock's age with the Clock
+  rule above. If `lock_at` is set and younger than
   three hours and the command is not `stop` or `status`, reply that a run is in
   progress (link the session) and stop. Set `lock_at` and `session` when starting
   work, then re-read the state: if another session's id is there, stop without
@@ -200,8 +200,10 @@ Rules:
 
 ## 4. Comments the agent writes
 
-- Start every comment with `<!-- issue-agent -->` on its own line, and never begin
-  a comment with `/agent`, so the agent's own text never starts another routine.
+- Start every comment with `<!-- issue-agent -->` on its own line (the state
+  comment instead starts with its `<!-- issue-agent:state` marker, as shown above),
+  and never begin a comment with `/agent`, so the agent's own text never starts
+  another routine.
   Only an exact completion marker invokes the bridge's reaction cleanup handler.
 - Reply in the language of the command. Code, identifiers, branch names, commits,
   PR titles and descriptions stay in English.

@@ -69,7 +69,10 @@ and reference links, while all inspection, edits and validation use the target.
 4. Use the separate branch requested by the user. Otherwise follow the target's
    branch naming rules; if none exist, create `codex/docs-refresh-<YYYYMMDD>`
    from the current `HEAD`. Add a suffix if that
-   name is taken. Use a different base when the user specifies one. Do not reuse
+   name is taken. Use a different base when the user specifies one; when it is
+   a remote-tracking ref, create the branch without an upstream
+   (`git switch -c <branch> --no-track <ref>` or
+   `git worktree add --no-track -b <branch> <path> <ref>`). Do not reuse
    an unfamiliar branch or discard existing changes.
 5. If the current checkout is busy or contains unrelated changes, create an
    isolated worktree. Continue in the task's existing dedicated branch when one
@@ -91,15 +94,19 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 
 | What to check | Sources |
 |---|---|
-| Python version, dependencies, installation | `pyproject.toml`, `requirements.txt`, `uv.lock`, `scripts/init_repo.sh`, `scripts/init_repo.bat` |
-| Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings |
+| Python version, dependencies, installation, client configuration paths | `install.sh`, `pyproject.toml`, `requirements.txt`, `uv.lock`, `scripts/init_repo.sh`, `scripts/init_repo.bat`, `scripts/_helpers/`, `src/client_paths.py`, `tests/test_installer_*.py`, `tests/test_inject_mcp.py` |
+| Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings and `src/client_paths.py` for `CLAUDE_CONFIG_DIR` and `CODEX_HOME` |
 | MCP tools, parameters, statuses, and slash prompts | `src/server.py`, `src/schemas/protocol.py` |
 | Protocol 2 and bundle assembly | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py` |
 | Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py` |
 | Agent catalog and metadata | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json`, `scripts/validate_agents.py` |
 | Memory, history, and workspace isolation | `src/memory/`, `src/daemon/`, `tests/test_per_repo_memory.py`, `tests/test_daemon.py` |
+| Stdio client repository root | `src/engine/config.py` (`get_client_repo_root`), `src/daemon/workspaces.py` (`client_context`), `tests/test_config_client_root.py` |
+| Built-in, personal, and repository flows; flow editor | `flows/*.md`, `src/flows.py`, `src/user_flows.py`, `src/daemon/flows_ui.py`, `src/daemon/flows_ui.html`, `tests/test_flows.py`, `tests/test_user_flows.py`, `tests/test_server_flows.py` |
+| Cloud issue agent bridge | `scripts/templates/issue-agent-bridge.yml`, `.github/workflows/issue-agent-bridge.yml`, `tests/test_issue_agent_bridge.py` |
+| Updates and the Node stdio bridge | `src/self_update.py`, `src/daemon/autoupdate.py`, `src/daemon/update.py`, `bridge/`, `tests/test_self_update.py`, `tests/test_daemon_autoupdate.py`, `tests/test_daemon_update.py` |
 | Generated instructions and Codex discovery | `scripts/install_instructions.py`, `scripts/templates/`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `tests/test_install_instructions.py`, `tests/test_installer_instructions.py`, `tests/test_codex_instructions.py`, `tests/test_protocol_migration.py` |
-| Validation commands | `pyproject.toml`, `tests/conftest.py`, `scripts/run_tests.sh`, `tests/test_*.py` |
+| Validation commands | `pyproject.toml`, `requirements.txt`, `tests/conftest.py`, `scripts/run_tests.sh`, `.github/workflows/*.yml`, `tests/test_*.py` |
 
 Verify names, paths, parameters, versions, defaults, and examples. Distinguish
 installer defaults from API defaults, settings of a particular installation from
@@ -129,13 +136,25 @@ product behavior merely to match the text.
   .venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
   ```
 
-  The helper preserves other text and creates a backup when it makes a change.
+  The helper uses only the standard library; in a worktree without `.venv`, run
+  it with `python3` (Windows: `py -3`). It preserves other text and creates a
+  backup when it makes a change.
   Review the diff and exclude the backup from the changes. Do not run the global
   installer just to synchronize Markdown.
+  The MCP initialization instructions in `src/server.py` and `APPLY_INSTRUCTION`
+  in `src/engine/persona.py` restate the same contract for MCP clients: compare
+  them with `routing-protocol-core.md` and report any disagreement. Change them
+  only when a contract change is in scope, then run the protocol checks in
+  [step 4](#4-validate-the-result).
 - **Agents-Core only:** when changing `memory-routing.md`, first copy its
-  previous bytes into `scripts/templates/legacy/` under a new name. The migration
-  helper recognizes generated reminders by exact match, so a template edit must
-  not turn the previous generated file into unrecognized user content. If migration logic needs to change, include that
+  previous bytes into `scripts/templates/legacy/` as the next unused
+  `memory-routing-v<N>.md`, and add that file where tests list the existing
+  legacy copies (`grep -rn memory-routing-v tests/`). The migration helper reads
+  only `legacy/memory-routing-*.md` and recognizes generated reminders by exact
+  match, so a template edit must not turn the previous generated file into
+  unrecognized user content. When the `MEMORY.md` index line (`INDEX_ENTRY` in
+  `scripts/_helpers/migrate_routing_memory.py`) changes, add the previous line
+  to `LEGACY_INDEX_ENTRIES`. If migration logic needs to change, include that
   change explicitly in the scope and validation.
 - Apply the [documentation language policy](#documentation-language) to every
   document in scope. Preserve a consistent style while translating non-English
@@ -177,9 +196,10 @@ contributor guide or CI. These commands apply to Agents-Core:
 
 | Change | Check |
 |---|---|
-| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q` |
+| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q` |
 | Agent catalog or metadata | `.venv/bin/python scripts/validate_agents.py`; compare catalog rows with `identity` and `routing` metadata |
 | Protocol or bundle assembly documentation | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py -q` |
+| Another single area, such as installers, flows, the issue agent bridge, the Node bridge or updates | The focused checks in [Choose tests by change](../tests/README.md#choose-tests-by-change) |
 | Behavior changes or several related subsystems | The regular suite described in `tests/README.md` |
 
 For editorial changes, checking links, examples, language, and the diff is enough.

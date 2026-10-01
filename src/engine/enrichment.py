@@ -79,8 +79,9 @@ def infer_tier(query: str) -> Tier:
     """Resolve the enrichment tier for *query*.
 
     Signature, name, module and sync-ness are unchanged so every existing caller
-    (server.py:212/372, persona_bundle.py:108, evals/runners/run_tier.py) keeps
-    working. When the intent classifier is enabled this is the tier projection of
+    (``server._load_and_enrich``, ``persona_bundle.build_persona_bundle``,
+    ``enrich_agent_prompt``, evals/runners/run_tier.py) keeps working. When the
+    intent classifier is enabled this is the tier projection of
     :func:`~src.engine.intent.classify_intent`; otherwise it is the legacy rule.
 
     Callers that also want the mode and the budget should call ``classify_intent``
