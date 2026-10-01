@@ -108,6 +108,15 @@ def start(phases: Optional[list[tuple[str, Callable[[], None]]]] = None) -> bool
         return True
 
 
+def join(timeout: float) -> bool:
+    """Wait up to *timeout* seconds for the initializer thread; True when it is not running."""
+    thread = _thread
+    if thread is None:
+        return True
+    thread.join(timeout)
+    return not thread.is_alive()
+
+
 def run_blocking() -> dict:
     """Run the phases in the calling thread (HTTP daemon loader); start-once."""
     global _started

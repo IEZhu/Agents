@@ -216,3 +216,19 @@ def test_a_timeout_raised_by_the_initializer_is_an_error_not_warming_up():
     _wait_until(lambda: readiness.state() == "failed")
     problem = asyncio.run(readiness.wait(5))
     assert "model download timed out" in problem
+
+
+def test_join_waits_for_the_worker_within_a_bound():
+    assert readiness.join(0.01) is True  # never started
+    release = threading.Event()
+    readiness.start([("slow", release.wait)])
+    assert readiness.join(0.05) is False
+    release.set()
+    assert readiness.join(5.0) is True
+
+
+def test_server_loads_dotenv_before_importing_config():
+    import pathlib
+    source = pathlib.Path(__file__).resolve().parent.parent.joinpath("src", "server.py").read_text(encoding="utf-8")
+    assert source.index("dotenv.load_dotenv(env_path)") < source.index("from src import component_toggles")
+    assert source.index("dotenv.load_dotenv(env_path)") < source.index("from src.engine.fingerprint")

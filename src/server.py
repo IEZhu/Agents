@@ -21,6 +21,11 @@ import queue
 import threading
 import time
 import dotenv
+
+# Load env vars before any src.engine.config import reads them (e.g. WARMUP_WAIT_SECONDS).
+env_path = os.path.join(os.path.dirname(__file__), "../.env")
+dotenv.load_dotenv(env_path)
+
 from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
 from src.engine.fingerprint import configuration_revision
 from src import component_toggles
@@ -36,9 +41,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mcp-server")
 
-# Load env vars
-env_path = os.path.join(os.path.dirname(__file__), "../.env")
-dotenv.load_dotenv(env_path)
 
 # Langfuse is optional — server works without keys
 
@@ -61,6 +63,8 @@ from src.user_flows import FlowLibrary
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import load_persona, route_persona, parse_persona, error_response
 from src.engine import readiness
+
+READINESS_SHUTDOWN_WAIT_SECONDS = 5.0
 
 PROTOCOL_VERSION = 2
 UNSUPPORTED_PROTOCOL = (
@@ -1343,4 +1347,7 @@ if __name__ == "__main__":
     try:
         mcp.run()
     finally:
+        # The startup leases are released when this returns: let the worker
+        # finish its store and model work first, within a bounded wait.
+        readiness.join(READINESS_SHUTDOWN_WAIT_SECONDS)
         drain_pending_logs()
