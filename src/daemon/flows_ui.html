@@ -320,6 +320,11 @@ function renderList() {
     shown += result.shown.length; total += result.total;
     return result.shown;
   };
+  const groups = state.category === "system"
+    ? [{ label: "Built-in", flows: state.flows.filter((f) => f.source === "builtin"), issues: [] }]
+    : [{ label: "Personal", flows: state.flows.filter((f) => f.source === "user"), issues: [], personal: true },
+       ...state.repos.map((repo) => ({ label: repo.label, flows: repo.flows, issues: repo.issues }))];
+  for (const group of groups) group.hits = pick(group.flows);
   rebuildList((nav) => {
     const seg = document.createElement("div");
     seg.className = "seg";
@@ -332,22 +337,17 @@ function renderList() {
       seg.appendChild(button);
     }
     nav.appendChild(seg);
-    if (state.category === "system") {
-      const hits = pick(state.flows.filter((f) => f.source === "builtin"));
-      if (!searching || hits.length) heading(nav, "Built-in");
-      if (!total) empty(nav, "No flows");
-      for (const hit of hits) nav.appendChild(flowButton(hit.item, hit.textOnly));
-    } else {
-      const hits = pick(state.flows.filter((f) => f.source === "user"));
-      if (!searching || hits.length) heading(nav, "Personal");
-      if (!total) empty(nav, "No flows");
-      for (const hit of hits) nav.appendChild(flowButton(hit.item, hit.textOnly));
-      for (const repo of state.repos) {
-        const repoHits = pick(repo.flows);
-        if (searching && !repoHits.length && !repo.issues.length) continue;
-        heading(nav, repo.label);
-        for (const hit of repoHits) nav.appendChild(flowButton(hit.item, hit.textOnly));
-        for (const issue of repo.issues) empty(nav, issue.id + ": " + issue.error);
+    // With a query the groups are listed twice, so name matches of every group come before any
+    // text-only match; the second pass repeats a group's heading.
+    for (const textOnly of searching ? [false, true] : [false]) {
+      for (const group of groups) {
+        const hits = group.hits.filter((hit) => hit.textOnly === textOnly);
+        const issues = textOnly ? [] : group.issues;
+        if (searching && !hits.length && !issues.length) continue;
+        heading(nav, group.label);
+        if (!searching && !group.flows.length && (group.personal || state.category === "system")) empty(nav, "No flows");
+        for (const hit of hits) nav.appendChild(flowButton(hit.item, hit.textOnly));
+        for (const issue of issues) empty(nav, issue.id + ": " + issue.error);
       }
     }
     if (searching && !shown) empty(nav, "No matches");

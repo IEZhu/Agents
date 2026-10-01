@@ -59,7 +59,7 @@ def search():
 
 
 def test_search_matches_all_terms_case_insensitively_and_orders_name_matches_first(search):
-    assert search["alpha"]["list"][1:] == ["Personal", "Alpha plan", "Beta [in text]"]
+    assert search["alpha"]["list"][1:] == ["Personal", "Alpha plan", "Personal", "Beta [in text]"]
     assert search["alpha"]["count"] == "2 of 3"
     assert search["and_terms"]["list"][1:] == ["Personal", "Alpha plan"]
     assert search["and_terms"]["count"] == "1 of 3"
@@ -139,3 +139,12 @@ def test_typing_while_a_tab_loads_does_not_render_stale_data(search):
     assert search["while_loading"] == {"list": ["Loading…"], "count": "", "query": "sec"}
     assert search["after_loading"]["list"][0] == "Skills (2/3 on)"
     assert search["after_loading"]["count"] == "3 of 3"
+
+
+def test_name_matches_of_every_group_come_before_text_only_matches(search):
+    assert search["global_order"]["list"][1:] == ["github.com/o/r", "Repo flow", "Personal", "Beta [in text]"]
+    assert search["global_order"]["count"] == "2 of 3"
+
+
+def test_an_empty_search_shows_one_empty_state(search):
+    assert search["system_none"]["list"][1:] == ["No matches"]

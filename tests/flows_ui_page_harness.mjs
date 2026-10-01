@@ -68,7 +68,7 @@ function searchData(path) {
     if (!path.includes("with_content=1")) throw new Error("the page must ask for flow content");
     return {
       flows: [flow("user:alpha", "user", "Alpha plan", "deploy steps"),
-              flow("user:beta", "user", "Beta", "a mention of ALPHA here"),
+              flow("user:beta", "user", "Beta", "a mention of ALPHA here, flow chart"),
               flow("review", "builtin", "Review", "the needle phrase", { qualified_id: "builtin:review" })],
       repositories: [{ key: "r", label: "github.com/o/r", issues: [],
                        flows: [flow("repo:x", "repo", "Repo flow", "needle in the text", { repo_key: "r" })] }],
@@ -140,6 +140,12 @@ if (scenario === "search") {
   fire(byId("items").children[0].children[0], "click");  // back to User
   await type("nothing-matches");
   steps.none = shown();
+  await type("flow");  // a name hit of a later group comes before a text-only hit of an earlier one
+  steps.global_order = shown();
+  fire(byId("items").children[0].children[1], "click");  // System
+  await type("zzz");
+  steps.system_none = shown();
+  fire(byId("items").children[0].children[0], "click");  // back to User
   await type("user");  // a scope prefix of an ID is not part of the name
   steps.prefix = shown();
   await openTab("rules");

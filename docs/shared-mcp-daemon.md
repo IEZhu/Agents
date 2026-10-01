@@ -314,7 +314,7 @@ taller). Every tab has a search box above its list (`/` focuses it, `Esc` clears
 it). Matching is case-insensitive and every whitespace-separated term must
 appear. Items whose name (ID, title, short name) matches are listed first, then
 items that match only in their text (description and body; flow content), marked
-"in text". While a query is active the box shows "N of M" for the visible
+"in text" (on Flows, a repository heading is repeated for its text-only matches). While a query is active the box shows "N of M" for the visible
 category, the query is kept per tab, and the open item stays open when the query
 hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
 `content` field to every flow, including repository flows; without the parameter
