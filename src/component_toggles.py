@@ -46,6 +46,8 @@ def _read() -> dict[str, set[str]]:
         disabled = data["disabled"]
         if not isinstance(disabled, dict):
             raise ValueError("disabled must be an object")
+        if set(disabled) - set(KINDS):
+            raise ValueError("unknown component kind in disabled")
         result = {kind: set() for kind in KINDS}
         for kind in KINDS:
             values = disabled.get(kind, [])

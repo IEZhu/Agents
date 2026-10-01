@@ -42,7 +42,8 @@ def test_store_round_trip_and_defaults(toggle_dir):
 @pytest.mark.parametrize("content", ["", "not json", "[]", '{"disabled": 5}',
                                      '{"disabled": {"rules": "x", "skills": [1, "../x"]}}',
                                      '{"disabled": {"rules": ["truth"], "skills": [1]}}',
-                                     '{"disabled": {"rules": ["truth"], "implants": ["../x"]}}'])
+                                     '{"disabled": {"rules": ["truth"], "implants": ["../x"]}}',
+                                     '{"disabled": {"rules": ["truth"], "agents": 5}}'])
 def test_corrupt_file_means_everything_enabled(toggle_dir, content):
     toggle_dir.mkdir(parents=True)
     (toggle_dir / "components.json").write_text(content)

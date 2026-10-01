@@ -95,7 +95,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <p id="c-description"></p>
     <div id="c-warning" class="notice hidden"></div>
     <div class="notice">Changes apply to the next bundle the server builds: a new conversation, a switch to another agent, a restore, or a refresh whose revision changed. Conversations that are already active keep their current bundle. Files are never changed.</div>
-    <div class="pane"><label>Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
+    <div class="pane"><label for="c-body">Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
   </section>
   <section id="editor" class="hidden">
     <div class="bar">
@@ -505,12 +505,14 @@ $("toggle-upstream").addEventListener("click", () => {
 
 // --- rules, skills and implants: view and switch on or off -------------------------------
 
-async function loadComponents(kind, keep) {
+// `keep` selects an ID; `keepCurrent` keeps whatever is selected when the response arrives.
+async function loadComponents(kind, keep, keepCurrent) {
   const gen = ++state.gen;
   const data = await api("/ui/api/components?kind=" + kind);
   if (state.tab !== kind || gen !== state.gen) return;  // superseded while loading
   state.items = data.items;
-  state.item = keep ? data.items.find((i) => i.id === keep) || null : null;
+  const wanted = keepCurrent ? (state.item && state.item.id) : keep;
+  state.item = wanted ? data.items.find((i) => i.id === wanted) || null : null;
   renderComponents(kind);
 }
 
@@ -561,7 +563,7 @@ async function toggleItem() {
   if (!item) return;
   try {
     await api("/ui/api/component", { method: "PUT", body: { kind, id: item.id, enabled: !item.enabled } });
-    if (state.tab === kind) await loadComponents(kind, item.id);
+    if (state.tab === kind) await loadComponents(kind, null, true);
   } catch (error) { alert(error.message); }
 }
 $("c-toggle").addEventListener("click", toggleItem);
