@@ -20,33 +20,29 @@ from __future__ import annotations
 
 import re
 
-import yaml
-
-from src.flows import FlowError
+from src.flows import FlowError, split_flow_frontmatter
 from src.utils.prompt_loader import split_frontmatter
 
 KINDS = ("skills", "implants", "rules")
 _AGENT = re.compile(r"[a-z0-9][a-z0-9_]*")
 _COMPONENT = re.compile(r"[A-Za-z0-9_-]+")
 _MAX_COMPONENTS = 64
+_PERSONA_KEY = re.compile(r"^persona\s*:", re.MULTILINE)
 
 
-def frontmatter(content: str) -> tuple[dict, str]:
-    """The flow's YAML mapping (empty without one) and the Markdown after it."""
-    if not content.startswith("---"):
-        return {}, content
-    raw, body = split_frontmatter(content)
-    if raw is None:
-        raise FlowError("flow_invalid: the frontmatter has no closing ---")
-    try:
-        meta = yaml.safe_load(raw)
-    except yaml.YAMLError as error:
-        raise FlowError(f"flow_invalid: the frontmatter is not valid YAML ({error})") from None
+def declared(content: str) -> dict | None:
+    """The persona a flow's frontmatter declares.
+
+    A block that is not YAML is a Markdown rule, not frontmatter, unless it names
+    ``persona:``; then a typo is an error instead of a silently ignored choice.
+    """
+    meta, _ = split_flow_frontmatter(content)
     if meta is None:
-        meta = {}
-    if not isinstance(meta, dict):
-        raise FlowError("flow_invalid: the frontmatter must be a mapping")
-    return meta, body
+        raw = split_frontmatter(content)[0] if content.startswith("---") else None
+        if raw is not None and _PERSONA_KEY.search(raw):
+            raise FlowError("flow_invalid: the frontmatter with persona is not a valid YAML mapping")
+        return None
+    return normalize(meta.get("persona"))
 
 
 def normalize(value) -> dict | None:
@@ -78,11 +74,6 @@ def normalize(value) -> dict | None:
     return spec
 
 
-def declared(content: str) -> dict | None:
-    """The persona a flow's frontmatter declares."""
-    return normalize(frontmatter(content)[0].get("persona"))
-
-
 def check_known(spec: dict | None) -> None:
     """Reject an agent or component this installation does not have."""
     if spec is None:
@@ -92,14 +83,21 @@ def check_known(spec: dict | None) -> None:
     if spec["agent"] not in known_agents():
         raise FlowError(f"flow_invalid: unknown agent {spec['agent']}")
     for kind in KINDS:
-        missing = [item for item in spec.get(kind, ()) if item not in known_ids(kind)]
+        if kind not in spec:
+            continue
+        known = known_ids(kind)
+        missing = [item for item in spec[kind] if item not in known]
         if missing:
             raise FlowError(f"flow_invalid: unknown {kind}: {', '.join(missing)}")
 
 
 def selection(spec: dict):
-    """The bundle's ``ComponentSelection``; None when every kind keeps the agent's default."""
+    """The bundle's ``ComponentSelection``; omitted kinds keep the agent's default.
+
+    Always a selection, never None: a flow's activation is compared by bundle
+    revision, so the same agent with other components is a new activation, and
+    it never trains the shared router cache.
+    """
     from src.engine.persona_bundle import ComponentSelection
 
-    chosen = {kind: tuple(spec[kind]) for kind in KINDS if kind in spec}
-    return ComponentSelection(**chosen) if chosen else None
+    return ComponentSelection(**{kind: tuple(spec[kind]) for kind in KINDS if kind in spec})

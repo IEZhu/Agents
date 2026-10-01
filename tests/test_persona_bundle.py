@@ -416,3 +416,15 @@ async def test_selection_keeps_default_for_omitted_kinds(bundle_tree):
 async def test_selection_with_unknown_component_fails_bundle(bundle_tree, selection):
     with pytest.raises((ValueError, OSError)):
         await build_persona_bundle("engineer", "Review", tier="deep", selection=selection)
+
+
+@pytest.mark.asyncio
+async def test_selected_rules_keep_priority_order(bundle_tree):
+    tree, _ = bundle_tree
+    write_mdc(tree / "rules/rule-early.mdc", {"name": "early", "priority": 0}, "Early")
+    first = await build_persona_bundle("engineer", "R", tier="deep",
+                                       selection=ComponentSelection(rules=("truth", "early")))
+    second = await build_persona_bundle("engineer", "R", tier="deep",
+                                        selection=ComponentSelection(rules=("early", "truth")))
+    assert first.rules_loaded == second.rules_loaded == ["early", "truth"]
+    assert first.bundle_revision == second.bundle_revision

@@ -216,6 +216,24 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
     again = json.loads(await server.run_flow("check", current_persona=activation["persona"]))
     assert again["persona_activation"]["status"] == "NO_CHANGE"
 
+    # Same agent, other components: compared by revision, so not NO_CHANGE.
+    default_only = json.loads(await server.set_flow_persona("check", agent="code_reviewer"))
+    assert default_only["flow"]["persona"] == {"agent": "code_reviewer"}
+    revisions = iter(["d" * 64])
+
+    async def build_default(agent, query, history, tier=None, selection=None):
+        calls.append((agent, query, selection))
+        bundle = await build(agent, query, history, tier, selection)
+        bundle.bundle_revision = next(revisions)
+        return bundle
+    monkeypatch.setattr(persona, "build_persona_bundle", build_default)
+    switched = json.loads(await server.run_flow("check", current_persona=activation["persona"]))
+    assert switched["persona_activation"]["status"] == "SUCCESS"
+    assert calls[-1][2].skills is None  # The agent's default selection.
+    server.router.update_cache.assert_not_awaited()
+
+    both = json.loads(await server.set_flow_persona("check", agent="code_reviewer", reset=True))
+    assert both["status"] == "error" and "reset=true" in both["error"]
     error = json.loads(await server.set_flow_persona("check", skills=["skill-a"]))
     assert error["status"] == "error" and "need an agent" in error["error"]
     reset = json.loads(await server.set_flow_persona("check", reset=True))

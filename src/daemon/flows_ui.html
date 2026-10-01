@@ -648,7 +648,12 @@ async function renderPersona() {
   $("persona-summary").textContent = describePersona(persona);
   $("persona-source").textContent = flow.persona_source === "overlay" ? "Your choice (overrides the flow)"
     : flow.persona_source === "frontmatter" ? "Declared by the flow" : "";
-  $("persona-reset").disabled = flow.persona_source !== "overlay";
+  $("persona-reset").disabled = flow.persona_source !== "overlay" && !flow.persona_error;
+  if (flow.persona_error) {
+    $("persona-summary").textContent = "invalid";
+    $("persona-source").textContent = flow.persona_error + ". Save a choice or reset to repair it.";
+    panel.open = true;
+  }
   const catalog = await personaCatalog();
   if (state.current !== flow) return;
   const agent = $("persona-agent");
@@ -672,12 +677,17 @@ async function renderPersona() {
       option.title = item.description; option.selected = chosen.has(item.id);
       list.appendChild(option);
     }
-    list.disabled = !box.checked;
-    box.addEventListener("change", () => { list.disabled = !box.checked; });
     column.append(exact, list);
     grid.appendChild(column);
   }
-  const sync = () => { for (const input of grid.querySelectorAll("input, select")) input.closest("div").style.opacity = agent.value ? "" : ".5"; };
+  // Components need an agent; without one the lists are disabled, not just dimmed.
+  const sync = () => {
+    for (const box of grid.querySelectorAll("input[type=checkbox]")) {
+      box.disabled = !agent.value;
+      grid.querySelector("select[data-kind=" + box.dataset.kind + "]").disabled = !agent.value || !box.checked;
+    }
+  };
+  for (const box of grid.querySelectorAll("input[type=checkbox]")) box.addEventListener("change", sync);
   agent.onchange = sync; sync();
 }
 
@@ -782,6 +792,7 @@ async function toggleItem() {
   if (!item) return;
   try {
     await api("/ui/api/component", { method: "PUT", body: { kind, id: item.id, enabled: !item.enabled } });
+    state.personaCatalog = null;  // the Persona panel marks switched-off components
     if (state.tab === kind) await loadComponents(kind, null, true);
   } catch (error) { alert(error.message); }
 }

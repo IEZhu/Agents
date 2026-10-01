@@ -368,7 +368,10 @@ async def run_flow(
         library = FlowLibrary(FlowCatalog(), repo_root=client.workspace_root())
         loaded = await asyncio.to_thread(library.resolve, flow)
         bundle = execution_bundle(loaded, target, client.workspace_id, request)
-        spec = loaded.metadata().get("persona")
+        metadata = loaded.metadata()
+        if metadata.get("persona_error"):
+            raise FlowError(f"{metadata['persona_error']}; repair it with set_flow_persona")
+        spec = metadata.get("persona")
         if spec:
             query = f"{loaded.title}\n{request}".strip()
             bundle["persona_activation"] = json.loads(await load_persona(
@@ -395,12 +398,16 @@ async def set_flow_persona(
     Works for built-in, user: and repo: flows without copying their text; it
     replaces the persona in the flow's frontmatter. A list loads exactly those
     components (empty = none); an omitted list keeps the agent's own selection.
-    agent omitted: run the flow without a persona. reset=true: drop this choice
-    so the flow's frontmatter applies again. IDs come from list_agents and the
-    component names in a persona footer.
+    agent omitted: run the flow without a persona. reset=true (alone): drop this
+    choice so the flow's frontmatter applies again; it also repairs a broken one.
+    IDs: agent names as in list_agents; skills and implants by file ID
+    (skill-web-search, implant-iteration-budget, not footer short names);
+    rules by name (no-fabrication).
     """
     try:
         library = _flow_library(ctx)
+        if reset and any(v is not None for v in (agent, skills, implants, rules)):
+            raise FlowError("flow_invalid: reset=true takes no agent or components")
         persona = None
         if agent is not None:
             persona = {"agent": agent}

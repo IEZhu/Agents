@@ -176,12 +176,18 @@ class FlowLibrary:
 
     def _persona_path(self, scope: str, flow_id: str) -> Path:
         relative = Path("builtin") if scope == "builtin" else self._relative(scope)
-        return self.user_dir / "personas" / relative / f"{flow_id}.json"
+        directory = self.user_dir / "personas" / relative
+        if not directory.resolve().is_relative_to(self.user_dir.resolve()):
+            raise FlowError("flow_invalid: persona directory escapes the library")
+        return directory / f"{flow_id}.json"
 
     def _persona(self, scope: str, flow_id: str, content: str) -> tuple:
         """``(persona, source)``: the personal overlay, else the frontmatter default."""
+        path = self._persona_path(scope, flow_id)
+        if path.is_symlink():
+            raise FlowError("flow_invalid: persona overlays cannot be symlinks")
         try:
-            with self._persona_path(scope, flow_id).open(encoding="utf-8") as stream:
+            with path.open(encoding="utf-8") as stream:
                 overlay = json.load(stream)
         except FileNotFoundError:
             overlay = None
@@ -195,8 +201,14 @@ class FlowLibrary:
         return spec, "frontmatter" if spec else None
 
     def _with_persona(self, scope: str, flow_id: str, flow: Flow) -> Flow:
-        spec, source = self._persona(scope, flow_id, flow.content)
-        details = flow.details + (("persona", spec), ("persona_source", source))
+        """A persona error stays visible on the flow, which can still be listed and
+        repaired with ``set_persona``; ``run_flow`` refuses to run it."""
+        try:
+            spec, source = self._persona(scope, flow_id, flow.content)
+            details = (("persona", spec), ("persona_source", source))
+        except FlowError as error:
+            details = (("persona", None), ("persona_source", None), ("persona_error", str(error)))
+        details = flow.details + details
         return Flow(flow.id, flow.title, flow.source_path, flow.revision, flow.content,
                     flow.source, details)
 
@@ -477,18 +489,26 @@ class FlowLibrary:
         ``persona`` replaces the flow's frontmatter declaration (``None`` runs it
         without a persona); ``reset=True`` removes the choice so the frontmatter
         applies again. Works for built-in flows without copying their text.
-        A bare name selects the flow a bare ``run_flow`` would run.
+        A bare name selects the flow a bare ``run_flow`` would run. The flow's
+        current persona is not parsed first, so a broken one can be replaced.
         """
         scope, flow_id = parse_reference(name)
-        flow = self._load(scope, flow_id) if scope else self.resolve(flow_id)
-        path = self._persona_path(flow.source, flow_id)
+        candidates = (scope,) if scope else ("repo", "user", "builtin")
+        scope = next((c for c in candidates if self._exists(c, flow_id)), None)
+        if scope is None:
+            raise FlowError("flow_not_found: use list_flows to discover available flows")
+        spec = None
+        if not reset:
+            spec = flow_persona.normalize(persona)
+            flow_persona.check_known(spec)
+        path = self._persona_path(scope, flow_id)
         self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         with file_lock(self.user_dir / ".lock"):
+            if path.is_symlink():
+                raise FlowError("flow_invalid: persona overlays cannot be symlinks")
             if reset:
                 path.unlink(missing_ok=True)
             else:
-                spec = flow_persona.normalize(persona)
-                flow_persona.check_known(spec)
                 _atomic_write(path, json.dumps({"persona": spec}, indent=2).encode() + b"\n")
-        metadata = self._load(flow.source, flow_id).metadata()
-        return {"status": "saved", "flow": metadata}
+        return {"status": "reset" if reset else "saved",
+                "flow": self._load(scope, flow_id).metadata()}

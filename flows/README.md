@@ -156,14 +156,22 @@ The choice is stored in `flows/.user/personas/` and replaces the whole
 frontmatter declaration; calling it without `agent` runs the flow without a
 persona, and `reset=true` restores the frontmatter. `list_flows` and `get_flow`
 report the effective `persona` and `persona_source` (`frontmatter`, `overlay` or
-null).
+null). An invalid declaration or an unreadable overlay does not hide the flow:
+it is listed with `persona_error`, `run_flow` refuses it with `flow_invalid`, and
+saving a choice or `reset=true` repairs it. Frontmatter is recognized only as a
+closed block that parses as a YAML mapping, so a flow may still open with a
+Markdown rule (`---`); a block that mentions `persona:` but is not valid YAML is
+`flow_invalid`.
 
 `run_flow` then also returns `persona_activation`, a protocol 2 response for that
 persona built from the flow's title and `request`. Pass `current_persona` to
 `run_flow` and apply the activation as a switch before executing the flow:
 `SUCCESS` replaces the four blocks and footer, `NO_CHANGE` keeps them, and
-`ERROR` keeps the previous persona and must be reported. A flow without a
-persona returns no activation. A later `refresh_persona_context` rebuilds the
+`ERROR` keeps the previous persona and must be reported. The activation is
+compared by `bundle_revision`, not by agent name: the same agent with other
+components is a new activation. A flow's choice never trains the router cache
+that `route_and_load` shares between users. A flow without a persona returns no
+activation. A later `refresh_persona_context` rebuilds the
 agent's default bundle, not the flow's exact lists.
 
 ## Personal and repository flows

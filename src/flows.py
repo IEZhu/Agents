@@ -4,6 +4,8 @@ import hashlib
 from pathlib import Path
 import re
 
+import yaml
+
 from src.engine.config import FLOWS_DIR
 from src.utils.prompt_loader import split_frontmatter
 
@@ -68,10 +70,26 @@ def read_flow(directory: Path, flow_id: str, *, flow_ref: str | None = None,
                 hashlib.sha256(raw).hexdigest(), content, source, details)
 
 
+def split_flow_frontmatter(content: str) -> tuple[dict | None, str]:
+    """``(mapping, body)`` for YAML frontmatter, else ``(None, content)``.
+
+    Lenient on purpose: a flow may open with a Markdown rule (``---``) that is not
+    frontmatter, so only a closed block that parses as a YAML mapping counts.
+    """
+    if not content.startswith("---"):
+        return None, content
+    raw, body = split_frontmatter(content)
+    if raw is None:
+        return None, content
+    try:
+        meta = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return None, content
+    return (meta, body) if isinstance(meta, dict) else (None, content)
+
+
 def flow_title(content: str, fallback: str) -> str:
-    if content.startswith("---"):
-        frontmatter, body = split_frontmatter(content)
-        content = body if frontmatter is not None else content
+    content = split_flow_frontmatter(content)[1]
     return next((line[2:].strip() for line in content.splitlines()
                  if line.startswith("# ") and line[2:].strip()), fallback)
 

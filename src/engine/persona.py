@@ -83,8 +83,8 @@ async def load_persona(
     reasoning: str = "Explicit persona selection", request_id: str | None = None,
     selection: ComponentSelection | None = None,
 ) -> str:
-    """``selection`` (a flow's exact components) compares bundles, not agent names:
-    the same agent with other components is a new activation."""
+    """With ``selection`` (a flow's persona) bundles are compared by revision, not
+    agent name, and the choice does not train the shared router cache."""
     request_id = request_id or str(uuid.uuid4())
     try:
         current = parse_persona(current_persona)

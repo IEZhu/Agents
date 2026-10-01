@@ -770,3 +770,50 @@ async def test_editor_chooses_a_flow_persona(editor, install, known_components, 
     blocked = await http.put("/ui/api/flow/persona", json=body,
                              headers={"X-Agents-UI": "1", "Origin": "https://attacker.example"})
     assert blocked.status_code == 403
+
+
+def test_flow_opening_with_a_markdown_rule_is_not_frontmatter(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    for text in ("---\n\n# Ruled\n\nSteps.\n", "---\n# Ruled\n\nText\n---\nMore\n"):
+        library.save("ruled", text, expected_revision=None if text.endswith("Steps.\n") else
+                     revision("---\n\n# Ruled\n\nSteps.\n"))
+        flow = library.resolve("ruled").metadata()
+        assert flow["title"] == "Ruled" and flow["persona"] is None
+
+
+def test_broken_persona_stays_listed_and_can_be_repaired(install, tmp_path, known_components):
+    (install / "typo.md").write_text("---\npersona:\n  agent: Bad Name\n---\n# Typo\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    listed = {flow["id"]: flow for flow in library.list("builtin")["flows"]}
+    assert "persona.agent" in listed["typo"]["persona_error"]
+    repaired = library.set_persona("typo", {"agent": "code_reviewer"})["flow"]
+    assert repaired["persona"] == {"agent": "code_reviewer"} and "persona_error" not in repaired
+    overlay = tmp_path / "lib" / "personas" / "builtin" / "review.json"
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    overlay.write_text("{not json", encoding="utf-8")
+    assert "unreadable" in library.resolve("review").metadata()["persona_error"]
+    reset = library.set_persona("review", None, reset=True)
+    assert reset["status"] == "reset" and not overlay.exists()
+    assert "persona_error" not in reset["flow"]
+
+
+def test_repository_flow_overlay_is_per_repository(install, repo, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib", repo_root=repo)
+    library.save("repo:local", "# Local\n", scope="repo")
+    flow = library.set_persona("local", {"agent": "code_reviewer"})["flow"]
+    assert flow["id"] == "repo:local" and flow["persona_source"] == "overlay"
+    key = repo_key(repo)[0]
+    assert (tmp_path / "lib" / "personas" / "repos" / key / "local.json").is_file()
+    with pytest.raises(FlowError, match="flow_not_found"):
+        library.set_persona("missing", {"agent": "code_reviewer"})
+
+
+def test_persona_directory_symlink_cannot_escape(install, tmp_path, known_components):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "personas").symlink_to(outside, target_is_directory=True)
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="escapes"):
+        library.set_persona("review", {"agent": "code_reviewer"})
+    assert not list(outside.iterdir())

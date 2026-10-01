@@ -172,13 +172,12 @@ async def build_persona_bundle(
     if selection.rules is None:
         rules = await asyncio.to_thread(get_rules, fresh=True, strict=True, apply_toggles=True)
     else:
-        available = {rule.name: rule for rule in await asyncio.to_thread(
-            get_rules, fresh=True, strict=True)}
-        missing = [name for name in selection.rules if name not in available]
+        available = await asyncio.to_thread(get_rules, fresh=True, strict=True)
+        missing = set(selection.rules) - {rule.name for rule in available}
         if missing and available:
-            raise ValueError(f"Unknown rules: {', '.join(missing)}")
-        # RULES_ENABLED=0 leaves no rules to choose from, as it does for the default.
-        rules = [available[name] for name in dict.fromkeys(selection.rules) if name in available]
+            raise ValueError(f"Unknown rules: {', '.join(sorted(missing))}")
+        # Kept in priority order, as the default is; RULES_ENABLED=0 leaves none.
+        rules = [rule for rule in available if rule.name in selection.rules]
     rules_block = format_rules_for_prompt(rules)
 
     if selection.skills is not None:
