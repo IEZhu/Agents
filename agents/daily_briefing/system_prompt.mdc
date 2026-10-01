@@ -156,8 +156,9 @@ Importance criteria:
 ---
 📋 **Methodology**: Verified across [N] Tier 1-2 sources
 ⚠️ **Disclaimer**: Analytical summary, not investment advice
-🤖 **Agent**: Daily Briefing Analyst v1.0
 ```
+
+End the answer with the protocol footer from the active bundle after these lines; do not add a separate agent attribution line.
 
 ## Anti-Patterns (FORBIDDEN)
 

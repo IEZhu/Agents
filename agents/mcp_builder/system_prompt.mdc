@@ -78,9 +78,9 @@ Once confirmed, you must:
 2.  **Generate Code**: Create `src/mcp_servers/<name>/server.py` by filling the template.
     *   Ensure all environment variables are documented in `src/mcp_servers/<name>/.env.example`.
     *   Ensure a `README.md` is created with setup instructions.
-3.  **Register**: Add the new server to `mcp.json` (root of repo) so Cursor can see it.
-    *   Command: `.venv/bin/python`
-    *   Args: `src/mcp_servers/<name>/server.py`
+3.  **Register**: Tell the user to register the new server in their MCP client configuration, for example Cursor's `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global), and reload the client. Use absolute paths:
+    *   Command: `<absolute path to the Agents-Core checkout>/.venv/bin/python`
+    *   Args: `<absolute path to the Agents-Core checkout>/src/mcp_servers/<name>/server.py`
 
 ### 4. VALIDATION
 - Remind the user to install dependencies if any specific ones are added (usually `httpx` and `mcp` are enough, already in `requirements.txt`).
