@@ -550,6 +550,91 @@ def test_fire_response_shape_cannot_inject_workflow_commands(bridge, capsys):
     assert "::error::" not in out and "::warning::y" not in out and "%0A" not in out
 
 
+CSE_ID = "cse_0123456789abcdefABCDEF01"
+CSE_URL = f"https://claude.ai/code/{CSE_ID}"
+
+
+def status_lines(bridge, prefix):
+    return [line for body in bridge.statuses for line in body.splitlines() if line.startswith(prefix)]
+
+
+def test_real_fire_response_links_the_cse_session_url(bridge, capsys):
+    # Shape observed on 2026-10-01: cse_ IDs and a claude.ai/code/cse_ URL.
+    bridge.fire_response = (200, {"type": "routine_fire", "claude_code_session_id": CSE_ID,
+                                  "claude_code_session_url": CSE_URL}, {"Content-Type": "application/json"})
+    bridge.startup_comments = [acknowledgement(text="[session](https://claude.ai/code/session_Ack456)")]
+    bridge.run()
+    assert status_lines(bridge, "Session created") == [
+        f"Session created: [Claude session]({CSE_URL}). Waiting for Claude to confirm startup (up to 5 minutes)."]
+    assert bridge.statuses[-1].splitlines()[-1] == (
+        f"Claude confirmed startup: [Claude session]({CSE_URL}) · [Bridge run]({RUN_URL}).")
+    assert "session_Ack456" not in "\n".join(bridge.statuses)
+    assert "claude_code_session_url=str(prefix=https://claude.ai/code/cse,len=51," in capsys.readouterr().out
+
+
+def test_fire_session_url_field_wins_over_the_id(bridge):
+    bridge.fire_response = (200, {"claude_code_session_id": "cse_Other123",
+                                  "claude_code_session_url": CSE_URL}, {})
+    bridge.run()
+    assert CSE_URL in bridge.statuses[-1]
+    assert "cse_Other123" not in "\n".join(bridge.statuses)
+
+
+@pytest.mark.parametrize("session_id", [None, "trig_Abc123", 5])
+def test_fire_session_url_field_works_without_a_usable_id(bridge, session_id):
+    fields = {"claude_code_session_url": CSE_URL}
+    if session_id is not None:
+        fields["claude_code_session_id"] = session_id
+    bridge.fire_response = (200, fields, {})
+    bridge.startup_comments = [acknowledgement(text="[session](https://claude.ai/code/session_Ack456)")]
+    bridge.run()
+    assert status_lines(bridge, "Session created") == [
+        f"Session created: [Claude session]({CSE_URL}). Waiting for Claude to confirm startup (up to 5 minutes)."]
+    assert bridge.statuses[-1].splitlines()[-1] == (
+        f"Claude confirmed startup: [Claude session]({CSE_URL}) · [Bridge run]({RUN_URL}).")
+    assert "session_Ack456" not in "\n".join(bridge.statuses)
+
+
+@pytest.mark.parametrize("bad_url", [
+    "https://claude.ai/code/cse_x?y=1",
+    "http://claude.ai/code/" + CSE_ID,
+    "https://evil.example/code/" + CSE_ID,
+    "https://claude.ai/code/routines/trig_Abc123",
+    "https://claude.ai/code/cse_" + RAW_PRIVATE,
+    CSE_URL + "/",
+    CSE_URL + "#x",
+    CSE_URL + "\n",
+    "https://Claude.ai/code/" + CSE_ID,
+    "HTTPS://claude.ai/code/" + CSE_ID,
+    42,
+])
+def test_invalid_fire_session_url_falls_back_to_the_id(bridge, bad_url):
+    bridge.fire_response = (200, {"claude_code_session_id": CSE_ID, "claude_code_session_url": bad_url}, {})
+    bridge.run()
+    assert f"[Claude session]({CSE_URL})" in bridge.statuses[-1]
+    if isinstance(bad_url, str):
+        assert bad_url not in "\n".join(bridge.statuses)
+
+
+@pytest.mark.parametrize("fields", [
+    {},
+    {"claude_code_session_id": "cse_bad/path", "claude_code_session_url": "https://evil.example/x"},
+    {"claude_code_session_id": "trig_Abc123"},
+])
+def test_unusable_fire_session_shows_a_neutral_wait_line(bridge, fields):
+    bridge.fire_response = (200, fields, {})
+    bridge.startup_comments = [acknowledgement(text=f"[session]({CSE_URL})")]
+    bridge.run()
+    assert status_lines(bridge, "Waiting for Claude to confirm startup (up to 5 minutes):") == [
+        f"Waiting for Claude to confirm startup (up to 5 minutes): [Claude routine]({ROUTINE_URL})."]
+    assert status_lines(bridge, "Session created") == []
+    joined = "\n".join(bridge.statuses)
+    assert "no usable session ID" not in joined and "no automatic retry" not in joined
+    # The acknowledgement's cse_ link is accepted as the session link.
+    assert bridge.statuses[-1].splitlines()[-1] == (
+        f"Claude confirmed startup: [Claude session]({CSE_URL}) · [Bridge run]({RUN_URL}).")
+
+
 def test_fire_session_link_wins_over_acknowledgement_link(bridge):
     bridge.startup_comments = [acknowledgement(text="[session](https://claude.ai/code/session_Ack456)")]
     bridge.run()
@@ -567,6 +652,8 @@ def test_fire_session_link_wins_over_acknowledgement_link(bridge):
     "[session](http://claude.ai/code/session_Ack456)",
     "[session](https://evil.test/https://claude.ai/code/session_Ack456)",
     "[session](https://claude.ai/code/session_Аck456)",
+    "[session](https://claude.ai/code/cse_Ack456/)",
+    "[session](https://Claude.ai/code/cse_Ack456)",
     "[session](javascript:alert(1))",
     "No link at all.",
 ])

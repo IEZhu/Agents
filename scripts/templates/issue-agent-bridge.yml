@@ -135,7 +135,11 @@ jobs:
                   else:
                       github("PATCH", f"/issues/comments/{comment_id}", data)
 
-              PUBLIC_SESSION_PREFIXES = {"session", "sess", "cse", "https://claude.ai/code/session"}
+              PUBLIC_SESSION_PREFIXES = {"session", "sess", "cse", "https://claude.ai/code/session",
+                                         "https://claude.ai/code/cse"}
+              # The fire response returns cse_ IDs; agents report session_ URLs. Accept only these.
+              SESSION_ID = r"(?:cse|session)_[A-Za-z0-9]+"
+              SESSION_URL = r"https://claude\.ai/code/" + SESSION_ID
               PUBLIC_CONTENT_TYPES = {"application/json", "text/event-stream", "text/plain", "text/html"}
 
               def char_classes(text):
@@ -176,7 +180,7 @@ jobs:
                   # Copy only an exact Claude session URL; any other link falls back to the routine.
                   for candidate in re.findall(r"https?://[^\s<>()\[\]\"'`]+", text):
                       candidate = candidate.rstrip(".,;:!?*")
-                      if re.fullmatch(r"https://claude\.ai/code/session_[A-Za-z0-9]+", candidate):
+                      if re.fullmatch(SESSION_URL, candidate):
                           return candidate
                   return ""
 
@@ -250,15 +254,18 @@ jobs:
                   length = length if re.fullmatch(r"[0-9]{1,9}", length) else "?"
                   print(f"::notice::Routine fire response shape (content-type={media}, length={length}): "
                         f"{fire_response_shape(response)}")
-                  session_id = response.get("claude_code_session_id", "") if isinstance(response, dict) else ""
-                  if isinstance(session_id, str) and re.fullmatch(r"session_[A-Za-z0-9]+", session_id):
-                      session = f"[Claude session](https://claude.ai/code/{session_id})"
+                  fields = response if isinstance(response, dict) else {}
+                  url, session_id = fields.get("claude_code_session_url"), fields.get("claude_code_session_id")
+                  if not (isinstance(url, str) and re.fullmatch(SESSION_URL, url)):
+                      url = (f"https://claude.ai/code/{session_id}"
+                             if isinstance(session_id, str) and re.fullmatch(SESSION_ID, session_id) else "")
+                  if url:
+                      session = f"[Claude session]({url})"
                       session_known = True
                       status(f"Session created: {session}. Waiting for Claude to confirm startup (up to 5 minutes).")
                   else:
                       session = f"[Claude routine](https://claude.ai/code/routines/{env['ROUTINE_ID']})"
-                      status(f"Claude accepted the request, but returned no usable session ID. {session}. "
-                             "Waiting for Claude to confirm startup (up to 5 minutes); no automatic retry was made.")
+                      status(f"Waiting for Claude to confirm startup (up to 5 minutes): {session}.")
                   ack = f"<!-- issue-agent:started bridge_comment_id={comment_id} -->"
                   deadline = time.monotonic() + 300
                   while True:
