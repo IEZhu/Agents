@@ -102,7 +102,9 @@ by hand, for example Cursor's `.cursor/mcp.json` (project) or
 }
 ```
 
-On Windows, use `.venv\Scripts\python.exe`.
+On Windows, point `command` at the absolute interpreter path, with forward
+slashes or escaped backslashes in JSON, for example
+`"C:/path/to/Agents/.venv/Scripts/python.exe"`.
 
 ## Examples
 
