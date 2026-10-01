@@ -1,3 +1,9 @@
+---
+persona:
+  agent: code_reviewer
+  skills: [skill-content-structure, skill-dev-clean-code, skill-dev-testing, skill-dev-security, skill-git-conventions]
+  implants: [implant-chain-of-verification, implant-regression-first]
+---
 # Review and merge a pull request or merge request
 
 Follow this flow to take a GitHub PR or GitLab MR through review, fixes,

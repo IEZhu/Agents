@@ -257,7 +257,9 @@ its tests exercise both that installed workflow and the reusable template.
    its login and numeric user ID before pinning `AGENT_OWNER` and
    `AGENT_OWNER_ID` in the routine prompt. For the GitHub.com `WonderMr` account,
    the verified numeric ID is `5370211`; other installations must verify their
-   own owner. The prompt says that Agents-Core MCP is unavailable (do not route),
+   own owner. The prompt says that Agents-Core MCP is unavailable (do not route;
+   the flows load their declared personas from the checkout, see
+   [flows without MCP](../flows/README.md#without-agents-core-mcp)),
    explicitly allows multi-agent orchestration, names the commit author for the
    target (see [issue-implementation](../flows/issue-implementation.md#2-create-the-branch)),
    and tells the session to follow `flows/issue-agent.md` for the event in the

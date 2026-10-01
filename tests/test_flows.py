@@ -92,3 +92,17 @@ def test_bundle_distinguishes_source_target_and_completion(catalog, tmp_path):
 def test_shipped_catalog_is_loadable():
     entries = FlowCatalog().list()
     assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review"}
+
+
+def test_builtin_flow_personas_name_existing_components():
+    """A declared persona must activate: unknown agents or IDs would fail every run."""
+    from src import flow_persona
+
+    catalog = FlowCatalog()
+    declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
+                for flow_id in catalog.ids()}
+    for spec in declared.values():
+        flow_persona.check_known(spec)
+    assert declared["issue-implementation"]["agent"] == "software_engineer"
+    assert declared["pr-review"]["agent"] == "code_reviewer"
+    assert declared["issue-agent"] is None

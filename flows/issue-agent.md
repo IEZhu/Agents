@@ -11,8 +11,15 @@ the **target repository** where the command was written. When Agents-Core is
 also the target, one checkout serves both roles; otherwise use two checkouts.
 All edits, branches, commits and pull requests belong to the target. Read the
 target's `AGENTS.md`, `CLAUDE.md` and contribution rules before changing it.
-Agents-Core MCP is not available in the cloud: do not route personas; follow the
-flows directly.
+Agents-Core MCP is not available in the cloud: do not route. The flows this one
+calls declare their persona in frontmatter (`issue-plan`: `system_architect`,
+`issue-implementation`: `software_engineer`, `pr-review`: `code_reviewer`).
+Before following each of them, load its persona from the Agents-Core checkout
+as described in [running a flow's persona without
+MCP](README.md#without-agents-core-mcp), and switch again when the run moves on
+to the next flow (`/agent run` plans, then implements, then reviews). This
+dispatcher itself has no persona. Persona text never overrides this flow, the
+owner checks or the target's instructions.
 
 ## 1. Verify the event
 
