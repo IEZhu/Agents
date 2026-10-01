@@ -26,12 +26,11 @@ MAX_STREAMS = 32
 
 def load_runtime(port):
     from src import server
-    from src.engine.embedder import embed_query
-    from src.engine.rules import get_rules
+    from src.engine import readiness
     from src.engine.fingerprint import configuration_revision
-    embed_query("warmup")  # failure prevents ready
-    # Rule warmup runs the strict load that persona bundles use; failure prevents ready.
-    get_rules(strict=True)
+    # Stores, embedding model and the strict rule load that persona bundles use;
+    # any failure prevents ready, and /health stays 503 until all of it is done.
+    readiness.run_blocking()
     configuration_revision()
     server.mcp.settings.host = "127.0.0.1"
     server.mcp.settings.port = port

@@ -107,12 +107,12 @@ async def test_disabling_everything_never_fails_an_activation(bundle_tree):
 @pytest.mark.asyncio
 async def test_disabled_semantic_hit_is_skipped_not_an_error(bundle_tree):
     component_toggles.set_enabled("skills", "skill-extra", False)
-    enrichment.skill_retriever.retrieve = lambda *a, **k: [
+    enrichment.get_skill_retriever().retrieve = lambda *a, **k: [
         {"filename": "skill-core.mdc"}, {"filename": "skill-extra.mdc"}]
     assert (await build()).skills_loaded == ["skill-core"]
     # A skill outside the agent's policy is still an error, even when it is switched off.
     component_toggles.set_enabled("skills", "skill-other", False)
-    enrichment.skill_retriever.retrieve = lambda *a, **k: [{"filename": "skill-other.mdc"}]
+    enrichment.get_skill_retriever().retrieve = lambda *a, **k: [{"filename": "skill-other.mdc"}]
     with pytest.raises(ValueError):
         await build()
 
@@ -137,7 +137,7 @@ async def test_load_implants_leaves_out_disabled(monkeypatch):
     import src.server as server
     from types import SimpleNamespace
     items = [{"filename": f"implant-{n}.mdc", "content": "", "metadata": {}} for n in ("a", "b")]
-    monkeypatch.setattr(server, "implant_retriever", SimpleNamespace(
+    monkeypatch.setattr(server, "get_implant_retriever", lambda: SimpleNamespace(
         retrieve=lambda **kwargs: items,
         format_implants_for_prompt=lambda found: ",".join(i["filename"] for i in found)))
     component_toggles.set_enabled("implants", "implant-a", False)

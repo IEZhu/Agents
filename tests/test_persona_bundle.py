@@ -25,11 +25,11 @@ def bundle_tree(tmp_path, monkeypatch):
         monkeypatch.setattr(prompt_loader, variable, str(tmp_path / folder))
     monkeypatch.setattr(rules, "RULES_DIR", str(tmp_path / "rules"))
     monkeypatch.setattr(rules, "RULES_ENABLED", True)
-    monkeypatch.setattr(enrichment, "skill_retriever", SimpleNamespace(
+    monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(
         retrieve=lambda *args, **kwargs: [{"filename": "skill-core.mdc", "content": "STALE"}],
         format_skills_for_prompt=lambda items, **kwargs: SkillRetriever.format_skills_for_prompt(None, items, **kwargs),
     ))
-    monkeypatch.setattr(enrichment, "implant_retriever", SimpleNamespace(
+    monkeypatch.setattr(enrichment, "_implant_retriever", SimpleNamespace(
         retrieve=lambda *args, **kwargs: [{"filename": "implant-focus.mdc", "content": "STALE"}],
         format_implants_for_prompt=lambda items: ImplantRetriever.format_implants_for_prompt(None, items),
     ))
@@ -56,8 +56,8 @@ OPTIONAL_COMPONENT_KEYS = (
 @pytest.mark.parametrize("key", OPTIONAL_COMPONENT_KEYS)
 async def test_null_component_list_matches_empty_and_omitted(bundle_tree, monkeypatch, key):
     tree, agent = bundle_tree
-    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", lambda *args, **kwargs: [])
-    monkeypatch.setattr(enrichment.implant_retriever, "retrieve", lambda *args, **kwargs: [])
+    monkeypatch.setattr(enrichment.get_skill_retriever(), "retrieve", lambda *args, **kwargs: [])
+    monkeypatch.setattr(enrichment.get_implant_retriever(), "retrieve", lambda *args, **kwargs: [])
     path = tree / "agents/engineer/system_prompt.mdc"
     agent[key] = []
     write_mdc(path, agent, "Engineer persona")
@@ -245,15 +245,15 @@ async def test_selected_skill_import_is_resolved_and_revisioned(bundle_tree):
 
 @pytest.mark.asyncio
 async def test_policy_violation_is_not_issued(bundle_tree, monkeypatch):
-    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", lambda *args, **kwargs: [{"filename": "skill-unrelated.mdc"}])
+    monkeypatch.setattr(enrichment.get_skill_retriever(), "retrieve", lambda *args, **kwargs: [{"filename": "skill-unrelated.mdc"}])
     with pytest.raises(ValueError, match="outside.*policy"):
         await build_persona_bundle("engineer", "A")
 
 
 @pytest.mark.asyncio
 async def test_core_sources_do_not_depend_on_index_presence(bundle_tree, monkeypatch):
-    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", lambda *args, **kwargs: [])
-    monkeypatch.setattr(enrichment.implant_retriever, "retrieve", lambda *args, **kwargs: [])
+    monkeypatch.setattr(enrichment.get_skill_retriever(), "retrieve", lambda *args, **kwargs: [])
+    monkeypatch.setattr(enrichment.get_implant_retriever(), "retrieve", lambda *args, **kwargs: [])
     bundle = await build_persona_bundle("engineer", "A", tier="deep")
     assert bundle.skills_loaded == ["skill-core"]
     assert bundle.implants_loaded == ["Focus"]
@@ -383,8 +383,8 @@ async def test_unbalanced_fence_in_output_format_leaves_the_persona_intact(bundl
 async def test_selection_loads_exact_components_and_skips_retrieval(bundle_tree, monkeypatch):
     def unexpected(*args, **kwargs):
         raise AssertionError("an exact selection must not retrieve")
-    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", unexpected)
-    monkeypatch.setattr(enrichment.implant_retriever, "retrieve", unexpected)
+    monkeypatch.setattr(enrichment._skill_retriever, "retrieve", unexpected)
+    monkeypatch.setattr(enrichment._implant_retriever, "retrieve", unexpected)
     # Outside the agent's policy and switched off: the flow's choice still applies.
     monkeypatch.setattr("src.component_toggles.disabled",
                         lambda kind: frozenset({"skill-extra", "truth"}))

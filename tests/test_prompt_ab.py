@@ -345,15 +345,16 @@ def test_a_named_arm_must_load_its_implant_on_every_case(tmp_path, monkeypatch, 
     import src
     import src.engine
 
-    enrichment = SimpleNamespace(implant_retriever=_implant_retriever([
-        {"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV", "description": "d"}]))
+    retriever = _implant_retriever([
+        {"filename": "implant-chain-of-verification.mdc", "short_name": "CoV", "body": "COV", "description": "d"}])
+    enrichment = SimpleNamespace(get_implant_retriever=lambda: retriever)
     if need_gate:
         enrichment.implants_needed = lambda query, tier, profile=None: tier != "lite"
 
     async def load_and_enrich(agent, query, history):
         tier = "lite" if len(query) < 5 else "standard"
         gate = getattr(enrichment, "implants_needed", lambda query, tier: tier != "lite")
-        implants = enrichment.implant_retriever.retrieve(query) if gate(query, tier) else []
+        implants = enrichment.get_implant_retriever().retrieve(query) if gate(query, tier) else []
         return "prompt", [], [i["metadata"]["short_name"] for i in implants], [], tier
 
     fakes = {(src, "server"): SimpleNamespace(SESSION_CACHE={}, _load_and_enrich=load_and_enrich),

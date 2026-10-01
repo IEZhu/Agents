@@ -211,6 +211,31 @@ the flow with its own tools and active persona.
 Loading a flow does not route, replace a persona or complete the task. See the
 [workflow contract](../flows/README.md#through-agents-core-mcp).
 
+## Startup and readiness
+
+Over stdio the server answers `initialize` and `tools/list` right after cheap
+setup (configuration, tool registration, the router's agent scan). Loading the
+skill and implant stores, the embedding model and the rules cache happens in one
+background daemon thread started right before `mcp.run()`
+(`src/engine/readiness.py`). The Langfuse library is imported on first traced
+call, never before the handshake. Startup logs carry a timestamp and PID, and one
+line reports the PID, working directory, code revision and per-phase durations
+when readiness completes.
+
+Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
+(default 20): `route_and_load`, `get_agent_context`, `refresh_persona_context`,
+`load_implants`, `read_history` with `query`, and the `ask` and per-agent
+prompts. Past the cap, persona tools return `ERROR` whose message starts with
+`warming_up` (the bundle was not applied; retry in a few seconds), `load_implants`
+and `read_history` return a `warming_up` text or status, and prompts embed the
+same error in their message. A failed initialization is stored and returned as an
+`ERROR` for every gated call instead of hanging. `list_agents`, `list_flows`,
+`log_interaction` and recency `read_history` never wait; `log_interaction`
+reports `langfuse: {"status": "skipped", "reason": "warming_up"}` while startup
+runs. In stdio, a failed embedding or rules warmup is only logged, as before.
+The HTTP daemon runs the same initializer, strict, before it reports ready, so
+`/health` stays 503 until it completes and any failure marks the service failed.
+
 ## Compatibility
 
 | Client instructions | Server | Result |

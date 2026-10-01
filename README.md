@@ -579,6 +579,18 @@ directory is not reliable.
 }
 ```
 
+Over stdio the server answers the MCP handshake without waiting for its stores,
+the embedding model or Langfuse; they load in the background, and a retrieval
+tool called before that finishes waits up to `WARMUP_WAIT_SECONDS` (default 20) and
+then returns `warming_up`, so the call can be retried ([details](docs/routing_flow.md#startup-and-readiness)).
+Claude Code gives a server 30 seconds to connect by default; raise it with the
+`MCP_TIMEOUT` environment variable (milliseconds) if a slow machine still times out.
+Do not register Agents-Core in both the Claude Desktop config and the Claude Code
+registry: the desktop app runs its own server and injects it into the Code
+sessions it launches, while each Code session also starts one from the Code
+registry, so one session can run several server processes. `init_repo` warns
+when it configures both.
+
 ### Cursor (`.cursor/mcp.json` in the client project)
 
 ```json

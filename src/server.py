@@ -30,7 +30,10 @@ from mcp.types import SamplingMessage, TextContent, ClientCapabilities, Sampling
 from typing import Optional, List
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s pid=%(process)d %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger("mcp-server")
 
 # Load env vars
@@ -44,7 +47,7 @@ from src.engine.enrichment import (
     enrich_agent_prompt,
     infer_tier,
     resolve_profile,
-    implant_retriever,
+    get_implant_retriever,
 )
 from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, get_client_repo_root
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
@@ -57,6 +60,7 @@ from src.flows import FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import load_persona, route_persona, parse_persona, error_response
+from src.engine import readiness
 
 PROTOCOL_VERSION = 2
 UNSUPPORTED_PROTOCOL = (
@@ -70,6 +74,31 @@ def _check_prompt_protocol(protocol_version: Optional[str]) -> None:
     """Slash prompts accept the argument protocol 2 clients were told to pass."""
     if protocol_version not in (None, "", str(PROTOCOL_VERSION)):
         raise ValueError(UNSUPPORTED_PROTOCOL)
+
+WARMING_UP_HINT = (
+    "Retrieval is still starting (stores, embedding model, rules). Retry this call in a "
+    "few seconds; keep the existing activation."
+)
+
+
+async def _readiness_problem(tool: str) -> Optional[str]:
+    """None when retrieval is ready, else ``warming_up`` or the init failure text.
+
+    Waits at most WARMUP_WAIT_SECONDS; the handshake and the tools that do not
+    use retrieval never call this.
+    """
+    problem = await readiness.wait()
+    if problem is not None:
+        logger.warning("%s not served pid=%d cwd=%s: %s", tool, os.getpid(), os.getcwd(), problem)
+    return problem
+
+
+def _persona_not_ready(problem: str) -> str:
+    """Structured ERROR for persona tools; the bundle was not applied."""
+    if problem == "warming_up":
+        return error_response(f"warming_up: {WARMING_UP_HINT}", instruction=WARMING_UP_HINT)
+    return error_response(problem)
+
 
 # Per-workspace HistoryStore cache (bounded LRU) — avoids reloading .npz from disk
 # on every read_history call. HistoryStore.ensure_index() rebuilds a stale index
@@ -138,9 +167,20 @@ SESSION_CACHE: TTLCache = TTLCache(
     ttl=SESSION_CACHE_TTL_SECONDS,
 )
 
-from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configured
-langfuse = get_langfuse()
-atexit.register(langfuse.flush)
+# Langfuse is imported lazily (first traced call or log write), never before the
+# MCP handshake. The exit hook only flushes a client that already exists.
+from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configured, flush_if_initialized
+atexit.register(flush_if_initialized)
+
+
+class _LazyLangfuse:
+    """Resolves the client on first attribute use, after the handshake."""
+
+    def __getattr__(self, name):
+        return getattr(get_langfuse(), name)
+
+
+langfuse = _LazyLangfuse()
 
 # log_interaction writes its sinks (history.md, Langfuse) on these workers after
 # it has answered. The workers are daemon threads, so a permanently blocked sink
@@ -633,6 +673,8 @@ async def route_and_load(
     """
     if protocol_version != PROTOCOL_VERSION:
         return error_response(UNSUPPORTED_PROTOCOL)
+    if (problem := await _readiness_problem("route_and_load")) is not None:
+        return _persona_not_ready(problem)
     return await route_persona(router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query)
 
 @mcp.tool()
@@ -653,6 +695,8 @@ async def get_agent_context(
     """
     if protocol_version != PROTOCOL_VERSION:
         return error_response(UNSUPPORTED_PROTOCOL)
+    if (problem := await _readiness_problem("get_agent_context")) is not None:
+        return _persona_not_ready(problem)
     return await load_persona(
         router, agent_name, query, _normalize_chat_history(chat_history),
         current_persona, force_reload=force_reload, reasoning=reasoning,
@@ -670,6 +714,8 @@ async def refresh_persona_context(
     a complete SUCCESS bundle to replace the current activation atomically.
     """
     try:
+        if (problem := await _readiness_problem("refresh_persona_context")) is not None:
+            return _persona_not_ready(problem)
         current = parse_persona(current_persona)
         if current is None:
             raise ValueError("current_persona is required for refresh")
@@ -707,6 +753,9 @@ async def load_implants(
         "planning": ["implant-plan-and-solve-plus", "implant-skeleton-of-thought"],
     }
 
+    if (problem := await _readiness_problem("load_implants")) is not None:
+        return f"warming_up: {WARMING_UP_HINT}" if problem == "warming_up" else f"Error loading implants: {problem}"
+
     loop = asyncio.get_running_loop()
     debug_log("load_implants", "req", {"query": query, "task_type": task_type, "limit": limit})
 
@@ -722,7 +771,7 @@ async def load_implants(
             ]
             results = await loop.run_in_executor(
                 None,
-                lambda: implant_retriever.store.get(ids=target_ids),
+                lambda: get_implant_retriever().store.get(ids=target_ids),
             )
             implants = [
                 {
@@ -738,12 +787,12 @@ async def load_implants(
                 return "Provide either 'query' or 'task_type'."
             implants = await loop.run_in_executor(
                 None,
-                lambda: implant_retriever.retrieve(query=query, n_results=limit),
+                lambda: get_implant_retriever().retrieve(query=query, n_results=limit),
             )
 
         off = component_toggles.disabled("implants")
         implants = [i for i in implants if i["filename"].removesuffix(".mdc") not in off]
-        result = implant_retriever.format_implants_for_prompt(implants)
+        result = get_implant_retriever().format_implants_for_prompt(implants)
         debug_log("load_implants", "res", {"implant_count": len(implants), "result_len": len(result)})
         return result
     except Exception as e:
@@ -907,13 +956,16 @@ async def log_interaction(
             logger.error("History append failed: %s", e, exc_info=True)
 
     # Both sinks are independent; the response does not wait for either.
-    _langfuse_worker.submit(_send_langfuse)
+    # While startup runs, importing Langfuse would compete with it: skip the trace.
+    langfuse_skipped = readiness.is_warming()
+    if not langfuse_skipped:
+        _langfuse_worker.submit(_send_langfuse)
     _history_worker.submit(_send_history)
 
     payload = {
         "request_id": request_id,
         "timestamp": timestamp,
-        "langfuse": {"status": "queued"},
+        "langfuse": {"status": "skipped", "reason": "warming_up"} if langfuse_skipped else {"status": "queued"},
         "history": {"status": "queued"},
         **attribution,
     }
@@ -1091,6 +1143,11 @@ async def read_history(
         loop = asyncio.get_running_loop()
 
         if query:
+            if (problem := await _readiness_problem("read_history")) is not None:
+                status = "warming_up" if problem == "warming_up" else "error"
+                return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT},
+                                  ensure_ascii=False)
+
             def search():
                 with _history_stores.acquire(client) as store:
                     return store.search(query, limit=limit)
@@ -1131,6 +1188,8 @@ async def ask(
     try:
         _check_prompt_protocol(protocol_version)
         current = parse_persona(json.loads(current_persona)) if current_persona else None
+        if (problem := await _readiness_problem("ask")) is not None:
+            return [UserMessage(f"{query}\n\n{_persona_not_ready(problem)}")]
         result = await route_persona(router, query, [], current, _is_meta_query)
         return [UserMessage(
             f"Requested persona selection:\n{result}\n\nUser query: {query}\n"
@@ -1200,6 +1259,8 @@ def _register_agent_prompts():
                 try:
                     _check_prompt_protocol(protocol_version)
                     current = parse_persona(json.loads(current_persona)) if current_persona else None
+                    if (problem := await _readiness_problem(p_name)) is not None:
+                        return [UserMessage(f"{query}\n\n{_persona_not_ready(problem)}")]
                     result = await load_persona(router, a_name, retrieval_query, [], current)
                     return [UserMessage(
                         f"Requested persona:\n{result}\n\nUser query: {query}\n"
@@ -1259,54 +1320,21 @@ def _register_memory_prompts():
 _register_memory_prompts()
 
 
-def _warmup_embedding_model():
-    """Warm up the embedding model so the first MCP request doesn't pay the
-    cold-start cost (model load can take several seconds for large models
-    like multilingual-e5-large and may exceed client timeouts)."""
-    try:
-        from src.engine.embedder import embed_texts, embed_query
-        embed_texts(["warmup"])
-        embed_query("warmup")
-        logger.info("Embedding model warmed up")
-    except Exception as e:
-        logger.warning("Embedding model warmup failed: %s", e, exc_info=True)
-
-
-def _warmup_rules():
-    """Pre-load the lenient rules cache at startup.
-
-    ``get_rules()`` does sync filesystem I/O on its first call (parsing
-    ``rules/rule-*.mdc``) and then serves that cache for the process lifetime.
-    Only the per-query evaluation path (``_load_and_enrich`` via
-    ``get_dynamic_context_string``) uses the cache, and it calls the loader on
-    the event loop, so the warmup keeps its first request from blocking.
-    Protocol 2 bundles do not use this cache: they re-read the rules in strict
-    mode on every build, so rule edits apply to the next bundle. The lenient
-    load skips invalid files and a failure here is only logged, so stdio starts
-    even with an invalid rule set (unlike the daemon's strict warmup, which
-    blocks readiness); each activation then returns ERROR.
-    """
-    try:
-        from src.engine.rules import get_rules
-        rules = get_rules()
-        logger.info("Rules layer warmed up: %d rule(s) loaded", len(rules))
-    except Exception as e:
-        logger.warning("Rules layer warmup failed: %s", e, exc_info=True)
-
-
 if __name__ == "__main__":
-    _warmup_embedding_model()
-    _warmup_rules()
+    # Answer the handshake right after the cheap setup above; stores, the
+    # embedding model and rules load in one daemon thread (src/engine/readiness.py).
+    logger.info("Starting pid=%d cwd=%s", os.getpid(), os.getcwd())
+    readiness.start()
     # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
     # prepare the next update — fetch + build the new version's indexes in an
     # isolated git worktree and write a marker — so the next idle start activates
     # it via a fast move under startup.py's exclusive lease. Legacy mode already
     # ran synchronously there and starts no background thread. No-op unless on
-    # the target branch. Started after warmup so reindex doesn't contend
-    # for the model load. See src/self_update.py.
+    # the target branch. Started after the readiness thread so reindex
+    # does not contend with it before the model load. See src/self_update.py.
     from src.self_update import log_last_update, start_background_update
     log_last_update()
-    start_background_update()
+    readiness.when_done(start_background_update)
     try:
         mcp.run()
     finally:

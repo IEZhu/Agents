@@ -866,6 +866,16 @@ else
         echo "    • Claude Code:    Install Claude Code, then re-run this script"
     else
         print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
+        # Claude Desktop (its Code tab included) also reads the Claude Code
+        # registry, so one session can start the server twice or more.
+        case " ${CONFIGURED_ENVS[*]} " in
+            *" Claude Desktop "*" Claude Code "*|*" Claude Code "*" Claude Desktop "*)
+                print_warn "Agents-Core is registered in both the Claude Desktop config and the Claude Code registry"
+                echo "    Each client starts its own server process, so a Desktop session that uses Claude Code"
+                echo "    can run several at once and slow every start. Keep one registration, and raise"
+                echo "    MCP_TIMEOUT (milliseconds) for Claude Code if the first start is still slow."
+                ;;
+        esac
     fi
 fi
 

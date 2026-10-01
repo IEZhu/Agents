@@ -159,8 +159,8 @@ async def main(run_dir: Path) -> None:
     from src import server
     from src.engine import enrichment
 
-    skills = enrichment.skill_retriever
-    implants = enrichment.implant_retriever
+    skills = enrichment.get_skill_retriever()
+    implants = enrichment.get_implant_retriever()
     orig_skill_retrieve = skills.retrieve
     orig_implant_retrieve = implants.retrieve
     orig_needed = enrichment.implants_needed
