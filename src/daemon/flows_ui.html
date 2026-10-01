@@ -78,11 +78,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <header>
   <h1>Agents-Core</h1>
   <span class="meta" id="version">Agents-Core {{VERSION}}</span>
-  <div class="tabs" id="tabs">
-    <button data-tab="flows" class="active">Flows</button>
-    <button data-tab="rules">Rules</button>
-    <button data-tab="skills">Skills</button>
-    <button data-tab="implants">Implants</button>
+  <div class="tabs" id="tabs" role="group" aria-label="Settings sections">
+    <button data-tab="flows" class="active" aria-pressed="true">Flows</button>
+    <button data-tab="rules" aria-pressed="false">Rules</button>
+    <button data-tab="skills" aria-pressed="false">Skills</button>
+    <button data-tab="implants" aria-pressed="false">Implants</button>
   </div>
   <button id="new" class="primary">New flow</button>
 </header>
@@ -240,6 +240,7 @@ function renderList() {
     const button = document.createElement("button");
     button.textContent = label;
     button.className = state.category === value ? "active" : "";
+    button.setAttribute("aria-pressed", String(state.category === value));
     button.addEventListener("click", () => { state.category = value; renderList(); });
     seg.appendChild(button);
   }
@@ -432,6 +433,7 @@ async function remove() {
 }
 
 async function openCreateDialog(title, fixedId, repoOnly) {
+  const pending = state.pending, gen = state.gen;
   $("create").returnValue = "";
   $("create-title").textContent = title;
   $("new-id").value = fixedId || "";
@@ -439,6 +441,8 @@ async function openCreateDialog(title, fixedId, repoOnly) {
   $("new-scope").value = repoOnly ? "repo" : "user";
   $("new-scope").disabled = !!repoOnly;
   const has = await chooseWorkspace($("new-workspace"));
+  // The user may have switched tab or flow while the workspaces loaded; then drop this dialog.
+  if (state.pending !== pending || state.gen !== gen || state.tab !== "flows") return;
   $("new-scope").querySelector('option[value="repo"]').disabled = !has;
   $("new-workspace-label").classList.toggle("hidden", $("new-scope").value !== "repo");
   $("create-ok").disabled = $("new-scope").value === "repo" && !has;
@@ -571,7 +575,10 @@ async function showTab(tab) {
     state.current = null; state.draft = null; setDirty(false);
   }
   state.tab = tab;
-  for (const button of $("tabs").children) button.classList.toggle("active", button.dataset.tab === tab);
+  for (const button of $("tabs").children) {
+    button.classList.toggle("active", button.dataset.tab === tab);
+    button.setAttribute("aria-pressed", String(button.dataset.tab === tab));
+  }
   $("new").classList.toggle("hidden", tab !== "flows");
   $("editor").classList.add("hidden");
   $("component").classList.add("hidden");
