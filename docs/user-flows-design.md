@@ -24,7 +24,7 @@ without dirtying or switching any git branch.
 | Concurrency | `expected_revision` (SHA-256 of the file) on every update; atomic writes under one lock | Chat and editor edits conflict instead of overwriting each other |
 | History | Each overwritten or deleted text is kept in `.history/`; restore is read-then-save | Recovery without a database or git |
 | Publishing | None: no branches, commits or pushes | The flow lives in files; sharing through a repository is out of scope |
-| Editor | Served by the existing daemon at `/ui`, entered with a one-use code from `python -m src.daemon flows-ui` | One installation to run; the browser never holds the MCP bearer token |
+| Editor | Served by the existing daemon at `/ui`; a browser of the daemon's OS user signs in by itself, others with a one-use code from `python -m src.daemon flows-ui` | One installation to run, nothing to type; the browser never holds the MCP bearer token |
 
 ## Rejected alternative
 
@@ -38,10 +38,15 @@ metrics are therefore not implemented; `run_flow` still returns a
 
 - Loopback `Host` only; changes also need a same-origin `Origin` and the
   `X-Agents-UI` header (not sendable by a cross-site form).
-- A one-use code (two minutes) becomes an HttpOnly, SameSite=Strict cookie scoped
-  to `/ui`, signed with a key in the private state directory. It lasts 30 days
-  from the last visit (renewed on each API response) and survives restarts;
-  `flows-ui --revoke` replaces the key.
+- Sign-in without a code succeeds only when the loopback connection belongs to a
+  process of the daemon's OS user (Linux `/proc/net/tcp*`, Windows
+  `GetExtendedTcpTable` with the process token and bind time, `lsof` elsewhere)
+  and carries no forwarding header; any error refuses. Same-user relays (Docker
+  Desktop, `ssh -R`, tunnels) count as the user; `flows-ui --auto off` leaves
+  only the one-use code (two minutes), which is always the fallback. Either becomes
+  an HttpOnly, SameSite=Strict cookie scoped to `/ui`, signed with a key in the
+  private state directory. It lasts 30 days from the last visit (renewed on each
+  API response) and survives restarts; `flows-ui --revoke` replaces the key.
 - The cookie cannot reach `/mcp` or administration; the bearer token does not
   open the editor API.
 - Nonce-based Content Security Policy, no external assets, text rendered with

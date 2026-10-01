@@ -1,14 +1,17 @@
 """Local flow editor served by the daemon at /ui.
 
-The browser never sees the service bearer token. ``python -m src.daemon flows-ui``
-asks the daemon (with the bearer token) for a one-use code, opens
-``/ui#code=...`` and the page trades the code for an HttpOnly, SameSite=Strict
+The browser never sees the service bearer token. The page signs in by itself: a
+sign-in request without a code succeeds when the loopback connection belongs to a
+process of the OS user running the daemon (``peer.py``), carries no forwarding
+header and ``flows-ui --auto off`` has not been set. Otherwise ``python -m src.daemon flows-ui``
+asks the daemon (with the bearer token) for a one-use code and opens
+``/ui#code=...``. Either way the page receives an HttpOnly, SameSite=Strict
 session cookie that authorizes only ``/ui/api/*``. The cookie is signed with a key
-in the private state directory, so one sign-in per browser lasts 30 days from the
-last visit and survives daemon restarts and updates; ``flows-ui --revoke`` replaces
-the key and ends every session. Every UI request must use the loopback Host;
-mutations also need a matching Origin and the ``X-Agents-UI`` header, which a
-cross-site form cannot send.
+in the private state directory, so a session lasts 30 days from the last visit and
+survives daemon restarts and updates; ``flows-ui --revoke`` replaces the key and
+ends every session. Every UI request must use the loopback Host; mutations,
+sign-in included, also need a matching Origin and the ``X-Agents-UI`` header,
+which a cross-site page cannot send.
 """
 import asyncio
 import hashlib
@@ -28,6 +31,7 @@ from src.component_catalog import known_ids, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
 from src.version import agents_core_version
+from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
 from .workspaces import WorkspaceError
 
@@ -39,6 +43,9 @@ KEY_BYTES = 32
 COOKIE = "agents_flows_ui"
 MAX_BODY = 512 * 1024
 PAGE = Path(__file__).with_name("flows_ui.html")
+AUTO_OFF_FILE = "ui_auto_sign_in_off"
+# A proxy's own process says nothing about who sent the request it relays.
+FORWARDING_HEADERS = ("forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip")
 
 
 def read_session_key(directory) -> bytes | None:
@@ -56,6 +63,19 @@ def replace_session_key(directory) -> None:
     key_path.chmod(0o600)
 
 
+def auto_sign_in_enabled(directory) -> bool:
+    return not (Path(directory) / AUTO_OFF_FILE).exists()
+
+
+def set_auto_sign_in(directory, enabled: bool) -> None:
+    """``flows-ui --auto off`` leaves only the one-use code; ``on`` restores the default."""
+    marker = Path(directory) / AUTO_OFF_FILE
+    if enabled:
+        marker.unlink(missing_ok=True)
+    else:
+        atomic_private(marker, b"off\n")
+
+
 def _error_status(message: str) -> int:
     code = message.split(":", 1)[0]
     return {"flow_conflict": 409, "flow_not_found": 404, "flow_read_only": 403,
@@ -63,11 +83,13 @@ def _error_status(message: str) -> int:
 
 
 class FlowsUI:
-    def __init__(self, service, clock=time.time):
+    def __init__(self, service, clock=time.time, peer_check=loopback_peer_is_owner):
         self.service = service
         self.codes = {}
         self.clock = clock
+        self.peer_check = peer_check
         self._key_lock = threading.Lock()
+        self._peer_lock = asyncio.Lock()  # one connection-table lookup at a time
 
     # --- access ----------------------------------------------------------------------
 
@@ -179,12 +201,23 @@ class FlowsUI:
 
     async def _login(self, request: Request):
         try:
-            code = (await self._body(request)).get("code")
+            body = await self._body(request)
         except FlowError:
-            code = None
-        expiry = self.codes.pop(code, None) if isinstance(code, str) else None
-        if expiry is None or expiry < time.monotonic():
             return self._json({"error": "code_invalid"}, 401)
+        if "code" in body:
+            code = body["code"]
+            expiry = self.codes.pop(code, None) if isinstance(code, str) else None
+            if expiry is None or expiry < time.monotonic():
+                return self._json({"error": "code_invalid"}, 401)
+        else:
+            if any(name in request.headers for name in FORWARDING_HEADERS) or \
+                    not await asyncio.to_thread(auto_sign_in_enabled, self.service.directory):
+                return self._json({"error": "sign_in_required"}, 401)
+            async with self._peer_lock:
+                owner = await asyncio.to_thread(self.peer_check, request.scope.get("client"),
+                                                request.scope.get("server"))
+            if not owner:
+                return self._json({"error": "sign_in_required"}, 401)
         try:
             cookie = await asyncio.to_thread(self._issue_session)
         except OSError:

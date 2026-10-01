@@ -76,7 +76,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Repository memory | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
 | Cloud issue-agent dispatch, startup acknowledgement and its deletion, reactions and receipt collapse | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
-| Personal and repository flows, flow editor | `test_user_flows.py` |
+| Personal and repository flows, flow editor and its sign-in | `test_user_flows.py`, `test_daemon_peer.py` (loopback owner lookup per OS), `test_flows_ui_page.py` (page script in Node; skipped without `node`) |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
@@ -110,13 +110,16 @@ uses Bash; Windows uses native `cmd.exe`. These focused checks cover template
 selection (a stale `AGENTS_PERSONA_PROTOCOL` value is ignored), repeated updates,
 override precedence and errors without running dependency installation or
 editing real client settings.
+`test_daemon_peer.py` (standard library only) checks the flow editor's loopback
+owner lookup on a real connection from a child process: `GetExtendedTcpTable` and
+the process token on Windows, `/proc/net/tcp` on Linux, `lsof` on macOS.
 
 To reproduce the workflow job locally in PowerShell with Python 3.11+ selected:
 
 ```powershell
 python -m pip install pytest python-dotenv
 $env:AGENTS_TEST_PYTHON310 = 'C:\absolute\path\to\Python310\python.exe'
-python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_protocol_migration.py -v
+python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
 ```
 
 The workflow sets `core.autocrlf false` before checkout so the byte-exact

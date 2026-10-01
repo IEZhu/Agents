@@ -286,6 +286,7 @@ A request sent during the stop window fails and can be retried. After
 .venv/bin/python -m src.daemon flows-ui          # opens the browser
 .venv/bin/python -m src.daemon flows-ui --no-open
 .venv/bin/python -m src.daemon flows-ui --revoke  # end every browser session
+.venv/bin/python -m src.daemon flows-ui --auto off  # require the one-use code (on restores the default)
 ```
 
 The daemon serves a local settings page at `/ui` with four tabs.
@@ -319,22 +320,42 @@ settings. A change applies to the next bundle the server builds (a new
 conversation, a switch to another agent, a restore, or a refresh whose revision
 changed); conversations that keep their bundle are unaffected.
 
-Access is separate from MCP. The command obtains a one-use code (valid two
-minutes) with the service token and opens `/ui#code=...`; the page exchanges it
-for an HttpOnly, SameSite=Strict cookie limited to `/ui`. The browser never
-receives the bearer token, and the cookie
-cannot call `/mcp` or administration. Requests must use the loopback Host;
-changes also need a same-origin `Origin` and the `X-Agents-UI` header. The page
-loads no external assets and runs under a nonce-based Content Security Policy.
-One sign-in per browser is enough. The cookie is signed (HMAC-SHA256) with a random
+Access is separate from MCP. Nothing has to be run: when the page gets `401`,
+it asks `/ui/api/session` to sign it in without a code, and the daemon agrees
+only if the other end of that loopback connection is a process of the OS user
+running the daemon. The check reads the operating system's connection table
+([`src/daemon/peer.py`](../src/daemon/peer.py)): `/proc/net/tcp` and `tcp6` on
+Linux (they record each socket's owner), `GetExtendedTcpTable` on Windows (the
+owning process's user SID, and that process must be older than the socket's
+bind, so a reused PID does not count), and `lsof` elsewhere, including macOS
+(without root it lists only this user's processes, so another account's
+connection is never found). Every error is a refusal, and so is any request
+carrying `Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host` or `X-Real-IP`; the
+daemon starts uvicorn with `proxy_headers=False`, so the checked address is
+always the socket's own peer. The trust boundary is your OS account: a process
+of yours that relays connections for others, such as Docker Desktop's
+`host.docker.internal` forwarding, `ssh -R` or a tunnel to port 8765, also
+passes. If that matters on your machine, `flows-ui --auto off` turns automatic
+sign-in off (the marker `ui_auto_sign_in_off` in the state directory) and
+`--auto on` turns it back on. A refused browser, for example one run by another
+account, still signs in with the one-use code: the command obtains it
+(valid two minutes) with the service token and opens `/ui#code=...`. Either way
+the page receives an HttpOnly, SameSite=Strict cookie limited to `/ui`. The
+browser never receives the bearer token, and the cookie cannot call `/mcp` or
+administration. Requests must use the loopback Host; changes, sign-in included,
+also need a same-origin `Origin` and the `X-Agents-UI` header, so a cross-site
+page cannot sign itself in. The page loads no external assets and runs under a
+nonce-based Content Security Policy.
+The cookie is signed (HMAC-SHA256) with a random
 key in the private state directory (`ui_session_key`, mode 600, never logged or
 served), so no session table exists and sessions survive daemon restarts and
 updates. A session lasts 30 days from the last visit: every editor API response
 sets a fresh cookie, so a browser that opens the page at least monthly stays
 signed in. `flows-ui --revoke` replaces the key, which ends every session at once
-(the daemon rereads the key on each request, so it works while the daemon runs).
-`token rotate` does not revoke editor sessions. A new browser profile, a cleared
-cookie or an expired window shows the sign-in page, which names the command. The
+(the daemon rereads the key on each request, so it works while the daemon runs);
+browsers of the daemon's user then sign in again by themselves unless
+`--auto off` is set, while a copied cookie stops working. `token rotate` does not revoke editor sessions. The sign-in
+page, which names the command, appears only when automatic sign-in is refused. The
 header shows `Agents-Core <version>` once. The persona footer links the version to
 the bare `http://127.0.0.1:<port>/ui` address, which never carries a code. A copied valid
 cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
