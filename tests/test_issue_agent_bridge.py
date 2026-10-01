@@ -605,6 +605,8 @@ def test_fire_session_url_field_works_without_a_usable_id(bridge, session_id):
     CSE_URL + "#x",
     CSE_URL + "\n",
     "https://Claude.ai/code/" + CSE_ID,
+    "https://user@claude.ai/code/" + CSE_ID,
+    "https://claude.ai@evil.example/code/" + CSE_ID,
     "HTTPS://claude.ai/code/" + CSE_ID,
     42,
 ])
