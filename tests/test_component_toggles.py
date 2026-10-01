@@ -167,8 +167,12 @@ def test_repository_flows_are_reachable_by_key_without_a_workspace(install, repo
     flow = by_key.get("repo:notes")
     by_key.save("repo:notes", "# Notes 2\n", scope="repo", expected_revision=flow["flow"]["revision"])
     assert by_key.get("repo:notes")["content"] == "# Notes 2\n"
+    for bad in ("../etc", "A", ".hidden", "missing-key"):
+        with pytest.raises(FlowError):
+            FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key=bad)
+    (toggle_dir / "repos" / "linked").symlink_to(toggle_dir / "repos" / key)
     with pytest.raises(FlowError):
-        FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key="../etc")
+        FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key="linked")
 
 
 # --- editor API ----------------------------------------------------------------------------

@@ -129,6 +129,10 @@ class FlowLibrary:
         if repo_key is not None and not _REPO_KEY.fullmatch(repo_key):
             raise FlowError("flow_invalid: unknown repository")
         self._key = repo_key if self.repo_root is None else None
+        if self._key:
+            known = self.user_dir / "repos" / self._key
+            if known.is_symlink() or not known.is_dir():
+                raise FlowError("flow_not_found: unknown repository")
 
     # --- locations -----------------------------------------------------------------
 

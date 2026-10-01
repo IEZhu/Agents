@@ -216,7 +216,7 @@ class FlowsUI:
                 return self._json({"status": "ok", "kind": kind, "id": component_id,
                                    "enabled": body["enabled"]})
             return self._json({"error": "not_found"}, 404)
-        except FlowError as error:
+        except (FlowError, component_toggles.ToggleError) as error:
             return self._json({"status": "error", "error": str(error)}, _error_status(str(error)))
         except OSError as error:
             return self._json({"status": "error", "error": f"storage_error: {error.strerror or error}"}, 500)

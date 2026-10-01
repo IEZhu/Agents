@@ -312,8 +312,8 @@ persona bundles: its block, `*_loaded` list, footer entry and therefore
 `bundle_revision`. Switching off a rule, a core skill or a preferred implant is
 never an error; with every rule off the `rules_block` is empty and the footer
 shows `—`, as with `RULES_ENABLED=0`. The `load_implants` tool also leaves out
-switched-off implants. The per-query path that only the evaluation harnesses use
-ignores the switches on purpose, so evaluation results do not depend on local
+switched-off implants. The per-query path (`_load_and_enrich` and the enrichment, which only the
+evaluation harnesses use) ignores the switches on purpose, so evaluation results do not depend on local
 settings. A change applies to the next bundle the server builds (a new
 conversation, a switch to another agent, a restore, or a refresh whose revision
 changed); conversations that keep their bundle are unaffected.

@@ -178,6 +178,7 @@ const sameFlow = (flow, id, repo) => flow && flow.id === id && (flow.repo_key ||
 function flowParams(flow, version) {
   const params = new URLSearchParams({ id: flow.id });
   if (flow.repo_key) params.set("repo", flow.repo_key);
+  else if (state.draft && state.draft.workspace) params.set("workspace", state.draft.workspace);
   if (version) params.set("version", version);
   return params;
 }
@@ -423,6 +424,7 @@ async function remove() {
 }
 
 async function openCreateDialog(title, fixedId, repoOnly) {
+  $("create").returnValue = "";
   $("create-title").textContent = title;
   $("new-id").value = fixedId || "";
   $("new-id").readOnly = !!fixedId;
@@ -493,6 +495,7 @@ $("toggle-upstream").addEventListener("click", () => {
 
 async function loadComponents(kind, keep) {
   const data = await api("/ui/api/components?kind=" + kind);
+  if (state.tab !== kind) return;  // a newer tab was opened meanwhile
   state.items = data.items;
   state.item = keep ? data.items.find((i) => i.id === keep) || null : null;
   renderComponents(kind);
@@ -554,7 +557,10 @@ $("c-toggle").addEventListener("click", toggleItem);
 
 async function showTab(tab) {
   if (tab === state.tab) return;
-  if (state.tab === "flows" && !confirmDiscard()) return;
+  if (state.tab === "flows") {
+    if (!confirmDiscard()) return;
+    state.current = null; state.draft = null; setDirty(false);
+  }
   state.tab = tab;
   for (const button of $("tabs").children) button.classList.toggle("active", button.dataset.tab === tab);
   $("new").classList.toggle("hidden", tab !== "flows");
@@ -562,7 +568,6 @@ async function showTab(tab) {
   $("component").classList.add("hidden");
   $("welcome").classList.remove("hidden");
   if (tab === "flows") {
-    state.current = null; state.draft = null; setDirty(false);
     await loadList();
   } else {
     await loadComponents(tab);
