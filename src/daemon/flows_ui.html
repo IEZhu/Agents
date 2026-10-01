@@ -267,7 +267,7 @@ function confirmDiscard() {
 
 async function openFlow(id, version, repo) {
   if (!confirmDiscard()) return;
-  const gen = state.gen;
+  const gen = ++state.gen;  // a newer selection supersedes an earlier one still loading
   const params = new URLSearchParams({ id });
   if (repo) params.set("repo", repo);
   if (version) params.set("version", version);
@@ -552,11 +552,11 @@ function renderComponents(kind) {
 }
 
 async function toggleItem() {
-  const item = state.item;
+  const item = state.item, kind = state.tab;  // the tab can change while the request runs
   if (!item) return;
   try {
-    await api("/ui/api/component", { method: "PUT", body: { kind: state.tab, id: item.id, enabled: !item.enabled } });
-    await loadComponents(state.tab, item.id);
+    await api("/ui/api/component", { method: "PUT", body: { kind, id: item.id, enabled: !item.enabled } });
+    if (state.tab === kind) await loadComponents(kind, item.id);
   } catch (error) { alert(error.message); }
 }
 $("c-toggle").addEventListener("click", toggleItem);
