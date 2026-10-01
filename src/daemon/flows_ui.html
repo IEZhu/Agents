@@ -812,7 +812,8 @@ function mdInline(text, parent, ctx, inLink = false) {
       const bare = /^https?:\/\/[^\s<]+/i.exec(text.slice(i));
       if (bare) {
         let url = bare[0].replace(/[.,;:!?*_'"]+$/, "");
-        while (url.endsWith(")") && url.split(")").length > url.split("(").length) url = url.slice(0, -1);
+        let balance = url.split(")").length - url.split("(").length;  // counted once: closers beyond the openers are trimmed
+        while (balance > 0 && url.endsWith(")")) { url = url.slice(0, -1); balance--; }
         if (/^https?:\/\/[^\s/.]/i.test(url)) {
           flush(); mdAnchor(parent, url, url, ctx); i += url.length; continue;
         }

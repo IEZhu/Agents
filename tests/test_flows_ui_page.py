@@ -352,3 +352,8 @@ def test_heading_text_follows_what_the_heading_shows():
 def test_an_existing_personal_copy_opens_in_source():
     _, script, _ = page_parts()
     assert 'openFlow(existing.id, null, undefined, "source")' in script
+
+
+def test_bare_urls_with_many_closing_parentheses_stay_linear():
+    html = html_of("see https://x.test/a(b)" + ")" * 60000 + " end")
+    assert 'href="https://x.test/a(b)"' in html and html.endswith(")" * 60000 + " end</p>")
