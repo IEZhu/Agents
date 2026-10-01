@@ -110,7 +110,8 @@ def test_builtin_flow_personas_name_parsable_components():
         flow_persona.check_known(spec)
         read_mdc(resolve_path(f"@agents/{spec['agent']}/system_prompt.mdc"), require_frontmatter=True)
         for kind in ("skills", "implants"):
-            assert len(_fresh_components(kind, spec[kind])) == len(spec[kind])
+            listed = spec.get(kind, [])  # An omitted list keeps the agent's default.
+            assert len(_fresh_components(kind, listed)) == len(listed)
     assert declared["issue-plan"]["agent"] == "system_architect"
     assert declared["issue-implementation"]["agent"] == "software_engineer"
     assert declared["pr-review"]["agent"] == "code_reviewer"
