@@ -40,7 +40,9 @@ def test_store_round_trip_and_defaults(toggle_dir):
 
 
 @pytest.mark.parametrize("content", ["", "not json", "[]", '{"disabled": 5}',
-                                     '{"disabled": {"rules": "x", "skills": [1, "../x"]}}'])
+                                     '{"disabled": {"rules": "x", "skills": [1, "../x"]}}',
+                                     '{"disabled": {"rules": ["truth"], "skills": [1]}}',
+                                     '{"disabled": {"rules": ["truth"], "implants": ["../x"]}}'])
 def test_corrupt_file_means_everything_enabled(toggle_dir, content):
     toggle_dir.mkdir(parents=True)
     (toggle_dir / "components.json").write_text(content)
@@ -118,6 +120,7 @@ def test_per_query_rules_path_ignores_toggles(bundle_tree):
     rules.invalidate_cache()
     assert [r.name for r in rules.get_rules()] == ["truth"]
     assert rules.get_rules(fresh=True, strict=True, apply_toggles=True) == []
+    assert rules.get_rules(apply_toggles=True) == []  # the cached path filters too
     rules.invalidate_cache()
 
 
@@ -167,6 +170,12 @@ def test_repository_flows_are_reachable_by_key_without_a_workspace(install, repo
     flow = by_key.get("repo:notes")
     by_key.save("repo:notes", "# Notes 2\n", scope="repo", expected_revision=flow["flow"]["revision"])
     assert by_key.get("repo:notes")["content"] == "# Notes 2\n"
+    # Keys that repo_key() generates, such as one for a workspace named "_project", are valid.
+    underscore = toggle_dir / "repos" / "_project-1a2b3c4d"
+    underscore.mkdir()
+    assert [g["key"] for g in FlowLibrary(FlowCatalog(install), user_dir=toggle_dir).repositories()
+            if g["key"] == underscore.name] == []  # empty groups are not listed
+    FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key=underscore.name)
     for bad in ("../etc", "A", ".hidden", "missing-key"):
         with pytest.raises(FlowError):
             FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key=bad)

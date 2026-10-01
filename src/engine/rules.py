@@ -205,13 +205,14 @@ def get_rules(
         return []
     if fresh or strict:
         rules = load_all_rules(strict=strict)
-        if apply_toggles:
-            off = component_toggles.disabled("rules")
-            rules = [rule for rule in rules if rule.name not in off]
-        return rules
-    if _cache is None:
-        _cache = load_all_rules()
-    return _cache
+    else:
+        if _cache is None:
+            _cache = load_all_rules()
+        rules = _cache
+    if apply_toggles:
+        off = component_toggles.disabled("rules")
+        rules = [rule for rule in rules if rule.name not in off]
+    return rules
 
 
 def invalidate_cache() -> None:

@@ -5,7 +5,8 @@ overrides the directory, as for personal flows)::
 
     {"disabled": {"rules": ["no-fabrication"], "skills": [], "implants": []}}
 
-Only disabled IDs are stored, so everything is enabled by default. Rules use their
+Only disabled IDs are stored, so everything is enabled by default.
+A file that is not valid as a whole is ignored as a whole. Rules use their
 ``name``; skills and implants use the file name without ``.mdc``. The file is read
 fresh on every call, so a change made in the web UI reaches the next bundle that any
 process of the installation builds. Writes are atomic under one lock. A missing,
@@ -38,18 +39,23 @@ def _path() -> Path:
 
 
 def _read() -> dict[str, set[str]]:
-    result = {kind: set() for kind in KINDS}
+    """The stored state, or everything enabled when any part of the file is malformed."""
     try:
         with _path().open(encoding="utf-8") as stream:
             data = json.load(stream)
-        disabled = data["disabled"] if isinstance(data, dict) else {}
+        disabled = data["disabled"]
+        if not isinstance(disabled, dict):
+            raise ValueError("disabled must be an object")
+        result = {kind: set() for kind in KINDS}
         for kind in KINDS:
-            values = disabled.get(kind, []) if isinstance(disabled, dict) else []
-            if isinstance(values, list):
-                result[kind] = {v for v in values if isinstance(v, str) and _ID.fullmatch(v)}
+            values = disabled.get(kind, [])
+            if not isinstance(values, list) or not all(
+                    isinstance(v, str) and _ID.fullmatch(v) for v in values):
+                raise ValueError(f"{kind} must be a list of component IDs")
+            result[kind] = set(values)
+        return result
     except (OSError, ValueError, KeyError, TypeError):
-        pass
-    return result
+        return {kind: set() for kind in KINDS}
 
 
 def disabled(kind: str) -> frozenset[str]:

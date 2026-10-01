@@ -33,7 +33,7 @@ from src.flows import (FLOW_ID, MAX_FLOW_BYTES, Flow, FlowCatalog, FlowError,
 
 SCOPES = ("builtin", "user", "repo")
 _REFERENCE = re.compile(r"(?:(builtin|user|repo):)?(?:flows/)?([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.md)?")
-_REPO_KEY = re.compile(r"[a-z0-9][a-z0-9._-]*")
+_REPO_KEY = re.compile(r"[a-z0-9_][a-z0-9._-]*")  # what repo_key() can generate
 _VERSION = re.compile(r"\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?")
 
 
