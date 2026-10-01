@@ -447,10 +447,9 @@ if [ "$SKIP_ENV" = false ]; then
         cp "$ENV_EXAMPLE" "$ENV_FILE"
         print_success ".env created successfully!"
         echo ""
-        echo -e "  ${YELLOW}⚠ Review the placeholder keys in .env (all optional):${NC}"
-        echo "    • LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY - Langfuse tracing:"
-        echo "      set real keys, or clear both values; the placeholders enable tracing"
-        echo "    • ANTHROPIC_API_KEY   - For document OCR"
+        echo -e "  ${YELLOW}⚠ Optional keys in .env:${NC}"
+        echo "    • LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY - Langfuse tracing (empty: off)"
+        echo "    • ANTHROPIC_API_KEY   - For document OCR (replace the sk-ant-... placeholder)"
         echo ""
     fi
 else

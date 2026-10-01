@@ -145,20 +145,20 @@ python -m src.reindex
 
 The core router needs no external API key. Configure `.env` using
 [env.example](env.example). Setup creates `.env` from it, so a new `.env` starts
-with these values, including placeholder keys:
+with these values:
 
 ```env
-LANGFUSE_PUBLIC_KEY=pk-lf-...   # Optional: observability
-LANGFUSE_SECRET_KEY=sk-lf-...   # Optional: observability
+LANGFUSE_PUBLIC_KEY=            # Optional: observability
+LANGFUSE_SECRET_KEY=            # Optional: observability
 LANGFUSE_HOST=https://cloud.langfuse.com
 ANTHROPIC_API_KEY=sk-ant-...    # Optional: for document OCR
 AGENTS_DEBUG=0                  # Set to 1 for per-call JSON debug logs
 ```
 
-Any non-empty Langfuse key pair enables tracing. To run without Langfuse, set both
-to empty values (`LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=`). Do not delete
-or comment out the lines: setup, including an `install.sh` update, re-adds missing
-keys with the placeholder values. The optional
+Any non-empty Langfuse key pair enables tracing, so leave both empty to run without
+Langfuse. An `.env` created from an older `env.example` may still hold the
+placeholders `pk-lf-...` and `sk-lf-...`, which enable tracing with invalid keys;
+clear them. The optional
 [document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
 `ANTHROPIC_API_KEY`.
 
@@ -723,9 +723,7 @@ committing its action log.
 Selected routing, loading, retrieval, and memory operations are instrumented with
 Langfuse. `log_interaction` records the answer and declared persona attribution;
 its history and Langfuse results are reported separately. Set real Langfuse keys
-in `.env` to enable it. For local-only operation, set both keys to empty values
-(`LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=`) instead of deleting or
-commenting out the lines, which setup would restore with placeholders (see
+in `.env` to enable it; leave them empty for local-only operation (see
 [Environment Variables](#environment-variables)). Set
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.
 
