@@ -1,7 +1,8 @@
 // Runs the flow editor page script (src/daemon/flows_ui.html) against a stub DOM and
 // fetch, for tests/test_flows_ui_page.py. Usage: node flows_ui_page_harness.mjs PAGE SCENARIO
 // Prints JSON: the sign-in requests made and whether the sign-in section is shown, or, for the
-// "search" scenario, what the list shows after each step of the search sequence.
+// "search" scenario, what the list shows after each step of the search sequence, or, for
+// "persona_race", the Persona panel's state while a save and a navigation overlap.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -36,10 +37,11 @@ const byId = (id) => { if (!elements.has(id)) elements.set(id, element(id)); ret
 
 const posts = [];
 const isUi = scenario.startsWith("ui");
-let signedIn = scenario === "search" || scenario === "render" || isUi;
+let signedIn = scenario === "search" || scenario === "render" || scenario === "persona_race" || isUi;
 const puts = [];
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
+let releasePersonaPut = null;  // persona_race: the test decides when the PUT answers
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
@@ -62,6 +64,7 @@ async function fetchStub(path, init = {}) {
     if (path.includes("kind=skills")) await sleep(80);  // a slow tab, to type while it loads
     return respond(200, searchData(path));
   }
+  if (scenario === "persona_race") return personaRace(path, init);
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
 }
@@ -112,6 +115,26 @@ function searchData(path) {
   };
 }
 
+const raceFlow = (id, title) => ({ id: `user:${id}`, source: "user", title, revision: id.repeat(64),
+                                    persona: null, persona_source: null });
+async function personaRace(path, init) {
+  if (path.startsWith("/ui/api/flows")) {
+    return respond(200, { flows: [raceFlow("a", "Alpha"), raceFlow("b", "Beta")], repositories: [] });
+  }
+  if (path === "/ui/api/flow/persona") {
+    await new Promise((resolve) => { releasePersonaPut = resolve; });
+    return respond(200, { status: "saved", flow: raceFlow("a", "Alpha") });
+  }
+  if (path.startsWith("/ui/api/flow?")) {
+    const id = new URLSearchParams(path.split("?")[1]).get("id");
+    if (id === "user:b") await sleep(100);  // B is still loading when the save answers
+    return respond(200, { flow: raceFlow(id.slice(5), id === "user:b" ? "Beta" : "Alpha"),
+                          content: "# T\n", history: [] });
+  }
+  if (path === "/ui/api/agents") return respond(200, { agents: [] });
+  return respond(200, { items: [] });
+}
+
 const docHandlers = {};
 const storage = new Map(scenario === "ui_narrow_stored" ? [["agents-ui-toc-hidden", "0"]] : []);
 const context = vm.createContext({
@@ -128,6 +151,7 @@ const context = vm.createContext({
   location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
   history: { replaceState() {} },
   fetch: fetchStub, alert() {}, confirm: () => true, setTimeout, clearTimeout, console, URLSearchParams,
+  Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
 });
 for (const [index, tab] of ["flows", "rules", "skills", "implants"].entries()) {
   const button = element();
@@ -320,6 +344,28 @@ if (isUi) {
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
   console.log(JSON.stringify(out));
+  process.exit(0);
+}
+
+if (scenario === "persona_race") {
+  const panel = () => ({ title: byId("title").textContent, save_disabled: byId("persona-save").disabled,
+                         reset_disabled: byId("persona-reset").disabled });
+  const steps = {};
+  await context.openFlow("user:a");
+  await sleep(20);  // the persona catalog
+  steps.opened = panel();
+  fire(byId("persona-save"), "click");  // the PUT now waits
+  await sleep(5);
+  steps.saving = panel();
+  const navigation = context.openFlow("user:b");  // B's GET takes 100 ms
+  await sleep(5);
+  releasePersonaPut();  // the stale save answers before B arrives
+  await sleep(20);
+  steps.stale_save_answered = panel();
+  await navigation;
+  await sleep(20);
+  steps.after_navigation = panel();
+  console.log(JSON.stringify(steps));
   process.exit(0);
 }
 

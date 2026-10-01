@@ -407,3 +407,10 @@ def test_a_long_unmatched_backtick_run_in_a_link_label_is_skipped_whole():
 def test_image_alt_text_keeps_literal_punctuation_and_drops_real_markers():
     assert html_of("![2 * 3 and ~home~](x.png)") == "<p>2 * 3 and ~home~</p>"
     assert html_of("![alt *em* `code`](y.png)") == "<p>alt em code</p>"
+def test_a_persona_save_cannot_cancel_a_navigation_that_is_still_loading():
+    steps = run("persona_race")
+    assert steps["opened"] == {"title": "Alpha", "save_disabled": False, "reset_disabled": True}
+    assert steps["saving"]["save_disabled"] and steps["saving"]["reset_disabled"]
+    # The stale save answered while Beta loads: actions stay disabled, Alpha is not restored.
+    assert steps["stale_save_answered"] == {"title": "Alpha", "save_disabled": True, "reset_disabled": True}
+    assert steps["after_navigation"] == {"title": "Beta", "save_disabled": False, "reset_disabled": True}
