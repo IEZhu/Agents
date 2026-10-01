@@ -67,7 +67,7 @@ not establish support for a client and model; see the
 | `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
-| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency and records declared attribution |
+| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency, returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (sink errors go to the server log; queued writes are drained on shutdown). Invalid attribution returns `ERROR` without `timestamp` |
 
 When the semantic cache has no decision, `route_and_load` loads `universal_agent`
 instead of returning `ROUTE_REQUIRED` for a standalone greeting,
@@ -129,8 +129,11 @@ Keep the complete descriptor and exact footer in retained conversation context,
 including summaries used during compaction. Losing a temporary tool variable
 does not remove an activation that remains in the conversation. Before sending
 the final answer, compose it with the saved footer and call `log_interaction`
-with that exact text, the current user request verbatim, the descriptor, and the
-action (`keep`, `switch`, `refresh`, or `restore`). Then deliver the answer.
+with that exact text (without a time line), the current user request verbatim, the
+descriptor, and the action (`keep`, `switch`, `refresh`, or `restore`). Then
+deliver the answer with the returned `timestamp` as its first line, followed by
+an empty line, when the footer lists the `answer-timestamp` rule; with the rule
+switched off or without a `timestamp`, add no line.
 
 ## Enrichment and storage
 

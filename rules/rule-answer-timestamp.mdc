@@ -1,0 +1,11 @@
+---
+name: answer-timestamp
+description: Start the final answer with the time returned by log_interaction.
+priority: 95
+category: formatting
+---
+# Answer timestamp
+
+Applies only to the final answer that ends with the footer, never to progress messages. After `log_interaction` returns a `timestamp`, make it the **first line** of that answer, exactly as returned, followed by an empty line. It is not part of `response_content`.
+
+No `timestamp` returned (MCP unavailable, `ERROR`, an older server)? Omit the line. Never invent, estimate or copy the time from the environment.

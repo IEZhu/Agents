@@ -74,7 +74,12 @@ async def smoke(port=18765, soak=False):
                 assert invalid.get("error") == "workspace_invalid"
                 await asyncio.gather(*(call("log_interaction", {"agent_name": "software_engineer", "query": label,
                     "response_content": "answer " + label}, identity) for label, identity in zip(["A", "B"], ids)))
-                history = await asyncio.gather(*(call("read_history", {}, identity) for identity in ids))
+                # log_interaction answers before it writes; wait for the queued entries.
+                for _ in range(50):
+                    history = await asyncio.gather(*(call("read_history", {}, identity) for identity in ids))
+                    if all(value.get("entries") for value in history):
+                        break
+                    await asyncio.sleep(.1)
                 assert history[0]["entries"][0]["intent"] == "A"
                 assert history[1]["entries"][0]["intent"] == "B"
                 descriptions = await asyncio.gather(*(call("describe_repo", {}, identity) for identity in ids))

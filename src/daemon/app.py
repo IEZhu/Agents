@@ -138,6 +138,10 @@ class Service:
             await runtime
             await diagnostics
             await loop_monitor
+            # Queued log_interaction writes run on their own executor; flush them
+            # before the process can exit.
+            if self.server is not None:
+                await asyncio.to_thread(self.server.drain_pending_logs)
             self.io.shutdown(wait=True, cancel_futures=False)
 
     async def __call__(self, scope, receive, send):
