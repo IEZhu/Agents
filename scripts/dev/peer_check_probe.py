@@ -14,8 +14,12 @@ from src.daemon import peer  # noqa: E402
 
 if sys.platform == "win32":
     import ctypes
+    name, size = ctypes.create_unicode_buffer(257), ctypes.c_ulong(257)
+    ctypes.windll.advapi32.GetUserNameW(name, ctypes.byref(size))  # the token's user, not %USERNAME%
+    print("user:", name.value)
     print("administrator:", bool(ctypes.windll.shell32.IsUserAnAdmin()))
-print("user:", getpass.getuser())
+else:
+    print("user:", getpass.getuser())
 with socket.create_server(("127.0.0.1", 0)) as server:
     port = server.getsockname()[1]
     child = subprocess.Popen([sys.executable, "-c", "import socket, sys\n"
