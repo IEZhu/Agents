@@ -432,6 +432,51 @@ def test_session_link_is_copied_from_acknowledgement_when_fire_returned_none(bri
     assert ROUTINE_URL not in bridge.statuses[-1]
 
 
+def fire_shape_notice(capsys):
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("::notice::Routine fire response shape: ")]
+    assert len(lines) == 1
+    return lines[0]
+
+
+def test_fire_response_shape_is_logged_without_values(bridge, capsys):
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    assert notice == "::notice::Routine fire response shape: claude_code_session_id=str(prefix=session,len=14,chars=a9_)"
+    assert "Abc123" not in notice
+
+
+def test_fire_response_shape_covers_nesting_urls_and_hides_private_values(bridge, capsys):
+    private_id = f"cse_{RAW_PRIVATE}"
+    bridge.fire_response = (200, {
+        "type": "routine_fire",
+        "session": {"id": private_id, "count": 1},
+        "claude_code_session_url": "https://claude.ai/code/session_" + "X" * 26,
+        "token": ROUTINE_TOKEN,
+    }, {})
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    assert notice == ("::notice::Routine fire response shape: claude_code_session_url=str(prefix=https://claude.ai/code/session,"
+                      "len=57,chars=a_/), session={count=int, id=str}, token=str, type=str")
+    for secret in (RAW_PRIVATE, ROUTINE_TOKEN, "X" * 26, "routine_fire"):
+        assert secret not in notice
+
+
+@pytest.mark.parametrize("response, shape", [(None, "NoneType"), ([], "list"), ("not-json", "str")])
+def test_fire_response_shape_for_non_objects(bridge, capsys, response, shape):
+    bridge.fire_response = (200, response, {})
+    bridge.run()
+    assert fire_shape_notice(capsys) == f"::notice::Routine fire response shape: {shape}"
+
+
+def test_fire_response_shape_cannot_inject_workflow_commands(bridge, capsys):
+    bridge.fire_response = (200, {"a\n::error::x": "v", "session\r\n::warning::y": "z_1\n::error::w"}, {})
+    bridge.run()
+    lines = capsys.readouterr().out.splitlines()
+    notice = [line for line in lines if line.startswith("::notice::Routine fire response shape: ")]
+    assert notice == ["::notice::Routine fire response shape: a???error??x=str, session????warning??y=str(prefix=z,len=14,chars=a9_/?)"]
+    assert not any(line.startswith(("::error::", "::warning::y")) for line in lines)
+
+
 def test_fire_session_link_wins_over_acknowledgement_link(bridge):
     bridge.startup_comments = [acknowledgement(text="[session](https://claude.ai/code/session_Ack456)")]
     bridge.run()
