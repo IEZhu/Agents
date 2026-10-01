@@ -159,11 +159,11 @@ def load_selected_rules(names) -> List[Rule]:
     """Strictly load only the named rules, in priority order; for a flow's exact list.
 
     Unselected rule files are read leniently to find names, so a broken rule the
-    flow does not use cannot block it. A missing or invalid selected rule raises.
-    Returns an empty list when ``RULES_ENABLED=0``, as ``get_rules()`` does.
+    flow does not use cannot block it. A missing or invalid selected rule raises,
+    also with ``RULES_ENABLED=0``, which then delivers no rules as ``get_rules()`` does.
     """
     wanted = set(names)
-    if not RULES_ENABLED or not wanted:
+    if not wanted:
         return []
     rules: List[Rule] = []
     for path in sorted(glob.glob(os.path.join(RULES_DIR, "rule-*.mdc"))):
@@ -175,6 +175,8 @@ def load_selected_rules(names) -> List[Rule]:
     missing = wanted - {rule.name for rule in rules}
     if missing:
         raise ValueError(f"Unknown or invalid rules: {', '.join(sorted(missing))}")
+    if not RULES_ENABLED:
+        return []  # Validated above, so a stale choice is still caught while rules are off.
     rules.sort(key=lambda r: (r.priority, r.name))
     return rules
 

@@ -451,3 +451,20 @@ async def test_selected_rules_ignore_a_broken_unselected_rule(bundle_tree):
     with pytest.raises(ValueError, match="Duplicate"):
         await build_persona_bundle("engineer", "R", tier="deep",
                                    selection=ComponentSelection(rules=("dup",)))
+
+
+@pytest.mark.asyncio
+async def test_exact_selection_ignores_the_agents_unused_declared_lists(bundle_tree):
+    tree, agent = bundle_tree
+    write_mdc(tree / "agents/engineer/system_prompt.mdc",
+              {**agent, "core_skills": True, "preferred_implants": True}, "Engineer persona")
+    bundle = await build_persona_bundle("engineer", "R", tier="lite", selection=ComponentSelection(
+        skills=(), implants=("implant-focus",)))
+    assert bundle.skills_loaded == [] and bundle.implants_loaded == ["Focus"]
+
+
+def test_disabled_rules_still_validate_a_selection(bundle_tree, monkeypatch):
+    monkeypatch.setattr(rules, "RULES_ENABLED", False)
+    assert rules.load_selected_rules(["truth"]) == []
+    with pytest.raises(ValueError, match="missing"):
+        rules.load_selected_rules(["missing"])

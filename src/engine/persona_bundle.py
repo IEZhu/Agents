@@ -121,10 +121,14 @@ async def build_persona_bundle(
     # every build, like the rule files.
     off_skills = component_toggles.disabled("skills")
     off_implants = component_toggles.disabled("implants")
-    declared_core = _declared_ids(metadata, "core_skills")
-    declared_preferred = _declared_ids(metadata, "preferred_skills")
-    declared_capable = _declared_ids(metadata, "capable_skills")
-    declared_implants = _declared_ids(metadata, "preferred_implants")
+    # An exact selection replaces the agent's declared lists for that kind, so they
+    # are not read: a malformed list the flow does not use cannot fail its bundle.
+    default_skills = selection.skills is None
+    declared_core = _declared_ids(metadata, "core_skills") if default_skills else []
+    declared_preferred = _declared_ids(metadata, "preferred_skills") if default_skills else []
+    declared_capable = _declared_ids(metadata, "capable_skills") if default_skills else []
+    declared_implants = (_declared_ids(metadata, "preferred_implants")
+                         if selection.implants is None else list(selection.implants))
     core = [i for i in declared_core if i not in off_skills]
     preferred = [i for i in declared_preferred if i not in off_skills]
     capable = [i for i in declared_capable if i not in off_skills]
