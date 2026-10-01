@@ -23,6 +23,8 @@ paths use it:
   until ``invalidate_cache()`` is called (e.g. by tests).
 
 ``RULES_ENABLED=0`` makes ``get_rules()`` return an empty list on both paths.
+Persona bundles also honor the per-rule switches of the web UI
+(``get_rules(apply_toggles=True)``); the per-query path ignores them.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from typing import List, Optional
 
 import yaml
 
+from src import component_toggles
 from src.engine.config import RULES_DIR, RULES_ENABLED
 from src.utils.prompt_loader import process_imports, resolve_path, split_frontmatter
 
@@ -181,22 +184,35 @@ def load_all_rules(*, strict: bool = False) -> List[Rule]:
     return rules
 
 
-def get_rules(*, fresh: bool = False, strict: bool = False) -> List[Rule]:
+def get_rules(
+    *, fresh: bool = False, strict: bool = False, apply_toggles: bool = False,
+) -> List[Rule]:
     """Entry point for persona bundles and per-query enrichment.
 
     The default lenient call is memoized. ``fresh`` or ``strict`` bypasses the
     cache and reads the files again; persona bundles pass both. Returns an
     empty list when ``RULES_ENABLED=0`` so the layer can be disabled for
     diagnostics without removing files.
+
+    ``apply_toggles=True`` also drops the rules switched off in the web UI
+    (``src.component_toggles``), after the files were validated, so switching
+    every rule off gives an empty list instead of the strict-load error. Only
+    persona bundles ask for it; the per-query evaluation path ignores the
+    switches on purpose, so evaluation results do not depend on local settings.
     """
     global _cache
     if not RULES_ENABLED:
         return []
     if fresh or strict:
-        return load_all_rules(strict=strict)
-    if _cache is None:
-        _cache = load_all_rules()
-    return _cache
+        rules = load_all_rules(strict=strict)
+    else:
+        if _cache is None:
+            _cache = load_all_rules()
+        rules = _cache
+    if apply_toggles:
+        off = component_toggles.disabled("rules")
+        rules = [rule for rule in rules if rule.name not in off]
+    return rules
 
 
 def invalidate_cache() -> None:

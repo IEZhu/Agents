@@ -17,6 +17,8 @@ from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 
+from src import component_toggles
+from src.component_catalog import known_ids, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
 from src.version import agents_core_version
@@ -141,14 +143,27 @@ class FlowsUI:
                             samesite="strict")
         return response
 
-    def _library(self, workspace: str | None) -> FlowLibrary:
+    def _library(self, workspace: str | None, repo: str | None = None) -> FlowLibrary:
+        """A library for one request.
+
+        An existing repository flow is addressed by its key (``repo``); a workspace
+        is needed only to create one, because the key is derived from its remote.
+        """
         root, error = None, None
         if workspace:
             try:
                 root = self.service.registry.resolve(workspace)
             except WorkspaceError as failure:
                 error = str(failure)
-        return FlowLibrary(FlowCatalog(), repo_root=root, repo_error=error or "workspace_required")
+        return FlowLibrary(FlowCatalog(), repo_root=root, repo_error=error or "workspace_required",
+                           repo_key=repo or None)
+
+    @staticmethod
+    def _with_key(library: FlowLibrary, result: dict) -> dict:
+        flow = result.get("flow")
+        if isinstance(flow, dict) and flow.get("source") == "repo":
+            flow["repo_key"] = library.repo()[0]
+        return result
 
     async def _api(self, request: Request, path: str):
         query = request.query_params
@@ -159,27 +174,49 @@ class FlowsUI:
                     {"id": identity, "path": root, "name": Path(root).name}
                     for identity, root in sorted(records.items(), key=lambda item: item[1])]})
             if path == "/ui/api/flows" and request.method == "GET":
+                # The page sends no workspace; the parameter stays for API callers.
                 library = self._library(query.get("workspace"))
-                return self._json(await asyncio.to_thread(library.list, "all"))
+                listing = await asyncio.to_thread(library.list, "all")
+                listing["repositories"] = await asyncio.to_thread(library.repositories)
+                return self._json(listing)
             if path == "/ui/api/flow":
                 if request.method == "GET":
-                    library = self._library(query.get("workspace"))
-                    return self._json(await asyncio.to_thread(
-                        library.get, query.get("id", ""), query.get("version") or None))
+                    library = self._library(query.get("workspace"), query.get("repo"))
+                    result = await asyncio.to_thread(
+                        library.get, query.get("id", ""), query.get("version") or None)
+                    return self._json(self._with_key(library, result))
                 body = await self._body(request)
-                library = self._library(body.get("workspace"))
+                library = self._library(body.get("workspace"), body.get("repo"))
                 if request.method == "PUT":
-                    return self._json(await asyncio.to_thread(
+                    result = await asyncio.to_thread(
                         library.save, str(body.get("id", "")), body.get("content"),
                         scope=body.get("scope") or "user",
                         expected_revision=body.get("expected_revision") or None,
-                        override=bool(body.get("override"))))
+                        override=bool(body.get("override")))
+                    return self._json(self._with_key(library, result))
                 if request.method == "DELETE":
                     return self._json(await asyncio.to_thread(
                         library.delete, str(body.get("id", "")),
                         expected_revision=str(body.get("expected_revision") or "")))
+            if path == "/ui/api/components" and request.method == "GET":
+                kind = query.get("kind", "")
+                if kind not in component_toggles.KINDS:
+                    raise FlowError("flow_invalid: kind must be rules, skills or implants")
+                return self._json({"kind": kind, "items": await asyncio.to_thread(list_components, kind)})
+            if path == "/ui/api/component" and request.method == "PUT":
+                body = await self._body(request)
+                kind, component_id = body.get("kind"), body.get("id")
+                if kind not in component_toggles.KINDS or not isinstance(body.get("enabled"), bool):
+                    raise FlowError("flow_invalid: kind and a boolean enabled are required")
+                if not isinstance(component_id, str) or component_id not in await asyncio.to_thread(
+                        known_ids, kind):
+                    raise FlowError("flow_not_found: unknown component")
+                await asyncio.to_thread(component_toggles.set_enabled, kind, component_id,
+                                        body["enabled"])
+                return self._json({"status": "ok", "kind": kind, "id": component_id,
+                                   "enabled": body["enabled"]})
             return self._json({"error": "not_found"}, 404)
-        except FlowError as error:
+        except (FlowError, component_toggles.ToggleError) as error:
             return self._json({"status": "error", "error": str(error)}, _error_status(str(error)))
         except OSError as error:
             return self._json({"status": "error", "error": f"storage_error: {error.strerror or error}"}, 500)
