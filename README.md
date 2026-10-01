@@ -400,10 +400,8 @@ Agents/
 ├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
-│   ├── common/           # agent-schema.json (frontmatter contract) and unused legacy
-│   │                     #   core-protocol.mdc and response-footer.mdc
-│   └── schemas/          # Output schemas named in agent prompts, and the unused
-│                         #   legacy agent-frontmatter.schema.json (not the contract)
+│   ├── common/           # agent-schema.json (frontmatter contract)
+│   └── schemas/          # Output schemas named in agent prompts
 ├── skills/               # Reusable knowledge chunks (RAG)
 │   └── skill-*.mdc
 ├── implants/             # Cognitive reasoning strategies (RAG)
