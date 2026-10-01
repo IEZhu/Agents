@@ -126,7 +126,9 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 The issue agent runs [flows/issue-agent.md](../flows/issue-agent.md) in a cloud
 session when the configured owner writes a `/agent` command (`plan`, `replan`,
 `run_plan`, `run`, `fix`, `review`, `status`, `stop`, `help`) in an issue or pull
-request of a target repository. The flows live in this repository; the target
+request of a target repository. Other text after `/agent` answers the agent's open
+questions on an issue that awaits them; otherwise the agent replies with its
+command table. The flows live in this repository; the target
 can be any repository the routine clones.
 
 Only comments whose GitHub author login matches `AGENT_OWNER` and whose raw
