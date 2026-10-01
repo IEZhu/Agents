@@ -232,3 +232,14 @@ def test_server_loads_dotenv_before_importing_config():
     source = pathlib.Path(__file__).resolve().parent.parent.joinpath("src", "server.py").read_text(encoding="utf-8")
     assert source.index("dotenv.load_dotenv(env_path)") < source.index("from src import component_toggles")
     assert source.index("dotenv.load_dotenv(env_path)") < source.index("from src.engine.fingerprint")
+
+
+def test_failing_completion_log_still_resolves_the_future(monkeypatch):
+    import src.version
+
+    def boom():
+        raise RuntimeError("git unavailable")
+    monkeypatch.setattr(src.version, "agents_core_version", boom)
+    readiness.start([("ok", lambda: None)])
+    assert asyncio.run(readiness.wait(5.0)) is None
+    assert readiness.is_ready()

@@ -85,11 +85,15 @@ def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futur
         future.set_exception(error if isinstance(error, Exception) else RuntimeError(str(error)))
         return
     durations["total"] = round(time.monotonic() - started, 3)
-    from src.version import agents_core_version
-    logger.info(
-        "Readiness complete pid=%d cwd=%s revision=%s durations=%s",
-        os.getpid(), os.getcwd(), agents_core_version(), durations,
-    )
+    try:
+        from src.version import agents_core_version
+        revision = agents_core_version()
+        logger.info(
+            "Readiness complete pid=%d cwd=%s revision=%s durations=%s",
+            os.getpid(), os.getcwd(), revision, durations,
+        )
+    except Exception as error:  # diagnostics only: never leave the future unresolved
+        logger.warning("Readiness complete; diagnostic line failed: %s", error)
     future.set_result(durations)
 
 
