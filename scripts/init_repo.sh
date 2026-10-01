@@ -57,7 +57,7 @@ MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
 # Override via `AGENTS_ISSUES_URL` for divergent forks / GHE mirrors. Not derived
 # from `git remote` on purpose: contributors who cloned a personal fork usually
 # still want their installer bug reports to land on upstream.
-REPO_URL_ISSUES="${AGENTS_ISSUES_URL:-https://github.com/WonderMr/Agents/issues}"
+REPO_URL_ISSUES="${AGENTS_ISSUES_URL:-https://github.com/IEZhu/Agents/issues}"
 
 # NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
 # We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)

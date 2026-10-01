@@ -2,7 +2,7 @@
 #
 # Agents-Core one-command installer (macOS and Linux)
 #
-#   curl -fsSL https://raw.githubusercontent.com/WonderMr/Agents/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 #
 # Clones (or fast-forward updates) the repository into ~/.agents-core and runs
 # scripts/init_repo.sh after a single confirmation. Extra arguments are passed to
@@ -10,7 +10,7 @@
 #
 # Environment:
 #   AGENTS_HOME       install directory (default: ~/.agents-core)
-#   AGENTS_REPO_URL   repository URL (default: https://github.com/WonderMr/Agents.git)
+#   AGENTS_REPO_URL   repository URL (default: https://github.com/IEZhu/Agents.git)
 #   AGENTS_BRANCH     branch to install (default: main)
 #   AGENTS_ASSUME_YES=1  skip the confirmation (also the behavior without a TTY)
 
@@ -23,7 +23,7 @@ main() {
           GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
-    local repo_url="${AGENTS_REPO_URL:-https://github.com/WonderMr/Agents.git}"
+    local repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
     local branch="${AGENTS_BRANCH:-main}"
 
     if ! command -v git >/dev/null 2>&1; then

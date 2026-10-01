@@ -19,7 +19,7 @@ Requires `git`, `curl`, and Python 3.11 or newer as `python3`, with `pip3` on
 `PATH` (see [After Cloning](#after-cloning)).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WonderMr/Agents/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
 
 The script clones the repository to `~/.agents-core` (or updates an existing
@@ -41,7 +41,7 @@ instructions unchanged.
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |
-| `AGENTS_REPO_URL` | `https://github.com/WonderMr/Agents.git` | Repository for a fresh clone |
+| `AGENTS_REPO_URL` | `https://github.com/IEZhu/Agents.git` | Repository for a fresh clone |
 | `AGENTS_BRANCH` | `main` | Branch to install; the standalone auto-updater acts only on `AGENTS_AUTO_UPDATE_BRANCH` (default `main`) |
 | `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
 
