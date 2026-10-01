@@ -138,7 +138,11 @@ or from this checkout's `.env` when the environment has no override. It also
 redirects `AGENTS_ROUTER_DATA_DIR` away from live router state and removes an
 inherited `CLAUDE_PROJECT_DIR`, which Claude Code exports to the servers and
 hooks it starts. Otherwise that variable would outrank the working directory
-that client-root tests set and aim memory and flows at the live project.
+that client-root tests set and aim memory and flows at the live project. It also
+removes `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_CURSOR_MCP_CONFIG` and
+`AGENTS_CLAUDE_DESKTOP_CONFIG`, which would otherwise outrank the temporary home of
+installer and migration tests and make them write the user's real client
+configuration. Tests that need one of these variables set it themselves.
 
 Tests that load retrievers may still initialize an embedding model during
 collection. A fresh worktree has no copied `.env` or `data/`, so it may need a
