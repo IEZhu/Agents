@@ -720,28 +720,31 @@ function mdPlain(text) {
 const mdSlug = (plain) => plain.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s+/g, "-");
 
 // The code span that starts at `i`, or null: a backtick run closes at the next run of equal length.
-function mdCodeSpan(text, i) {
+// The scan is charged to the document's work budget (`ctx.work`); once it is spent, runs stay literal.
+function mdCodeSpan(text, i, ctx) {
+  if (ctx.work > MD_WORK_LIMIT) return null;
   let n = 0;
   while (text[i + n] === "`") n++;
   for (let j = i + n; j < text.length;) {
     const k = text.indexOf("`", j);
-    if (k < 0) return null;
+    if (k < 0) { ctx.work += text.length - i; return null; }
     let m = 0;
     while (text[k + m] === "`") m++;
-    if (m === n) return { start: i + n, end: k, next: k + n };
+    if (m === n) { ctx.work += k - i; return { start: i + n, end: k, next: k + n }; }
     j = k + m;
   }
+  ctx.work += text.length - i;
   return null;
 }
 
 // The index of the delimiter run that closes an emphasis opened before `from`, or -1.
-function mdClose(text, from, delim) {
+function mdClose(text, from, delim, ctx) {
   const d = delim[0], len = delim.length;
   for (let i = from; i < text.length; i++) {
     const c = text[i];
     if (c === "\\") { i++; continue; }
     if (c === "`") {
-      const span = mdCodeSpan(text, i);
+      const span = mdCodeSpan(text, i, ctx);
       if (span) i = span.next - 1;
       else while (text[i + 1] === "`") i++;
       continue;
@@ -757,12 +760,12 @@ function mdClose(text, from, delim) {
 }
 
 // `[label](url "title")` starting at `i`: the label text, the URL and where it ends, or null.
-function mdLink(text, i) {
+function mdLink(text, i, ctx) {
   let depth = 0, j = i;
   for (; j < text.length; j++) {
     const c = text[j];
     if (c === "\\") { j++; continue; }
-    if (c === "`") { const span = mdCodeSpan(text, j); if (span) j = span.next - 1; continue; }
+    if (c === "`") { const span = mdCodeSpan(text, j, ctx); if (span) j = span.next - 1; continue; }
     if (c === "[") depth++;
     else if (c === "]" && --depth === 0) break;
   }
@@ -814,7 +817,7 @@ function mdInline(text, parent, ctx, inLink = false) {
       i++; continue;
     }
     if (c === "`") {
-      const span = mdCodeSpan(text, i);
+      const span = mdCodeSpan(text, i, ctx);
       if (span) {
         flush();
         let code = text.slice(span.start, span.end).replace(/\n/g, " ");
@@ -827,11 +830,11 @@ function mdInline(text, parent, ctx, inLink = false) {
       buf += text.slice(i, i + n); i += n; continue;
     }
     if (c === "!" && text[i + 1] === "[" && mdAffordable(ctx, text, i)) {  // images are not loaded (CSP): show the alt text
-      const link = mdLink(text, i + 1);
+      const link = mdLink(text, i + 1, ctx);
       if (link) { buf += mdPlain(link.label); i = link.next; continue; }
     }
     if (c === "[" && !inLink && mdAffordable(ctx, text, i)) {
-      const link = mdLink(text, i);
+      const link = mdLink(text, i, ctx);
       if (link) {
         flush();
         if (SAFE_LINK.test(link.url)) mdAnchor(parent, link.label, link.url, ctx);
@@ -859,7 +862,7 @@ function mdInline(text, parent, ctx, inLink = false) {
       while (text[i + n] === c) n++;
       const next = text[i + n] || " ", prev = text[i - 1] || " ";
       const canOpen = (c === "~" ? n === 2 : n <= 3) && !/\s/.test(next) && (c !== "_" || !/[A-Za-z0-9]/.test(prev));
-      const close = canOpen && mdAffordable(ctx, text, i) ? mdClose(text, i + n, c.repeat(n)) : -1;
+      const close = canOpen && mdAffordable(ctx, text, i) ? mdClose(text, i + n, c.repeat(n), ctx) : -1;
       if (close > 0) {
         flush();
         let host = parent;

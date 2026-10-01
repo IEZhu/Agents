@@ -391,3 +391,10 @@ def test_frontmatter_follows_the_server_contract():
 def test_many_short_lines_in_one_paragraph_stay_linear():
     html = html_of("a\n" * 40000)
     assert html.startswith("<p>a a a") and html_of("x  \ny") == "<p>x<br>y</p>"
+
+
+def test_unmatched_backticks_in_link_labels_and_emphasis_stay_fast():
+    for hostile in ("[" + "` " * 20000 + "](https://x.test)", "[a`](b) " * 8000, "*" + "`a" * 20000 + "*",
+                    "".join("`" * n + " " for n in range(1, 400))):
+        assert render(hostile)["html"].startswith("<p>")  # the harness call has a 60 s timeout
+    assert html_of("[`a`](https://x.test)") == '<p><a href="https://x.test" target="_blank" rel="noopener noreferrer"><code>a</code></a></p>'
