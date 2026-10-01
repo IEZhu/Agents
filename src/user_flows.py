@@ -236,7 +236,7 @@ class FlowLibrary:
         return [path.stem for path in sorted(directory.glob("*.md"))
                 if FLOW_ID.fullmatch(path.stem) and not path.is_symlink()]
 
-    def list(self, scope: str = "all") -> dict:
+    def list(self, scope: str = "all", *, with_content: bool = False) -> dict:
         if scope not in ("all", *SCOPES):
             raise FlowError("flow_invalid: scope must be all, builtin, user or repo")
         flows, issues = [], []
@@ -256,7 +256,10 @@ class FlowLibrary:
             ids = self.catalog.ids() if current == "builtin" else self._ids(current)
             for flow_id in ids:
                 try:
-                    entry = self._load(current, flow_id).metadata()
+                    flow = self._load(current, flow_id)
+                    entry = flow.metadata()
+                    if with_content:
+                        entry["content"] = flow.content
                 except FlowError as error:
                     issues.append({"id": f"{current}:{flow_id}", "error": str(error)})
                     continue
@@ -278,7 +281,7 @@ class FlowLibrary:
             result["issues"] = issues
         return result
 
-    def repositories(self) -> list[dict]:
+    def repositories(self, *, with_content: bool = False) -> list[dict]:
         """Every repository key that holds flows, with a display label and its flows.
 
         The label is the stored origin, else the last known path, else the key.
@@ -297,7 +300,7 @@ class FlowLibrary:
             if not isinstance(meta, dict):
                 meta = {}
             library = FlowLibrary(self.catalog, user_dir=self.user_dir, repo_key=directory.name)
-            listing = library.list("repo")
+            listing = library.list("repo", with_content=with_content)
             flows = [dict(entry, repo_key=directory.name) for entry in listing["flows"]]
             if not flows and not listing.get("issues"):
                 continue

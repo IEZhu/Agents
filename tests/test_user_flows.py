@@ -214,6 +214,18 @@ def test_symlinked_flow_is_rejected(library, tmp_path):
     assert [f["id"] for f in library.list("user")["flows"]] == []
 
 
+def test_listing_includes_content_only_on_request(library):
+    library.save("mine", "# Mine\n\nfindable phrase\n")
+    library.save("here", "# Here\n\nrepo phrase\n", scope="repo")
+    assert all("content" not in f for f in library.list()["flows"])
+    listing = library.list(with_content=True)
+    assert {f["id"]: f["content"] for f in listing["flows"]}["user:mine"] == "# Mine\n\nfindable phrase\n"
+    assert all(isinstance(f["content"], str) for f in listing["flows"])
+    group = library.repositories(with_content=True)[0]
+    assert group["flows"][0]["content"] == "# Here\n\nrepo phrase\n"
+    assert all("content" not in f for g in library.repositories() for f in g["flows"])
+
+
 def test_repo_scope_needs_a_workspace(install):
     library = FlowLibrary(FlowCatalog(install), repo_error="workspace_required")
     with pytest.raises(FlowError, match="repo_scope_unavailable: workspace_required"):
@@ -350,6 +362,9 @@ async def test_editor_edits_flows_with_conflicts_and_repository_scope(editor, in
     await login(http)
     listing = (await http.get("/ui/api/flows", params={"workspace": workspace})).json()
     assert listing["repo"]["status"] == "available"
+    assert all("content" not in f for f in listing["flows"])
+    with_text = (await http.get("/ui/api/flows", params={"workspace": workspace, "with_content": "1"})).json()
+    assert all("content" in f for f in with_text["flows"])
     workspaces = (await http.get("/ui/api/workspaces")).json()["workspaces"]
     assert workspaces == [{"id": workspace, "path": str(repo), "name": "project"}]
     copy = {"id": "repo:review", "content": "# Review here\n", "scope": "repo",
