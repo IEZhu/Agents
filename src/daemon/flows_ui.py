@@ -99,7 +99,7 @@ class FlowsUI:
         """
         key = read_session_key(self.service.directory)
         parts = request.cookies.get(COOKIE, "").split(".")
-        if key is None or len(parts) != 3 or not (parts[0].isascii() and parts[0].isdigit()):
+        if key is None or len(parts) != 3 or not (parts[0].isascii() and parts[0].isdigit() and len(parts[0]) <= 12):
             return None
         issued, nonce, signature = parts
         if not signature.isascii() or not nonce.isascii():
