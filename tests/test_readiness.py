@@ -206,3 +206,13 @@ def test_log_interaction_skips_langfuse_only_while_warming(monkeypatch, tmp_path
     assert warming["langfuse"] == {"status": "skipped", "reason": "warming_up"} and not submitted
     _wait_until(readiness.is_ready)
     assert asyncio.run(log())["langfuse"] == {"status": "queued"} and submitted
+
+
+def test_a_timeout_raised_by_the_initializer_is_an_error_not_warming_up():
+    def slow_network():
+        raise TimeoutError("model download timed out")
+
+    readiness.start([("download", slow_network)])
+    _wait_until(lambda: readiness.state() == "failed")
+    problem = asyncio.run(readiness.wait(5))
+    assert "model download timed out" in problem

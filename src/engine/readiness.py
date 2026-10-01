@@ -72,7 +72,7 @@ def _default_phases(strict: bool = False) -> list[tuple[str, Callable[[], None]]
     ]
 
 
-def _run(phases: list[tuple[str, Callable[[], None]]]) -> None:
+def _run(phases: list[tuple[str, Callable[[], None]]], future: "concurrent.futures.Future[dict]") -> None:
     started = time.monotonic()
     durations: dict[str, float] = {}
     try:
@@ -82,7 +82,7 @@ def _run(phases: list[tuple[str, Callable[[], None]]]) -> None:
             durations[name] = round(time.monotonic() - phase_started, 3)
     except BaseException as error:
         logger.error("Readiness failed after %.2fs: %s", time.monotonic() - started, error, exc_info=True)
-        _future.set_exception(error if isinstance(error, Exception) else RuntimeError(str(error)))
+        future.set_exception(error if isinstance(error, Exception) else RuntimeError(str(error)))
         return
     durations["total"] = round(time.monotonic() - started, 3)
     from src.version import agents_core_version
@@ -90,7 +90,7 @@ def _run(phases: list[tuple[str, Callable[[], None]]]) -> None:
         "Readiness complete pid=%d cwd=%s revision=%s durations=%s",
         os.getpid(), os.getcwd(), agents_core_version(), durations,
     )
-    _future.set_result(durations)
+    future.set_result(durations)
 
 
 def start(phases: Optional[list[tuple[str, Callable[[], None]]]] = None) -> bool:
@@ -101,7 +101,7 @@ def start(phases: Optional[list[tuple[str, Callable[[], None]]]] = None) -> bool
             return False
         _started = True
         _thread = threading.Thread(
-            target=_run, args=(phases if phases is not None else _default_phases(),),
+            target=_run, args=(phases if phases is not None else _default_phases(), _future),
             name="readiness", daemon=True,
         )
         _thread.start()
@@ -115,7 +115,7 @@ def run_blocking() -> dict:
         first = not _started
         _started = True
     if first:
-        _run(_default_phases(strict=True))
+        _run(_default_phases(strict=True), _future)
     return _future.result()
 
 
@@ -151,7 +151,10 @@ async def wait(timeout: Optional[float] = None) -> Optional[str]:
     cap = WARMUP_WAIT_SECONDS if timeout is None else timeout
     try:
         await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(_future)), cap)
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as error:
+        # On 3.11+ a TimeoutError raised by the initializer itself lands here too.
+        if _future.done() and _future.exception() is not None:
+            return f"Retrieval initialization failed: {_future.exception()}"
         return "warming_up"
     except Exception as error:
         return f"Retrieval initialization failed: {error}"

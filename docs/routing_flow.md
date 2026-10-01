@@ -229,7 +229,8 @@ prompts. Past the cap, persona tools return `ERROR` whose message starts with
 `warming_up` (the bundle was not applied; retry in a few seconds), `load_implants`
 and `read_history` return a `warming_up` text or status, and prompts embed the
 same error in their message. A failed initialization is stored and returned as an
-`ERROR` for every gated call instead of hanging. `list_agents`, `list_flows`,
+`ERROR` for every gated call instead of hanging; the stdio process then needs a
+restart once the cause is fixed. `list_agents`, `list_flows`,
 `log_interaction` and recency `read_history` never wait; `log_interaction`
 reports `langfuse: {"status": "skipped", "reason": "warming_up"}` while startup
 runs. In stdio, a failed embedding or rules warmup is only logged, as before.

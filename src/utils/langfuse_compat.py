@@ -5,6 +5,7 @@ Provides no-op fallbacks when Langfuse is not configured (missing keys or librar
 This allows the MCP server to run without Langfuse for observability.
 """
 
+import asyncio
 import functools
 import inspect
 import logging
@@ -117,6 +118,8 @@ def observe(*args, **kwargs):
         if inspect.iscoroutinefunction(fn):
             @functools.wraps(fn)
             async def wrapper(*a, **k):
+                if not _initialized:  # the import is slow: keep it off the event loop
+                    await asyncio.to_thread(_init)
                 return await resolve()(*a, **k)
         else:
             @functools.wraps(fn)
