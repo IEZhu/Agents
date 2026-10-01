@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import tomllib
@@ -100,3 +101,13 @@ def test_restore_preserves_original_bytes_and_restores_remaining_files(migration
 
     assert first.read_bytes() == b"\xfforiginal bytes"
     assert second.read_bytes() == b"second original"
+
+
+def test_inherited_client_config_overrides_are_cleared(migration, tmp_path):
+    # tests/conftest.py drops these at import. An inherited CLAUDE_CONFIG_DIR made
+    # migration tests rewrite the developer's real Claude profile.
+    overrides = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG")
+    assert not any(name in os.environ for name in overrides)
+    home = tmp_path / "home"; home.mkdir()
+    path, _, _ = migration.prepare("claude", None, home=home)
+    assert path == home / ".claude.json"
