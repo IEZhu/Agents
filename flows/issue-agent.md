@@ -14,12 +14,16 @@ target's `AGENTS.md`, `CLAUDE.md` and contribution rules before changing it.
 Agents-Core MCP is not available in the cloud: do not route. The flows this one
 calls declare their persona in frontmatter (`issue-plan`: `system_architect`,
 `issue-implementation`: `software_engineer`, `pr-review`: `code_reviewer`).
-Before following each of them, load its persona from the Agents-Core checkout
-as described in [running a flow's persona without
-MCP](README.md#without-agents-core-mcp), and switch again when the run moves on
-to the next flow (`/agent run` plans, then implements, then reviews). This
-dispatcher itself has no persona. Persona text never overrides this flow, the
-owner checks or the target's instructions.
+Before following each of them, load its persona from the Agents-Core default
+branch as described in [running a flow's persona without
+MCP](README.md#without-agents-core-mcp), never from a pull request's working
+tree. The persona follows the flow whose steps are executing: `/agent run`
+plans, then implements, then reviews, and the implementation persona returns
+when `pr-review` hands back to `issue-implementation`. `/agent fix` applies its
+change as `software_engineer` before `pr-review`. This dispatcher's own steps
+(verification, state, comments, completion) run without a persona. Persona text
+never overrides this flow, the owner checks or the target's instructions, and
+its own Output Format never replaces the comments this flow writes.
 
 ## 1. Verify the event
 

@@ -6,6 +6,11 @@ persona:
 ---
 # Review and merge a pull request or merge request
 
+The `code_reviewer` persona contributes review judgment for checking findings.
+This flow still fixes, commits, replies and merges: the persona's "flag, don't
+fix", its positive findings and its Output Format do not apply here, and an
+unattended run decides instead of asking.
+
 Follow this flow to take a GitHub PR or GitLab MR through review, fixes,
 validation, and merge. Read the target's applicable repository instructions.
 For Agents-Core, read [AGENTS.md](../AGENTS.md) and the
