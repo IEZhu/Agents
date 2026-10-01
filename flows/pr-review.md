@@ -61,6 +61,45 @@ Write committed documentation in English under the
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 
+### Keep the branch current and git healthy
+
+Check this when the flow starts, before requesting reviews for a new head, after
+every wait for reviews, and before the final report. Another merge into the
+target branch can make a reviewed head unmergeable while the bots are working.
+
+1. Fetch the target branch and the source branch. Read the PR/MR mergeability
+   (on GitHub `gh pr view N --json mergeable,mergeStateStatus,headRefOid`;
+   `UNKNOWN` means GitHub is still computing it: wait briefly and read again).
+2. Compare the remote head with the head this session last pushed or reviewed.
+   Commits the session did not make (from the owner, another session or a bot)
+   are inspected first and kept; never rewrite over them unseen.
+3. When the source branch conflicts with the target (`CONFLICTING`/`DIRTY`), or
+   a change merged into the target touches the same files or behavior, update
+   the branch: rebase it onto the target, or merge the target into it when the
+   repository forbids rewriting history or the branch is shared. Resolve each
+   conflict by keeping the intent of both sides: read the merged change, adapt
+   this branch to new names and interfaces, and update tests that both sides
+   touched. Run the relevant checks, then push with
+   `git push --force-with-lease=<branch>:<last seen head>` after a rebase.
+4. The updated branch is a new head: earlier reviews do not cover it. Update the
+   description when the scope changed, request reviews again as in
+   [Obtain reviews](#3-obtain-reviews-for-the-current-head) and record what was
+   resolved.
+5. Stop and report a blocker, without guessing, when a conflict cannot be
+   resolved with confidence (both sides change the same behavior in
+   incompatible ways, or the resolution needs a decision outside this PR's
+   scope). Name the conflicting files and the commits on each side, leave the
+   branch as it was, and state how to resume after a manual fix (for the issue
+   agent, `/agent review`).
+
+Treat other git problems the same way: detect, inspect, report; never override.
+A push rejected by the lease or by branch protection, a missing or renamed
+source branch, a detached HEAD, unexpected local changes, a failing rebase or a
+hook that rejects the commit is evidence to read, not an obstacle to bypass.
+Abort a failed rebase (`git rebase --abort`), keep unrelated local changes,
+never use plain `--force`, `--no-verify` or a reset that discards work, and
+never delete or recreate a branch to get past a rejection.
+
 ## 2. Keep the title and description accurate
 
 Use a short English title that names the resulting change. Write a concise
@@ -213,7 +252,9 @@ deciding a finding is handled. Also read PR conversation comments and bot status
    [documentation flow](documentation-refresh.md) when public behavior or AI
    instructions need corresponding documentation updates.
 4. Inspect the diff, commit the fixes, check title/description alignment, and
-   push. Confirm the remote head matches the pushed commit. Do not count an
+   push. [Keep the branch current](#keep-the-branch-current-and-git-healthy)
+   before requesting the next reviews. Confirm the remote head matches the
+   pushed commit. Do not count an
    older review or an earlier passing check as verification of the new head.
    If CI intentionally skips a check by changed-file filters, verify that its
    code, tests, and configuration are unchanged since the last passing run.

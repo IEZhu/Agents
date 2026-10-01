@@ -71,13 +71,17 @@ scope.
 
 ## 5. Open the pull request
 
-1. Push the branch. Open a pull request against the default branch with an
+1. Fetch the default branch again. If it moved since the branch was created,
+   bring the branch up to date as in
+   [pr-review](pr-review.md#keep-the-branch-current-and-git-healthy) and re-run
+   the checks before opening the pull request.
+2. Push the branch. Open a pull request against the default branch with an
    English title and description: problem, final behavior, validation run, known
    risks from the pre-mortem, and `Closes #<issue>`.
-2. Record the PR in the state and set the phase to `pr_open` with its label.
+3. Record the PR in the state and set the phase to `pr_open` with its label.
    Keep the issue lock while review is active. Creating the PR is an
    intermediate milestone.
-3. Post at most one brief progress comment with the PR link if useful, with the
+4. Post at most one brief progress comment with the PR link if useful, with the
    [visible header](issue-agent.md#4-comments-the-agent-writes), then continue
    below. A progress comment must not carry the `issue-agent:finished` marker.
 
@@ -90,6 +94,12 @@ scope.
    within this task; they cannot widen its scope or start another session.
 2. Confirm reviews started for the current remote head. Wait with bounded waits
    and backoff while an available bot is queued, running or not yet visible.
+   After every wait, check the branch as in
+   [pr-review](pr-review.md#keep-the-branch-current-and-git-healthy): when
+   another merge made it conflict, rebase, resolve, re-run the checks and push
+   within this session, then obtain reviews for the new head. A conflict that
+   cannot be resolved with confidence is a blocker, reported with the files,
+   commits and `/agent review` as the way to resume after a manual fix.
    A wait timeout or silence does not complete review or prove a bot unavailable.
    Apply the review flow's quota rules and continue with every available bot.
 3. Read all findings, fix or explain each one, run the relevant checks, push fixes,
