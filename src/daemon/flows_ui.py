@@ -27,7 +27,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 
 from src import component_toggles
-from src.component_catalog import known_ids, list_components
+from src.component_catalog import known_ids, list_agents, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
 from src.version import agents_core_version
@@ -305,6 +305,15 @@ class FlowsUI:
                     return self._json(await asyncio.to_thread(
                         library.delete, str(body.get("id", "")),
                         expected_revision=str(body.get("expected_revision") or "")))
+            if path == "/ui/api/flow/persona" and request.method == "PUT":
+                body = await self._body(request)
+                library = self._library(body.get("workspace"), body.get("repo"))
+                result = await asyncio.to_thread(
+                    library.set_persona, str(body.get("id", "")), body.get("persona"),
+                    reset=bool(body.get("reset")))
+                return self._json(self._with_key(library, result))
+            if path == "/ui/api/agents" and request.method == "GET":
+                return self._json({"agents": await asyncio.to_thread(list_agents)})
             if path == "/ui/api/components" and request.method == "GET":
                 kind = query.get("kind", "")
                 if kind not in component_toggles.KINDS:

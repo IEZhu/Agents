@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from src.engine.config import FLOWS_DIR
+from src.utils.prompt_loader import split_frontmatter
 
 
 FLOW_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -68,6 +69,9 @@ def read_flow(directory: Path, flow_id: str, *, flow_ref: str | None = None,
 
 
 def flow_title(content: str, fallback: str) -> str:
+    if content.startswith("---"):
+        frontmatter, body = split_frontmatter(content)
+        content = body if frontmatter is not None else content
     return next((line[2:].strip() for line in content.splitlines()
                  if line.startswith("# ") and line[2:].strip()), fallback)
 
@@ -119,6 +123,9 @@ def execution_bundle(flow: Flow, repo_path: Path, workspace_id: str | None,
             "Use the target's own source, tools and checks; apply Agents-Core-specific "
             "examples only when the target is Agents-Core. If a linked source helper is "
             "unavailable to the client, use equivalent supported target/platform tools. "
+            "If persona_activation is present, apply it first under persona protocol 2 as a "
+            "switch (SUCCESS replaces the four blocks, NO_CHANGE keeps them, ERROR keeps "
+            "the previous persona and is reported). "
             "If the client cannot access repo_path, report that blocker before taking "
             "actions. Report actual completion and validation in the invocation language; "
             "never treat needs_execution as a completed run."

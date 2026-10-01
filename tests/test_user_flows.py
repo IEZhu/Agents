@@ -671,3 +671,102 @@ async def test_a_command_right_after_the_check_still_ends_the_new_session(editor
     monkeypatch.setattr(service.flows_ui, "_still_admitted", admitted_then_revoked)
     assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 200
     assert (await http.get("/ui/api/flows")).status_code == 401  # signed with the revoked key
+
+
+@pytest.fixture
+def known_components(monkeypatch):
+    import src.component_catalog as catalog
+    monkeypatch.setattr(catalog, "known_agents", lambda: {"code_reviewer", "software_engineer"})
+    monkeypatch.setattr(catalog, "known_ids", lambda kind: {
+        "skills": {"skill-a"}, "implants": {"implant-b"}, "rules": {"truth"}}[kind])
+
+
+def test_frontmatter_persona_is_flow_metadata(install, tmp_path, known_components):
+    (install / "audit.md").write_text(
+        "---\npersona:\n  agent: code_reviewer\n  skills: [skill-a.mdc]\n---\n# Audit\n\nSteps.\n",
+        encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    flow = library.resolve("audit").metadata()
+    assert flow["title"] == "Audit"
+    assert flow["persona"] == {"agent": "code_reviewer", "skills": ["skill-a"]}
+    assert flow["persona_source"] == "frontmatter"
+    review = library.resolve("review").metadata()
+    assert review["persona"] is None and review["persona_source"] is None
+
+
+def test_overlay_chooses_persona_for_builtin_without_copying(install, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    spec = {"agent": "code_reviewer", "skills": [], "implants": ["implant-b"], "rules": ["truth"]}
+    result = library.set_persona("review", spec)
+    assert result["flow"]["id"] == "builtin:review"
+    assert result["flow"]["persona"] == spec
+    assert result["flow"]["persona_source"] == "overlay"
+    assert (install / "review.md").read_text(encoding="utf-8") == BUILTIN
+    assert not (tmp_path / "lib" / "common").exists()  # No local copy of the text.
+    assert library.set_persona("builtin:review", None)["flow"]["persona"] is None
+    reset = library.set_persona("review", None, reset=True)["flow"]
+    assert reset["persona"] is None and reset["persona_source"] is None
+
+
+def test_overlay_replaces_frontmatter_and_reset_restores_it(install, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    text = "---\npersona:\n  agent: software_engineer\n---\n# Mine\n"
+    library.save("mine", text)
+    library.set_persona("user:mine", {"agent": "code_reviewer"})
+    assert library.resolve("mine").metadata()["persona"] == {"agent": "code_reviewer"}
+    library.set_persona("mine", None, reset=True)
+    assert library.resolve("mine").metadata()["persona"] == {"agent": "software_engineer"}
+    library.set_persona("mine", {"agent": "code_reviewer"})
+    library.delete("user:mine", expected_revision=revision(text))
+    library.save("mine", text)  # A recreated flow starts from its frontmatter again.
+    assert library.resolve("mine").metadata()["persona_source"] == "frontmatter"
+
+
+@pytest.mark.parametrize("persona, code", [
+    ({"agent": "ghost"}, "unknown agent"),
+    ({"agent": "code_reviewer", "skills": ["skill-missing"]}, "unknown skills"),
+    ({"agent": "code_reviewer", "rules": "truth"}, "must be a list"),
+    ({"agent": "code_reviewer", "extra": 1}, "unknown persona fields"),
+    ({"skills": ["skill-a"]}, "persona.agent"),
+    ("code_reviewer", "must be a mapping"),
+])
+def test_invalid_persona_is_rejected_on_save_and_overlay(install, tmp_path, known_components,
+                                                        persona, code):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match=code):
+        library.set_persona("review", persona)
+    import yaml
+    text = f"---\n{yaml.safe_dump({'persona': persona})}---\n# Bad\n"
+    with pytest.raises(FlowError, match=code):
+        library.save("bad", text)
+    assert not (tmp_path / "lib" / "common" / "bad.md").exists()
+
+
+def test_broken_frontmatter_is_flow_invalid(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="flow_invalid"):
+        library.save("bad", "---\npersona: [unclosed\n---\n# Bad\n")
+
+
+@pytest.mark.asyncio
+async def test_editor_chooses_a_flow_persona(editor, install, known_components, monkeypatch):
+    monkeypatch.setattr("src.daemon.flows_ui.list_agents", lambda: [
+        {"id": "code_reviewer", "display_name": "Code Reviewer", "role": "Review"}])
+    http, _ = editor
+    await login(http)
+    agents = (await http.get("/ui/api/agents")).json()["agents"]
+    assert [agent["id"] for agent in agents] == ["code_reviewer"]
+    body = {"id": "review", "persona": {"agent": "code_reviewer", "rules": ["truth"]}}
+    saved = await http.put("/ui/api/flow/persona", json=body, headers=UI)
+    assert saved.status_code == 200
+    assert saved.json()["flow"]["persona"] == {"agent": "code_reviewer", "rules": ["truth"]}
+    flow = (await http.get("/ui/api/flow", params={"id": "review"})).json()["flow"]
+    assert flow["persona_source"] == "overlay"
+    bad = await http.put("/ui/api/flow/persona", headers=UI,
+                         json={"id": "review", "persona": {"agent": "ghost"}})
+    assert bad.status_code == 400 and "unknown agent" in bad.json()["error"]
+    reset = await http.put("/ui/api/flow/persona", json={"id": "review", "reset": True}, headers=UI)
+    assert reset.json()["flow"]["persona"] is None
+    blocked = await http.put("/ui/api/flow/persona", json=body,
+                             headers={"X-Agents-UI": "1", "Origin": "https://attacker.example"})
+    assert blocked.status_code == 403

@@ -8,7 +8,7 @@ import yaml
 
 from src.engine import enrichment, rules
 from src.engine.implants import ImplantRetriever
-from src.engine.persona_bundle import _declared_ids, build_persona_bundle
+from src.engine.persona_bundle import ComponentSelection, _declared_ids, build_persona_bundle
 from src.engine.skills import SkillRetriever
 from src.utils import prompt_loader
 
@@ -377,3 +377,42 @@ async def test_unbalanced_fence_in_output_format_leaves_the_persona_intact(bundl
     out = strip_output_format(prompt)
     assert out == prompt
     assert "## Rules & Constraints" in out and "## Safety" in out
+
+
+@pytest.mark.asyncio
+async def test_selection_loads_exact_components_and_skips_retrieval(bundle_tree, monkeypatch):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("an exact selection must not retrieve")
+    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", unexpected)
+    monkeypatch.setattr(enrichment.implant_retriever, "retrieve", unexpected)
+    # Outside the agent's policy and switched off: the flow's choice still applies.
+    monkeypatch.setattr("src.component_toggles.disabled",
+                        lambda kind: frozenset({"skill-extra", "truth"}))
+    tree, agent = bundle_tree
+    agent["core_skills"] = []
+    write_mdc(tree / "agents/engineer/system_prompt.mdc", agent, "Engineer persona")
+    selected = await build_persona_bundle("engineer", "Review", tier="deep", selection=ComponentSelection(
+        skills=("skill-extra",), implants=(), rules=("truth",)))
+    assert selected.skills_loaded == ["skill-extra"]
+    assert selected.implants_loaded == [] and selected.implants_block == ""
+    assert selected.rules_loaded == ["truth"]
+
+
+@pytest.mark.asyncio
+async def test_selection_keeps_default_for_omitted_kinds(bundle_tree):
+    selected = await build_persona_bundle("engineer", "Review", tier="deep",
+                                          selection=ComponentSelection(rules=()))
+    assert selected.skills_loaded == ["skill-core"]
+    assert selected.implants_loaded == ["Focus"]
+    assert selected.rules_loaded == [] and selected.rules_block == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", [
+    ComponentSelection(skills=("skill-missing",)),
+    ComponentSelection(implants=("implant-missing",)),
+    ComponentSelection(rules=("missing",)),
+])
+async def test_selection_with_unknown_component_fails_bundle(bundle_tree, selection):
+    with pytest.raises((ValueError, OSError)):
+        await build_persona_bundle("engineer", "Review", tier="deep", selection=selection)

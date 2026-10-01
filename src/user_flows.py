@@ -7,6 +7,8 @@ Layout (``AGENTS_USER_FLOWS_DIR`` overrides the root)::
       common/<id>.meta.json          present only when <id> overrides builtin:<id>
       repos/<repo-key>/<id>.md       repo:<id>, visible only in that repository
       repos/<repo-key>/.repo.json    origin and last path, for display
+      personas/<scope dir>/<id>.json personal agent/component choice for any flow,
+                                     builtin/ included (see src.flow_persona)
       .history/<scope dir>/<id>/<UTC timestamp>-<revision>[-deleted].md
 
 Git ignores every dot-directory in this repository, so nothing here can dirty a
@@ -27,6 +29,7 @@ import re
 import subprocess
 import tempfile
 
+from src import flow_persona
 from src.file_lock import file_lock
 from src.flows import (FLOW_ID, MAX_FLOW_BYTES, Flow, FlowCatalog, FlowError,
                        flow_title, read_flow)
@@ -171,6 +174,32 @@ class FlowLibrary:
     def _history(self, scope: str, flow_id: str) -> Path:
         return self.user_dir / ".history" / self._relative(scope) / flow_id
 
+    def _persona_path(self, scope: str, flow_id: str) -> Path:
+        relative = Path("builtin") if scope == "builtin" else self._relative(scope)
+        return self.user_dir / "personas" / relative / f"{flow_id}.json"
+
+    def _persona(self, scope: str, flow_id: str, content: str) -> tuple:
+        """``(persona, source)``: the personal overlay, else the frontmatter default."""
+        try:
+            with self._persona_path(scope, flow_id).open(encoding="utf-8") as stream:
+                overlay = json.load(stream)
+        except FileNotFoundError:
+            overlay = None
+        except (OSError, ValueError) as error:
+            raise FlowError(f"flow_invalid: unreadable persona overlay ({error})") from None
+        if isinstance(overlay, dict) and "persona" in overlay:
+            return flow_persona.normalize(overlay["persona"]), "overlay"
+        if overlay is not None:
+            raise FlowError("flow_invalid: the persona overlay must hold a persona field")
+        spec = flow_persona.declared(content)
+        return spec, "frontmatter" if spec else None
+
+    def _with_persona(self, scope: str, flow_id: str, flow: Flow) -> Flow:
+        spec, source = self._persona(scope, flow_id, flow.content)
+        details = flow.details + (("persona", spec), ("persona_source", source))
+        return Flow(flow.id, flow.title, flow.source_path, flow.revision, flow.content,
+                    flow.source, details)
+
     # --- reading -------------------------------------------------------------------
 
     def _meta(self, scope: str, flow_id: str) -> dict:
@@ -184,8 +213,9 @@ class FlowLibrary:
     def _load(self, scope: str, flow_id: str) -> Flow:
         if scope == "builtin":
             flow = self.catalog.load(flow_id)
-            return Flow(f"builtin:{flow_id}", flow.title, flow.source_path, flow.revision,
-                        flow.content, "builtin")
+            return self._with_persona(scope, flow_id, Flow(
+                f"builtin:{flow_id}", flow.title, flow.source_path, flow.revision,
+                flow.content, "builtin"))
         directory = self._directory(scope)
         path = directory / f"{flow_id}.md"
         if path.is_symlink():
@@ -201,8 +231,9 @@ class FlowLibrary:
                 details.append(("upstream_changed", True))
         if scope == "repo":
             details.append(("repo", self.repo()[1] or str(self.repo_root or self.repo()[0])))
-        return read_flow(directory, flow_id, flow_ref=f"{scope}:{flow_id}",
-                         source=scope, details=tuple(details))
+        return self._with_persona(scope, flow_id, read_flow(
+            directory, flow_id, flow_ref=f"{scope}:{flow_id}", source=scope,
+            details=tuple(details)))
 
     def _exists(self, scope: str, flow_id: str) -> bool:
         if scope == "builtin":
@@ -388,6 +419,7 @@ class FlowLibrary:
         if scope not in ("user", "repo"):
             self._relative(scope)  # Raises the read-only error for built-ins.
         raw = _validate_content(content)
+        flow_persona.check_known(flow_persona.declared(content))
         builtin = self._exists("builtin", flow_id)
         if builtin and not override:
             raise FlowError(f"flow_shadows_builtin: builtin:{flow_id} exists; pass override=true "
@@ -436,4 +468,27 @@ class FlowLibrary:
             version = self._archive(scope, flow_id, current, deleted=True)
             path.unlink()
             (self._directory(scope) / f"{flow_id}.meta.json").unlink(missing_ok=True)
+            self._persona_path(scope, flow_id).unlink(missing_ok=True)
         return {"status": "deleted", "id": f"{scope}:{flow_id}", "version": version}
+
+    def set_persona(self, name: str, persona, *, reset: bool = False) -> dict:
+        """Choose the agent and components for one flow, for this user only.
+
+        ``persona`` replaces the flow's frontmatter declaration (``None`` runs it
+        without a persona); ``reset=True`` removes the choice so the frontmatter
+        applies again. Works for built-in flows without copying their text.
+        A bare name selects the flow a bare ``run_flow`` would run.
+        """
+        scope, flow_id = parse_reference(name)
+        flow = self._load(scope, flow_id) if scope else self.resolve(flow_id)
+        path = self._persona_path(flow.source, flow_id)
+        self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with file_lock(self.user_dir / ".lock"):
+            if reset:
+                path.unlink(missing_ok=True)
+            else:
+                spec = flow_persona.normalize(persona)
+                flow_persona.check_known(spec)
+                _atomic_write(path, json.dumps({"persona": spec}, indent=2).encode() + b"\n")
+        metadata = self._load(flow.source, flow_id).metadata()
+        return {"status": "saved", "flow": metadata}

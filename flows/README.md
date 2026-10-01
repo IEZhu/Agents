@@ -124,6 +124,48 @@ next call, without registering another tool or restarting the server. It does
 not create a slash command or a scheduled task. Content is read fresh each time;
 the revision identifies the exact instructions supplied to the model.
 
+## Choose a flow's agent and components
+
+A flow can name the agent it runs as and, optionally, the exact skills,
+implants and rules of that agent's bundle. The flow declares a default in YAML
+frontmatter before its title:
+
+```markdown
+---
+persona:
+  agent: code_reviewer
+  skills: [skill-dev-clean-code]  # exactly these
+  implants: []                    # none
+  # rules omitted: the usual rules apply
+---
+# Review a pull request
+```
+
+An omitted list keeps the agent's own selection for that kind (retrieval and
+the agent's declared skills and implants, minus components switched off in the
+web UI). A list is exact: nothing is retrieved or added, the agent's skill policy
+does not restrict it, an empty list loads nothing, and components switched off
+in the web UI still load when a flow names them. Rules are named as in the
+footer (`no-fabrication`), skills and implants by file ID (`skill-web-search`,
+`implant-iteration-budget`); unknown IDs are rejected on save.
+
+Each user can replace that choice for any flow, built-in ones included, without
+copying its text: `set_flow_persona(flow, agent, skills, implants, rules)` or the
+**Persona** panel of the [flow editor](../docs/shared-mcp-daemon.md#flow-editor).
+The choice is stored in `flows/.user/personas/` and replaces the whole
+frontmatter declaration; calling it without `agent` runs the flow without a
+persona, and `reset=true` restores the frontmatter. `list_flows` and `get_flow`
+report the effective `persona` and `persona_source` (`frontmatter`, `overlay` or
+null).
+
+`run_flow` then also returns `persona_activation`, a protocol 2 response for that
+persona built from the flow's title and `request`. Pass `current_persona` to
+`run_flow` and apply the activation as a switch before executing the flow:
+`SUCCESS` replaces the four blocks and footer, `NO_CHANGE` keeps them, and
+`ERROR` keeps the previous persona and must be reported. A flow without a
+persona returns no activation. A later `refresh_persona_context` rebuilds the
+agent's default bundle, not the flow's exact lists.
+
 ## Personal and repository flows
 
 Besides the built-in flows in this directory, each user keeps their own flows,
