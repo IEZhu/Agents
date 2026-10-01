@@ -462,3 +462,26 @@ def test_flows_ui_revoke_replaces_the_key(tmp_path, monkeypatch, capsys):
     second = (tmp_path / "state" / module.KEY_FILE).read_bytes()
     assert len(first) == len(second) == module.KEY_BYTES and first != second
     assert '"revoked"' in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_renewal_does_not_cross_a_revocation(editor, monkeypatch):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    await login(http)
+    original = service.flows_ui._api
+
+    async def revoke_midway(request, path):
+        response = await original(request, path)
+        module.replace_session_key(service.directory)  # revoked while the request runs
+        return response
+
+    monkeypatch.setattr(service.flows_ui, "_api", revoke_midway)
+    response = await http.get("/ui/api/flows")
+    assert response.status_code == 200
+    stale = http.cookies.get(module.COOKIE, path="/ui")
+    monkeypatch.undo()
+    http.cookies.clear()
+    http.cookies.set(module.COOKIE, stale, domain="127.0.0.1", path="/ui")
+    assert (await http.get("/ui/api/flows")).status_code == 401

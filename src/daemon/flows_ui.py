@@ -84,14 +84,15 @@ class FlowsUI:
     def _sign(self, key: bytes, payload: str) -> str:
         return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
 
-    def _new_cookie(self) -> str | None:
-        key = read_session_key(self.service.directory)
+    def _new_cookie(self, key: bytes | None = None) -> str | None:
+        """Sign with ``key`` (the one that authenticated the request) so a renewal never crosses a revocation."""
+        key = key or read_session_key(self.service.directory)
         if key is None:
             return None
         payload = f"{int(self.clock())}.{secrets.token_urlsafe(12)}"
         return f"{payload}.{self._sign(key, payload)}"
 
-    def _session(self, request: Request) -> bool:
+    def _session(self, request: Request) -> bytes | None:
         """A cookie is valid when signed with the current key and renewed within SESSION_TTL.
 
         The key is read on every check, so replacing it revokes sessions without a restart.
@@ -99,14 +100,14 @@ class FlowsUI:
         key = read_session_key(self.service.directory)
         parts = request.cookies.get(COOKIE, "").split(".")
         if key is None or len(parts) != 3 or not (parts[0].isascii() and parts[0].isdigit()):
-            return False
+            return None
         issued, nonce, signature = parts
         if not signature.isascii() or not nonce.isascii():
-            return False
+            return None
         if not hmac.compare_digest(signature, self._sign(key, f"{issued}.{nonce}")):
-            return False
+            return None
         age = self.clock() - int(issued)
-        return -CLOCK_SKEW <= age <= SESSION_TTL
+        return key if -CLOCK_SKEW <= age <= SESSION_TTL else None
 
     def _set_cookie(self, response, value: str) -> None:
         response.set_cookie(COOKIE, value, max_age=SESSION_TTL, path="/ui", httponly=True,
@@ -143,7 +144,8 @@ class FlowsUI:
         if path == "/ui/api/session" and request.method == "POST":
             response = await self._login(request)
             return await response(scope, receive, send)
-        if not self._session(request):
+        session_key = self._session(request)
+        if session_key is None:
             return await self._json({"error": "session_required"}, 401)(scope, receive, send)
         if self.service.state == "draining":
             return await self._json({"error": "draining"}, 503)(scope, receive, send)
@@ -151,7 +153,7 @@ class FlowsUI:
         self.service.last_activity = time.monotonic()
         try:
             response = await self._api(request, path)
-            renewed = await asyncio.to_thread(self._new_cookie)
+            renewed = await asyncio.to_thread(self._new_cookie, session_key)
             if renewed:
                 self._set_cookie(response, renewed)  # sliding window
         finally:
