@@ -3,14 +3,20 @@
 The browser never sees the service bearer token. ``python -m src.daemon flows-ui``
 asks the daemon (with the bearer token) for a one-use code, opens
 ``/ui#code=...`` and the page trades the code for an HttpOnly, SameSite=Strict
-session cookie that authorizes only ``/ui/api/*``. Every UI request must use the
-loopback Host; mutations also need a matching Origin and the ``X-Agents-UI``
-header, which a cross-site form cannot send.
+session cookie that authorizes only ``/ui/api/*``. The cookie is signed with a key
+in the private state directory, so one sign-in per browser lasts 30 days from the
+last visit and survives daemon restarts and updates; ``flows-ui --revoke`` replaces
+the key and ends every session. Every UI request must use the loopback Host;
+mutations also need a matching Origin and the ``X-Agents-UI`` header, which a
+cross-site form cannot send.
 """
 import asyncio
+import hashlib
+import hmac
 import html
 import json
 import secrets
+import threading
 import time
 from pathlib import Path
 
@@ -22,15 +28,32 @@ from src.component_catalog import known_ids, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
 from src.version import agents_core_version
-from .state import read_json
+from .state import atomic_private, read_json
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
-SESSION_IDLE = 30 * 60
-SESSION_MAX = 8 * 3600
+SESSION_TTL = 30 * 24 * 3600
+CLOCK_SKEW = 60
+KEY_FILE = "ui_session_key"
+KEY_BYTES = 32
 COOKIE = "agents_flows_ui"
 MAX_BODY = 512 * 1024
 PAGE = Path(__file__).with_name("flows_ui.html")
+
+
+def read_session_key(directory) -> bytes | None:
+    try:
+        key = (Path(directory) / KEY_FILE).read_bytes()
+    except OSError:
+        return None
+    return key if len(key) == KEY_BYTES else None
+
+
+def replace_session_key(directory) -> None:
+    """Install a new random key; every cookie signed with the old one stops working."""
+    key_path = Path(directory) / KEY_FILE
+    atomic_private(key_path, secrets.token_bytes(KEY_BYTES))
+    key_path.chmod(0o600)
 
 
 def _error_status(message: str) -> int:
@@ -40,10 +63,11 @@ def _error_status(message: str) -> int:
 
 
 class FlowsUI:
-    def __init__(self, service):
+    def __init__(self, service, clock=time.time):
         self.service = service
         self.codes = {}
-        self.sessions = {}
+        self.clock = clock
+        self._key_lock = threading.Lock()
 
     # --- access ----------------------------------------------------------------------
 
@@ -57,15 +81,37 @@ class FlowsUI:
         self.codes[code] = now + CODE_TTL
         return code
 
-    def _session(self, request: Request) -> bool:
-        sid = request.cookies.get(COOKIE)
-        record = self.sessions.get(sid) if sid else None
-        now = time.monotonic()
-        if not record or now - record["last"] > SESSION_IDLE or now - record["created"] > SESSION_MAX:
-            self.sessions.pop(sid, None)
-            return False
-        record["last"] = now
-        return True
+    def _sign(self, key: bytes, payload: str) -> str:
+        return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
+
+    def _new_cookie(self, key: bytes | None = None) -> str | None:
+        """Sign with ``key`` (the one that authenticated the request) so a renewal never crosses a revocation."""
+        key = key or read_session_key(self.service.directory)
+        if key is None:
+            return None
+        payload = f"{int(self.clock())}.{secrets.token_urlsafe(12)}"
+        return f"{payload}.{self._sign(key, payload)}"
+
+    def _session(self, request: Request) -> bytes | None:
+        """A cookie is valid when signed with the current key and renewed within SESSION_TTL.
+
+        The key is read on every check, so replacing it revokes sessions without a restart.
+        """
+        key = read_session_key(self.service.directory)
+        parts = request.cookies.get(COOKIE, "").split(".")
+        if key is None or len(parts) != 3 or not (parts[0].isascii() and parts[0].isdigit() and len(parts[0]) <= 12):
+            return None
+        issued, nonce, signature = parts
+        if not signature.isascii() or not nonce.isascii():
+            return None
+        if not hmac.compare_digest(signature, self._sign(key, f"{issued}.{nonce}")):
+            return None
+        age = self.clock() - int(issued)
+        return key if -CLOCK_SKEW <= age <= SESSION_TTL else None
+
+    def _set_cookie(self, response, value: str) -> None:
+        response.set_cookie(COOKIE, value, max_age=SESSION_TTL, path="/ui", httponly=True,
+                            samesite="strict")
 
     def _same_origin(self, request: Request) -> bool:
         return request.headers.get("origin", "") in {f"http://{host}" for host in self.hosts()}
@@ -98,7 +144,8 @@ class FlowsUI:
         if path == "/ui/api/session" and request.method == "POST":
             response = await self._login(request)
             return await response(scope, receive, send)
-        if not self._session(request):
+        session_key = self._session(request)
+        if session_key is None:
             return await self._json({"error": "session_required"}, 401)(scope, receive, send)
         if self.service.state == "draining":
             return await self._json({"error": "draining"}, 503)(scope, receive, send)
@@ -106,6 +153,9 @@ class FlowsUI:
         self.service.last_activity = time.monotonic()
         try:
             response = await self._api(request, path)
+            renewed = await asyncio.to_thread(self._new_cookie, session_key)
+            if renewed:
+                self._set_cookie(response, renewed)  # sliding window
         finally:
             self.service.inflight -= 1
             self.service.last_activity = time.monotonic()
@@ -135,13 +185,19 @@ class FlowsUI:
         expiry = self.codes.pop(code, None) if isinstance(code, str) else None
         if expiry is None or expiry < time.monotonic():
             return self._json({"error": "code_invalid"}, 401)
-        sid = secrets.token_urlsafe(32)
-        now = time.monotonic()
-        self.sessions[sid] = {"created": now, "last": now}
+        try:
+            cookie = await asyncio.to_thread(self._issue_session)
+        except OSError:
+            return self._json({"error": "session_key_unavailable"}, 500)
         response = self._json({"status": "ok"})
-        response.set_cookie(COOKIE, sid, max_age=SESSION_MAX, path="/ui", httponly=True,
-                            samesite="strict")
+        self._set_cookie(response, cookie)
         return response
+
+    def _issue_session(self) -> str:
+        with self._key_lock:  # two first sign-ins must not each create a key
+            if read_session_key(self.service.directory) is None:
+                replace_session_key(self.service.directory)
+        return self._new_cookie()
 
     def _library(self, workspace: str | None, repo: str | None = None) -> FlowLibrary:
         """A library for one request.

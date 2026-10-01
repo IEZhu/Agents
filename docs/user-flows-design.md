@@ -39,7 +39,9 @@ metrics are therefore not implemented; `run_flow` still returns a
 - Loopback `Host` only; changes also need a same-origin `Origin` and the
   `X-Agents-UI` header (not sendable by a cross-site form).
 - A one-use code (two minutes) becomes an HttpOnly, SameSite=Strict cookie scoped
-  to `/ui`, with 30-minute idle and eight-hour limits, kept in daemon memory.
+  to `/ui`, signed with a key in the private state directory. It lasts 30 days
+  from the last visit (renewed on each API response) and survives restarts;
+  `flows-ui --revoke` replaces the key.
 - The cookie cannot reach `/mcp` or administration; the bearer token does not
   open the editor API.
 - Nonce-based Content Security Policy, no external assets, text rendered with

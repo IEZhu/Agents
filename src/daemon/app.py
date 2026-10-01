@@ -144,7 +144,7 @@ class Service:
         if scope["type"] != "http":
             return
         if scope["path"] == "/ui" or scope["path"].startswith("/ui/"):
-            # The browser editor has its own session; it never receives the bearer token.
+            # The browser editor has its own signed session (see flows_ui); it never receives the bearer token.
             return await self.flows_ui(scope, receive, send)
         request = Request(scope, receive)
         supplied = request.headers.get("authorization", "")

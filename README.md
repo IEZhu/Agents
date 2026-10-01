@@ -340,7 +340,7 @@ Besides the built-in flows, users keep personal (`user:`) and per-repository
 save, change, restore or delete one; it uses `get_flow`, `save_flow` and
 `delete_flow`. A bare flow name resolves `repo:`, then `user:`, then the built-in.
 With the shared daemon, `.venv/bin/python -m src.daemon flows-ui` opens a local
-[flow editor](docs/shared-mcp-daemon.md#flow-editor); the same page lists
+[flow editor](docs/shared-mcp-daemon.md#flow-editor) (one sign-in per browser, kept for 30 days); the same page lists
 rules, skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity

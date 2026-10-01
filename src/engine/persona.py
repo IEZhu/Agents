@@ -44,14 +44,16 @@ def ui_link() -> str | None:
 
 
 def persona_footer(persona: PersonaDescriptor) -> str:
-    # The muted segment depends on the installation, not the bundle: it stays out
-    # of PersonaDescriptor and bundle_revision.
-    muted = " · ".join(filter(None, (f"Agents-Core {agents_core_version()}", ui_link())))
+    # The version segment depends on the installation, not the bundle: it stays out
+    # of PersonaDescriptor and bundle_revision. Plain Markdown, no HTML.
+    version = f"Agents-Core {agents_core_version()}"
+    link = ui_link()
+    segment = f"[{version}]({link})" if link else version
     return (
         f"**Agent**: {persona.agent} · **Skills**: {', '.join(persona.skills_loaded) or '—'}"
         f" · **Implants**: {', '.join(persona.implants_loaded) or '—'}"
         f" · **Rules**: {', '.join(persona.rules_loaded) or '—'}"
-        f" · <sub>{muted}</sub>"
+        f" · {segment}"
     )
 
 
