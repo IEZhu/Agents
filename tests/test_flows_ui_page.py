@@ -335,3 +335,9 @@ def test_hostile_or_huge_input_neither_crashes_nor_stalls():
 def test_empty_headings_and_a_byte_order_mark():
     assert render("#\n\n# Real\n")["headings"][0]["text"] == ""
     assert render("﻿---\npersona: x\n---\n# T\n")["meta"] == "persona: x"
+
+
+def test_heading_text_and_ids_drop_underscore_emphasis_but_keep_snake_case():
+    result = render("# _Title_ and __bold__\n\n## my_snake_case word\n")
+    assert [h["text"] for h in result["headings"]] == ["Title and bold", "my_snake_case word"]
+    assert [h["id"] for h in result["headings"]] == ["md-title-and-bold", "md-my_snake_case-word"]
