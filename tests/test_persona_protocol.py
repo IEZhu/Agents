@@ -247,6 +247,7 @@ async def test_logging_refuses_history_in_windows_directory(tmp_path, monkeypatc
         engine_config._reset_client_repo_root_cache()
     assert response["status"] == "ERROR"
     assert response["message"].startswith("workspace_required: refusing")
+    assert response["instruction"].startswith("Nothing was logged.")
     assert sorted(path.name for path in windows.rglob("*")) == ["CLAUDE.md", "System32"]
 
 

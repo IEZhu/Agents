@@ -73,7 +73,8 @@ _history_stores = HistoryStores()
 mcp = FastMCP(
     "Agents-Core",
     instructions=(
-        "Agents-Core uses persona protocol 2; always pass protocol_version=2.\n"
+        "Agents-Core uses persona protocol 2; pass protocol_version=2 to route_and_load "
+        "and get_agent_context.\n"
         "Silently assess whether the active persona fits each request. On keep, "
         "do not route, enumerate agents, or enrich. Route only for initial selection or a needed "
         "specialization change, with protocol_version=2 and current_persona. Load an explicitly "
@@ -678,7 +679,10 @@ async def log_interaction(
         if persona_action not in (None, "keep", "switch", "refresh", "restore"):
             raise ValueError("Invalid persona_action")
     except ValueError as error:
-        return error_response(error, request_id)
+        return error_response(error, request_id, instruction=(
+            "Nothing was logged. Keep the current activation, report unavailable "
+            "logging if the workspace is missing, and do not retry logging in a loop."
+        ))
     attribution = ({
         "persona": active.model_dump(), "persona_action": persona_action,
         "attribution": "client-reported",

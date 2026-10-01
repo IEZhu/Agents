@@ -33,10 +33,14 @@ def persona_footer(persona: PersonaDescriptor) -> str:
     )
 
 
-def error_response(error: Exception | str, request_id: str | None = None) -> str:
+BUNDLE_NOT_APPLIED = "Keep the existing activation. The requested bundle was not applied."
+
+
+def error_response(error: Exception | str, request_id: str | None = None, *,
+                   instruction: str = BUNDLE_NOT_APPLIED) -> str:
     return PersonaResponse(
         status="ERROR", request_id=request_id or str(uuid.uuid4()), message=str(error),
-        instruction="Keep the existing activation. The requested bundle was not applied.",
+        instruction=instruction,
     ).to_json()
 
 
