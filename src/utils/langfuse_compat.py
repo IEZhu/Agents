@@ -13,6 +13,19 @@ logger = logging.getLogger(__name__)
 _langfuse_available = False
 _langfuse_instance = None
 
+# env.example shipped these placeholders until 2026-10, and setup copied them
+# into .env unchanged. python-dotenv before 1.2.4 also reads "KEY=  # text" as
+# "# text". Neither is a real key, so neither enables tracing.
+_PLACEHOLDER_KEYS = frozenset({"pk-lf-...", "sk-lf-..."})
+
+
+def keys_configured(public_key: str | None, secret_key: str | None) -> bool:
+    """True when both Langfuse keys are set to something other than a placeholder."""
+    def real(value: str | None) -> bool:
+        value = (value or "").strip()
+        return bool(value) and value not in _PLACEHOLDER_KEYS and not value.startswith("#")
+    return real(public_key) and real(secret_key)
+
 
 def _noop_decorator(*args, **kwargs):
     """No-op decorator that returns the function unchanged."""
@@ -50,7 +63,7 @@ try:
     from langfuse import observe as _real_observe
 
     # Check if keys are actually configured
-    has_keys = bool(os.getenv("LANGFUSE_PUBLIC_KEY")) and bool(os.getenv("LANGFUSE_SECRET_KEY"))
+    has_keys = keys_configured(os.getenv("LANGFUSE_PUBLIC_KEY"), os.getenv("LANGFUSE_SECRET_KEY"))
 
     if has_keys:
         _langfuse_available = True

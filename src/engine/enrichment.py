@@ -119,8 +119,9 @@ def resolve_profile(query: str, *, tier: Optional[Tier] = None) -> Optional[Task
     flag-off path byte-identical to the previous release.
 
     *tier* pins the result when an authority outside the classifier has already
-    decided the budget (the meta-query ``explicit_tier`` override, or the
-    ``preferred_implants`` promotion).
+    decided the budget (the ``preferred_implants`` promotion, or an explicit
+    ``tier`` that tests and evaluation harnesses pass to ``server._load_and_enrich``
+    or ``enrich_agent_prompt``; no production route forces a tier).
     """
     if not INTENT_CLASSIFIER_ENABLED:
         return None

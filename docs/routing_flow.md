@@ -21,7 +21,7 @@ flowchart TD
     Fit -->|No, implicit change| Route
     Route --> Choice{Confident cached decision?}
     Choice -->|No, substantive request| Pick[ROUTE_REQUIRED: client selects candidate]
-    Choice -->|No, standalone greeting or acknowledgement| Meta[Load universal_agent at lite tier]
+    Choice -->|No, standalone greeting or acknowledgement| Meta[Load universal_agent]
     Choice -->|Yes| Bundle[Assemble and validate full bundle]
     Meta --> Bundle
     Pick --> Direct
@@ -33,9 +33,10 @@ flowchart TD
     Apply --> Answer
 ```
 
-Protocol 2 is the only protocol. MCP tools default to `protocol_version=2`,
-and clients pass it explicitly; any other value returns `ERROR` without loading a
-persona. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
+Protocol 2 is the only protocol. `route_and_load` and `get_agent_context` default
+to `protocol_version=2`, and clients pass it explicitly; any other value returns
+`ERROR` without loading a persona. `refresh_persona_context` and `log_interaction`
+take no `protocol_version`. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
 does not select a persona protocol.
 
 ## Client decisions
@@ -69,7 +70,7 @@ not establish support for a client and model; see the
 | `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency and records declared attribution |
 
 When the semantic cache has no decision, `route_and_load` loads `universal_agent`
-at the lite tier instead of returning `ROUTE_REQUIRED` for a standalone greeting,
+instead of returning `ROUTE_REQUIRED` for a standalone greeting,
 acknowledgement or capability question, such as `hi`, `ok`, `thanks`, `continue`
 or `what can you do`. Arbitrary short strings and greeting prefixes do not
 qualify: `SQL?`, `Taxes?`, and greetings followed by a task remain substantive.
@@ -126,14 +127,10 @@ action (`keep`, `switch`, `refresh`, or `restore`). Then deliver the answer.
 Agent metadata declares core, preferred and capable skills, plus preferred
 implants. Tier inference selects lite, standard or deep depth; an inferred lite
 request is promoted to standard when the agent declares preferred implants.
-Clients cannot pass a tier. Only the meta route described under [API](#api)
-requests lite explicitly, and that tier is not promoted: the resulting
-`universal_agent` bundle has only core skills and no implants until a switch,
-restore or refresh. The meta load is cached like other loads (see below), so a
-later greeting within the cache distance takes the cached path instead: its tier
-is inferred, and an inferred lite tier is promoted to standard because
-`universal_agent` declares preferred implants. A greeting therefore yields a lite
-bundle only when the routing cache holds no close match.
+Clients cannot pass a tier, and no route forces one, so the
+[meta route](#api) also yields a standard `universal_agent` bundle with its
+preferred implants. A session-scoped bundle is kept through `NO_CHANGE`, so a
+conversation that opens with a greeting does not stay on a lite bundle.
 Mandatory rules and core skills are distinct from extra retrieved components.
 Standard and deep tiers select relevant extras under the agent's declared skill
 constraints. Refresh reads current source content before calculating its revision.

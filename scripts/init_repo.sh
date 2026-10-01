@@ -57,7 +57,7 @@ MARKER_END="# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
 # Override via `AGENTS_ISSUES_URL` for divergent forks / GHE mirrors. Not derived
 # from `git remote` on purpose: contributors who cloned a personal fork usually
 # still want their installer bug reports to land on upstream.
-REPO_URL_ISSUES="${AGENTS_ISSUES_URL:-https://github.com/WonderMr/Agents/issues}"
+REPO_URL_ISSUES="${AGENTS_ISSUES_URL:-https://github.com/IEZhu/Agents/issues}"
 
 # NixOS detection: Nix Python uses /nix/store linker, so nix-ld doesn't help it.
 # We pass LD_LIBRARY_PATH via MCP env config (not globally — that breaks Firefox etc.)
@@ -447,10 +447,9 @@ if [ "$SKIP_ENV" = false ]; then
         cp "$ENV_EXAMPLE" "$ENV_FILE"
         print_success ".env created successfully!"
         echo ""
-        echo -e "  ${YELLOW}⚠ Review the placeholder keys in .env (all optional):${NC}"
-        echo "    • LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY - Langfuse tracing:"
-        echo "      set real keys, or clear both values; the placeholders enable tracing"
-        echo "    • ANTHROPIC_API_KEY   - For document OCR"
+        echo -e "  ${YELLOW}⚠ Optional keys in .env:${NC}"
+        echo "    • LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY - Langfuse tracing (empty: off)"
+        echo "    • ANTHROPIC_API_KEY   - For document OCR (replace the sk-ant-... placeholder)"
         echo ""
     fi
 else

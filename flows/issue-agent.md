@@ -120,7 +120,8 @@ not trigger the bridge.
 | `/agent status` | both | reply with the state summary below |
 | `/agent stop` | both | set `stop_requested` in the state; a running session halts at its next checkpoint |
 | `/agent help` | both | reply with this table |
-| `/agent <anything else>` | issue | treat as an answer to the agent's open questions and resume the step that asked them |
+| `/agent <anything else>` | issue in phase `needs_info` | treat as an answer to the agent's open questions and resume the step that asked them |
+| `/agent` with no text, or `/agent <anything else>` in a pull request or an issue not in phase `needs_info` | both | reply with this table; start no flow and leave the phase unchanged |
 
 For `run_plan` and `run`, opening a PR is an intermediate step. The original
 owner command authorizes the full bot review cycle in the same session, including
