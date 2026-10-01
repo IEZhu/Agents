@@ -432,6 +432,124 @@ def test_session_link_is_copied_from_acknowledgement_when_fire_returned_none(bri
     assert ROUTINE_URL not in bridge.statuses[-1]
 
 
+SHAPE = "::notice::Routine fire response shape "
+
+
+def fire_shape_notice(capsys):
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith(SHAPE)]
+    assert len(lines) == 1
+    return lines[0]
+
+
+def test_fire_response_shape_is_logged_without_values(bridge, capsys):
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    assert notice == SHAPE + "(content-type=none, length=?): claude_code_session_id=str(prefix=session,len=14,chars=a9_)"
+    assert "Abc123" not in notice
+
+
+def test_fire_response_shape_covers_nesting_urls_and_hides_private_values(bridge, capsys):
+    private_id = f"cse_{RAW_PRIVATE}"
+    url = "https://claude.ai/code/session_" + "X" * 26
+    bridge.fire_response = (200, {
+        "type": "routine_fire",
+        "session": {"id": private_id, "count": 1},
+        "claude_code_session_url": url,
+        "token": ROUTINE_TOKEN,
+    }, {"Content-Type": "application/json; charset=utf-8", "Content-Length": "123"})
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    assert notice == (SHAPE + "(content-type=application/json, length=123): "
+                      f"claude_code_session_url=str(prefix=https://claude.ai/code/session,len={len(url)},chars=a_/), "
+                      f"session={{count=int, id=str(prefix=cse,len={len(private_id)},chars=a_-)}}, token=str, type=str")
+    for secret in (RAW_PRIVATE, ROUTINE_TOKEN, "X" * 26, "routine_fire"):
+        assert secret not in notice
+
+
+@pytest.mark.parametrize("value, prefix", [
+    ("private-account_secret-suffix", "other"),
+    (f"{RAW_PRIVATE}_x", "other"),
+    ("sk-ant-oat01_abc", "other"),
+    ("cse_01Abc", "cse"),
+    ("nounderscore", ""),
+])
+def test_fire_response_shape_prints_only_known_public_prefixes(bridge, capsys, value, prefix):
+    bridge.fire_response = (200, {"session_token": value}, {})
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    assert f"session_token=str(prefix={prefix},len={len(value)}," in notice
+    for secret in ("private-account", RAW_PRIVATE, "sk-ant-oat01", "nounderscore", "01Abc"):
+        assert secret not in notice
+
+
+def test_fire_response_shape_hides_keys_that_look_like_values(bridge, capsys):
+    bridge.fire_response = (200, {
+        "sessions": {"session_01AbCdEf": {}, "cse_PRIVATEPRIVATE": "x"},
+        "metadata": {"user@example.com": 1, "sk-ant-api03-ABCDEF": 2},
+        "Org-5f1c2e7a": "v",
+    }, {})
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    for value in ("session_01AbCdEf", "01AbCdEf", "PRIVATEPRIVATE", "user@example.com", "example", "sk-ant-api03", "Org-5f1c2e7a"):
+        assert value not in notice
+    assert "sessions={<key len=18 chars=a_=str(prefix=other,len=1,chars=a)" not in notice
+    assert "<key len=16 chars=a/?>=int" in notice
+
+
+def test_fire_response_shape_lists_session_fields_first_and_counts_dropped_keys(bridge, capsys):
+    response = {letter * 2: 1 for letter in "abcdefghijklmnopqrstuvwxy"}
+    response["session_id"] = "session_Abc"
+    bridge.fire_response = (200, response, {})
+    bridge.run()
+    notice = fire_shape_notice(capsys)
+    assert notice.split(": ", 1)[1].startswith("session_id=str(prefix=session,len=11,chars=a_)")
+    assert notice.endswith(", +6 more")
+
+
+@pytest.mark.parametrize("headers, expected", [
+    ({"Content-Type": "text/event-stream"}, "(content-type=text/event-stream, length=?)"),
+    ({"Content-Type": "application/x-private-thing", "Content-Length": "12a"}, "(content-type=other, length=?)"),
+    ({"Content-Type": "", "Content-Length": "0"}, "(content-type=none, length=0)"),
+])
+def test_fire_response_shape_reports_safe_content_metadata(bridge, capsys, headers, expected):
+    bridge.fire_response = (200, None, headers)
+    bridge.run()
+    assert fire_shape_notice(capsys) == SHAPE + expected + ": NoneType"
+
+
+@pytest.mark.parametrize("response, shape", [(None, "NoneType"), ([], "list"), ("not-json", "str")])
+def test_fire_response_shape_for_non_objects(bridge, capsys, response, shape):
+    bridge.fire_response = (200, response, {})
+    bridge.run()
+    assert fire_shape_notice(capsys) == SHAPE + f"(content-type=none, length=?): {shape}"
+
+
+@pytest.mark.parametrize("fire_response", [
+    (429, {"error": RAW_PRIVATE}, {"Retry-After": "5"}),
+    (403, None, {}),
+    (503, None, {}),
+    TimeoutError(RAW_PRIVATE),
+])
+def test_fire_response_shape_is_logged_only_after_a_successful_fire(bridge, capsys, fire_response):
+    bridge.fire_response = fire_response
+    if isinstance(fire_response, Exception):
+        with pytest.raises(RuntimeError, match="Bridge failed"):
+            bridge.run()
+    else:
+        bridge.run()
+    assert "Routine fire response shape" not in capsys.readouterr().out
+
+
+def test_fire_response_shape_cannot_inject_workflow_commands(bridge, capsys):
+    bridge.fire_response = (200, {"a\n::error::x": "v", "session\r\n::warning::y": "z_1\n::error::w",
+                                  "%0A::error::z": 1}, {"Content-Type": "%0A::error::t"})
+    bridge.run()
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert sum(line.startswith(SHAPE) for line in lines) == 1
+    assert "::error::" not in out and "::warning::y" not in out and "%0A" not in out
+
+
 def test_fire_session_link_wins_over_acknowledgement_link(bridge):
     bridge.startup_comments = [acknowledgement(text="[session](https://claude.ai/code/session_Ack456)")]
     bridge.run()

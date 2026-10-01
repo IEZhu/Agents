@@ -135,6 +135,43 @@ jobs:
                   else:
                       github("PATCH", f"/issues/comments/{comment_id}", data)
 
+              PUBLIC_SESSION_PREFIXES = {"session", "sess", "cse", "https://claude.ai/code/session"}
+              PUBLIC_CONTENT_TYPES = {"application/json", "text/event-stream", "text/plain", "text/html"}
+
+              def char_classes(text):
+                  return "".join(label for label, pattern in (
+                      ("a", r"[A-Za-z]"), ("9", r"[0-9]"), ("_", r"_"), ("-", r"-"),
+                      ("/", r"[:/.]"), ("?", r"[^A-Za-z0-9_:/.-]")) if re.search(pattern, text))
+
+              def fire_response_shape(value, depth=0, in_session=False):
+                  # Shape only, never values. A key is printed only when it looks like a schema
+                  # field name; any other key (an ID, an email) appears as its length and
+                  # character classes. Strings under a field that mentions a session show a known
+                  # public prefix (any other prefix is "other"), the length and the character
+                  # classes. Nothing printed can start or inject a workflow command.
+                  if not isinstance(value, dict):
+                      return type(value).__name__
+                  keys = sorted(value, key=lambda k: ("session" not in str(k).lower(), str(k)))
+                  parts = []
+                  for key in keys[:20]:
+                      raw_key, item = str(key), value[key]
+                      if re.fullmatch(r"[a-z][a-z_]{0,39}", raw_key):
+                          name = raw_key
+                      else:
+                          name = f"<key len={len(raw_key)} chars={char_classes(raw_key)}>"
+                      session = in_session or "session" in raw_key.lower()
+                      if isinstance(item, dict) and depth < 1:
+                          parts.append(f"{name}={{{fire_response_shape(item, depth + 1, session)}}}")
+                      elif isinstance(item, str) and session:
+                          raw = item.split("_", 1)[0] if "_" in item else ""
+                          head = raw if raw in PUBLIC_SESSION_PREFIXES else ("other" if raw else "")
+                          parts.append(f"{name}=str(prefix={head},len={len(item)},chars={char_classes(item)})")
+                      else:
+                          parts.append(f"{name}={type(item).__name__}")
+                  if len(keys) > 20:
+                      parts.append(f"+{len(keys) - 20} more")
+                  return ", ".join(parts)
+
               def acknowledged_session(text):
                   # Copy only an exact Claude session URL; any other link falls back to the routine.
                   for candidate in re.findall(r"https?://[^\s<>()\[\]\"'`]+", text):
@@ -207,6 +244,12 @@ jobs:
                       certainty = "Launch rejected" if 400 <= code < 500 else "Launch not confirmed"
                       status(f"{certainty}: Claude API returned HTTP {code}. Check the routine before sending a new command; no automatic retry was made.")
                       return
+                  media = ((headers or {}).get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                  media = media if media in PUBLIC_CONTENT_TYPES else ("other" if media else "none")
+                  length = str((headers or {}).get("Content-Length") or "")
+                  length = length if re.fullmatch(r"[0-9]{1,9}", length) else "?"
+                  print(f"::notice::Routine fire response shape (content-type={media}, length={length}): "
+                        f"{fire_response_shape(response)}")
                   session_id = response.get("claude_code_session_id", "") if isinstance(response, dict) else ""
                   if isinstance(session_id, str) and re.fullmatch(r"session_[A-Za-z0-9]+", session_id):
                       session = f"[Claude session](https://claude.ai/code/{session_id})"
