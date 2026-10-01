@@ -671,3 +671,226 @@ async def test_a_command_right_after_the_check_still_ends_the_new_session(editor
     monkeypatch.setattr(service.flows_ui, "_still_admitted", admitted_then_revoked)
     assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 200
     assert (await http.get("/ui/api/flows")).status_code == 401  # signed with the revoked key
+
+
+@pytest.fixture
+def known_components(persona_components):
+    return persona_components
+
+
+def test_frontmatter_persona_is_flow_metadata(install, tmp_path, known_components):
+    (install / "audit.md").write_text(
+        "---\npersona:\n  agent: code_reviewer\n  skills: [skill-a.mdc]\n---\n# Audit\n\nSteps.\n",
+        encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    flow = library.resolve("audit").metadata()
+    assert flow["title"] == "Audit"
+    assert flow["persona"] == {"agent": "code_reviewer", "skills": ["skill-a"]}
+    assert flow["persona_source"] == "frontmatter"
+    review = library.resolve("review").metadata()
+    assert review["persona"] is None and review["persona_source"] is None
+
+
+def test_overlay_chooses_persona_for_builtin_without_copying(install, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    spec = {"agent": "code_reviewer", "skills": [], "implants": ["implant-b"], "rules": ["truth"]}
+    result = library.set_persona("review", spec)
+    assert result["flow"]["id"] == "builtin:review"
+    assert result["flow"]["persona"] == spec
+    assert result["flow"]["persona_source"] == "overlay"
+    assert (install / "review.md").read_text(encoding="utf-8") == BUILTIN
+    assert not (tmp_path / "lib" / "common").exists()  # No local copy of the text.
+    assert library.set_persona("builtin:review", None)["flow"]["persona"] is None
+    reset = library.set_persona("review", None, reset=True)["flow"]
+    assert reset["persona"] is None and reset["persona_source"] is None
+
+
+def test_overlay_replaces_frontmatter_and_reset_restores_it(install, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    text = "---\npersona:\n  agent: software_engineer\n---\n# Mine\n"
+    library.save("mine", text)
+    library.set_persona("user:mine", {"agent": "code_reviewer"})
+    assert library.resolve("mine").metadata()["persona"] == {"agent": "code_reviewer"}
+    library.set_persona("mine", None, reset=True)
+    assert library.resolve("mine").metadata()["persona"] == {"agent": "software_engineer"}
+    library.set_persona("mine", {"agent": "code_reviewer"})
+    library.delete("user:mine", expected_revision=revision(text))
+    library.save("mine", text)  # A recreated flow starts from its frontmatter again.
+    assert library.resolve("mine").metadata()["persona_source"] == "frontmatter"
+
+
+@pytest.mark.parametrize("persona, code", [
+    ({"agent": "ghost"}, "unknown agent"),
+    ({"agent": "code_reviewer", "skills": ["skill-missing"]}, "unknown skills"),
+    ({"agent": "code_reviewer", "rules": "truth"}, "must be a list"),
+    ({"agent": "code_reviewer", "extra": 1}, "unknown persona fields"),
+    ({"skills": ["skill-a"]}, "persona.agent"),
+    ("code_reviewer", "must be a mapping"),
+])
+def test_invalid_persona_is_rejected_on_save_and_overlay(install, tmp_path, known_components,
+                                                        persona, code):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match=code):
+        library.set_persona("review", persona)
+    import yaml
+    text = f"---\n{yaml.safe_dump({'persona': persona})}---\n# Bad\n"
+    with pytest.raises(FlowError, match=code):
+        library.save("bad", text)
+    assert not (tmp_path / "lib" / "common" / "bad.md").exists()
+
+
+def test_broken_frontmatter_is_flow_invalid(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="flow_invalid"):
+        library.save("bad", "---\npersona: [unclosed\n---\n# Bad\n")
+
+
+@pytest.mark.asyncio
+async def test_editor_chooses_a_flow_persona(editor, install, known_components, monkeypatch):
+    monkeypatch.setattr("src.daemon.flows_ui.list_agents", lambda: [
+        {"id": "code_reviewer", "display_name": "Code Reviewer", "role": "Review"}])
+    http, _ = editor
+    await login(http)
+    agents = (await http.get("/ui/api/agents")).json()["agents"]
+    assert [agent["id"] for agent in agents] == ["code_reviewer"]
+    body = {"id": "review", "persona": {"agent": "code_reviewer", "rules": ["truth"]}}
+    saved = await http.put("/ui/api/flow/persona", json=body, headers=UI)
+    assert saved.status_code == 200
+    assert saved.json()["flow"]["persona"] == {"agent": "code_reviewer", "rules": ["truth"]}
+    flow = (await http.get("/ui/api/flow", params={"id": "review"})).json()["flow"]
+    assert flow["persona_source"] == "overlay"
+    bad = await http.put("/ui/api/flow/persona", headers=UI,
+                         json={"id": "review", "persona": {"agent": "ghost"}})
+    assert bad.status_code == 400 and "unknown agent" in bad.json()["error"]
+    loose = await http.put("/ui/api/flow/persona", json={"id": "review", "reset": "false"}, headers=UI)
+    assert loose.status_code == 400 and "reset" in loose.json()["error"]
+    reset = await http.put("/ui/api/flow/persona", json={"id": "review", "reset": True}, headers=UI)
+    assert reset.json()["flow"]["persona"] is None
+    blocked = await http.put("/ui/api/flow/persona", json=body,
+                             headers={"X-Agents-UI": "1", "Origin": "https://attacker.example"})
+    assert blocked.status_code == 403
+
+
+def test_flow_opening_with_a_markdown_rule_is_not_frontmatter(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    for text in ("---\n\n# Ruled\n\nSteps.\n", "---\n# Ruled\n\nText\n---\nMore\n"):
+        library.save("ruled", text, expected_revision=None if text.endswith("Steps.\n") else
+                     revision("---\n\n# Ruled\n\nSteps.\n"))
+        flow = library.resolve("ruled").metadata()
+        assert flow["title"] == "Ruled" and flow["persona"] is None
+
+
+def test_broken_persona_stays_listed_and_can_be_repaired(install, tmp_path, known_components):
+    (install / "typo.md").write_text("---\npersona:\n  agent: Bad Name\n---\n# Typo\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    listed = {flow["id"]: flow for flow in library.list("builtin")["flows"]}
+    assert "persona.agent" in listed["typo"]["persona_error"]
+    repaired = library.set_persona("typo", {"agent": "code_reviewer"})["flow"]
+    assert repaired["persona"] == {"agent": "code_reviewer"} and "persona_error" not in repaired
+    overlay = tmp_path / "lib" / "personas" / "builtin" / "review.json"
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    overlay.write_text("{not json", encoding="utf-8")
+    assert "unreadable" in library.resolve("review").metadata()["persona_error"]
+    reset = library.set_persona("review", None, reset=True)
+    assert reset["status"] == "reset" and not overlay.exists()
+    assert "persona_error" not in reset["flow"]
+
+
+def test_repository_flow_overlay_is_per_repository(install, repo, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib", repo_root=repo)
+    library.save("repo:local", "# Local\n", scope="repo")
+    flow = library.set_persona("local", {"agent": "code_reviewer"})["flow"]
+    assert flow["id"] == "repo:local" and flow["persona_source"] == "overlay"
+    key = repo_key(repo)[0]
+    assert (tmp_path / "lib" / "personas" / "repos" / key / "local.json").is_file()
+    with pytest.raises(FlowError, match="flow_not_found"):
+        library.set_persona("missing", {"agent": "code_reviewer"})
+
+
+def test_persona_directory_symlink_cannot_escape(install, tmp_path, known_components):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "personas").symlink_to(outside, target_is_directory=True)
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="escapes"):
+        library.set_persona("review", {"agent": "code_reviewer"})
+    assert not list(outside.iterdir())
+
+
+def test_non_string_persona_keys_are_flow_invalid(install, tmp_path):
+    (install / "keys.md").write_text("---\npersona:\n  agent: code_reviewer\n  1: typo\n  x: y\n---\n# K\n",
+                                     encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert "unknown persona fields: 1, x" in library.resolve("keys").metadata()["persona_error"]
+
+
+def test_symlinked_overlay_is_reported_and_reset_removes_only_the_link(install, tmp_path, known_components):
+    target = tmp_path / "elsewhere.json"
+    target.write_text('{"persona": null}', encoding="utf-8")
+    overlay = tmp_path / "lib" / "personas" / "builtin" / "review.json"
+    overlay.parent.mkdir(parents=True)
+    overlay.symlink_to(target)
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert "symlink" in library.resolve("review").metadata()["persona_error"]
+    with pytest.raises(FlowError, match="symlink"):
+        library.set_persona("review", {"agent": "code_reviewer"})
+    assert library.set_persona("review", None, reset=True)["status"] == "reset"
+    assert not overlay.is_symlink() and target.exists()
+
+
+def test_delete_checks_the_persona_path_before_changing_anything(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    library.save("mine", "# Mine\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "lib" / "personas").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(FlowError, match="escapes"):
+        library.delete("user:mine", expected_revision=revision("# Mine\n"))
+    assert (tmp_path / "lib" / "common" / "mine.md").is_file()
+
+
+def test_indented_persona_in_broken_frontmatter_is_flow_invalid(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="persona is not a valid YAML"):
+        library.save("bad", "---\n  persona:\n    agent: [unclosed\n---\n# Bad\n")
+
+
+@pytest.mark.parametrize("text", ['null', '[]', '{"other": 1}'])
+def test_overlay_without_persona_field_is_an_error(install, tmp_path, text):
+    overlay = tmp_path / "lib" / "personas" / "builtin" / "review.json"
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text(text, encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert "persona field" in library.resolve("review").metadata()["persona_error"]
+
+
+@pytest.mark.parametrize("key", ['"persona"', "'persona'"])
+def test_quoted_persona_key_in_broken_frontmatter_is_flow_invalid(install, tmp_path, key):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="persona is not a valid YAML"):
+        library.save("bad", f"---\n{key}:\n  agent: [unclosed\n---\n# Bad\n")
+
+
+def test_check_known_reads_only_the_named_components(install, tmp_path, known_components):
+    (known_components / "rules" / "rule-broken.mdc").write_bytes(b"---\nname: \xff\n---\nX\n")
+    (known_components / "agents" / "broken").mkdir()
+    (known_components / "agents" / "broken" / "system_prompt.mdc").write_text(
+        "---\ncore_skills: true\n---\nX\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    for persona in ({"agent": "code_reviewer", "skills": ["skill-a"], "rules": []},
+                    {"agent": "code_reviewer", "rules": ["truth"]}):
+        assert library.set_persona("review", persona)["flow"]["persona"] == persona
+
+
+def test_directory_overlay_blocks_delete_and_reset_without_changes(install, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    library.save("mine", "# Mine\n")
+    odd = tmp_path / "lib" / "personas" / "common" / "mine.json"
+    (odd / "keep").mkdir(parents=True)
+    with pytest.raises(FlowError, match="is a directory"):
+        library.delete("user:mine", expected_revision=revision("# Mine\n"))
+    with pytest.raises(FlowError, match="is a directory"):
+        library.set_persona("mine", None, reset=True)
+    assert (tmp_path / "lib" / "common" / "mine.md").is_file() and (odd / "keep").is_dir()
+    assert "persona_error" in library.resolve("mine").metadata()

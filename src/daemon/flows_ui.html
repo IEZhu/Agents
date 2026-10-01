@@ -71,6 +71,14 @@ textarea[readonly] { color: var(--muted); }
 .detail { display: flex; flex-direction: column; gap: 10px; }
 .detail p { margin: 0; }
 .detail .pane { flex: 1; min-height: 12rem; }
+details.persona { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
+details.persona summary { cursor: pointer; }
+.persona-bar { margin-top: 10px; }
+.persona-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+.persona-grid label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+.persona-grid select[multiple] { width: 100%; min-height: 140px; }
+.persona-grid select[multiple]:disabled { opacity: .5; }
+@media (max-width: 760px) { .persona-grid { grid-template-columns: 1fr; } }
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
@@ -121,6 +129,18 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     </div>
     <div id="meta" class="meta"></div>
     <div id="notice" class="notice hidden"></div>
+    <details id="persona" class="persona hidden">
+      <summary>Persona: <span id="persona-summary"></span></summary>
+      <div class="bar persona-bar">
+        <label for="persona-agent">Agent</label>
+        <select id="persona-agent"><option value="">No persona</option></select>
+        <span class="grow meta" id="persona-source"></span>
+        <button id="persona-reset" title="Use the persona declared in the flow's frontmatter">Reset to flow default</button>
+        <button id="persona-save" class="primary">Save persona</button>
+      </div>
+      <div class="persona-grid" id="persona-kinds"></div>
+      <p class="meta">An exact list loads only the chosen components (none chosen = none). “Agent default” keeps the agent's own selection. The choice is personal and does not change the flow's text.</p>
+    </details>
     <div id="panes" class="panes">
       <div class="pane"><label id="main-label">Flow</label><textarea id="content" spellcheck="false"></textarea></div>
       <div class="pane hidden" id="side"><label id="side-label"></label><textarea id="side-content" readonly spellcheck="false"></textarea></div>
@@ -422,6 +442,7 @@ function showEditor() {
   $("toggle-upstream").classList.toggle("hidden", !state.upstream);
   $("history").classList.toggle("hidden", builtin || !!state.draft);
   hideSide();
+  renderPersona().catch((error) => { if (!error.signedOut) notice(error.message, "error"); });
 }
 
 function setDirty(value) {
@@ -595,6 +616,133 @@ $("toggle-upstream").addEventListener("click", () => {
   $("toggle-upstream").textContent = "Hide built-in";
 });
 
+// --- a flow's persona: agent and exact components -------------------------------------
+
+const PERSONA_KINDS = ["skills", "implants", "rules"];
+
+async function personaCatalog() {
+  if (!state.personaCatalog) {
+    const [agents, ...kinds] = await Promise.all([
+      api("/ui/api/agents"),
+      ...PERSONA_KINDS.map((kind) => api("/ui/api/components?kind=" + kind)),
+    ]);
+    state.personaCatalog = { agents: agents.agents };
+    PERSONA_KINDS.forEach((kind, index) => { state.personaCatalog[kind] = kinds[index].items; });
+  }
+  return state.personaCatalog;
+}
+
+function describePersona(persona) {
+  if (!persona) return "none";
+  const parts = PERSONA_KINDS.filter((kind) => persona[kind])
+    .map((kind) => kind + " " + (persona[kind].length ? persona[kind].length : "none"));
+  return persona.agent + (parts.length ? " · " + parts.join(", ") : " · agent defaults");
+}
+
+async function renderPersona() {
+  const flow = state.current;
+  const panel = $("persona");
+  panel.classList.toggle("hidden", !flow || !!state.draft);
+  if (!flow || state.draft) return;
+  const persona = flow.persona || null;
+  $("persona-summary").textContent = describePersona(persona);
+  $("persona-source").textContent = flow.persona_source === "overlay" ? "Your choice (overrides the flow)"
+    : flow.persona_source === "frontmatter" ? "Declared by the flow" : "";
+  state.personaReady = null;  // Save waits until this flow's controls are filled in
+  personaButtons();
+  if (flow.persona_error) {
+    $("persona-summary").textContent = "invalid";
+    $("persona-source").textContent = flow.persona_error + ". Save a choice or reset to repair it.";
+    panel.open = true;
+  }
+  const catalog = await personaCatalog();
+  if (state.current !== flow) return;
+  const agent = $("persona-agent");
+  agent.replaceChildren(new Option("No persona", ""));
+  for (const item of catalog.agents) agent.appendChild(new Option(item.display_name + " (" + item.id + ")", item.id));
+  agent.value = persona ? persona.agent : "";
+  const grid = $("persona-kinds");
+  grid.replaceChildren();
+  for (const kind of PERSONA_KINDS) {
+    const column = document.createElement("div");
+    const exact = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox"; box.dataset.kind = kind;
+    box.checked = !!(persona && persona[kind]);
+    exact.append(box, kind[0].toUpperCase() + kind.slice(1) + ": exact list (otherwise agent default)");
+    const list = document.createElement("select");
+    list.multiple = true; list.dataset.kind = kind;
+    list.setAttribute("aria-label", kind[0].toUpperCase() + kind.slice(1) + " to load");
+    const chosen = new Set((persona && persona[kind]) || []);
+    for (const item of catalog[kind]) {
+      const option = new Option(item.id + (item.enabled ? "" : " (off)"), item.id);
+      option.title = item.description; option.selected = chosen.has(item.id);
+      list.appendChild(option);
+    }
+    column.append(exact, list);
+    grid.appendChild(column);
+  }
+  // Components need an agent; without one the lists are disabled, not just dimmed.
+  const sync = () => {
+    for (const box of grid.querySelectorAll("input[type=checkbox]")) {
+      box.disabled = !agent.value;
+      grid.querySelector("select[data-kind=" + box.dataset.kind + "]").disabled = !agent.value || !box.checked;
+    }
+  };
+  for (const box of grid.querySelectorAll("input[type=checkbox]")) box.addEventListener("change", sync);
+  agent.onchange = sync; sync();
+  state.personaReady = flow;
+  personaButtons();
+}
+
+// Save needs this flow's controls; Reset needs a personal choice or an error to clear.
+function personaButtons() {
+  const flow = state.current;
+  const idle = !!flow && !state.personaPending;
+  $("persona-save").disabled = !idle || state.personaReady !== flow;
+  $("persona-reset").disabled = !idle || (flow.persona_source !== "overlay" && !flow.persona_error);
+}
+
+async function savePersona(reset) {
+  const flow = state.current;
+  if (!flow || state.personaPending) return;
+  const body = { id: flow.id, repo: flow.repo_key || "", reset: !!reset, persona: null };
+  if (!reset && $("persona-agent").value) {
+    body.persona = { agent: $("persona-agent").value };
+    for (const box of $("persona-kinds").querySelectorAll("input[type=checkbox]")) {
+      if (!box.checked) continue;
+      const list = $("persona-kinds").querySelector("select[data-kind=" + box.dataset.kind + "]");
+      body.persona[box.dataset.kind] = [...list.selectedOptions].map((option) => option.value);
+    }
+  }
+  // One request at a time: an overlapping Save and Reset could leave the panel
+  // showing a choice that is no longer stored.
+  state.personaPending = true;
+  $("persona-save").disabled = $("persona-reset").disabled = true;
+  try {
+    const result = await api("/ui/api/flow/persona", { method: "PUT", body });
+    if (state.current !== flow) return;  // another flow was opened meanwhile
+    // Only the persona fields: the text and its revision stay as the editor loaded them,
+    // so a text save still detects a concurrent edit.
+    const updated = Object.assign({}, flow, {
+      persona: result.flow.persona, persona_source: result.flow.persona_source });
+    delete updated.persona_error;
+    if (result.flow.persona_error) updated.persona_error = result.flow.persona_error;
+    state.current = updated;
+    await renderPersona();  // sets personaReady for the updated flow
+    notice(reset ? "The flow's own persona applies again." : "Persona saved.", "ok");
+    await loadList();
+  } catch (error) {
+    if (!error.signedOut) notice(error.message, "error");
+  } finally {
+    state.personaPending = false;
+    personaButtons();
+  }
+}
+
+$("persona-save").addEventListener("click", () => savePersona(false));
+$("persona-reset").addEventListener("click", () => savePersona(true));
+
 // --- rules, skills and implants: view and switch on or off -------------------------------
 
 // `keep` selects an ID; `keepCurrent` keeps whatever is selected when the response arrives.
@@ -670,6 +818,7 @@ async function toggleItem() {
   if (!item) return;
   try {
     await api("/ui/api/component", { method: "PUT", body: { kind, id: item.id, enabled: !item.enabled } });
+    state.personaCatalog = null;  // the Persona panel marks switched-off components
     if (state.tab === kind) await loadComponents(kind, null, true);
   } catch (error) { alert(error.message); }
 }

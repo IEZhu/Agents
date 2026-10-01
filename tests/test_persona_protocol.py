@@ -24,7 +24,7 @@ def descriptor(agent="software_engineer", activation="old", revision="a" * 64):
 
 @pytest.fixture
 def bundle(monkeypatch):
-    async def build(agent, query, history, tier=None):
+    async def build(agent, query, history, tier=None, selection=None):
         return SimpleNamespace(
             agent=agent, bundle_revision="b" * 64, scope=f"Scope of {agent}",
             persona_block=f"Role {agent}", rules_block="General rules",

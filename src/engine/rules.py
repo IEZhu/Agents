@@ -77,7 +77,7 @@ def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
-    except OSError as e:
+    except (OSError, UnicodeError) as e:
         logger.error("Failed to read rule file %s: %s", path, e)
         return None
 
@@ -142,6 +142,45 @@ def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
     )
 
 
+def _strict_rule(path: str, rule: Optional[Rule], loaded: List[Rule]) -> Rule:
+    """Validate a strictly parsed rule and resolve its imports, or raise."""
+    if rule is None or not rule.body or not re.fullmatch(r"[A-Za-z0-9_-]+", rule.name):
+        raise ValueError(f"Invalid mandatory rule: {path}")
+    if any(existing.name == rule.name for existing in loaded):
+        raise ValueError(f"Duplicate rule ID: {rule.name}")
+    return replace(
+        rule,
+        body=process_imports(rule.body, {os.path.realpath(path)}, strict=True),
+        description=process_imports(rule.description, {os.path.realpath(path)}, strict=True),
+    )
+
+
+def load_selected_rules(names) -> List[Rule]:
+    """Strictly load only the named rules, in priority order; for a flow's exact list.
+
+    Unselected rule files are read leniently to find names, so a broken rule the
+    flow does not use cannot block it. A missing or invalid selected rule raises,
+    also with ``RULES_ENABLED=0``, which then delivers no rules as ``get_rules()`` does.
+    """
+    wanted = set(names)
+    if not wanted:
+        return []
+    rules: List[Rule] = []
+    for path in sorted(glob.glob(os.path.join(RULES_DIR, "rule-*.mdc"))):
+        found = _parse_rule_file(path)
+        if found is None or found.name not in wanted:
+            continue
+        path = resolve_path(path)
+        rules.append(_strict_rule(path, _parse_rule_file(path, strict=True), rules))
+    missing = wanted - {rule.name for rule in rules}
+    if missing:
+        raise ValueError(f"Unknown or invalid rules: {', '.join(sorted(missing))}")
+    if not RULES_ENABLED:
+        return []  # Validated above, so a stale choice is still caught while rules are off.
+    rules.sort(key=lambda r: (r.priority, r.name))
+    return rules
+
+
 def load_all_rules(*, strict: bool = False) -> List[Rule]:
     """Read every ``rules/rule-*.mdc`` and return a list sorted by priority.
 
@@ -163,17 +202,7 @@ def load_all_rules(*, strict: bool = False) -> List[Rule]:
             path = resolve_path(path)
         rule = _parse_rule_file(path, strict=True) if strict else _parse_rule_file(path)
         if strict:
-            if rule is None or not rule.body or not re.fullmatch(r"[A-Za-z0-9_-]+", rule.name):
-                raise ValueError(f"Invalid mandatory rule: {path}")
-            if any(existing.name == rule.name for existing in rules):
-                raise ValueError(f"Duplicate rule ID: {rule.name}")
-            rule = replace(
-                rule,
-                body=process_imports(rule.body, {os.path.realpath(path)}, strict=True),
-                description=process_imports(
-                    rule.description, {os.path.realpath(path)}, strict=True,
-                ),
-            )
+            rule = _strict_rule(path, rule, rules)
         if rule is not None:
             rules.append(rule)
 
