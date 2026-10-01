@@ -185,6 +185,7 @@ function flowParams(flow, version) {
 }
 
 async function loadList(select) {
+  if (state.tab !== "flows") return;  // a save or delete that finished after the user left Flows
   const gen = ++state.gen;
   const data = await api("/ui/api/flows");
   if (state.tab !== "flows" || gen !== state.gen) return;  // superseded while loading

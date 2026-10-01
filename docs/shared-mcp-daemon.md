@@ -293,7 +293,7 @@ The daemon serves a local settings page at `/ui` with four tabs.
   flows](../flows/README.md#personal-and-repository-flows). A User/System switch
   shows one category at a time. *User* lists personal flows and, below them, the
   repository flows of every repository under `flows/.user/repos/`, grouped by
-  the stored origin (the key when there is none); no repository has to be
+  the stored origin (else the last known path, else the key); no repository has to be
   selected, and an existing repository flow is opened, saved, deleted and its
   history shown by key. *System* lists the read-only built-in flows. Creating a
   repository flow, or "Edit copy for a repository", asks which registered

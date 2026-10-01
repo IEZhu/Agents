@@ -126,7 +126,7 @@ class FlowLibrary:
         self._repo = None
         # An existing repository's flows can be reached by key alone (the web UI lists
         # every key); only creating one needs a workspace to derive the key from.
-        if repo_key is not None and not _REPO_KEY.fullmatch(repo_key):
+        if repo_key is not None and not (isinstance(repo_key, str) and _REPO_KEY.fullmatch(repo_key)):
             raise FlowError("flow_invalid: unknown repository")
         self._key = repo_key if self.repo_root is None else None
         if self._key:

@@ -177,7 +177,7 @@ def test_repository_flows_are_reachable_by_key_without_a_workspace(install, repo
     assert [g["key"] for g in FlowLibrary(FlowCatalog(install), user_dir=toggle_dir).repositories()
             if g["key"] == underscore.name] == []  # empty groups are not listed
     FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key=underscore.name)
-    for bad in ("../etc", "A", ".hidden", "missing-key"):
+    for bad in ("../etc", "A", ".hidden", "missing-key", ["x"], 5):
         with pytest.raises(FlowError):
             FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_key=bad)
     (toggle_dir / "repos" / "linked").symlink_to(toggle_dir / "repos" / key)
