@@ -712,11 +712,6 @@ function mdText(text, parent) { parent.appendChild(document.createTextNode(text)
 
 const mdIndent = (line) => line.length - line.trimStart().length;
 
-// Alt text of an image: the label without emphasis markers. Single linear pass, no backtracking.
-function mdPlain(text) {
-  return text.replace(/[`*~\\]/g, "").replace(/\s+/g, " ").trim();
-}
-
 const mdSlug = (plain) => plain.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s+/g, "-");
 
 // The code span that starts at `i`, or null: a backtick run closes at the next run of equal length.
@@ -836,7 +831,12 @@ function mdInline(text, parent, ctx, inLink = false) {
     }
     if (c === "!" && text[i + 1] === "[" && mdAffordable(ctx, text, i)) {  // images are not loaded (CSP): show the alt text
       const link = mdLink(text, i + 1, ctx);
-      if (link) { buf += mdPlain(link.label); i = link.next; continue; }
+      if (link) {  // the alt text as the inline parser reads it: only real markers disappear
+        const alt = document.createElement("span");
+        mdInline(link.label, alt, ctx, true);
+        buf += mdNodeText(alt);
+        i = link.next; continue;
+      }
     }
     if (c === "[" && !inLink && mdAffordable(ctx, text, i)) {
       const link = mdLink(text, i, ctx);
