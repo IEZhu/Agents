@@ -1,9 +1,8 @@
 """Idempotent, marker-bounded edits of CLAUDE.md (and friends).
 
-Single source of truth for the marker-section editor previously inlined in
-``scripts/init_repo.sh:636-672``. The bash installer can shell out to this
-module via subprocess, and the MCP ``describe_repo`` tool calls it directly,
-so both paths share identical behavior.
+The MCP ``describe_repo`` tool uses this editor for the Repository Memory
+section. The installers maintain the routing section with
+``scripts/_helpers/inject_claude_md.py``, a separate standard-library helper.
 
 Contract for a managed section::
 

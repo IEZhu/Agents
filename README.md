@@ -294,8 +294,8 @@ The server exposes MCP tools that any compatible client can call:
 
 | Tool | Purpose |
 |------|---------|
-| `route_and_load(query, protocol_version=2, current_persona?, chat_history?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
-| `get_agent_context(agent_name, query, protocol_version=2, current_persona?, force_reload=False, chat_history?)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
+| `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
+| `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona)` | Refresh skills/implants for the active role without reselecting it |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
