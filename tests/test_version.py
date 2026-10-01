@@ -67,6 +67,40 @@ def test_unknown_on_nonzero_exit_or_garbage(monkeypatch):
     assert version.agents_core_version() == "unknown"
 
 
+def test_version_is_computed_once(monkeypatch):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="2026-10-01T08:01:00+00:00", stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    version.agents_core_version(); version.agents_core_version()
+    assert len(calls) == 2  # log and status, once
+    assert all("--no-optional-locks" in c for c in calls)
+
+
+def test_git_environment_is_scrubbed(monkeypatch):
+    seen = {}
+    monkeypatch.setenv("GIT_DIR", "/elsewhere")
+    def run(args, **kwargs):
+        seen.update(kwargs["env"])
+        return subprocess.CompletedProcess(args, 0, stdout="2026-10-01T08:01:00+00:00", stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    version.agents_core_version()
+    assert not any(k.startswith("GIT_") for k in seen)
+
+
+def test_no_link_under_daemon_without_port(monkeypatch):
+    monkeypatch.setenv("AGENTS_TRANSPORT", "http")
+    persona.configure_ui_port(None)
+    assert persona.ui_link() is None
+
+
+def test_load_runtime_configures_the_ui_port():
+    import inspect
+    from src.daemon import app
+    assert "configure_ui_port(port)" in inspect.getsource(app.load_runtime)
+
+
 def test_footer_has_version_and_no_url_under_stdio(monkeypatch):
     monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
     persona.configure_ui_port(8765)

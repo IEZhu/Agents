@@ -9,6 +9,7 @@ update always starts a new process.
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+import os
 import subprocess
 
 UNKNOWN = "unknown"
@@ -17,10 +18,11 @@ _TIMEOUT = 5
 
 
 def _git(*args: str) -> str | None:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         result = subprocess.run(
-            ["git", "-C", str(ROOT), *args], capture_output=True, text=True,
-            timeout=_TIMEOUT, check=False)
+            ["git", "--no-optional-locks", "-C", str(ROOT), *args], capture_output=True,
+            text=True, timeout=_TIMEOUT, check=False, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout if result.returncode == 0 else None

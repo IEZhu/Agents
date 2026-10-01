@@ -33,6 +33,7 @@ def load_runtime(port):
     # Rule warmup runs the strict load that persona bundles use; failure prevents ready.
     get_rules(strict=True)
     configuration_revision()
+    agents_core_version()  # fix the value at startup, off the event loop
     server.mcp.settings.host = "127.0.0.1"
     server.mcp.settings.port = port
     from src.engine.persona import configure_ui_port
