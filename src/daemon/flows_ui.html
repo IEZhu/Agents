@@ -805,8 +805,12 @@ function mdInline(text, parent, ctx, inLink = false) {
       if (PUNCT.test(text[i + 1])) { buf += text[i + 1]; i += 2; continue; }
     }
     if (c === "\n") {
-      if (/ {2,}$/.test(buf)) { buf = buf.replace(/ +$/, ""); flush(); mdEl("br", "", parent); }
-      else buf = buf.replace(/ +$/, "") + " ";
+      let end = buf.length;  // buf holds at most the current line: it is flushed at every break
+      while (end > 0 && buf[end - 1] === " ") end--;
+      const hard = buf.length - end >= 2;
+      buf = buf.slice(0, end) + (hard ? "" : " ");
+      flush();
+      if (hard) mdEl("br", "", parent);
       i++; continue;
     }
     if (c === "`") {
@@ -964,6 +968,8 @@ function mdList(lines, i, parent, ctx) {
 }
 
 const MD_MAX_DEPTH = 40;
+// The first meaningful line of a YAML mapping: a plain or quoted key followed by a colon.
+const FRONTMATTER_KEY = /^\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s#'"?:-][^:\n]*?)[ \t]*:(?:\s|$)/;
 
 function mdBlocks(lines, parent, ctx) {
   if (ctx.depth >= MD_MAX_DEPTH) {  // deeper nesting is shown as text, so the recursion stays bounded
@@ -1026,10 +1032,13 @@ function mdBlocksAt(lines, parent, ctx) {
 // elements) and the raw frontmatter text, or null.
 function renderMarkdown(text, host) {
   const ctx = { ids: new Map(), seen: new Map(), headings: [], work: 0, depth: 0 };
-  let lines = String(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n"), meta = null;
+  let lines = String(text).replace(/\r\n?/g, "\n").split("\n"), meta = null;
+  // Same contract as the server (split_flow_frontmatter): a block opened by `---` on the first
+  // line and closed by the next `---` line counts only when it reads as a YAML mapping.
   if (/^---[ \t]*$/.test(lines[0])) {
-    const end = lines.findIndex((line, k) => k > 0 && /^(?:---|\.\.\.)[ \t]*$/.test(line));
-    if (end > 0 && lines.slice(1, end).some((line) => /^[\w-]+:/.test(line))) {
+    const end = lines.findIndex((line, k) => k > 0 && /^---[ \t]*$/.test(line));
+    const first = end > 0 ? lines.slice(1, end).find((line) => line.trim() && !/^\s*#/.test(line)) : undefined;
+    if (first !== undefined && FRONTMATTER_KEY.test(first)) {
       meta = lines.slice(1, end).join("\n");
       lines = lines.slice(end + 1);
     }

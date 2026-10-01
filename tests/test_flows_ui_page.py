@@ -334,7 +334,7 @@ def test_hostile_or_huge_input_neither_crashes_nor_stalls():
 
 def test_empty_headings_and_a_byte_order_mark():
     assert render("#\n\n# Real\n")["headings"][0]["text"] == ""
-    assert render("﻿---\npersona: x\n---\n# T\n")["meta"] == "persona: x"
+    assert render("\ufeff---\npersona: x\n---\n# T\n")["meta"] is None  # the server needs `---` first
 
 
 def test_heading_text_and_ids_drop_underscore_emphasis_but_keep_snake_case():
@@ -378,3 +378,16 @@ def test_atx_headings_and_whitespace_heavy_lines_stay_fast():
     assert [h["text"] for h in render("# Title ##\n\n## C#\n\n### x #y\n\n#\n\n####### no\n")["headings"]] == ["Title", "C#", "x #y", ""]
     for hostile in ("-" + " " * 60000 + "x", "| a |\n|" + "- " * 20000, "a" + " " * 60000 + "\n=="):
         render(hostile)  # the harness call has a 60 s timeout
+
+
+def test_frontmatter_follows_the_server_contract():
+    assert render('---\n"quoted key": 1\n---\n# T\n')["meta"] == '"quoted key": 1'
+    assert render("---\n# comment\n  indented: 1\n---\n")["meta"] == "# comment\n  indented: 1"
+    assert render("---\npersona: x\n...\n# T\n")["meta"] is None  # `...` does not close it
+    assert render("---\n- a\n- b\n---\n")["meta"] is None  # a list is not a mapping
+    assert render("---\nplain text\n---\n")["meta"] is None
+
+
+def test_many_short_lines_in_one_paragraph_stay_linear():
+    html = html_of("a\n" * 40000)
+    assert html.startswith("<p>a a a") and html_of("x  \ny") == "<p>x<br>y</p>"
