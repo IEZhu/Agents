@@ -373,6 +373,9 @@ async def run_flow(
             raise FlowError(f"{metadata['persona_error']}; repair it with set_flow_persona")
         spec = metadata.get("persona")
         if spec:
+            # Refuse a persona naming a removed or misspelled component up front,
+            # instead of returning the flow with an ERROR activation.
+            await asyncio.to_thread(flow_persona.check_known, spec)
             query = f"{loaded.title}\n{request}".strip()
             bundle["persona_activation"] = json.loads(await load_persona(
                 router, spec["agent"], query, [], current_persona,

@@ -817,3 +817,35 @@ def test_persona_directory_symlink_cannot_escape(install, tmp_path, known_compon
     with pytest.raises(FlowError, match="escapes"):
         library.set_persona("review", {"agent": "code_reviewer"})
     assert not list(outside.iterdir())
+
+
+def test_non_string_persona_keys_are_flow_invalid(install, tmp_path):
+    (install / "keys.md").write_text("---\npersona:\n  agent: code_reviewer\n  1: typo\n  x: y\n---\n# K\n",
+                                     encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert "unknown persona fields: 1, x" in library.resolve("keys").metadata()["persona_error"]
+
+
+def test_symlinked_overlay_is_reported_and_reset_removes_only_the_link(install, tmp_path, known_components):
+    target = tmp_path / "elsewhere.json"
+    target.write_text('{"persona": null}', encoding="utf-8")
+    overlay = tmp_path / "lib" / "personas" / "builtin" / "review.json"
+    overlay.parent.mkdir(parents=True)
+    overlay.symlink_to(target)
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert "symlink" in library.resolve("review").metadata()["persona_error"]
+    with pytest.raises(FlowError, match="symlink"):
+        library.set_persona("review", {"agent": "code_reviewer"})
+    assert library.set_persona("review", None, reset=True)["status"] == "reset"
+    assert not overlay.is_symlink() and target.exists()
+
+
+def test_delete_checks_the_persona_path_before_changing_anything(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    library.save("mine", "# Mine\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "lib" / "personas").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(FlowError, match="escapes"):
+        library.delete("user:mine", expected_revision=revision("# Mine\n"))
+    assert (tmp_path / "lib" / "common" / "mine.md").is_file()

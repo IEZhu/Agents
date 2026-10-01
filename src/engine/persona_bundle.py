@@ -171,6 +171,8 @@ async def build_persona_bundle(
     # `enrichment.enrich_agent_prompt`.
     if selection.rules is None:
         rules = await asyncio.to_thread(get_rules, fresh=True, strict=True, apply_toggles=True)
+    elif not selection.rules:
+        rules = []  # No rule files are read, so a broken unselected rule cannot block it.
     else:
         available = await asyncio.to_thread(get_rules, fresh=True, strict=True)
         missing = set(selection.rules) - {rule.name for rule in available}

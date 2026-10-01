@@ -57,7 +57,8 @@ def normalize(value) -> dict | None:
         raise FlowError("flow_invalid: persona must be a mapping with an agent")
     unknown = set(value) - {"agent", *KINDS}
     if unknown:
-        raise FlowError(f"flow_invalid: unknown persona fields: {', '.join(sorted(unknown))}")
+        raise FlowError("flow_invalid: unknown persona fields: "
+                        + ", ".join(sorted(map(str, unknown))))
     agent = value.get("agent")
     if not isinstance(agent, str) or not _AGENT.fullmatch(agent):
         raise FlowError("flow_invalid: persona.agent must be an agent name such as code_reviewer")

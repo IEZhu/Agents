@@ -158,7 +158,9 @@ persona, and `reset=true` restores the frontmatter. `list_flows` and `get_flow`
 report the effective `persona` and `persona_source` (`frontmatter`, `overlay` or
 null). An invalid declaration or an unreadable overlay does not hide the flow:
 it is listed with `persona_error`, `run_flow` refuses it with `flow_invalid`, and
-saving a choice or `reset=true` repairs it. Frontmatter is recognized only as a
+saving a choice or `reset=true` repairs it (reset also removes a symlinked
+overlay without touching its target). `run_flow` also refuses a persona that
+names an agent or component that no longer exists. Frontmatter is recognized only as a
 closed block that parses as a YAML mapping, so a flow may still open with a
 Markdown rule (`---`); a block that mentions `persona:` but is not valid YAML is
 `flow_invalid`.

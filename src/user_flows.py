@@ -472,6 +472,7 @@ class FlowLibrary:
         if scope is None:
             scope = next((s for s in ("repo", "user") if self._exists(s, flow_id)), "user")
         self._relative(scope)
+        persona_path = self._persona_path(scope, flow_id)  # Validated before any change.
         with file_lock(self.user_dir / ".lock"):
             path, current = self._current(scope, flow_id)
             if current is None:
@@ -480,7 +481,7 @@ class FlowLibrary:
             version = self._archive(scope, flow_id, current, deleted=True)
             path.unlink()
             (self._directory(scope) / f"{flow_id}.meta.json").unlink(missing_ok=True)
-            self._persona_path(scope, flow_id).unlink(missing_ok=True)
+            persona_path.unlink(missing_ok=True)
         return {"status": "deleted", "id": f"{scope}:{flow_id}", "version": version}
 
     def set_persona(self, name: str, persona, *, reset: bool = False) -> dict:
@@ -504,10 +505,10 @@ class FlowLibrary:
         path = self._persona_path(scope, flow_id)
         self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         with file_lock(self.user_dir / ".lock"):
-            if path.is_symlink():
-                raise FlowError("flow_invalid: persona overlays cannot be symlinks")
             if reset:
-                path.unlink(missing_ok=True)
+                path.unlink(missing_ok=True)  # Removes a symlink itself, never its target.
+            elif path.is_symlink():
+                raise FlowError("flow_invalid: persona overlays cannot be symlinks")
             else:
                 _atomic_write(path, json.dumps({"persona": spec}, indent=2).encode() + b"\n")
         return {"status": "reset" if reset else "saved",

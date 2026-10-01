@@ -233,6 +233,14 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
     assert calls[-1][2].skills is None  # The agent's default selection.
     server.router.update_cache.assert_not_awaited()
 
+    # A component removed after the choice was saved: refused, not an ERROR activation.
+    monkeypatch.setattr(catalog, "known_ids", lambda kind: set())
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=[]))
+    monkeypatch.setattr(catalog, "known_agents", lambda: set())
+    refused = json.loads(await server.run_flow("check"))
+    assert refused["status"] == "error" and "unknown agent" in refused["error"]
+    monkeypatch.setattr(catalog, "known_agents", lambda: {"code_reviewer"})
+
     both = json.loads(await server.set_flow_persona("check", agent="code_reviewer", reset=True))
     assert both["status"] == "error" and "reset=true" in both["error"]
     error = json.loads(await server.set_flow_persona("check", skills=["skill-a"]))

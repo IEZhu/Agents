@@ -705,7 +705,14 @@ async function savePersona(reset) {
   }
   try {
     const result = await api("/ui/api/flow/persona", { method: "PUT", body });
-    state.current = Object.assign({}, flow, result.flow);
+    if (state.current !== flow) return;  // another flow was opened meanwhile
+    // Only the persona fields: the text and its revision stay as the editor loaded them,
+    // so a text save still detects a concurrent edit.
+    const updated = Object.assign({}, flow, {
+      persona: result.flow.persona, persona_source: result.flow.persona_source });
+    delete updated.persona_error;
+    if (result.flow.persona_error) updated.persona_error = result.flow.persona_error;
+    state.current = updated;
     await renderPersona();
     notice(reset ? "The flow's own persona applies again." : "Persona saved.", "ok");
     await loadList();

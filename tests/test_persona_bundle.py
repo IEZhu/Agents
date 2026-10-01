@@ -428,3 +428,12 @@ async def test_selected_rules_keep_priority_order(bundle_tree):
                                         selection=ComponentSelection(rules=("early", "truth")))
     assert first.rules_loaded == second.rules_loaded == ["early", "truth"]
     assert first.bundle_revision == second.bundle_revision
+
+
+@pytest.mark.asyncio
+async def test_empty_rule_selection_reads_no_rule_files(bundle_tree):
+    tree, _ = bundle_tree
+    (tree / "rules/rule-broken.mdc").write_text("no frontmatter", encoding="utf-8")
+    bundle = await build_persona_bundle("engineer", "R", tier="deep",
+                                        selection=ComponentSelection(rules=()))
+    assert bundle.rules_loaded == [] and bundle.rules_block == ""
