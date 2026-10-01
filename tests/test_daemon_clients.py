@@ -1,6 +1,8 @@
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tomllib
 
 import pytest
@@ -100,3 +102,25 @@ def test_restore_preserves_original_bytes_and_restores_remaining_files(migration
 
     assert first.read_bytes() == b"\xfforiginal bytes"
     assert second.read_bytes() == b"second original"
+
+
+
+def test_conftest_clears_inherited_client_config_overrides(tmp_path):
+    # An inherited CLAUDE_CONFIG_DIR made migration tests rewrite the developer's
+    # real Claude profile. Import conftest in a child that inherits all four.
+    overrides = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG")
+    env = {**os.environ, **{name: str(tmp_path / "inherited" / name) for name in overrides}}
+    home = tmp_path / "home"
+    code = (
+        "import json, os, sys\n"
+        "import tests.conftest\n"
+        "from src.client_paths import client_config_path\n"
+        "print(json.dumps({'left': [n for n in sys.argv[1:] if n in os.environ],"
+        " 'claude': str(client_config_path('claude', home=os.environ['TEST_HOME']))}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, *overrides], cwd=Path(__file__).resolve().parents[1],
+        env={**env, "TEST_HOME": str(home)}, capture_output=True, text=True, check=True,
+    )
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report == {"left": [], "claude": str(home / ".claude.json")}

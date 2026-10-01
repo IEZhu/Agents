@@ -41,6 +41,15 @@ _SEEDED_FILES = (
     ".implants_hash",
 )
 
+# Read by src/client_paths.py, which the installers, instruction updates and
+# daemon migration/audit all use to locate client configuration files.
+CLIENT_CONFIG_OVERRIDES = (
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "AGENTS_CURSOR_MCP_CONFIG",
+    "AGENTS_CLAUDE_DESKTOP_CONFIG",
+)
+
 
 def _pin_embedding_model() -> None:
     """Use the install's model so the copied stores' hashes can match."""
@@ -73,6 +82,11 @@ os.environ["AGENTS_ROUTER_DATA_DIR"] = os.path.join(TEST_DATA_DIR, "router")
 # it would outrank the cwd that client-root tests control and aim memory and
 # flows at the live project.
 os.environ.pop("CLAUDE_PROJECT_DIR", None)
+# These select client configuration files and outrank the temporary home that
+# installer and migration tests pass in. Inherited from a shell or a Claude Code
+# session, they would make those tests rewrite the user's real client config.
+for _name in CLIENT_CONFIG_OVERRIDES:
+    os.environ.pop(_name, None)
 
 from src.engine import config as _config  # noqa: E402  (must follow the env pins)
 
