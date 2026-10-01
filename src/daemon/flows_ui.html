@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agents-Core Flows</title>
+<title>Agents-Core Settings</title>
 <style nonce="{{NONCE}}">
 :root {
   --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
@@ -55,6 +55,14 @@ textarea[readonly] { color: var(--muted); }
 .notice.ok { background: var(--chip); color: var(--ok); }
 .notice.error { color: var(--danger); }
 .hidden { display: none !important; }
+.tabs, .seg { display: flex; gap: 4px; }
+.tabs button.active, .seg button.active { background: var(--chip); font-weight: 600; }
+.seg { margin-bottom: 8px; }
+.seg button { flex: 1; }
+.chip.off { background: var(--warn-bg); color: var(--warn); }
+.detail { display: flex; flex-direction: column; gap: 10px; }
+.detail p { margin: 0; }
+.detail textarea { min-height: 40vh; }
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
@@ -68,14 +76,27 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 </head>
 <body>
 <header>
-  <h1>Flows</h1>
+  <h1>Agents-Core</h1>
   <span class="meta" id="version">Agents-Core {{VERSION}}</span>
-  <label>Repository <select id="workspace"><option value="">— none —</option></select></label>
+  <div class="tabs" id="tabs">
+    <button data-tab="flows" class="active">Flows</button>
+    <button data-tab="rules">Rules</button>
+    <button data-tab="skills">Skills</button>
+    <button data-tab="implants">Implants</button>
+  </div>
   <button id="new" class="primary">New flow</button>
 </header>
 <section id="signin" class="hidden"><h2>Sign in</h2><p>This page needs a fresh session. Sessions end after 30 minutes idle, after 8 hours, and when the daemon restarts or updates. Run this command in a terminal; it opens this page signed in:</p><p><code>python -m src.daemon flows-ui</code></p></section>
 <main id="main">
   <nav id="list"><div class="empty">Loading…</div></nav>
+  <section id="component" class="hidden detail">
+    <div class="bar"><strong id="c-title" class="grow"></strong><button id="c-toggle" class="primary"></button></div>
+    <div id="c-meta" class="meta"></div>
+    <p id="c-description"></p>
+    <div id="c-warning" class="notice hidden"></div>
+    <div class="notice">Changes apply to the next bundle the server builds: a new conversation, a switch to another agent, a restore, or a refresh whose revision changed. Conversations that are already active keep their current bundle. Files are never changed.</div>
+    <div class="pane"><label>Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
+  </section>
   <section id="editor" class="hidden">
     <div class="bar">
       <strong id="title" class="grow"></strong>
@@ -93,21 +114,24 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       <div class="pane hidden" id="side"><label id="side-label"></label><textarea id="side-content" readonly spellcheck="false"></textarea></div>
     </div>
   </section>
-  <section id="welcome"><p class="meta">Select a flow, or create one. Personal flows are stored as Markdown in the installation's git-ignored <code>flows/.user</code>; built-in flows stay read-only and can be replaced by a local copy.</p></section>
+  <section id="welcome"><p class="meta">Select a flow, or create one. Personal and repository flows (User) are stored as Markdown in the installation's git-ignored <code>flows/.user</code>; built-in flows (System) stay read-only and can be replaced by a local copy.</p></section>
 </main>
 <dialog id="create">
   <form method="dialog">
-    <strong>New flow</strong>
+    <strong id="create-title">New flow</strong>
     <label>ID (lowercase, dashes) <input id="new-id" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
-    <label>Scope <select id="new-scope"><option value="user">Personal — every repository</option><option value="repo">This repository only</option></select></label>
+    <label>Scope <select id="new-scope"><option value="user">Personal — every repository</option><option value="repo">One repository</option></select></label>
+    <label id="new-workspace-label" class="hidden">Repository (registered workspace) <select id="new-workspace"></select></label>
     <div class="bar"><span class="grow"></span><button value="cancel">Cancel</button><button id="create-ok" class="primary" value="ok">Create</button></div>
   </form>
 </dialog>
 <script nonce="{{NONCE}}">
 "use strict";
 const $ = (id) => document.getElementById(id);
-const state = { flows: [], current: null, draft: null, dirty: false, repo: null, workspace: "" };
+const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
+  upstream: null, items: [], item: null, workspaces: null, pending: null };
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
+const KIND_LABEL = { rules: "Rules", skills: "Skills", implants: "Implants" };
 
 async function api(path, options = {}) {
   const init = { credentials: "same-origin", ...options, headers: { "X-Agents-UI": "1", ...(options.headers || {}) } };
@@ -129,11 +153,9 @@ function notice(text, kind = "") {
   box.className = "notice" + (kind ? " " + kind : "") + (text ? "" : " hidden");
 }
 
-function workspace() { return $("workspace").value || ""; }
-
 function showSignIn() {
   $("main").classList.add("hidden");
-  $("workspace").closest("label").classList.add("hidden");
+  $("tabs").classList.add("hidden");
   $("new").classList.add("hidden");
   $("signin").classList.remove("hidden");
 }
@@ -146,58 +168,26 @@ async function login() {
 }
 
 async function loadWorkspaces() {
-  const data = await api("/ui/api/workspaces");
-  const select = $("workspace");
-  let saved = "";
-  try { saved = localStorage.getItem("flows.workspace") || ""; } catch (_) {}
-  for (const item of data.workspaces) {
-    const option = document.createElement("option");
-    option.value = item.id; option.textContent = item.name; option.title = item.path;
-    select.appendChild(option);
-  }
-  if ([...select.options].some((o) => o.value === saved)) select.value = saved;
-  state.workspace = select.value;
+  if (!state.workspaces) state.workspaces = (await api("/ui/api/workspaces")).workspaces;
+  return state.workspaces;
 }
 
-async function loadList(selectId) {
-  const params = new URLSearchParams();
-  if (workspace()) params.set("workspace", workspace());
-  const data = await api("/ui/api/flows?" + params);
+// A flow is addressed by its ID and, for repository flows, the repository key.
+const sameFlow = (flow, id, repo) => flow && flow.id === id && (flow.repo_key || "") === (repo || "");
+
+function flowParams(flow, version) {
+  const params = new URLSearchParams({ id: flow.id });
+  if (flow.repo_key) params.set("repo", flow.repo_key);
+  if (version) params.set("version", version);
+  return params;
+}
+
+async function loadList(select) {
+  const data = await api("/ui/api/flows");
   state.flows = data.flows;
-  state.repo = data.repo && data.repo.status === "available" ? data.repo : null;
+  state.repos = data.repositories || [];
   renderList();
-  if (selectId) await openFlow(selectId);
-}
-
-function renderList() {
-  const nav = $("list");
-  nav.replaceChildren();
-  const groups = [["repo", "This repository"], ["user", "Personal"], ["builtin", "Built-in"]];
-  for (const [source, label] of groups) {
-    if (source === "repo" && !state.repo) continue;
-    const heading = document.createElement("h2");
-    heading.textContent = label;
-    nav.appendChild(heading);
-    const items = state.flows.filter((f) => f.source === source);
-    if (!items.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty"; empty.textContent = "No flows";
-      nav.appendChild(empty);
-    }
-    for (const flow of items) {
-      const button = document.createElement("button");
-      button.className = "item" + (state.current && state.current.id === flow.id ? " active" : "");
-      button.textContent = flow.title;
-      if (flow.overrides) addChip(button, "replaces built-in");
-      if (flow.upstream_changed) addChip(button, "built-in changed", "warn");
-      if (flow.overridden_by) addChip(button, "replaced");
-      const small = document.createElement("small");
-      small.textContent = flow.id;
-      button.appendChild(small);
-      button.addEventListener("click", () => openFlow(flow.id));
-      nav.appendChild(button);
-    }
-  }
+  if (select) await openFlow(select.id, null, select.repo_key);
 }
 
 function addChip(parent, text, kind = "") {
@@ -207,14 +197,72 @@ function addChip(parent, text, kind = "") {
   parent.appendChild(chip);
 }
 
+function heading(nav, text) {
+  const h = document.createElement("h2");
+  h.textContent = text;
+  nav.appendChild(h);
+}
+
+function empty(nav, text) {
+  const div = document.createElement("div");
+  div.className = "empty"; div.textContent = text;
+  nav.appendChild(div);
+}
+
+function flowButton(flow) {
+  const button = document.createElement("button");
+  const active = state.current && sameFlow(state.current, flow.id, flow.repo_key);
+  button.className = "item" + (active ? " active" : "");
+  button.textContent = flow.title;
+  if (flow.overrides) addChip(button, "replaces built-in");
+  if (flow.upstream_changed) addChip(button, "built-in changed", "warn");
+  if (flow.overridden_by) addChip(button, "replaced");
+  const small = document.createElement("small");
+  small.textContent = flow.id;
+  button.appendChild(small);
+  button.addEventListener("click", () => openFlow(flow.id, null, flow.repo_key));
+  return button;
+}
+
+function renderList() {
+  const nav = $("list");
+  nav.replaceChildren();
+  const seg = document.createElement("div");
+  seg.className = "seg";
+  for (const [value, label] of [["user", "User"], ["system", "System"]]) {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.className = state.category === value ? "active" : "";
+    button.addEventListener("click", () => { state.category = value; renderList(); });
+    seg.appendChild(button);
+  }
+  nav.appendChild(seg);
+  if (state.category === "system") {
+    heading(nav, "Built-in");
+    const items = state.flows.filter((f) => f.source === "builtin");
+    if (!items.length) empty(nav, "No flows");
+    for (const flow of items) nav.appendChild(flowButton(flow));
+    return;
+  }
+  heading(nav, "Personal");
+  const personal = state.flows.filter((f) => f.source === "user");
+  if (!personal.length) empty(nav, "No flows");
+  for (const flow of personal) nav.appendChild(flowButton(flow));
+  for (const repo of state.repos) {
+    heading(nav, repo.label);
+    for (const flow of repo.flows) nav.appendChild(flowButton(flow));
+    for (const issue of repo.issues) empty(nav, issue.id + ": " + issue.error);
+  }
+}
+
 function confirmDiscard() {
   return !state.dirty || confirm("Discard unsaved changes?");
 }
 
-async function openFlow(id, version) {
+async function openFlow(id, version, repo) {
   if (!confirmDiscard()) return;
   const params = new URLSearchParams({ id });
-  if (workspace()) params.set("workspace", workspace());
+  if (repo) params.set("repo", repo);
   if (version) params.set("version", version);
   const data = await api("/ui/api/flow?" + params);
   if (version) {
@@ -227,6 +275,7 @@ async function openFlow(id, version) {
   state.current = data.flow;
   state.draft = null;
   state.upstream = data.upstream || null;
+  state.category = data.flow.source === "builtin" ? "system" : "user";
   $("content").value = data.content;
   showEditor();
   renderHistory(data.history || []);
@@ -255,6 +304,7 @@ function showEditor() {
   const flow = state.draft || state.current;
   const builtin = flow.source === "builtin";
   $("welcome").classList.add("hidden");
+  $("component").classList.add("hidden");
   $("editor").classList.remove("hidden");
   $("title").textContent = flow.title || flow.id;
   $("meta").textContent = state.draft
@@ -265,7 +315,7 @@ function showEditor() {
   $("main-label").textContent = builtin ? "Built-in flow (read-only, tracked in git)" : "Flow";
   $("save").classList.toggle("hidden", builtin);
   $("copy-user").classList.toggle("hidden", !builtin);
-  $("copy-repo").classList.toggle("hidden", !builtin || !state.repo);
+  $("copy-repo").classList.toggle("hidden", !builtin);
   $("delete").classList.toggle("hidden", builtin || !!state.draft);
   $("toggle-upstream").classList.toggle("hidden", !state.upstream);
   $("history").classList.toggle("hidden", builtin || !!state.draft);
@@ -293,21 +343,22 @@ function hideSide() {
 async function save() {
   const flow = state.draft || state.current;
   const body = {
-    id: flow.id, content: $("content").value, workspace: workspace(),
+    id: flow.id, content: $("content").value,
     scope: flow.source, override: !!(flow.overrides),
     expected_revision: state.draft ? null : flow.revision,
   };
+  // A new repository flow derives its key from the chosen workspace; an existing one is found by key.
+  if (flow.repo_key) body.repo = flow.repo_key;
+  if (state.draft && state.draft.workspace) body.workspace = state.draft.workspace;
   try {
     const result = await api("/ui/api/flow", { method: "PUT", body });
     setDirty(false);
-    await loadList(result.flow.id);
+    await loadList({ id: result.flow.id, repo_key: result.flow.repo_key });
     notice(result.status === "unchanged" ? "No changes." : "Saved.", "ok");
   } catch (error) {
     if (error.status === 409) {
-      const params = new URLSearchParams({ id: flow.id });
-      if (workspace()) params.set("workspace", workspace());
       try {
-        const current = await api("/ui/api/flow?" + params);
+        const current = await api("/ui/api/flow?" + flowParams(flow));
         showSide("Saved by someone else — merge into your text, then save again", current.content);
         state.current = current.flow;
         if (state.draft) { state.draft = null; }
@@ -319,16 +370,42 @@ async function save() {
   }
 }
 
-function copyBuiltin(scope) {
+// Asks for the registered workspace that a new repository flow belongs to.
+async function chooseWorkspace(fillSelect) {
+  const list = await loadWorkspaces();
+  fillSelect.replaceChildren();
+  for (const item of list) {
+    const option = document.createElement("option");
+    option.value = item.id; option.textContent = item.name; option.title = item.path;
+    fillSelect.appendChild(option);
+  }
+  return list.length > 0;
+}
+
+function startDraft(scope, bare, workspace, overrides, title) {
+  state.current = null;
+  state.draft = { id: scope + ":" + bare, title: title || bare, source: scope, workspace: workspace || "" };
+  if (overrides) state.draft.overrides = overrides;
+}
+
+async function copyBuiltin(scope) {
   const flow = state.current;
   const bare = flow.id.replace(/^builtin:/, "");
-  const existing = state.flows.find((f) => f.id === scope + ":" + bare);
-  if (existing) return openFlow(existing.id);
-  state.draft = { id: scope + ":" + bare, title: flow.title, source: scope, overrides: "builtin:" + bare };
-  state.upstream = { content: $("content").value };
+  if (scope === "user") {
+    const existing = state.flows.find((f) => f.id === "user:" + bare);
+    if (existing) return openFlow(existing.id);
+    startDraft("user", bare, "", "builtin:" + bare, flow.title);
+    return afterCopy(scope);
+  }
+  state.pending = { mode: "copy", bare, title: flow.title };
+  await openCreateDialog("Edit copy for a repository", bare, true);
+}
+
+function afterCopy(scope) {
+  state.upstream = { content: state.upstreamText };
   showEditor();
   setDirty(true);
-  notice("Editing a local copy. Saving it replaces the built-in flow " + (scope === "repo" ? "in this repository." : "for you everywhere."));
+  notice("Editing a local copy. Saving it replaces the built-in flow " + (scope === "repo" ? "in the chosen repository." : "for you everywhere."));
 }
 
 async function remove() {
@@ -336,31 +413,58 @@ async function remove() {
   const message = flow.overrides ? "Delete this copy? The built-in flow becomes effective again." : "Delete this flow? Its text stays in history.";
   if (!confirm(message)) return;
   try {
-    await api("/ui/api/flow", { method: "DELETE", body: { id: flow.id, expected_revision: flow.revision, workspace: workspace() } });
+    const body = { id: flow.id, expected_revision: flow.revision };
+    if (flow.repo_key) body.repo = flow.repo_key;
+    await api("/ui/api/flow", { method: "DELETE", body });
     state.current = null; setDirty(false);
     $("editor").classList.add("hidden"); $("welcome").classList.remove("hidden");
     await loadList();
   } catch (error) { notice(error.message, "error"); }
 }
 
-function startCreate() {
-  if (!confirmDiscard()) return;
-  $("new-scope").querySelector('option[value="repo"]').disabled = !state.repo;
-  $("new-id").value = "";
+async function openCreateDialog(title, fixedId, repoOnly) {
+  $("create-title").textContent = title;
+  $("new-id").value = fixedId || "";
+  $("new-id").readOnly = !!fixedId;
+  $("new-scope").value = repoOnly ? "repo" : "user";
+  $("new-scope").disabled = !!repoOnly;
+  const has = await chooseWorkspace($("new-workspace"));
+  $("new-scope").querySelector('option[value="repo"]').disabled = !has;
+  $("new-workspace-label").classList.toggle("hidden", $("new-scope").value !== "repo");
+  $("create-ok").disabled = $("new-scope").value === "repo" && !has;
   $("create").showModal();
 }
 
+function startCreate() {
+  if (!confirmDiscard()) return;
+  state.pending = { mode: "new" };
+  openCreateDialog("New flow", "", false);
+}
+
+$("new-scope").addEventListener("change", () => {
+  $("new-workspace-label").classList.toggle("hidden", $("new-scope").value !== "repo");
+});
+
 $("create").addEventListener("close", () => {
-  if ($("create").returnValue !== "ok") return;
+  const pending = state.pending;
+  state.pending = null;
+  if ($("create").returnValue !== "ok" || !pending) return;
   const id = $("new-id").value.trim();
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) return;
   const scope = $("new-scope").value;
+  const workspace = scope === "repo" ? $("new-workspace").value : "";
+  if (scope === "repo" && !workspace) return;
+  if (pending.mode === "copy") {
+    startDraft("repo", pending.bare, workspace, "builtin:" + pending.bare, pending.title);
+    state.upstreamText = $("content").value;
+    return afterCopy("repo");
+  }
   if (state.flows.some((f) => f.source === "builtin" && f.id === id)) {
     alert("A built-in flow has this ID. Open it and use “Edit copy” to replace it.");
     return;
   }
-  state.current = null; state.upstream = null;
-  state.draft = { id: scope + ":" + id, title: id, source: scope };
+  state.upstream = null;
+  startDraft(scope, id, workspace);
   $("content").value = TEMPLATE;
   showEditor(); setDirty(true); notice("");
 });
@@ -372,36 +476,106 @@ $("content").addEventListener("input", () => {
 $("save").addEventListener("click", save);
 $("delete").addEventListener("click", remove);
 $("new").addEventListener("click", startCreate);
-$("copy-user").addEventListener("click", () => copyBuiltin("user"));
+$("copy-user").addEventListener("click", () => { state.upstreamText = $("content").value; copyBuiltin("user"); });
 $("copy-repo").addEventListener("click", () => copyBuiltin("repo"));
 $("history").addEventListener("change", (event) => {
   const version = event.target.value;
   event.target.value = "";
-  if (version && state.current) openFlow(state.current.id, version);
+  if (version && state.current) openFlow(state.current.id, version, state.current.repo_key);
 });
 $("toggle-upstream").addEventListener("click", () => {
   if (!$("side").classList.contains("hidden")) return hideSide();
   showSide("Current built-in flow", state.upstream.content);
   $("toggle-upstream").textContent = "Hide built-in";
 });
-$("workspace").addEventListener("change", async () => {
-  if (!confirmDiscard()) {
-    // Keep the dropdown on the repository the open flow belongs to.
-    $("workspace").value = state.workspace;
-    return;
+
+// --- rules, skills and implants: view and switch on or off -------------------------------
+
+async function loadComponents(kind, keep) {
+  const data = await api("/ui/api/components?kind=" + kind);
+  state.items = data.items;
+  state.item = keep ? data.items.find((i) => i.id === keep) || null : null;
+  renderComponents(kind);
+}
+
+function renderComponents(kind) {
+  const nav = $("list");
+  nav.replaceChildren();
+  heading(nav, KIND_LABEL[kind] + " (" + state.items.filter((i) => i.enabled).length + "/" + state.items.length + " on)");
+  if (!state.items.length) empty(nav, "None found");
+  for (const item of state.items) {
+    const button = document.createElement("button");
+    button.className = "item" + (state.item && state.item.id === item.id ? " active" : "");
+    button.textContent = item.short_name || item.id;
+    if (!item.enabled) addChip(button, "off", "off");
+    const small = document.createElement("small");
+    small.textContent = item.description || item.id;
+    button.appendChild(small);
+    button.addEventListener("click", () => { state.item = item; renderComponents(kind); });
+    nav.appendChild(button);
   }
-  state.workspace = workspace();
-  try { localStorage.setItem("flows.workspace", workspace()); } catch (_) {}
-  state.current = null; state.draft = null; setDirty(false);
-  $("editor").classList.add("hidden"); $("welcome").classList.remove("hidden");
-  await loadList();
-});
+  const item = state.item;
+  $("component").classList.toggle("hidden", !item);
+  $("welcome").classList.toggle("hidden", !!item);
+  if (!item) return;
+  $("c-title").textContent = item.id;
+  $("c-description").textContent = item.description;
+  $("c-body").value = item.body;
+  const parts = [];
+  if (item.short_name) parts.push("short name " + item.short_name);
+  if (item.category) parts.push("category " + item.category);
+  if (item.declared_by.length) {
+    parts.push((kind === "skills" ? "declared by " : "preferred by ") +
+      item.declared_by.map((d) => d.agent + (kind === "skills" ? " (" + d.tier + ")" : "")).join(", "));
+  }
+  $("c-meta").textContent = parts.join(" · ");
+  const core = item.declared_by.filter((d) => d.tier === "core").map((d) => d.agent);
+  const warning = $("c-warning");
+  warning.textContent = core.length
+    ? "Core skill of " + core.join(", ") + ". Switching it off removes it from their bundles, and they work without it."
+    : kind === "rules" ? "Rules are always-on for every agent. Switching one off removes it from every new bundle." : "";
+  warning.classList.toggle("hidden", !warning.textContent);
+  const toggle = $("c-toggle");
+  toggle.textContent = item.enabled ? "Switch off" : "Switch on";
+  toggle.className = item.enabled ? "danger" : "primary";
+}
+
+async function toggleItem() {
+  const item = state.item;
+  if (!item) return;
+  try {
+    await api("/ui/api/component", { method: "PUT", body: { kind: state.tab, id: item.id, enabled: !item.enabled } });
+    await loadComponents(state.tab, item.id);
+  } catch (error) { alert(error.message); }
+}
+$("c-toggle").addEventListener("click", toggleItem);
+
+// --- tabs --------------------------------------------------------------------------------
+
+async function showTab(tab) {
+  if (tab === state.tab) return;
+  if (state.tab === "flows" && !confirmDiscard()) return;
+  state.tab = tab;
+  for (const button of $("tabs").children) button.classList.toggle("active", button.dataset.tab === tab);
+  $("new").classList.toggle("hidden", tab !== "flows");
+  $("editor").classList.add("hidden");
+  $("component").classList.add("hidden");
+  $("welcome").classList.remove("hidden");
+  if (tab === "flows") {
+    state.current = null; state.draft = null; setDirty(false);
+    await loadList();
+  } else {
+    await loadComponents(tab);
+  }
+}
+for (const button of $("tabs").children) {
+  button.addEventListener("click", () => showTab(button.dataset.tab).catch((e) => { if (!e.signedOut) alert(e.message); }));
+}
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); } });
 
 (async () => {
   try {
     await login();
-    await loadWorkspaces();
     await loadList();
   } catch (error) {
     if (error.signedOut) return;

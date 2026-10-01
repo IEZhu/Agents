@@ -316,3 +316,7 @@ semantic retrieval. See the [rules reference](../rules/README.md).
 - **Use consistent structure**: Role → Rules → Concepts → Actions
 - **Include practical actions**: Callable methods/procedures
 - **Avoid overlap**: Skills should be complementary, not redundant
+
+## Switching skills off
+
+The local web UI (`python -m src.daemon flows-ui`, tab *Skills*) lists every skill and can switch it off for the whole installation without touching the file. A switched-off skill is skipped in persona bundles, including when an agent lists it in `core_skills`. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).

@@ -14,6 +14,7 @@ import json
 import re
 from dataclasses import dataclass
 
+from src import component_toggles
 from src.engine import enrichment
 from src.engine.config import IMPLANTS_DEEP_TIER_DEFAULT, MAX_PREFERRED_IMPLANTS
 from src.engine.rules import format_rules_for_prompt, get_rules
@@ -100,10 +101,17 @@ async def build_persona_bundle(
     if not isinstance(scope, str) or not scope.strip():
         raise ValueError(f"Agent {agent_name} has no competency description")
 
-    core = _declared_ids(metadata, "core_skills")
-    preferred = _declared_ids(metadata, "preferred_skills")
-    capable = _declared_ids(metadata, "capable_skills")
-    preferred_implants = _declared_ids(metadata, "preferred_implants")
+    # Components switched off in the web UI are skipped, never an error: they leave
+    # the blocks, the *_loaded lists, the footer and so the revision. Read fresh on
+    # every build, like the rule files.
+    off_skills = component_toggles.disabled("skills")
+    off_implants = component_toggles.disabled("implants")
+    core = [i for i in _declared_ids(metadata, "core_skills") if i not in off_skills]
+    preferred = [i for i in _declared_ids(metadata, "preferred_skills") if i not in off_skills]
+    capable = [i for i in _declared_ids(metadata, "capable_skills") if i not in off_skills]
+    preferred_implants = [
+        i for i in _declared_ids(metadata, "preferred_implants") if i not in off_implants
+    ]
     profile = enrichment.resolve_profile(query)
     if tier is None:
         tier = profile.tier if profile is not None else enrichment.infer_tier(query)
@@ -144,7 +152,7 @@ async def build_persona_bundle(
     # The per-query `_load_and_enrich` path is safe: SESSION_CACHE is keyed on the query hash, so it
     # re-derives per query; suppression therefore lives only in
     # `enrichment.enrich_agent_prompt`.
-    rules = await asyncio.to_thread(get_rules, fresh=True, strict=True)
+    rules = await asyncio.to_thread(get_rules, fresh=True, strict=True, apply_toggles=True)
     rules_block = format_rules_for_prompt(rules)
 
     selected_skills = await asyncio.to_thread(
@@ -156,6 +164,8 @@ async def build_persona_bundle(
     skill_ids = list(core)
     for selected in selected_skills:
         component_id = _component_id(selected["filename"])
+        if component_id in off_skills:
+            continue
         if component_id not in allowed:
             raise ValueError(f"Skill {component_id} is outside {agent_name}'s policy")
         skill_ids.append(component_id)
@@ -183,7 +193,8 @@ async def build_persona_bundle(
         implant_ids = list(dict.fromkeys(
             preferred_implants[:count]
             + [_component_id(item["filename"]) for item in selected_implants]
-        ))[:count]
+        ))
+        implant_ids = [i for i in implant_ids if i not in off_implants][:count]
         implants = await asyncio.to_thread(_fresh_components, "implants", implant_ids)
     implants_block = enrichment.implant_retriever.format_implants_for_prompt(implants)
 

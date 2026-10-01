@@ -287,11 +287,36 @@ A request sent during the stop window fails and can be retried. After
 .venv/bin/python -m src.daemon flows-ui --no-open
 ```
 
-The daemon serves a local editor for [personal and repository
-flows](../flows/README.md#personal-and-repository-flows) at `/ui`. It lists
-built-in, personal and repository flows (pick a registered workspace for the
-last), edits and creates them, shows saved versions, compares a local copy with
-its built-in flow and reports conflicts with edits made from chat.
+The daemon serves a local settings page at `/ui` with four tabs.
+
+- **Flows** edit [personal and repository
+  flows](../flows/README.md#personal-and-repository-flows). A User/System switch
+  shows one category at a time. *User* lists personal flows and, below them, the
+  repository flows of every repository under `flows/.user/repos/`, grouped by
+  the stored origin (the key when there is none); no repository has to be
+  selected, and an existing repository flow is opened, saved, deleted and its
+  history shown by key. *System* lists the read-only built-in flows. Creating a
+  repository flow, or "Edit copy for a repository", asks which registered
+  workspace it belongs to. Saved versions, the comparison of a local copy with
+  its built-in flow and conflicts with edits made from chat work as before.
+- **Rules**, **Skills** and **Implants** list every `rules/rule-*.mdc`,
+  `skills/*.mdc` and `implants/*.mdc` with its description, a read-only view of its
+  body (skills also show the agents that declare them and their tier, implants the
+  agents that prefer them) and a switch. The files are never edited, renamed or
+  deleted.
+
+The switches are one installation-wide state in `flows/.user/components.json`
+(git-ignored, written atomically, read fresh on every bundle build; a missing or
+damaged file means everything is on). A switched-off component is left out of
+persona bundles: its block, `*_loaded` list, footer entry and therefore
+`bundle_revision`. Switching off a rule, a core skill or a preferred implant is
+never an error; with every rule off the `rules_block` is empty and the footer
+shows `—`, as with `RULES_ENABLED=0`. The `load_implants` tool also leaves out
+switched-off implants. The per-query path that only the evaluation harnesses use
+ignores the switches on purpose, so evaluation results do not depend on local
+settings. A change applies to the next bundle the server builds (a new
+conversation, a switch to another agent, a restore, or a refresh whose revision
+changed); conversations that keep their bundle are unaffected.
 
 Access is separate from MCP. The command obtains a one-use code (valid two
 minutes) with the service token and opens `/ui#code=...`; the page exchanges it

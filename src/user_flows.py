@@ -33,6 +33,7 @@ from src.flows import (FLOW_ID, MAX_FLOW_BYTES, Flow, FlowCatalog, FlowError,
 
 SCOPES = ("builtin", "user", "repo")
 _REFERENCE = re.compile(r"(?:(builtin|user|repo):)?(?:flows/)?([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.md)?")
+_REPO_KEY = re.compile(r"[a-z0-9][a-z0-9._-]*")
 _VERSION = re.compile(r"\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?")
 
 
@@ -114,7 +115,8 @@ class FlowLibrary:
     """Built-in, personal (``user:``) and per-repository (``repo:``) flows."""
 
     def __init__(self, catalog: FlowCatalog | None = None, *, user_dir: str | Path | None = None,
-                 repo_root: str | Path | None = None, repo_error: str | None = None):
+                 repo_root: str | Path | None = None, repo_error: str | None = None,
+                 repo_key: str | None = None):
         self.catalog = catalog or FlowCatalog()
         configured = user_dir or os.environ.get("AGENTS_USER_FLOWS_DIR")
         self.user_dir = Path(configured).expanduser().resolve() if configured \
@@ -122,10 +124,25 @@ class FlowLibrary:
         self.repo_root = Path(repo_root).resolve() if repo_root else None
         self.repo_error = repo_error if self.repo_root is None else None
         self._repo = None
+        # An existing repository's flows can be reached by key alone (the web UI lists
+        # every key); only creating one needs a workspace to derive the key from.
+        if repo_key is not None and not _REPO_KEY.fullmatch(repo_key):
+            raise FlowError("flow_invalid: unknown repository")
+        self._key = repo_key if self.repo_root is None else None
 
     # --- locations -----------------------------------------------------------------
 
+    def _stored_origin(self, key: str) -> str | None:
+        try:
+            with (self.user_dir / "repos" / key / ".repo.json").open(encoding="utf-8") as stream:
+                origin = json.load(stream).get("origin")
+        except (OSError, ValueError, AttributeError):
+            return None
+        return origin if isinstance(origin, str) else None
+
     def repo(self) -> tuple[str, str | None]:
+        if self.repo_root is None and self._key:
+            return self._key, self._stored_origin(self._key)
         if self.repo_root is None:
             raise FlowError(f"repo_scope_unavailable: {self.repo_error or 'workspace_required'}")
         if self._repo is None:
@@ -179,7 +196,7 @@ class FlowLibrary:
             except FlowError:
                 details.append(("upstream_changed", True))
         if scope == "repo":
-            details.append(("repo", self.repo()[1] or str(self.repo_root)))
+            details.append(("repo", self.repo()[1] or str(self.repo_root or self.repo()[0])))
         return read_flow(directory, flow_id, flow_ref=f"{scope}:{flow_id}",
                          source=scope, details=tuple(details))
 
@@ -225,7 +242,7 @@ class FlowLibrary:
             try:
                 key, origin = self.repo()
                 repo_info = {"status": "available", "key": key, "origin": origin,
-                             "path": str(self.repo_root)}
+                             "path": str(self.repo_root) if self.repo_root else None}
             except FlowError as error:
                 repo_info = {"status": "unavailable", "error": str(error)}
         effective = {}
@@ -256,6 +273,36 @@ class FlowLibrary:
         if issues:
             result["issues"] = issues
         return result
+
+    def repositories(self) -> list[dict]:
+        """Every repository key that holds flows, with a display label and its flows.
+
+        The label is the stored origin, else the last known path, else the key.
+        """
+        root = self.user_dir / "repos"
+        groups = []
+        if not root.is_dir():
+            return groups
+        for directory in sorted(root.iterdir()):
+            if not directory.is_dir() or directory.is_symlink() or not _REPO_KEY.fullmatch(directory.name):
+                continue
+            try:
+                meta = json.loads((directory / ".repo.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                meta = {}
+            if not isinstance(meta, dict):
+                meta = {}
+            library = FlowLibrary(self.catalog, user_dir=self.user_dir, repo_key=directory.name)
+            listing = library.list("repo")
+            flows = [dict(entry, repo_key=directory.name) for entry in listing["flows"]]
+            if not flows and not listing.get("issues"):
+                continue
+            label = meta.get("origin") or meta.get("path") or directory.name
+            groups.append({"key": directory.name, "label": str(label),
+                           "origin": meta.get("origin"), "path": meta.get("path"),
+                           "flows": flows, "issues": listing.get("issues", [])})
+        groups.sort(key=lambda group: group["label"].lower())
+        return groups
 
     def history(self, scope: str, flow_id: str) -> list[dict]:
         if scope == "builtin":
@@ -359,7 +406,7 @@ class FlowLibrary:
             else:
                 # A plain save is not a copy of a built-in any more (e.g. the built-in was removed).
                 meta_path.unlink(missing_ok=True)
-            if scope == "repo":
+            if scope == "repo" and self.repo_root is not None:
                 key, origin = self.repo()
                 _atomic_write(directory / ".repo.json", json.dumps(
                     {"origin": origin, "path": str(self.repo_root)}, indent=2).encode() + b"\n")
