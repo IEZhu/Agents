@@ -151,6 +151,18 @@ async def test_route_checks_keyword_veto_and_passes_history(bundle, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_meta_route_lets_the_bundle_choose_its_tier(bundle, monkeypatch):
+    # A forced lite tier skipped the bundle's lite-to-standard promotion, and
+    # NO_CHANGE then kept universal_agent without implants for the conversation.
+    monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
+    response = json.loads(await server.route_and_load("hi", protocol_version=2))
+    assert response["status"] == "SUCCESS"
+    assert response["persona"]["agent"] == "universal_agent"
+    assert bundle.call_args.args[0] == "universal_agent"
+    assert bundle.call_args.kwargs.get("tier") is None
+
+
+@pytest.mark.asyncio
 async def test_v2_route_uncertain_returns_candidates_preserving_activation(bundle, monkeypatch):
     monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
     response = json.loads(await server.route_and_load("SQL?", protocol_version=2, current_persona=descriptor()))
@@ -200,6 +212,7 @@ async def test_logging_checks_attribution_before_writing(monkeypatch):
     monkeypatch.setattr(server, "HistoryWriter", writer)
     response = json.loads(await server.log_interaction("lawyer", "q", "r", persona=descriptor(), persona_action="keep"))
     assert response["status"] == "ERROR"
+    assert response["instruction"].startswith("Nothing was logged.")
     writer.assert_not_called()
 
 
@@ -235,6 +248,7 @@ async def test_logging_refuses_history_in_windows_directory(tmp_path, monkeypatc
         engine_config._reset_client_repo_root_cache()
     assert response["status"] == "ERROR"
     assert response["message"].startswith("workspace_required: refusing")
+    assert response["instruction"].startswith("Nothing was logged.")
     assert sorted(path.name for path in windows.rglob("*")) == ["CLAUDE.md", "System32"]
 
 

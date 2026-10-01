@@ -19,7 +19,7 @@ Requires `git`, `curl`, and Python 3.11 or newer as `python3`, with `pip3` on
 `PATH` (see [After Cloning](#after-cloning)).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WonderMr/Agents/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
 
 The script clones the repository to `~/.agents-core` (or updates an existing
@@ -41,7 +41,7 @@ instructions unchanged.
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |
-| `AGENTS_REPO_URL` | `https://github.com/WonderMr/Agents.git` | Repository for a fresh clone |
+| `AGENTS_REPO_URL` | `https://github.com/IEZhu/Agents.git` | Repository for a fresh clone |
 | `AGENTS_BRANCH` | `main` | Branch to install; the standalone auto-updater acts only on `AGENTS_AUTO_UPDATE_BRANCH` (default `main`) |
 | `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
 
@@ -145,20 +145,21 @@ python -m src.reindex
 
 The core router needs no external API key. Configure `.env` using
 [env.example](env.example). Setup creates `.env` from it, so a new `.env` starts
-with these values, including placeholder keys:
+with these values:
 
 ```env
-LANGFUSE_PUBLIC_KEY=pk-lf-...   # Optional: observability
-LANGFUSE_SECRET_KEY=sk-lf-...   # Optional: observability
+# Optional: set both keys to enable Langfuse tracing. Keep comments on their own
+# line: older python-dotenv reads "KEY=  # text" as the value "# text".
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
 ANTHROPIC_API_KEY=sk-ant-...    # Optional: for document OCR
 AGENTS_DEBUG=0                  # Set to 1 for per-call JSON debug logs
 ```
 
-Any non-empty Langfuse key pair enables tracing. To run without Langfuse, set both
-to empty values (`LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=`). Do not delete
-or comment out the lines: setup, including an `install.sh` update, re-adds missing
-keys with the placeholder values. The optional
+Both keys set enable tracing, so leave them empty to run without Langfuse. The
+placeholders `pk-lf-...` and `sk-lf-...`, which an `.env` copied from an older
+`env.example` may still hold, do not count as keys. The optional
 [document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
 `ANTHROPIC_API_KEY`.
 
@@ -400,10 +401,8 @@ Agents/
 ├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
-│   ├── common/           # agent-schema.json (frontmatter contract) and unused legacy
-│   │                     #   core-protocol.mdc and response-footer.mdc
-│   └── schemas/          # Output schemas named in agent prompts, and the unused
-│                         #   legacy agent-frontmatter.schema.json (not the contract)
+│   ├── common/           # agent-schema.json (frontmatter contract)
+│   └── schemas/          # Output schemas named in agent prompts
 ├── skills/               # Reusable knowledge chunks (RAG)
 │   └── skill-*.mdc
 ├── implants/             # Cognitive reasoning strategies (RAG)
@@ -723,9 +722,7 @@ committing its action log.
 Selected routing, loading, retrieval, and memory operations are instrumented with
 Langfuse. `log_interaction` records the answer and declared persona attribution;
 its history and Langfuse results are reported separately. Set real Langfuse keys
-in `.env` to enable it. For local-only operation, set both keys to empty values
-(`LANGFUSE_PUBLIC_KEY=` and `LANGFUSE_SECRET_KEY=`) instead of deleting or
-commenting out the lines, which setup would restore with placeholders (see
+in `.env` to enable it; leave them empty for local-only operation (see
 [Environment Variables](#environment-variables)). Set
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.
 

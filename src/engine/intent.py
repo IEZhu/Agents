@@ -170,9 +170,10 @@ class TaskProfile:
     def with_tier(self, tier: Tier) -> "TaskProfile":
         """Return a copy re-pinned to *tier*, re-deriving the budget from it.
 
-        Used by the two callers that must honour an authority outside this
-        module: the meta-query ``explicit_tier`` override and the
-        ``preferred_implants`` promotion. Re-deriving rather than only swapping
+        Used where an authority outside this module decides the tier: the
+        ``preferred_implants`` promotion in ``server._load_and_enrich``, or an
+        explicit ``tier`` that tests and evaluation harnesses pass there.
+        Re-deriving rather than only swapping
         the label keeps the tier and the budget from disagreeing.
         """
         if tier == self.tier:
