@@ -327,6 +327,25 @@ hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
 `content` field to every flow, including repository flows; without the parameter
 the response is unchanged.
 
+Markdown is shown rendered. A flow opens in a *Rendered* view with a
+*Rendered / Source* switch; editing happens in *Source*, which is the textarea
+that save, unsaved-change tracking and conflict detection keep using, so
+*Rendered* always shows the current unsaved text. New drafts, "Edit copy", a
+loaded history version and a save conflict open in *Source*. A rule, skill or
+implant body opens rendered, with *Source* showing the raw text. A leading
+frontmatter block is a collapsed "Metadata" section. When a document has
+headings (levels 1-4), a table of contents appears on its left and an entry
+scrolls the document to its heading. "Hide contents" hides it; while hidden, hovering the left edge
+of the view shows it as an overlay, and the toolbar's "Contents" button
+toggles it (the way on touch screens). The choice is remembered in the browser's
+`localStorage` and shared by all documents; without a stored choice it starts hidden at
+widths up to 760 px. The renderer is part of the page script (no library, no
+external request). It creates DOM nodes with `createElement`, `createTextNode`
+and `setAttribute` only, so HTML in a document stays visible text; links are
+made only for `http:`/`https:` URLs and in-page `#anchors`, images show their alt
+text, and heading ids carry an `md-` prefix. Syntax it does not handle degrades to
+readable text.
+
 The switches are one installation-wide state in `flows/.user/components.json`
 (git-ignored, written atomically, read fresh on every bundle build; a missing or
 damaged file means everything is on). A switched-off component is left out of

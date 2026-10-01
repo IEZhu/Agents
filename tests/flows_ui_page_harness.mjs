@@ -10,12 +10,12 @@ const html = readFileSync(pagePath, "utf8");
 const script = html.match(/<script nonce="\{\{NONCE\}\}">([\s\S]*?)<\/script>/)[1];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function element(id = "") {
+function element(id = "", tag = "") {
   const classes = new Set(["signin"].includes(id) ? ["hidden"] : []);
   const handlers = {};
   const self = {
-    id, children: [], dataset: {}, style: {}, value: "", textContent: "", className: "", disabled: false,
-    scrollTop: 0, handlers, focused: 0,
+    id, tag, attrs: {}, classes, children: [], dataset: {}, style: {}, value: "", textContent: "", className: "",
+    disabled: false, scrollTop: 0, handlers, focused: 0, scrolled: 0,
     classList: {
       add: (name) => classes.add(name), remove: (name) => classes.delete(name), contains: (name) => classes.has(name),
       toggle: (name, on) => ((on ?? !classes.has(name)) ? classes.add(name) : classes.delete(name)),
@@ -24,7 +24,8 @@ function element(id = "") {
     appendChild(child) { self.children.push(child); },
     append() {},
     replaceChildren() { self.children = []; self.scrollTop = 0; },  // a browser resets scrolling here
-    setAttribute() {},
+    setAttribute(name, value) { self.attrs[name] = String(value); if (name === "id" && !elements.has(value)) elements.set(value, self); },
+    scrollIntoView() { self.scrolled += 1; },
     removeAttribute() {}, querySelector: () => element(), querySelectorAll: () => [], showModal() {}, close() {},
     focus() { self.focused += 1; },
   };
@@ -34,7 +35,11 @@ const elements = new Map();
 const byId = (id) => { if (!elements.has(id)) elements.set(id, element(id)); return elements.get(id); };
 
 const posts = [];
-let signedIn = scenario === "search";
+const isUi = scenario.startsWith("ui");
+let signedIn = scenario === "search" || scenario === "render" || isUi;
+const puts = [];
+let putStatus = 200;
+const savedText = {};  // what a PUT stored, served back by the next GET
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
@@ -52,6 +57,7 @@ async function fetchStub(path, init = {}) {
     return respond(200, { status: "ok" });
   }
   if (!signedIn) return respond(401, { error: "session_required" });
+  if (isUi) return respond(...uiData(path, init));
   if (scenario === "search") {
     if (path.includes("kind=skills")) await sleep(80);  // a slow tab, to type while it loads
     return respond(200, searchData(path));
@@ -60,6 +66,32 @@ async function fetchStub(path, init = {}) {
   return respond(200, { workspaces: [], items: [] });
 }
 
+const DOCS = {
+  "user:doc": "---\npersona: tester\n---\n# Doc\n\n## One\n\ntext **bold**\n\n## Two\n\n- item\n",
+  "user:plain": "just text, no headings\n",
+};
+function uiData(path, init) {
+  if (path.startsWith("/ui/api/flows")) {
+    return [200, { flows: Object.keys(DOCS).map((id) => ({ id, source: "user", title: id.slice(5), content: DOCS[id] })), repositories: [] }];
+  }
+  if (path.startsWith("/ui/api/flow?")) {
+    const id = new URLSearchParams(path.split("?")[1]).get("id");
+    return [200, { flow: { id, source: "user", title: id.slice(5), revision: "rev1", source_path: "p" },
+                   content: savedText[id] ?? DOCS[id], history: [] }];
+  }
+  if (path === "/ui/api/flow" && init.method === "PUT") {
+    const body = JSON.parse(init.body);
+    puts.push(body);
+    if (putStatus !== 200) return [putStatus, { error: "conflict" }];
+    savedText[body.id] = body.content;
+    return [200, { status: "saved", flow: { id: body.id } }];
+  }
+  if (path.startsWith("/ui/api/components")) {
+    return [200, { items: [{ id: "skill-a", short_name: "Skill A", description: "d", enabled: true, declared_by: [],
+                             body: "# Skill A\n\n## Use\n\nBody <script>x</script>\n" }] }];
+  }
+  return [200, {}];
+}
 const flow = (id, source, title, content, extra = {}) => ({ id, source, title, content, ...extra });
 const rule = (id, short_name, description, body, enabled = true) =>
   ({ id, short_name, description, body, enabled, declared_by: [] });
@@ -81,12 +113,18 @@ function searchData(path) {
 }
 
 const docHandlers = {};
+const storage = new Map(scenario === "ui_narrow_stored" ? [["agents-ui-toc-hidden", "0"]] : []);
 const context = vm.createContext({
   document: {
-    getElementById: byId, createElement: () => element(),
+    getElementById: byId, createElement: (tag) => element("", tag),
+    createTextNode: (text) => ({ nodeType: 3, textContent: text }),
     addEventListener(type, handler) { (docHandlers[type] = docHandlers[type] || []).push(handler); },
   },
-  window: { addEventListener() {} },
+  window: { addEventListener() {}, matchMedia: () => ({ matches: scenario.includes("narrow") }) },
+  localStorage: {
+    getItem: (key) => { if (scenario === "ui_nostorage") throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
+    setItem: (key, value) => { if (scenario === "ui_nostorage") throw new Error("denied"); storage.set(key, value); },
+  },
   location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
   history: { replaceState() {} },
   fetch: fetchStub, alert() {}, confirm: () => true, setTimeout, clearTimeout, console, URLSearchParams,
@@ -184,6 +222,104 @@ if (scenario === "search") {
   fire(search, "keydown", { key: "Escape" });
   steps.escape = shown();
   console.log(JSON.stringify(steps));
+  process.exit(0);
+}
+
+const esc = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const ser = (node) => {
+  if (node.nodeType === 3) return esc(node.textContent);
+  const attrs = Object.entries(node.attrs).map(([name, value]) => ` ${name}="${value}"`).join("");
+  const cls = node.className ? ` class="${node.className}"` : "";
+  if (node.tag === "br" || node.tag === "hr") return `<${node.tag}>`;
+  return `<${node.tag}${cls}${attrs}>${esc(node.textContent || "")}${node.children.map(ser).join("")}</${node.tag}>`;
+};
+const findAll = (node, test, found = []) => {
+  if (node.nodeType === 3) return found;
+  if (test(node)) found.push(node);
+  for (const child of node.children) findAll(child, test, found);
+  return found;
+};
+const hasClass = (name) => (node) => (node.className || "").split(" ").includes(name);
+
+if (scenario === "render") {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const host = element("", "div");
+  const rendered = context.renderMarkdown(Buffer.concat(chunks).toString("utf8"), host);
+  const json = JSON.stringify({
+    html: host.children.map(ser).join(""), meta: rendered.meta,
+    headings: rendered.headings.map((h) => ({ level: h.level, text: h.text, id: h.id })),
+  });
+  await new Promise((resolve) => process.stdout.write(json + "\n", resolve));  // a pipe may hold a large result back
+  process.exit(0);
+}
+
+if (isUi) {
+  const out = {};
+  const snap = (id) => {
+    const root = byId(id), doc = findAll(root, hasClass("md"))[0];
+    return {
+      hidden: root.classes.has("hidden"), toc_hidden: root.classes.has("toc-hidden"), no_toc: root.classes.has("no-toc"),
+      toc: findAll(root, hasClass("md-toc-item")).map((n) => n.className + ":" + n.textContent),
+      hide_label: findAll(root, hasClass("md-toc-hide"))[0].textContent, html: doc.children.map(ser).join(""),
+    };
+  };
+  const open = async (index) => { fire(buttons()[index], "click"); await sleep(40); };
+  const seg = (id, index) => byId(id).children[index];
+  out.stored_at_start = [...storage.entries()];
+  out.initial_toc_hidden = byId("e-view").classes.has("toc-hidden");
+  if (scenario === "ui_nostorage" || scenario.startsWith("ui_narrow")) {
+    await open(0);
+    out.opened = snap("e-view");
+    fire(byId("e-toc"), "click");
+    out.after_toolbar = snap("e-view");
+    out.stored_after = [...storage.entries()];
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+  await open(0);
+  out.opened = { ...snap("e-view"), panes_hidden: byId("panes").classes.has("hidden"),
+                 toc_button_hidden: byId("e-toc").classes.has("hidden"), seg: byId("e-seg").children.map((b) => b.classes.has("active")) };
+  fire(findAll(byId("e-view"), hasClass("md-toc-item"))[1], "click");
+  out.heading_scrolled = findAll(byId("e-view"), (n) => n.tag === "h2").map((n) => n.scrolled);
+  fire(findAll(byId("e-view"), hasClass("md-toc-hide"))[0], "click");
+  out.hidden = { ...snap("e-view"), stored: [...storage.entries()], focus_moved: byId("e-toc").focused };
+  await open(1);
+  out.plain = { ...snap("e-view"), toc_button_hidden: byId("e-toc").classes.has("hidden") };
+  await open(0);
+  out.remembered = snap("e-view");
+  fire(byId("e-toc"), "click");
+  out.revealed = { ...snap("e-view"), stored: [...storage.entries()] };
+  // Source: edit, see the edit rendered, then save from Source.
+  fire(seg("e-seg", 1), "click");
+  out.source = { panes_hidden: byId("panes").classes.has("hidden"), view_hidden: byId("e-view").classes.has("hidden"), seg: byId("e-seg").children.map((b) => b.classes.has("active")) };
+  byId("content").value = "# Changed\n\n## Fresh\n\n<b>x</b>\n";
+  fire(byId("content"), "input");
+  out.dirty_save_disabled = byId("save").disabled;
+  fire(seg("e-seg", 0), "click");
+  out.edited = { ...snap("e-view"), save_disabled: byId("save").disabled };
+  fire(seg("e-seg", 1), "click");
+  fire(byId("save"), "click");
+  await sleep(80);
+  out.put = puts[0];
+  out.after_save = { panes_hidden: byId("panes").classes.has("hidden"), save_disabled: byId("save").disabled, content: byId("content").value };
+  // A conflict keeps the text and shows both sides in Source.
+  putStatus = 409;
+  fire(seg("e-seg", 0), "click");
+  byId("content").value = "# Mine\n";
+  fire(byId("content"), "input");
+  fire(byId("save"), "click");
+  await sleep(80);
+  out.conflict = { panes_hidden: byId("panes").classes.has("hidden"), side_hidden: byId("side").classes.has("hidden"),
+                   notice: byId("notice").textContent, content: byId("content").value, save_disabled: byId("save").disabled };
+  // A component body is rendered, with Source on demand.
+  await openTab("skills");
+  await open(0);
+  out.skill = { ...snap("c-view"), source_hidden: byId("c-source").classes.has("hidden"), body: byId("c-body").value.length > 0,
+                toc_button_hidden: byId("c-toc").classes.has("hidden") };
+  fire(seg("c-seg", 1), "click");
+  out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
+  console.log(JSON.stringify(out));
   process.exit(0);
 }
 
