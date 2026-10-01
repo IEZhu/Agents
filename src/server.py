@@ -198,13 +198,21 @@ _history_worker = _SinkWorker("history")
 _langfuse_worker = _SinkWorker("langfuse")
 
 
+_drain_abandoned = False
+
+
 def drain_pending_logs(timeout: float = LOG_DRAIN_TIMEOUT_SECONDS) -> bool:
     """Wait up to *timeout* seconds for queued log writes; True when none remain."""
+    global _drain_abandoned
+    if _drain_abandoned:
+        return False
     deadline = time.monotonic() + timeout
     done = _history_worker.drain(deadline)
     done = _langfuse_worker.drain(deadline) and done
     if not done:
         logger.warning("Log writes still pending after %.0fs drain; abandoning them", timeout)
+        # Later exit hooks must not wait for the same stuck sink again.
+        _drain_abandoned = True
     return done
 
 

@@ -15,6 +15,12 @@ from src.memory.history import HistoryWriter
 TIMESTAMP = re.compile(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}")
 
 
+@pytest.fixture(autouse=True)
+def reset_drain_state(monkeypatch):
+    # A timed-out drain marks shutdown as abandoned; keep that from leaking across tests.
+    monkeypatch.setattr(server, "_drain_abandoned", False)
+
+
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
     (tmp_path / "CLAUDE.md").write_text("")
@@ -104,6 +110,7 @@ async def test_drain_waits_for_pending_writes(workspace, monkeypatch):
     monkeypatch.setattr(HistoryWriter, "append_entry", slow_append)
     await server.log_interaction("software_engineer", "q", "r")
     assert not server.drain_pending_logs(0.05)
+    monkeypatch.setattr(server, "_drain_abandoned", False)
     release.set()
     assert server.drain_pending_logs(5)
     assert (workspace / "history.md").exists()
@@ -145,3 +152,18 @@ def test_full_queue_drops_writes_and_logs(monkeypatch, caplog):
     finally:
         release.set()
     assert worker.drain(time.monotonic() + 5)
+
+
+def test_timed_out_drain_is_not_repeated(monkeypatch):
+    monkeypatch.setattr(server, "_drain_abandoned", False)
+    worker = server._SinkWorker("stuck")
+    monkeypatch.setattr(server, "_history_worker", worker)
+    release = threading.Event()
+    try:
+        worker.submit(lambda: release.wait(10))
+        assert not server.drain_pending_logs(0.05)
+        begin = time.monotonic()
+        assert not server.drain_pending_logs(5)
+        assert time.monotonic() - begin < 0.5
+    finally:
+        release.set()
