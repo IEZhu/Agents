@@ -177,10 +177,17 @@ with its session link; it adds no separate owner reaction. The bridge waits up
 to five minutes for that acknowledgement. When it arrives, the bridge edits the
 receipt to one `Claude confirmed startup` line with a session link, leaves its
 reaction in place while Claude works, stops polling and deletes the
-acknowledgement. The link comes from the fire response; otherwise from the
-acknowledgement, only when it exactly matches
+acknowledgement. The link comes from the fire response: its
+`claude_code_session_url`, or a URL built from `claude_code_session_id`. In
+practice the response carries `cse_` IDs (`https://claude.ai/code/cse_...`),
+although the API reference shows `session_` examples. Otherwise the link comes
+from the acknowledgement. Either way it must exactly match
+`https://claude.ai/code/cse_<letters and digits>` or
 `https://claude.ai/code/session_<letters and digits>`; otherwise it is the
-routine page. A failed delete is only a warning: startup is already confirmed
+routine page. While it waits, the receipt shows the session link, or a neutral
+"Waiting for Claude to confirm startup" line with the routine link. After every
+successful fire the bridge also logs a notice with the response's shape (field
+names, types and allowlisted prefixes, never values) to diagnose API changes. A failed delete is only a warning: startup is already confirmed
 and the acknowledgement stays. On a launch failure or timeout the bridge removes
 the reaction it created; a session that acknowledges later keeps its
 acknowledgement. This startup watch uses GitHub Actions runner time; completion
@@ -216,9 +223,9 @@ supplied. Any other non-`200` response is reported, with its HTTP code, as
 `Launch rejected` (4xx) or `Launch not confirmed` (other codes). A successful
 fire creates a session but does not wait for execution. The fire token has no
 read access to later subscription quota failures or session progress. HTTP `200`
-without a usable session ID still starts the acknowledgement watch; the bridge
-does not retry or assume that the launch failed, and takes the session link from
-Claude's acknowledgement as described above. If no startup acknowledgement
+without a usable session URL or ID still starts the acknowledgement watch; the
+bridge does not retry or assume that the launch failed, and takes the session
+link from Claude's acknowledgement as described above. If no startup acknowledgement
 appears, the bridge reports that startup is unconfirmed, lists quota as one
 possible cause, links the session when available, and clears its newly created
 reaction. See the
@@ -309,9 +316,9 @@ installed in either order. The bridge still checks only the first two lines of
 the acknowledgement and of the completion comment: with an older bridge the
 acknowledgement stays and the receipt is not collapsed, and with older flows an
 acknowledgement may lack the session link, so the receipt links the routine page
-when the fire response has no session ID either. Other repositories that copied
-the template, such as WonderMr/Agents.Private, keep the old behavior until they
-replace their copy with the current
+when the fire response has no usable session URL or ID either. Other repositories
+that copied the template, such as WonderMr/Agents.Private, keep the old behavior
+until they replace their copy with the current
 [template](../scripts/templates/issue-agent-bridge.yml); compare the copy with
 its template first, because local changes would be lost. After the change is on
 a target's default branch, check live on an issue and in a PR that the dispatch

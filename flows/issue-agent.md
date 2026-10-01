@@ -97,11 +97,11 @@ taking an issue lock, or starting slow work:
    link; do not invent one or delay the acknowledgement for it.
 
 The bridge watches for this owner-authored acknowledgement for up to five minutes,
-including when a successful fire response has no usable session ID. On confirmed
-startup it rewrites its receipt to a short `Claude confirmed startup` line with
-the session link, leaves its reaction in place, stops polling and deletes the
-acknowledgement. On a launch failure or startup timeout it removes only the
-reaction it created.
+including when a successful fire response has no usable session URL or ID. On
+confirmed startup it rewrites its receipt to a short `Claude confirmed startup`
+line with the session link, leaves its reaction in place, stops polling and
+deletes the acknowledgement. On a launch failure or startup timeout it removes
+only the reaction it created.
 
 On **every normal exit after verifying the bridge receipt**, the outcome comment
 carries the completion marker defined in [Finish every run](#5-finish-every-run).
