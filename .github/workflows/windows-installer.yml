@@ -9,6 +9,7 @@ on:
       - scripts/install_instructions.py
       - src/client_paths.py
       - src/daemon/peer.py
+      - scripts/dev/peer_check_probe.py
       - scripts/_helpers/check_version.py
       - scripts/_helpers/client_config_paths.py
       - scripts/_helpers/install_codex_instructions.py
@@ -33,6 +34,7 @@ on:
       - scripts/install_instructions.py
       - src/client_paths.py
       - src/daemon/peer.py
+      - scripts/dev/peer_check_probe.py
       - scripts/_helpers/check_version.py
       - scripts/_helpers/client_config_paths.py
       - scripts/_helpers/install_codex_instructions.py
@@ -80,3 +82,24 @@ jobs:
           tests/test_installer_instructions.py tests/test_codex_instructions.py
           tests/test_install_instructions.py tests/test_installer_profiles.py
           tests/test_protocol_migration.py tests/test_daemon_peer.py -v
+      - name: Recognize a same-user connection as a standard (non-administrator) user
+        shell: pwsh
+        run: |
+          $plain = 'Pc1!' + [guid]::NewGuid().ToString('N')
+          $secure = ConvertTo-SecureString $plain -AsPlainText -Force
+          New-LocalUser -Name peercheck -Password $secure -AccountNeverExpires | Out-Null
+          $python = (Get-Command python).Source
+          $root = Split-Path (Split-Path $python)
+          foreach ($path in @($env:GITHUB_WORKSPACE, $root, $env:RUNNER_TEMP)) {
+            icacls $path /grant 'peercheck:(OI)(CI)RX' /T /C /Q | Out-Null
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'peer-out.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'peer-err.txt'
+          icacls $env:RUNNER_TEMP /grant 'peercheck:(OI)(CI)M' /C /Q | Out-Null
+          $credential = [pscredential]::new("$env:COMPUTERNAME\peercheck", $secure)
+          $process = Start-Process -FilePath $python -Credential $credential -Wait -PassThru `
+            -WorkingDirectory $env:RUNNER_TEMP -RedirectStandardOutput $out -RedirectStandardError $err `
+            -ArgumentList @("$env:GITHUB_WORKSPACE\scripts\dev\peer_check_probe.py", $env:GITHUB_WORKSPACE)
+          Get-Content $out, $err -ErrorAction SilentlyContinue
+          Remove-LocalUser -Name peercheck
+          if ($process.ExitCode -ne 0) { throw "peer check failed for a standard user: $($process.ExitCode)" }
