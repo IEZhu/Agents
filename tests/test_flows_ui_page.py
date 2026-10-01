@@ -341,3 +341,14 @@ def test_heading_text_and_ids_drop_underscore_emphasis_but_keep_snake_case():
     result = render("# _Title_ and __bold__\n\n## my_snake_case word\n")
     assert [h["text"] for h in result["headings"]] == ["Title and bold", "my_snake_case word"]
     assert [h["id"] for h in result["headings"]] == ["md-title-and-bold", "md-my_snake_case-word"]
+
+
+def test_heading_text_follows_what_the_heading_shows():
+    result = render("# 2 * 3 * 4\n\n# <https://x.test>\n\n# `a_b` and *em* [link](https://y.test)\n")
+    assert [h["text"] for h in result["headings"]] == ["2 * 3 * 4", "https://x.test", "a_b and em link"]
+    assert result["headings"][0]["id"] == "md-2-3-4"
+
+
+def test_an_existing_personal_copy_opens_in_source():
+    _, script, _ = page_parts()
+    assert 'openFlow(existing.id, null, undefined, "source")' in script

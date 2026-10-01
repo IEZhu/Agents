@@ -275,7 +275,7 @@ async function loadList(select) {
   state.repos = data.repositories || [];
   state.loadedTab = "flows";
   renderList();
-  if (select) await openFlow(select.id, null, select.repo_key, select.keepView);
+  if (select) await openFlow(select.id, null, select.repo_key, select.view);
 }
 
 function addChip(parent, text, kind = "") {
@@ -410,7 +410,7 @@ function confirmDiscard() {
   return !state.dirty || confirm("Discard unsaved changes?");
 }
 
-async function openFlow(id, version, repo, keepView) {
+async function openFlow(id, version, repo, view) {
   if (!confirmDiscard()) return;
   const gen = ++state.gen;  // a newer selection supersedes an earlier one still loading
   const params = new URLSearchParams({ id });
@@ -432,7 +432,7 @@ async function openFlow(id, version, repo, keepView) {
   state.category = data.flow.source === "builtin" ? "system" : "user";
   $("content").value = data.content;
   showEditor();
-  setEditorView(keepView ? state.view : "rendered");
+  setEditorView(view || "rendered");
   renderHistory(data.history || []);
   setDirty(false);
   notice(data.flow.upstream_changed ? "The built-in flow changed since this copy was saved. Compare with “Show built-in”." : "");
@@ -508,7 +508,7 @@ async function save() {
   try {
     const result = await api("/ui/api/flow", { method: "PUT", body });
     setDirty(false);
-    await loadList({ id: result.flow.id, repo_key: result.flow.repo_key, keepView: true });  // saving from Source stays in Source
+    await loadList({ id: result.flow.id, repo_key: result.flow.repo_key, view: state.view });  // saving from Source stays in Source
     notice(result.status === "unchanged" ? "No changes." : "Saved.", "ok");
   } catch (error) {
     if (error.status === 409) {
@@ -549,7 +549,7 @@ async function copyBuiltin(scope) {
   const bare = flow.id.replace(/^builtin:/, "");
   if (scope === "user") {
     const existing = state.flows.find((f) => f.id === "user:" + bare);
-    if (existing) return openFlow(existing.id);
+    if (existing) return openFlow(existing.id, null, undefined, "source");
     startDraft("user", bare, "", "builtin:" + bare, flow.title);
     return afterCopy(scope);
   }
@@ -838,15 +838,25 @@ function mdInline(text, parent, ctx, inLink = false) {
   flush();
 }
 
+// The visible text of a rendered node: the table of contents and anchors use what the heading shows.
+function mdNodeText(node) {
+  if (node.nodeType === 3) return node.textContent;
+  if (node.tagName === "BR" || node.tag === "br") return " ";
+  const kids = node.childNodes || node.children || [];
+  let text = kids.length ? "" : node.textContent || "";
+  for (const child of kids) text += mdNodeText(child);
+  return text;
+}
+
 function mdHeading(level, text, parent, ctx) {
   const node = mdEl("h" + level, "", parent);
-  const plain = mdPlain(text), base = "md-" + (mdSlug(plain) || "section");
+  mdInline(text, node, ctx);
+  const plain = mdNodeText(node).replace(/\s+/g, " ").trim(), base = "md-" + (mdSlug(plain) || "section");
   const seen = ctx.seen.get(base) || 0;  // GitHub style: base, base-1, base-2
   ctx.seen.set(base, seen + 1);
   const id = seen ? base + "-" + seen : base;
   node.setAttribute("id", id);
   ctx.ids.set(id, node);
-  mdInline(text, node, ctx);
   ctx.headings.push({ level, text: plain, id, el: node });
 }
 
