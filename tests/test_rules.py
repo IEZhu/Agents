@@ -365,3 +365,10 @@ def test_answer_timestamp_rule_follows_toggle(monkeypatch):
     assert "answer-timestamp" in {r.name for r in get_rules(strict=True, apply_toggles=True)}
     monkeypatch.setattr(component_toggles, "disabled", lambda kind: frozenset({"answer-timestamp"}))
     assert "answer-timestamp" not in {r.name for r in get_rules(strict=True, apply_toggles=True)}
+
+
+def test_protocol_ties_time_line_to_the_rule():
+    root = Path(RULES_DIR).parent
+    for path in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
+        text = (root / path).read_text(encoding="utf-8")
+        assert "answer-timestamp" in text, path

@@ -117,3 +117,31 @@ async def test_invalid_attribution_returns_error_without_timestamp(monkeypatch):
     assert response["status"] == "ERROR"
     assert "timestamp" not in response
     writer.assert_not_called()
+
+
+def test_sink_workers_are_daemon_threads():
+    assert server._history_worker._thread.daemon
+    assert server._langfuse_worker._thread.daemon
+
+
+def test_full_queue_drops_writes_and_logs(monkeypatch, caplog):
+    monkeypatch.setattr(server, "LOG_QUEUE_MAX", 1)
+    worker = server._SinkWorker("test")
+    release = threading.Event()
+    started = threading.Event()
+
+    def block():
+        started.set()
+        release.wait(10)
+
+    try:
+        assert worker.submit(block)
+        assert started.wait(5)
+        assert worker.submit(lambda: None)  # fills the queue
+        with caplog.at_level(logging.ERROR, logger="mcp-server"):
+            assert not worker.submit(lambda: None)
+        assert "dropping a write" in caplog.text
+        assert not worker.drain(time.monotonic() + 0.05)
+    finally:
+        release.set()
+    assert worker.drain(time.monotonic() + 5)

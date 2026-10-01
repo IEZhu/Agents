@@ -17,7 +17,9 @@ import re
 import json
 import asyncio
 import datetime
+import queue
 import threading
+import time
 import dotenv
 from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
 from src.engine.fingerprint import configuration_revision
@@ -25,7 +27,6 @@ from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability
-from concurrent.futures import ThreadPoolExecutor, wait as _wait_futures
 from typing import Optional, List
 
 # Setup logging
@@ -88,8 +89,9 @@ mcp = FastMCP(
         "switch personas. Except for the MCP-unavailable fallback below, compose the answer "
         "with the returned footer, call log_interaction "
         "with that answer (without any time line), the current user request verbatim as query, "
-        "and the active descriptor/action, then send the final answer, prefixed with the "
-        "returned `timestamp` on its own first line followed by an empty line when present.\n\n"
+        "and the active descriptor/action, then send the final answer. When the footer lists the "
+        "`answer-timestamp` rule and the call returned a `timestamp`, put that `timestamp` on its own "
+        "first line followed by an empty line.\n\n"
         "Response statuses:\n"
         "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
         "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
@@ -137,42 +139,73 @@ from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configu
 langfuse = get_langfuse()
 atexit.register(langfuse.flush)
 
-# log_interaction writes its sinks (history.md, Langfuse) here after it has
-# answered. A dedicated executor keeps shutdown independent of the daemon's
-# default executor; pending futures are tracked so shutdown can drain them.
+# log_interaction writes its sinks (history.md, Langfuse) on these workers after
+# it has answered. The workers are daemon threads, so a permanently blocked sink
+# can never keep the process from exiting (a ThreadPoolExecutor is joined at
+# interpreter exit). The queues are bounded: when a sink is stuck and its queue
+# is full, new writes are dropped with an error in the server log.
 LOG_DRAIN_TIMEOUT_SECONDS = 10.0
-# Separate pools so a hanging Langfuse call can never delay the history write.
-_history_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="log-history")
-_langfuse_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="log-langfuse")
-_pending_logs: set = set()
-_pending_logs_lock = threading.Lock()
+LOG_QUEUE_MAX = 256
 
 
-def _submit_log_task(executor, fn) -> None:
-    future = executor.submit(fn)
-    with _pending_logs_lock:
-        _pending_logs.add(future)
+class _SinkWorker:
+    def __init__(self, name: str):
+        self._queue: "queue.Queue" = queue.Queue(maxsize=LOG_QUEUE_MAX)
+        self._idle = threading.Condition()
+        self._unfinished = 0
+        self.name = name
+        self._thread = threading.Thread(target=self._run, name=f"log-{name}", daemon=True)
+        self._thread.start()
 
-    def _done(f) -> None:
-        with _pending_logs_lock:
-            _pending_logs.discard(f)
-        error = f.exception()
-        if error is not None:
-            logger.error("Background log write failed: %s", error, exc_info=error)
+    def submit(self, fn) -> bool:
+        with self._idle:
+            self._unfinished += 1
+        try:
+            self._queue.put_nowait(fn)
+            return True
+        except queue.Full:
+            self._finished()
+            logger.error("Log queue %s is full (%d); dropping a write", self.name, LOG_QUEUE_MAX)
+            return False
 
-    future.add_done_callback(_done)
+    def _finished(self) -> None:
+        with self._idle:
+            self._unfinished -= 1
+            self._idle.notify_all()
+
+    def _run(self) -> None:
+        while True:
+            fn = self._queue.get()
+            try:
+                fn()
+            except Exception as e:
+                logger.error("Background log write failed: %s", e, exc_info=True)
+            finally:
+                self._finished()
+
+    def drain(self, deadline: float) -> bool:
+        with self._idle:
+            while self._unfinished:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._idle.wait(remaining)
+        return True
+
+
+# Separate workers so a hanging Langfuse call can never delay the history write.
+_history_worker = _SinkWorker("history")
+_langfuse_worker = _SinkWorker("langfuse")
 
 
 def drain_pending_logs(timeout: float = LOG_DRAIN_TIMEOUT_SECONDS) -> bool:
     """Wait up to *timeout* seconds for queued log writes; True when none remain."""
-    with _pending_logs_lock:
-        pending = list(_pending_logs)
-    if not pending:
-        return True
-    _, not_done = _wait_futures(pending, timeout=timeout)
-    if not_done:
-        logger.warning("%d log write(s) still pending after %.0fs drain", len(not_done), timeout)
-    return not not_done
+    deadline = time.monotonic() + timeout
+    done = _history_worker.drain(deadline)
+    done = _langfuse_worker.drain(deadline) and done
+    if not done:
+        logger.warning("Log writes still pending after %.0fs drain; abandoning them", timeout)
+    return done
 
 
 # Registered after langfuse.flush, so it runs first at exit (LIFO).
@@ -808,8 +841,8 @@ async def log_interaction(
             logger.error("History append failed: %s", e, exc_info=True)
 
     # Both sinks are independent; the response does not wait for either.
-    _submit_log_task(_langfuse_executor, _send_langfuse)
-    _submit_log_task(_history_executor, _send_history)
+    _langfuse_worker.submit(_send_langfuse)
+    _history_worker.submit(_send_history)
 
     payload = {
         "request_id": request_id,

@@ -132,7 +132,8 @@ the final answer, compose it with the saved footer and call `log_interaction`
 with that exact text (without a time line), the current user request verbatim, the
 descriptor, and the action (`keep`, `switch`, `refresh`, or `restore`). Then
 deliver the answer with the returned `timestamp` as its first line, followed by
-an empty line (the `answer-timestamp` rule); without a `timestamp`, add no line.
+an empty line, when the footer lists the `answer-timestamp` rule; with the rule
+switched off or without a `timestamp`, add no line.
 
 ## Enrichment and storage
 

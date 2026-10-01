@@ -78,8 +78,9 @@ On `keep`, reuse that footer; do not infer component lists. Before delivering th
 with that exact answer text (without any time line), the applied descriptor, and
 `keep`, `switch`, `refresh`, or `restore`. Pass the current user request verbatim
 as `query`; do not paraphrase it or substitute a conversation summary. The call
-returns at once; when it returns a `timestamp`, prepend it to the answer as its
-first line, followed by an empty line. Without a `timestamp`, add no time line.
+returns at once; when the footer's `Rules` list includes `answer-timestamp` and the
+call returns a `timestamp`, prepend it to the answer as its first line, followed by
+an empty line. Otherwise add no time line.
 After logging, deliver the composed answer. This order matters: clients may end
 the tool loop as soon as the final answer is sent.
 
