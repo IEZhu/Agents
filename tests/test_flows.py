@@ -94,24 +94,31 @@ def test_shipped_catalog_is_loadable():
     assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review"}
 
 
-def test_builtin_flow_personas_name_parsable_components():
-    """A declared persona must activate: unknown or unparsable components would fail every run.
+@pytest.mark.asyncio
+async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
+    """A declared persona must activate: unknown or invalid components would fail every run.
 
-    Reads each file as strictly as a bundle does, without the intent classifier.
+    Builds the real bundle at a fixed tier; the intent classifier is skipped
+    because it loads an embedding model that is irrelevant here.
     """
     from src import flow_persona
-    from src.engine.persona_bundle import _fresh_components
-    from src.utils.prompt_loader import read_mdc, resolve_path
+    from src.engine import enrichment
+    from src.engine.persona_bundle import build_persona_bundle
 
+    monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
     catalog = FlowCatalog()
     declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
                 for flow_id in catalog.ids()}
-    for spec in filter(None, declared.values()):
+    for flow_id, spec in declared.items():
+        if spec is None:
+            continue
         flow_persona.check_known(spec)
-        read_mdc(resolve_path(f"@agents/{spec['agent']}/system_prompt.mdc"), require_frontmatter=True)
-        for kind in ("skills", "implants"):
-            listed = spec.get(kind, [])  # An omitted list keeps the agent's default.
-            assert len(_fresh_components(kind, listed)) == len(listed)
+        if not {"skills", "implants"} <= set(spec):
+            continue  # Omitted lists retrieve by relevance, which needs the index.
+        bundle = await build_persona_bundle(spec["agent"], flow_id, tier="standard",
+                                            selection=flow_persona.selection(spec))
+        assert bundle.skills_loaded == spec["skills"]
+        assert len(bundle.implants_loaded) == len(spec["implants"])
     assert declared["issue-plan"]["agent"] == "system_architect"
     assert declared["issue-implementation"]["agent"] == "software_engineer"
     assert declared["pr-review"]["agent"] == "code_reviewer"
