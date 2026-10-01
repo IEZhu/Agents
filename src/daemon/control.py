@@ -188,6 +188,9 @@ def main(argv=None):
     flows_ui = commands.add_parser("flows-ui", help="open the local flow editor in a browser")
     flows_ui.add_argument("--no-open", action="store_true", help="print the one-use URL only")
     flows_ui.add_argument("--revoke", action="store_true", help="end every browser session of the editor")
+    flows_ui.add_argument("--auto", choices=["on", "off"],
+                          help="allow or refuse sign-in without a code for browsers of this OS user; "
+                               "off also ends every session")
     workspace = commands.add_parser("workspace")
     workspace.add_argument("action", choices=["register", "list"]); workspace.add_argument("path", nargs="?")
     migrate = commands.add_parser("migrate")
@@ -253,14 +256,24 @@ def main(argv=None):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
-    elif args.command == "flows-ui" and args.revoke:
-        from .flows_ui import replace_session_key
+    elif args.command == "flows-ui" and (args.revoke or args.auto):
+        from .flows_ui import auto_sign_in_enabled, replace_session_key, set_auto_sign_in
         try:
             with file_lock(controller.directory / "control.lock", blocking=False):
-                replace_session_key(private_dir(controller.directory))
-            result = {"state": "revoked", "note": "every browser must sign in again"}
+                state_dir = private_dir(controller.directory)
+                if args.auto:
+                    set_auto_sign_in(state_dir, args.auto == "on")
+                if args.revoke:
+                    replace_session_key(state_dir)
+                auto = "on" if auto_sign_in_enabled(state_dir) else "off"
+            result = {"auto_sign_in": auto}
+            if args.revoke or args.auto == "off":
+                result.update(state="revoked", note="every session ended; " + (
+                    "browsers of this OS user sign in again by themselves" if auto == "on"
+                    else "every browser needs a one-use code from flows-ui"))
         except BlockingIOError:
-            result = {"state": "not_revoked", "error": "another control command is running; try again"}
+            result = {"state": "not_revoked" if args.revoke else "not_changed",
+                      "error": "another control command is running; try again"}
     elif args.command == "flows-ui":
         result = controller.request("/admin/ui/code", method="POST")
         if "url" in result and not args.no_open:

@@ -339,9 +339,11 @@ Besides the built-in flows, users keep personal (`user:`) and per-repository
 (`repo:`) flows in the installation's git-ignored `flows/.user`. Ask the model to
 save, change, restore or delete one; it uses `get_flow`, `save_flow` and
 `delete_flow`. A bare flow name resolves `repo:`, then `user:`, then the built-in.
-With the shared daemon, `.venv/bin/python -m src.daemon flows-ui` opens a local
-[flow editor](docs/shared-mcp-daemon.md#flow-editor) (one sign-in per browser, kept for 30 days); the same page lists
-rules, skills and implants and switches each one on or off for the installation.
+With the shared daemon, the version link in the persona footer or
+`.venv/bin/python -m src.daemon flows-ui` opens a local
+[flow editor](docs/shared-mcp-daemon.md#flow-editor); a browser of the OS user
+running the daemon signs in by itself. The same page lists rules, skills and
+implants and switches each one on or off for the installation.
 
 ### Persona continuity
 

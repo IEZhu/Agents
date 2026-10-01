@@ -324,8 +324,8 @@ async def test_editor_access_control(editor):
     from src.version import agents_core_version
     assert f"Agents-Core {agents_core_version()}" in page.text
     assert page.text.count(f"Agents-Core {agents_core_version()}") == 1
-    assert "python -m src.daemon flows-ui" in page.text  # sign-in page names the command
-    assert "one sign-in per browser" in page.text.lower()
+    assert ".venv/bin/python -m src.daemon flows-ui" in page.text  # sign-in page names the command
+    assert "automatic sign-in works only for a browser of the os user" in page.text.lower()
     assert (await http.get("/ui/api/flows")).status_code == 401
     assert (await http.post("/admin/ui/code")).status_code == 401
     # The bearer token does not open the editor API, and the page is loopback-only.
@@ -489,3 +489,170 @@ async def test_renewal_does_not_cross_a_revocation(editor, monkeypatch):
     http.cookies.clear()
     http.cookies.set(module.COOKIE, stale, domain="127.0.0.1", path="/ui")
     assert (await http.get("/ui/api/flows")).status_code == 401
+
+
+# --- Automatic sign-in for the daemon's OS user ------------------------------------------
+
+def peer_stub(service, result):
+    calls = []
+
+    def check(client, server):
+        calls.append((client, server))
+        return result
+
+    service.flows_ui.peer_check = check
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_automatic_sign_in_for_the_daemon_user(editor):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    calls = peer_stub(service, True)
+    assert (await http.get("/ui/api/flows")).status_code == 401  # a GET never signs in
+    assert calls == []
+    response = await http.post("/ui/api/session", json={}, headers=UI)
+    assert response.status_code == 200
+    cookie = response.headers["set-cookie"].lower()
+    assert "httponly" in cookie and "samesite=strict" in cookie and "path=/ui" in cookie
+    assert [(client[0], server) for client, server in calls] == [("127.0.0.1", ("127.0.0.1", 8765))]
+    assert (await http.get("/ui/api/flows")).status_code == 200
+    # Revocation still ends the session; the same user simply signs in again.
+    module.replace_session_key(service.directory)
+    assert (await http.get("/ui/api/flows")).status_code == 401
+    assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 200
+    assert (await http.get("/ui/api/flows")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_automatic_sign_in_refusals(editor):
+    http, _ = editor
+    service = http._transport.app.state.service
+    calls = peer_stub(service, False)
+    response = await http.post("/ui/api/session", json={}, headers=UI)
+    assert response.status_code == 401 and response.json() == {"error": "sign_in_required"}
+    assert "set-cookie" not in response.headers and len(calls) == 1
+    assert (await http.get("/ui/api/flows")).status_code == 401
+
+    calls = peer_stub(service, True)
+    # A cross-site page cannot reach the check: Origin and the custom header come first.
+    for headers in ({"X-Agents-UI": "1"}, {"Origin": "http://127.0.0.1:8765"},
+                    {"X-Agents-UI": "1", "Origin": "http://attacker.example"}):
+        assert (await http.post("/ui/api/session", json={}, headers=headers)).status_code == 403
+    assert (await http.post("/ui/api/session", json={}, headers={**UI, "Host": "attacker.example"})).status_code == 403
+    # A wrong code or a malformed body never falls through to the automatic path.
+    for body in ({"code": "bogus"}, {"code": None}, {"code": 5}):
+        response = await http.post("/ui/api/session", json=body, headers=UI)
+        assert response.status_code == 401 and response.json() == {"error": "code_invalid"}
+    for raw in (b"not json", b"[]"):
+        response = await http.post("/ui/api/session", content=raw, headers=UI)
+        assert response.status_code == 401 and response.json() == {"error": "code_invalid"}
+    assert calls == []
+    assert (await http.get("/ui/api/flows")).status_code == 401
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("header", ["X-Forwarded-For", "Forwarded", "X-Forwarded-Host", "X-Real-IP"])
+async def test_forwarded_requests_never_sign_in_automatically(editor, header):
+    http, _ = editor
+    service = http._transport.app.state.service
+    calls = peer_stub(service, True)
+    response = await http.post("/ui/api/session", json={}, headers={**UI, header: "127.0.0.1:54321"})
+    assert response.status_code == 401 and response.json() == {"error": "sign_in_required"}
+    assert calls == [] and "set-cookie" not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_automatic_sign_in_can_be_turned_off(editor):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    calls = peer_stub(service, True)
+    module.set_auto_sign_in(service.directory, False)
+    assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 401
+    assert calls == []
+    await login(http)  # the one-use code still works
+    assert (await http.get("/ui/api/flows")).status_code == 200
+    http.cookies.clear()
+    module.set_auto_sign_in(service.directory, True)
+    assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 200
+
+
+def test_flows_ui_auto_switch_and_revoke_report_the_state(tmp_path, monkeypatch, capsys):
+    from src.daemon import control, flows_ui as module
+    state = tmp_path / "state"
+    monkeypatch.setenv("AGENTS_SERVICE_DIR", str(state))
+    control.main(["flows-ui", "--auto", "on"])
+    assert json.loads(capsys.readouterr().out) == {"auto_sign_in": "on"}
+    assert not (state / module.KEY_FILE).exists()  # switching on revokes nothing
+    control.main(["flows-ui", "--auto", "off"])
+    off = json.loads(capsys.readouterr().out)
+    assert off["auto_sign_in"] == "off" and off["state"] == "revoked" and "one-use code" in off["note"]
+    assert not module.auto_sign_in_enabled(state)
+    key = (state / module.KEY_FILE).read_bytes()
+    control.main(["flows-ui", "--revoke"])
+    revoked = json.loads(capsys.readouterr().out)
+    assert revoked["state"] == "revoked" and revoked["auto_sign_in"] == "off" and "one-use code" in revoked["note"]
+    assert (state / module.KEY_FILE).read_bytes() != key
+    control.main(["flows-ui", "--revoke", "--auto", "on"])
+    revoked = json.loads(capsys.readouterr().out)
+    assert revoked["auto_sign_in"] == "on" and "by themselves" in revoked["note"]
+    assert module.auto_sign_in_enabled(state)
+
+
+def test_daemon_reports_the_real_socket_peer():
+    # uvicorn's default proxy_headers=True would let any loopback caller pick scope["client"]
+    # with X-Forwarded-For, and so choose whose connection the sign-in check inspects.
+    import ast
+    import inspect
+    from src.daemon import bootstrap
+    calls = [node for node in ast.walk(ast.parse(inspect.getsource(bootstrap)))
+             if isinstance(node, ast.Call) and ast.unparse(node.func) == "uvicorn.run"]
+    assert len(calls) == 1
+    keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in calls[0].keywords}
+    assert keywords.get("proxy_headers") == "False"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during_check", ["auto_off", "revoke", "auto_off_and_revoke"])
+async def test_no_automatic_session_outlives_a_concurrent_switch_or_revoke(editor, during_check):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+
+    def check(client, server):  # `flows-ui --auto off` / `--revoke` run while the peer is checked
+        if "auto_off" in during_check:
+            module.set_auto_sign_in(service.directory, False)
+        if "revoke" in during_check:
+            module.replace_session_key(service.directory)
+        return True
+
+    service.flows_ui.peer_check = check
+    response = await http.post("/ui/api/session", json={}, headers=UI)
+    assert response.status_code == 401 and "set-cookie" not in response.headers
+    assert (await http.get("/ui/api/flows")).status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["revoke", "auto_off"])
+async def test_a_command_right_after_the_check_still_ends_the_new_session(editor, monkeypatch, command):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    peer_stub(service, True)
+    admitted = service.flows_ui._still_admitted
+
+    def admitted_then_revoked(key):
+        result = admitted(key)
+        # `--revoke` or `--auto off` lands after the final check, before the cookie is set.
+        if command == "revoke":
+            module.replace_session_key(service.directory)
+        else:
+            module.set_auto_sign_in(service.directory, False)
+        return result
+
+    monkeypatch.setattr(service.flows_ui, "_still_admitted", admitted_then_revoked)
+    assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 200
+    assert (await http.get("/ui/api/flows")).status_code == 401  # signed with the revoked key

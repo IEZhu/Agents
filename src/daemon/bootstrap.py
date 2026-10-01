@@ -65,7 +65,9 @@ def serve(directory=None, probation=None):
         from .app import create_app
         import uvicorn
         app = create_app(directory, token, config["port"])
-        uvicorn.run(app, host="127.0.0.1", port=config["port"], workers=1,
+        # proxy_headers=False: scope["client"] must stay the socket's peer, because the
+        # editor's automatic sign-in looks up who owns that exact connection.
+        uvicorn.run(app, host="127.0.0.1", port=config["port"], workers=1, proxy_headers=False,
                     access_log=False, log_config=None, timeout_graceful_shutdown=60)
 
 
