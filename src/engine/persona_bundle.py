@@ -106,12 +106,14 @@ async def build_persona_bundle(
     # every build, like the rule files.
     off_skills = component_toggles.disabled("skills")
     off_implants = component_toggles.disabled("implants")
-    core = [i for i in _declared_ids(metadata, "core_skills") if i not in off_skills]
-    preferred = [i for i in _declared_ids(metadata, "preferred_skills") if i not in off_skills]
-    capable = [i for i in _declared_ids(metadata, "capable_skills") if i not in off_skills]
-    preferred_implants = [
-        i for i in _declared_ids(metadata, "preferred_implants") if i not in off_implants
-    ]
+    declared_core = _declared_ids(metadata, "core_skills")
+    declared_preferred = _declared_ids(metadata, "preferred_skills")
+    declared_capable = _declared_ids(metadata, "capable_skills")
+    declared_implants = _declared_ids(metadata, "preferred_implants")
+    core = [i for i in declared_core if i not in off_skills]
+    preferred = [i for i in declared_preferred if i not in off_skills]
+    capable = [i for i in declared_capable if i not in off_skills]
+    preferred_implants = [i for i in declared_implants if i not in off_implants]
     profile = enrichment.resolve_profile(query)
     if tier is None:
         tier = profile.tier if profile is not None else enrichment.infer_tier(query)
@@ -121,7 +123,7 @@ async def build_persona_bundle(
         # conversation that opens with "hi" would otherwise run its whole
         # remaining length on a `lite` bundle — no semantic skills, no implants.
         # The per-query `_load_and_enrich` path can waive safely: SESSION_CACHE re-derives per query.
-        if tier == "lite" and preferred_implants:
+        if tier == "lite" and declared_implants:
             tier = "standard"
     if tier not in ("lite", "standard", "deep"):
         raise ValueError(f"Invalid enrichment tier: {tier!r}")
@@ -160,14 +162,15 @@ async def build_persona_bundle(
         mandatory=core or None, preferred=preferred or None, capable=capable or None,
         n_results=enrichment._n_results_for_tier(tier),
     )
-    allowed = set(core + preferred + capable)
+    # The policy is what the agent declares; a switch only skips a permitted skill.
+    allowed = set(declared_core + declared_preferred + declared_capable)
     skill_ids = list(core)
     for selected in selected_skills:
         component_id = _component_id(selected["filename"])
-        if component_id in off_skills:
-            continue
         if component_id not in allowed:
             raise ValueError(f"Skill {component_id} is outside {agent_name}'s policy")
+        if component_id in off_skills:
+            continue
         skill_ids.append(component_id)
     skills = await asyncio.to_thread(_fresh_components, "skills", skill_ids)
     skills_block = enrichment.skill_retriever.format_skills_for_prompt(

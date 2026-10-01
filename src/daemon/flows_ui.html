@@ -185,6 +185,7 @@ function flowParams(flow, version) {
 
 async function loadList(select) {
   const data = await api("/ui/api/flows");
+  if (state.tab !== "flows") return;  // the user switched tabs while this was loading
   state.flows = data.flows;
   state.repos = data.repositories || [];
   renderList();
@@ -266,6 +267,7 @@ async function openFlow(id, version, repo) {
   if (repo) params.set("repo", repo);
   if (version) params.set("version", version);
   const data = await api("/ui/api/flow?" + params);
+  if (state.tab !== "flows") return;
   if (version) {
     // Viewing an old version keeps the current identity and revision, so saving restores it.
     $("content").value = data.content;

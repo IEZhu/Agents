@@ -109,7 +109,8 @@ async def test_disabled_semantic_hit_is_skipped_not_an_error(bundle_tree):
     enrichment.skill_retriever.retrieve = lambda *a, **k: [
         {"filename": "skill-core.mdc"}, {"filename": "skill-extra.mdc"}]
     assert (await build()).skills_loaded == ["skill-core"]
-    # A skill outside the agent's policy is still an error.
+    # A skill outside the agent's policy is still an error, even when it is switched off.
+    component_toggles.set_enabled("skills", "skill-other", False)
     enrichment.skill_retriever.retrieve = lambda *a, **k: [{"filename": "skill-other.mdc"}]
     with pytest.raises(ValueError):
         await build()
@@ -263,3 +264,16 @@ async def test_ui_lists_repository_flows_without_workspace_and_edits_by_key(edit
     removed = await http.request("DELETE", "/ui/api/flow", headers=UI, json={
         "id": "repo:notes", "repo": key, "expected_revision": saved.json()["flow"]["revision"]})
     assert removed.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_switching_off_the_last_preferred_implant_keeps_the_tier_promotion(bundle_tree, monkeypatch):
+    seen = []
+    monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
+    monkeypatch.setattr(enrichment, "infer_tier", lambda query: "lite")
+    monkeypatch.setattr(enrichment, "_n_results_for_tier",
+                        lambda tier: seen.append(tier) or 3)
+    await build_persona_bundle("engineer", "hi", None, None)
+    component_toggles.set_enabled("implants", "implant-focus", False)
+    await build_persona_bundle("engineer", "hi", None, None)
+    assert seen == ["standard", "standard"]
