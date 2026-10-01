@@ -922,3 +922,11 @@ def test_symlink_loop_in_personas_is_a_persona_error(install, tmp_path):
     # Depending on the Python version resolve() or the read reports the loop;
     # either way the flow stays listed with a persona error.
     assert listed["review"]["persona_error"].startswith("flow_invalid:")
+
+
+def test_agent_with_malformed_yaml_is_flow_invalid(install, tmp_path, known_components):
+    path = known_components / "agents" / "code_reviewer" / "system_prompt.mdc"
+    path.write_text("---\nidentity: [unclosed\n---\nBody\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="Invalid agent frontmatter"):
+        library.set_persona("review", {"agent": "code_reviewer"})

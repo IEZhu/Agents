@@ -14,6 +14,8 @@ import json
 import re
 from dataclasses import dataclass
 
+import yaml
+
 from src import component_toggles
 from src.engine import enrichment
 from src.engine.config import IMPLANTS_DEEP_TIER_DEFAULT, MAX_PREFERRED_IMPLANTS
@@ -53,7 +55,10 @@ def read_agent(agent_name: str) -> tuple[str, dict, str, str]:
     if not re.fullmatch(r"[A-Za-z0-9_-]+", agent_name):
         raise ValueError(f"Invalid agent name: {agent_name!r}")
     path = resolve_path(f"@agents/{agent_name}/system_prompt.mdc")
-    metadata, body = read_mdc(path, require_frontmatter=True)
+    try:
+        metadata, body = read_mdc(path, require_frontmatter=True)
+    except yaml.YAMLError as error:
+        raise ValueError(f"Invalid agent frontmatter in {path}: {error}") from None
     identity = metadata.get("identity")
     if not isinstance(identity, dict) or identity.get("name") != agent_name:
         raise ValueError(f"Agent metadata identity does not match {agent_name}")
