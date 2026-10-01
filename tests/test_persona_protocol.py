@@ -151,6 +151,18 @@ async def test_route_checks_keyword_veto_and_passes_history(bundle, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_meta_route_lets_the_bundle_choose_its_tier(bundle, monkeypatch):
+    # A forced lite tier skipped the bundle's lite-to-standard promotion, and
+    # NO_CHANGE then kept universal_agent without implants for the conversation.
+    monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
+    response = json.loads(await server.route_and_load("hi", protocol_version=2))
+    assert response["status"] == "SUCCESS"
+    assert response["persona"]["agent"] == "universal_agent"
+    assert bundle.call_args.args[0] == "universal_agent"
+    assert bundle.call_args.kwargs.get("tier") is None
+
+
+@pytest.mark.asyncio
 async def test_v2_route_uncertain_returns_candidates_preserving_activation(bundle, monkeypatch):
     monkeypatch.setattr(server.router, "lookup_cache", AsyncMock(return_value=None))
     response = json.loads(await server.route_and_load("SQL?", protocol_version=2, current_persona=descriptor()))

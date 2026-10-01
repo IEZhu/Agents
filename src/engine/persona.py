@@ -53,7 +53,6 @@ async def load_persona(
     current_persona: PersonaDescriptor | dict | None = None, *,
     force_reload: bool = False, refresh: bool = False,
     reasoning: str = "Explicit persona selection", request_id: str | None = None,
-    tier: str | None = None,
 ) -> str:
     request_id = request_id or str(uuid.uuid4())
     try:
@@ -63,7 +62,7 @@ async def load_persona(
         if current and current.agent == agent_name and not force_reload and not refresh:
             return unchanged(current, request_id)
 
-        bundle = await build_persona_bundle(agent_name, query, history, tier=tier)
+        bundle = await build_persona_bundle(agent_name, query, history)
         if refresh and current.bundle_revision == bundle.bundle_revision:
             return unchanged(current, request_id)
 
@@ -96,7 +95,6 @@ async def route_persona(router, query: str, history: list[str], current_persona,
     request_id = str(uuid.uuid4())
     try:
         current = parse_persona(current_persona)
-        tier = None
         cached = await router.lookup_cache(query, {"history_text": "\n".join(history)})
         agent_name = None
         if cached:
@@ -104,8 +102,9 @@ async def route_persona(router, query: str, history: list[str], current_persona,
             if veto != KEYWORD_VETO_ROUTE_REQUIRED:
                 agent_name = veto or cached.target_agent
         elif is_meta(query):
+            # The bundle infers the tier and promotes lite to standard: NO_CHANGE
+            # keeps this session-scoped bundle for the whole conversation.
             agent_name = "universal_agent"
-            tier = "lite"
         if agent_name is None:
             return PersonaResponse(
                 status="ROUTE_REQUIRED", request_id=request_id,
@@ -116,7 +115,7 @@ async def route_persona(router, query: str, history: list[str], current_persona,
                              "current_persona. Keep the existing activation until SUCCESS."),
             ).to_json()
         return await load_persona(
-            router, agent_name, query, history, current, request_id=request_id, tier=tier,
+            router, agent_name, query, history, current, request_id=request_id,
             reasoning="Semantic routing with keyword validation",
         )
     except Exception as error:
