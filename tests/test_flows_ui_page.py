@@ -398,3 +398,7 @@ def test_unmatched_backticks_in_link_labels_and_emphasis_stay_fast():
                     "".join("`" * n + " " for n in range(1, 400))):
         assert render(hostile)["html"].startswith("<p>")  # the harness call has a 60 s timeout
     assert html_of("[`a`](https://x.test)") == '<p><a href="https://x.test" target="_blank" rel="noopener noreferrer"><code>a</code></a></p>'
+
+
+def test_a_long_unmatched_backtick_run_in_a_link_label_is_skipped_whole():
+    assert render("[" + "`" * 50000 + "](https://x.test) tail")["html"].startswith("<p>")

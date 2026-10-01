@@ -765,7 +765,12 @@ function mdLink(text, i, ctx) {
   for (; j < text.length; j++) {
     const c = text[j];
     if (c === "\\") { j++; continue; }
-    if (c === "`") { const span = mdCodeSpan(text, j, ctx); if (span) j = span.next - 1; continue; }
+    if (c === "`") {
+      const span = mdCodeSpan(text, j, ctx);
+      if (span) j = span.next - 1;
+      else while (text[j + 1] === "`") j++;  // an unmatched run is skipped whole
+      continue;
+    }
     if (c === "[") depth++;
     else if (c === "]" && --depth === 0) break;
   }
