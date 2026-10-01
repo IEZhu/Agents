@@ -357,3 +357,24 @@ def test_an_existing_personal_copy_opens_in_source():
 def test_bare_urls_with_many_closing_parentheses_stay_linear():
     html = html_of("see https://x.test/a(b)" + ")" * 60000 + " end")
     assert 'href="https://x.test/a(b)"' in html and html.endswith(")" * 60000 + " end</p>")
+
+
+def test_hiding_the_contents_moves_focus_to_the_toolbar_button(ui):
+    assert ui["hidden"]["focus_moved"] == 1
+
+
+def test_image_alt_text_with_many_unmatched_openers_stays_fast():
+    html = html_of("![" + "_a " * 20000 + "](x.png) and ![alt *em*](y.png)")
+    assert html.startswith("<p>") and "alt em" in html
+
+
+def test_a_long_code_span_with_a_leading_space_stays_fast():
+    assert html_of("` " + "x " * 30000 + "y`").startswith("<p><code>")
+    assert html_of("` a `") == "<p><code>a</code></p>"
+
+
+def test_atx_headings_and_whitespace_heavy_lines_stay_fast():
+    assert html_of("# a" + " " * 60000 + "x").startswith("<h1")
+    assert [h["text"] for h in render("# Title ##\n\n## C#\n\n### x #y\n\n#\n\n####### no\n")["headings"]] == ["Title", "C#", "x #y", ""]
+    for hostile in ("-" + " " * 60000 + "x", "| a |\n|" + "- " * 20000, "a" + " " * 60000 + "\n=="):
+        render(hostile)  # the harness call has a 60 s timeout

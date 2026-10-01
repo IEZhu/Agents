@@ -283,7 +283,7 @@ if (isUi) {
   fire(findAll(byId("e-view"), hasClass("md-toc-item"))[1], "click");
   out.heading_scrolled = findAll(byId("e-view"), (n) => n.tag === "h2").map((n) => n.scrolled);
   fire(findAll(byId("e-view"), hasClass("md-toc-hide"))[0], "click");
-  out.hidden = { ...snap("e-view"), stored: [...storage.entries()] };
+  out.hidden = { ...snap("e-view"), stored: [...storage.entries()], focus_moved: byId("e-toc").focused };
   await open(1);
   out.plain = { ...snap("e-view"), toc_button_hidden: byId("e-toc").classes.has("hidden") };
   await open(0);
