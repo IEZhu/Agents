@@ -148,17 +148,18 @@ The core router needs no external API key. Configure `.env` using
 with these values:
 
 ```env
-LANGFUSE_PUBLIC_KEY=            # Optional: observability
-LANGFUSE_SECRET_KEY=            # Optional: observability
+# Optional: set both keys to enable Langfuse tracing. Keep comments on their own
+# line: older python-dotenv reads "KEY=  # text" as the value "# text".
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
 ANTHROPIC_API_KEY=sk-ant-...    # Optional: for document OCR
 AGENTS_DEBUG=0                  # Set to 1 for per-call JSON debug logs
 ```
 
-Any non-empty Langfuse key pair enables tracing, so leave both empty to run without
-Langfuse. An `.env` created from an older `env.example` may still hold the
-placeholders `pk-lf-...` and `sk-lf-...`, which enable tracing with invalid keys;
-clear them. The optional
+Both keys set enable tracing, so leave them empty to run without Langfuse. The
+placeholders `pk-lf-...` and `sk-lf-...`, which an `.env` copied from an older
+`env.example` may still hold, do not count as keys. The optional
 [document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
 `ANTHROPIC_API_KEY`.
 
