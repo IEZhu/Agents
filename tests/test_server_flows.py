@@ -204,6 +204,7 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
         "check", agent="code_reviewer", skills=["skill-a"], implants=[], rules=["truth"]))
     assert saved["flow"]["persona_source"] == "overlay"
     result = json.loads(await server.run_flow("check", request="PR 7"))
+    assert "take precedence over the persona" in result["instruction"]
     activation = result["persona_activation"]
     assert activation["status"] == "SUCCESS"
     assert activation["persona"]["agent"] == "code_reviewer"

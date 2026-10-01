@@ -163,6 +163,11 @@ closed block that parses as a YAML mapping, so a flow may still open with a
 Markdown rule (`---`); a block that mentions `persona:` but is not valid YAML is
 `flow_invalid`.
 
+The persona is role guidance under the flow, not a replacement for it: the
+flow's steps, permissions and required outputs (comments, reports, reply style)
+take precedence over the persona's own workflow rules, clarifying questions and
+`## Output Format`. The persona contributes domain expertise and judgment.
+
 `run_flow` then also returns `persona_activation`, a protocol 2 response for that
 persona built from the flow's title and `request`. Pass `current_persona` to
 `run_flow` and apply the activation as a switch before executing the flow:
