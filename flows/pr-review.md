@@ -67,7 +67,8 @@ Check this when the flow starts, before requesting reviews for a new head, after
 every wait for reviews, and before the final report. Another merge into the
 target branch can make a reviewed head unmergeable while the bots are working.
 
-1. Fetch the target branch and the source branch. Read the PR/MR mergeability
+1. Identify the remote that holds the source branch (the fork for a fork PR,
+   from `headRepository` on GitHub) and fetch it and the target branch. Read the PR/MR mergeability
    (on GitHub `gh pr view N --json mergeable,mergeStateStatus,headRefOid`;
    `UNKNOWN` means GitHub is still computing it: wait briefly and read again).
 2. Compare the remote head with the head this session last pushed or reviewed.
@@ -79,8 +80,12 @@ target branch can make a reviewed head unmergeable while the bots are working.
    repository forbids rewriting history or the branch is shared. Resolve each
    conflict by keeping the intent of both sides: read the merged change, adapt
    this branch to new names and interfaces, and update tests that both sides
-   touched. Run the relevant checks, then push with
-   `git push --force-with-lease=<branch>:<last seen head>` after a rebase.
+   touched. Run the relevant checks, then push to the source repository's remote
+   that step 1 verified, naming the destination and the lease explicitly:
+   `git push <source remote> --force-with-lease=refs/heads/<branch>:<last seen head> HEAD:refs/heads/<branch>`
+   after a rebase, or the same push without the lease after a merge. Never rely
+   on the default remote or upstream, which may point at the target repository
+   for a fork PR.
 4. The updated branch is a new head: earlier reviews do not cover it. Update the
    description when the scope changed, request reviews again as in
    [Obtain reviews](#3-obtain-reviews-for-the-current-head) and record what was
@@ -96,7 +101,8 @@ Treat other git problems the same way: detect, inspect, report; never override.
 A push rejected by the lease or by branch protection, a missing or renamed
 source branch, a detached HEAD, unexpected local changes, a failing rebase or a
 hook that rejects the commit is evidence to read, not an obstacle to bypass.
-Abort a failed rebase (`git rebase --abort`), keep unrelated local changes,
+Abort a failed update so the branch is left as it was (`git rebase --abort`,
+or `git merge --abort` for a merge-based update), keep unrelated local changes,
 never use plain `--force`, `--no-verify` or a reset that discards work, and
 never delete or recreate a branch to get past a rejection.
 
