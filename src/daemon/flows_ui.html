@@ -129,7 +129,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 "use strict";
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
-  upstream: null, items: [], item: null, workspaces: null, pending: null };
+  upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0 };
+// Every list load bumps `gen`; a response that arrives for an older load is dropped.
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
 const KIND_LABEL = { rules: "Rules", skills: "Skills", implants: "Implants" };
 
@@ -184,8 +185,9 @@ function flowParams(flow, version) {
 }
 
 async function loadList(select) {
+  const gen = ++state.gen;
   const data = await api("/ui/api/flows");
-  if (state.tab !== "flows") return;  // the user switched tabs while this was loading
+  if (state.tab !== "flows" || gen !== state.gen) return;  // superseded while loading
   state.flows = data.flows;
   state.repos = data.repositories || [];
   renderList();
@@ -213,7 +215,9 @@ function empty(nav, text) {
 
 function flowButton(flow) {
   const button = document.createElement("button");
-  const active = state.current && sameFlow(state.current, flow.id, flow.repo_key);
+  // Built-in entries expose a bare `id`; open them by `qualified_id` so a personal copy cannot win.
+  const ref = flow.qualified_id || flow.id;
+  const active = state.current && sameFlow(state.current, ref, flow.repo_key);
   button.className = "item" + (active ? " active" : "");
   button.textContent = flow.title;
   if (flow.overrides) addChip(button, "replaces built-in");
@@ -222,7 +226,7 @@ function flowButton(flow) {
   const small = document.createElement("small");
   small.textContent = flow.id;
   button.appendChild(small);
-  button.addEventListener("click", () => openFlow(flow.id, null, flow.repo_key));
+  button.addEventListener("click", () => openFlow(ref, null, flow.repo_key));
   return button;
 }
 
@@ -263,11 +267,12 @@ function confirmDiscard() {
 
 async function openFlow(id, version, repo) {
   if (!confirmDiscard()) return;
+  const gen = state.gen;
   const params = new URLSearchParams({ id });
   if (repo) params.set("repo", repo);
   if (version) params.set("version", version);
   const data = await api("/ui/api/flow?" + params);
-  if (state.tab !== "flows") return;
+  if (state.tab !== "flows" || gen !== state.gen) return;
   if (version) {
     // Viewing an old version keeps the current identity and revision, so saving restores it.
     $("content").value = data.content;
@@ -496,8 +501,9 @@ $("toggle-upstream").addEventListener("click", () => {
 // --- rules, skills and implants: view and switch on or off -------------------------------
 
 async function loadComponents(kind, keep) {
+  const gen = ++state.gen;
   const data = await api("/ui/api/components?kind=" + kind);
-  if (state.tab !== kind) return;  // a newer tab was opened meanwhile
+  if (state.tab !== kind || gen !== state.gen) return;  // superseded while loading
   state.items = data.items;
   state.item = keep ? data.items.find((i) => i.id === keep) || null : null;
   renderComponents(kind);
