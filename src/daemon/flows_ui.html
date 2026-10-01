@@ -648,6 +648,7 @@ async function renderPersona() {
   $("persona-summary").textContent = describePersona(persona);
   $("persona-source").textContent = flow.persona_source === "overlay" ? "Your choice (overrides the flow)"
     : flow.persona_source === "frontmatter" ? "Declared by the flow" : "";
+  $("persona-save").disabled = true;  // until this flow's controls are filled in
   $("persona-reset").disabled = flow.persona_source !== "overlay" && !flow.persona_error;
   if (flow.persona_error) {
     $("persona-summary").textContent = "invalid";
@@ -689,6 +690,7 @@ async function renderPersona() {
   };
   for (const box of grid.querySelectorAll("input[type=checkbox]")) box.addEventListener("change", sync);
   agent.onchange = sync; sync();
+  $("persona-save").disabled = false;
 }
 
 async function savePersona(reset) {

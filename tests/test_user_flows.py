@@ -849,3 +849,9 @@ def test_delete_checks_the_persona_path_before_changing_anything(install, tmp_pa
     with pytest.raises(FlowError, match="escapes"):
         library.delete("user:mine", expected_revision=revision("# Mine\n"))
     assert (tmp_path / "lib" / "common" / "mine.md").is_file()
+
+
+def test_indented_persona_in_broken_frontmatter_is_flow_invalid(install, tmp_path):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="persona is not a valid YAML"):
+        library.save("bad", "---\n  persona:\n    agent: [unclosed\n---\n# Bad\n")
