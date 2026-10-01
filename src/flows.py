@@ -4,7 +4,10 @@ import hashlib
 from pathlib import Path
 import re
 
+import yaml
+
 from src.engine.config import FLOWS_DIR
+from src.utils.prompt_loader import split_frontmatter
 
 
 FLOW_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -67,7 +70,26 @@ def read_flow(directory: Path, flow_id: str, *, flow_ref: str | None = None,
                 hashlib.sha256(raw).hexdigest(), content, source, details)
 
 
+def split_flow_frontmatter(content: str) -> tuple[dict | None, str]:
+    """``(mapping, body)`` for YAML frontmatter, else ``(None, content)``.
+
+    Lenient on purpose: a flow may open with a Markdown rule (``---``) that is not
+    frontmatter, so only a closed block that parses as a YAML mapping counts.
+    """
+    if not content.startswith("---"):
+        return None, content
+    raw, body = split_frontmatter(content)
+    if raw is None:
+        return None, content
+    try:
+        meta = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return None, content
+    return (meta, body) if isinstance(meta, dict) else (None, content)
+
+
 def flow_title(content: str, fallback: str) -> str:
+    content = split_flow_frontmatter(content)[1]
     return next((line[2:].strip() for line in content.splitlines()
                  if line.startswith("# ") and line[2:].strip()), fallback)
 
@@ -119,6 +141,11 @@ def execution_bundle(flow: Flow, repo_path: Path, workspace_id: str | None,
             "Use the target's own source, tools and checks; apply Agents-Core-specific "
             "examples only when the target is Agents-Core. If a linked source helper is "
             "unavailable to the client, use equivalent supported target/platform tools. "
+            "If persona_activation is present, apply it first under persona protocol 2 as a "
+            "switch (SUCCESS replaces the four blocks, NO_CHANGE keeps them, ERROR keeps "
+            "the previous persona and is reported). The flow's steps, permissions and "
+            "required outputs take precedence over the persona's own workflow, questions "
+            "and Output Format; the persona contributes expertise and judgment. "
             "If the client cannot access repo_path, report that blocker before taking "
             "actions. Report actual completion and validation in the invocation language; "
             "never treat needs_execution as a completed run."

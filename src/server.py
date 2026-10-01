@@ -52,6 +52,7 @@ from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
 from src.memory.history import HistoryReader, HistoryWriter
 from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
+from src import flow_persona
 from src.flows import FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
@@ -118,7 +119,9 @@ mcp = FastMCP(
         "personal (user:<id>, every repository) or per repository (repo:<id>); run_flow "
         "binds them to the caller's workspace and returns needs_execution. When the user "
         "asks to save, change, restore or delete a flow, use get_flow, save_flow and "
-        "delete_flow; say which scope you used. Execute the returned instructions in the current "
+        "delete_flow; say which scope you used. To choose a flow's agent, skills, implants "
+        "or rules, use set_flow_persona. Pass current_persona to run_flow and apply its "
+        "persona_activation as a switch before executing. Execute the returned instructions in the current "
         "model session against repo_path, preserving user constraints. It does not "
         "perform the workflow or authorize additional actions. HTTP requires "
         "X-Agents-Workspace; never substitute the installation for a missing target.\n"
@@ -338,6 +341,7 @@ async def run_flow(
     flow: str,
     request: str = "",
     repo_path: Optional[str] = None,
+    current_persona: PersonaDescriptor | None = None,
     ctx: Context | None = None,
 ) -> str:
     """Start a user-requested flow in the CALLER's repository.
@@ -352,6 +356,8 @@ async def run_flow(
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.
+    When the flow names a persona (flow.persona), persona_activation is a protocol 2
+    response for it: pass current_persona and apply it as a switch before executing.
     This tool only reads instructions: it does not run commands, edit files,
     create a background task, sample a model or claim the workflow is complete.
     Returns status=error for an invalid source or unavailable caller workspace.
@@ -361,9 +367,61 @@ async def run_flow(
         target = client.workspace_target(repo_path)
         library = FlowLibrary(FlowCatalog(), repo_root=client.workspace_root())
         loaded = await asyncio.to_thread(library.resolve, flow)
-        return json.dumps(execution_bundle(loaded, target, client.workspace_id, request),
-                          ensure_ascii=False)
+        bundle = execution_bundle(loaded, target, client.workspace_id, request)
+        metadata = loaded.metadata()
+        if metadata.get("persona_error"):
+            raise FlowError(f"{metadata['persona_error']}; repair it with set_flow_persona")
+        spec = metadata.get("persona")
+        if spec:
+            # Refuse a persona naming a removed or misspelled component up front,
+            # instead of returning the flow with an ERROR activation.
+            await asyncio.to_thread(flow_persona.check_known, spec)
+            query = f"{loaded.title}\n{request}".strip()
+            bundle["persona_activation"] = json.loads(await load_persona(
+                router, spec["agent"], query, [], current_persona,
+                reasoning=f"Persona of flow {loaded.id}",
+                selection=flow_persona.selection(spec)))
+        return json.dumps(bundle, ensure_ascii=False)
     except (FlowError, WorkspaceError, OSError, RuntimeError) as error:
+        return _flow_error(error)
+
+
+@mcp.tool()
+async def set_flow_persona(
+    flow: str,
+    agent: Optional[str] = None,
+    skills: Optional[List[str]] = None,
+    implants: Optional[List[str]] = None,
+    rules: Optional[List[str]] = None,
+    reset: bool = False,
+    ctx: Context | None = None,
+) -> str:
+    """Choose the agent, skills, implants and rules a flow runs with, for this user.
+
+    Works for built-in, user: and repo: flows without copying their text; it
+    replaces the persona in the flow's frontmatter. A list loads exactly those
+    components (empty = none); an omitted list keeps the agent's own selection.
+    agent omitted: run the flow without a persona. reset=true (alone): drop this
+    choice so the flow's frontmatter applies again; it also repairs a broken one.
+    IDs: agent names as in list_agents; skills and implants by file ID
+    (skill-web-search, implant-iteration-budget, not footer short names);
+    rules by name (no-fabrication).
+    """
+    try:
+        library = _flow_library(ctx)
+        if reset and any(v is not None for v in (agent, skills, implants, rules)):
+            raise FlowError("flow_invalid: reset=true takes no agent or components")
+        persona = None
+        if agent is not None:
+            persona = {"agent": agent}
+            for kind, values in (("skills", skills), ("implants", implants), ("rules", rules)):
+                if values is not None:
+                    persona[kind] = values
+        elif any(values is not None for values in (skills, implants, rules)):
+            raise FlowError("flow_invalid: components need an agent")
+        result = await asyncio.to_thread(library.set_persona, flow, persona, reset=reset)
+        return json.dumps(result, ensure_ascii=False)
+    except (FlowError, OSError, RuntimeError) as error:
         return _flow_error(error)
 
 

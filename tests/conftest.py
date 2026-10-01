@@ -26,6 +26,8 @@ import tempfile
 
 from dotenv import dotenv_values
 
+import pytest
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LIVE_DATA_DIR = os.path.join(_REPO_ROOT, "data")
 
@@ -94,3 +96,31 @@ from src.engine import config as _config  # noqa: E402  (must follow the env pin
 # PEP 562 alias; setting it explicitly keeps both names in step.
 _config.DATA_DIR = _config.INSTALL_DATA_DIR = TEST_DATA_DIR
 _config.AUTO_UPDATE_STAGING_DIR = os.path.join(TEST_DATA_DIR, ".prepared")
+
+
+@pytest.fixture
+def persona_components(tmp_path, monkeypatch):
+    """A minimal installation tree for flow personas: two agents and one of each component.
+
+    Removing a file from the returned root simulates a component deleted later.
+    """
+    from src.engine import rules
+    from src.utils import prompt_loader
+
+    root = tmp_path / "components"
+    for agent in ("code_reviewer", "software_engineer"):
+        path = root / "agents" / agent / "system_prompt.mdc"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nidentity: {{name: {agent}, role: Role}}\n---\nBody\n", encoding="utf-8")
+    for relative, text in (("skills/skill-a.mdc", "---\ndescription: A\n---\nA\n"),
+                           ("implants/implant-b.mdc", "---\ndescription: B\n---\nB\n"),
+                           ("rules/rule-truth.mdc",
+                            "---\nname: truth\ndescription: T\ncategory: honesty\npriority: 1\n---\nT\n")):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(text, encoding="utf-8")
+    monkeypatch.setattr(prompt_loader, "REPO_ROOT", str(root))
+    for variable, folder in (("AGENTS_DIR", "agents"), ("SKILLS_DIR", "skills"), ("IMPLANTS_DIR", "implants")):
+        monkeypatch.setattr(prompt_loader, variable, str(root / folder))
+    monkeypatch.setattr(rules, "RULES_DIR", str(root / "rules"))
+    monkeypatch.setattr(rules, "RULES_ENABLED", True)
+    return root

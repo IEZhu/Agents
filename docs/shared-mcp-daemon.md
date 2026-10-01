@@ -301,6 +301,13 @@ The daemon serves a local settings page at `/ui` with four tabs.
   repository flow, or "Edit copy for a repository", asks which registered
   workspace it belongs to. Saved versions, the comparison of a local copy with
   its built-in flow and conflicts with edits made from chat work as before.
+  The **Persona** panel of an open flow (built-in ones included) chooses the
+  agent and, per kind, either the agent's default or an exact list of skills,
+  implants and rules; see [choosing a flow's
+  agent](../flows/README.md#choose-a-flows-agent-and-components). The choice is
+  personal, stored in `flows/.user/personas/`, and never changes the flow's text;
+  "Reset to flow default" restores the flow's frontmatter. Components switched
+  off on the other tabs are marked "(off)" and still load when a flow names them.
 - **Rules**, **Skills** and **Implants** list every `rules/rule-*.mdc`,
   `skills/*.mdc` and `implants/*.mdc` with its description, a read-only view of its
   body (skills also show the agents that declare them and their tier, implants the

@@ -1,4 +1,4 @@
-"""Read-only listing of rules, skills and implants for the web UI.
+"""Read-only listing of agents, rules, skills and implants for the web UI.
 
 Every entry carries its ID, description, body and the current on/off state from
 ``src.component_toggles``. Skills also list the agents that declare them (and in
@@ -83,3 +83,19 @@ def list_components(kind: str) -> list[dict]:
 
 def known_ids(kind: str) -> set[str]:
     return {item["id"] for item in list_components(kind)}
+
+
+def list_agents() -> list[dict]:
+    """Agents with a readable identity, sorted by name, for choosing a flow's persona."""
+    agents = []
+    for path in sorted(glob.glob(os.path.join(AGENTS_DIR, "*", "system_prompt.mdc"))):
+        name = os.path.basename(os.path.dirname(path))
+        identity = _frontmatter(path)[0].get("identity")
+        if isinstance(identity, dict) and identity.get("name") == name:
+            agents.append({"id": name, "display_name": str(identity.get("display_name") or name),
+                           "role": str(identity.get("role") or "")})
+    return agents
+
+
+def known_agents() -> set[str]:
+    return {agent["id"] for agent in list_agents()}

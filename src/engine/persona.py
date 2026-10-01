@@ -4,7 +4,7 @@ import logging
 import os
 import uuid
 
-from src.engine.persona_bundle import build_persona_bundle
+from src.engine.persona_bundle import ComponentSelection, build_persona_bundle
 from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
 from src.schemas.protocol import PersonaDescriptor, PersonaResponse
 from src.version import agents_core_version
@@ -81,17 +81,23 @@ async def load_persona(
     current_persona: PersonaDescriptor | dict | None = None, *,
     force_reload: bool = False, refresh: bool = False,
     reasoning: str = "Explicit persona selection", request_id: str | None = None,
+    selection: ComponentSelection | None = None,
 ) -> str:
+    """With ``selection`` (a flow's persona) bundles are compared by revision, not
+    agent name, and the choice does not train the shared router cache."""
     request_id = request_id or str(uuid.uuid4())
     try:
         current = parse_persona(current_persona)
         if refresh and (current is None or current.agent != agent_name):
             raise ValueError("Refresh requires the descriptor of the same agent")
-        if current and current.agent == agent_name and not force_reload and not refresh:
+        if (current and current.agent == agent_name and not force_reload and not refresh
+                and selection is None):
             return unchanged(current, request_id)
 
-        bundle = await build_persona_bundle(agent_name, query, history)
-        if refresh and current.bundle_revision == bundle.bundle_revision:
+        bundle = await build_persona_bundle(agent_name, query, history, selection=selection)
+        if ((refresh or selection is not None) and current
+                and current.agent == agent_name
+                and current.bundle_revision == bundle.bundle_revision):
             return unchanged(current, request_id)
 
         persona = PersonaDescriptor(
@@ -107,7 +113,7 @@ async def load_persona(
             persona_block=bundle.persona_block, rules_block=bundle.rules_block,
             skills_block=bundle.skills_block, implants_block=bundle.implants_block,
         )
-        if not refresh and not force_reload:
+        if not refresh and not force_reload and selection is None:
             # Learning failure cannot invalidate an already assembled bundle.
             try:
                 await router.update_cache(query, agent_name, reasoning, request_id)

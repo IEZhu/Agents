@@ -8,7 +8,7 @@ import yaml
 
 from src.engine import enrichment, rules
 from src.engine.implants import ImplantRetriever
-from src.engine.persona_bundle import _declared_ids, build_persona_bundle
+from src.engine.persona_bundle import ComponentSelection, _declared_ids, build_persona_bundle
 from src.engine.skills import SkillRetriever
 from src.utils import prompt_loader
 
@@ -377,3 +377,94 @@ async def test_unbalanced_fence_in_output_format_leaves_the_persona_intact(bundl
     out = strip_output_format(prompt)
     assert out == prompt
     assert "## Rules & Constraints" in out and "## Safety" in out
+
+
+@pytest.mark.asyncio
+async def test_selection_loads_exact_components_and_skips_retrieval(bundle_tree, monkeypatch):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("an exact selection must not retrieve")
+    monkeypatch.setattr(enrichment.skill_retriever, "retrieve", unexpected)
+    monkeypatch.setattr(enrichment.implant_retriever, "retrieve", unexpected)
+    # Outside the agent's policy and switched off: the flow's choice still applies.
+    monkeypatch.setattr("src.component_toggles.disabled",
+                        lambda kind: frozenset({"skill-extra", "truth"}))
+    tree, agent = bundle_tree
+    agent["core_skills"] = []
+    write_mdc(tree / "agents/engineer/system_prompt.mdc", agent, "Engineer persona")
+    selected = await build_persona_bundle("engineer", "Review", tier="deep", selection=ComponentSelection(
+        skills=("skill-extra",), implants=(), rules=("truth",)))
+    assert selected.skills_loaded == ["skill-extra"]
+    assert selected.implants_loaded == [] and selected.implants_block == ""
+    assert selected.rules_loaded == ["truth"]
+
+
+@pytest.mark.asyncio
+async def test_selection_keeps_default_for_omitted_kinds(bundle_tree):
+    selected = await build_persona_bundle("engineer", "Review", tier="deep",
+                                          selection=ComponentSelection(rules=()))
+    assert selected.skills_loaded == ["skill-core"]
+    assert selected.implants_loaded == ["Focus"]
+    assert selected.rules_loaded == [] and selected.rules_block == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", [
+    ComponentSelection(skills=("skill-missing",)),
+    ComponentSelection(implants=("implant-missing",)),
+    ComponentSelection(rules=("missing",)),
+])
+async def test_selection_with_unknown_component_fails_bundle(bundle_tree, selection):
+    with pytest.raises((ValueError, OSError)):
+        await build_persona_bundle("engineer", "Review", tier="deep", selection=selection)
+
+
+@pytest.mark.asyncio
+async def test_selected_rules_keep_priority_order(bundle_tree):
+    tree, _ = bundle_tree
+    write_mdc(tree / "rules/rule-early.mdc", {"name": "early", "priority": 0}, "Early")
+    first = await build_persona_bundle("engineer", "R", tier="deep",
+                                       selection=ComponentSelection(rules=("truth", "early")))
+    second = await build_persona_bundle("engineer", "R", tier="deep",
+                                        selection=ComponentSelection(rules=("early", "truth")))
+    assert first.rules_loaded == second.rules_loaded == ["early", "truth"]
+    assert first.bundle_revision == second.bundle_revision
+
+
+@pytest.mark.asyncio
+async def test_empty_rule_selection_reads_no_rule_files(bundle_tree):
+    tree, _ = bundle_tree
+    (tree / "rules/rule-broken.mdc").write_text("no frontmatter", encoding="utf-8")
+    bundle = await build_persona_bundle("engineer", "R", tier="deep",
+                                        selection=ComponentSelection(rules=()))
+    assert bundle.rules_loaded == [] and bundle.rules_block == ""
+
+
+@pytest.mark.asyncio
+async def test_selected_rules_ignore_a_broken_unselected_rule(bundle_tree):
+    tree, _ = bundle_tree
+    (tree / "rules/rule-broken.mdc").write_text("no frontmatter", encoding="utf-8")
+    write_mdc(tree / "rules/rule-copy.mdc", {"name": "dup", "priority": 2}, "A")
+    write_mdc(tree / "rules/rule-copy2.mdc", {"name": "dup", "priority": 2}, "B")
+    bundle = await build_persona_bundle("engineer", "R", tier="deep",
+                                        selection=ComponentSelection(rules=("truth",)))
+    assert bundle.rules_loaded == ["truth"]
+    with pytest.raises(ValueError, match="Duplicate"):
+        await build_persona_bundle("engineer", "R", tier="deep",
+                                   selection=ComponentSelection(rules=("dup",)))
+
+
+@pytest.mark.asyncio
+async def test_exact_selection_ignores_the_agents_unused_declared_lists(bundle_tree):
+    tree, agent = bundle_tree
+    write_mdc(tree / "agents/engineer/system_prompt.mdc",
+              {**agent, "core_skills": True, "preferred_implants": True}, "Engineer persona")
+    bundle = await build_persona_bundle("engineer", "R", tier="lite", selection=ComponentSelection(
+        skills=(), implants=("implant-focus",)))
+    assert bundle.skills_loaded == [] and bundle.implants_loaded == ["Focus"]
+
+
+def test_disabled_rules_still_validate_a_selection(bundle_tree, monkeypatch):
+    monkeypatch.setattr(rules, "RULES_ENABLED", False)
+    assert rules.load_selected_rules(["truth"]) == []
+    with pytest.raises(ValueError, match="missing"):
+        rules.load_selected_rules(["missing"])
