@@ -584,12 +584,18 @@ def test_flows_ui_auto_switch_and_revoke_report_the_state(tmp_path, monkeypatch,
     from src.daemon import control, flows_ui as module
     state = tmp_path / "state"
     monkeypatch.setenv("AGENTS_SERVICE_DIR", str(state))
+    control.main(["flows-ui", "--auto", "on"])
+    assert json.loads(capsys.readouterr().out) == {"auto_sign_in": "on"}
+    assert not (state / module.KEY_FILE).exists()  # switching on revokes nothing
     control.main(["flows-ui", "--auto", "off"])
-    assert json.loads(capsys.readouterr().out) == {"auto_sign_in": "off"}
+    off = json.loads(capsys.readouterr().out)
+    assert off["auto_sign_in"] == "off" and off["state"] == "revoked" and "one-use code" in off["note"]
     assert not module.auto_sign_in_enabled(state)
+    key = (state / module.KEY_FILE).read_bytes()
     control.main(["flows-ui", "--revoke"])
     revoked = json.loads(capsys.readouterr().out)
     assert revoked["state"] == "revoked" and revoked["auto_sign_in"] == "off" and "one-use code" in revoked["note"]
+    assert (state / module.KEY_FILE).read_bytes() != key
     control.main(["flows-ui", "--revoke", "--auto", "on"])
     revoked = json.loads(capsys.readouterr().out)
     assert revoked["auto_sign_in"] == "on" and "by themselves" in revoked["note"]
@@ -630,7 +636,8 @@ async def test_no_automatic_session_outlives_a_concurrent_switch_or_revoke(edito
 
 
 @pytest.mark.asyncio
-async def test_a_revocation_right_after_the_check_still_ends_the_new_session(editor, monkeypatch):
+@pytest.mark.parametrize("command", ["revoke", "auto_off"])
+async def test_a_command_right_after_the_check_still_ends_the_new_session(editor, monkeypatch, command):
     from src.daemon import flows_ui as module
     http, _ = editor
     service = http._transport.app.state.service
@@ -639,7 +646,11 @@ async def test_a_revocation_right_after_the_check_still_ends_the_new_session(edi
 
     def admitted_then_revoked(key):
         result = admitted(key)
-        module.replace_session_key(service.directory)  # `--revoke` lands before the cookie is set
+        # `--revoke` or `--auto off` lands after the final check, before the cookie is set.
+        if command == "revoke":
+            module.replace_session_key(service.directory)
+        else:
+            module.set_auto_sign_in(service.directory, False)
         return result
 
     monkeypatch.setattr(service.flows_ui, "_still_admitted", admitted_then_revoked)

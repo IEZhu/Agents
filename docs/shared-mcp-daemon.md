@@ -286,7 +286,7 @@ A request sent during the stop window fails and can be retried. After
 .venv/bin/python -m src.daemon flows-ui          # opens the browser
 .venv/bin/python -m src.daemon flows-ui --no-open
 .venv/bin/python -m src.daemon flows-ui --revoke  # end every browser session
-.venv/bin/python -m src.daemon flows-ui --auto off  # require the one-use code (on restores the default)
+.venv/bin/python -m src.daemon flows-ui --auto off  # require the one-use code and end every session (on restores the default)
 ```
 
 The daemon serves a local settings page at `/ui` with four tabs.
@@ -336,10 +336,11 @@ always the socket's own peer. The trust boundary is your OS account: a process
 of yours that relays connections for others, such as Docker Desktop's
 `host.docker.internal` forwarding, `ssh -R` or a tunnel to port 8765, also
 passes. If that matters on your machine, `flows-ui --auto off` turns automatic
-sign-in off (the marker `ui_auto_sign_in_off` in the state directory) and
-`--auto on` turns it back on. An automatic sign-in still being checked when
-either command runs is refused, and its cookie is signed with the key read
-before the check, so a revocation always ends it. A refused browser, for example one run by another
+sign-in off (the marker `ui_auto_sign_in_off` in the state directory) and, like
+`--revoke`, replaces the key, ending every session; `--auto on` turns it back on.
+An automatic sign-in still being checked when either command runs is refused,
+and its cookie is signed with the key read before the check, so no automatic
+session outlives either command. A refused browser, for example one run by another
 account, still signs in with the one-use code: the command obtains it
 (valid two minutes) with the service token and opens `/ui#code=...`. Either way
 the page receives an HttpOnly, SameSite=Strict cookie limited to `/ui`. The

@@ -68,12 +68,17 @@ def auto_sign_in_enabled(directory) -> bool:
 
 
 def set_auto_sign_in(directory, enabled: bool) -> None:
-    """``flows-ui --auto off`` leaves only the one-use code; ``on`` restores the default."""
+    """``flows-ui --auto off`` leaves only the one-use code; ``on`` restores the default.
+
+    Turning it off also replaces the session key: every session ends, including an
+    automatic one minted while the switch was being set.
+    """
     marker = Path(directory) / AUTO_OFF_FILE
     if enabled:
         marker.unlink(missing_ok=True)
     else:
         atomic_private(marker, b"off\n")
+        replace_session_key(directory)
 
 
 def _error_status(message: str) -> int:

@@ -42,8 +42,8 @@ metrics are therefore not implemented; `run_flow` still returns a
   process of the daemon's OS user (Linux `/proc/net/tcp*`, Windows
   `GetExtendedTcpTable` with the process token and bind time, `lsof` elsewhere)
   and carries no forwarding header; any error refuses. Same-user relays (Docker
-  Desktop, `ssh -R`, tunnels) count as the user; `flows-ui --auto off` leaves
-  only the one-use code (two minutes), which is always the fallback. Either becomes
+  Desktop, `ssh -R`, tunnels) count as the user; `flows-ui --auto off` ends every
+  session and leaves only the one-use code (two minutes), always the fallback. Either becomes
   an HttpOnly, SameSite=Strict cookie scoped to `/ui`, signed with a key in the
   private state directory. It lasts 30 days from the last visit (renewed on each
   API response) and survives restarts; `flows-ui --revoke` replaces the key.

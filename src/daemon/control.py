@@ -189,7 +189,8 @@ def main(argv=None):
     flows_ui.add_argument("--no-open", action="store_true", help="print the one-use URL only")
     flows_ui.add_argument("--revoke", action="store_true", help="end every browser session of the editor")
     flows_ui.add_argument("--auto", choices=["on", "off"],
-                          help="allow or refuse sign-in without a code for browsers of this OS user")
+                          help="allow or refuse sign-in without a code for browsers of this OS user; "
+                               "off also ends every session")
     workspace = commands.add_parser("workspace")
     workspace.add_argument("action", choices=["register", "list"]); workspace.add_argument("path", nargs="?")
     migrate = commands.add_parser("migrate")
@@ -266,7 +267,7 @@ def main(argv=None):
                     replace_session_key(state_dir)
                 auto = "on" if auto_sign_in_enabled(state_dir) else "off"
             result = {"auto_sign_in": auto}
-            if args.revoke:
+            if args.revoke or args.auto == "off":
                 result.update(state="revoked", note="every session ended; " + (
                     "browsers of this OS user sign in again by themselves" if auto == "on"
                     else "every browser needs a one-use code from flows-ui"))
