@@ -94,7 +94,15 @@ version message without loading a persona.
 contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revision`,
 metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
-declared) and `rules_loaded` (rule names). The footer shows these lists.
+declared) and `rules_loaded` (rule names). The footer shows these lists, then a
+muted `<sub>` segment with `Agents-Core <version>`. The version is the UTC commit
+time of the installation's `HEAD` as `YY.MM.DD.HHMM` (`-dirty` when tracked files
+have uncommitted changes, `unknown` without git metadata), computed once per
+process by `src/version.py`. Under the shared daemon the segment also carries the
+bare web UI link `http://127.0.0.1:<port>/ui`; stdio servers show the version only.
+The segment belongs to the installation, so it is not part of the descriptor or
+the revision, and a `NO_CHANGE` footer keeps the segment of the activation it
+is rebuilt by the current process.
 The revision reflects the issued texts, resolved imports, the component lists and
 their order, plus the agent identity and scope used by the local suitability
 assessment.

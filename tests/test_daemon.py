@@ -43,7 +43,11 @@ async def test_http_stateless_auth_and_workspace(tmp_path):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765") as http:
             assert (await http.get("/health")).status_code == 401
             headers = {"Authorization": "Bearer " + TOKEN, "Accept": "application/json, text/event-stream"}
-            assert (await http.get("/health", headers=headers)).status_code == 200
+            health = await http.get("/health", headers=headers)
+            assert health.status_code == 200
+            from src.version import agents_core_version
+            assert health.json()["agents_core_version"] == agents_core_version()
+            assert health.json()["version"] != health.json()["agents_core_version"]
             payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "identity", "arguments": {}}}
             responses = await asyncio.gather(*(http.post("/mcp", json=payload, headers={**headers, "X-Agents-Workspace": identity}) for identity in [aid, bid] * 10))
             contents = [json.loads(r.json()["result"]["content"][0]["text"]) for r in responses]

@@ -69,10 +69,12 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <body>
 <header>
   <h1>Flows</h1>
+  <span class="meta" id="version">Agents-Core {{VERSION}}</span>
   <label>Repository <select id="workspace"><option value="">— none —</option></select></label>
   <button id="new" class="primary">New flow</button>
 </header>
-<main>
+<section id="signin" class="hidden"><h2>Sign in</h2><p>This page needs a fresh session. Sessions end after 30 minutes idle, after 8 hours, and when the daemon restarts or updates. Run this command in a terminal; it opens this page signed in:</p><p><code>python -m src.daemon flows-ui</code></p></section>
+<main id="main">
   <nav id="list"><div class="empty">Loading…</div></nav>
   <section id="editor" class="hidden">
     <div class="bar">
@@ -116,7 +118,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, init);
   let data = {};
   try { data = await response.json(); } catch (_) {}
-  if (response.status === 401) throw new Error("Session expired. Run: python -m src.daemon flows-ui");
+  if (response.status === 401) { const error = new Error("Session expired. Run: python -m src.daemon flows-ui"); error.signedOut = true; throw error; }
   if (!response.ok) { const error = new Error(data.error || response.statusText); error.status = response.status; throw error; }
   return data;
 }
@@ -128,6 +130,11 @@ function notice(text, kind = "") {
 }
 
 function workspace() { return $("workspace").value || ""; }
+
+function showSignIn() {
+  $("main").classList.add("hidden");
+  $("signin").classList.remove("hidden");
+}
 
 async function login() {
   const match = location.hash.match(/code=([A-Za-z0-9_-]+)/);
@@ -395,6 +402,7 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
     await loadWorkspaces();
     await loadList();
   } catch (error) {
+    if (error.signedOut) { showSignIn(); return; }
     const nav = $("list");
     nav.replaceChildren();
     const message = document.createElement("div");

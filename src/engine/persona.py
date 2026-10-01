@@ -1,11 +1,13 @@
 """Stateless version 2 handlers. Activation state belongs to the caller's dialogue."""
 
 import logging
+import os
 import uuid
 
 from src.engine.persona_bundle import build_persona_bundle
 from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
 from src.schemas.protocol import PersonaDescriptor, PersonaResponse
+from src.version import agents_core_version
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +27,31 @@ def parse_persona(value: PersonaDescriptor | dict | None) -> PersonaDescriptor |
     return PersonaDescriptor.model_validate(value) if value is not None else None
 
 
+_ui_port: int | None = None
+
+
+def configure_ui_port(port: int | None) -> None:
+    """Record the port of the daemon's web UI; only the daemon calls this."""
+    global _ui_port
+    _ui_port = port
+
+
+def ui_link() -> str | None:
+    """The bare UI link, only under the daemon. Never carries a code or token."""
+    if os.environ.get("AGENTS_TRANSPORT") != "http" or not _ui_port:
+        return None
+    return f"http://127.0.0.1:{_ui_port}/ui"
+
+
 def persona_footer(persona: PersonaDescriptor) -> str:
+    # The muted segment depends on the installation, not the bundle: it stays out
+    # of PersonaDescriptor and bundle_revision.
+    muted = " · ".join(filter(None, (f"Agents-Core {agents_core_version()}", ui_link())))
     return (
         f"**Agent**: {persona.agent} · **Skills**: {', '.join(persona.skills_loaded) or '—'}"
         f" · **Implants**: {', '.join(persona.implants_loaded) or '—'}"
         f" · **Rules**: {', '.join(persona.rules_loaded) or '—'}"
+        f" · <sub>{muted}</sub>"
     )
 
 
