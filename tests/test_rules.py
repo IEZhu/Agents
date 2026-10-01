@@ -22,6 +22,7 @@ from src.utils.prompt_loader import split_frontmatter
 
 _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
 _EXPECTED_RULE_NAMES = {
+    "answer-timestamp",
     "no-fabrication",
     "honest-uncertainty",
     "anti-sycophancy",
@@ -345,3 +346,29 @@ def test_compressed_fixture_matches_live_no_fabrication_rule():
     if not fixture.exists():
         pytest.skip("compressed fixture not present in this checkout")
     assert fixture.read_bytes() == live.read_bytes()
+
+
+def test_answer_timestamp_rule_forbids_inventing_the_time():
+    from src.engine.rules import get_rules
+
+    rule = next(r for r in get_rules(strict=True) if r.name == "answer-timestamp")
+    text = rule.body.lower()
+    assert "first line" in text
+    assert "never invent" in text
+
+
+def test_answer_timestamp_rule_follows_toggle(monkeypatch):
+    from src import component_toggles
+    from src.engine.rules import get_rules
+
+    monkeypatch.setattr(component_toggles, "disabled", lambda kind: frozenset())
+    assert "answer-timestamp" in {r.name for r in get_rules(strict=True, apply_toggles=True)}
+    monkeypatch.setattr(component_toggles, "disabled", lambda kind: frozenset({"answer-timestamp"}))
+    assert "answer-timestamp" not in {r.name for r in get_rules(strict=True, apply_toggles=True)}
+
+
+def test_protocol_ties_time_line_to_the_rule():
+    root = Path(RULES_DIR).parent
+    for path in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
+        text = (root / path).read_text(encoding="utf-8")
+        assert "answer-timestamp" in text, path

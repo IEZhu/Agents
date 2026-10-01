@@ -16,6 +16,10 @@ import uuid
 import re
 import json
 import asyncio
+import datetime
+import queue
+import threading
+import time
 import dotenv
 from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
 from src.engine.fingerprint import configuration_revision
@@ -84,8 +88,10 @@ mcp = FastMCP(
         "and user constraints. Ignore stale or replayed activations. Never clear caches to "
         "switch personas. Except for the MCP-unavailable fallback below, compose the answer "
         "with the returned footer, call log_interaction "
-        "with that answer, the current user request verbatim as query, and the active "
-        "descriptor/action, then send the final answer.\n\n"
+        "with that answer (without any time line), the current user request verbatim as query, "
+        "and the active descriptor/action, then send the final answer. When the footer lists the "
+        "`answer-timestamp` rule and the call returned a `timestamp`, put that `timestamp` on its own "
+        "first line followed by an empty line.\n\n"
         "Response statuses:\n"
         "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
         "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
@@ -132,6 +138,86 @@ SESSION_CACHE: TTLCache = TTLCache(
 from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configured
 langfuse = get_langfuse()
 atexit.register(langfuse.flush)
+
+# log_interaction writes its sinks (history.md, Langfuse) on these workers after
+# it has answered. The workers are daemon threads, so a permanently blocked sink
+# can never keep the process from exiting (a ThreadPoolExecutor is joined at
+# interpreter exit). The queues are bounded: when a sink is stuck and its queue
+# is full, new writes are dropped with an error in the server log.
+LOG_DRAIN_TIMEOUT_SECONDS = 10.0
+LOG_QUEUE_MAX = 256
+
+
+class _SinkWorker:
+    def __init__(self, name: str):
+        self._queue: "queue.Queue" = queue.Queue(maxsize=LOG_QUEUE_MAX)
+        self._idle = threading.Condition()
+        self._unfinished = 0
+        self.name = name
+        self._thread = threading.Thread(target=self._run, name=f"log-{name}", daemon=True)
+        self._thread.start()
+
+    def submit(self, fn) -> bool:
+        with self._idle:
+            self._unfinished += 1
+        try:
+            self._queue.put_nowait(fn)
+            return True
+        except queue.Full:
+            self._finished()
+            logger.error("Log queue %s is full (%d); dropping a write", self.name, LOG_QUEUE_MAX)
+            return False
+
+    def _finished(self) -> None:
+        with self._idle:
+            self._unfinished -= 1
+            self._idle.notify_all()
+
+    def _run(self) -> None:
+        while True:
+            fn = self._queue.get()
+            try:
+                fn()
+            except Exception as e:
+                logger.error("Background log write failed: %s", e, exc_info=True)
+            finally:
+                self._finished()
+
+    def drain(self, deadline: float) -> bool:
+        with self._idle:
+            while self._unfinished:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._idle.wait(remaining)
+        return True
+
+
+# Separate workers so a hanging Langfuse call can never delay the history write.
+_history_worker = _SinkWorker("history")
+_langfuse_worker = _SinkWorker("langfuse")
+
+
+_drain_abandoned = False
+
+
+def drain_pending_logs(timeout: float = LOG_DRAIN_TIMEOUT_SECONDS) -> bool:
+    """Wait up to *timeout* seconds for queued log writes; True when none remain."""
+    global _drain_abandoned
+    if _drain_abandoned:
+        return False
+    deadline = time.monotonic() + timeout
+    done = _history_worker.drain(deadline)
+    done = _langfuse_worker.drain(deadline) and done
+    if not done:
+        logger.warning("Log writes still pending after %.0fs drain; abandoning them", timeout)
+        # Later exit hooks must not wait for the same stuck sink again.
+        _drain_abandoned = True
+    return done
+
+
+# Registered after langfuse.flush, so it runs first at exit (LIFO).
+atexit.register(drain_pending_logs)
 
 
 def _is_within(candidate: str, boundary: str) -> bool:
@@ -667,10 +753,14 @@ async def log_interaction(
       ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
       ``langfuse_compat``.
 
-    Returns JSON: ``{request_id, langfuse: {status, trace_id?, error?},
-    history: {status, entry_id?, path?, timestamp?, rotated_to?, error?}}``.
-    A failure in one sink does not prevent the other. An unavailable workspace
-    or invalid attribution writes nothing and returns a protocol ERROR.
+    Returns at once, after validation and before either sink is written:
+    ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
+    plus the attribution. ``timestamp`` is the server's local time
+    (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
+    and it is not part of ``response_content``. The sinks are written in the
+    background with that timestamp; their failures go to the server log only
+    and do not prevent each other. An unavailable workspace or invalid
+    attribution writes nothing and returns a protocol ERROR without ``timestamp``.
     """
     try:
         client = client_context(ctx)
@@ -704,37 +794,40 @@ async def log_interaction(
         "tags": tags or [],
     })
 
-    loop = asyncio.get_running_loop()
+    # Issued once; shown by the model in the answer and stored in both sinks.
+    timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
 
     # --- Langfuse trace (best-effort, skipped when keys absent) ---
-    # Run the sync Langfuse SDK off the event loop so a slow network
-    # round-trip doesn't stall the MCP handler.
-    def _send_langfuse() -> dict:
+    def _send_langfuse() -> None:
         if not is_langfuse_configured():
-            return {"status": "skipped"}
+            return
         try:
             trace_id = langfuse.create_trace_id(seed=request_id)
             with langfuse.start_as_current_observation(
                 as_type="span",
                 name="agent_interaction",
                 trace_context={"trace_id": trace_id},
-                metadata={"agent": agent_name, "source": "mcp-server", **attribution},
+                metadata={
+                    "agent": agent_name, "source": "mcp-server",
+                    "answer_timestamp": timestamp, **attribution,
+                },
             ):
                 with langfuse.start_as_current_observation(
                     as_type="generation",
                     name="response",
                     input=query[:2000],
-                    metadata={"agent": agent_name, "reasoning": reasoning or "", **attribution},
+                    metadata={
+                        "agent": agent_name, "reasoning": reasoning or "",
+                        "answer_timestamp": timestamp, **attribution,
+                    },
                 ) as gen:
                     gen.update(output=response_content[:5000])
             langfuse.flush()
-            return {"status": "logged", "trace_id": trace_id}
         except Exception as e:
             logger.error("Langfuse logging failed: %s", e, exc_info=True)
-            return {"status": "error", "error": str(e)}
 
     # --- History append (always; defaults to raw query/response) ---
-    def _send_history() -> dict:
+    def _send_history() -> None:
         try:
             writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
             eff_intent = (intent or query or "").strip()
@@ -746,29 +839,24 @@ async def log_interaction(
                     f"action={persona_action or 'unspecified'}"
                 )
             eff_outcome = (outcome or response_content or "").strip()
-            return writer.append_entry(
-                eff_intent, eff_action, eff_outcome, files, tags, None
+            result = writer.append_entry(
+                eff_intent, eff_action, eff_outcome, files, tags,
+                {"answer_timestamp": timestamp},
             )
+            if result.get("status") == "error":
+                logger.error("History append failed: %s", result.get("error"))
         except Exception as e:
             logger.error("History append failed: %s", e, exc_info=True)
-            return {"status": "error", "error": str(e)}
 
-    # Both sinks are independent — run them concurrently.
-    # Bound Langfuse to 10s so a hanging SDK doesn't block the tool response.
-    langfuse_future = loop.run_in_executor(None, _send_langfuse)
-    history_future = loop.run_in_executor(None, _send_history)
-    try:
-        langfuse_payload = await asyncio.wait_for(asyncio.shield(langfuse_future), timeout=10.0)
-    except asyncio.TimeoutError:
-        langfuse_payload = {"status": "error", "error": "timeout (10s)"}
-    # History is the critical sink — no timeout, so we never report a false
-    # failure while the thread silently succeeds in the background.
-    history_payload = await history_future
+    # Both sinks are independent; the response does not wait for either.
+    _langfuse_worker.submit(_send_langfuse)
+    _history_worker.submit(_send_history)
 
     payload = {
         "request_id": request_id,
-        "langfuse": langfuse_payload,
-        "history": history_payload,
+        "timestamp": timestamp,
+        "langfuse": {"status": "queued"},
+        "history": {"status": "queued"},
         **attribution,
     }
     debug_log("log_interaction", "res", payload)
@@ -1161,4 +1249,7 @@ if __name__ == "__main__":
     from src.self_update import log_last_update, start_background_update
     log_last_update()
     start_background_update()
-    mcp.run()
+    try:
+        mcp.run()
+    finally:
+        drain_pending_logs()
