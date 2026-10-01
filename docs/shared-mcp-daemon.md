@@ -336,8 +336,7 @@ signed in. `flows-ui --revoke` replaces the key, which ends every session at onc
 `token rotate` does not revoke editor sessions. A new browser profile, a cleared
 cookie or an expired window shows the sign-in page, which names the command. The
 header shows `Agents-Core <version>` once. The persona footer links the version to
-the bare The persona footer links to the bare
-`http://127.0.0.1:<port>/ui` address, which never carries a code. A copied valid
+the bare `http://127.0.0.1:<port>/ui` address, which never carries a code. A copied valid
 cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
 `/ui` and useful only on the loopback port.
 

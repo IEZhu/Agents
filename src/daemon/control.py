@@ -255,9 +255,12 @@ def main(argv=None):
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
     elif args.command == "flows-ui" and args.revoke:
         from .flows_ui import replace_session_key
-        with file_lock(controller.directory / "control.lock", blocking=False):
-            replace_session_key(private_dir(controller.directory))
-        result = {"state": "revoked", "note": "every browser must sign in again"}
+        try:
+            with file_lock(controller.directory / "control.lock", blocking=False):
+                replace_session_key(private_dir(controller.directory))
+            result = {"state": "revoked", "note": "every browser must sign in again"}
+        except BlockingIOError:
+            result = {"state": "not_revoked", "error": "another control command is running; try again"}
     elif args.command == "flows-ui":
         result = controller.request("/admin/ui/code", method="POST")
         if "url" in result and not args.no_open:

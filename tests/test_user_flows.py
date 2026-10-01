@@ -422,6 +422,13 @@ async def test_session_is_persistent_sliding_and_revocable(editor, tmp_path):
         http.cookies.set(module.COOKIE, value, domain="127.0.0.1", path="/ui")
         assert (await http.get("/ui/api/flows")).status_code == 401, value
 
+    # Non-ASCII bytes in a cookie are a 401, not a server error.
+    http.cookies.clear()
+    for raw in (f"{issued}.{nonce}.".encode() + "é".encode("latin-1"),
+                "²".encode("latin-1") + f".{nonce}.{signature}".encode()):
+        response = await http.get("/ui/api/flows", headers={"cookie": b"agents_flows_ui=" + raw})
+        assert response.status_code == 401
+
     # Revocation: a new key invalidates the old cookie; a fresh sign-in works.
     http.cookies.clear()
     http.cookies.set(module.COOKIE, good, domain="127.0.0.1", path="/ui")

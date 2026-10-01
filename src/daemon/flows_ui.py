@@ -16,6 +16,7 @@ import hmac
 import html
 import json
 import secrets
+import threading
 import time
 from pathlib import Path
 
@@ -66,6 +67,7 @@ class FlowsUI:
         self.service = service
         self.codes = {}
         self.clock = clock
+        self._key_lock = threading.Lock()
 
     # --- access ----------------------------------------------------------------------
 
@@ -96,9 +98,11 @@ class FlowsUI:
         """
         key = read_session_key(self.service.directory)
         parts = request.cookies.get(COOKIE, "").split(".")
-        if key is None or len(parts) != 3 or not parts[0].isdigit():
+        if key is None or len(parts) != 3 or not (parts[0].isascii() and parts[0].isdigit()):
             return False
         issued, nonce, signature = parts
+        if not signature.isascii() or not nonce.isascii():
+            return False
         if not hmac.compare_digest(signature, self._sign(key, f"{issued}.{nonce}")):
             return False
         age = self.clock() - int(issued)
@@ -188,8 +192,9 @@ class FlowsUI:
         return response
 
     def _issue_session(self) -> str:
-        if read_session_key(self.service.directory) is None:
-            replace_session_key(self.service.directory)
+        with self._key_lock:  # two first sign-ins must not each create a key
+            if read_session_key(self.service.directory) is None:
+                replace_session_key(self.service.directory)
         return self._new_cookie()
 
     def _library(self, workspace: str | None, repo: str | None = None) -> FlowLibrary:
