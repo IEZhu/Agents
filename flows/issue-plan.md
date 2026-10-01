@@ -31,15 +31,16 @@ Check that the request is:
 If a gap changes what gets built, stop and ask. Do not ask about things you can
 determine from the code or the thread. The questions comment is the run's
 outcome, so post it through the issue agent's
-[completion procedure](issue-agent.md#5-finish-every-run): clear the lock, post
-the comment, then record it in `questions_comment_id`, set the phase to
-`needs_info` and the `agent:needs_info` label, and end. Use this structure in
+[completion procedure](issue-agent.md#5-finish-every-run): post the comment,
+then record it in `questions_comment_id` with phase `needs_info` and the
+`agent:needs_info` label while releasing the lock, and end. Use this structure in
 the command's language; keep the `finished` line only when a verified bridge
 receipt exists:
 
 ```markdown
 <!-- issue-agent -->
 <!-- issue-agent:finished bridge_comment_id=123 -->
+<!-- issue-agent:session https://claude.ai/code/session_01Abc -->
 <!-- issue-agent:questions -->
 **Claude issue agent** · `/agent plan` · [session](https://claude.ai/code/session_01Abc)
 
@@ -81,6 +82,7 @@ omits it, because the run continues:
 ```markdown
 <!-- issue-agent -->
 <!-- issue-agent:finished bridge_comment_id=123 -->
+<!-- issue-agent:session https://claude.ai/code/session_01Abc -->
 <!-- issue-agent:plan v2 -->
 <!-- issue-agent:plan-base 2026-09-29T18:00:00Z -->
 **Claude issue agent** · `/agent replan` · [session](https://claude.ai/code/session_01Abc)
@@ -149,8 +151,9 @@ tool to explore them in parallel; keep the final plan in one comment.
    and `plan.issue_updated_at` set to that plan-base value; phase `planned` with
    the `agent:planned` label.
    - For `plan` and `replan`, the plan is the run's outcome. Follow the issue
-     agent's [completion procedure](issue-agent.md#5-finish-every-run): clear
-     the lock, post the plan with the completion lines, then save these fields.
+     agent's [completion procedure](issue-agent.md#5-finish-every-run): post
+     the plan with the completion lines, then save these fields and release the
+     lock in the same update.
    - For `/agent run`, post the plan without the `finished` line and save these
      fields immediately.
 3. Whenever a later step needs the plan, select only comments in this issue

@@ -224,9 +224,12 @@ Rules:
   Whenever you change `phase`, replace the previous `agent:*` label in the same
   step. Labels are a view; they never supply state.
 - **Recovery.** [Finish every run](#5-finish-every-run) posts the outcome before
-  recording its phase and pointer, so a session can end in between. Whenever
-  you read the state, look for a newer trusted outcome in this issue, found by
-  its marker line (see [issue-plan](issue-plan.md)). A questions comment
+  recording its pointer and releasing the lock, so a session can end in
+  between. Whenever you read the state, look for a newer trusted outcome in this
+  issue, found by its marker line (see [issue-plan](issue-plan.md)). A trusted
+  completion comment created after `lock_at` whose
+  `<!-- issue-agent:session ... -->` line equals the state's `session` means the
+  lock holder finished: treat the lock as released and clear it. A questions comment
   (`<!-- issue-agent:questions -->`) created after the state comment's last
   update means phase `needs_info`: restore `questions_comment_id`. A newer plan
   falls under the [plan repair rule](issue-plan.md#4-publish). If both apply,
@@ -289,9 +292,12 @@ head, pending bots or findings, the blocker and when `/agent review` can resume 
 Every normal exit still posts the completion comment below, including incomplete
 outcomes.
 
-1. Re-read and update the state comment: clear the lock if this session holds
-   it, and make sure `last_command_id` is this command's ID. Releasing the lock
-   first lets the owner send the next command as soon as the outcome appears.
+1. Re-read the state and confirm that this session still holds the lock (its
+   `session` is this session's). Make sure `last_command_id` is this command's
+   ID. For an outcome that is not a questions or plan comment, also write the
+   final `phase` now and replace the `agent:*` label in the same step, so a
+   session that ends after posting leaves no stale phase. Keep the lock. If
+   another session holds the lock, leave `phase` and the label unchanged.
 2. Post the outcome on the **original issue or PR** as one new ordinary comment:
    completed step, links (plan, branch, PR), validation run, and any blocker or
    pending question. When a verified bridge receipt exists, use these exact
@@ -301,10 +307,16 @@ outcomes.
    ```markdown
    <!-- issue-agent -->
    <!-- issue-agent:finished bridge_comment_id=123 -->
+   <!-- issue-agent:session https://claude.ai/code/session_01Abc -->
    **Claude issue agent** · `/agent status` · [session](https://claude.ai/code/session_01Abc)
 
    Phase `planned`: plan v2 is ready. Next: `/agent run_plan v2`.
    ```
+
+   The third line `<!-- issue-agent:session ... -->` carries this session's
+   `session` value from the state (the URL, or the run ID when the URL is
+   unknown); the [recovery](#3-state) rule uses it. A session that does not
+   hold the lock (for example a lock conflict, `status` or `help`) omits it.
 
    When the outcome is a questions or plan comment posted in the original
    thread, that comment is the completion comment: its own markers
@@ -320,11 +332,13 @@ outcomes.
    including a blocked or failed outcome, not that the task necessarily
    succeeded. Older callers without a verified bridge receipt receive the
    ordinary outcome reply without the `finished` line.
-3. Re-read the state, then record what the outcome changed: the `plan.*` fields
-   or `questions_comment_id`, and a new `phase` together with its
-   `agent:<phase>` label. If the session ends before this, the
-   [recovery](#3-state) rule repairs the state from the posted plan or
-   questions comment.
+3. Re-read the state. If this session still holds the lock, record in one
+   update what a questions or plan outcome changed (`questions_comment_id`, or
+   the `plan.*` fields, with the new `phase` and its `agent:<phase>` label) and
+   release the lock. If another session holds the lock, change nothing. If this
+   session ends before this step, the [recovery](#3-state) rule repairs the
+   pointer and phase and releases the lock. The owner can send the next command
+   once the outcome appears; this step completes within seconds.
 
 If a step failed, say which step, what was observed and what would unblock it.
 Never report work that was not done or checks that were not run.

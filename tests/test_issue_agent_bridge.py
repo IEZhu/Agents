@@ -959,6 +959,9 @@ def test_completion_without_receipt_node_id_skips_collapse(completion, capsys, n
 @pytest.mark.parametrize("outcome_markers", [
     "<!-- issue-agent:plan v2 -->\n<!-- issue-agent:plan-base 2026-09-29T18:00:00Z -->",
     "<!-- issue-agent:questions -->",
+    "<!-- issue-agent:session https://claude.ai/code/session_Abc123 -->\n<!-- issue-agent:plan v2 -->\n"
+    "<!-- issue-agent:plan-base 2026-09-29T18:00:00Z -->",
+    "<!-- issue-agent:session https://claude.ai/code/session_Abc123 -->",
 ])
 def test_completion_markers_on_plan_or_questions_comment_with_long_body(completion, workflow, outcome_markers):
     body = (

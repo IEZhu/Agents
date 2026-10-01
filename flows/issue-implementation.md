@@ -102,7 +102,7 @@ scope.
 
 An owner stop or an observed tool, permission or environment blocker may prevent
 completion. Record the current head, pending reviews or findings, the exact
-blocker and how to resume; clear the lock and follow the same completion
-procedure with an honest incomplete outcome. `/agent review` is recovery after
+blocker and how to resume, and follow the same completion procedure (which
+releases the lock) with an honest incomplete outcome. `/agent review` is recovery after
 that interruption, or for later review requested by the owner. Do not end the
 session merely because the PR was created, review was requested or a wait timed out.
