@@ -75,7 +75,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
 | Repository memory | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
-| Cloud issue-agent dispatch, startup acknowledgement and reactions | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
+| Cloud issue-agent dispatch, startup acknowledgement and its deletion, reactions and receipt collapse | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
 | Personal and repository flows, flow editor | `test_user_flows.py` |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates and startup | `test_self_update.py`, `test_startup.py` |

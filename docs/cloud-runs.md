@@ -126,10 +126,11 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 The issue agent runs [flows/issue-agent.md](../flows/issue-agent.md) in a cloud
 session when the configured owner writes a `/agent` command (`plan`, `replan`,
 `run_plan`, `run`, `fix`, `review`, `status`, `stop`, `help`) in an issue or pull
-request of a target repository. Other text after `/agent` answers the agent's open
-questions on an issue that awaits them; otherwise the agent replies with its
-command table. The flows live in this repository; the target
-can be any repository the routine clones.
+request of a target repository. On an issue that awaits answers, `/agent default`
+accepts every recommended default and other text after `/agent` answers the
+agent's open questions; otherwise the agent replies with its command table. The
+flows live in this repository; the target can be any repository the routine
+clones.
 
 Only comments whose GitHub author login matches `AGENT_OWNER` and whose raw
 Actions event author type is `User` can trigger it. Set `AGENT_OWNER` to the exact
@@ -159,29 +160,54 @@ routine's API trigger. It runs no model and sends only a pointer (repository,
 number, command comment id, and bridge status comment id); the agent reads and
 verifies the referenced comments itself.
 
-**Visible progress and failures.** The bridge posts a status comment and adds
-its own 👀 reaction to the command comment, recording a newly created reaction
-as `<!-- issue-agent:reaction id=501 -->` on the receipt's second line. Claude
-posts a startup acknowledgement after verifying the event; it adds no separate
-owner reaction. The bridge waits up to five minutes for that acknowledgement.
-When it arrives, the bridge stops polling and leaves its reaction in place while
-Claude works; on a launch failure or timeout it removes the reaction it created.
-This startup watch uses GitHub Actions runner time; completion requires no ongoing
-polling.
+**Thread shape.** Each command leaves the owner's command, one bridge receipt
+and Claude's result, usually one comment (`/agent run` also posts its plan, and
+an implementation run may add one progress comment with the PR link). Once
+Claude starts, the receipt shrinks to a `Claude confirmed startup` line with a
+session link; when the command finishes, it is collapsed as outdated. Claude's
+comments show `**Claude issue agent** · <command> · [session](...)` as their
+first visible line. The issue also keeps one state comment that Claude edits in
+place. The 👀 reaction on the command means the run is still going.
 
-On every normal exit, Claude posts a new comment on the original issue or PR
-whose first two lines are `<!-- issue-agent -->` and
+**Visible progress and failures.** The bridge posts a status comment (the
+receipt) and adds its own 👀 reaction to the command comment, recording a newly
+created reaction as `<!-- issue-agent:reaction id=501 -->` on the receipt's
+second line. Claude posts a startup acknowledgement after verifying the event,
+with its session link; it adds no separate owner reaction. The bridge waits up
+to five minutes for that acknowledgement. When it arrives, the bridge edits the
+receipt to one `Claude confirmed startup` line with a session link, leaves its
+reaction in place while Claude works, stops polling and deletes the
+acknowledgement. The link comes from the fire response; otherwise from the
+acknowledgement, only when it exactly matches
+`https://claude.ai/code/session_<letters and digits>`; otherwise it is the
+routine page. A failed delete is only a warning: startup is already confirmed
+and the acknowledgement stays. On a launch failure or timeout the bridge removes
+the reaction it created; a session that acknowledges later keeps its
+acknowledgement. This startup watch uses GitHub Actions runner time; completion
+requires no ongoing polling.
+
+On every normal exit, Claude posts its outcome as a new comment on the original
+issue or PR whose first two lines are `<!-- issue-agent -->` and
 `<!-- issue-agent:finished bridge_comment_id=123 -->`, using the verified receipt
-ID. For implementation commands, this happens after the required review cycle
-or an owner stop or actual blocker; a pending review or wait timeout alone does
-not end the run. An interrupted run reports what remains and how to resume.
+ID. A questions or plan comment posted in the original issue or PR is itself
+that completion comment, with its own markers on the following lines. Other
+outcomes, including questions posted in another thread, are a single comment
+that carries the outcome, never a separate pointer to a comment above. For
+implementation commands, this happens after the required review cycle or an
+owner stop or actual blocker; a pending review or wait timeout alone does not
+end the run. An interrupted run reports what remains and how to resume.
 A separate handling path in the bridge validates the owner's completion,
-the trusted bridge receipt, and its original command, then removes only the
-recorded bridge reaction. Completion never fires another routine. The final
-reply records the outcome; the bridge receipt records delivery and startup.
-Pre-existing reactions are preserved. A forcibly stopped runner or cloud session,
-or a failed completion callback, may leave a reaction behind. Startup timeout
-removes the bridge reaction, so a session that starts later may run without 👀.
+the trusted bridge receipt, and its original command, removes only the
+recorded bridge reaction, and then collapses the receipt as outdated with the
+GraphQL `minimizeComment` mutation. A failed collapse is only a warning, and a
+receipt without a recorded reaction (the 👀 already existed or could not be
+added) stays expanded. The bridge does not edit the receipt text at completion,
+because a fast command can finish while the dispatch job is still editing it.
+Completion never fires another routine. The final reply records the outcome;
+the bridge receipt records delivery and startup. Pre-existing reactions are
+preserved. A forcibly stopped runner or cloud session, or a failed completion
+callback, may leave a reaction behind. Startup timeout removes the bridge
+reaction, so a session that starts later may run without 👀.
 
 A missing `CLAUDE_ROUTINE_TOKEN` or a `CLAUDE_ROUTINE_ID` that is not a `trig_...`
 ID is reported as `Launch blocked`, and nothing is fired. A confirmed HTTP `429`
@@ -191,16 +217,18 @@ supplied. Any other non-`200` response is reported, with its HTTP code, as
 fire creates a session but does not wait for execution. The fire token has no
 read access to later subscription quota failures or session progress. HTTP `200`
 without a usable session ID still starts the acknowledgement watch; the bridge
-does not retry or assume that the launch failed. A known session URL may also
-appear in Claude's acknowledgement. If no startup acknowledgement appears, the
-bridge reports that startup is unconfirmed, lists quota as one possible cause,
-links the session when available, and clears its newly created reaction. See the
+does not retry or assume that the launch failed, and takes the session link from
+Claude's acknowledgement as described above. If no startup acknowledgement
+appears, the bridge reports that startup is unconfirmed, lists quota as one
+possible cause, links the session when available, and clears its newly created
+reaction. See the
 [routine fire API](https://platform.claude.com/docs/en/api/claude-code/routines-fire).
 
 The bridge does not automatically retry: each successful fire creates another
 session. Rerunning the same Actions event finds the existing trusted bridge
-status and sends no second fire. To retry, first inspect the previous session,
-then post a new command.
+status and sends no second fire; a collapsed receipt still counts, because
+collapsing does not remove it from the API. To retry, first inspect the previous
+session, then post a new command.
 
 **One-time setup per target repository:**
 
@@ -231,7 +259,7 @@ its tests exercise both that installed workflow and the reusable template.
    `no-merge` bot review cycle: wait for reviews, handle findings and repeat after
    fixes until the flow's completion conditions hold. Opening the PR does not
    end the run; only completion, an owner stop or an observed blocker permits
-   the final outcome and completion receipt. Restrict that prompt to the exact
+   the final outcome comment. Restrict that prompt to the exact
    target repository, written as `GITHUB_REPOSITORY` reports it (the bridge
    sends that value as `repo`, and a renamed or transferred repository's old
    name does not match); a routine restricted to WonderMr/Agents.Private must
@@ -242,16 +270,21 @@ its tests exercise both that installed workflow and the reusable template.
    then copy [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
    to `.github/workflows/issue-agent-bridge.yml`. Give both jobs `issues: write`
    for issue comments and reactions, plus `pull-requests: write` for PR
-   conversations. The dispatch job posts status comments and processing reactions;
-   the completion job removes its recorded processing reaction. A live PR probe
-   failed cleanup with only `pull-requests: read`, while the issue probe succeeded;
-   verify both paths after installing the workflow. Neither job checks out
-   repository code. See GitHub's
-   [comment permissions](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
-   and [reaction permissions](https://docs.github.com/en/rest/reactions/reactions#delete-an-issue-comment-reaction).
+   conversations. The dispatch job posts and edits its receipt, adds the
+   processing reaction and deletes Claude's startup acknowledgement; the
+   completion job removes its recorded processing reaction and collapses the
+   receipt. These need no further permissions. A live PR probe failed cleanup
+   with only `pull-requests: read`, while the issue probe succeeded; verify both
+   paths after installing the workflow. Neither job checks out repository code.
+   See GitHub's
+   [comment permissions](https://docs.github.com/en/rest/issues/comments#delete-an-issue-comment),
+   [reaction permissions](https://docs.github.com/en/rest/reactions/reactions#delete-an-issue-comment-reaction)
+   and [`minimizeComment`](https://docs.github.com/en/graphql/reference/mutations#minimizecomment).
 4. Verify new owner `/agent status` comments on an issue and in a PR's
-   Conversation tab in that exact target repository. Confirm the startup reply,
-   final reply, and automatic reaction cleanup in both places. If completion
+   Conversation tab in that exact target repository. Confirm in both places that
+   the receipt changes to `Claude confirmed startup` with a session link, the
+   startup acknowledgement disappears, the final reply arrives, the reaction is
+   removed and the receipt collapses as outdated. If completion
    fails, its log reports the failed GitHub operation and HTTP status without
    response bodies, headers or credentials. Other exceptions remain sanitized.
    Comments created before installation are not replayed; post a new command
@@ -270,12 +303,33 @@ startup and signal completion. Older comment callers without `bridge_comment_id`
 but have no bridge startup acknowledgement or reaction cleanup callback. Review
 event payloads are rejected.
 
+The quieter thread shape (session link in the receipt, deleted acknowledgement,
+collapsed receipt, completion line inside the plan or questions comment) can be
+installed in either order. The bridge still checks only the first two lines of
+the acknowledgement and of the completion comment: with an older bridge the
+acknowledgement stays and the receipt is not collapsed, and with older flows an
+acknowledgement may lack the session link, so the receipt links the routine page
+when the fire response has no session ID either. Other repositories that copied
+the template, such as WonderMr/Agents.Private, keep the old behavior until they
+replace their copy with the current
+[template](../scripts/templates/issue-agent-bridge.yml); compare the copy with
+its template first, because local changes would be lost. After the change is on
+a target's default branch, check live on an issue and in a PR that the dispatch
+job's `GITHUB_TOKEN` deletes the owner's acknowledgement, that the completion
+job's `minimizeComment` collapses the receipt and that a later receipt edit does
+not expand it again, and that Claude's comments link the right session. If the
+delete or the collapse is refused, the job log shows a warning, the run itself
+is unaffected, and the comment stays visible.
+
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
 pull requests, reviews), acting as the owner's account; `gh` is not installed.
 Because the agent's comments appear under the owner's login, each one starts with
-an `<!-- issue-agent` marker and never with `/agent`. Such comments cannot start a
-routine; only the exact completion marker invokes reaction cleanup. Routine runs
-count against the account's daily routine allowance.
+an `<!-- issue-agent` marker and never with `/agent`. Its first visible line is
+the `**Claude issue agent**` header, so readers can tell it from the owner's own
+words; only a request addressed to a review bot omits it. Such comments cannot
+start a routine; only the exact completion marker
+invokes reaction cleanup. Routine runs count against the account's daily routine
+allowance.
 
 **Connector identity checks.** Cloud GitHub tools can omit an author's `type`.
 The cloud flow requires the referenced comment's exact pinned owner login and

@@ -78,30 +78,41 @@ taking an issue lock, or starting slow work:
 3. When a verified bridge comment exists, post a short startup acknowledgement
    on the **original issue or PR**, even when a PR command will later use a linked
    issue's state. Use these exact first two lines, replacing `123` with the
-   verified bridge comment ID, then add processing text in the command's language:
+   verified bridge comment ID, then the [visible header](#4-comments-the-agent-writes)
+   with this session's link and one processing line in the command's language:
 
    ```markdown
    <!-- issue-agent -->
    <!-- issue-agent:started bridge_comment_id=123 -->
+   **Claude issue agent** · `/agent plan` · [session](https://claude.ai/code/session_01Abc)
+
    Processing your command.
    ```
 
-   Include the current Claude session URL below those lines if it is known from
-   the session context. Do not invent a URL or require one before acknowledging.
+   The acknowledgement is temporary: the bridge puts a session link in its
+   receipt (from the fire response, or from this acknowledgement's link when the
+   fire response has none) and then deletes the acknowledgement. Never link to it, re-read
+   it or edit it later; report progress and outcomes in other comments. Take the
+   link from the [session link](#3-state) rule. If the URL is unknown, omit the
+   link; do not invent one or delay the acknowledgement for it.
 
 The bridge watches for this owner-authored acknowledgement for up to five minutes,
 including when a successful fire response has no usable session ID. On confirmed
-startup it leaves its reaction in place and stops polling. On a launch failure
-or startup timeout it removes only the reaction it created.
+startup it rewrites its receipt to a short `Claude confirmed startup` line with
+the session link, leaves its reaction in place, stops polling and deletes the
+acknowledgement. On a launch failure or startup timeout it removes only the
+reaction it created.
 
-On **every normal exit after verifying the bridge receipt**, post the completion
-marker defined in [Finish every run](#5-finish-every-run). This includes duplicate
-commands, lock conflicts, stop, help, status, errors, open questions, and completed
-work. The completion handler verifies the owner's comment and the bridge receipt,
-then removes only the bridge reaction recorded there. It never fires the routine.
+On **every normal exit after verifying the bridge receipt**, the outcome comment
+carries the completion marker defined in [Finish every run](#5-finish-every-run).
+This includes duplicate commands, lock conflicts, stop, help, status, errors,
+open questions, plans and completed work. The completion handler verifies the
+owner's comment and the bridge receipt, removes only the bridge reaction recorded
+there and, when the receipt records that reaction, collapses the receipt as
+outdated. It never fires the routine.
 A killed session or failed completion callback may leave the reaction behind.
 A session that starts after the five-minute timeout may run without a reaction;
-the startup acknowledgement and final reply remain the source of its progress.
+its acknowledgement then stays and, with the final reply, records its progress.
 
 ## 2. Commands
 
@@ -120,8 +131,14 @@ not trigger the bridge.
 | `/agent status` | both | reply with the state summary below |
 | `/agent stop` | both | set `stop_requested` in the state; a running session halts at its next checkpoint |
 | `/agent help` | both | reply with this table |
+| `/agent default` | issue in phase `needs_info` | accept every recommended default for the open questions (text after `default` overrides individual defaults) and resume the step that asked them, as with an answer |
 | `/agent <anything else>` | issue in phase `needs_info` | treat as an answer to the agent's open questions and resume the step that asked them |
-| `/agent` with no text, or `/agent <anything else>` in a pull request or an issue not in phase `needs_info` | both | reply with this table; start no flow and leave the phase unchanged |
+| `/agent` with no text, or `/agent default` or `/agent <anything else>` in a pull request or an issue not in phase `needs_info` | both | reply with this table; start no flow and leave the phase unchanged |
+
+Match the listed commands first; `<anything else>` is text whose first word
+after `/agent` is not a listed command. Open questions are answered with
+`/agent <answers>` or `/agent default`; `/agent replan` changes an existing
+plan and is not the way to answer them.
 
 For `run_plan` and `run`, opening a PR is an intermediate step. The original
 owner command authorizes the full bot review cycle in the same session, including
@@ -153,7 +170,7 @@ source of commands.
 ```markdown
 <!-- issue-agent:state
 {"phase": "idle|planning|needs_info|planned|implementing|pr_open|stopped",
- "session": "<run session URL or id>", "lock_at": "<UTC ISO time or null>",
+ "session": "https://claude.ai/code/session_...", "lock_at": "<UTC ISO time or null>",
  "plan": {"version": 2, "comment_id": 123, "issue_updated_at": "<UTC ISO>"},
  "branch": "claude/issue-12-short-name", "pr": 34,
  "questions_comment_id": null, "last_command_id": 5678,
@@ -161,11 +178,24 @@ source of commands.
  "bots": {"copilot": {"paused_since": "<UTC ISO>", "next_attempt": "<UTC ISO>",
           "evidence": "<review or comment URL>"}}}
 -->
+**Claude issue agent** · `/agent run_plan v2` · [session](https://claude.ai/code/session_...)
+
 **Agent state:** <one-line human summary in the issue language>
 ```
 
+In the state comment, the header names the command and session that took the
+lock most recently; a session that does not take the lock leaves it unchanged.
+
 Rules:
 
+- **Session link.** The session URL has the form
+  `https://claude.ai/code/session_<id>`. Take this session's own URL from its
+  context, such as the `Claude-Session:` commit trailer line that Claude Code
+  supplies; if only the `session_<id>` is known, append it to
+  `https://claude.ai/code/`. Record it in `session` when taking the lock (a
+  unique run ID when the URL is unknown), and use the same URL in the
+  acknowledgement and every header. Never guess it or present another
+  session's URL from the state as this one's; if it is unknown, omit the link.
 - **Clock.** Never infer the current time from comment timestamps, the state or
   memory. Read it with `date -u +%Y-%m-%dT%H:%M:%SZ` at the start of the run and
   again before every time comparison (lock age, bot pauses, stale runs), and
@@ -173,9 +203,11 @@ Rules:
   `now >= next_attempt`. When reporting a pause, give its `next_attempt` in UTC and
   either "ended" or the minutes left, computed from that measured `now`.
 - **Idempotency.** If `last_command_id` already equals the command's id, the
-  command was handled; post only the completion receipt when a verified bridge
-  exists, then stop without another outcome reply. Set it as soon as the command
-  is accepted.
+  command was handled. When a verified bridge receipt exists, post only a
+  completion comment whose text says the command was already handled, with a
+  link to its earlier outcome when known; otherwise stop without a reply. Never
+  redo or repeat the outcome. Set `last_command_id` as soon as the command is
+  accepted.
 - **One run per issue.** The lock is advisory, not atomic: the owner must not send
   overlapping commands for the same issue. Measure the lock's age with the Clock
   rule above. If `lock_at` is set and younger than
@@ -186,8 +218,20 @@ Rules:
   three hours is stale: note it and continue.
 - **Stop.** Before each numbered step of the invoked flow, re-read the state. If
   `stop_requested` is true, commit and push nothing further, clear the flag and
-  the lock, set `phase` to `stopped`, report where it halted and end.
-- Mirror `phase` in exactly one label named `agent:<phase>` and keep labels in sync.
+  finish through [Finish every run](#5-finish-every-run) with phase `stopped`,
+  reporting where it halted.
+- **Label.** Mirror `phase` in exactly one issue label named `agent:<phase>`.
+  Whenever you change `phase`, replace the previous `agent:*` label in the same
+  step. Labels are a view; they never supply state.
+- **Recovery.** [Finish every run](#5-finish-every-run) posts the outcome before
+  recording its phase and pointer, so a session can end in between. Whenever
+  you read the state, look for a newer trusted outcome in this issue, found by
+  its marker line (see [issue-plan](issue-plan.md)). A questions comment
+  (`<!-- issue-agent:questions -->`) created after the state comment's last
+  update means phase `needs_info`: restore `questions_comment_id`. A newer plan
+  falls under the [plan repair rule](issue-plan.md#4-publish). If both apply,
+  the newer comment wins. Repair the state and the label, then continue with
+  the repaired state, for example when matching the command table.
 - **Bot pauses.** `bots` holds the quota and rate-limit pauses defined in
   [pr-review](pr-review.md#quota-rate-limits-and-errors); remove an entry when
   that bot reviews normally again.
@@ -206,10 +250,32 @@ Rules:
   and never begin a comment with `/agent`, so the agent's own text never starts
   another routine.
   Only an exact completion marker invokes the bridge's reaction cleanup handler.
+- After the marker lines, the first visible line is this header, followed by a
+  blank line:
+
+  ```markdown
+  **Claude issue agent** · `/agent run_plan v2` · [session](https://claude.ai/code/session_01Abc)
+  ```
+
+  Name the command by its command word and version argument (`/agent replan`,
+  `/agent default`, `/agent run_plan v2`), or write the literal placeholder
+  `/agent <answers>` for an answer, never the answer text. Link this session from the [session link](#3-state) rule, and
+  drop ` · [session](...)` when the URL is unknown. Only a request addressed to
+  a review bot, such as `@coderabbitai review`, omits the header, so the bot
+  still recognizes its command.
 - Reply in the language of the command. Code, identifiers, branch names, commits,
   PR titles and descriptions stay in English.
-- Keep replies short: what was done, the result, and what the owner can do next
-  (for example `/agent run_plan`). Put long material in collapsible `<details>`.
+- Keep replies short: what was done, the result, and the next step. Put long
+  material in collapsible `<details>`.
+- End every outcome with the next step: the exact command from the
+  [table](#2-commands) that performs it, for example `/agent run_plan v2`, or
+  the owner's own action when no command does it, such as merging the PR.
+  Never suggest a command that would do something else, such as rerunning a
+  finished plan to reach a later part.
+- Report only what happened. Do not report actions not taken or internal
+  bookkeeping: untouched labels, the absence of repository changes after a
+  plan, or tools that were not used. Do report expected checks that were
+  skipped, with the reason, and review threads left open.
 - Never paste secrets, tokens or environment values.
 
 ## 5. Finish every run
@@ -218,30 +284,51 @@ For `run_plan` and `run`, reach this procedure after the required `no-merge`
 review cycle completes, or when an owner stop or observed blocker prevents
 continuing. Creating the PR, requesting review or reaching a wait timeout does
 not finish the command. Keep progress comments separate from the completion
-receipt while reviews are pending. On an interrupted review, report the current
+comment while reviews are pending. On an interrupted review, report the current
 head, pending bots or findings, the blocker and when `/agent review` can resume it.
-Every normal exit still sends the receipt below, including incomplete outcomes.
+Every normal exit still posts the completion comment below, including incomplete
+outcomes.
 
-1. Update the state comment and the label.
-2. Reply on the **original issue or PR** with the outcome: completed step, links
-   (plan comment, branch, PR), validation run, and any blocker or pending question.
-   When a verified bridge receipt exists, use these exact first two lines,
-   replacing `123` with its ID, then add the outcome in the command's language:
+1. Re-read and update the state comment: clear the lock if this session holds
+   it, and make sure `last_command_id` is this command's ID. Releasing the lock
+   first lets the owner send the next command as soon as the outcome appears.
+2. Post the outcome on the **original issue or PR** as one new ordinary comment:
+   completed step, links (plan, branch, PR), validation run, and any blocker or
+   pending question. When a verified bridge receipt exists, use these exact
+   first two lines, replacing `123` with its ID, then the header and the outcome
+   in the command's language:
 
    ```markdown
    <!-- issue-agent -->
    <!-- issue-agent:finished bridge_comment_id=123 -->
-   Completed the requested step.
+   **Claude issue agent** · `/agent status` · [session](https://claude.ai/code/session_01Abc)
+
+   Phase `planned`: plan v2 is ready. Next: `/agent run_plan v2`.
    ```
 
-   This completion receipt must be a new ordinary comment on the original
-   issue or PR, even if the state or plan belongs to a linked issue. It signals
-   that this session has ended, including a blocked or failed outcome, not that
-   the task necessarily succeeded. For an already handled command, post only
-   the two marker lines without repeating its outcome. Older callers without a
-   verified bridge receipt receive the ordinary outcome reply without this marker.
-3. If a step failed, say which step, what was observed and what would unblock it.
-   Never report work that was not done or checks that were not run.
-4. The bridge's completion handler removes its recorded reaction. Do not create
-   or remove owner reactions, modify the bridge receipt, or trigger another
-   routine to perform cleanup.
+   When the outcome is a questions or plan comment posted in the original
+   thread, that comment is the completion comment: its own markers
+   (`<!-- issue-agent:questions -->`, or `<!-- issue-agent:plan vN -->` and
+   `<!-- issue-agent:plan-base ... -->`) follow these two lines, as shown in
+   [issue-plan](issue-plan.md). Every other outcome is a single completion
+   comment that carries the outcome itself. Never post a second comment that
+   only points to another one; when the questions or plan belong to another
+   thread, the completion comment summarizes them with a link.
+
+   The completion comment stays on the original issue or PR, even if the state
+   or plan belongs to a linked issue. It signals that this session has ended,
+   including a blocked or failed outcome, not that the task necessarily
+   succeeded. Older callers without a verified bridge receipt receive the
+   ordinary outcome reply without the `finished` line.
+3. Re-read the state, then record what the outcome changed: the `plan.*` fields
+   or `questions_comment_id`, and a new `phase` together with its
+   `agent:<phase>` label. If the session ends before this, the
+   [recovery](#3-state) rule repairs the state from the posted plan or
+   questions comment.
+
+If a step failed, say which step, what was observed and what would unblock it.
+Never report work that was not done or checks that were not run.
+
+The bridge's completion handler removes its recorded reaction and, when the
+receipt records one, collapses the receipt as outdated. Do not create or remove owner reactions, modify the bridge
+receipt, or trigger another routine to perform cleanup.

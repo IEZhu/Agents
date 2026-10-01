@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       issues: write
-      pull-requests: write  # Post and update status comments in PR conversations.
+      pull-requests: write  # Write the receipt and delete the startup acknowledgement in PR conversations.
     # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
     # agent cannot trigger itself even though it posts as the owner.
     if: >-
@@ -126,13 +126,38 @@ jobs:
                           return
                   raise RuntimeError("Comment pagination limit reached")
 
-              def status(message):
+              def status(message, run_link=True):
                   nonlocal comment_id
-                  data = {"body": f"{marker}\n{reaction_marker}{message}\n\n[Bridge run]({run_url})."}
+                  text = f"{message}\n\n[Bridge run]({run_url})." if run_link else message
+                  data = {"body": f"{marker}\n{reaction_marker}{text}"}
                   if comment_id is None:
                       comment_id = github("POST", f"/issues/{number}/comments", data)["id"]
                   else:
                       github("PATCH", f"/issues/comments/{comment_id}", data)
+
+              def acknowledged_session(text):
+                  # Copy only an exact Claude session URL; any other link falls back to the routine.
+                  for candidate in re.findall(r"https?://[^\s<>()\[\]\"'`]+", text):
+                      candidate = candidate.rstrip(".,;:!?*")
+                      if re.fullmatch(r"https://claude\.ai/code/session_[A-Za-z0-9]+", candidate):
+                          return candidate
+                  return ""
+
+              def delete_acknowledgement(ack_id):
+                  # Startup is already confirmed, so a failed delete is only a warning.
+                  # Never delete the owner's command or this receipt.
+                  if (not isinstance(ack_id, int) or isinstance(ack_id, bool) or ack_id <= 0
+                          or ack_id in (source["id"], comment_id)):
+                      print("::warning::Could not delete the startup acknowledgement.")
+                      return
+                  try:
+                      code, _, _ = request("DELETE", f"{api}/issues/comments/{ack_id}", env["GH_TOKEN"])
+                      if code in (204, 404):
+                          return
+                      detail = f" (HTTP {int(code)})"
+                  except Exception:
+                      detail = ""
+                  print(f"::warning::Could not delete the startup acknowledgement{detail}.")
 
               # A receipt prevents duplicate sessions after Actions reruns, including ambiguous failures.
               for comment in comments():
@@ -147,6 +172,7 @@ jobs:
               reaction_target = source["id"]
               reaction_path = f"/issues/comments/{reaction_target}/reactions"
               session = ""
+              session_known = False
               fired = False
               try:
                   try:
@@ -184,6 +210,7 @@ jobs:
                   session_id = response.get("claude_code_session_id", "") if isinstance(response, dict) else ""
                   if isinstance(session_id, str) and re.fullmatch(r"session_[A-Za-z0-9]+", session_id):
                       session = f"[Claude session](https://claude.ai/code/{session_id})"
+                      session_known = True
                       status(f"Session created: {session}. Waiting for Claude to confirm startup (up to 5 minutes).")
                   else:
                       session = f"[Claude routine](https://claude.ai/code/routines/{env['ROUTINE_ID']})"
@@ -196,10 +223,16 @@ jobs:
                           if ((comment.get("user") or {}).get("type") == "User"
                                   and (comment.get("user") or {}).get("login") == owner
                                   and (comment.get("body") or "").splitlines()[:2] == ["<!-- issue-agent -->", ack]):
-                              status(f"Claude confirmed startup. {session}. The agent posts progress and the result in this thread.")
+                              link = session
+                              copied = "" if session_known else acknowledged_session(comment.get("body") or "")
+                              if copied:
+                                  link = f"[Claude session]({copied})"
+                              status(f"Claude confirmed startup: {link} · [Bridge run]({run_url}).", run_link=False)
                               if reaction_marker:
                                   with open(env["GITHUB_OUTPUT"], "a") as output:
                                       output.write("keep_reaction=true\n")
+                              # The acknowledgement is temporary; the receipt now carries its link.
+                              delete_acknowledgement(comment.get("id"))
                               return
                       remaining = deadline - time.monotonic()
                       if remaining <= 0:
@@ -242,7 +275,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       issues: write
-      pull-requests: write  # Remove the recorded reaction from PR conversation comments.
+      pull-requests: write  # Remove the recorded reaction and collapse the receipt in PR conversations.
     if: >-
       github.event_name == 'issue_comment'
       && github.event.action == 'created'
@@ -252,7 +285,7 @@ jobs:
       && startsWith(github.event.comment.body, '<!-- issue-agent -->')
       && contains(github.event.comment.body, '<!-- issue-agent:finished bridge_comment_id=')
     steps:
-      - name: Clear the completed command reaction
+      - name: Clear the command reaction and collapse the receipt
         id: cleanup
         env:
           GH_TOKEN: ${{ github.token }}
@@ -273,9 +306,12 @@ jobs:
                   return None
 
           def request(method, url, token, body=None):
-              req = urllib.request.Request(url, method=method, headers={
-                  "Authorization": f"Bearer {token}",
-                  "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+              headers = {"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+              if body is not None:
+                  headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
+                                           headers=headers, method=method)
               try:
                   with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
                       data = response.read()
@@ -330,16 +366,43 @@ jobs:
                       or "<!-- issue-agent" in (source.get("body") or "")):
                   return
               path = f"/issues/comments/{command[1]}/reactions"
-              for page in range(1, 101):
-                  batch = github("GET", f"{path}?per_page=100&page={page}", "list command reactions") or []
-                  for item in batch:
-                      if (item.get("id") == int(reaction[1]) and item.get("content") == "eyes"
-                              and author(item, "github-actions[bot]", "Bot")):
-                          github("DELETE", f"{path}/{reaction[1]}", "delete command reaction")
+
+              def clear_reaction():
+                  for page in range(1, 101):
+                      batch = github("GET", f"{path}?per_page=100&page={page}", "list command reactions") or []
+                      for item in batch:
+                          if (item.get("id") == int(reaction[1]) and item.get("content") == "eyes"
+                                  and author(item, "github-actions[bot]", "Bot")):
+                              github("DELETE", f"{path}/{reaction[1]}", "delete command reaction")
+                              return
+                      if len(batch) < 100:
                           return
-                  if len(batch) < 100:
+                  raise RuntimeError("Reaction pagination limit reached")
+
+              def collapse_receipt(node_id):
+                  # Cosmetic only: the reaction is already handled, and REST still returns a
+                  # collapsed receipt, so the rerun guard keeps working. Its text stays unchanged
+                  # because a fast command can finish before the startup job updates it.
+                  if not isinstance(node_id, str) or not node_id:
+                      print("::warning::Could not collapse the bridge receipt.")
                       return
-              raise RuntimeError("Reaction pagination limit reached")
+                  query = ("mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) "
+                           "{ minimizedComment { isMinimized } } }")
+                  url = env.get("GITHUB_GRAPHQL_URL") or env["GITHUB_API_URL"] + "/graphql"
+                  try:
+                      code, data, _ = request("POST", url, env["GH_TOKEN"], {"query": query, "variables": {"id": node_id}})
+                      result = data.get("data") if isinstance(data, dict) and not data.get("errors") else None
+                      minimized = ((result or {}).get("minimizeComment") or {}).get("minimizedComment") or {}
+                      if code == 200 and minimized.get("isMinimized") is True:
+                          return
+                      # Never print API bodies; GraphQL errors arrive with HTTP 200.
+                      detail = f" (HTTP {int(code)})"
+                  except Exception:
+                      detail = ""
+                  print(f"::warning::Could not collapse the bridge receipt{detail}.")
+
+              clear_reaction()
+              collapse_receipt(receipt.get("node_id"))
 
           def run():
               try:

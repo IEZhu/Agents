@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -23,6 +24,10 @@ GH_TOKEN = "github-secret-test-token"
 ROUTINE_TOKEN = "routine-secret-test-token"
 STATUS_ID = 9001
 SOURCE_ID = 1234
+ACK_ID = 7001
+RECEIPT_NODE_ID = "IC_kwReceipt9001"
+ROUTINE_URL = "https://claude.ai/code/routines/trig_Abc123"
+RUN_URL = f"https://github.test/{REPO}/actions/runs/456"
 RAW_PRIVATE = "private-account-and-response-body"
 
 
@@ -49,11 +54,12 @@ def comment(body, *, login=OWNER, user_type="User", comment_id=SOURCE_ID):
     return {"id": comment_id, "body": body, "user": {"login": login, "type": user_type}}
 
 
-def acknowledgement(*, login=OWNER, bridge_id=STATUS_ID, user_type="User"):
+def acknowledgement(*, login=OWNER, bridge_id=STATUS_ID, user_type="User", comment_id=ACK_ID, text="Working on it."):
     return comment(
-        f"<!-- issue-agent -->\n<!-- issue-agent:started bridge_comment_id={bridge_id} -->\nWorking on it.",
+        f"<!-- issue-agent -->\n<!-- issue-agent:started bridge_comment_id={bridge_id} -->\n{text}",
         login=login,
         user_type=user_type,
+        comment_id=comment_id,
     )
 
 
@@ -72,6 +78,8 @@ class BridgeRun:
         self.statuses = []
         self.fire_response = (200, {"claude_code_session_id": "session_Abc123"}, {})
         self.reaction_status = 201
+        self.ack_delete_status = 204
+        self.ack_deletes = []
         self.poll_request_seconds = 0
         self.elapsed = 0
         self.sleeps = []
@@ -131,6 +139,20 @@ class BridgeRun:
             if isinstance(self.reaction_status, Exception):
                 raise self.reaction_status
             return self.reaction_status, {"id": 501}, {}
+        deleted = re.fullmatch(r"/issues/comments/([0-9]+)", path)
+        if method == "DELETE" and deleted:
+            # pytest.fail is not an Exception, so the bridge's warning handler cannot hide it.
+            if int(deleted[1]) in (SOURCE_ID, STATUS_ID) or body is not None:
+                pytest.fail(f"The bridge must delete only the acknowledgement: {method} {url}")
+            self.ack_deletes.append({
+                "id": int(deleted[1]), "token": token,
+                "output": self.output_path.read_text(), "receipt": self.statuses[-1],
+            })
+            if isinstance(self.ack_delete_status, Exception):
+                raise self.ack_delete_status
+            if self.ack_delete_status in {204, 404}:
+                self.startup_comments = [item for item in self.startup_comments if item["id"] != int(deleted[1])]
+            return self.ack_delete_status, None, {}
         pytest.fail(f"Unexpected request: {method} {url}")
 
     @property
@@ -157,6 +179,10 @@ class BridgeRun:
 @pytest.fixture
 def bridge(bridge_namespace, tmp_path, monkeypatch):
     return BridgeRun(bridge_namespace, tmp_path, monkeypatch)
+
+
+def test_installed_workflow_is_identical_to_template():
+    assert INSTALLED.read_bytes() == TEMPLATE.read_bytes()
 
 
 def test_dispatch_permissions_cover_issue_and_pull_request_comments(workflow):
@@ -316,15 +342,125 @@ def test_spoofed_or_malformed_ack_does_not_confirm_startup(bridge, bad_ack):
     assert "did not confirm startup within 5 minutes" in bridge.statuses[-1]
     assert "Claude confirmed startup" not in "\n".join(bridge.statuses)
     assert len(bridge.fires) == 1
+    assert bridge.ack_deletes == []
 
 
 def test_exact_owner_ack_confirms_without_waiting(bridge):
-    bridge.startup_comments = [acknowledgement(login="outsider"), acknowledgement()]
+    bridge.startup_comments = [acknowledgement(login="outsider", comment_id=ACK_ID + 1), acknowledgement()]
     bridge.run()
     assert bridge.sleeps == []
     assert "Claude confirmed startup" in bridge.statuses[-1]
     assert "https://claude.ai/code/session_Abc123" in bridge.statuses[-1]
     assert all(f"<!-- issue-agent:bridge event=issue_comment id={SOURCE_ID} -->" == body.splitlines()[0] for body in bridge.statuses)
+    assert [item["id"] for item in bridge.ack_deletes] == [ACK_ID]
+
+
+def test_confirmed_startup_shortens_receipt_then_deletes_only_the_acknowledgement(bridge):
+    bridge.run()
+    assert bridge.statuses[-1].splitlines() == [
+        f"<!-- issue-agent:bridge event=issue_comment id={SOURCE_ID} -->",
+        "<!-- issue-agent:reaction id=501 -->",
+        f"Claude confirmed startup: [Claude session](https://claude.ai/code/session_Abc123) · [Bridge run]({RUN_URL}).",
+    ]
+    assert len(bridge.ack_deletes) == 1
+    delete = bridge.ack_deletes[0]
+    assert delete["id"] == ACK_ID and ACK_ID not in (SOURCE_ID, STATUS_ID)
+    assert delete["token"] == GH_TOKEN
+    # The receipt is final and keep_reaction is recorded before the acknowledgement disappears.
+    assert delete["receipt"] == bridge.statuses[-1]
+    assert "keep_reaction=true\n" in delete["output"]
+    deletes = [call for call in bridge.calls if call["method"] == "DELETE"]
+    assert [call["url"] for call in deletes] == [f"https://api.github.test/repos/{REPO}/issues/comments/{ACK_ID}"]
+    assert bridge.calls[-1] is deletes[0]
+    assert bridge.startup_comments == []
+
+
+@pytest.mark.parametrize("failure, warning", [
+    (404, None),
+    (403, "Could not delete the startup acknowledgement (HTTP 403)."),
+    (500, "Could not delete the startup acknowledgement (HTTP 500)."),
+    (TimeoutError(f"{RAW_PRIVATE} {GH_TOKEN}"), "Could not delete the startup acknowledgement."),
+])
+def test_acknowledgement_delete_failure_never_undoes_confirmed_startup(bridge, capsys, failure, warning):
+    bridge.ack_delete_status = failure
+    bridge.run()
+    assert len(bridge.ack_deletes) == 1
+    assert "Claude confirmed startup" in bridge.statuses[-1]
+    assert "uncertain" not in "\n".join(bridge.statuses)
+    assert bridge.statuses[-1].splitlines()[1] == "<!-- issue-agent:reaction id=501 -->"
+    assert bridge.output_path.read_text() == f"reaction_path=/issues/comments/{SOURCE_ID}/reactions/501\nkeep_reaction=true\n"
+    output = str(capsys.readouterr())
+    if warning is None:
+        assert "::warning::" not in output
+    else:
+        assert "::warning::" + warning in output
+    assert RAW_PRIVATE not in output
+    assert GH_TOKEN not in output
+
+
+@pytest.mark.parametrize("ack_id", [SOURCE_ID, STATUS_ID, None, 0, -5, True, str(ACK_ID)])
+def test_acknowledgement_delete_never_targets_command_receipt_or_invalid_id(bridge, capsys, ack_id):
+    bridge.startup_comments = [acknowledgement(comment_id=ack_id)]
+    bridge.run()
+    assert bridge.ack_deletes == []
+    assert "Claude confirmed startup" in bridge.statuses[-1]
+    assert "keep_reaction=true\n" in bridge.output_path.read_text()
+    assert "::warning::Could not delete the startup acknowledgement." in str(capsys.readouterr())
+
+
+def test_acknowledgement_is_deleted_even_without_a_bridge_reaction(bridge):
+    bridge.reaction_status = 403
+    bridge.run()
+    assert [item["id"] for item in bridge.ack_deletes] == [ACK_ID]
+    assert bridge.statuses[-1].splitlines()[1].startswith("Claude confirmed startup: ")
+    assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("text", [
+    "[session](https://claude.ai/code/session_Ack456)",
+    "Session: https://claude.ai/code/session_Ack456.",
+    "**Claude issue agent** · `run` · [session](<https://claude.ai/code/session_Ack456>)",
+    "**Claude issue agent** · `/agent run` · [session](https://claude.ai/code/session_Ack456)\n\nProcessing your command.",
+    "See https://github.test/example/project/issues/17 and https://claude.ai/code/session_Ack456",
+])
+def test_session_link_is_copied_from_acknowledgement_when_fire_returned_none(bridge, text):
+    bridge.fire_response = (200, {}, {})
+    bridge.startup_comments = [acknowledgement(text=text)]
+    bridge.run()
+    assert bridge.statuses[-1].splitlines()[-1] == (
+        f"Claude confirmed startup: [Claude session](https://claude.ai/code/session_Ack456) · [Bridge run]({RUN_URL}).")
+    assert ROUTINE_URL not in bridge.statuses[-1]
+
+
+def test_fire_session_link_wins_over_acknowledgement_link(bridge):
+    bridge.startup_comments = [acknowledgement(text="[session](https://claude.ai/code/session_Ack456)")]
+    bridge.run()
+    assert "https://claude.ai/code/session_Abc123" in bridge.statuses[-1]
+    assert "session_Ack456" not in "\n".join(bridge.statuses)
+
+
+@pytest.mark.parametrize("text", [
+    "[session](https://claude.ai/code/session_Ack456.evil.test)",
+    "[session](https://claude.ai.evil.test/code/session_Ack456)",
+    "[session](https://claude.ai/code/session_Ack456/../../evil)",
+    "[session](https://claude.ai/code/session_Ack456?next=https://evil.test)",
+    "[session](https://claude.ai/code/session_Ack456#evil)",
+    "[session](https://claude.ai/code/session_Ack-456)",
+    "[session](http://claude.ai/code/session_Ack456)",
+    "[session](https://evil.test/https://claude.ai/code/session_Ack456)",
+    "[session](https://claude.ai/code/session_Аck456)",
+    "[session](javascript:alert(1))",
+    "No link at all.",
+])
+def test_forged_acknowledgement_link_falls_back_to_routine(bridge, text):
+    bridge.fire_response = (200, {"claude_code_session_id": "session_bad/path"}, {})
+    bridge.startup_comments = [acknowledgement(text=text)]
+    bridge.run()
+    assert bridge.statuses[-1].splitlines()[-1] == (
+        f"Claude confirmed startup: [Claude routine]({ROUTINE_URL}) · [Bridge run]({RUN_URL}).")
+    public = "\n".join(bridge.statuses)
+    assert "ck456" not in public and "evil" not in public and "javascript" not in public
+    assert [item["id"] for item in bridge.ack_deletes] == [ACK_ID]
 
 
 def test_five_minutes_without_ack_reports_uncertainty_and_session_link(bridge):
@@ -340,6 +476,7 @@ def test_five_minutes_without_ack_reports_uncertainty_and_session_link(bridge):
     assert final.splitlines()[1] == "<!-- issue-agent:reaction id=501 -->"
     assert "keep_reaction=true" not in bridge.output_path.read_text()
     assert len(bridge.fires) == 1
+    assert not [call for call in bridge.calls if call["method"] == "DELETE"]
 
 
 def test_startup_watch_stops_paging_at_deadline(bridge):
@@ -558,14 +695,19 @@ def bot_reaction(reaction_id=501, *, login="github-actions[bot]", user_type="Bot
     return {"id": reaction_id, "content": content, "user": {"login": login, "type": user_type}}
 
 
+MINIMIZED = (200, {"data": {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}}, {})
+GRAPHQL_URL = "https://api.github.test/graphql"
+
+
 class CompletionRun:
-    """Only the recorded reaction may be deleted; all other writes fail the test."""
+    """Only the recorded reaction may be deleted and only the receipt collapsed; other writes fail the test."""
 
     def __init__(self, namespace, tmp_path, monkeypatch):
         self.namespace = namespace
         self.event_path = tmp_path / "completion.json"
         self.calls = []
         self.delete_status = 204
+        self.minimize_response = MINIMIZED
         self.receipt_status = self.source_status = self.list_status = 200
         issue_url = f"https://api.github.test/repos/{REPO}/issues/17"
         self.event = {
@@ -577,13 +719,14 @@ class CompletionRun:
             "<!-- issue-agent:reaction id=501 -->\nClaude confirmed startup.",
             login="github-actions[bot]", user_type="Bot", comment_id=STATUS_ID,
         )
+        self.receipt["node_id"] = RECEIPT_NODE_ID
         self.source = comment("/agent work")
         self.source["issue_url"] = self.receipt["issue_url"] = issue_url
         self.reactions = [bot_reaction()]
         for name, value in {
             "GITHUB_EVENT_PATH": str(self.event_path), "GITHUB_EVENT_NAME": "issue_comment",
             "GITHUB_REPOSITORY": REPO, "GITHUB_API_URL": "https://api.github.test",
-            "AGENT_OWNER": OWNER, "GH_TOKEN": GH_TOKEN,
+            "GITHUB_GRAPHQL_URL": GRAPHQL_URL, "AGENT_OWNER": OWNER, "GH_TOKEN": GH_TOKEN,
         }.items():
             monkeypatch.setenv(name, value)
         monkeypatch.delenv("ROUTINE_TOKEN", raising=False)
@@ -591,7 +734,12 @@ class CompletionRun:
         monkeypatch.setitem(namespace, "request", self.request)
 
     def request(self, method, url, token, body=None):
-        self.calls.append({"method": method, "url": url, "body": body})
+        self.calls.append({"method": method, "url": url, "token": token, "body": body})
+        if method == "POST" and url == GRAPHQL_URL:
+            # Checked after the run: the collapse step turns exceptions into warnings.
+            if isinstance(self.minimize_response, Exception):
+                raise self.minimize_response
+            return self.minimize_response
         assert token == GH_TOKEN
         assert body is None
         parsed = urllib.parse.urlsplit(url)
@@ -616,6 +764,10 @@ class CompletionRun:
     @property
     def deletes(self):
         return [call for call in self.calls if call["method"] == "DELETE"]
+
+    @property
+    def minimizes(self):
+        return [call for call in self.calls if call["url"] == GRAPHQL_URL]
 
     def run(self):
         self.event_path.write_text(json.dumps(self.event))
@@ -649,7 +801,9 @@ def test_completion_deletes_only_recorded_bot_eyes_and_reruns_safely(completion)
     assert len(completion.deletes) == 1
     assert completion.deletes[0]["url"].endswith(f"/issues/comments/{SOURCE_ID}/reactions/501")
     assert completion.reactions == others
-    assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls)
+    # Collapsing is idempotent, so a rerun repeats it; the receipt text is never rewritten.
+    assert [call for call in completion.calls if call["method"] not in {"GET", "DELETE"}] == completion.minimizes
+    assert len(completion.minimizes) == 2
 
 
 def test_pr_completion_deletes_reaction_with_workflow_write_permission(completion, workflow, monkeypatch):
@@ -667,7 +821,8 @@ def test_pr_completion_deletes_reaction_with_workflow_write_permission(completio
     completion.run()
     assert len(completion.deletes) == 1
     assert completion.reactions == others
-    assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls)
+    assert [call for call in completion.calls if call["method"] not in {"GET", "DELETE"}] == completion.minimizes
+    assert len(completion.minimizes) == 1
 
 
 @pytest.mark.parametrize("status_field, stage, method, code", [
@@ -696,6 +851,7 @@ def test_completion_http_failure_reports_only_safe_stage_method_and_status(
     assert error.value.__cause__ is None
     assert completion.reactions == [bot_reaction()]
     assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls)
+    assert completion.minimizes == []
     public = str(error.value) + str(capsys.readouterr())
     for secret in (RAW_PRIVATE, GH_TOKEN, ROUTINE_TOKEN):
         assert secret not in public
@@ -714,6 +870,7 @@ def test_completion_transport_failure_stays_generic_and_preserves_reaction(compl
     assert error.value.__suppress_context__
     assert error.value.__cause__ is None
     assert completion.reactions == [bot_reaction()]
+    assert completion.minimizes == []
     public = str(error.value) + str(capsys.readouterr())
     for secret in (RAW_PRIVATE, GH_TOKEN, ROUTINE_TOKEN):
         assert secret not in public
@@ -734,6 +891,126 @@ def test_completion_accepts_reaction_already_deleted_between_list_and_delete(com
     completion.delete_status = 404
     completion.run()
     assert len(completion.deletes) == 1
+    assert len(completion.minimizes) == 1
+
+
+def test_completion_collapses_receipt_after_removing_reaction(completion):
+    completion.run()
+    assert len(completion.deletes) == 1 and len(completion.minimizes) == 1
+    minimize = completion.minimizes[0]
+    assert completion.calls.index(completion.deletes[0]) < completion.calls.index(minimize)
+    assert completion.calls[-1] is minimize
+    assert minimize["method"] == "POST" and minimize["token"] == GH_TOKEN
+    assert minimize["body"]["variables"] == {"id": RECEIPT_NODE_ID}
+    query = " ".join(minimize["body"]["query"].split())
+    assert query.startswith("mutation($id: ID!) {")
+    assert "minimizeComment(input: {subjectId: $id, classifier: OUTDATED})" in query
+    # The receipt text stays unchanged: no PATCH and no other write.
+    assert all(call["method"] in {"GET", "DELETE"} for call in completion.calls if call is not minimize)
+
+
+def test_completion_collapses_receipt_when_reaction_is_already_gone(completion):
+    completion.reactions = []
+    completion.run()
+    assert completion.deletes == []
+    assert len(completion.minimizes) == 1
+
+
+def test_completion_graphql_url_falls_back_to_api_url(completion, monkeypatch):
+    monkeypatch.delenv("GITHUB_GRAPHQL_URL")
+    completion.run()
+    assert [call["url"] for call in completion.minimizes] == ["https://api.github.test/graphql"]
+
+
+@pytest.mark.parametrize("response, warning", [
+    ((403, None, {}), "Could not collapse the bridge receipt (HTTP 403)."),
+    ((502, {"message": RAW_PRIVATE}, {}), "Could not collapse the bridge receipt (HTTP 502)."),
+    ((200, {"errors": [{"message": RAW_PRIVATE}], "data": {"minimizeComment": None}}, {}), "Could not collapse the bridge receipt (HTTP 200)."),
+    ((200, {"data": {"minimizeComment": {"minimizedComment": {"isMinimized": False}}}}, {}), "Could not collapse the bridge receipt (HTTP 200)."),
+    ((200, [RAW_PRIVATE], {}), "Could not collapse the bridge receipt (HTTP 200)."),
+    ((200, None, {}), "Could not collapse the bridge receipt (HTTP 200)."),
+    ((200, {"data": RAW_PRIVATE}, {}), "Could not collapse the bridge receipt."),
+    (TimeoutError(f"{RAW_PRIVATE} {GH_TOKEN}"), "Could not collapse the bridge receipt."),
+])
+def test_completion_collapse_failure_is_only_a_warning(completion, capsys, response, warning):
+    completion.minimize_response = response
+    completion.run()
+    assert len(completion.deletes) == 1
+    assert completion.reactions == []
+    assert len(completion.minimizes) == 1
+    output = str(capsys.readouterr())
+    assert "::warning::" + warning in output
+    for secret in (RAW_PRIVATE, GH_TOKEN, ROUTINE_TOKEN):
+        assert secret not in output
+
+
+@pytest.mark.parametrize("node_id", [None, "", 42])
+def test_completion_without_receipt_node_id_skips_collapse(completion, capsys, node_id):
+    if node_id is None:
+        del completion.receipt["node_id"]
+    else:
+        completion.receipt["node_id"] = node_id
+    completion.run()
+    assert len(completion.deletes) == 1
+    assert completion.minimizes == []
+    assert "::warning::Could not collapse the bridge receipt." in str(capsys.readouterr())
+
+
+@pytest.mark.parametrize("outcome_markers", [
+    "<!-- issue-agent:plan v2 -->\n<!-- issue-agent:plan-base 2026-09-29T18:00:00Z -->",
+    "<!-- issue-agent:questions -->",
+])
+def test_completion_markers_on_plan_or_questions_comment_with_long_body(completion, workflow, outcome_markers):
+    body = (
+        f"<!-- issue-agent -->\n<!-- issue-agent:finished bridge_comment_id={STATUS_ID} -->\n{outcome_markers}\n"
+        "**Claude issue agent** · `/agent plan` · [session](https://claude.ai/code/session_Abc123)\n\n"
+        + "\n".join(f"{i}. A plan step with enough detail to make this comment long." for i in range(900))
+    )
+    assert 50_000 < len(body) < 65_536
+    complete = " ".join(workflow["jobs"]["complete"]["if"].split())
+    assert "startsWith(github.event.comment.body, '<!-- issue-agent -->')" in complete
+    assert "contains(github.event.comment.body, '<!-- issue-agent:finished bridge_comment_id=')" in complete
+    assert body.startswith("<!-- issue-agent -->") and "<!-- issue-agent:finished bridge_comment_id=" in body
+    # The fire job ignores the agent's own comments.
+    assert "!contains(github.event.comment.body, '<!-- issue-agent')" in " ".join(workflow["jobs"]["fire"]["if"].split())
+    completion.event["comment"]["body"] = body
+    completion.run()
+    assert len(completion.deletes) == 1
+    assert completion.reactions == []
+    assert len(completion.minimizes) == 1
+
+
+def test_completion_request_sends_json_body_only_when_given(completion_namespace, monkeypatch):
+    seen = []
+
+    class Response:
+        status = 200
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"data": {}}'
+
+    def capture(request, timeout):
+        assert timeout == 15
+        seen.append((request.get_method(), request.data, dict(request.header_items())))
+        return Response()
+
+    monkeypatch.setattr(completion_namespace["urllib"].request, "build_opener", lambda *args: SimpleNamespace(open=capture))
+    payload = {"query": "mutation", "variables": {"id": RECEIPT_NODE_ID}}
+    assert completion_namespace["request"]("POST", GRAPHQL_URL, GH_TOKEN, payload)[:2] == (200, {"data": {}})
+    assert completion_namespace["request"]("GET", f"https://api.github.test/repos/{REPO}/issues/comments/1", GH_TOKEN)[0] == 200
+    (post_method, post_data, post_headers), (get_method, get_data, get_headers) = seen
+    assert (post_method, json.loads(post_data)) == ("POST", payload)
+    assert post_headers["Content-type"] == "application/json"
+    assert post_headers["Authorization"] == f"Bearer {GH_TOKEN}"
+    assert (get_method, get_data) == ("GET", None)
+    assert "Content-type" not in get_headers
 
 
 @pytest.mark.parametrize("change", ["other_owner", "owner_case", "bot", "edited", "missing_owner", "empty_owner", "review_event"])
@@ -782,6 +1059,7 @@ def test_completion_rejects_comments_outside_current_issue(completion, target, i
     getattr(completion, target)["issue_url"] = issue_url
     completion.run()
     assert completion.deletes == []
+    assert completion.minimizes == []
     assert all("/reactions" not in call["url"] for call in completion.calls)
 
 
@@ -796,6 +1074,7 @@ def test_completion_requires_authentic_receipt_and_owner_source(completion, targ
     getattr(completion, target)["user"] = {"login": login, "type": user_type}
     completion.run()
     assert completion.deletes == []
+    assert completion.minimizes == []
     assert all("/reactions" not in call["url"] for call in completion.calls)
 
 
@@ -829,6 +1108,7 @@ def test_completion_requires_original_owner_command(completion, body):
     completion.source["body"] = body
     completion.run()
     assert completion.deletes == []
+    assert completion.minimizes == []
     assert all("/reactions" not in call["url"] for call in completion.calls)
 
 
@@ -848,3 +1128,4 @@ def test_completion_tolerates_deleted_receipt_or_command(completion, target):
     setattr(completion, target + "_status", 404)
     completion.run()
     assert completion.deletes == []
+    assert completion.minimizes == []
