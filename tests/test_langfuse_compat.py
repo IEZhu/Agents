@@ -85,3 +85,18 @@ def test_with_keys_decorating_defers_the_import_to_the_first_call(clean_compat, 
 def test_flush_if_initialized_never_creates_a_client(clean_compat):
     langfuse_compat.flush_if_initialized()
     assert langfuse_compat._langfuse_instance is None
+
+
+def test_async_tool_skips_tracing_and_import_while_warming(clean_compat, monkeypatch):
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-real")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-real")
+    from src.engine import readiness
+    monkeypatch.setattr(readiness, "is_warming", lambda: True)
+    monkeypatch.setattr(langfuse_compat, "_init", lambda: pytest.fail("import must not run while warming"))
+
+    @langfuse_compat.observe(name="async")
+    async def async_fn(x):
+        return x * 2
+
+    assert asyncio.run(async_fn(3)) == 6
+    assert not langfuse_compat._initialized

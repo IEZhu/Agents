@@ -862,7 +862,8 @@ async def log_interaction(
 
     Returns at once, after validation and before either sink is written:
     ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
-    plus the attribution. ``timestamp`` is the server's local time
+    plus the attribution. While retrieval is still warming up, ``langfuse`` is
+    ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
     background with that timestamp; their failures go to the server log only

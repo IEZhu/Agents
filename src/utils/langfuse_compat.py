@@ -118,8 +118,11 @@ def observe(*args, **kwargs):
         if inspect.iscoroutinefunction(fn):
             @functools.wraps(fn)
             async def wrapper(*a, **k):
-                if not _initialized:  # the import is slow: keep it off the event loop
-                    await asyncio.to_thread(_init)
+                if not _initialized:
+                    from src.engine import readiness
+                    if readiness.is_warming():  # untraced: the slow import must not outlast the warm-up cap
+                        return await fn(*a, **k)
+                    await asyncio.to_thread(_init)  # keep the import off the event loop
                 return await resolve()(*a, **k)
         else:
             @functools.wraps(fn)
