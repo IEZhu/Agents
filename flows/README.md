@@ -204,7 +204,11 @@ this order and each without its frontmatter:
    `rules/rule-*.mdc`, in the rules' `priority` order.
 
 Follow them as role guidance under the flow, the user's request and the target
-repository's instructions (see the precedence above). The persona belongs to the
+repository's instructions (see the precedence above). Keep the framing the MCP
+bundle adds around these files (`src/engine/rules.py`, `src/engine/implants.py`):
+each rule's description is part of it, and where persona, skill or implant text
+conflicts with a rule, the rule wins; implants are reasoning patterns to use only
+where they help, never claims about checks that were not run. The persona belongs to the
 flow whose steps are being executed: switch when a flow calls another one, and
 return to the caller's persona, or to none, when that flow's steps are done.
 This is a manual fallback: there is no descriptor, footer or `log_interaction`
