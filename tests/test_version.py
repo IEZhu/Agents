@@ -39,6 +39,12 @@ def test_version_from_head_commit_time(monkeypatch):
     assert version.agents_core_version() == "26.10.01.0801"
 
 
+def test_unknown_without_own_git_metadata(monkeypatch, tmp_path):
+    monkeypatch.setattr(version, "ROOT", tmp_path)
+    fake_git(monkeypatch, "2026-10-01T08:01:00+00:00")
+    assert version.agents_core_version() == "unknown"
+
+
 def test_dirty_tree_is_marked(monkeypatch):
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00\n", " M src/x.py\n")
     assert version.agents_core_version() == "26.10.01.0801-dirty"

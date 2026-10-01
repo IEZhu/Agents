@@ -33,6 +33,8 @@ def format_version(commit_time: str, dirty: bool = False) -> str:
 
 @lru_cache(maxsize=1)
 def agents_core_version() -> str:
+    if not (ROOT / ".git").exists():  # never read the version of an enclosing repository
+        return UNKNOWN
     commit_time = _git("log", "-1", "--format=%cI")
     if not commit_time or not commit_time.strip():
         return UNKNOWN
