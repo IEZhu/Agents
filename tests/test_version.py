@@ -9,7 +9,9 @@ from src.schemas.protocol import PersonaDescriptor
 
 
 @pytest.fixture(autouse=True)
-def fresh():
+def fresh(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()  # the version helper only trusts the installation's own checkout
+    monkeypatch.setattr(version, "ROOT", tmp_path)
     version.agents_core_version.cache_clear()
     yield
     version.agents_core_version.cache_clear()
@@ -40,7 +42,7 @@ def test_version_from_head_commit_time(monkeypatch):
 
 
 def test_unknown_without_own_git_metadata(monkeypatch, tmp_path):
-    monkeypatch.setattr(version, "ROOT", tmp_path)
+    monkeypatch.setattr(version, "ROOT", tmp_path / "missing")
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00")
     assert version.agents_core_version() == "unknown"
 

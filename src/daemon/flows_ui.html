@@ -133,6 +133,8 @@ function workspace() { return $("workspace").value || ""; }
 
 function showSignIn() {
   $("main").classList.add("hidden");
+  $("workspace").closest("label").classList.add("hidden");
+  $("new").classList.add("hidden");
   $("signin").classList.remove("hidden");
 }
 
