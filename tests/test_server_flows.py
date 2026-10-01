@@ -174,17 +174,15 @@ async def test_http_calls_are_isolated_and_cannot_override_identity(environment,
 
 
 @pytest.mark.asyncio
-async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkeypatch):
+async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkeypatch,
+                                                  persona_components):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    import src.component_catalog as catalog
     from src.engine import persona
 
     install, _ = environment
     monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "lib"))
-    monkeypatch.setattr(catalog, "known_agents", lambda: {"code_reviewer"})
-    monkeypatch.setattr(catalog, "known_ids", lambda kind: {"skill-a", "truth"})
     calls = []
 
     async def build(agent, query, history, tier=None, selection=None):
@@ -234,12 +232,10 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
     server.router.update_cache.assert_not_awaited()
 
     # A component removed after the choice was saved: refused, not an ERROR activation.
-    monkeypatch.setattr(catalog, "known_ids", lambda kind: set())
-    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=[]))
-    monkeypatch.setattr(catalog, "known_agents", lambda: set())
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer", skills=["skill-a"]))
+    (persona_components / "skills" / "skill-a.mdc").unlink()
     refused = json.loads(await server.run_flow("check"))
-    assert refused["status"] == "error" and "unknown agent" in refused["error"]
-    monkeypatch.setattr(catalog, "known_agents", lambda: {"code_reviewer"})
+    assert refused["status"] == "error" and "unknown skills: skill-a" in refused["error"]
 
     both = json.loads(await server.set_flow_persona("check", agent="code_reviewer", reset=True))
     assert both["status"] == "error" and "reset=true" in both["error"]

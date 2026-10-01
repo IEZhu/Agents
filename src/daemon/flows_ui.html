@@ -648,8 +648,8 @@ async function renderPersona() {
   $("persona-summary").textContent = describePersona(persona);
   $("persona-source").textContent = flow.persona_source === "overlay" ? "Your choice (overrides the flow)"
     : flow.persona_source === "frontmatter" ? "Declared by the flow" : "";
-  $("persona-save").disabled = true;  // until this flow's controls are filled in
-  $("persona-reset").disabled = flow.persona_source !== "overlay" && !flow.persona_error;
+  state.personaReady = null;  // Save waits until this flow's controls are filled in
+  personaButtons();
   if (flow.persona_error) {
     $("persona-summary").textContent = "invalid";
     $("persona-source").textContent = flow.persona_error + ". Save a choice or reset to repair it.";
@@ -691,12 +691,21 @@ async function renderPersona() {
   };
   for (const box of grid.querySelectorAll("input[type=checkbox]")) box.addEventListener("change", sync);
   agent.onchange = sync; sync();
-  $("persona-save").disabled = false;
+  state.personaReady = flow;
+  personaButtons();
+}
+
+// Save needs this flow's controls; Reset needs a personal choice or an error to clear.
+function personaButtons() {
+  const flow = state.current;
+  const idle = !!flow && !state.personaPending;
+  $("persona-save").disabled = !idle || state.personaReady !== flow;
+  $("persona-reset").disabled = !idle || (flow.persona_source !== "overlay" && !flow.persona_error);
 }
 
 async function savePersona(reset) {
   const flow = state.current;
-  if (!flow) return;
+  if (!flow || state.personaPending) return;
   const body = { id: flow.id, repo: flow.repo_key || "", reset: !!reset, persona: null };
   if (!reset && $("persona-agent").value) {
     body.persona = { agent: $("persona-agent").value };
@@ -706,6 +715,10 @@ async function savePersona(reset) {
       body.persona[box.dataset.kind] = [...list.selectedOptions].map((option) => option.value);
     }
   }
+  // One request at a time: an overlapping Save and Reset could leave the panel
+  // showing a choice that is no longer stored.
+  state.personaPending = true;
+  $("persona-save").disabled = $("persona-reset").disabled = true;
   try {
     const result = await api("/ui/api/flow/persona", { method: "PUT", body });
     if (state.current !== flow) return;  // another flow was opened meanwhile
@@ -716,11 +729,14 @@ async function savePersona(reset) {
     delete updated.persona_error;
     if (result.flow.persona_error) updated.persona_error = result.flow.persona_error;
     state.current = updated;
-    await renderPersona();
+    await renderPersona();  // sets personaReady for the updated flow
     notice(reset ? "The flow's own persona applies again." : "Persona saved.", "ok");
     await loadList();
   } catch (error) {
     if (!error.signedOut) notice(error.message, "error");
+  } finally {
+    state.personaPending = false;
+    personaButtons();
   }
 }
 

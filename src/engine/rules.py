@@ -77,7 +77,7 @@ def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
-    except OSError as e:
+    except (OSError, UnicodeError) as e:
         logger.error("Failed to read rule file %s: %s", path, e)
         return None
 

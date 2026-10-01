@@ -674,11 +674,8 @@ async def test_a_command_right_after_the_check_still_ends_the_new_session(editor
 
 
 @pytest.fixture
-def known_components(monkeypatch):
-    import src.component_catalog as catalog
-    monkeypatch.setattr(catalog, "known_agents", lambda: {"code_reviewer", "software_engineer"})
-    monkeypatch.setattr(catalog, "known_ids", lambda kind: {
-        "skills": {"skill-a"}, "implants": {"implant-b"}, "rules": {"truth"}}[kind])
+def known_components(persona_components):
+    return persona_components
 
 
 def test_frontmatter_persona_is_flow_metadata(install, tmp_path, known_components):
@@ -873,3 +870,27 @@ def test_quoted_persona_key_in_broken_frontmatter_is_flow_invalid(install, tmp_p
     library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
     with pytest.raises(FlowError, match="persona is not a valid YAML"):
         library.save("bad", f"---\n{key}:\n  agent: [unclosed\n---\n# Bad\n")
+
+
+def test_check_known_reads_only_the_named_components(install, tmp_path, known_components):
+    (known_components / "rules" / "rule-broken.mdc").write_bytes(b"---\nname: \xff\n---\nX\n")
+    (known_components / "agents" / "broken").mkdir()
+    (known_components / "agents" / "broken" / "system_prompt.mdc").write_text(
+        "---\ncore_skills: true\n---\nX\n", encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    for persona in ({"agent": "code_reviewer", "skills": ["skill-a"], "rules": []},
+                    {"agent": "code_reviewer", "rules": ["truth"]}):
+        assert library.set_persona("review", persona)["flow"]["persona"] == persona
+
+
+def test_directory_overlay_blocks_delete_and_reset_without_changes(install, tmp_path, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    library.save("mine", "# Mine\n")
+    odd = tmp_path / "lib" / "personas" / "common" / "mine.json"
+    (odd / "keep").mkdir(parents=True)
+    with pytest.raises(FlowError, match="is a directory"):
+        library.delete("user:mine", expected_revision=revision("# Mine\n"))
+    with pytest.raises(FlowError, match="is a directory"):
+        library.set_persona("mine", None, reset=True)
+    assert (tmp_path / "lib" / "common" / "mine.md").is_file() and (odd / "keep").is_dir()
+    assert "persona_error" in library.resolve("mine").metadata()

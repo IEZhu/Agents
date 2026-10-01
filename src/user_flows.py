@@ -471,6 +471,8 @@ class FlowLibrary:
             scope = next((s for s in ("repo", "user") if self._exists(s, flow_id)), "user")
         self._relative(scope)
         persona_path = self._persona_path(scope, flow_id)  # Validated before any change.
+        if persona_path.is_dir() and not persona_path.is_symlink():
+            raise FlowError(f"flow_invalid: {persona_path} is a directory; remove it, then delete the flow")
         with file_lock(self.user_dir / ".lock"):
             path, current = self._current(scope, flow_id)
             if current is None:
@@ -507,6 +509,9 @@ class FlowLibrary:
             # that a recreated flow would inherit.
             if not self._exists(scope, flow_id):
                 raise FlowError("flow_not_found: use list_flows to discover available flows")
+            if path.is_dir() and not path.is_symlink():
+                # Never delete unknown contents recursively.
+                raise FlowError(f"flow_invalid: {path} is a directory; remove it manually")
             if reset:
                 path.unlink(missing_ok=True)  # Removes a symlink itself, never its target.
             elif path.is_symlink():

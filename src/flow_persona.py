@@ -18,6 +18,7 @@ the flow without a persona even when its frontmatter declares one.
 """
 from __future__ import annotations
 
+import os
 import re
 
 from src.flows import FlowError, split_flow_frontmatter
@@ -76,20 +77,33 @@ def normalize(value) -> dict | None:
 
 
 def check_known(spec: dict | None) -> None:
-    """Reject an agent or component this installation does not have."""
+    """Reject an agent or component this installation does not have.
+
+    Checks only what the persona names, by file, so a broken unrelated agent,
+    skill or rule cannot block saving or running a flow that does not use it.
+    """
     if spec is None:
         return
-    from src.component_catalog import known_ids, known_agents
+    from src.engine.rules import load_selected_rules
+    from src.utils.prompt_loader import resolve_path
 
-    if spec["agent"] not in known_agents():
+    def exists(reference: str) -> bool:
+        try:
+            return os.path.isfile(resolve_path(reference))
+        except ValueError:
+            return False
+
+    if not exists(f"@agents/{spec['agent']}/system_prompt.mdc"):
         raise FlowError(f"flow_invalid: unknown agent {spec['agent']}")
-    for kind in KINDS:
-        if kind not in spec:
-            continue
-        known = known_ids(kind)
-        missing = [item for item in spec[kind] if item not in known]
+    for kind in ("skills", "implants"):
+        missing = [item for item in spec.get(kind) or () if not exists(f"@{kind}/{item}.mdc")]
         if missing:
             raise FlowError(f"flow_invalid: unknown {kind}: {', '.join(missing)}")
+    if spec.get("rules"):
+        try:
+            load_selected_rules(spec["rules"])
+        except (ValueError, OSError) as error:
+            raise FlowError(f"flow_invalid: rules: {error}") from None
 
 
 def selection(spec: dict):
