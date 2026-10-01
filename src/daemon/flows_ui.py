@@ -279,8 +279,12 @@ class FlowsUI:
             if path == "/ui/api/flows" and request.method == "GET":
                 # The page sends no workspace; the parameter stays for API callers.
                 library = self._library(query.get("workspace"))
-                listing = await asyncio.to_thread(library.list, "all")
-                listing["repositories"] = await asyncio.to_thread(library.repositories)
+                # `with_content=1` adds each flow's text, which the page searches.
+                with_content = query.get("with_content") == "1"
+                listing = await asyncio.to_thread(
+                    lambda: library.list("all", with_content=with_content))
+                listing["repositories"] = await asyncio.to_thread(
+                    lambda: library.repositories(with_content=with_content))
                 return self._json(listing)
             if path == "/ui/api/flow":
                 if request.method == "GET":
