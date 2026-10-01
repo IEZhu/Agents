@@ -616,7 +616,11 @@ if defined CONFIGURED_ENVS (
 REM Claude Desktop (its Code tab included) also reads the Claude Code registry,
 REM so one session can start the server twice or more.
 set "_BOTH_CLIENTS=false"
-echo !CONFIGURED_ENVS! | findstr /C:"Claude-Desktop" >nul 2>&1 && echo !CONFIGURED_ENVS! | findstr /C:"Claude-Code" >nul 2>&1 && set "_BOTH_CLIENTS=true"
+echo !CONFIGURED_ENVS! | findstr /C:"Claude-Desktop" >nul 2>&1
+if not errorlevel 1 (
+    echo !CONFIGURED_ENVS! | findstr /C:"Claude-Code" >nul 2>&1
+    if not errorlevel 1 set "_BOTH_CLIENTS=true"
+)
 if "!_BOTH_CLIENTS!"=="true" call :warn_duplicate_registration
 
 :mcp_done

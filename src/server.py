@@ -417,6 +417,10 @@ async def run_flow(
             # instead of returning the flow with an ERROR activation.
             await asyncio.to_thread(flow_persona.check_known, spec)
             query = f"{loaded.title}\n{request}".strip()
+            problem = await _readiness_problem("run_flow")
+            if problem is not None:
+                bundle["persona_activation"] = json.loads(_persona_not_ready(problem))
+                return json.dumps(bundle, ensure_ascii=False)
             bundle["persona_activation"] = json.loads(await load_persona(
                 router, spec["agent"], query, [], current_persona,
                 reasoning=f"Persona of flow {loaded.id}",
