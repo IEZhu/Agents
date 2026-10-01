@@ -307,6 +307,19 @@ The daemon serves a local settings page at `/ui` with four tabs.
   agents that prefer them) and a switch. The files are never edited, renamed or
   deleted.
 
+The page fills the window: the header and the detail pane stay in place and only
+the list on the left scrolls (in the narrow layout, the list above the detail
+pane scrolls on its own, and the detail pane scrolls separately when its content is
+taller). Every tab has a search box above its list (`/` focuses it, `Esc` clears
+it). Matching is case-insensitive and every whitespace-separated term must
+appear. Items whose name (ID, title, short name) matches are listed first, then
+items that match only in their text (description and body; flow content), marked
+"in text". While a query is active the box shows "N of M" for the visible
+category, the query is kept per tab, and the open item stays open when the query
+hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
+`content` field to every flow, including repository flows; without the parameter
+the response is unchanged.
+
 The switches are one installation-wide state in `flows/.user/components.json`
 (git-ignored, written atomically, read fresh on every bundle build; a missing or
 damaged file means everything is on). A switched-off component is left out of

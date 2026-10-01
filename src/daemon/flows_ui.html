@@ -19,8 +19,9 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+header { flex: none; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
   border-bottom: 1px solid var(--line); background: var(--panel); }
 header h1 { font-size: 16px; margin: 0 auto 0 0; }
 select, input, button, textarea { font: inherit; color: inherit; }
@@ -29,8 +30,15 @@ button { border: 1px solid var(--line); background: var(--panel); border-radius:
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.danger { color: var(--danger); }
 button:disabled { opacity: .5; cursor: default; }
-main { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 57px); }
-nav { border-right: 1px solid var(--line); padding: 12px; overflow: auto; }
+main { display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  flex: 1; min-height: 0; overflow: hidden; }
+main > section { overflow-y: auto; min-height: 0; }
+#signin { overflow-y: auto; }
+nav { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.search { flex: none; padding: 12px 12px 0; display: flex; flex-direction: column; gap: 4px; }
+.search input { width: 100%; }
+#search-count { min-height: 1.45em; }
+#items { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
 nav h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 4px 6px; }
 nav h2:first-child { margin-top: 0; }
 .item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px; }
@@ -44,11 +52,11 @@ section { padding: 16px; display: flex; flex-direction: column; gap: 10px; min-w
 .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .bar .grow { flex: 1; }
 .meta { color: var(--muted); font-size: 12px; word-break: break-all; }
-.panes { display: grid; grid-template-columns: 1fr; gap: 10px; flex: 1; min-height: 0; }
+.panes { display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(12rem, 1fr); gap: 10px; flex: 1; min-height: 0; }
 .panes.split { grid-template-columns: 1fr 1fr; }
 .pane { display: flex; flex-direction: column; min-width: 0; }
 .pane label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-textarea { width: 100%; flex: 1; min-height: 60vh; resize: vertical; padding: 10px; border: 1px solid var(--line);
+textarea { width: 100%; flex: 1; min-height: 12rem; resize: vertical; padding: 10px; border: 1px solid var(--line);
   border-radius: 6px; background: var(--code-bg); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 textarea[readonly] { color: var(--muted); }
 .notice { padding: 8px 10px; border-radius: 6px; background: var(--warn-bg); color: var(--warn); }
@@ -62,15 +70,14 @@ textarea[readonly] { color: var(--muted); }
 .chip.off { background: var(--warn-bg); color: var(--warn); }
 .detail { display: flex; flex-direction: column; gap: 10px; }
 .detail p { margin: 0; }
-.detail textarea { min-height: 40vh; }
+.detail .pane { flex: 1; min-height: 12rem; }
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
 @media (max-width: 760px) {
-  main { grid-template-columns: 1fr; }
-  nav { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
-  .panes.split { grid-template-columns: 1fr; }
-  textarea { min-height: 45vh; }
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); }
+  nav { border-right: 0; border-bottom: 1px solid var(--line); }
+  .panes.split { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(12rem, 1fr)); }
 }
 </style>
 </head>
@@ -87,7 +94,13 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 </header>
 <section id="signin" class="hidden"><h2>Sign in</h2><p>This browser could not sign in automatically. Automatic sign-in works only for a browser of the OS user who runs Agents-Core, and not after <code>flows-ui --auto off</code>. Run this command in the Agents-Core installation directory; it opens this page signed in for 30 days after your last visit:</p><p><code>.venv/bin/python -m src.daemon flows-ui</code></p></section>
 <main id="main">
-  <nav id="list"><div class="empty">Loading…</div></nav>
+  <nav id="list">
+    <div class="search">
+      <input type="search" id="search" placeholder="Search names and text" aria-label="Search the list" autocomplete="off" spellcheck="false">
+      <span id="search-count" class="meta" aria-live="polite"></span>
+    </div>
+    <div id="items"><div class="empty">Loading…</div></div>
+  </nav>
   <section id="component" class="hidden detail">
     <div class="bar"><strong id="c-title" class="grow"></strong><button id="c-toggle" class="primary"></button></div>
     <div id="c-meta" class="meta"></div>
@@ -128,7 +141,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 "use strict";
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
-  upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0 };
+  upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
+  queries: { flows: "", rules: "", skills: "", implants: "" } };
 // Every list load bumps `gen`; a response that arrives for an older load is dropped.
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
 const KIND_LABEL = { rules: "Rules", skills: "Skills", implants: "Implants" };
@@ -203,7 +217,7 @@ function flowParams(flow, version) {
 async function loadList(select) {
   if (state.tab !== "flows") return;  // a save or delete that finished after the user left Flows
   const gen = ++state.gen;
-  const data = await api("/ui/api/flows");
+  const data = await api("/ui/api/flows?with_content=1");  // the text is searched on the page
   if (state.tab !== "flows" || gen !== state.gen) return;  // superseded while loading
   state.flows = data.flows;
   state.repos = data.repositories || [];
@@ -230,7 +244,52 @@ function empty(nav, text) {
   nav.appendChild(div);
 }
 
-function flowButton(flow) {
+// Rebuilds the list below the search box and keeps its scroll position.
+function rebuildList(build) {
+  const box = $("items"), top = box.scrollTop;
+  box.replaceChildren();
+  build(box);
+  box.scrollTop = top;
+}
+
+const searchTerms = (query) => query.toLowerCase().split(/\s+/).filter(Boolean);
+
+// Case-insensitive AND over whitespace-separated terms. Items whose name holds every term come
+// first, then items that match only with their text; each group keeps the incoming order.
+function matchItems(items, query, nameOf, textOf) {
+  const terms = searchTerms(query);
+  if (!terms.length) return { shown: items.map((item) => ({ item, textOnly: false })), total: items.length };
+  const byName = [], byText = [];
+  for (const item of items) {
+    const name = nameOf(item).toLowerCase();
+    if (terms.every((term) => name.includes(term))) { byName.push({ item, textOnly: false }); continue; }
+    const full = name + "\n" + textOf(item).toLowerCase();
+    if (terms.every((term) => full.includes(term))) byText.push({ item, textOnly: true });
+  }
+  return { shown: byName.concat(byText), total: items.length };
+}
+
+// "N of M" while a query is active, nothing otherwise.
+function showCount(shown, total, query) {
+  $("search-count").textContent = searchTerms(query).length ? shown + " of " + total : "";
+}
+
+const flowName = (flow) => [flow.id, flow.title].join("\n");
+const flowText = (flow) => flow.content || "";
+const itemName = (item) => [item.id, item.short_name, item.title].filter(Boolean).join("\n");
+const itemText = (item) => [item.description, item.body].filter(Boolean).join("\n");
+
+function refreshList() {
+  if (state.tab === "flows") renderList();
+  else renderComponentList(state.tab);
+}
+
+function setQuery(value) {
+  state.queries[state.tab] = value;
+  refreshList();
+}
+
+function flowButton(flow, textOnly) {
   const button = document.createElement("button");
   // Built-in entries expose a bare `id`; open them by `qualified_id` so a personal copy cannot win.
   const ref = flow.qualified_id || flow.id;
@@ -240,6 +299,7 @@ function flowButton(flow) {
   if (flow.overrides) addChip(button, "replaces built-in");
   if (flow.upstream_changed) addChip(button, "built-in changed", "warn");
   if (flow.overridden_by) addChip(button, "replaced");
+  if (textOnly) addChip(button, "in text");
   const small = document.createElement("small");
   small.textContent = flow.id;
   button.appendChild(small);
@@ -248,35 +308,46 @@ function flowButton(flow) {
 }
 
 function renderList() {
-  const nav = $("list");
-  nav.replaceChildren();
-  const seg = document.createElement("div");
-  seg.className = "seg";
-  for (const [value, label] of [["user", "User"], ["system", "System"]]) {
-    const button = document.createElement("button");
-    button.textContent = label;
-    button.className = state.category === value ? "active" : "";
-    button.setAttribute("aria-pressed", String(state.category === value));
-    button.addEventListener("click", () => { state.category = value; renderList(); });
-    seg.appendChild(button);
-  }
-  nav.appendChild(seg);
-  if (state.category === "system") {
-    heading(nav, "Built-in");
-    const items = state.flows.filter((f) => f.source === "builtin");
-    if (!items.length) empty(nav, "No flows");
-    for (const flow of items) nav.appendChild(flowButton(flow));
-    return;
-  }
-  heading(nav, "Personal");
-  const personal = state.flows.filter((f) => f.source === "user");
-  if (!personal.length) empty(nav, "No flows");
-  for (const flow of personal) nav.appendChild(flowButton(flow));
-  for (const repo of state.repos) {
-    heading(nav, repo.label);
-    for (const flow of repo.flows) nav.appendChild(flowButton(flow));
-    for (const issue of repo.issues) empty(nav, issue.id + ": " + issue.error);
-  }
+  const query = state.queries.flows, searching = searchTerms(query).length > 0;
+  let shown = 0, total = 0;
+  const pick = (flows) => {
+    const result = matchItems(flows, query, flowName, flowText);
+    shown += result.shown.length; total += result.total;
+    return result.shown;
+  };
+  rebuildList((nav) => {
+    const seg = document.createElement("div");
+    seg.className = "seg";
+    for (const [value, label] of [["user", "User"], ["system", "System"]]) {
+      const button = document.createElement("button");
+      button.textContent = label;
+      button.className = state.category === value ? "active" : "";
+      button.setAttribute("aria-pressed", String(state.category === value));
+      button.addEventListener("click", () => { state.category = value; $("items").scrollTop = 0; renderList(); });
+      seg.appendChild(button);
+    }
+    nav.appendChild(seg);
+    if (state.category === "system") {
+      const hits = pick(state.flows.filter((f) => f.source === "builtin"));
+      if (!searching || hits.length) heading(nav, "Built-in");
+      if (!total) empty(nav, "No flows");
+      for (const hit of hits) nav.appendChild(flowButton(hit.item, hit.textOnly));
+    } else {
+      const hits = pick(state.flows.filter((f) => f.source === "user"));
+      if (!searching || hits.length) heading(nav, "Personal");
+      if (!total) empty(nav, "No flows");
+      for (const hit of hits) nav.appendChild(flowButton(hit.item, hit.textOnly));
+      for (const repo of state.repos) {
+        const repoHits = pick(repo.flows);
+        if (searching && !repoHits.length) continue;
+        heading(nav, repo.label);
+        for (const hit of repoHits) nav.appendChild(flowButton(hit.item, hit.textOnly));
+        for (const issue of repo.issues) empty(nav, issue.id + ": " + issue.error);
+      }
+    }
+    if (searching && !shown) empty(nav, "No matches");
+  });
+  showCount(shown, total, query);
 }
 
 function confirmDiscard() {
@@ -533,21 +604,35 @@ async function loadComponents(kind, keep, keepCurrent) {
 }
 
 function renderComponents(kind) {
-  const nav = $("list");
-  nav.replaceChildren();
-  heading(nav, KIND_LABEL[kind] + " (" + state.items.filter((i) => i.enabled).length + "/" + state.items.length + " on)");
-  if (!state.items.length) empty(nav, "None found");
-  for (const item of state.items) {
-    const button = document.createElement("button");
-    button.className = "item" + (state.item && state.item.id === item.id ? " active" : "");
-    button.textContent = item.short_name || item.id;
-    if (!item.enabled) addChip(button, "off", "off");
-    const small = document.createElement("small");
-    small.textContent = item.description || item.id;
-    button.appendChild(small);
-    button.addEventListener("click", () => { state.item = item; renderComponents(kind); });
-    nav.appendChild(button);
-  }
+  renderComponentList(kind);
+  renderComponentDetail(kind);
+}
+
+function renderComponentList(kind) {
+  const query = state.queries[kind];
+  const result = matchItems(state.items, query, itemName, itemText);
+  rebuildList((nav) => {
+    heading(nav, KIND_LABEL[kind] + " (" + state.items.filter((i) => i.enabled).length + "/" + state.items.length + " on)");
+    if (!state.items.length) empty(nav, "None found");
+    else if (!result.shown.length) empty(nav, "No matches");
+    for (const { item, textOnly } of result.shown) {
+      const button = document.createElement("button");
+      button.className = "item" + (state.item && state.item.id === item.id ? " active" : "");
+      button.textContent = item.short_name || item.id;
+      if (!item.enabled) addChip(button, "off", "off");
+      if (textOnly) addChip(button, "in text");
+      const small = document.createElement("small");
+      small.textContent = item.description || item.id;
+      button.appendChild(small);
+      button.addEventListener("click", () => { state.item = item; renderComponents(kind); });
+      nav.appendChild(button);
+    }
+  });
+  showCount(result.shown.length, result.total, query);
+}
+
+// The pane reads `state.item`, not the filtered list, so a query never closes the open item.
+function renderComponentDetail(kind) {
   const item = state.item;
   $("component").classList.toggle("hidden", !item);
   $("welcome").classList.toggle("hidden", !!item);
@@ -598,6 +683,8 @@ async function showTab(tab) {
     button.setAttribute("aria-pressed", String(button.dataset.tab === tab));
   }
   $("new").classList.toggle("hidden", tab !== "flows");
+  $("search").value = state.queries[tab];
+  $("items").scrollTop = 0;
   $("editor").classList.add("hidden");
   $("component").classList.add("hidden");
   $("welcome").classList.remove("hidden");
@@ -610,6 +697,21 @@ async function showTab(tab) {
 for (const button of $("tabs").children) {
   button.addEventListener("click", () => showTab(button.dataset.tab).catch((e) => { if (!e.signedOut) alert(e.message); }));
 }
+$("search").addEventListener("input", (event) => setQuery(event.target.value));
+$("search").addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !event.target.value) return;
+  event.target.value = "";
+  setQuery("");
+});
+// `/` jumps to the search box unless the user is typing somewhere or a dialog is open.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
+  const tag = event.target && event.target.tagName;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || (event.target && event.target.isContentEditable)) return;
+  if ($("create").open || $("main").classList.contains("hidden")) return;
+  event.preventDefault();
+  $("search").focus();
+});
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); } });
 
 (async () => {
@@ -618,7 +720,7 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
     await loadList();
   } catch (error) {
     if (error.signedOut) return;
-    const nav = $("list");
+    const nav = $("items");
     nav.replaceChildren();
     const message = document.createElement("div");
     message.className = "empty"; message.textContent = error.message;
