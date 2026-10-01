@@ -16,6 +16,8 @@ import uuid
 import re
 import json
 import asyncio
+import datetime
+import threading
 import dotenv
 from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
 from src.engine.fingerprint import configuration_revision
@@ -23,6 +25,7 @@ from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability
+from concurrent.futures import ThreadPoolExecutor, wait as _wait_futures
 from typing import Optional, List
 
 # Setup logging
@@ -84,8 +87,9 @@ mcp = FastMCP(
         "and user constraints. Ignore stale or replayed activations. Never clear caches to "
         "switch personas. Except for the MCP-unavailable fallback below, compose the answer "
         "with the returned footer, call log_interaction "
-        "with that answer, the current user request verbatim as query, and the active "
-        "descriptor/action, then send the final answer.\n\n"
+        "with that answer (without any time line), the current user request verbatim as query, "
+        "and the active descriptor/action, then send the final answer, prefixed with the "
+        "returned `timestamp` on its own first line followed by an empty line when present.\n\n"
         "Response statuses:\n"
         "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
         "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
@@ -132,6 +136,47 @@ SESSION_CACHE: TTLCache = TTLCache(
 from src.utils.langfuse_compat import observe, get_langfuse, is_langfuse_configured
 langfuse = get_langfuse()
 atexit.register(langfuse.flush)
+
+# log_interaction writes its sinks (history.md, Langfuse) here after it has
+# answered. A dedicated executor keeps shutdown independent of the daemon's
+# default executor; pending futures are tracked so shutdown can drain them.
+LOG_DRAIN_TIMEOUT_SECONDS = 10.0
+# Separate pools so a hanging Langfuse call can never delay the history write.
+_history_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="log-history")
+_langfuse_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="log-langfuse")
+_pending_logs: set = set()
+_pending_logs_lock = threading.Lock()
+
+
+def _submit_log_task(executor, fn) -> None:
+    future = executor.submit(fn)
+    with _pending_logs_lock:
+        _pending_logs.add(future)
+
+    def _done(f) -> None:
+        with _pending_logs_lock:
+            _pending_logs.discard(f)
+        error = f.exception()
+        if error is not None:
+            logger.error("Background log write failed: %s", error, exc_info=error)
+
+    future.add_done_callback(_done)
+
+
+def drain_pending_logs(timeout: float = LOG_DRAIN_TIMEOUT_SECONDS) -> bool:
+    """Wait up to *timeout* seconds for queued log writes; True when none remain."""
+    with _pending_logs_lock:
+        pending = list(_pending_logs)
+    if not pending:
+        return True
+    _, not_done = _wait_futures(pending, timeout=timeout)
+    if not_done:
+        logger.warning("%d log write(s) still pending after %.0fs drain", len(not_done), timeout)
+    return not not_done
+
+
+# Registered after langfuse.flush, so it runs first at exit (LIFO).
+atexit.register(drain_pending_logs)
 
 
 def _is_within(candidate: str, boundary: str) -> bool:
@@ -667,10 +712,14 @@ async def log_interaction(
       ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
       ``langfuse_compat``.
 
-    Returns JSON: ``{request_id, langfuse: {status, trace_id?, error?},
-    history: {status, entry_id?, path?, timestamp?, rotated_to?, error?}}``.
-    A failure in one sink does not prevent the other. An unavailable workspace
-    or invalid attribution writes nothing and returns a protocol ERROR.
+    Returns at once, after validation and before either sink is written:
+    ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
+    plus the attribution. ``timestamp`` is the server's local time
+    (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
+    and it is not part of ``response_content``. The sinks are written in the
+    background with that timestamp; their failures go to the server log only
+    and do not prevent each other. An unavailable workspace or invalid
+    attribution writes nothing and returns a protocol ERROR without ``timestamp``.
     """
     try:
         client = client_context(ctx)
@@ -704,37 +753,40 @@ async def log_interaction(
         "tags": tags or [],
     })
 
-    loop = asyncio.get_running_loop()
+    # Issued once; shown by the model in the answer and stored in both sinks.
+    timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
 
     # --- Langfuse trace (best-effort, skipped when keys absent) ---
-    # Run the sync Langfuse SDK off the event loop so a slow network
-    # round-trip doesn't stall the MCP handler.
-    def _send_langfuse() -> dict:
+    def _send_langfuse() -> None:
         if not is_langfuse_configured():
-            return {"status": "skipped"}
+            return
         try:
             trace_id = langfuse.create_trace_id(seed=request_id)
             with langfuse.start_as_current_observation(
                 as_type="span",
                 name="agent_interaction",
                 trace_context={"trace_id": trace_id},
-                metadata={"agent": agent_name, "source": "mcp-server", **attribution},
+                metadata={
+                    "agent": agent_name, "source": "mcp-server",
+                    "answer_timestamp": timestamp, **attribution,
+                },
             ):
                 with langfuse.start_as_current_observation(
                     as_type="generation",
                     name="response",
                     input=query[:2000],
-                    metadata={"agent": agent_name, "reasoning": reasoning or "", **attribution},
+                    metadata={
+                        "agent": agent_name, "reasoning": reasoning or "",
+                        "answer_timestamp": timestamp, **attribution,
+                    },
                 ) as gen:
                     gen.update(output=response_content[:5000])
             langfuse.flush()
-            return {"status": "logged", "trace_id": trace_id}
         except Exception as e:
             logger.error("Langfuse logging failed: %s", e, exc_info=True)
-            return {"status": "error", "error": str(e)}
 
     # --- History append (always; defaults to raw query/response) ---
-    def _send_history() -> dict:
+    def _send_history() -> None:
         try:
             writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
             eff_intent = (intent or query or "").strip()
@@ -746,29 +798,24 @@ async def log_interaction(
                     f"action={persona_action or 'unspecified'}"
                 )
             eff_outcome = (outcome or response_content or "").strip()
-            return writer.append_entry(
-                eff_intent, eff_action, eff_outcome, files, tags, None
+            result = writer.append_entry(
+                eff_intent, eff_action, eff_outcome, files, tags,
+                {"answer_timestamp": timestamp},
             )
+            if result.get("status") == "error":
+                logger.error("History append failed: %s", result.get("error"))
         except Exception as e:
             logger.error("History append failed: %s", e, exc_info=True)
-            return {"status": "error", "error": str(e)}
 
-    # Both sinks are independent — run them concurrently.
-    # Bound Langfuse to 10s so a hanging SDK doesn't block the tool response.
-    langfuse_future = loop.run_in_executor(None, _send_langfuse)
-    history_future = loop.run_in_executor(None, _send_history)
-    try:
-        langfuse_payload = await asyncio.wait_for(asyncio.shield(langfuse_future), timeout=10.0)
-    except asyncio.TimeoutError:
-        langfuse_payload = {"status": "error", "error": "timeout (10s)"}
-    # History is the critical sink — no timeout, so we never report a false
-    # failure while the thread silently succeeds in the background.
-    history_payload = await history_future
+    # Both sinks are independent; the response does not wait for either.
+    _submit_log_task(_langfuse_executor, _send_langfuse)
+    _submit_log_task(_history_executor, _send_history)
 
     payload = {
         "request_id": request_id,
-        "langfuse": langfuse_payload,
-        "history": history_payload,
+        "timestamp": timestamp,
+        "langfuse": {"status": "queued"},
+        "history": {"status": "queued"},
         **attribution,
     }
     debug_log("log_interaction", "res", payload)
@@ -1161,4 +1208,7 @@ if __name__ == "__main__":
     from src.self_update import log_last_update, start_background_update
     log_last_update()
     start_background_update()
-    mcp.run()
+    try:
+        mcp.run()
+    finally:
+        drain_pending_logs()

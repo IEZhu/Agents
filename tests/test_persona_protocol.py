@@ -227,6 +227,7 @@ async def test_logging_records_client_reported_activation(monkeypatch):
     assert response["persona"] == active.model_dump()
     assert response["persona_action"] == "keep"
     assert response["attribution"] == "client-reported"
+    assert server.drain_pending_logs(5)
     written_action = writer.return_value.append_entry.call_args.args[1]
     assert active.activation_id in written_action and active.bundle_revision in written_action
 

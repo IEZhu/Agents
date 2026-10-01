@@ -18,6 +18,7 @@ In load order:
 | 20 | `honest-uncertainty` | [rule-honest-uncertainty.mdc](rule-honest-uncertainty.mdc) | Calibrate confidence on judgment calls. |
 | 30 | `anti-sycophancy` | [rule-anti-sycophancy.mdc](rule-anti-sycophancy.mdc) | Don't agree to agree. Push back on errors. |
 | 90 | `language-match` | [rule-language-match.mdc](rule-language-match.mdc) | Match the language of the last message. |
+| 95 | `answer-timestamp` | [rule-answer-timestamp.mdc](rule-answer-timestamp.mdc) | Start the final answer with the time returned by `log_interaction`. |
 
 The rule files are authoritative. Update this table when a rule is added,
 removed, renamed or reprioritized.
