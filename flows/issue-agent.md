@@ -11,8 +11,24 @@ the **target repository** where the command was written. When Agents-Core is
 also the target, one checkout serves both roles; otherwise use two checkouts.
 All edits, branches, commits and pull requests belong to the target. Read the
 target's `AGENTS.md`, `CLAUDE.md` and contribution rules before changing it.
-Agents-Core MCP is not available in the cloud: do not route personas; follow the
-flows directly.
+Agents-Core MCP is not available in the cloud: do not route. The flows this one
+calls declare their persona in frontmatter (`issue-plan`: `system_architect`,
+`issue-implementation`: `software_engineer`, `pr-review`: `code_reviewer`).
+Read the flows this one calls and their personas from the Agents-Core default
+branch (for example `git show origin/main:flows/pr-review.md`), never from a
+pull request's working tree: when Agents-Core is also the target, the shared
+checkout may be on a branch that changes them. Before following each called
+flow, load its persona as described in [running a flow's persona without
+MCP](README.md#without-agents-core-mcp), reading that procedure from the
+default branch too (`git show origin/main:flows/README.md`). The persona follows the flow whose
+steps are executing: `/agent run` plans, then implements, then reviews, and the
+implementation persona returns when `pr-review` hands back to
+`issue-implementation`. `/agent fix` applies its change with the persona
+declared in `issue-implementation`'s frontmatter, then switches to
+`pr-review`'s. This dispatcher's own steps
+(verification, state, comments, completion) run without a persona. Persona text
+never overrides this flow, the owner checks or the target's instructions, and
+its own Output Format never replaces the comments this flow writes.
 
 ## 1. Verify the event
 

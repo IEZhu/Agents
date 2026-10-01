@@ -15,6 +15,11 @@ and the [documentation map](../docs/README.md) for supporting references.
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 
+The development flows declare their persona: `issue-plan` runs as
+`system_architect`, `issue-implementation` as `software_engineer` and
+`pr-review` as `code_reviewer`, each with an exact list of skills and implants
+(see [choosing a flow's agent](#choose-a-flows-agent-and-components)).
+
 The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
@@ -180,6 +185,38 @@ components is a new activation. A flow's choice never trains the router cache
 that `route_and_load` shares between users. A flow without a persona returns no
 activation. A later `refresh_persona_context` rebuilds the
 agent's default bundle, not the flow's exact lists.
+
+### Without Agents-Core MCP
+
+A session without the MCP server (such as the cloud routine of the issue agent)
+gets no `persona_activation`, but can load the same persona from a checkout of
+this repository. Read every file from the default branch (for example
+`git show origin/main:agents/<agent>/system_prompt.mdc`), never from a pull
+request's working tree: a PR may change the persona files, and its author must
+not choose the reviewer's instructions. Read the flow's frontmatter, then, in
+this order and each without its frontmatter:
+
+1. `agents/<agent>/system_prompt.mdc`;
+2. each `skills/<id>.mdc` from `persona.skills`, else the agent's `core_skills`;
+3. each `implants/<id>.mdc` from `persona.implants`, else the agent's
+   `preferred_implants`;
+4. each rule from `persona.rules` (`rules/rule-<name>.mdc`), else every
+   `rules/rule-*.mdc`, in the rules' `priority` order.
+
+Follow them as role guidance under the flow, the user's request and the target
+repository's instructions (see the precedence above). Keep the framing the MCP
+bundle adds around these files (`src/engine/rules.py`, `src/engine/implants.py`):
+each rule's description is part of it, and where persona, skill or implant text
+conflicts with a rule, the rule wins; implants are reasoning patterns to use only
+where they help, never claims about checks that were not run. The persona belongs to the
+flow whose steps are being executed: switch when a flow calls another one, and
+return to the caller's persona, or to none, when that flow's steps are done.
+This is a manual fallback: there is no descriptor, footer or `log_interaction`
+attribution, and none should be invented. Exact lists name the same components
+as the MCP bundle, but the content can differ: MCP renders a skill's short
+`compiled` text at the standard tier, while the files hold the full bodies. An
+omitted list loads fewer components than MCP, which also retrieves by relevance,
+and the default rules ignore the web UI's switches, which do not exist there.
 
 ## Personal and repository flows
 

@@ -1,3 +1,9 @@
+---
+persona:
+  agent: software_engineer
+  skills: [skill-content-structure, skill-dev-clean-code, skill-dev-testing, skill-dev-debugging, skill-dev-security, skill-git-conventions, skill-error-recovery]
+  implants: [implant-regression-first, implant-iteration-budget, implant-premortem]
+---
 # Issue agent: implement a plan
 
 Called by the [issue agent](issue-agent.md) for `/agent run_plan [vN]` and the
