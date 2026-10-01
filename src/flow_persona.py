@@ -27,7 +27,7 @@ KINDS = ("skills", "implants", "rules")
 _AGENT = re.compile(r"[a-z0-9][a-z0-9_]*")
 _COMPONENT = re.compile(r"[A-Za-z0-9_-]+")
 _MAX_COMPONENTS = 64
-_PERSONA_KEY = re.compile(r"^[ \t]*persona[ \t]*:", re.MULTILINE)
+_PERSONA_KEY = re.compile(r"""^[ \t]*(?:persona|"persona"|'persona')[ \t]*:""", re.MULTILINE)
 
 
 def declared(content: str) -> dict | None:

@@ -672,6 +672,7 @@ async function renderPersona() {
     exact.append(box, kind[0].toUpperCase() + kind.slice(1) + ": exact list (otherwise agent default)");
     const list = document.createElement("select");
     list.multiple = true; list.dataset.kind = kind;
+    list.setAttribute("aria-label", kind[0].toUpperCase() + kind.slice(1) + " to load");
     const chosen = new Set((persona && persona[kind]) || []);
     for (const item of catalog[kind]) {
       const option = new Option(item.id + (item.enabled ? "" : " (off)"), item.id);

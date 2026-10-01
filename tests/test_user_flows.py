@@ -765,6 +765,8 @@ async def test_editor_chooses_a_flow_persona(editor, install, known_components, 
     bad = await http.put("/ui/api/flow/persona", headers=UI,
                          json={"id": "review", "persona": {"agent": "ghost"}})
     assert bad.status_code == 400 and "unknown agent" in bad.json()["error"]
+    loose = await http.put("/ui/api/flow/persona", json={"id": "review", "reset": "false"}, headers=UI)
+    assert loose.status_code == 400 and "reset" in loose.json()["error"]
     reset = await http.put("/ui/api/flow/persona", json={"id": "review", "reset": True}, headers=UI)
     assert reset.json()["flow"]["persona"] is None
     blocked = await http.put("/ui/api/flow/persona", json=body,
@@ -855,3 +857,19 @@ def test_indented_persona_in_broken_frontmatter_is_flow_invalid(install, tmp_pat
     library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
     with pytest.raises(FlowError, match="persona is not a valid YAML"):
         library.save("bad", "---\n  persona:\n    agent: [unclosed\n---\n# Bad\n")
+
+
+@pytest.mark.parametrize("text", ['null', '[]', '{"other": 1}'])
+def test_overlay_without_persona_field_is_an_error(install, tmp_path, text):
+    overlay = tmp_path / "lib" / "personas" / "builtin" / "review.json"
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text(text, encoding="utf-8")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    assert "persona field" in library.resolve("review").metadata()["persona_error"]
+
+
+@pytest.mark.parametrize("key", ['"persona"', "'persona'"])
+def test_quoted_persona_key_in_broken_frontmatter_is_flow_invalid(install, tmp_path, key):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    with pytest.raises(FlowError, match="persona is not a valid YAML"):
+        library.save("bad", f"---\n{key}:\n  agent: [unclosed\n---\n# Bad\n")

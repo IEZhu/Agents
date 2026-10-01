@@ -190,15 +190,13 @@ class FlowLibrary:
             with path.open(encoding="utf-8") as stream:
                 overlay = json.load(stream)
         except FileNotFoundError:
-            overlay = None
+            spec = flow_persona.declared(content)
+            return spec, "frontmatter" if spec else None
         except (OSError, ValueError) as error:
             raise FlowError(f"flow_invalid: unreadable persona overlay ({error})") from None
-        if isinstance(overlay, dict) and "persona" in overlay:
-            return flow_persona.normalize(overlay["persona"]), "overlay"
-        if overlay is not None:
+        if not isinstance(overlay, dict) or "persona" not in overlay:
             raise FlowError("flow_invalid: the persona overlay must hold a persona field")
-        spec = flow_persona.declared(content)
-        return spec, "frontmatter" if spec else None
+        return flow_persona.normalize(overlay["persona"]), "overlay"
 
     def _with_persona(self, scope: str, flow_id: str, flow: Flow) -> Flow:
         """A persona error stays visible on the flow, which can still be listed and

@@ -307,10 +307,12 @@ class FlowsUI:
                         expected_revision=str(body.get("expected_revision") or "")))
             if path == "/ui/api/flow/persona" and request.method == "PUT":
                 body = await self._body(request)
+                if not isinstance(body.get("reset", False), bool):
+                    raise FlowError("flow_invalid: reset must be true or false")
                 library = self._library(body.get("workspace"), body.get("repo"))
                 result = await asyncio.to_thread(
                     library.set_persona, str(body.get("id", "")), body.get("persona"),
-                    reset=bool(body.get("reset")))
+                    reset=body.get("reset", False))
                 return self._json(self._with_key(library, result))
             if path == "/ui/api/agents" and request.method == "GET":
                 return self._json({"agents": await asyncio.to_thread(list_agents)})
