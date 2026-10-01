@@ -48,16 +48,20 @@ context:
     - '**/targets/f7/**'
     - '**/SConscript'
     - '**/SConstruct'
-static_skills:
-  - skill-dev-clean-code.mdc
-  - skill-dev-debugging.mdc
-  - skill-dev-security.mdc
-  - skill-flipper-zero-development.mdc
+core_skills:
+  - skill-flipper-zero-development
 preferred_skills:
   - skill-dev-clean-code
   - skill-dev-debugging
   - skill-dev-security
-  - skill-flipper-zero-development
+capable_skills:
+  - skill-error-recovery
+  - skill-dev-performance
+  - skill-dev-testing
+preferred_implants:
+  - implant-regression-first
+  - implant-iteration-budget
+  - implant-verify-assumptions
 capabilities:
   - development
   - dev-security
