@@ -85,7 +85,7 @@ def test_flows_are_found_by_their_text_within_the_shown_category(search):
 
 def test_queries_are_kept_per_tab(search):
     assert search["rules_query_empty"] == ""
-    assert search["flows_query_kept"] == "nothing-matches"
+    assert search["flows_query_kept"] == "user"
     assert search["rules_query_kept"] == "zzz"
 
 
@@ -125,3 +125,17 @@ def test_the_page_keeps_its_content_security_policy():
     assert "<style nonce" in html and html.count("{{NONCE}}") == 2
     completed = subprocess.run([NODE, "--check", "-"], input=script, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stderr
+
+
+def test_a_scope_prefix_is_not_part_of_the_name(search):
+    assert search["prefix"]["list"][1:] == ["No matches"]
+
+
+def test_a_new_query_starts_at_the_top_of_the_list(search):
+    assert search["scroll_on_query"] == 0
+
+
+def test_typing_while_a_tab_loads_does_not_render_stale_data(search):
+    assert search["while_loading"] == {"list": ["Loading…"], "count": "", "query": "sec"}
+    assert search["after_loading"]["list"][0] == "Skills (2/3 on)"
+    assert search["after_loading"]["count"] == "3 of 3"

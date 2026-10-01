@@ -142,7 +142,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
   upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
-  queries: { flows: "", rules: "", skills: "", implants: "" } };
+  queries: { flows: "", rules: "", skills: "", implants: "" },
+  loadedTab: null };  // the tab whose list is on screen; null while a tab loads
 // Every list load bumps `gen`; a response that arrives for an older load is dropped.
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
 const KIND_LABEL = { rules: "Rules", skills: "Skills", implants: "Implants" };
@@ -221,6 +222,7 @@ async function loadList(select) {
   if (state.tab !== "flows" || gen !== state.gen) return;  // superseded while loading
   state.flows = data.flows;
   state.repos = data.repositories || [];
+  state.loadedTab = "flows";
   renderList();
   if (select) await openFlow(select.id, null, select.repo_key);
 }
@@ -274,18 +276,21 @@ function showCount(shown, total, query) {
   $("search-count").textContent = searchTerms(query).length ? shown + " of " + total : "";
 }
 
-const flowName = (flow) => [flow.id, flow.title].join("\n");
+// The scope prefix of an ID (`user:`, `repo:`, `builtin:`) is not part of the name.
+const flowName = (flow) => [flow.id.replace(/^(builtin|user|repo):/, ""), flow.title].join("\n");
 const flowText = (flow) => flow.content || "";
 const itemName = (item) => [item.id, item.short_name, item.title].filter(Boolean).join("\n");
 const itemText = (item) => [item.description, item.body].filter(Boolean).join("\n");
 
 function refreshList() {
+  if (state.loadedTab !== state.tab) return;  // the list of this tab is still loading
   if (state.tab === "flows") renderList();
   else renderComponentList(state.tab);
 }
 
 function setQuery(value) {
   state.queries[state.tab] = value;
+  $("items").scrollTop = 0;  // a new query starts at its best match
   refreshList();
 }
 
@@ -339,7 +344,7 @@ function renderList() {
       for (const hit of hits) nav.appendChild(flowButton(hit.item, hit.textOnly));
       for (const repo of state.repos) {
         const repoHits = pick(repo.flows);
-        if (searching && !repoHits.length) continue;
+        if (searching && !repoHits.length && !repo.issues.length) continue;
         heading(nav, repo.label);
         for (const hit of repoHits) nav.appendChild(flowButton(hit.item, hit.textOnly));
         for (const issue of repo.issues) empty(nav, issue.id + ": " + issue.error);
@@ -600,6 +605,7 @@ async function loadComponents(kind, keep, keepCurrent) {
   state.items = data.items;
   const wanted = keepCurrent ? (state.item && state.item.id) : keep;
   state.item = wanted ? data.items.find((i) => i.id === wanted) || null : null;
+  state.loadedTab = kind;
   renderComponents(kind);
 }
 
@@ -684,6 +690,9 @@ async function showTab(tab) {
   }
   $("new").classList.toggle("hidden", tab !== "flows");
   $("search").value = state.queries[tab];
+  state.loadedTab = null;
+  rebuildList((nav) => empty(nav, "Loading…"));
+  showCount(0, 0, "");
   $("items").scrollTop = 0;
   $("editor").classList.add("hidden");
   $("component").classList.add("hidden");

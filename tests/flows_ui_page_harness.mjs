@@ -52,7 +52,10 @@ async function fetchStub(path, init = {}) {
     return respond(200, { status: "ok" });
   }
   if (!signedIn) return respond(401, { error: "session_required" });
-  if (scenario === "search") return respond(200, searchData(path));
+  if (scenario === "search") {
+    if (path.includes("kind=skills")) await sleep(80);  // a slow tab, to type while it loads
+    return respond(200, searchData(path));
+  }
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
 }
@@ -137,6 +140,8 @@ if (scenario === "search") {
   fire(byId("items").children[0].children[0], "click");  // back to User
   await type("nothing-matches");
   steps.none = shown();
+  await type("user");  // a scope prefix of an ID is not part of the name
+  steps.prefix = shown();
   await openTab("rules");
   steps.rules_query_empty = shown().query;
   await type("logging");
@@ -151,6 +156,18 @@ if (scenario === "search") {
   await type("zzz");
   steps.filtered_out = { ...shown(), title: byId("c-title").textContent,
                          hidden: byId("component").classList.contains("hidden") };
+  byId("items").scrollTop = 120;
+  await type("log");
+  steps.scroll_on_query = byId("items").scrollTop;
+  await type("zzz");
+  const skills = byId("tabs").children.find((b) => b.dataset.tab === "skills");
+  fire(skills, "click");
+  await type("sec");  // typed while the skills list is still loading
+  steps.while_loading = shown();
+  await sleep(150);
+  steps.after_loading = shown();
+  fire(byId("tabs").children.find((b) => b.dataset.tab === "rules"), "click");
+  await sleep(50);
   await openTab("flows");
   steps.flows_query_kept = shown().query;
   await openTab("rules");
