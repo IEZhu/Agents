@@ -27,6 +27,13 @@ Each component gets one file, `<run_dir>/cases/<component>.json`:
 Assistant turns in the history are written by you and may contain the mistake the
 component is meant to catch.
 
+`component` matches the file name, and case ids are unique within the file. A
+component that cannot change a one-shot, tool-less answer gets
+`{"component": "<id>", "cases": [], "untestable": "<one-sentence reason>"}` instead.
+The case writer leaves the file unmarked; the adversarial checker reviews it and adds
+`"checked": true` and `"checker_notes"`. `build_contexts.py` refuses a file without
+`"checked": true`, an empty file without an `untestable` reason, and repeated case ids.
+
 ## Quality bar
 
 - **The component must matter.** Pick a request where following the component

@@ -15,6 +15,10 @@ and the [documentation map](../docs/README.md) for supporting references.
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 
+The three issue flows run in a Claude Code cloud routine that a GitHub Actions
+bridge starts for the owner's `/agent` comments, not from a local request. See
+[issue agent setup](../docs/cloud-runs.md#issue-agent).
+
 ## Run a flow
 
 Point the model to the file in the repository and ask it to execute the workflow:
@@ -57,45 +61,63 @@ run_flow(flow="documentation-refresh")
 run_flow(flow="flows/pr-review.md", request="Review <PR or MR URL>. no-merge")
 ```
 
-`flow` accepts a catalog ID, `ID.md`, or `flows/ID.md`. `request` carries scope,
-URLs and constraints as text. The default target is the caller's workspace;
+`flow` accepts an ID from `list_flows` (bare or scope-qualified, such as
+`user:<id>`), `ID.md`, or `flows/ID.md`. `request` carries scope, URLs and
+constraints as text. The default target is the caller's workspace;
 optional `repo_path` selects an existing directory within that workspace.
 Absolute paths outside it and escaping symlinks are rejected.
 
 - **HTTP / shared daemon:** the connection must supply a registered workspace
   UUID in `X-Agents-Workspace`, including when `repo_path` is provided. A global
   connection without it can list flows but cannot start one. See
-  [workspace setup](../docs/shared-mcp-daemon.md).
-- **Stdio:** the target comes from `AGENTS_CLIENT_REPO_ROOT`, then the nearest
-  `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` (exported by Claude Code)
-  or the server's working directory, then that directory. A filesystem root or a
-  directory inside the Windows directory is refused with `workspace_required`.
-  Set the variable when the client launches MCP from another directory. An
-  unavailable working directory fails instead of falling back to the installation.
+  [workspace setup](../docs/shared-mcp-daemon.md#installation-and-client-migration).
+- **Stdio:** the target is `AGENTS_CLIENT_REPO_ROOT` when set, used as given;
+  otherwise the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR`
+  (exported by Claude Code) or the server's working directory, then that
+  directory. Such an inferred root is refused with `workspace_required` when it
+  is a filesystem root or, on Windows, lies inside the Windows directory
+  (`%SystemRoot%`). Set the variable when the client launches MCP from another
+  directory. An unavailable working directory fails instead of falling back to
+  the installation.
 
 `list_flows` returns `status="success"` and a `flows` array. Each item contains
-`id`, `title`, `source_path`, a SHA-256 `revision` and its `source`; see
+`id`, `title`, `source_path`, a SHA-256 `revision` and its `source`; built-in
+items also carry `qualified_id` (`builtin:<id>`). See
 [personal and repository flows](#personal-and-repository-flows) for the other
-sources and fields. `run_flow` returns
-`status="needs_execution"`, the same metadata under `flow`, the full `content`,
+sources and fields. A flow that cannot be loaded is left out of `flows` and
+reported in an `issues` array of `{id, error}` entries. `run_flow` returns
+`status="needs_execution"`, the flow's metadata under `flow`, the full `content`,
 `repo_path`, `workspace_id` (null on stdio), `request`, and execution `instruction`.
+Its `flow` has the listing's fields, except that `flow.id` is always
+scope-qualified (`builtin:<id>` for a built-in) and the listing-only
+`qualified_id` and `overridden_by` are absent.
 The client model must continue through the flow's completion criteria using its
 own tools. Loading the bundle reads files only: it does not perform the workflow,
 start a background job, sample a model, or grant permission for extra actions.
 The active conversation and target repository instructions still apply.
 
-Source Markdown links resolve relative to `flow.source_path` in the installation.
-Operational paths, edits, branches, tests and PR/MR actions belong to `repo_path`.
-Read the target's own `AGENTS.md` and other applicable instructions. Source
+Source Markdown links resolve relative to `flow.source_path`. For `user:` and
+`repo:` flows that file is in the personal library, not beside the built-ins; see
+[personal and repository flows](#personal-and-repository-flows). Operational
+paths, edits, branches, tests and PR/MR actions belong to `repo_path`. Read the
+target's own `AGENTS.md` and other applicable instructions. Source
 references explain Agents-Core and do not impose its project conventions on
 another repository. Use the target's tools when installation helpers are absent
 from the client filesystem. If the target is inaccessible, report the blocker.
 
-Both tools return `status="error"` with `error` on failure. Invalid flow names,
-missing files and unreadable UTF-8 report `flow_invalid`, `flow_not_found`, or
-`flow_unreadable`; a missing catalog reports `flows_unavailable` when listed.
-Missing or invalid HTTP identity reports `workspace_required` or
-`workspace_invalid`. Correct the selection or connection before trying again.
+On failure, `run_flow` returns `status="error"` with an `error` string that starts
+with a code, usually followed by a colon and an explanation: `flow_invalid` for
+an invalid name or an empty or oversized file, `flow_not_found` for a missing
+flow, `flow_unreadable` for a file that cannot be read as UTF-8, and
+`workspace_required` or `workspace_invalid` for a missing or invalid caller
+workspace. Match the code prefix, not the whole string; the flow management
+errors below use the same format. An unusable `repo_path` (outside the
+workspace, through an escaping symlink, or not an existing directory) is an
+exception: it returns the uncoded message
+`repo_path must be an existing directory within workspace`. `list_flows` rejects
+an unknown `scope` with `flow_invalid`, but a missing workspace does not fail it:
+it still lists built-in and personal flows and reports `repo.status="unavailable"`.
+Correct the selection or connection before trying again.
 
 Adding a valid Markdown file exposes it through these generic MCP tools on the
 next call, without registering another tool or restarting the server. It does
@@ -105,7 +127,8 @@ the revision identifies the exact instructions supplied to the model.
 ## Personal and repository flows
 
 Besides the built-in flows in this directory, each user keeps their own flows,
-managed from chat or the [local editor](../docs/shared-mcp-daemon.md#flow-editor):
+managed from chat or, with the shared macOS daemon, the
+[local editor](../docs/shared-mcp-daemon.md#flow-editor):
 
 | Source | ID | Stored in the installation | Visible |
 |---|---|---|---|
@@ -116,11 +139,14 @@ managed from chat or the [local editor](../docs/shared-mcp-daemon.md#flow-editor
 `flows/.user` is ignored by git (the repository ignores every dot-directory), so
 saving a flow never dirties or switches a branch, neither in this installation nor
 in the caller's repository. Installation updates fast-forward and leave it alone.
-`AGENTS_USER_FLOWS_DIR` moves the library elsewhere. The repository key is the
+`AGENTS_USER_FLOWS_DIR` moves the library elsewhere; use an absolute path,
+because a relative value is resolved against the server's working directory (the
+client's launch directory over stdio). The repository key is the
 normalized `origin` remote without credentials, for example
 `github.com-owner-project`, so clones of one remote share their flows; without a
 remote it is the folder name plus a path hash. `repo:` flows need the caller's
-workspace, like `run_flow`.
+workspace, like `run_flow`; without one, `get_flow`, `save_flow` and
+`delete_flow` return `repo_scope_unavailable` for them.
 
 Ask in chat, for example "save this as my flow", "save it only for this
 repository", "change pr-review for me" or "restore the previous version". The
@@ -134,26 +160,54 @@ model uses these tools and says which scope it chose:
 | `delete_flow(flow, expected_revision)` | Delete a personal or repository flow; its text stays in history |
 
 A bare name resolves `repo:`, then `user:`, then the built-in. Built-in flows are
-never edited in place: saving the same ID with `override=true` creates a local copy
-that replaces it for this user (`user:`) or this repository (`repo:`). The listing
-marks the built-in `overridden_by`. When the built-in text later changes, the copy
-reports `upstream_changed` until it is saved again; deleting the copy restores the
-built-in. Without `override=true`, reusing a built-in ID is rejected
-(`flow_shadows_builtin`), so a bare name never silently changes meaning.
+never edited in place; saving or deleting `builtin:<id>` returns `flow_read_only`.
+Saving the same ID with `override=true` creates a local copy that replaces it for
+this user (`user:`) or this repository (`repo:`). The listing marks the built-in
+`overridden_by` and the copy `overrides`. When the built-in text later changes,
+the copy reports `upstream_changed` until it is saved again; deleting the copy
+restores the built-in. Without `override=true`, reusing a built-in ID is rejected
+(`flow_shadows_builtin`), so a bare name never silently changes meaning;
+`override=true` without a built-in of that ID is `flow_invalid`. Pass
+`override=true` on every save of the copy while the built-in exists; a plain save
+is accepted only after the built-in is removed, and it drops the copy's
+`overrides` mark.
 
-Every save or delete keeps the previous text in `flows/.user/.history`; restoring
-is `get_flow(flow, version=...)` followed by `save_flow` with that text. An update
-with an outdated `expected_revision` returns `flow_conflict` with the current
-revision instead of overwriting a change made from another chat or the editor.
-Writes are atomic and serialized by a lock, so concurrent clients are safe.
+A copy, like every `user:` and `repo:` flow, lives in the personal library, not
+beside the built-ins, and its `source_path` points there. Relative links kept
+from the built-in text, such as `../AGENTS.md` or `documentation-refresh.md`,
+therefore resolve against the copy's location and miss their targets. Follow
+them from the built-in's `source_path` (from `list_flows` or
+`get_flow("builtin:<id>")`), or change them to absolute paths when editing the
+copy.
+
+`save_flow` returns `status` `created`, `saved` or `unchanged` with the flow
+metadata; `delete_flow` returns `status="deleted"` with the scoped `id` and the
+archived `version`. Every save or delete keeps the previous text in
+`flows/.user/.history`. To restore, read the text with
+`get_flow(flow, version=...)` and pass it to `save_flow` with the current
+revision from `get_flow(flow)`, not the old version's `revision`; omit
+`expected_revision` when the flow was deleted, and pass `override=true` for a copy
+of a built-in. A deleted flow and its history list disappear from `list_flows`,
+`get_flow(flow)` and the editor, so keep the `version` that `delete_flow` returns;
+otherwise find the archived file under `.history/common/<id>/` or
+`.history/repos/<repo-key>/<id>/` in the library. An update with an outdated
+`expected_revision` returns `flow_conflict` with the current revision instead of
+overwriting a change made from another chat or the editor.
+Writes are atomic. On macOS and Linux a file lock also serializes them across
+processes, so concurrent clients get `flow_conflict` instead of overwriting each
+other. On Windows the lock covers only one server process, so avoid editing the
+same flow from two clients at once.
 
 ## Author a flow
 
 Keep one workflow per top-level `.md` file. Use lowercase letters, digits and
 single hyphens between words, such as `documentation-refresh.md`, and add it to
-the catalog above. `README.md` is documentation, not a runnable flow. Flows must
-be nonempty UTF-8 files of at most 256 KiB; source symlinks must stay within
-`flows/`. Absolute paths, traversal and nested source directories are rejected.
+the catalog above. `list_flows` silently skips a top-level file whose name breaks
+this rule, and `run_flow` rejects such a name with `flow_invalid`; after adding a
+flow, check that `list_flows()` shows it. `README.md` is documentation, not a
+runnable flow. Flows must be nonempty UTF-8 files of at most 256 KiB; source
+symlinks must stay within `flows/`. Absolute paths, traversal and nested source
+directories are rejected.
 
 Each flow must specify:
 

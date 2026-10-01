@@ -68,12 +68,13 @@ The expected setup runs CodeRabbit and Copilot automatically on the initial
 GitHub PR. Confirm that those reviews actually started. CodeRabbit normally
 reviews subsequent pushes automatically, but its quota is often exhausted.
 After each fix commit is pushed and the remote head updates, **explicitly
-re-request Copilot review when the integration is available**, using the current
-platform's supported action. Do not assume a push requests it again.
-Confirm that a review was queued for the current head. If an earlier review is
-still running, wait for it to finish, then request again if the current head has
-no queued or completed review. A successful API response alone does not prove
-that a new review started.
+re-request Copilot review when the integration is available and Copilot is not
+paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
+using the current platform's supported action. Do not assume a push requests it
+again. Confirm that a review was queued for the current head. If an earlier
+review is still running, wait for it to finish, then request again if the current
+head has no queued or completed review. A successful API response alone does not
+prove that a new review started.
 If expected automation did not start, check its status and request review through
 the installed integration's supported action.
 
@@ -137,10 +138,11 @@ approves nor clears findings.
 | Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
 
 Keep each pause with its evidence (the comment or review link), the time it was
-seen and the earliest next attempt. Compute times from the clock (`date -u`), not
-from memory or other timestamps: `next_attempt` is the evidence time plus the
-stated wait, and a pause has ended only when the measured current time is at or
-after it. Record it where the next session will find
+seen and the earliest next attempt. Read the current time from the clock
+(`date -u`), never from memory or comment timestamps. `next_attempt` is the
+evidence time plus the stated wait (for Copilot quota, the last review request
+plus 24 hours), and a pause has ended only when the measured current time is at
+or after it. Record it where the next session will find
 it: the [issue agent](issue-agent.md#3-state) keeps it in the issue's state
 comment; an interactive session reports it and keeps it in its working notes.
 While a bot is paused, continue with the other bots, do not re-request the
@@ -157,8 +159,11 @@ Agents-Core source checkout while keeping the working directory at the target.
 Do not assume `scripts/dev/` exists in the target. If the installation's files
 are inaccessible, use the platform API or CLI directly.
 Use the platform API or CLI directly by default. If using the optional helpers,
-derive the source checkout from the loaded flow's location (`flow.source_path`
-from MCP, whose parent is `flows/`). Set `AGENTS_CORE_ROOT` to that checkout's
+derive the source checkout from the built-in flow's location. When `flow.source`
+is `builtin`, the parent of `flow.source_path` from MCP is the checkout's
+`flows/`. A `user:` or `repo:` copy has its own path, so take `source_path` from
+the `builtin:pr-review` entry of `list_flows()` or from
+`get_flow("builtin:pr-review")` instead. Set `AGENTS_CORE_ROOT` to that checkout's
 absolute path and `TARGET_REPO` to the selected target checkout. Verify both
 paths before running commands, and select an available Python interpreter for
 the helper. Replace `OWNER`, `REPO`, and `N` with the verified target:
@@ -174,7 +179,11 @@ python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N
 
 [wait_copilot.sh](../scripts/dev/wait_copilot.sh) waits for a Copilot review on
 the PR's current head after it matches the source branch tip. It does not check
-approval or decide whether findings remain.
+approval or decide whether findings remain. It counts any Copilot review object
+on the head, and GitHub records a quota-limit response as one, so its success
+line can follow a quota response. Read the review body and apply
+[Quota, rate limits and errors](#quota-rate-limits-and-errors) before you count
+the head as reviewed.
 [pr_threads.py](../scripts/dev/pr_threads.py) lists unresolved threads and review
 bodies on that head. Its output truncates text and omits intermediate comments;
 fetch full comments, discussions, and review bodies through the platform before
@@ -211,10 +220,11 @@ deciding a finding is handled. Also read PR conversation comments and bot status
    respond in the platform's corresponding discussion, identifying the finding.
    Do not mark unresolved human approval requirements as satisfied by a reply.
 7. Re-request Copilot after every pushed fix commit when the integration is
-   available, using the current platform's supported action. Check CodeRabbit's
-   automatic review or explicit quota result. Wait for the available bots to
-   review the current head, read the new results, and repeat when there are
-   actionable findings.
+   available and Copilot is not paused, using the current platform's supported
+   action. Request a review from a paused bot only once its recorded next attempt
+   time has passed. Check CodeRabbit's automatic review or explicit quota result.
+   Wait for the available bots to review the current head, read the new results,
+   and repeat when there are actionable findings.
 
 On GitHub, `python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N --resolve-mine`
 (with the source root and target working directory established above) resolves threads

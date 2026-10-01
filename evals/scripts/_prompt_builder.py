@@ -1,9 +1,11 @@
 """Build system prompts with ONE revision's own code and content.
 
 `prompt_ab` runs this file with cwd set to a worktree of the revision under test,
-so every import below resolves against that revision; the file itself only uses
-interfaces that exist in older revisions too. Flags such as IMPLANT_NEED_GATE
-come from the environment and are read by that revision's config.
+so every import below resolves against that revision. For a case with a fixed
+agent (`--agents`, which prompt_ab always passes) the file unpacks the five values
+that `server._load_and_enrich` has returned since c5d89f7 (#105), so every arm
+must be at c5d89f7 or later. Flags such as IMPLANT_NEED_GATE come from the
+environment and are read by that revision's config.
 
     python _prompt_builder.py --dataset D.jsonl --out prompts.json
         [--agents agents.json] [--implants production|none|Name,Name]
@@ -13,9 +15,9 @@ come from the environment and are read by that revision's config.
 revision's own selection, `none` loads no implant, and a list loads exactly those
 implants (short names or file stems) in the same format production uses. The
 per-query prompt cache is cleared before every case, so no build can reuse a
-prompt enriched under another implant set. A case that does not load every named
-implant stops the build: revisions without `enrichment.implants_needed` gate the
-layer by tier inline, so they cannot give a named arm its implants on lite cases.
+prompt enriched under another implant set. A named list also bypasses
+`enrichment.implants_needed`, and a case that still does not load every named
+implant stops the build.
 """
 import argparse
 import asyncio

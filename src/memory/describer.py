@@ -3,9 +3,9 @@ to summarize it via MCP sampling, and persist the summary into the managed
 Repository Memory section of CLAUDE.md.
 
 The describer never calls an LLM directly. It builds the prompt, the caller
-performs ``ctx.session.create_message(...)`` (mirroring the pattern in
-``src/server.py:196``), and the result is fed back into ``write_summary``.
-This split keeps the module unit-testable without an MCP context.
+performs ``ctx.session.create_message(...)`` (see ``server._sample_with_agent``),
+and the result is fed back into ``write_summary``. This split keeps the module
+unit-testable without an MCP context.
 """
 
 from __future__ import annotations
@@ -169,7 +169,7 @@ class RepoDescriber:
         and the head of README.md.
 
         Patterned after ``SkillRetriever._compute_dir_hash`` in
-        ``src/engine/skills.py:32``.
+        ``src/engine/skills.py``.
         """
         h = hashlib.md5()
         repo = Path(self.repo_path)

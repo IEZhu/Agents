@@ -1,4 +1,4 @@
-"""Tests for the managed-section editor used by describe_repo and init_repo.sh."""
+"""Tests for the managed-section editor used by describe_repo."""
 
 import os
 

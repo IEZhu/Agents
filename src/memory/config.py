@@ -34,8 +34,9 @@ HISTORY_DEDUP_TAIL_SIZE = 50
 # Schema version stamped into the history.md frontmatter.
 HISTORY_FORMAT_VERSION = 1
 
-# Acceptable describe-summary word count window — enforced by tests, surfaced
-# in the response so callers can detect drift.
+# Target describe-summary word window: requested by the prompt and reported as
+# in_word_budget so callers can detect drift; not enforced (write_summary only
+# requires RepoDescriber.MIN_PERSIST_WORD_COUNT words and a heading).
 DESCRIBE_WORD_MIN = 800
 DESCRIBE_WORD_MAX = 1500
 

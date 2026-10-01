@@ -7,6 +7,12 @@ dependencies). MCP SDK 1.28.1 is pinned in `pyproject.toml`, `requirements.txt`,
 and `uv.lock`. The port above is the default; `install --port` can change it.
 Installation requires an existing e5-large snapshot under `FASTEMBED_CACHE_DIR`
 (default `~/.cache/fastembed`); `install` does not download the model.
+`scripts/init_repo.sh` caches it when you choose the Full model
+(`intfloat/multilingual-e5-large`). It asks only while `.env` has no
+`EMBEDDING_MODEL`, and `--yes` (used by `install.sh`) selects Full only with
+32 GB of RAM or more. `install` reads `FASTEMBED_CACHE_DIR` from the shell
+environment, not from `.env`, so export a custom cache directory before running
+it; the service then always uses the path recorded at installation.
 
 The daemon supports persona protocol 2 only. Transport migration does not
 rewrite client instructions. Follow [the routing protocol](routing_flow.md) when
@@ -16,11 +22,20 @@ uses the controller command below.
 
 ## Installation and client migration
 
-Run commands from the installation root with its Python interpreter. The first
-migration requires stopping this installation's stdio processes before replacing
-code or connecting the daemon to shared memory. Capture a baseline and back up
-client configurations first. Keep parent applications running and retain source
-history.
+Run commands from the installation root with its Python interpreter. For the
+first migration:
+
+1. While the current clients are still running, capture the process baseline,
+   back up client configurations and run `audit`.
+2. Stop this installation's stdio servers by disabling Agents-Core in open
+   clients or ending those sessions; the client applications can stay open.
+   `install` fails while any stdio server of this installation holds the
+   installation lease.
+3. Run `install`, `start` and `migrate`.
+4. Reconnect MCP in open clients and repeat the baseline (see below).
+
+Migration changes client configurations only. Keep each project's `history.md`:
+the service reads and appends to the same file.
 
 ```bash
 .venv/bin/python scripts/daemon_baseline.py --installation "$PWD" --output /tmp/agents-before.json
@@ -36,7 +51,10 @@ history.
 Installation records absolute Python, Node, and Git paths, PATH, and the local
 model snapshot. It checks port availability before changing configurations and
 does not terminate another process occupying the port. Use `install --port NUMBER`
-to select another port.
+to select another port. `install --python PATH` and `install --node PATH` override
+the recorded interpreters (by default, the Python running `install` and the first
+`node` on PATH). Without a recorded Node, Desktop and tracked-configuration
+migrations fail with `An absolute Node executable is required`.
 
 Register each project directory and worktree separately. Registering the same
 realpath again returns its existing UUID. Global entries provide routing,
@@ -64,9 +82,18 @@ process does not automatically become an HTTP client. `audit` reports scopes,
 names, transports, and header names without values. Inspect user, local, project,
 and plugin scopes, then repeat the baseline: the acceptance criterion is one
 process holding the model.
-Module-invoked `python -m src.server` processes are counted across the host because
+Module-invoked `python -m src.server` processes and every
+`python -m src.daemon ... serve` process are counted across the host because
 their command lines do not identify an installation. Check the reported PIDs
-when multiple installations are present.
+when multiple installations or a smoke-test daemon are present.
+
+While the service is installed, setup (`scripts/init_repo.sh`, also run by
+`install.sh`) keeps Cursor, Claude Code and Claude Desktop on the service:
+instead of writing stdio entries, it applies the same user-scope migration with a
+private backup, and it fails during maintenance or while another controller
+command holds the lock. Do not rerun setup while the service runs (see
+[Updates and recovery](#updates-and-recovery)); use `restore-clients` and
+`uninstall` to return to stdio.
 
 ### Alternate client configurations
 
@@ -83,18 +110,21 @@ workspace identity is supplied separately with `--workspace`.
 | `claude-deny-desktop` | `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` selects `<dir>/settings.json` |
 | `codex` | `~/.codex/config.toml`, or `<workspace>/.codex/config.toml` with `--workspace` | `CODEX_HOME` selects the user configuration directory; project paths stay unchanged |
 | `cursor` | `~/.cursor/mcp.json`, or `<workspace>/.cursor/mcp.json` with `--workspace` | `AGENTS_CURSOR_MCP_CONFIG` selects the user MCP file; project paths stay unchanged |
-| `desktop` | `~/Library/Application Support/Claude/claude_desktop_config.json` | `AGENTS_CLAUDE_DESKTOP_CONFIG` selects an exact configuration file |
+| `desktop` | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; setup on Linux: `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (default `~/.config`); setup on Windows: `%APPDATA%\Claude\claude_desktop_config.json` | `AGENTS_CLAUDE_DESKTOP_CONFIG` selects an exact configuration file |
 | `claude-project` | `<workspace>/.mcp.json` | No environment override; requires `--workspace` |
 
-Export variables in the shell that runs migration or audit. The controller cannot
-infer another process's environment from the daemon. A nonempty
+Export variables in the shell that runs migration or audit. The controller does
+not read them from `.env` and cannot infer another process's environment from the
+daemon. Setup (`install.sh`, `scripts/init_repo.sh`/`.bat`) and
+`scripts/install_instructions.py` likewise read the ones they use only from their
+process environment (see [env.example](../env.example)). A nonempty
 `CLAUDE_CONFIG_DIR` also changes the location of the user JSON: explicitly setting
 it to `~/.claude` selects `~/.claude/.claude.json`, while leaving it unset selects
 `~/.claude.json`. `CODEX_HOME` is the Codex state directory, not the configuration
 file itself. Use an existing directory and absolute paths for alternate profiles.
 
 `AGENTS_CURSOR_MCP_CONFIG` and `AGENTS_CLAUDE_DESKTOP_CONFIG` are Agents-Core
-controller settings. They tell migration and audit which existing client file to
+settings. They tell migration, audit and setup which existing client file to
 manage; they do not reconfigure the client application's own path selection.
 In particular, a Cursor `--user-data-dir` or UI profile does not establish the
 location of its MCP file. Supply the file that the client actually reads.
@@ -176,44 +206,77 @@ and the [Claude Desktop MCP setup guide](https://modelcontextprotocol.io/docs/de
 .venv/bin/python -m src.daemon token rotate
 ```
 
+After editing skills or implants in the installation, `restart` drains, stops
+and starts the service; its warmup rebuilds changed skill and implant indexes
+with the service's e5-large model before it reports ready. `clear-cache` clears only the
+process-local enriched-prompt cache (the HTTP counterpart of
+`clear_session_cache`), not the persistent routing cache in `router/` under the
+private state directory.
+
 Private state lives at
 `~/Library/Application Support/Agents-Core/<installation-hash>`. Directory
 permissions are 0700; token, configuration, and backup permissions are 0600.
 Place `--state /absolute/private/dir` before the subcommand to use isolated state.
-The LaunchAgent is named `local.agents-core.<installation-hash>` and uses
-ProcessType Interactive. Service logs are limited to six 10 MiB files; debug
-logs are limited to seven days and 100 MiB. Debug writes skip symlinked path
-components and create mode-0600 JSON files exclusively. Debug pruning leaves
-symlinked directories and JSON entries untouched.
+The LaunchAgent is named `local.agents-core.<state-directory-name>` (the
+installation hash for the default directory), so give isolated state directories
+distinct names. It uses ProcessType Interactive, RunAtLoad and KeepAlive: launchd
+starts it at login and restarts it after an unsuccessful exit. `stop` and
+`restore-clients` unload it for the current login session only, so it starts
+again at the next login; `uninstall` removes its plist from `~/Library/LaunchAgents`.
+
+The service writes its output to `service.log` in the private state directory
+(LaunchAgent stdout and stderr are discarded), limited to six 10 MiB files. With
+`AGENTS_DEBUG=1` in the installation `.env`, debug JSON files go to
+`debug/<date>/` in the same directory, limited to seven days and 100 MiB. Debug
+writes skip symlinked path components and create mode-0600 JSON files
+exclusively. Debug pruning leaves symlinked directories and JSON entries untouched.
 
 Token rotation includes custom client paths recorded by successful migrations,
 using the same private backup journals as standard paths. Merely auditing a file
 does not make it a managed rotation target. Rotation also updates private bridge
 configurations; it does not depend on the profile environment remaining active.
+Rotation does not reach clients that already loaded the previous token: HTTP
+clients receive 401 `unauthorized`, and running bridge processes report
+`Agents-Core unavailable or response uncertain`. Reconnect MCP in every client
+after `token rotate`.
 
 `status` reports ready, starting, draining, or failed state when the service
 responds; otherwise it reports `not_installed`, `starting`, or `stopped` from local
 configuration and launchd. A live response includes PID, boot ID, request
 counts (`inflight` for work, `streams` for open client notification streams),
-`idle_seconds` since the last request finished, and running jobs. `/health` requires a bearer token. Readiness means the
-model and indexes have warmed successfully. Admission is bounded at 32 work requests,
-plus up to 32 open notification streams counted separately, with eight I/O workers and
-one inference worker. Capacity exhaustion returns
-busy. Cancelling an HTTP waiter retains the quota for its running job and does
-not replay a mutation.
+`idle_seconds` since the last request finished, and pending job counts
+(`io_pending` for running or queued I/O jobs, `inference_pending` for model work).
+When the service does not respond, `status` also reports `supervised` (launchd
+has the job loaded), `maintenance` and `transaction`; a `transaction` that remains
+while no controller command is running requires `recover`. `/health` requires a
+bearer token. Readiness means the model and indexes have warmed successfully.
+Admission is bounded at 32 work requests, plus up to 32 open notification streams
+counted separately, with eight I/O workers and one inference worker. Capacity
+exhaustion returns busy. Cancelling an HTTP waiter retains the quota for its
+running job and does not replay a mutation.
 
 ### Drain and connected clients
 
 `stop`, `restart`, `uninstall`, `restore-clients`, `update`, `recover`, and
 `token rotate` first drain the service: new requests get 503, and the command
-waits up to 60 seconds for `inflight` (work), `io_pending` (queued I/O jobs) and
-`streams` (open notification streams) all to reach zero; if any stays above zero,
-including a stream that fails to close, the drain times out after 60 seconds.
-Connected clients do not need to be closed. Each one holds a long-lived GET notification stream; those
-are counted as `streams`, not as work, and drain ends them cleanly
+waits up to 60 seconds for `inflight` (work), `io_pending` (running or queued I/O
+jobs) and `streams` (open notification streams) all to reach zero. If any stays
+above zero, including a stream that fails to close, the drain times out: the
+controller resumes the service without killing active work, and the command fails
+with `Drain timed out; runtime resumed without killing active work` without
+applying its change. Retry after the work finishes. Two commands differ:
+`uninstall` has already disabled automatic updates, and `token rotate` rolls back
+by draining again and restarting the service; if that second drain also times
+out, run `recover`.
+
+Commands that restart the service (`restart`, `update`, `recover`, or `stop`
+followed by `start`) do not require closing connected clients. Each client holds
+a long-lived GET notification stream; those are counted as `streams`, not as
+work, and drain ends them cleanly
 ([#76](https://github.com/IEZhu/Agents/issues/76)). The transport is stateless,
 so a client's next request reaches the restarted process without a new session.
-A request sent during the stop window fails and can be retried.
+A request sent during the stop window fails and can be retried. After
+`token rotate`, however, clients must reconnect MCP (see [Service control](#service-control)).
 
 ## Flow editor
 
@@ -248,6 +311,13 @@ this header and never uses `repo_path` as a replacement for workspace identity.
 (`user:`) flows work without it; `repo:` flows need it. See the
 [flow guide](../flows/README.md) for loading workflows into the caller's repository.
 
+On both transports, memory tools also return
+`workspace_invalid: memory path escapes workspace` when the project's
+`history.md`, `history/`, `CLAUDE.md` or `data/memory` resolves outside the
+project, for example a `CLAUDE.md` symlinked to a shared file. Registering the
+workspace again does not help: replace such links with files inside the project.
+Workflows do not check these paths.
+
 After `describe_repo`, pass the original `workspace_id`, `repo_path`, and
 `repo_hash` to `write_repo_summary` together with the summary. The header must
 identify the original workspace; source files are hashed again under the project
@@ -277,9 +347,12 @@ manifests. Clients may stay connected (see [Drain and connected
 clients](#drain-and-connected-clients)). The controller enters
 maintenance, waits up to 60 seconds for drain,
 stops the service, and acquires the exclusive installation lease and updater
-lock. A remaining stdio reader blocks the update. Reindexing runs in a separate
-process only while the daemon is stopped. Git and reindex subprocesses retain
-leases until they exit.
+lock. A running stdio server of this installation blocks the update. Reindexing
+runs in a separate process only while the daemon is stopped. Git and reindex
+subprocesses retain leases until they exit. While the service is installed, this
+installation's stdio servers do not self-update, and during maintenance or an unfinished
+transaction they exit at startup with
+`Shared service is in maintenance; use the controller to recover`.
 
 After the file transaction, writer leases are released and the same LaunchAgent
 receives a single-use probation admission. The update succeeds only after
@@ -287,7 +360,18 @@ readiness. A failed warmup restores code and indexes and checks readiness of the
 restored runtime. The controller journal remains until readiness completes; use
 `recover` after interruption. Do not delete journals manually.
 
-Dependency changes require a separate environment installation during maintenance.
+A manual `update` always drains and restarts a running service, even when there
+is nothing to apply. When it applies a commit, it also starts a stopped service
+for probation and leaves it running; `auto-update` leaves a stopped service alone.
+
+While the service runs, update the installation only with `update` or
+`auto-update`: `install.sh`, `git pull` or `scripts/init_repo.sh` in the checkout
+change code, dependencies or indexes without drain, maintenance, index backup,
+probation or rollback. `update` refuses a target that changes dependency
+manifests. For such a target, `stop` the service and close this installation's
+stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
+dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
+then `start` the service; its warmup rebuilds changed skill and implant indexes.
 Git credentials and SSH must work with the LaunchAgent's PATH and environment.
 
 ### Automatic updates (opt-in)
@@ -299,18 +383,21 @@ Git credentials and SSH must work with the LaunchAgent's PATH and environment.
 .venv/bin/python -m src.daemon auto-update disable
 ```
 
-`enable` installs a second LaunchAgent, `local.agents-core.<installation-hash>.updater`,
+`enable` installs a second LaunchAgent, `local.agents-core.<state-directory-name>.updater`,
 that runs `auto-update run` every `--interval` seconds (default 900, minimum
 60). A run fetches `AGENTS_AUTO_UPDATE_REMOTE` / `AGENTS_AUTO_UPDATE_BRANCH`
-(defaults `origin` / `main`) and stops there when the
-installation is up to date. It skips a target without touching the service when
+(defaults `origin` / `main`) and stops there when the installation is up to date.
+Unlike stdio servers, the controller reads these variables from its own
+environment, not from `.env`: the updater LaunchAgent does not set them, so
+scheduled runs normally use the defaults, and a manual `update` uses the values
+exported in its shell. A run skips a target without touching the service when
 the checked-out branch is different, tracked files have local changes, the
 target is not a fast-forward, or dependency manifests changed; each skip is
 logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
-runs the same transaction as `update`. It also waits while any stdio server
-holds the installation, since `update` would stop the service only to find it
-busy. A stopped service is left stopped. An unfinished transaction blocks
+runs the same transaction as `update`. It also waits while any stdio server of
+this installation is running, since `update` would stop the service only to find
+it busy. A stopped service is left stopped. An unfinished transaction blocks
 further runs until `recover`.
 
 Downtime is the stop, the reindex, and the warmup. The reindex re-embeds only
@@ -318,7 +405,11 @@ when skills or implants changed, and only one model is loaded at a time. The
 last outcome is in `auto-update.json` and the history in `auto-update.log`, both
 in the private state directory. `uninstall` also removes the updater.
 
-`migrate` reports its private backup directory. To roll back client migration:
+### Client rollback and uninstall
+
+`migrate` reports its private backup directory. To roll back client migration,
+run `restore-clients` before `uninstall`; `uninstall` deletes the service
+configuration that restoration needs:
 
 ```bash
 .venv/bin/python -m src.daemon restore-clients /absolute/private/backup
@@ -326,33 +417,41 @@ in the private state directory. `uninstall` also removes the updater.
 ```
 
 Both commands drain the service first (see [Drain and connected
-clients](#drain-and-connected-clients)). Disable Agents-Core in every client
-before running them: afterwards the clients' configuration no longer points at a
-running service.
+clients](#drain-and-connected-clients)) but do not restart it. Clients connected
+to the service lose Agents-Core until you reconnect MCP, which after
+`restore-clients` loads the restored stdio entries.
 Restoration checks the maintenance barriers and holds the controller lock across
 daemon shutdown and configuration writes. It also checks that configurations
-have not been edited since migration. Restore multiple migration backups in
-reverse order. Uninstall retains backups, the registry, and history.
+have not been edited since migration. `token rotate` and setup runs on an
+installed service also write backups under `backups/` in the private state
+directory without printing their paths; directory names follow creation time,
+and `migration.json` names the most recent. Restore backups newest first: a
+migration backup that wrote the token into client files is refused with
+`Client config changed after migration` until the backup of any later
+`token rotate` is restored, which also returns the previous token. Uninstall
+retains backups, the registry, and history.
 
 ## Validation
 
-`tests/conftest.py` redirects vector stores, router state, and updater state to a
-temporary directory, seeded with available skills/implants indexes. When
-`EMBEDDING_MODEL` is not already set, it reads the model from the checkout's `.env`.
-Without either setting, the engine defaults to
-`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; this differs from
-the daemon's fixed e5-large model. Missing or incompatible indexes may require
-model loading and rebuilding inside the temporary directory.
+Test isolation and model selection are described in
+[tests/README.md](../tests/README.md#isolation-and-resource-use). Unless
+`EMBEDDING_MODEL` is set in the environment or the checkout's `.env`, tests use
+the engine default `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`,
+not the daemon's fixed e5-large model.
 
-Run the suite from a checkout with this conftest and its development dependencies:
+Run the suite from a checkout with `tests/conftest.py` and its development dependencies:
 
 ```bash
-scripts/run_tests.sh
-.venv/bin/python -m pytest -m slow tests/test_routing.py
+LANGFUSE_TRACING_ENABLED=false scripts/run_tests.sh
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest -m slow tests/test_routing.py
 node --test bridge/test.mjs
 .venv/bin/python scripts/daemon_smoke.py
 .venv/bin/python scripts/daemon_smoke.py --soak
 ```
+
+Run the slow tests, the smoke test and the soak test one at a time, never
+alongside another embedding process. See [tests/README.md](../tests/README.md)
+for environment setup.
 
 Fast transport, controller, and configuration tests do not load the model. Smoke
 tests require the e5-large model at `~/.cache/fastembed`, use port `18765`, one

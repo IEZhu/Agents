@@ -3,7 +3,7 @@ One-shot routing-label generator for the evals golden set.
 
 Pulls a deterministic sample from each source dataset (via fetch.DATASETS),
 asks Claude Opus 4.8 to assign:
-  - expected_agent (one of the 51 specialist agents)
+  - expected_agent (an agent name from the on-disk catalog in agents/)
   - expected_tier  (lite / standard / deep)
   - expected_skills (subset of available skill IDs)
   - language, domain, label_confidence, reasoning

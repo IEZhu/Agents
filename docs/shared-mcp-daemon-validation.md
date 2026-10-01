@@ -2,6 +2,11 @@
 
 Date: 2026-09-21. Model: `intfloat/multilingual-e5-large`; MCP SDK: 1.28.1.
 
+Status: recorded validation of the initial daemon release. It does not cover
+later features such as automatic updates, alternate client configurations or the
+flow editor; current procedures and checks are in
+[daemon operations](shared-mcp-daemon.md).
+
 ## Automated checks
 
 - The latest path and process-detection fixes passed 20 focused tests and 25
@@ -89,9 +94,9 @@ The pre-migration baseline found 18 stdio processes. Footprint was measured for
 measurement. Swap usage was 30,077.31 MiB out of 30,720 MiB. The baseline script
 omits full command arguments and secrets.
 
-Host deployment and client migration have not been performed. These results
-therefore do not establish an actual reduction in the host's total memory use.
-After migration, verify the effective configuration of each installed client,
+As of 2026-09-21, host deployment and client migration had not been performed.
+These results therefore do not establish an actual reduction in the host's total
+memory use. After migration, verify the effective configuration of each installed client,
 the Code tab and bridge namespace, Dock launch, sleep/wake, and reconnection.
 Repeat the process and memory baseline to confirm that one process holds the
 model. Synthetic HTTP and Node tests do not replace these GUI checks.

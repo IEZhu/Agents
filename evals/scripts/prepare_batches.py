@@ -3,7 +3,7 @@ Split evals/datasets/_unlabeled.jsonl into N self-contained batch prompt files
 that can be handed off to Claude Code subagents (Agent tool) for labeling.
 
 Each output file contains:
-  - The agent catalog (51 specialists)
+  - The agent catalog (every agent in agents/)
   - The skill ID list
   - Tier guidance
   - JSON output schema

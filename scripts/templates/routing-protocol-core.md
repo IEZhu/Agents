@@ -72,7 +72,7 @@ not run competing activations in the background.
 
 Except for the explicit unavailable-MCP fallback below, compose the complete final
 answer in the user's language, ending with the exact saved `footer`, including its
-canonical component IDs and English labels `Agent`, `Skills`, `Implants`, `Rules`.
+component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
 On `keep`, reuse that footer; do not infer component lists. Before delivering this final answer, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`
 with that exact answer text, the applied descriptor, and `keep`, `switch`, `refresh`,
@@ -87,11 +87,11 @@ failed, retain the previous descriptor and report that outcome in the log.
 
 ## Compatibility and unavailable servers
 
-The server supports only this protocol. If the tool schema lacks `protocol_version`
-or `current_persona`, the server predates it: explain once that the server must be
-updated, answer without claiming an activated persona, and stop retrying
-unsupported calls. Do not treat an ordinary loading error as protocol
-incompatibility.
+The server supports only this protocol. If the `route_and_load` or
+`get_agent_context` schema lacks `protocol_version` or `current_persona`, the
+server predates it: explain once that the server must be updated, answer without
+claiming an activated persona, and stop retrying unsupported calls. Do not treat
+an ordinary loading error as protocol incompatibility.
 
 When MCP is unavailable, this fallback overrides the footer and logging steps
 above only where their required state or tool is unavailable:

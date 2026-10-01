@@ -29,7 +29,7 @@ Run focused files while iterating:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_language.py -q
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_managed_section.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
 ```
 
 Include slow tests, or select only slow tests:
@@ -50,15 +50,30 @@ LANGFUSE_TRACING_ENABLED=false ./scripts/run_tests.sh -k russian
 The wrapper runs the whole selected suite, not only language detection tests.
 Use the direct Python command when you need to select specific test files.
 
+### Checks outside pytest
+
+Agent metadata and the Node bridge have their own checks:
+
+```bash
+.venv/bin/python scripts/validate_agents.py  # agent frontmatter and metadata
+node --test bridge/test.mjs                  # bridge/ changes; Node 22+, no npm install
+```
+
+The daemon smoke and soak tests (`scripts/daemon_smoke.py`) need the e5-large
+model and start a temporary daemon. Run them alone in a dedicated checkout, as
+described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
+
 ## Choose tests by change
 
 | Area | Starting points |
 |---|---|
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2 and fresh bundles | `test_persona_protocol.py`, `test_persona_bundle.py` |
-| Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py` |
-| Installer version checks, instructions and migration | `test_installer_python.py`, `test_installer_windows.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_managed_section.py`, `test_inject_mcp.py` |
-| Repository memory | `test_describer.py`, `test_server_describe.py`, `test_history.py`, `test_per_repo_memory.py` |
+| Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py` |
+| Installers: one-command install, version checks, client profiles, instructions and migration | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py` |
+| Agent frontmatter and metadata | `scripts/validate_agents.py` |
+| Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
+| Repository memory | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
 | Cloud issue-agent dispatch, startup acknowledgement and reactions | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
 | Personal and repository flows, flow editor | `test_user_flows.py` |
@@ -66,7 +81,8 @@ Use the direct Python command when you need to select specific test files.
 | Updates and startup | `test_self_update.py`, `test_startup.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
 | Language detection | `test_language.py` |
-| Evaluation runners | `test_persona_dialogue*.py`, `test_ablation_harness.py`, `test_prompt_ab.py`, `test_telemetry.py` |
+| Evaluation runners and providers (`evals/runners/`) | `test_persona_dialogue*.py`, `test_bench.py`, `test_local_provider.py`, `test_openrouter_provider.py` |
+| Evaluation scripts, statistics and telemetry | `test_ablation_harness.py`, `test_prompt_ab.py`, `test_local_ab.py`, `test_compare_rules.py`, `test_bench_significance.py`, `test_label_with_claude_alloc.py`, `test_telemetry.py` |
 
 Patterns in this table name groups of files. See the directory for the full list.
 Do not treat an old test count or duration as an expected result; pytest reports
@@ -95,17 +111,23 @@ selection (a stale `AGENTS_PERSONA_PROTOCOL` value is ignored), repeated updates
 override precedence and errors without running dependency installation or
 editing real client settings.
 
-To run locally in PowerShell with Python 3.11+ selected:
+To reproduce the workflow job locally in PowerShell with Python 3.11+ selected:
 
 ```powershell
 python -m pip install pytest python-dotenv
 $env:AGENTS_TEST_PYTHON310 = 'C:\absolute\path\to\Python310\python.exe'
-python -m pytest tests/test_installer_windows.py -v
+python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_protocol_migration.py -v
 ```
 
-These tests skip on macOS/Linux. On Windows, the Python 3.10 cases skip when the
-variable is absent locally and fail if it is absent in CI. The workflow supplies
-the actual interpreter path from `setup-python`.
+The workflow sets `core.autocrlf false` before checkout so the byte-exact
+migration checks see the committed line endings; use a checkout made with the
+same setting.
+
+`test_installer_windows.py` skips on macOS/Linux; there the profile and
+instruction hook tests run their Bash variants and skip the `cmd.exe` cases. On
+Windows, the Python 3.10 cases skip when the variable is absent locally and fail
+if it is absent in CI. The workflow supplies the actual interpreter path from
+`setup-python`.
 
 ## Isolation and resource use
 
@@ -113,7 +135,10 @@ the actual interpreter path from `setup-python`.
 temporary directory before test collection. It seeds available skill/implant
 stores from this checkout and pins the embedding model from the environment,
 or from this checkout's `.env` when the environment has no override. It also
-redirects `AGENTS_ROUTER_DATA_DIR` away from live router state.
+redirects `AGENTS_ROUTER_DATA_DIR` away from live router state and removes an
+inherited `CLAUDE_PROJECT_DIR`, which Claude Code exports to the servers and
+hooks it starts. Otherwise that variable would outrank the working directory
+that client-root tests set and aim memory and flows at the live project.
 
 Tests that load retrievers may still initialize an embedding model during
 collection. A fresh worktree has no copied `.env` or `data/`, so it may need a
