@@ -1,4 +1,4 @@
-"""Agents-Core version string and the muted footer segment."""
+"""Agents-Core version string and the footer version segment."""
 import subprocess
 
 import pytest
@@ -117,8 +117,9 @@ def test_footer_has_version_and_no_url_under_stdio(monkeypatch):
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00")
     footer = persona.persona_footer(descriptor())
     assert footer.startswith("**Agent**: lawyer · **Skills**: skill-x · **Implants**: Imp · **Rules**: language-match")
-    assert footer.endswith(" · <sub>Agents-Core 26.10.01.0801</sub>")
+    assert footer.endswith(" · Agents-Core 26.10.01.0801")
     assert "http" not in footer
+    assert "<" not in footer and ">" not in footer
 
 
 def test_footer_link_under_daemon_uses_configured_port(monkeypatch):
@@ -126,8 +127,9 @@ def test_footer_link_under_daemon_uses_configured_port(monkeypatch):
     persona.configure_ui_port(9123)
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00")
     footer = persona.persona_footer(descriptor())
-    assert footer.endswith("<sub>Agents-Core 26.10.01.0801 · http://127.0.0.1:9123/ui</sub>")
+    assert footer.endswith(" · [Agents-Core 26.10.01.0801](http://127.0.0.1:9123/ui)")
     assert "?" not in footer and "#" not in footer
+    assert "<" not in footer and ">" not in footer
 
 
 def test_version_and_link_stay_out_of_the_descriptor(monkeypatch):

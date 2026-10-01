@@ -95,11 +95,12 @@ contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revisio
 metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
 declared) and `rules_loaded` (rule names). The footer shows these lists, then a
-muted `<sub>` segment with `Agents-Core <version>`. The version is the UTC commit
+plain Markdown segment `Agents-Core <version>`. The version is the UTC commit
 time of the installation's `HEAD` as `YY.MM.DD.HHMM` (`-dirty` when tracked files
 have uncommitted changes, `unknown` without git metadata), computed once per
-process by `src/version.py`. Under the shared daemon the segment also carries the
-bare web UI link `http://127.0.0.1:<port>/ui`; stdio servers show the version only.
+process by `src/version.py`. Under the shared daemon the version text is a link,
+`[Agents-Core <version>](http://127.0.0.1:<port>/ui)`, to the web UI; stdio servers
+show the version as plain text. The footer contains no HTML.
 The segment belongs to the installation, so it is not part of the descriptor or
 the revision. A `NO_CHANGE` response rebuilds its footer in the current process,
 but clients keep the footer saved with the active activation, so its segment
