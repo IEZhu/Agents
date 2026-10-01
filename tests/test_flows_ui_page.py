@@ -320,3 +320,18 @@ def test_the_contents_styles_hide_with_classes_and_reveal_on_hover():
     assert re.search(r"\.mdview \{[^}]*flex: 1[^}]*overflow: hidden", style)
     assert re.search(r"\.md-toc, \.md \{[^}]*overflow-y: auto", style)
     assert re.search(r"@media \(max-width: 760px\) \{[^@]*\.mdview \{[^}]*minmax\(0, 35%\)", style)
+
+
+def test_hostile_or_huge_input_neither_crashes_nor_stalls():
+    deep = render("- " * 3000 + "x")  # nesting is capped; the rest is shown as text
+    assert "<pre>" in deep["html"] and "x" in deep["html"]
+    assert "<pre>" in render("1. - > " * 900 + "x")["html"]
+    for hostile in ("_a " * 20000, "**a " * 20000, "[a " * 20000, "*a " * 20000):
+        assert render(hostile)["html"].startswith("<p>")  # the harness call has a 60 s timeout
+    many = render("# a\n" * 5000)
+    assert many["headings"][-1]["id"] == "md-a-4999" and len({h["id"] for h in many["headings"]}) == 5000
+
+
+def test_empty_headings_and_a_byte_order_mark():
+    assert render("#\n\n# Real\n")["headings"][0]["text"] == ""
+    assert render("﻿---\npersona: x\n---\n# T\n")["meta"] == "persona: x"

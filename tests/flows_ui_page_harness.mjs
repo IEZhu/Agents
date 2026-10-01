@@ -246,10 +246,11 @@ if (scenario === "render") {
   for await (const chunk of process.stdin) chunks.push(chunk);
   const host = element("", "div");
   const rendered = context.renderMarkdown(Buffer.concat(chunks).toString("utf8"), host);
-  console.log(JSON.stringify({
+  const json = JSON.stringify({
     html: host.children.map(ser).join(""), meta: rendered.meta,
     headings: rendered.headings.map((h) => ({ level: h.level, text: h.text, id: h.id })),
-  }));
+  });
+  await new Promise((resolve) => process.stdout.write(json + "\n", resolve));  // a pipe may hold a large result back
   process.exit(0);
 }
 

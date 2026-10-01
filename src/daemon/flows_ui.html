@@ -275,7 +275,7 @@ async function loadList(select) {
   state.repos = data.repositories || [];
   state.loadedTab = "flows";
   renderList();
-  if (select) await openFlow(select.id, null, select.repo_key);
+  if (select) await openFlow(select.id, null, select.repo_key, select.keepView);
 }
 
 function addChip(parent, text, kind = "") {
@@ -410,7 +410,7 @@ function confirmDiscard() {
   return !state.dirty || confirm("Discard unsaved changes?");
 }
 
-async function openFlow(id, version, repo) {
+async function openFlow(id, version, repo, keepView) {
   if (!confirmDiscard()) return;
   const gen = ++state.gen;  // a newer selection supersedes an earlier one still loading
   const params = new URLSearchParams({ id });
@@ -432,8 +432,7 @@ async function openFlow(id, version, repo) {
   state.category = data.flow.source === "builtin" ? "system" : "user";
   $("content").value = data.content;
   showEditor();
-  setEditorView(state.keepView ? state.view : "rendered");
-  state.keepView = false;
+  setEditorView(keepView ? state.view : "rendered");
   renderHistory(data.history || []);
   setDirty(false);
   notice(data.flow.upstream_changed ? "The built-in flow changed since this copy was saved. Compare with “Show built-in”." : "");
@@ -509,8 +508,7 @@ async function save() {
   try {
     const result = await api("/ui/api/flow", { method: "PUT", body });
     setDirty(false);
-    state.keepView = true;  // saving from Source stays in Source
-    try { await loadList({ id: result.flow.id, repo_key: result.flow.repo_key }); } finally { state.keepView = false; }
+    await loadList({ id: result.flow.id, repo_key: result.flow.repo_key, keepView: true });  // saving from Source stays in Source
     notice(result.status === "unchanged" ? "No changes." : "Saved.", "ok");
   } catch (error) {
     if (error.status === 409) {
@@ -742,6 +740,11 @@ function mdLink(text, i) {
   return { label: text.slice(i + 1, j), url: m[1] !== undefined ? m[1] : m[2], next: j + 1 + m[0].length };
 }
 
+// Searching for a closer costs up to the rest of the text. Past this budget per document,
+// unmatched openers stay literal, so a hostile paragraph cannot freeze the page.
+const MD_WORK_LIMIT = 5000000;
+const mdAffordable = (ctx, text, i) => (ctx.work += text.length - i) <= MD_WORK_LIMIT;
+
 function mdAnchor(parent, label, url, ctx) {
   const link = mdEl("a", "", parent);
   link.setAttribute("href", url);
@@ -787,11 +790,11 @@ function mdInline(text, parent, ctx, inLink = false) {
       while (text[i + n] === "`") n++;
       buf += text.slice(i, i + n); i += n; continue;
     }
-    if (c === "!" && text[i + 1] === "[") {  // images are not loaded (CSP): show the alt text
+    if (c === "!" && text[i + 1] === "[" && mdAffordable(ctx, text, i)) {  // images are not loaded (CSP): show the alt text
       const link = mdLink(text, i + 1);
       if (link) { buf += mdPlain(link.label); i = link.next; continue; }
     }
-    if (c === "[" && !inLink) {
+    if (c === "[" && !inLink && mdAffordable(ctx, text, i)) {
       const link = mdLink(text, i);
       if (link) {
         flush();
@@ -819,7 +822,7 @@ function mdInline(text, parent, ctx, inLink = false) {
       while (text[i + n] === c) n++;
       const next = text[i + n] || " ", prev = text[i - 1] || " ";
       const canOpen = (c === "~" ? n === 2 : n <= 3) && !/\s/.test(next) && (c !== "_" || !/[A-Za-z0-9]/.test(prev));
-      const close = canOpen ? mdClose(text, i + n, c.repeat(n)) : -1;
+      const close = canOpen && mdAffordable(ctx, text, i) ? mdClose(text, i + n, c.repeat(n)) : -1;
       if (close > 0) {
         flush();
         let host = parent;
@@ -837,8 +840,9 @@ function mdInline(text, parent, ctx, inLink = false) {
 function mdHeading(level, text, parent, ctx) {
   const node = mdEl("h" + level, "", parent);
   const plain = mdPlain(text), base = "md-" + (mdSlug(plain) || "section");
-  let id = base, n = 1;
-  while (ctx.ids.has(id)) id = base + "-" + n++;
+  const seen = ctx.seen.get(base) || 0;  // GitHub style: base, base-1, base-2
+  ctx.seen.set(base, seen + 1);
+  const id = seen ? base + "-" + seen : base;
   node.setAttribute("id", id);
   ctx.ids.set(id, node);
   mdInline(text, node, ctx);
@@ -916,7 +920,18 @@ function mdList(lines, i, parent, ctx) {
   return i;
 }
 
+const MD_MAX_DEPTH = 40;
+
 function mdBlocks(lines, parent, ctx) {
+  if (ctx.depth >= MD_MAX_DEPTH) {  // deeper nesting is shown as text, so the recursion stays bounded
+    mdText(lines.join("\n"), mdEl("pre", "", parent));
+    return;
+  }
+  ctx.depth++;
+  try { mdBlocksAt(lines, parent, ctx); } finally { ctx.depth--; }
+}
+
+function mdBlocksAt(lines, parent, ctx) {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -966,8 +981,8 @@ function mdBlocks(lines, parent, ctx) {
 // Replaces the children of `host` with the rendered document. Returns its headings (with their
 // elements) and the raw frontmatter text, or null.
 function renderMarkdown(text, host) {
-  const ctx = { ids: new Map(), headings: [] };
-  let lines = String(text).replace(/\r\n?/g, "\n").split("\n"), meta = null;
+  const ctx = { ids: new Map(), seen: new Map(), headings: [], work: 0, depth: 0 };
+  let lines = String(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n"), meta = null;
   if (/^---[ \t]*$/.test(lines[0])) {
     const end = lines.findIndex((line, k) => k > 0 && /^(?:---|\.\.\.)[ \t]*$/.test(line));
     if (end > 0 && lines.slice(1, end).some((line) => /^[\w-]+:/.test(line))) {
@@ -981,7 +996,13 @@ function renderMarkdown(text, host) {
     mdText("Metadata", mdEl("summary", "", details));
     mdText(meta, mdEl("pre", "", details));
   }
-  mdBlocks(lines, host, ctx);
+  try {
+    mdBlocks(lines, host, ctx);
+  } catch (_) {  // never leave a half-built view: show the text as it is
+    host.replaceChildren();
+    mdText(String(text), mdEl("pre", "", host));
+    return { headings: [], meta: null };
+  }
   return { headings: ctx.headings, meta };
 }
 
@@ -1028,8 +1049,8 @@ function createMdView(id, section, button) {
     root.classList.remove("hidden");
     if (view.text !== text) {
       view.text = text;
-      view.headings = renderMarkdown(text, doc).headings.filter((h) => h.level <= 4);
-      const top = Math.min(...view.headings.map((h) => h.level));
+      view.headings = renderMarkdown(text, doc).headings.filter((h) => h.level <= 4 && h.text);
+      const top = view.headings.reduce((low, h) => Math.min(low, h.level), 6);
       list.replaceChildren();
       for (const h of view.headings) {
         const item = mdEl("button", "md-toc-item md-l" + (h.level - top + 1), list);
