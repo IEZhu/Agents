@@ -19,6 +19,7 @@ import asyncio
 import dotenv
 from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
 from src.engine.fingerprint import configuration_revision
+from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability
@@ -596,6 +597,8 @@ async def load_implants(
                 lambda: implant_retriever.retrieve(query=query, n_results=limit),
             )
 
+        off = component_toggles.disabled("implants")
+        implants = [i for i in implants if i["filename"].removesuffix(".mdc") not in off]
         result = implant_retriever.format_implants_for_prompt(implants)
         debug_log("load_implants", "res", {"implant_count": len(implants), "result_len": len(result)})
         return result

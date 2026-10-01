@@ -302,3 +302,7 @@ not replace a protocol 2 persona descriptor or its footer.
 - **Be explicit**: Clear step-by-step instructions
 - **Include examples**: When the pattern is complex
 - **Use sparingly**: Too many implants increase context size
+
+## Switching implants off
+
+The local web UI (`python -m src.daemon flows-ui`, tab *Implants*) lists every implant and can switch it off for the whole installation without touching the file. A switched-off implant is skipped in persona bundles and by `load_implants`. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).

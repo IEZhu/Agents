@@ -40,6 +40,11 @@ removed, renamed or reprioritized.
 - `RULES_ENABLED=0` in the environment or the installation `.env` disables the
   layer for diagnostics: bundles carry an empty `rules_block`, and the footer shows
   `—` for `Rules`. See [environment variables](../README.md#environment-variables).
+- The local web UI (`python -m src.daemon flows-ui`, tab *Rules*) can switch single
+  rules off for the whole installation. A switched-off rule leaves persona bundles
+  and the footer; its file is untouched, and switching every rule off gives an empty
+  `rules_block` like `RULES_ENABLED=0`. The per-query path used by the evaluation
+  harnesses ignores the switches. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 
 ## Frontmatter
 
