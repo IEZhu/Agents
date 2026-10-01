@@ -28,7 +28,8 @@ removed, renamed or reprioritized.
   in `rules_block`, which follows `persona_block` and precedes the skill and
   implant blocks. There is no semantic retrieval or index. The block states that a
   rule wins where persona, skill or implant text conflicts with it. The descriptor's
-  `rules_loaded` and the footer's `Rules` list the rule names.
+  `rules_loaded` and the footer's `Rules` list the rule names. The footer's muted
+  `Agents-Core <version>` segment follows the labelled lists and is not a rule.
 - Rules are sorted by `priority` (ascending), then by `name`.
 - Bundle assembly re-reads the files for every bundle in strict mode. An invalid
   rule, a duplicate `name` or an empty rule set makes every activation return

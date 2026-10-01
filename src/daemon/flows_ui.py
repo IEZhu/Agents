@@ -8,6 +8,7 @@ loopback Host; mutations also need a matching Origin and the ``X-Agents-UI``
 header, which a cross-site form cannot send.
 """
 import asyncio
+import html
 import json
 import secrets
 import time
@@ -18,6 +19,7 @@ from starlette.responses import HTMLResponse, JSONResponse
 
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
+from src.version import agents_core_version
 from .state import read_json
 from .workspaces import WorkspaceError
 
@@ -75,7 +77,8 @@ class FlowsUI:
             return await self._json({"error": "host_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui" and request.method == "GET":
             nonce = secrets.token_urlsafe(16)
-            page = PAGE.read_text(encoding="utf-8").replace("{{NONCE}}", nonce)
+            page = PAGE.read_text(encoding="utf-8").replace("{{NONCE}}", nonce).replace(
+                "{{VERSION}}", html.escape(agents_core_version()))
             headers = {
                 "Content-Security-Policy": (
                     f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
