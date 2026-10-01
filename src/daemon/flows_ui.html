@@ -71,6 +71,53 @@ textarea[readonly] { color: var(--muted); }
 .detail { display: flex; flex-direction: column; gap: 10px; }
 .detail p { margin: 0; }
 .detail .pane { flex: 1; min-height: 12rem; }
+.seg.inline { margin: 0; }
+.seg.inline button { flex: none; }
+.mdview { position: relative; display: grid; grid-template-columns: 15rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  gap: 16px; flex: 1; min-height: 12rem; overflow: hidden; }
+.mdview.no-toc, .mdview.toc-hidden { grid-template-columns: minmax(0, 1fr); }
+.md-toc, .md { min-height: 0; overflow-y: auto; }
+.md-toc { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 8px; }
+.md-toc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.md-toc-head .grow { flex: 1; }
+.md-toc-head button { font-size: 12px; padding: 2px 8px; }
+.md-toc-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; border-radius: 4px; }
+.md-toc-item:hover { background: var(--chip); }
+.md-toc-item.md-l2 { padding-left: 16px; }
+.md-toc-item.md-l3 { padding-left: 26px; }
+.md-toc-item.md-l4 { padding-left: 36px; }
+.md-edge { display: none; }
+.mdview.toc-hidden .md-edge { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 12px; z-index: 2; }
+.mdview.toc-hidden .md-toc { position: absolute; left: 0; top: 0; bottom: 0; width: min(15rem, 85%); z-index: 3;
+  transform: translateX(-105%); box-shadow: 0 2px 12px rgba(0, 0, 0, .25); }
+.mdview.toc-hidden .md-edge:hover ~ .md-toc, .mdview.toc-hidden .md-toc:hover, .mdview.toc-hidden .md-toc:focus-within { transform: none; }
+.mdview.no-toc .md-toc, .mdview.no-toc .md-edge { display: none; }
+.md { padding: 4px 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.2em 0 .5em; line-height: 1.25; }
+.md h1 { font-size: 1.6em; border-bottom: 1px solid var(--line); padding-bottom: .25em; }
+.md h2 { font-size: 1.35em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.md h3 { font-size: 1.15em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+.md p, .md ul, .md ol, .md blockquote, .md pre, .md .md-table, .md .md-meta { margin: 0 0 .8em; }
+.md ul, .md ol { padding-left: 1.6em; }
+.md li > p { margin: 0; }
+.md li > ul, .md li > ol { margin: .2em 0 0; }
+.md li.md-task { list-style: none; margin-left: -1.4em; }
+.md code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--chip); padding: 1px 4px; border-radius: 4px; }
+.md pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { border-left: 3px solid var(--line); padding: 0 12px; color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--line); }
+.md a { color: var(--accent); }
+.md-table { overflow-x: auto; }
+.md table { border-collapse: collapse; }
+.md th, .md td { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; }
+.md th { background: var(--chip); text-align: left; }
+.md .md-center { text-align: center; }
+.md .md-right { text-align: right; }
+.md-meta { color: var(--muted); }
+.md-meta pre { margin: 6px 0 0; }
 details.persona { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
 details.persona summary { cursor: pointer; }
 .persona-bar { margin-top: 10px; }
@@ -86,6 +133,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); }
   nav { border-right: 0; border-bottom: 1px solid var(--line); }
   .panes.split { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(12rem, 1fr)); }
+  .mdview { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
+  .mdview.no-toc, .mdview.toc-hidden { grid-template-rows: minmax(0, 1fr); }
 }
 </style>
 </head>
@@ -110,16 +159,18 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div id="items"><div class="empty">Loading…</div></div>
   </nav>
   <section id="component" class="hidden detail">
-    <div class="bar"><strong id="c-title" class="grow"></strong><button id="c-toggle" class="primary"></button></div>
+    <div class="bar"><strong id="c-title" class="grow"></strong><div id="c-seg" class="seg inline" role="group" aria-label="Body view"></div><button id="c-toc" class="hidden" aria-pressed="false">Contents</button><button id="c-toggle" class="primary"></button></div>
     <div id="c-meta" class="meta"></div>
     <p id="c-description"></p>
     <div id="c-warning" class="notice hidden"></div>
     <div class="notice">Changes apply to the next bundle the server builds: a new conversation, a switch to another agent, a restore, or a refresh whose revision changed. Conversations that are already active keep their current bundle. Files are never changed.</div>
-    <div class="pane"><label for="c-body">Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
+    <div class="pane hidden" id="c-source"><label for="c-body">Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
   </section>
   <section id="editor" class="hidden">
     <div class="bar">
       <strong id="title" class="grow"></strong>
+      <div id="e-seg" class="seg inline" role="group" aria-label="Flow view"></div>
+      <button id="e-toc" class="hidden" aria-pressed="false">Contents</button>
       <select id="history" title="Saved versions"></select>
       <button id="toggle-upstream" class="hidden">Show built-in</button>
       <button id="copy-user" class="hidden">Edit copy for me</button>
@@ -244,7 +295,7 @@ async function loadList(select) {
   state.repos = data.repositories || [];
   state.loadedTab = "flows";
   renderList();
-  if (select) await openFlow(select.id, null, select.repo_key);
+  if (select) await openFlow(select.id, null, select.repo_key, select.view);
 }
 
 function addChip(parent, text, kind = "") {
@@ -379,7 +430,7 @@ function confirmDiscard() {
   return !state.dirty || confirm("Discard unsaved changes?");
 }
 
-async function openFlow(id, version, repo) {
+async function openFlow(id, version, repo, view) {
   if (!confirmDiscard()) return;
   const gen = ++state.gen;  // a newer selection supersedes an earlier one still loading
   const params = new URLSearchParams({ id });
@@ -391,6 +442,7 @@ async function openFlow(id, version, repo) {
     // Viewing an old version keeps the current identity and revision, so saving restores it.
     $("content").value = data.content;
     setDirty(true);
+    setEditorView("source");
     notice("Loaded version " + version + ". Save to restore it as the current text.");
     return;
   }
@@ -400,6 +452,7 @@ async function openFlow(id, version, repo) {
   state.category = data.flow.source === "builtin" ? "system" : "user";
   $("content").value = data.content;
   showEditor();
+  setEditorView(view || "rendered");
   renderHistory(data.history || []);
   setDirty(false);
   notice(data.flow.upstream_changed ? "The built-in flow changed since this copy was saved. Compare with “Show built-in”." : "");
@@ -476,7 +529,7 @@ async function save() {
   try {
     const result = await api("/ui/api/flow", { method: "PUT", body });
     setDirty(false);
-    await loadList({ id: result.flow.id, repo_key: result.flow.repo_key });
+    await loadList({ id: result.flow.id, repo_key: result.flow.repo_key, view: state.view });  // saving from Source stays in Source
     notice(result.status === "unchanged" ? "No changes." : "Saved.", "ok");
   } catch (error) {
     if (error.status === 409) {
@@ -485,6 +538,7 @@ async function save() {
         showSide("Saved by someone else — merge into your text, then save again", current.content);
         state.current = current.flow;
         if (state.draft) { state.draft = null; }
+        setEditorView("source");
       } catch (_) {}
       notice("This flow changed elsewhere (chat or another window). Your text is kept on the left.", "error");
     } else {
@@ -516,7 +570,7 @@ async function copyBuiltin(scope) {
   const bare = flow.id.replace(/^builtin:/, "");
   if (scope === "user") {
     const existing = state.flows.find((f) => f.id === "user:" + bare);
-    if (existing) return openFlow(existing.id);
+    if (existing) return openFlow(existing.id, null, undefined, "source");
     startDraft("user", bare, "", "builtin:" + bare, flow.title);
     return afterCopy(scope);
   }
@@ -527,6 +581,7 @@ async function copyBuiltin(scope) {
 function afterCopy(scope) {
   state.upstream = { content: state.upstreamText };
   showEditor();
+  setEditorView("source");
   setDirty(true);
   notice("Editing a local copy. Saving it replaces the built-in flow " + (scope === "repo" ? "in the chosen repository." : "for you everywhere."));
 }
@@ -593,7 +648,7 @@ $("create").addEventListener("close", () => {
   state.upstream = null;
   startDraft(scope, id, workspace);
   $("content").value = TEMPLATE;
-  showEditor(); setDirty(true); notice("");
+  showEditor(); setEditorView("source"); setDirty(true); notice("");
 });
 
 $("content").addEventListener("input", () => {
@@ -612,10 +667,513 @@ $("history").addEventListener("change", (event) => {
 });
 $("toggle-upstream").addEventListener("click", () => {
   if (!$("side").classList.contains("hidden")) return hideSide();
+  setEditorView("source");
   showSide("Current built-in flow", state.upstream.content);
   $("toggle-upstream").textContent = "Hide built-in";
 });
 
+// --- Markdown view -----------------------------------------------------------------------
+
+// A small renderer for the documents this page shows. It builds nodes with createElement,
+// createTextNode and setAttribute only; document text is never parsed as markup, so markup in it
+// stays inert text. Syntax it does not know (raw HTML, images, reference links) degrades to
+// readable text, and the Source view is one click away.
+const SAFE_LINK = /^(?:https?:\/\/\S+|#\S*)$/i;
+const PUNCT = /[!-\/:-@\[-`{-~]/;
+const MD = {
+  fence: /^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$/,
+  atx: /^ {0,3}(#{1,6})(?=[ \t]|$)/,
+  hr: /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/,
+  quote: /^ {0,3}>/,
+  item: /^( {0,3})([-*+]|\d{1,9}[.)])(?:[ \t]+(.*))?$/,
+  setext: /^ {0,3}(=+|-+)[ \t]*$/,
+  delim: /^ *\|? *:?-+:? *(?:\| *:?-+:? *)*\|? *$/,
+};
+
+// An ATX heading line as {level, text}, or null. Trimmed by hand: a regex with a lazy group
+// and an optional closing run backtracks quadratically on long runs of spaces.
+function mdAtx(line) {
+  const m = MD.atx.exec(line);
+  if (!m) return null;
+  let text = line.slice(m[0].length).trim(), end = text.length;
+  while (end > 0 && text[end - 1] === "#") end--;
+  if (end < text.length && (end === 0 || text[end - 1] === " " || text[end - 1] === "\t")) text = text.slice(0, end).trimEnd();
+  return { level: m[1].length, text };
+}
+
+function mdEl(tag, className, parent) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function mdText(text, parent) { parent.appendChild(document.createTextNode(text)); }
+
+const mdIndent = (line) => line.length - line.trimStart().length;
+
+const mdSlug = (plain) => plain.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").trim().replace(/\s+/g, "-");
+
+// The code span that starts at `i`, or null: a backtick run closes at the next run of equal length.
+// The scan is charged to the document's work budget (`ctx.work`); once it is spent, runs stay literal.
+function mdCodeSpan(text, i, ctx) {
+  if (ctx.work > MD_WORK_LIMIT) return null;
+  let n = 0;
+  while (text[i + n] === "`") n++;
+  for (let j = i + n; j < text.length;) {
+    const k = text.indexOf("`", j);
+    if (k < 0) { ctx.work += text.length - i; return null; }
+    let m = 0;
+    while (text[k + m] === "`") m++;
+    if (m === n) { ctx.work += k - i; return { start: i + n, end: k, next: k + n }; }
+    j = k + m;
+  }
+  ctx.work += text.length - i;
+  return null;
+}
+
+// The index of the delimiter run that closes an emphasis opened before `from`, or -1.
+function mdClose(text, from, delim, ctx) {
+  const d = delim[0], len = delim.length;
+  for (let i = from; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\\") { i++; continue; }
+    if (c === "`") {
+      const span = mdCodeSpan(text, i, ctx);
+      if (span) i = span.next - 1;
+      else while (text[i + 1] === "`") i++;
+      continue;
+    }
+    if (c !== d) continue;
+    let n = 0;
+    while (text[i + n] === d) n++;
+    const after = text[i + n] || "";
+    if (n === len && i > from && !/\s/.test(text[i - 1]) && !(d === "_" && /[A-Za-z0-9]/.test(after))) return i;
+    i += n - 1;
+  }
+  return -1;
+}
+
+// `[label](url "title")` starting at `i`: the label text, the URL and where it ends, or null.
+function mdLink(text, i, ctx) {
+  let depth = 0, j = i;
+  for (; j < text.length; j++) {
+    const c = text[j];
+    if (c === "\\") { j++; continue; }
+    if (c === "`") {
+      const span = mdCodeSpan(text, j, ctx);
+      if (span) j = span.next - 1;
+      else while (text[j + 1] === "`") j++;  // an unmatched run is skipped whole
+      continue;
+    }
+    if (c === "[") depth++;
+    else if (c === "]" && --depth === 0) break;
+  }
+  if (j >= text.length || text[j + 1] !== "(") return null;
+  const m = /^\(\s*(?:<([^<>\n]*)>|([^\s()]*(?:\([^\s()]*\)[^\s()]*)*))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/.exec(text.slice(j + 1));
+  if (!m) return null;
+  return { label: text.slice(i + 1, j), url: m[1] !== undefined ? m[1] : m[2], next: j + 1 + m[0].length };
+}
+
+// Searching for a closer costs up to the rest of the text. Past this budget per document,
+// unmatched openers stay literal, so a hostile paragraph cannot freeze the page.
+const MD_WORK_LIMIT = 5000000;
+const mdAffordable = (ctx, text, i) => (ctx.work += text.length - i) <= MD_WORK_LIMIT;
+
+function mdAnchor(parent, label, url, ctx) {
+  const link = mdEl("a", "", parent);
+  link.setAttribute("href", url);
+  if (url[0] === "#") {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      let name = url.slice(1);
+      try { name = decodeURIComponent(name); } catch (_) {}
+      const target = ctx.ids.get("md-" + name.toLowerCase());
+      if (target) target.scrollIntoView({ block: "start" });
+    });
+  } else {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+  mdInline(label, link, ctx, true);
+}
+
+function mdInline(text, parent, ctx, inLink = false) {
+  let buf = "";
+  const flush = () => { if (buf) { mdText(buf, parent); buf = ""; } };
+  for (let i = 0; i < text.length;) {
+    const c = text[i];
+    if (c === "\\" && i + 1 < text.length) {
+      if (text[i + 1] === "\n") { flush(); mdEl("br", "", parent); i += 2; continue; }
+      if (PUNCT.test(text[i + 1])) { buf += text[i + 1]; i += 2; continue; }
+    }
+    if (c === "\n") {
+      let end = buf.length;  // buf holds at most the current line: it is flushed at every break
+      while (end > 0 && buf[end - 1] === " ") end--;
+      const hard = buf.length - end >= 2;
+      buf = buf.slice(0, end) + (hard ? "" : " ");
+      flush();
+      if (hard) mdEl("br", "", parent);
+      i++; continue;
+    }
+    if (c === "`") {
+      const span = mdCodeSpan(text, i, ctx);
+      if (span) {
+        flush();
+        let code = text.slice(span.start, span.end).replace(/\n/g, " ");
+        if (code.length > 2 && code[0] === " " && code[code.length - 1] === " " && code.trim()) code = code.slice(1, -1);
+        mdText(code, mdEl("code", "", parent));
+        i = span.next; continue;
+      }
+      let n = 0;
+      while (text[i + n] === "`") n++;
+      buf += text.slice(i, i + n); i += n; continue;
+    }
+    if (c === "!" && text[i + 1] === "[" && mdAffordable(ctx, text, i)) {  // images are not loaded (CSP): show the alt text
+      const link = mdLink(text, i + 1, ctx);
+      if (link) {  // the alt text as the inline parser reads it: only real markers disappear
+        const alt = document.createElement("span");
+        mdInline(link.label, alt, ctx, true);
+        buf += mdNodeText(alt);
+        i = link.next; continue;
+      }
+    }
+    if (c === "[" && !inLink && mdAffordable(ctx, text, i)) {
+      const link = mdLink(text, i, ctx);
+      if (link) {
+        flush();
+        if (SAFE_LINK.test(link.url)) mdAnchor(parent, link.label, link.url, ctx);
+        else mdInline(link.label, parent, ctx, true);  // relative paths and other schemes stay text
+        i = link.next; continue;
+      }
+    }
+    if (c === "<" && !inLink) {
+      const auto = /^<(https?:\/\/[^\s<>]+)>/i.exec(text.slice(i));
+      if (auto) { flush(); mdAnchor(parent, auto[1], auto[1], ctx); i += auto[0].length; continue; }
+    }
+    if (c === "h" && !inLink && !/[A-Za-z0-9]/.test(text[i - 1] || " ")) {
+      const bare = /^https?:\/\/[^\s<]+/i.exec(text.slice(i));
+      if (bare) {
+        let url = bare[0].replace(/[.,;:!?*_'"]+$/, "");
+        let balance = url.split(")").length - url.split("(").length;  // counted once: closers beyond the openers are trimmed
+        while (balance > 0 && url.endsWith(")")) { url = url.slice(0, -1); balance--; }
+        if (/^https?:\/\/[^\s/.]/i.test(url)) {
+          flush(); mdAnchor(parent, url, url, ctx); i += url.length; continue;
+        }
+      }
+    }
+    if (c === "*" || c === "_" || c === "~") {
+      let n = 0;
+      while (text[i + n] === c) n++;
+      const next = text[i + n] || " ", prev = text[i - 1] || " ";
+      const canOpen = (c === "~" ? n === 2 : n <= 3) && !/\s/.test(next) && (c !== "_" || !/[A-Za-z0-9]/.test(prev));
+      const close = canOpen && mdAffordable(ctx, text, i) ? mdClose(text, i + n, c.repeat(n), ctx) : -1;
+      if (close > 0) {
+        flush();
+        let host = parent;
+        for (const tag of c === "~" ? ["del"] : n === 3 ? ["strong", "em"] : n === 2 ? ["strong"] : ["em"]) host = mdEl(tag, "", host);
+        mdInline(text.slice(i + n, close), host, ctx, inLink);
+        i = close + n; continue;
+      }
+      buf += text.slice(i, i + n); i += n; continue;
+    }
+    buf += c; i++;
+  }
+  flush();
+}
+
+// The visible text of a rendered node: the table of contents and anchors use what the heading shows.
+function mdNodeText(node) {
+  if (node.nodeType === 3) return node.textContent;
+  if (node.tagName === "BR" || node.tag === "br") return " ";
+  const kids = node.childNodes || node.children || [];
+  let text = kids.length ? "" : node.textContent || "";
+  for (const child of kids) text += mdNodeText(child);
+  return text;
+}
+
+function mdHeading(level, text, parent, ctx) {
+  const node = mdEl("h" + level, "", parent);
+  mdInline(text, node, ctx);
+  const plain = mdNodeText(node).replace(/\s+/g, " ").trim(), base = "md-" + (mdSlug(plain) || "section");
+  const seen = ctx.seen.get(base) || 0;  // GitHub style: base, base-1, base-2
+  ctx.seen.set(base, seen + 1);
+  const id = seen ? base + "-" + seen : base;
+  node.setAttribute("id", id);
+  ctx.ids.set(id, node);
+  ctx.headings.push({ level, text: plain, id, el: node });
+}
+
+// Whether a line ends a paragraph: a fence, heading, rule, quote or a list item with text.
+function mdStarts(line) {
+  if (MD.fence.test(line) || MD.atx.test(line) || MD.hr.test(line) || MD.quote.test(line)) return true;
+  const m = MD.item.exec(line);
+  return !!m && !!m[3] && (!/\d/.test(m[2]) || parseInt(m[2], 10) === 1);
+}
+
+function mdCells(line) {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+  const cells = [];
+  let cur = "";
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "\\" && s[i + 1] === "|") { cur += "|"; i++; }
+    else if (s[i] === "|") { cells.push(cur.trim()); cur = ""; }
+    else cur += s[i];
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+// Renders the table that starts at `i` when its second line is a delimiter row; returns the next line.
+function mdTable(lines, i, parent, ctx) {
+  const head = mdCells(lines[i]), align = mdCells(lines[i + 1]);
+  if (head.length !== align.length) return -1;
+  const wrap = mdEl("div", "md-table", parent), table = mdEl("table", "", wrap);
+  const classes = align.map((a) => (a.startsWith(":") && a.endsWith(":") ? "md-center" : a.endsWith(":") ? "md-right" : ""));
+  const row = (cells, tag, host) => {
+    const tr = mdEl("tr", "", host);
+    head.forEach((_, k) => mdInline(cells[k] || "", mdEl(tag, classes[k], tr), ctx));
+  };
+  row(head, "th", mdEl("thead", "", table));
+  const body = mdEl("tbody", "", table);
+  for (i += 2; i < lines.length && lines[i].trim() && !mdStarts(lines[i]); i++) row(mdCells(lines[i]), "td", body);
+  return i;
+}
+
+// Renders the list that starts at `i` and returns the next line.
+function mdList(lines, i, parent, ctx) {
+  const first = MD.item.exec(lines[i]), ordered = /\d/.test(first[2]), base = first[1].length;
+  const list = mdEl(ordered ? "ol" : "ul", "", parent);
+  const number = parseInt(first[2], 10);
+  if (ordered && number !== 1) list.setAttribute("start", String(number));
+  const kind = (marker) => (ordered ? marker.slice(-1) : marker);
+  while (i < lines.length) {
+    const m = MD.item.exec(lines[i]);
+    if (!m || MD.hr.test(lines[i]) || /\d/.test(m[2]) !== ordered || m[1].length >= base + 2 || kind(m[2]) !== kind(first[2])) break;
+    const offset = m[1].length + m[2].length + 1, floor = Math.min(offset, base + 2);
+    const body = [m[3] || ""];
+    i++;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) {  // a blank line continues the item only when an indented line follows
+        let k = i;
+        while (k < lines.length && !lines[k].trim()) k++;
+        if (k < lines.length && mdIndent(lines[k]) >= floor) { for (; i < k; i++) body.push(""); continue; }
+        break;
+      }
+      const indent = mdIndent(line);
+      if (indent >= floor) { body.push(line.slice(Math.min(offset, indent))); i++; continue; }
+      if (MD.item.test(line) || mdStarts(line) || !body[body.length - 1]) break;
+      body.push(line.trim()); i++;  // lazy continuation of the item's paragraph
+    }
+    const task = /^\[([ xX])\][ \t]+/.exec(body[0]);
+    if (task) body[0] = (task[1] === " " ? "☐ " : "☑ ") + body[0].slice(task[0].length);
+    mdBlocks(body, mdEl("li", task ? "md-task" : "", list), ctx);
+  }
+  return i;
+}
+
+const MD_MAX_DEPTH = 40;
+// The first meaningful line of a YAML mapping: a plain or quoted key followed by a colon.
+const FRONTMATTER_KEY = /^\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s#'"?:-][^:\n]*?)[ \t]*:(?:\s|$)/;
+
+function mdBlocks(lines, parent, ctx) {
+  if (ctx.depth >= MD_MAX_DEPTH) {  // deeper nesting is shown as text, so the recursion stays bounded
+    mdText(lines.join("\n"), mdEl("pre", "", parent));
+    return;
+  }
+  ctx.depth++;
+  try { mdBlocksAt(lines, parent, ctx); } finally { ctx.depth--; }
+}
+
+function mdBlocksAt(lines, parent, ctx) {
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    let m = MD.fence.exec(line);
+    if (m && !(m[1][0] === "`" && m[2].includes("`"))) {
+      const indent = mdIndent(line), close = new RegExp("^ {0,3}" + m[1][0] + "{" + m[1].length + ",}[ \\t]*$"), body = [];
+      for (i++; i < lines.length && !close.test(lines[i]); i++) body.push(lines[i].slice(Math.min(indent, mdIndent(lines[i]))));
+      i++;
+      mdText(body.join("\n"), mdEl("code", "", mdEl("pre", "", parent)));
+      continue;
+    }
+    const atx = mdAtx(line);
+    if (atx) { mdHeading(atx.level, atx.text, parent, ctx); i++; continue; }
+    if (MD.hr.test(line)) { mdEl("hr", "", parent); i++; continue; }
+    if (MD.quote.test(line)) {
+      const inner = [];
+      for (; i < lines.length && lines[i].trim() && (MD.quote.test(lines[i]) || (inner.length && !mdStarts(lines[i]))); i++) {
+        inner.push(lines[i].replace(/^ {0,3}> ?/, ""));
+      }
+      mdBlocks(inner, mdEl("blockquote", "", parent), ctx);
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && lines[i + 1].includes("-") && MD.delim.test(lines[i + 1])) {
+      const next = mdTable(lines, i, parent, ctx);
+      if (next >= 0) { i = next; continue; }
+    }
+    if (/^(?: {4}|\t)/.test(line)) {
+      const body = [];
+      for (; i < lines.length && (!lines[i].trim() || /^(?: {4}|\t)/.test(lines[i])); i++) body.push(lines[i].replace(/^(?: {4}|\t)/, ""));
+      while (body.length && !body[body.length - 1].trim()) body.pop();
+      mdText(body.join("\n"), mdEl("code", "", mdEl("pre", "", parent)));
+      continue;
+    }
+    if (MD.item.test(line)) { i = mdList(lines, i, parent, ctx); continue; }
+    const para = [line.replace(/^[ \t]+/, "")];
+    let level = 0;
+    for (i++; i < lines.length && lines[i].trim(); i++) {
+      if (MD.setext.test(lines[i])) { level = lines[i].includes("=") ? 1 : 2; i++; break; }
+      if (mdStarts(lines[i])) break;
+      para.push(lines[i].replace(/^[ \t]+/, ""));
+    }
+    if (level) mdHeading(level, para.join(" "), parent, ctx);
+    else mdInline(para.join("\n").replace(/\s+$/, ""), mdEl("p", "", parent), ctx);
+  }
+}
+
+// Replaces the children of `host` with the rendered document. Returns its headings (with their
+// elements) and the raw frontmatter text, or null.
+function renderMarkdown(text, host) {
+  const ctx = { ids: new Map(), seen: new Map(), headings: [], work: 0, depth: 0 };
+  let lines = String(text).replace(/\r\n?/g, "\n").split("\n"), meta = null;
+  // Same contract as the server (split_flow_frontmatter): a block opened by `---` on the first
+  // line and closed by the next `---` line counts only when it reads as a YAML mapping.
+  if (/^---[ \t]*$/.test(lines[0])) {
+    const end = lines.findIndex((line, k) => k > 0 && /^---[ \t]*$/.test(line));
+    const first = end > 0 ? lines.slice(1, end).find((line) => line.trim() && !/^\s*#/.test(line)) : undefined;
+    if (first !== undefined && FRONTMATTER_KEY.test(first)) {
+      meta = lines.slice(1, end).join("\n");
+      lines = lines.slice(end + 1);
+    }
+  }
+  host.replaceChildren();
+  if (meta !== null) {
+    const details = mdEl("details", "md-meta", host);
+    mdText("Metadata", mdEl("summary", "", details));
+    mdText(meta, mdEl("pre", "", details));
+  }
+  try {
+    mdBlocks(lines, host, ctx);
+  } catch (_) {  // never leave a half-built view: show the text as it is
+    host.replaceChildren();
+    mdText(String(text), mdEl("pre", "", host));
+    return { headings: [], meta: null };
+  }
+  return { headings: ctx.headings, meta };
+}
+
+// --- the rendered view: the document, its table of contents and the controls that hide it --
+
+const TOC_KEY = "agents-ui-toc-hidden";
+const mdViews = [];
+
+function initialTocHidden() {
+  try {
+    const stored = localStorage.getItem(TOC_KEY);
+    if (stored === "1" || stored === "0") return stored === "1";
+  } catch (_) {}
+  try { return !!(window.matchMedia && window.matchMedia("(max-width: 760px)").matches); } catch (_) { return false; }
+}
+state.tocHidden = initialTocHidden();
+
+function setToc(hidden) {
+  state.tocHidden = hidden;
+  try { localStorage.setItem(TOC_KEY, hidden ? "1" : "0"); } catch (_) {}
+  for (const view of mdViews) view.apply();
+}
+
+// A view lives inside `section`; `button` is the toolbar's "Contents" control for it.
+function createMdView(id, section, button) {
+  const root = mdEl("div", "mdview hidden", section);
+  root.setAttribute("id", id);
+  mdEl("div", "md-edge", root).setAttribute("aria-hidden", "true");
+  const toc = mdEl("aside", "md-toc", root), head = mdEl("div", "md-toc-head", toc);
+  toc.setAttribute("aria-label", "Contents");
+  mdText("Contents", mdEl("strong", "grow", head));
+  const hide = mdEl("button", "md-toc-hide", head), list = mdEl("div", "md-toc-list", toc), doc = mdEl("article", "md", root);
+  const view = { root, doc, text: null, headings: [], shown: false };
+  view.apply = () => {
+    const has = view.headings.length > 0;
+    root.classList.toggle("no-toc", !has);
+    root.classList.toggle("toc-hidden", state.tocHidden);
+    hide.textContent = state.tocHidden ? "Keep open" : "Hide contents";
+    button.classList.toggle("hidden", !(has && view.shown));
+    button.setAttribute("aria-pressed", String(has && !state.tocHidden));
+  };
+  view.show = (text) => {
+    view.shown = true;
+    root.classList.remove("hidden");
+    if (view.text !== text) {
+      view.text = text;
+      view.headings = renderMarkdown(text, doc).headings.filter((h) => h.level <= 4 && h.text);
+      const top = view.headings.reduce((low, h) => Math.min(low, h.level), 6);
+      list.replaceChildren();
+      for (const h of view.headings) {
+        const item = mdEl("button", "md-toc-item md-l" + (h.level - top + 1), list);
+        item.textContent = h.text;
+        item.addEventListener("click", () => h.el.scrollIntoView({ block: "start" }));
+      }
+      doc.scrollTop = 0;
+    }
+    view.apply();
+  };
+  view.close = () => { view.shown = false; root.classList.add("hidden"); view.apply(); };
+  hide.addEventListener("click", () => {
+    setToc(!state.tocHidden);
+    if (state.tocHidden) button.focus();  // the hidden panel must not keep focus, or :focus-within keeps it open
+  });
+  button.addEventListener("click", () => setToc(!state.tocHidden));
+  mdViews.push(view);
+  return view;
+}
+
+// The Rendered / Source switch: buttons are built here so both places share one definition.
+function buildSeg(seg, pick) {
+  for (const [value, label] of [["rendered", "Rendered"], ["source", "Source"]]) {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.dataset.view = value;
+    button.addEventListener("click", () => pick(value));
+    seg.appendChild(button);
+  }
+}
+
+function markSeg(seg, value) {
+  for (const button of seg.children) {
+    button.classList.toggle("active", button.dataset.view === value);
+    button.setAttribute("aria-pressed", String(button.dataset.view === value));
+  }
+}
+
+const editorView = createMdView("e-view", $("editor"), $("e-toc"));
+const componentView = createMdView("c-view", $("component"), $("c-toc"));
+
+// The editor's textarea stays the single source of truth; Rendered shows its current text.
+function setEditorView(view) {
+  state.view = view;
+  $("panes").classList.toggle("hidden", view === "rendered");
+  markSeg($("e-seg"), view);
+  if (view === "rendered") editorView.show($("content").value);
+  else editorView.close();
+}
+
+function setComponentView(view) {
+  state.cview = view;
+  $("c-source").classList.toggle("hidden", view === "rendered");
+  markSeg($("c-seg"), view);
+  if (view === "rendered" && state.item) componentView.show(state.item.body || "");
+  else componentView.close();
+}
+
+buildSeg($("e-seg"), setEditorView);
+buildSeg($("c-seg"), setComponentView);
+markSeg($("e-seg"), "rendered");
+markSeg($("c-seg"), "rendered");
 // --- a flow's persona: agent and exact components -------------------------------------
 
 const PERSONA_KINDS = ["skills", "implants", "rules"];
@@ -778,7 +1336,7 @@ function renderComponentList(kind) {
       const small = document.createElement("small");
       small.textContent = item.description || item.id;
       button.appendChild(small);
-      button.addEventListener("click", () => { state.item = item; renderComponents(kind); });
+      button.addEventListener("click", () => { state.item = item; state.cview = "rendered"; renderComponents(kind); });
       nav.appendChild(button);
     }
   });
@@ -794,6 +1352,7 @@ function renderComponentDetail(kind) {
   $("c-title").textContent = item.id;
   $("c-description").textContent = item.description;
   $("c-body").value = item.body;
+  setComponentView(state.cview || "rendered");
   const parts = [];
   if (item.short_name) parts.push("short name " + item.short_name);
   if (item.category) parts.push("category " + item.category);
