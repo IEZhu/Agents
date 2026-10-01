@@ -98,13 +98,13 @@ def test_lsof_listing(monkeypatch, listing, expected):
     monkeypatch.setattr(peer.sys, "platform", "darwin")
     monkeypatch.setattr(peer.os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(peer.shutil, "which", lambda name, path=None: "/usr/sbin/lsof")
-    monkeypatch.setattr(peer.subprocess, "run", lambda args, **kwargs: seen.append(args) or
+    monkeypatch.setattr(peer.subprocess, "run", lambda args, **kwargs: seen.append((args, kwargs["check"])) or
                         subprocess.CompletedProcess(args, 0, stdout=listing, stderr=""))
     assert peer.loopback_peer_is_owner(CLIENT, SERVER) is expected
-    assert seen == [["/usr/sbin/lsof", "-nP", "-iTCP@127.0.0.1:54321", "-sTCP:ESTABLISHED", "-Fpun"]]
+    assert seen == [(["/usr/sbin/lsof", "-nP", "-iTCP@127.0.0.1:54321", "-sTCP:ESTABLISHED", "-Fpun"], True)]
 
 
-@pytest.mark.parametrize("failure", ["missing", "timeout", "oserror"])
+@pytest.mark.parametrize("failure", ["missing", "timeout", "oserror", "exit_status"])
 def test_lsof_failures_are_refusals(monkeypatch, failure):
     monkeypatch.setattr(peer.sys, "platform", "darwin")
     monkeypatch.setattr(peer.shutil, "which",
@@ -113,6 +113,8 @@ def test_lsof_failures_are_refusals(monkeypatch, failure):
     def run(args, **kwargs):
         if failure == "timeout":
             raise subprocess.TimeoutExpired(args, kwargs.get("timeout"))
+        if failure == "exit_status":  # even with a matching partial record on stdout
+            raise subprocess.CalledProcessError(1, args, output=f"p200\nu501\nf3\n{CLIENT_SIDE}\n")
         raise OSError("lsof failed")
 
     monkeypatch.setattr(peer.subprocess, "run", run)

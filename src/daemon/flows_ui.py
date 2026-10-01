@@ -204,33 +204,42 @@ class FlowsUI:
             body = await self._body(request)
         except FlowError:
             return self._json({"error": "code_invalid"}, 401)
+        refused = self._json({"error": "sign_in_required"}, 401)
         if "code" in body:
             code = body["code"]
             expiry = self.codes.pop(code, None) if isinstance(code, str) else None
             if expiry is None or expiry < time.monotonic():
                 return self._json({"error": "code_invalid"}, 401)
-        else:
-            if any(name in request.headers for name in FORWARDING_HEADERS) or \
-                    not await asyncio.to_thread(auto_sign_in_enabled, self.service.directory):
-                return self._json({"error": "sign_in_required"}, 401)
+        elif any(name in request.headers for name in FORWARDING_HEADERS) or \
+                not await asyncio.to_thread(auto_sign_in_enabled, self.service.directory):
+            return refused
+        try:
+            key = await asyncio.to_thread(self._session_key)
+        except OSError:
+            return self._json({"error": "session_key_unavailable"}, 500)
+        if "code" not in body:
             async with self._peer_lock:
                 owner = await asyncio.to_thread(self.peer_check, request.scope.get("client"),
                                                 request.scope.get("server"))
-            if not owner:
-                return self._json({"error": "sign_in_required"}, 401)
-        try:
-            cookie = await asyncio.to_thread(self._issue_session)
-        except OSError:
-            return self._json({"error": "session_key_unavailable"}, 500)
+            # `flows-ui --auto off` or `--revoke` may have run during the check. Refuse then;
+            # a later revocation still wins, because the cookie is signed with this key.
+            if not owner or not await asyncio.to_thread(self._still_admitted, key):
+                return refused
         response = self._json({"status": "ok"})
-        self._set_cookie(response, cookie)
+        self._set_cookie(response, self._new_cookie(key))
         return response
 
-    def _issue_session(self) -> str:
+    def _session_key(self) -> bytes:
         with self._key_lock:  # two first sign-ins must not each create a key
             if read_session_key(self.service.directory) is None:
                 replace_session_key(self.service.directory)
-        return self._new_cookie()
+            key = read_session_key(self.service.directory)
+        if key is None:
+            raise OSError("the session key cannot be read back")
+        return key
+
+    def _still_admitted(self, key: bytes) -> bool:
+        return auto_sign_in_enabled(self.service.directory) and read_session_key(self.service.directory) == key
 
     def _library(self, workspace: str | None, repo: str | None = None) -> FlowLibrary:
         """A library for one request.

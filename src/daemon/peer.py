@@ -98,7 +98,7 @@ def _lsof_peer_is_owner(client_port: int, server_port: int) -> bool:
         return False
     listed = subprocess.run(
         [lsof, "-nP", f"-iTCP@{LOOPBACK}:{client_port}", "-sTCP:ESTABLISHED", "-Fpun"],
-        capture_output=True, text=True, timeout=LSOF_TIMEOUT)
+        capture_output=True, text=True, timeout=LSOF_TIMEOUT, check=True)  # lsof exits 1 when nothing matches
     return lsof_owners(listed.stdout, client_port, server_port) == {os.getuid()}
 
 

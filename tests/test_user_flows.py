@@ -527,14 +527,12 @@ async def test_automatic_sign_in_for_the_daemon_user(editor):
 
 @pytest.mark.asyncio
 async def test_automatic_sign_in_refusals(editor):
-    from src.daemon import flows_ui as module
     http, _ = editor
     service = http._transport.app.state.service
     calls = peer_stub(service, False)
     response = await http.post("/ui/api/session", json={}, headers=UI)
     assert response.status_code == 401 and response.json() == {"error": "sign_in_required"}
     assert "set-cookie" not in response.headers and len(calls) == 1
-    assert not (service.directory / module.KEY_FILE).exists()
     assert (await http.get("/ui/api/flows")).status_code == 401
 
     calls = peer_stub(service, True)
@@ -609,3 +607,41 @@ def test_daemon_reports_the_real_socket_peer():
     assert len(calls) == 1
     keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in calls[0].keywords}
     assert keywords.get("proxy_headers") == "False"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during_check", ["auto_off", "revoke", "auto_off_and_revoke"])
+async def test_no_automatic_session_outlives_a_concurrent_switch_or_revoke(editor, during_check):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+
+    def check(client, server):  # `flows-ui --auto off` / `--revoke` run while the peer is checked
+        if "auto_off" in during_check:
+            module.set_auto_sign_in(service.directory, False)
+        if "revoke" in during_check:
+            module.replace_session_key(service.directory)
+        return True
+
+    service.flows_ui.peer_check = check
+    response = await http.post("/ui/api/session", json={}, headers=UI)
+    assert response.status_code == 401 and "set-cookie" not in response.headers
+    assert (await http.get("/ui/api/flows")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_a_revocation_right_after_the_check_still_ends_the_new_session(editor, monkeypatch):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    peer_stub(service, True)
+    admitted = service.flows_ui._still_admitted
+
+    def admitted_then_revoked(key):
+        result = admitted(key)
+        module.replace_session_key(service.directory)  # `--revoke` lands before the cookie is set
+        return result
+
+    monkeypatch.setattr(service.flows_ui, "_still_admitted", admitted_then_revoked)
+    assert (await http.post("/ui/api/session", json={}, headers=UI)).status_code == 200
+    assert (await http.get("/ui/api/flows")).status_code == 401  # signed with the revoked key

@@ -337,7 +337,9 @@ of yours that relays connections for others, such as Docker Desktop's
 `host.docker.internal` forwarding, `ssh -R` or a tunnel to port 8765, also
 passes. If that matters on your machine, `flows-ui --auto off` turns automatic
 sign-in off (the marker `ui_auto_sign_in_off` in the state directory) and
-`--auto on` turns it back on. A refused browser, for example one run by another
+`--auto on` turns it back on. An automatic sign-in still being checked when
+either command runs is refused, and its cookie is signed with the key read
+before the check, so a revocation always ends it. A refused browser, for example one run by another
 account, still signs in with the one-use code: the command obtains it
 (valid two minutes) with the service token and opens `/ui#code=...`. Either way
 the page receives an HttpOnly, SameSite=Strict cookie limited to `/ui`. The
