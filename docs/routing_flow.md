@@ -101,8 +101,9 @@ have uncommitted changes, `unknown` without git metadata), computed once per
 process by `src/version.py`. Under the shared daemon the segment also carries the
 bare web UI link `http://127.0.0.1:<port>/ui`; stdio servers show the version only.
 The segment belongs to the installation, so it is not part of the descriptor or
-the revision, and a `NO_CHANGE` footer keeps the segment of the activation it
-is rebuilt by the current process.
+the revision. A `NO_CHANGE` response rebuilds its footer in the current process,
+but clients keep the footer saved with the active activation, so its segment
+stays as issued until the next `SUCCESS`.
 The revision reflects the issued texts, resolved imports, the component lists and
 their order, plus the agent identity and scope used by the local suitability
 assessment.

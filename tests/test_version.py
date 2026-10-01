@@ -45,6 +45,14 @@ def test_unknown_without_own_git_metadata(monkeypatch, tmp_path):
     assert version.agents_core_version() == "unknown"
 
 
+def test_unknown_when_status_fails(monkeypatch):
+    def run(args, **kwargs):
+        code = 0 if "log" in args else 1
+        return subprocess.CompletedProcess(args, code, stdout="2026-10-01T08:01:00+00:00", stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    assert version.agents_core_version() == "unknown"
+
+
 def test_dirty_tree_is_marked(monkeypatch):
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00\n", " M src/x.py\n")
     assert version.agents_core_version() == "26.10.01.0801-dirty"

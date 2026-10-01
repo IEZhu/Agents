@@ -118,7 +118,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, init);
   let data = {};
   try { data = await response.json(); } catch (_) {}
-  if (response.status === 401) { const error = new Error("Session expired. Run: python -m src.daemon flows-ui"); error.signedOut = true; throw error; }
+  if (response.status === 401) { showSignIn(); const error = new Error("Session expired. Run: python -m src.daemon flows-ui"); error.signedOut = true; throw error; }
   if (!response.ok) { const error = new Error(data.error || response.statusText); error.status = response.status; throw error; }
   return data;
 }
@@ -402,7 +402,7 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
     await loadWorkspaces();
     await loadList();
   } catch (error) {
-    if (error.signedOut) { showSignIn(); return; }
+    if (error.signedOut) return;
     const nav = $("list");
     nav.replaceChildren();
     const message = document.createElement("div");

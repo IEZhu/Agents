@@ -33,7 +33,6 @@ def load_runtime(port):
     # Rule warmup runs the strict load that persona bundles use; failure prevents ready.
     get_rules(strict=True)
     configuration_revision()
-    agents_core_version()  # fix the value at startup, off the event loop
     server.mcp.settings.host = "127.0.0.1"
     server.mcp.settings.port = port
     from src.engine.persona import configure_ui_port
@@ -121,6 +120,8 @@ class Service:
     @asynccontextmanager
     async def lifespan(self, app):
         self.io = TrackedExecutor()
+        # Fix the version before the first request can compute it on the event loop.
+        await asyncio.to_thread(agents_core_version)
         asyncio.get_running_loop().set_default_executor(self.io)
         runtime = asyncio.create_task(self.start_runtime())
         diagnostics = asyncio.create_task(self.retain_diagnostics())

@@ -41,7 +41,10 @@ def agents_core_version() -> str:
     if not commit_time or not commit_time.strip():
         return UNKNOWN
     try:
-        dirty = bool((_git("status", "--porcelain", "--untracked-files=no") or "").strip())
+        status = _git("status", "--porcelain", "--untracked-files=no")
+        if status is None:
+            return UNKNOWN
+        dirty = bool(status.strip())
         return format_version(commit_time, dirty)
     except ValueError:
         return UNKNOWN
