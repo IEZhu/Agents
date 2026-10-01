@@ -187,6 +187,7 @@ def main(argv=None):
     audit.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
     flows_ui = commands.add_parser("flows-ui", help="open the local flow editor in a browser")
     flows_ui.add_argument("--no-open", action="store_true", help="print the one-use URL only")
+    flows_ui.add_argument("--revoke", action="store_true", help="end every browser session of the editor")
     workspace = commands.add_parser("workspace")
     workspace.add_argument("action", choices=["register", "list"]); workspace.add_argument("path", nargs="?")
     migrate = commands.add_parser("migrate")
@@ -252,13 +253,18 @@ def main(argv=None):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
+    elif args.command == "flows-ui" and args.revoke:
+        from .flows_ui import replace_session_key
+        with file_lock(controller.directory / "control.lock", blocking=False):
+            replace_session_key(private_dir(controller.directory))
+        result = {"state": "revoked", "note": "every browser must sign in again"}
     elif args.command == "flows-ui":
         result = controller.request("/admin/ui/code", method="POST")
         if "url" in result and not args.no_open:
             import webbrowser
             webbrowser.open(result["url"])
         result = {"url": result.get("url"), "error": result.get("error"),
-                  "note": "one-use link, valid for 2 minutes"}
+                  "note": "one-use link, valid for 2 minutes; the browser then stays signed in for 30 days after its last visit"}
     elif args.command == "auto-update":
         from . import autoupdate
         if args.action == "enable":

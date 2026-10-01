@@ -76,8 +76,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 </head>
 <body>
 <header>
-  <h1>Agents-Core</h1>
-  <span class="meta" id="version">Agents-Core {{VERSION}}</span>
+  <h1 id="version">Agents-Core {{VERSION}}</h1>
   <div class="tabs" id="tabs" role="group" aria-label="Settings sections">
     <button data-tab="flows" class="active" aria-pressed="true">Flows</button>
     <button data-tab="rules" aria-pressed="false">Rules</button>
@@ -86,7 +85,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   </div>
   <button id="new" class="primary">New flow</button>
 </header>
-<section id="signin" class="hidden"><h2>Sign in</h2><p>This page needs a fresh session. Sessions end after 30 minutes idle, after 8 hours, and when the daemon restarts or updates. Run this command in a terminal; it opens this page signed in:</p><p><code>python -m src.daemon flows-ui</code></p></section>
+<section id="signin" class="hidden"><h2>Sign in</h2><p>This browser has no valid session. One sign-in per browser is enough: the session lasts 30 days after your last visit and survives daemon restarts and updates. Run this command in a terminal; it opens this page signed in:</p><p><code>python -m src.daemon flows-ui</code></p></section>
 <main id="main">
   <nav id="list"><div class="empty">Loading…</div></nav>
   <section id="component" class="hidden detail">
@@ -143,7 +142,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, init);
   let data = {};
   try { data = await response.json(); } catch (_) {}
-  if (response.status === 401) { showSignIn(); const error = new Error("Session expired. Run: python -m src.daemon flows-ui"); error.signedOut = true; throw error; }
+  if (response.status === 401) { showSignIn(); const error = new Error("Not signed in. Run: python -m src.daemon flows-ui"); error.signedOut = true; throw error; }
   if (!response.ok) { const error = new Error(data.error || response.statusText); error.status = response.status; throw error; }
   return data;
 }

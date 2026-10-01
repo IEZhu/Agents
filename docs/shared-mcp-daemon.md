@@ -285,6 +285,7 @@ A request sent during the stop window fails and can be retried. After
 ```bash
 .venv/bin/python -m src.daemon flows-ui          # opens the browser
 .venv/bin/python -m src.daemon flows-ui --no-open
+.venv/bin/python -m src.daemon flows-ui --revoke  # end every browser session
 ```
 
 The daemon serves a local settings page at `/ui` with four tabs.
@@ -320,15 +321,25 @@ changed); conversations that keep their bundle are unaffected.
 
 Access is separate from MCP. The command obtains a one-use code (valid two
 minutes) with the service token and opens `/ui#code=...`; the page exchanges it
-for an HttpOnly, SameSite=Strict cookie limited to `/ui` (30 minutes idle, eight
-hours maximum). The browser never receives the bearer token, and the cookie
+for an HttpOnly, SameSite=Strict cookie limited to `/ui`. The browser never
+receives the bearer token, and the cookie
 cannot call `/mcp` or administration. Requests must use the loopback Host;
 changes also need a same-origin `Origin` and the `X-Agents-UI` header. The page
 loads no external assets and runs under a nonce-based Content Security Policy.
-Sessions live in daemon memory, so a restart requires running the command again.
-Opening `/ui` without a session shows a sign-in page that names the command. The
-header shows the Agents-Core version. The persona footer links to the bare
-`http://127.0.0.1:<port>/ui` address, which never carries a code.
+One sign-in per browser is enough. The cookie is signed (HMAC-SHA256) with a random
+key in the private state directory (`ui_session_key`, mode 600, never logged or
+served), so no session table exists and sessions survive daemon restarts and
+updates. A session lasts 30 days from the last visit: every editor API response
+sets a fresh cookie, so a browser that opens the page at least monthly stays
+signed in. `flows-ui --revoke` replaces the key, which ends every session at once
+(the daemon rereads the key on each request, so it works while the daemon runs).
+`token rotate` does not revoke editor sessions. A new browser profile, a cleared
+cookie or an expired window shows the sign-in page, which names the command. The
+header shows `Agents-Core <version>` once. The persona footer links the version to
+the bare The persona footer links to the bare
+`http://127.0.0.1:<port>/ui` address, which never carries a code. A copied valid
+cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
+`/ui` and useful only on the loopback port.
 
 ## Memory and errors
 

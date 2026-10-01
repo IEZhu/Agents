@@ -323,7 +323,9 @@ async def test_editor_access_control(editor):
     assert "{{VERSION}}" not in page.text
     from src.version import agents_core_version
     assert f"Agents-Core {agents_core_version()}" in page.text
+    assert page.text.count(f"Agents-Core {agents_core_version()}") == 1
     assert "python -m src.daemon flows-ui" in page.text  # sign-in page names the command
+    assert "one sign-in per browser" in page.text.lower()
     assert (await http.get("/ui/api/flows")).status_code == 401
     assert (await http.post("/admin/ui/code")).status_code == 401
     # The bearer token does not open the editor API, and the page is loopback-only.
@@ -367,3 +369,89 @@ async def test_editor_edits_flows_with_conflicts_and_repository_scope(editor, in
     assert (install / "review.md").read_text() == BUILTIN
     assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
                           capture_output=True, text=True).stdout == ""
+
+
+def cookie_of(response):
+    return response.headers["set-cookie"].split(";")[0].split("=", 1)[1]
+
+
+@pytest.mark.asyncio
+async def test_session_is_persistent_sliding_and_revocable(editor, tmp_path):
+    import stat
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    now = [1_800_000_000.0]
+    service.flows_ui.clock = lambda: now[0]
+    assert (await http.get("/ui/api/flows")).status_code == 401
+    code = await login(http)
+    key_path = service.directory / module.KEY_FILE
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    key = key_path.read_bytes()
+    first = (await http.get("/ui/api/flows")).headers["set-cookie"]
+    assert code not in first and key.hex() not in first
+
+    # One hour and more than eight hours idle: still signed in; each visit renews.
+    for step in (3600, 9 * 3600):
+        now[0] += step
+        assert (await http.get("/ui/api/flows")).status_code == 200
+    # A daemon restart or update builds a new instance over the same state directory.
+    restarted = module.FlowsUI(service, clock=lambda: now[0])
+    service.flows_ui = restarted
+    assert (await http.get("/ui/api/flows")).status_code == 200
+    # Day 20 renews the window, so day 40 is still inside it.
+    for step in (20 * 86400, 20 * 86400):
+        now[0] += step
+        assert (await http.get("/ui/api/flows")).status_code == 200
+    # Unused for more than 30 days: back to the sign-in page.
+    stale = http.cookies.get(module.COOKIE, path="/ui")
+    now[0] += module.SESSION_TTL + 1
+    assert (await http.get("/ui/api/flows")).status_code == 401
+    assert stale
+
+    # Forged, malformed and future-dated cookies are refused.
+    now[0] += 0
+    await login(http)
+    good = http.cookies.get(module.COOKIE, path="/ui")
+    issued, nonce, signature = good.split(".")
+    bad_values = [good[:-1] + ("0" if good[-1] != "0" else "1"), f"{issued}.{nonce}", "garbage", "",
+                  f"{int(issued) + 10_000}.{nonce}.{service.flows_ui._sign(key, f'{int(issued) + 10_000}.{nonce}')}",
+                  f"{issued}.{nonce}.{service.flows_ui._sign(b'x' * 32, f'{issued}.{nonce}')}"]
+    for value in bad_values:
+        http.cookies.clear()
+        http.cookies.set(module.COOKIE, value, domain="127.0.0.1", path="/ui")
+        assert (await http.get("/ui/api/flows")).status_code == 401, value
+
+    # Revocation: a new key invalidates the old cookie; a fresh sign-in works.
+    http.cookies.clear()
+    http.cookies.set(module.COOKIE, good, domain="127.0.0.1", path="/ui")
+    assert (await http.get("/ui/api/flows")).status_code == 200
+    module.replace_session_key(service.directory)
+    assert key_path.read_bytes() != key
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    assert (await http.get("/ui/api/flows")).status_code == 401
+    await login(http)
+    assert (await http.get("/ui/api/flows")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_session_key_stays_out_of_the_page_and_logs(editor, caplog):
+    from src.daemon import flows_ui as module
+    http, _ = editor
+    service = http._transport.app.state.service
+    await login(http)
+    key = (service.directory / module.KEY_FILE).read_bytes()
+    page = await http.get("/ui")
+    assert key.hex() not in page.text and key.hex() not in caplog.text
+    assert key.hex() not in (await http.get("/ui/api/flows")).text
+
+
+def test_flows_ui_revoke_replaces_the_key(tmp_path, monkeypatch, capsys):
+    from src.daemon import control, flows_ui as module
+    monkeypatch.setenv("AGENTS_SERVICE_DIR", str(tmp_path / "state"))
+    control.main(["flows-ui", "--revoke"])
+    first = (tmp_path / "state" / module.KEY_FILE).read_bytes()
+    control.main(["flows-ui", "--revoke"])
+    second = (tmp_path / "state" / module.KEY_FILE).read_bytes()
+    assert len(first) == len(second) == module.KEY_BYTES and first != second
+    assert '"revoked"' in capsys.readouterr().out
