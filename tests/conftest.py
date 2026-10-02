@@ -4,9 +4,9 @@ The checkout this suite runs from is usually also the live install: the shared
 daemon and stdio servers read ``data/skills_store.*``, ``data/implants_store.*``
 and their hash files from here. Two things used to let tests rewrite them:
 
-* ``src.engine.enrichment`` builds ``SkillRetriever()``/``ImplantRetriever()`` at
-  import time, and they reindex into ``DATA_DIR`` whenever the stored hash does
-  not match. pytest does not load ``.env``, so ``EMBEDDING_MODEL`` fell back to
+* ``src.engine.enrichment`` builds ``SkillRetriever()``/``ImplantRetriever()`` on
+  first use (``get_skill_retriever()``), and they reindex into ``DATA_DIR``
+  whenever the stored hash does not match. pytest does not load ``.env``, so ``EMBEDDING_MODEL`` fell back to
   MiniLM, the hash never matched, and the live stores were rebuilt under the
   wrong model.
 * ``src.self_update`` derives ``STATE_FILE``/``CHECK_STAMP``/``LOCK_FILE`` from
@@ -14,7 +14,7 @@ and their hash files from here. Two things used to let tests rewrite them:
   the live ``data/.last_update.json``.
 
 This runs at module level because pytest imports ``conftest.py`` before it
-collects test modules, and the retrievers bind their paths at import. It
+collects test modules, and the retrievers bind their paths when first built. It
 patches ``src.engine.config`` attributes instead of adding an environment hook:
 an env var would be inherited by the staged-update ``src.reindex`` subprocess
 (``src/self_update.py``) and redirect its stores out of the worktree.

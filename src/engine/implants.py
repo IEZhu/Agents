@@ -89,9 +89,9 @@ class ImplantRetriever:
             return True, current
 
     def _save_hash(self, digest: str = None):
-        os.makedirs(os.path.dirname(self.HASH_FILE), exist_ok=True)
-        with open(self.HASH_FILE, "w") as f:
-            f.write(digest or self._compute_dir_hash())
+        # Atomic: a kill mid-write must not leave a truncated hash behind.
+        from src.daemon.state import atomic_private
+        atomic_private(self.HASH_FILE, digest or self._compute_dir_hash())
 
     def index_implants(self):
         """

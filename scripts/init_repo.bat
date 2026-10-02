@@ -613,6 +613,16 @@ if defined CONFIGURED_ENVS (
     echo   %GREEN%^>%NC% You can configure MCP manually later
 )
 
+REM Claude Desktop (its Code tab included) also reads the Claude Code registry,
+REM so one session can start the server twice or more.
+set "_BOTH_CLIENTS=false"
+echo !CONFIGURED_ENVS! | findstr /C:"Claude-Desktop" >nul 2>&1
+if not errorlevel 1 (
+    echo !CONFIGURED_ENVS! | findstr /C:"Claude-Code" >nul 2>&1
+    if not errorlevel 1 set "_BOTH_CLIENTS=true"
+)
+if "!_BOTH_CLIENTS!"=="true" call :warn_duplicate_registration
+
 :mcp_done
 
 REM ============== Final Summary ==============
@@ -730,3 +740,12 @@ echo   ### Logs
 echo   ^<paste the last ~50 lines of output above^>
 echo(
 exit /b !_FATAL_EC!
+
+goto :eof
+
+:warn_duplicate_registration
+echo   %YELLOW%WARNING:%NC% Agents-Core is registered in both the Claude Desktop config and the Claude Code registry
+echo     Each client starts its own server process, so a Desktop session that uses Claude Code
+echo     can run several at once and slow every start. Keep one registration, and raise
+echo     MCP_TIMEOUT ^(milliseconds^) for Claude Code if the first start is still slow.
+goto :eof

@@ -5,8 +5,12 @@ Provides no-op fallbacks when Langfuse is not configured (missing keys or librar
 This allows the MCP server to run without Langfuse for observability.
 """
 
+import asyncio
+import functools
+import inspect
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -58,35 +62,81 @@ class _NoopContext:
         pass
 
 
-try:
-    from langfuse import Langfuse as _RealLangfuse
-    from langfuse import observe as _real_observe
+_init_lock = threading.Lock()
+_initialized = False
+_RealLangfuse = None
+_real_observe_ref = None
 
-    # Check if keys are actually configured
-    has_keys = keys_configured(os.getenv("LANGFUSE_PUBLIC_KEY"), os.getenv("LANGFUSE_SECRET_KEY"))
 
-    if has_keys:
-        _langfuse_available = True
-        _real_observe_ref = _real_observe
-        logger.info("Langfuse enabled (keys found)")
-    else:
-        _real_observe_ref = None
-        logger.info("Langfuse disabled (keys not configured)")
-except ImportError:
-    _real_observe_ref = None
-    logger.info("Langfuse disabled (library not installed)")
+def _has_keys() -> bool:
+    return keys_configured(os.getenv("LANGFUSE_PUBLIC_KEY"), os.getenv("LANGFUSE_SECRET_KEY"))
+
+
+def _init() -> None:
+    """Import the langfuse library on first real use, never at module import.
+
+    The import is slow, and the MCP handshake must not wait for it. Without
+    keys the library is not imported at all.
+    """
+    global _initialized, _langfuse_available, _RealLangfuse, _real_observe_ref
+    if _initialized:
+        return
+    with _init_lock:
+        if _initialized:
+            return
+        if not _has_keys():
+            logger.info("Langfuse disabled (keys not configured)")
+        else:
+            try:
+                from langfuse import Langfuse as real_langfuse
+                from langfuse import observe as real_observe
+                _RealLangfuse, _real_observe_ref = real_langfuse, real_observe
+                _langfuse_available = True
+                logger.info("Langfuse enabled (keys found)")
+            except ImportError:
+                logger.info("Langfuse disabled (library not installed)")
+        _initialized = True
 
 
 def observe(*args, **kwargs):
-    """Dynamic observe — falls back to no-op if Langfuse init failed at runtime."""
-    if _langfuse_available and _real_observe_ref is not None:
-        return _real_observe_ref(*args, **kwargs)
-    return _noop_decorator(*args, **kwargs)
+    """Lazy ``observe``: a no-op without keys, otherwise it resolves the real
+    decorator on the first call so decorating at import never loads langfuse."""
+    if len(args) == 1 and callable(args[0]) and not kwargs:
+        return observe()(args[0])
+    if not _has_keys():
+        return _noop_decorator(*args, **kwargs)
+
+    def decorate(fn):
+        resolved = []
+
+        def resolve():
+            if not resolved:
+                _init()
+                resolved.append(_real_observe_ref(*args, **kwargs)(fn) if _real_observe_ref else fn)
+            return resolved[0]
+
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def wrapper(*a, **k):
+                if not _initialized:
+                    from src.engine import readiness
+                    if readiness.is_warming() or readiness.state() == "failed":  # untraced: the slow import must not delay the warming_up or init-failure answer
+                        return await fn(*a, **k)
+                    await asyncio.to_thread(_init)  # keep the import off the event loop
+                return await resolve()(*a, **k)
+        else:
+            @functools.wraps(fn)
+            def wrapper(*a, **k):
+                return resolve()(*a, **k)
+        return wrapper
+
+    return decorate
 
 
 def is_langfuse_configured() -> bool:
     """True when Langfuse keys are present, the library is importable,
-    and client initialization has not failed."""
+    and client initialization has not failed. May import the library."""
+    _init()
     return _langfuse_available
 
 
@@ -96,6 +146,7 @@ def get_langfuse():
     if _langfuse_instance is not None:
         return _langfuse_instance
 
+    _init()
     if _langfuse_available:
         try:
             _langfuse_instance = _RealLangfuse()
@@ -108,3 +159,12 @@ def get_langfuse():
         _langfuse_instance = _NoopLangfuse()
 
     return _langfuse_instance
+
+
+def flush_if_initialized() -> None:
+    """Flush a real client when one exists; never imports langfuse just to exit."""
+    if _langfuse_instance is not None:
+        try:
+            _langfuse_instance.flush()
+        except Exception as e:
+            logger.warning("Langfuse flush failed: %s", e)

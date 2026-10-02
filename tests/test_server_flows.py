@@ -243,3 +243,26 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
     assert error["status"] == "error" and "need an agent" in error["error"]
     reset = json.loads(await server.set_flow_persona("check", reset=True))
     assert reset["flow"]["persona"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_flow_persona_waits_for_readiness(environment, tmp_path, monkeypatch, persona_components):
+    from src.engine import persona
+
+    monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "lib"))
+    json.loads(await server.set_flow_persona("check", agent="code_reviewer"))
+    built = []
+
+    async def build(*args, **kwargs):
+        built.append(args)
+
+    async def warming(tool):
+        return "warming_up"
+    monkeypatch.setattr(persona, "build_persona_bundle", build)
+    monkeypatch.setattr(server, "_readiness_problem", warming)
+
+    result = json.loads(await server.run_flow("check"))
+    assert result["status"] == "needs_execution"
+    assert result["persona_activation"]["status"] == "ERROR"
+    assert result["persona_activation"]["message"].startswith("warming_up")
+    assert not built

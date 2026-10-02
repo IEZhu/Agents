@@ -304,6 +304,10 @@ INTENT_VERY_LONG_CHARS = _int_env("INTENT_VERY_LONG_CHARS", 500, lo=1)
 # spec that opens with "Hi" is not misread as small talk.
 INTENT_CONVERSE_MAX_CHARS = _int_env("INTENT_CONVERSE_MAX_CHARS", 60, lo=1)
 
+# How long a retrieval tool waits for the background initializer before it
+# answers ``warming_up`` (store load, embedding model and rules warmup).
+WARMUP_WAIT_SECONDS = _int_env("WARMUP_WAIT_SECONDS", 20, lo=1, hi=600)
+
 SESSION_CACHE_MAX_SIZE = 128
 SESSION_CACHE_TTL_SECONDS = 600
 

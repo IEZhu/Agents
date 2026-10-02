@@ -74,8 +74,8 @@ async def build(args):
     spec = args.implants
     records = None
     if spec != "production":
-        records = [] if spec == "none" else implant_records(enrichment.implant_retriever, spec.split(","))
-        enrichment.implant_retriever.retrieve = lambda *a, **k: list(records)
+        records = [] if spec == "none" else implant_records(enrichment.get_implant_retriever(), spec.split(","))
+        enrichment.get_implant_retriever().retrieve = lambda *a, **k: list(records)
         if spec != "none" and hasattr(enrichment, "implants_needed"):
             # A named arm must load its implants on every case: the need gate would
             # drop them for lite-tier queries or under IMPLANT_NEED_GATE=intent.
