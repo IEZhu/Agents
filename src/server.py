@@ -33,7 +33,8 @@ from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability
-from typing import Optional, List
+from typing import Annotated, Optional, List
+from pydantic import Field
 
 # Setup logging
 logging.basicConfig(
@@ -391,8 +392,8 @@ async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = N
 
 @mcp.tool()
 async def run_flow(
-    flow: str,
-    request: str = "",
+    flow: Annotated[str, Field(description="Flow id, ID.md, flows/ID.md, or builtin:/user:/repo:<id>.")],
+    request: Annotated[str, Field(description="The user's scope, PR/MR URL and constraints.")] = "",
     repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
     ctx: Context | None = None,
@@ -678,9 +679,9 @@ def _supports_sampling(ctx: Context | None) -> bool:
 @mcp.tool()
 @observe(name="route_and_load")
 async def route_and_load(
-    query: str,
+    query: Annotated[str, Field(description="The user request to route.")],
     chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
-    protocol_version: int = PROTOCOL_VERSION,
+    protocol_version: Annotated[int, Field(description="Persona protocol version; always 2.")] = PROTOCOL_VERSION,
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
 ) -> str:
     """
@@ -699,11 +700,13 @@ async def route_and_load(
 @mcp.tool()
 @observe(name="get_agent_context")
 async def get_agent_context(
-    agent_name: str, query: str, reasoning: str = "Selected by calling LLM",
+    agent_name: Annotated[str, Field(description="Canonical name of the agent to load.")],
+    query: Annotated[str, Field(description="The user request the role is loaded for.")],
+    reasoning: Annotated[str, Field(description="Why this agent was chosen.")] = "Selected by calling LLM",
     chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
-    protocol_version: int = PROTOCOL_VERSION,
+    protocol_version: Annotated[int, Field(description="Persona protocol version; always 2.")] = PROTOCOL_VERSION,
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
-    force_reload: bool = False,
+    force_reload: Annotated[bool, Field(description="True to restore lost instructions of the same agent.")] = False,
 ) -> str:
     """
     Load an explicitly chosen agent or a ROUTE_REQUIRED selection.
@@ -724,7 +727,8 @@ async def get_agent_context(
 
 @mcp.tool()
 async def refresh_persona_context(
-    query: str, current_persona: ta.persona_arg(ta.REFRESH_PERSONA_DESC),
+    query: Annotated[str, Field(description="The task that needs more skills or implants.")],
+    current_persona: ta.persona_arg(ta.REFRESH_PERSONA_DESC),
     chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
 ) -> str:
     """Protocol 2: refresh the current role's complete bundle without choosing an agent.
@@ -904,9 +908,9 @@ def _short_action(value: str) -> str:
 
 @mcp.tool()
 async def log_interaction(
-    agent_name: str,
-    query: str,
-    response_content: str,
+    agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
+    query: Annotated[str, Field(description="The current user request, verbatim.")],
+    response_content: Annotated[str, Field(description="The exact final answer text, without any time line.")],
     request_id: ta.opt_str("Optional request id for correlation.") = None,
     reasoning: ta.opt_str("Optional short reason for the selection.") = None,
     intent: ta.opt_str("Optional curated intent; defaults to query.") = None,

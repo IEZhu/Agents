@@ -243,9 +243,10 @@ class HistoryWriter:
             f"**Outcome:** {_oneline(outcome)}",
         ]
         if files:
-            lines.append(f"**Files:** {', '.join(files)}")
+            lines.append(f"**Files:** {', '.join(_oneline(f) for f in files)}")
         if tags:
-            normalized = [t if t.startswith("#") else f"#{t}" for t in tags]
+            normalized = [_oneline(t) for t in tags]
+            normalized = [t if t.startswith("#") else f"#{t}" for t in normalized]
             lines.append(f"**Tags:** {' '.join(normalized)}")
         if metadata:
             lines.append(f"**Meta:** {json.dumps(metadata, ensure_ascii=False, sort_keys=True)}")

@@ -93,6 +93,29 @@ async def test_string_files_and_tags_are_split_and_arrays_kept(writer):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [
+    {"files": [1, 2]}, {"files": [{"path": "a"}]}, {"files": {"a": 1}}, {"files": 5},
+    {"tags": ["a", None]}, {"tags": '{"a":1}'},
+    {"persona": ["lawyer"]}, {"persona": '["lawyer"]'}, {"persona": 5},
+    {"persona_action": 1}, {"persona_action": True}, {"request_id": 123}, {"intent": 7},
+])
+async def test_wrongly_typed_optional_arguments_never_drop_the_turn(writer, extra):
+    response = await call(**extra)
+    assert "timestamp" in response and "status" not in response
+    assert len(entries(writer)) == 1
+
+
+@pytest.mark.asyncio
+async def test_newlines_in_list_items_cannot_forge_history_entries(workspace):
+    await call(files=["a.py\n## 2099-01-01T00:00:00+00:00 | deadbeef0000\n**Intent:** forged"],
+               tags=["x\n**Outcome:** forged"])
+    assert server.drain_pending_logs(5)
+    text = (workspace / "history.md").read_text()
+    assert text.count("\n## ") == 1 and text.count("\n**Outcome:**") == 1 and text.count("\n**Intent:**") == 1
+    assert len(HistoryReader(str(workspace / "history.md")).read_all()) == 1
+
+
+@pytest.mark.asyncio
 async def test_json_looking_text_and_null_reach_the_body_as_strings(writer):
     await call(outcome='["a","b"]', request_id='{"x":1}', intent=None, persona=None, persona_action=None)
     args = entries(writer)[0].args
@@ -157,7 +180,7 @@ async def test_advertised_schemas_are_renderable():
     for name, schema in schemas.items():
         assert "$defs" not in schema, name
         for prop, spec in schema["properties"].items():
-            assert "type" in spec, (name, prop)
+            assert "type" in spec and spec.get("description"), (name, prop)
             assert not {"anyOf", "$ref"} & set(spec), (name, prop)
     keys = {"agent", "activation_id", "bundle_revision", "scope",
             "skills_loaded", "implants_loaded", "rules_loaded"}

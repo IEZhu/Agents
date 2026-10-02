@@ -34,33 +34,48 @@ PERSONA_KEYS_TEXT = (
 )
 
 
+def _clean(item: Any) -> str:
+    return " ".join(str(item).split())
+
+
 def _split(pattern: str):
+    """Never rejects: strings are split, list items stringified, other shapes ignored."""
     def convert(value: Any) -> Any:
+        if value is None:
+            return None
         if isinstance(value, str):
             return [part.strip() for part in re.split(pattern, value) if part.strip()]
-        return value
+        if isinstance(value, (int, float)):
+            return [_clean(value)]
+        if isinstance(value, list):
+            return [c for c in (_clean(i) for i in value if isinstance(i, (str, int, float))) if c]
+        return []
     return convert
 
 
 def _as_text(value: Any) -> Any:
-    return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    if value is None or isinstance(value, str):
+        return value
+    return str(value)
 
 
 def opt_str(description: str):
     """Optional free text; JSON-looking input stays text."""
-    return Annotated[str | None, BeforeValidator(_as_text),
+    return Annotated[Any, BeforeValidator(_as_text),
                      WithJsonSchema({**_STR, "description": description})]
 
 
 def str_list(description: str, *, separators: str = r"[,\n]"):
     """Optional list of strings; a plain string is split on ``separators``."""
-    return Annotated[list[str] | None, BeforeValidator(_split(separators)),
+    return Annotated[Any, BeforeValidator(_split(separators)),
                      WithJsonSchema({**_STRS, "description": description})]
 
 
 def persona_arg(description: str):
     """A persona descriptor object; the body validates it (strictly or leniently)."""
-    return Annotated[dict | str | None, WithJsonSchema({
+    return Annotated[Any, WithJsonSchema({
         "type": "object", "properties": PERSONA_PROPERTIES, "description": description})]
 
 
