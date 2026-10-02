@@ -194,7 +194,7 @@ async def build_persona_bundle(
         skill_ids = [_component_id(value) for value in selection.skills]
     else:
         selected_skills = await asyncio.to_thread(
-            enrichment.skill_retriever.retrieve, query,
+            lambda *a, **k: enrichment.get_skill_retriever().retrieve(*a, **k), query,
             mandatory=core or None, preferred=preferred or None, capable=capable or None,
             n_results=enrichment._n_results_for_tier(tier),
         )
@@ -209,7 +209,7 @@ async def build_persona_bundle(
                 continue
             skill_ids.append(component_id)
     skills = await asyncio.to_thread(_fresh_components, "skills", skill_ids)
-    skills_block = enrichment.skill_retriever.format_skills_for_prompt(
+    skills_block = enrichment.get_skill_retriever().format_skills_for_prompt(
         skills,
         compiled=tier == "standard",
     )
@@ -225,7 +225,7 @@ async def build_persona_bundle(
         default_count = 2 if tier == "standard" else IMPLANTS_DEEP_TIER_DEFAULT
         count = min(max(default_count, len(preferred_implants)), MAX_PREFERRED_IMPLANTS)
         selected_implants = await asyncio.to_thread(
-            enrichment.implant_retriever.retrieve, query,
+            lambda *a, **k: enrichment.get_implant_retriever().retrieve(*a, **k), query,
             n_results=count, role=agent_name,
             context={"history_text": "\n".join(history or [])},
             preferred_implants=preferred_implants or None,
@@ -238,7 +238,7 @@ async def build_persona_bundle(
         ))
         implant_ids = [i for i in implant_ids if i not in off_implants][:count]
         implants = await asyncio.to_thread(_fresh_components, "implants", implant_ids)
-    implants_block = enrichment.implant_retriever.format_implants_for_prompt(implants)
+    implants_block = enrichment.get_implant_retriever().format_implants_for_prompt(implants)
 
     skills_loaded = [item["filename"].removesuffix(".mdc") for item in skills]
     implants_loaded = [

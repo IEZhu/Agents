@@ -25,6 +25,7 @@ import datetime
 import logging
 import os
 import re
+import threading
 import traceback
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -46,8 +47,29 @@ class EnrichmentResult:
     rules_loaded: list[str] = field(default_factory=list)
 
 
-skill_retriever = SkillRetriever()
-implant_retriever = ImplantRetriever()
+_retriever_lock = threading.Lock()
+_skill_retriever: SkillRetriever | None = None
+_implant_retriever: ImplantRetriever | None = None
+
+
+def get_skill_retriever() -> SkillRetriever:
+    """Build the skill retriever on first use (store load can re-index)."""
+    global _skill_retriever
+    if _skill_retriever is None:
+        with _retriever_lock:
+            if _skill_retriever is None:
+                _skill_retriever = SkillRetriever()
+    return _skill_retriever
+
+
+def get_implant_retriever() -> ImplantRetriever:
+    """Build the implant retriever on first use (store load can re-index)."""
+    global _implant_retriever
+    if _implant_retriever is None:
+        with _retriever_lock:
+            if _implant_retriever is None:
+                _implant_retriever = ImplantRetriever()
+    return _implant_retriever
 
 # ``Tier`` now lives in src.engine.intent (single definition, imported above) and
 # is re-exported here because server.py, persona_bundle.py and the eval runners
@@ -189,7 +211,7 @@ async def get_dynamic_context_string(
         n_results = profile.skill_pool_size if profile else _n_results_for_tier(tier)
         skills = await loop.run_in_executor(
             None,
-            lambda: skill_retriever.retrieve(
+            lambda: get_skill_retriever().retrieve(
                 query,
                 mandatory=core_skills or None,
                 preferred=preferred_skills or None,
@@ -210,7 +232,7 @@ async def get_dynamic_context_string(
                 profile.skill_render == "compiled" if profile else tier == "standard"
             )
             context_parts.append(
-                skill_retriever.format_skills_for_prompt(skills, compiled=use_compiled)
+                get_skill_retriever().format_skills_for_prompt(skills, compiled=use_compiled)
             )
             loaded_skill_names = [
                 s.get("filename", "unknown").removesuffix(".mdc") for s in skills
@@ -247,7 +269,7 @@ async def get_dynamic_context_string(
             _preferred = preferred_implants  # capture for closure
             implants = await loop.run_in_executor(
                 None,
-                lambda: implant_retriever.retrieve(
+                lambda: get_implant_retriever().retrieve(
                     query,
                     n_results=n_implants,
                     role=agent_name,
@@ -256,7 +278,7 @@ async def get_dynamic_context_string(
             )
             logger.debug("Implants retrieved: %d results", len(implants))
             if implants:
-                context_parts.append(implant_retriever.format_implants_for_prompt(implants))
+                context_parts.append(get_implant_retriever().format_implants_for_prompt(implants))
                 loaded_implant_names = [
                     imp.get("metadata", {}).get("short_name")
                     or imp.get("filename", "unknown").removesuffix(".mdc")
