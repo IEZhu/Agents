@@ -35,13 +35,19 @@ available here and is not needed: do not route. Answer the user from these steps
    git fetch origin main && git checkout main && git merge --ff-only origin/main
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
-   Cloud egress blocks huggingface.co, so fetch the embedding model from
+   In 2026-09 cloud egress blocked huggingface.co, so fetch the embedding model from
    fastembed's Google Cloud Storage copy and point the embedder at it. Export
    the variable in every shell that runs `build_contexts.py`:
    ```bash
    mkdir -p /tmp/e5 && curl -sSfL https://storage.googleapis.com/qdrant-fastembed/fast-multilingual-e5-large.tar.gz | tar xz -C /tmp/e5
    find /tmp/e5 -name '._*' -delete
    export AGENTS_MODEL_PATH=/tmp/e5/fast-multilingual-e5-large
+   ```
+   On 2026-10-02 that copy answered 403 while huggingface.co was reachable; the same
+   weights then come from `qdrant/multilingual-e5-large-onnx`, the repository fastembed
+   itself uses, and gave contexts identical to a local build:
+   ```bash
+   python -c "from huggingface_hub import snapshot_download as d; d('qdrant/multilingual-e5-large-onnx', local_dir='/tmp/e5/fast-multilingual-e5-large')"
    ```
 2. **Pick the components and the run directory**
    ```bash
