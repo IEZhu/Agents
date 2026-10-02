@@ -63,7 +63,7 @@ KEYWORDS = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "bui
 # operands before the command (the duration of `timeout 60 git push`), and the options that
 # set the directory the command runs in.
 WRAPPERS = {
-    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0, {"-C", "--chdir"}),
+    "env": ({"-u", "--unset", "-C", "--chdir", "-P", "-S", "--split-string"}, 0, {"-C", "--chdir"}),
     "sudo": ({"-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-r",
               "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"}, 0, {"-D", "--chdir"}),
     "xargs": ({"-I", "-J", "-R", "-S", "-n", "--max-args", "-L", "--max-lines", "-P", "--max-procs", "-s",
@@ -291,6 +291,9 @@ def _unwrap(args: list[str], values: set, operands: int, chdir: set, dirs: list 
             index += 1
             break
         name, equals, attached = option.partition("=")
+        if name in ("-S", "--split-string"):  # env -S 'git push': the value is the command line
+            line = attached if equals else args[index + 1] if index + 1 < len(args) else ""
+            return _tokens(line) + args[index + (1 if equals else 2):]
         if dirs is not None and name in chdir:
             value = attached if equals else args[index + 1] if index + 1 < len(args) else ""
             if value:
@@ -920,7 +923,10 @@ def load_entries(paths: list[Path]) -> tuple[list, int]:
 
 
 def _file(sink: dict, path: str, ts, actor: str) -> None:
-    """Every writer of a path, with the time of its first write there."""
+    """Every writer of a path, with the time of its first write there. The file's directory
+    joins the directories, so a repository edited outside the working directory is found."""
+    if path.startswith("/"):
+        sink["directories"].setdefault(os.path.dirname(path), ts)
     writers = sink["files"].setdefault(path, {})
     if actor not in writers or _earlier(ts, writers[actor]):
         writers[actor] = ts
@@ -1057,8 +1063,10 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
         return
     if origin_kind:
         is_prompt = origin_kind == "human"
-    else:  # transcripts without `origin`: a plain string that is not a harness tag
-        is_prompt = isinstance(content, str) and not stripped.startswith("<")
+    else:  # transcripts without `origin`: a string, or blocks with an image or a document, not a harness tag
+        attached = isinstance(content, list) and any(
+            isinstance(block, dict) and block.get("type") not in ("text", "tool_result") for block in content)
+        is_prompt = (isinstance(content, str) or attached) and not stripped.startswith("<")
     prompt = _prompt_text(content).strip()
     if is_prompt and prompt:
         sink["prompts"].append({"ts": ts, "text": _short(prompt)})
@@ -1265,8 +1273,9 @@ def main(argv: list[str] | None = None) -> int:
         if recent:
             notes.append("other transcripts of this project changed in the last hour; confirm the session: "
                          + ", ".join(recent))
-    if not paths:
-        print(json.dumps({"error": "transcript not found"}))
+    missing = [str(path) for path in paths if not Path(path).is_file()]
+    if not paths or missing:
+        print(json.dumps(_masked({"error": "transcript not found", **({"paths": missing} if missing else {})})))
         return 1
     result = collect(paths)
     result["notes"] = _masked(notes)

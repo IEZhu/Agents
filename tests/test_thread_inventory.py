@@ -399,6 +399,20 @@ def test_cli_reads_transcripts_subagents_and_git_roots(entries, tmp_path, capsys
     assert out["responses"] == 5  # the subagent's response is counted too
 
 
+def test_files_written_elsewhere_add_their_directory(tmp_path):
+    repo = tmp_path / "other"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    main = tmp_path / f"{SESSION}.jsonl"
+    main.write_text("\n".join(json.dumps(e) for e in [
+        *assistant([tool("Edit", {"file_path": f"{repo}/a.py", "old_string": "a", "new_string": "b"}, "e1")], "t1", "m1"),
+        {"type": "file-history-delta", "trackingPath": "/elsewhere/b.py", "timestamp": "t2"},
+    ]) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([main])
+    assert {str(repo), "/elsewhere"} <= set(out["directories"])
+    assert len(out["git_roots"]) == 1 and out["git_roots"][0].endswith("/other")
+
+
 def test_cli_missing_transcript_and_latest_notes(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
     monkeypatch.setattr(thread_inventory.Path, "home", staticmethod(lambda: tmp_path / "home"))
@@ -406,6 +420,8 @@ def test_cli_missing_transcript_and_latest_notes(tmp_path, monkeypatch, capsys):
     project.mkdir(parents=True)
     assert thread_inventory.main(["--project-dir", str(tmp_path / "work"), "--latest"]) == 1
     assert json.loads(capsys.readouterr().out) == {"error": "transcript not found"}
+    assert thread_inventory.main(["--transcript", str(tmp_path / "missing.jsonl")]) == 1
+    assert json.loads(capsys.readouterr().out)["paths"] == [str(tmp_path / "missing.jsonl")]
     for name in ("old", "new"):
         (project / f"{name}.jsonl").write_text("{}\n", encoding="utf-8")
     os.utime(project / "old.jsonl", (time.time() - 60, time.time() - 60))
@@ -525,8 +541,11 @@ def test_image_blocks_are_marked_in_prompts():
     inv = thread_inventory.inventory([
         human([{"type": "image", "source": {}}], "t1"),
         human([{"type": "image", "source": {}}, {"type": "text", "text": "what is this?"}], "t2"),
+        user([{"type": "image", "source": {}}, {"type": "text", "text": "and this?"}], "t3"),  # no origin
+        user([{"type": "text", "text": "<command-name>/clear</command-name>"}], "t4"),
+        user([{"type": "text", "text": "[Request interrupted by user]"}], "t5"),  # written by the client
     ])
-    assert [p["text"] for p in inv["prompts"]] == ["[image]", "[image] what is this?"]
+    assert [p["text"] for p in inv["prompts"]] == ["[image]", "[image] what is this?", "[image] and this?"]
 
 
 def test_every_writer_of_a_file_is_kept(tmp_path):
@@ -582,6 +601,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ('args=(git push origin main); declare -a more=(gh pr merge 5) && files=($(git ls-files) "$(git push)")', [
         "git push"]),  # array elements are data, their substitutions run
     ("trap -- 'git push origin x' EXIT; trap -p EXIT; trap - EXIT", ["git push origin x"]),
+    ("env -S 'git push origin main' && env --split-string='gh pr merge 5'", ["env -S 'git push origin main'",
+                                                                         "env --split-string='gh pr merge 5'"]),
     ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [
         "git push origin main", "gh pr merge 5"]),
     ("bash -euo pipefail <<'EOF'\ngit push\nEOF\nbash -euo pipefail -c 'git tag v1'; bash <<< 'gh pr merge 6'", [
