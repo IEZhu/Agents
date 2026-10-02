@@ -267,6 +267,11 @@ class HistoryWriter:
 
         Returns the archive path if rotation happened, else ``None``.
         """
+        # A pending file left by an interrupted rotation is merged first, before
+        # any early return, so its entries never stay hidden or get overwritten.
+        pending = self.history_path + ".rotating"
+        if os.path.exists(pending):
+            self._merge_pending_locked(pending)
         if not os.path.exists(self.history_path):
             return None
         size_kb = os.path.getsize(self.history_path) / 1024
@@ -284,32 +289,16 @@ class HistoryWriter:
         if os.path.exists(archive_path):
             # Move the live file aside first: if another process holds it open
             # (Windows), this fails before anything reaches the archive, so a
-            # repeated failure cannot merge the same payload twice. A pending
-            # file left by an interrupted rotation is merged first, never
-            # overwritten.
-            pending = self.history_path + ".rotating"
-            if not os.path.exists(pending):
-                os.replace(self.history_path, pending)
+            # repeated failure cannot merge the same payload twice.
+            os.replace(self.history_path, pending)
             try:
-                with open(pending, "r", encoding="utf-8") as src:
-                    payload = src.read()
-                with open(archive_path, "a", encoding="utf-8") as dst:
-                    dst.write("\n\n<!-- merged on rotation -->\n\n")
-                    dst.write(payload)
+                archive_path = self._merge_pending_locked(pending)
             except Exception:
-                # Nothing (or only part) reached the archive: put the entries
-                # back so read_history still sees them.
+                # The archive was rolled back: put the entries back so
+                # read_history still sees them.
                 if not os.path.exists(self.history_path):
                     os.replace(pending, self.history_path)
                 raise
-            try:
-                os.unlink(pending)
-            except OSError:
-                # Already archived: never leave a payload that could merge twice.
-                with open(pending, "w", encoding="utf-8"):
-                    pass
-            if os.path.exists(self.history_path):
-                return None  # recovered an interrupted rotation; live file untouched
         else:
             shutil.move(self.history_path, archive_path)
 
@@ -322,6 +311,42 @@ class HistoryWriter:
                 f"on {_dt.datetime.now(_dt.timezone.utc).isoformat(timespec='seconds')}.\n"
             )
 
+        return archive_path
+
+    def _merge_pending_locked(self, pending: str) -> str:
+        """Append the pending file to its month's archive, then empty it.
+
+        A failed append is rolled back to the archive's previous length, so a
+        retry cannot duplicate partial content. Returns the archive path.
+        """
+        with open(pending, "r", encoding="utf-8") as src:
+            payload = src.read()
+        matches = _HEADER_RE.findall(payload)
+        month = (matches[-1][0] if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
+        os.makedirs(self.archive_dir, exist_ok=True)
+        archive_path = os.path.join(self.archive_dir, f"{month}.md")
+        existed = os.path.exists(archive_path)
+        size_before = os.path.getsize(archive_path) if existed else 0
+        try:
+            with open(archive_path, "a", encoding="utf-8", newline="") as dst:
+                if existed:
+                    dst.write("\n\n<!-- merged on rotation -->\n\n")
+                dst.write(payload)
+        except Exception:
+            try:
+                if existed:
+                    os.truncate(archive_path, size_before)
+                else:
+                    os.unlink(archive_path)
+            except OSError:
+                pass
+            raise
+        try:
+            os.unlink(pending)
+        except OSError:
+            # Already archived: never leave a payload that could merge twice.
+            with open(pending, "w", encoding="utf-8"):
+                pass
         return archive_path
 
     def _read_last_timestamp(self) -> Optional[str]:

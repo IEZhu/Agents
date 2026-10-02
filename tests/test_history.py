@@ -395,3 +395,48 @@ def test_interrupted_rotation_is_recovered_not_overwritten(tmp_path, history_pat
     writer.append_entry("more " + "y" * 2000, "a", "o")
     archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
     assert "PENDING-ENTRIES" in archived
+
+
+def test_partial_archive_write_is_rolled_back(tmp_path, history_path, monkeypatch):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    archive = next(archive_dir.glob("*.md"))
+    before = archive.read_bytes()
+    real_open = open
+
+    def partial(path, mode="r", *args, **kwargs):
+        handle = real_open(path, mode, *args, **kwargs)
+        if str(path) == str(archive) and "a" in mode:
+            class Boom:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc):
+                    handle.close()
+
+                def write(self, text):
+                    handle.write(text[:5])
+                    handle.flush()
+                    raise OSError(28, "no space")
+            return Boom()
+        return handle
+
+    monkeypatch.setattr("src.memory.history.open", partial, raising=False)
+    assert writer.append_entry("last " + "z" * 2000, "a", "o")["status"] == "recorded"
+    monkeypatch.undo()
+    assert archive.read_bytes() == before
+    assert "last " in Path(history_path).read_text(encoding="utf-8")
+
+
+def test_pending_file_is_recovered_before_size_check(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=512)
+    Path(history_path + ".rotating").write_text(
+        "## 2026-01-02T03:04:05+00:00 | abcdef123456\nPENDING-ENTRIES\n", encoding="utf-8")
+    writer.append_entry("small", "a", "o")
+    archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
+    assert "PENDING-ENTRIES" in archived
+    assert (archive_dir / "2026-01.md").exists()
+    assert not os.path.exists(history_path + ".rotating") or Path(history_path + ".rotating").stat().st_size == 0
