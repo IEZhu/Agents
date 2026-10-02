@@ -67,7 +67,7 @@ KEYWORDS = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "bui
 # operands before the command (the duration of `timeout 60 git push`), and the options that
 # set the directory the command runs in.
 WRAPPERS = {
-    "env": ({"-u", "--unset", "-C", "--chdir", "-P", "-S", "--split-string"}, 0, {"-C", "--chdir"}),
+    "env": ({"-u", "--unset", "-C", "--chdir", "-P", "-S", "--split-string", "-a", "--argv0"}, 0, {"-C", "--chdir"}),
     "sudo": ({"-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-r",
               "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"}, 0, {"-D", "--chdir"}),
     "xargs": ({"-I", "-J", "-R", "-S", "-n", "--max-args", "-L", "--max-lines", "-P", "--max-procs", "-s",
@@ -114,7 +114,8 @@ CORRECTION = re.compile(
 # Common credential shapes, masked in every text the inventory prints.
 SECRET = re.compile(
     r"(?i)(authorization:\s*(?:bearer\s+|basic\s+|token\s+)?|bearer\s+"
-    r"|(?:api[_-]?key|token|password|secret)[\"']?\s*[=:]\s*[\"']?)[^\s\"',;]+"
+    r"|(?:api[_-]?key|token|password|secret)[\"']?\s*[=:]\s*)"
+    r"(?:\"[^\"\n]*\"|'[^'\n]*'|[\"']?[^\s\"',;]+)"  # a quoted value is masked whole, spaces too
     r"|\bsk-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}"
     r"|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
     r"|(?<=://)[^\s/?#@:'\"]+:[^\s/?#'\"]+(?=@[^\s/?#@'\"]+(?:[/?#\s'\"]|$))")  # user:password@ in a URL

@@ -274,6 +274,7 @@ def test_credentials_are_masked_in_printed_text():
               "https://ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r", "t1"),
         *bash("git clone https://bot:hunter2pass@git.example.com/o/r.git", "t2"),
         *bash("git clone https://bot:p@ssw0rd@git.example.com/o/s.git", "t3"),
+        human('password="hunter two" TOKEN=\'alpha beta\' {"secret": "s p a c e"} api_key="unclosed', "t4"),
     ]
     inv = thread_inventory.inventory(entries)
     printed = json.dumps(inv)
@@ -281,7 +282,7 @@ def test_credentials_are_masked_in_printed_text():
     assert {"git clone https://[masked]@git.example.com/o/r.git",
             "git clone https://[masked]@git.example.com/o/s.git"} <= set(commands)  # a password may contain @
     for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123", "sk-abcdefghijklmnop1234",
-                   "hunter2pass", "ssw0rd"):
+                   "hunter2pass", "ssw0rd", "two", "beta", "a c e", "unclosed"):
         assert secret not in printed
     assert "[masked]" in printed
 
@@ -669,7 +670,7 @@ def test_line_continuations_and_code_lines_in_heredocs():
         "timeout 60 git push origin main", "sudo -u bot git commit -m x"]),
     ("env -i PATH=/bin git push; env -u X git tag v2; time -p gh issue close 5; nice -n 10 git gc", [
         "env -i PATH=/bin git push", "env -u X git tag v2", "time -p gh issue close 5", "nice -n 10 git gc"]),
-    ("X+=1 git push && command -v git", ["X+=1 git push"]),
+    ("X+=1 git push && command -v git", ["X+=1 git push"]), ("env -a custom0 git push", ["env -a custom0 git push"]),
     ("/usr/bin/time -o timing.txt git push", ["/usr/bin/time -o timing.txt git push"]),
     (">out git push; 2>/tmp/e gh issue close 1; < in.txt git apply", [
         ">out git push", "2>/tmp/e gh issue close 1", "< in.txt git apply"]),
