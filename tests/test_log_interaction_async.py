@@ -117,13 +117,17 @@ async def test_drain_waits_for_pending_writes(workspace, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invalid_attribution_returns_error_without_timestamp(monkeypatch):
+async def test_persona_action_without_persona_is_written_with_warning(monkeypatch):
     writer = Mock()
+    writer.return_value.append_entry.return_value = {"status": "recorded"}
     monkeypatch.setattr(server, "HistoryWriter", writer)
+    monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
     response = json.loads(await server.log_interaction("software_engineer", "q", "r", persona_action="keep"))
-    assert response["status"] == "ERROR"
-    assert "timestamp" not in response
-    writer.assert_not_called()
+    assert "status" not in response and TIMESTAMP.fullmatch(response["timestamp"])
+    assert response["attribution"] == "unverified"
+    assert any("without persona" in w for w in response["warnings"])
+    assert server.drain_pending_logs(5)
+    assert "Persona (unverified): missing=persona; action=keep" in writer.return_value.append_entry.call_args.args[1]
 
 
 def test_sink_workers_are_daemon_threads():
