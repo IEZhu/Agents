@@ -19,6 +19,12 @@ Work delegated to subagents and workflow agents is read from the transcripts in 
 session's directory (`<uuid>/subagents/`, `<uuid>/workflows/`); its items carry the
 agent's file name in `by`.
 
+Shell commands are split into simple commands at unquoted operators and line ends,
+so quoted text is never read as a command, while command substitutions and the
+scripts of `bash -c` are. A heredoc body counts as commands only when a shell reads
+it; otherwise it is data, such as a commit message or a file, and its references
+are not collected.
+
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
 are shortened and common credential shapes are masked; tool inputs are reduced to
@@ -39,9 +45,16 @@ from pathlib import Path
 
 MAX_TEXT = 500
 MAX_COMMAND = 200
+MAX_DEPTH = 20  # nested substitutions and subshells parsed recursively
 GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
-SEGMENT = re.compile(r"&&|\|\||[;\n|]")
+SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
+QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(r'["\\`]|\$\(')}
+HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([^\s;&|<>()'\"]+))")
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+COMMAND_PREFIXES = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "time", "exec", "command",
+                    "builtin", "nohup", "env", "sudo"}
+KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
@@ -81,7 +94,9 @@ ARTIFACT_READ_ACTIONS = {"read", "list", "get", "query", "open", "quickstart", "
 GIT_READ_ONLY = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "merge-base", "ls-files",
                  "ls-remote", "ls-tree", "describe", "blame", "grep", "shortlog", "for-each-ref", "cat-file",
                  "check-ignore", "version", "help", "reflog", "count-objects", "name-rev", "var", "archive",
-                 "merge-tree", "format-patch", "range-diff", "whatchanged", "show-ref", "verify-commit"}
+                 "merge-tree", "format-patch", "range-diff", "whatchanged", "show-ref", "verify-commit",
+                 "diff-tree", "diff-index", "diff-files", "check-attr", "check-ref-format", "show-branch",
+                 "cherry", "fsck", "verify-tag", "get-tar-commit-id"}
 GIT_WRITES = {"commit", "push", "pull", "rebase", "merge", "reset", "cherry-pick", "revert", "clean", "rm", "mv",
               "restore", "am", "apply", "init", "clone", "switch", "checkout", "gc", "prune", "update-ref", "add",
               "filter-branch", "filter-repo", "fast-import", "replace", "rerere"}
@@ -157,6 +172,181 @@ def _tokens(segment: str) -> list[str]:
                 if token not in ("'", '"')]
 
 
+def _command_tokens(segment: str) -> list[str]:
+    """Tokens of a simple command from its program on, which is reduced to its name."""
+    tokens = _tokens(segment)
+    while tokens and (tokens[0] in COMMAND_PREFIXES or re.fullmatch(r"\w+=\S*", tokens[0])):
+        tokens = tokens[1:]  # keywords, wrappers and environment assignments before the program
+    if tokens and tokens[0].startswith("/"):
+        tokens[0] = os.path.basename(tokens[0])
+    return tokens
+
+
+def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool) -> tuple[str, int] | None:
+    """The body of a heredoc that starts at ``index`` and the index after its delimiter line,
+    or None when no line closes it."""
+    lines, length = [], len(command)
+    while index < length:
+        end = command.find("\n", index)
+        end = length if end < 0 else end
+        line = command[index:end]
+        index = end + 1
+        if (line.lstrip("\t") if tabs else line).rstrip("\r") == delimiter:
+            return "\n".join(lines), min(index, length)
+        lines.append(line)
+    return None
+
+
+def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
+    """Where a shell takes its commands from: ("script", text) for -c, ("stdin", None) or ("file", None)."""
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token in ("-o", "+o"):
+            index += 2
+            continue
+        if len(token) > 1 and token[0] in "-+" and not token.startswith("--"):
+            if "c" in token[1:]:
+                return ("script", tokens[index + 1]) if index + 1 < len(tokens) else ("file", None)
+            if "s" in token[1:]:
+                return "stdin", None
+        elif not token.startswith("-"):
+            return "file", None
+        index += 1
+    return "stdin", None
+
+
+def _segments(command: str) -> list[str]:
+    """Simple commands of a shell command line, split at unquoted operators and line ends.
+
+    Command substitutions become segments of their own and `$(…)` in the command around
+    them. A heredoc body is skipped unless a shell reads it, as in `bash <<'EOF'`.
+    """
+    return _parse(command, 0, 0, set())[0]
+
+
+def _parse(command: str, index: int, depth: int, unclosed: set) -> tuple[list[str], int]:
+    """Segments from ``index`` to the end, or to the `)` that closes a nested parse (``depth`` > 0).
+
+    ``unclosed`` holds heredoc delimiters that no later line closes, so each is searched for once.
+    """
+    segments, current, heredocs = [], [], []
+    quote, length = None, len(command)
+
+    def add(text: str) -> None:
+        if text:
+            current.append(text)
+
+    def flush() -> None:
+        segment = "".join(current).strip()
+        if segment:
+            segments.append(segment)
+        current.clear()
+
+    def backquoted(start: int) -> int:
+        end = command.find("`", start + 1)
+        end = length if end < 0 else end
+        segments.extend(_segments(command[start + 1:end]))
+        current.append("`…`")
+        return end + 1
+
+    while index < length:
+        if quote:
+            match = QUOTE_END[quote].search(command, index)
+            if not match:
+                add(command[index:])
+                break
+            add(command[index:match.start()])
+            index, found = match.start(), match.group()
+            if found == "$(" and depth < MAX_DEPTH:  # a substitution inside "..." runs too
+                inner, index = _parse(command, index + 2, depth + 1, unclosed)
+                segments.extend(inner)
+                current.append("$(…)")
+            elif found == "`":
+                index = backquoted(index)
+            elif found == "$(":
+                current.append(found)
+                index += 2
+            elif found == "\\":  # an escape inside "..." or $'...'
+                if command.startswith("\n", index + 1):
+                    index += 2  # a line continuation
+                else:
+                    current.append(command[index:index + 2])
+                    index += 2
+            else:
+                current.append(found)
+                quote, index = None, index + 1
+            continue
+        match = SHELL_SPECIAL.search(command, index)
+        if not match:
+            add(command[index:])
+            break
+        add(command[index:match.start()])
+        index, char = match.start(), match.group()
+        word_start = not "".join(current[-1:])[-1:].strip()
+        if char == "\\":
+            if command.startswith("\n", index + 1) or command.startswith("\r\n", index + 1):
+                index += 2 if command[index + 1] == "\n" else 3  # a line continuation
+            else:
+                current.append(command[index:index + 2])
+                index += 2
+        elif char in "'\"":
+            quote = "$'" if char == "'" and command[index - 1:index] == "$" else char
+            current.append(char)
+            index += 1
+        elif char == "#" and word_start:  # a comment runs to the end of the line
+            end = command.find("\n", index)
+            index = length if end < 0 else end
+        elif char == "<" and command.startswith("<<", index) and not command.startswith("<<<", index):
+            heredoc = HEREDOC.match(command, index)
+            text = heredoc.group() if heredoc else "<<"
+            if heredoc:
+                delimiter = next(group for group in heredoc.groups()[1:] if group is not None)
+                heredocs.append((delimiter, heredoc.group(1) == "-", "".join(current)))
+            current.append(text)
+            index += len(text)
+        elif char == "<":
+            text = "<<<" if command.startswith("<<<", index) else "<"
+            current.append(text)
+            index += len(text)
+        elif char == "\n":
+            flush()
+            index += 1
+            for delimiter, tabs, owner in heredocs:
+                found = None if (delimiter, tabs) in unclosed else _heredoc_body(command, index, delimiter, tabs)
+                if found is None:
+                    unclosed.add((delimiter, tabs))
+                    continue  # no delimiter line, so not a heredoc, as in $((1<<2))
+                body, index = found
+                tokens = _command_tokens(owner)
+                if tokens and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin":
+                    segments.extend(_segments(body))
+            heredocs = []
+        elif char == "&" and (command[index - 1:index] in (">", "<") or command.startswith(">", index + 1)):
+            current.append(char)  # a redirection such as 2>&1 or &>file
+            index += 1
+        elif char == "(" and depth < MAX_DEPTH:
+            substitution = command[index - 1:index] == "$"
+            if not substitution:
+                flush()  # a subshell, a group or a function's parentheses
+            inner, index = _parse(command, index + 1, depth + 1, unclosed)
+            segments.extend(inner)
+            if substitution:
+                current.append("(…)")
+        elif char == ")":
+            flush()
+            index += 1
+            if depth:
+                return segments, index
+        elif char == "`":
+            index = backquoted(index)
+        else:  # ; | & and parentheses past MAX_DEPTH end a simple command
+            flush()
+            index += 1
+    flush()
+    return segments, length
+
+
 def _name_words(name: str) -> list[str]:
     tail = name.rsplit("__", 1)[-1]
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", tail).lower()
@@ -230,6 +420,8 @@ def git_kind(tokens: list[str]) -> str:
         reads = {"--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin", "--show-scope"}
         values = [arg for arg in args if not arg.startswith("-")]
         return "write" if not any(arg in reads for arg in args) and len(values) >= 2 else "read"
+    if sub == "hash-object":
+        return "write" if "-w" in args else "read"
     if sub == "symbolic-ref":
         return "write" if len([a for a in args if not a.startswith("-")]) >= 2 else "read"
     return "unknown"
@@ -333,18 +525,18 @@ def _git_paths(tokens: list[str], current: str | None, ts, sink: dict) -> None:
 def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
     """Record writes, directories, references and scratchpad paths of one shell command."""
     current = cwd
-    command = re.sub(r"\\\r?\n", " ", command)  # line continuations
-    for segment in SEGMENT.split(command):
-        segment = segment.strip()
-        if not segment:
-            continue
-        tokens = _tokens(segment)
-        while tokens and re.fullmatch(r"\w+=\S*", tokens[0]):
-            tokens = tokens[1:]  # environment assignments before the program
+    pending = _segments(command)[::-1]
+    while pending:
+        segment = pending.pop()
+        _scan_refs(segment, sink["refs"], ts)
+        tokens = _command_tokens(segment)
         if not tokens:
             continue
-        program = os.path.basename(tokens[0]) if tokens[0].startswith("/") else tokens[0]
-        if program == "cd" and len(tokens) > 1:
+        program = tokens[0]
+        source, script = _shell_input(tokens) if program in SHELLS else (None, None)
+        if source == "script" and script:
+            pending.extend(_segments(script)[::-1])  # `bash -c '<script>'` runs the script's commands
+        elif program == "cd" and len(tokens) > 1:
             current = _resolve(tokens[1], current)
             if current:
                 sink["directories"].setdefault(current, ts)
@@ -355,14 +547,14 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             else:
                 kind = gh_kind(tokens, segment)
                 _gh_ref(tokens, ts, sink)
+            shown = _first_line(KEYWORD_PREFIX.sub("", segment))
             if kind == "write":
-                sink["git_mutations"].append({"ts": ts, "command": _first_line(segment), "by": actor})
+                sink["git_mutations"].append({"ts": ts, "command": shown, "by": actor})
             elif kind == "unknown":
-                sink["unclassified_commands"].append({"ts": ts, "command": _first_line(segment), "by": actor})
-        for token in TOKEN_SPLIT.split(segment):
-            if token.startswith("/") and "/scratchpad" in token:
-                sink["scratch"].setdefault(token.rstrip(".,:"), ts)
-        _scan_refs(segment, sink["refs"], ts)
+                sink["unclassified_commands"].append({"ts": ts, "command": shown, "by": actor})
+    for token in TOKEN_SPLIT.split(command):  # heredoc bodies too: a script there may write the file
+        if token.startswith("/") and "/scratchpad" in token:
+            sink["scratch"].setdefault(token.rstrip(".,:"), ts)
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
@@ -552,8 +744,20 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
         elif kind == "unclassified":
             sink["unclassified"][name] += 1
         if name.startswith("mcp__"):
-            _scan_refs(json.dumps(data, ensure_ascii=False), sink["refs"], ts)
             _structured_ref(name, data, ts, sink)
+    if name not in WRITE_TOOLS and name != "Bash":  # file contents are not references; _shell scans commands
+        _scan_refs("\n".join(_strings(data)), sink["refs"], ts)
+
+
+def _strings(value) -> list[str]:
+    """Every string inside a tool input."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _strings(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _strings(item)]
+    return []
 
 
 def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:

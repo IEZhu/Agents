@@ -393,3 +393,53 @@ def test_line_continuations_and_code_lines_in_heredocs():
                                           "c['git/gh write'] += 1\nEOF", "lc"))
     assert [m["command"] for m in inv["git_mutations"]] == ["git -c user.name=X commit -m y"]
     assert inv["unclassified_commands"] == []
+
+
+@pytest.mark.parametrize("command, expected", [
+    ("cat > notes.md <<'EOF'\ngit push origin main\nEOF\ngit status", []),
+    ("git commit -F - <<-EOF\n\tgh pr merge 5\n\tEOF", ["git commit -F - <<-EOF"]),
+    ("bash <<'EOF'\ngit push origin main\nEOF", ["git push origin main"]),
+    ('gh pr comment 5 --body "fixed\ngit push origin main; git reset --hard"', ['gh pr comment 5 --body "fixed']),
+    ("# don't forget\ngit push", ["git push"]),
+    ("echo $((1<<2))\ngit push", ["git push"]),
+    ("if git diff --quiet; then echo same; else git commit -am x; fi", ["git commit -am x"]),
+    ("git push origin main 2>&1 | tail -1", ["git push origin main 2>&1"]),
+    ("URL=$(gh pr create --fill) && echo `git tag v1`", ["gh pr create --fill", "git tag v1"]),
+    ("echo 'git push' \"git push\" $'it\\'s; git push'", []),
+])
+def test_only_executed_commands_are_classified(command, expected):
+    inv = thread_inventory.inventory(bash(command, "h"))
+    assert [m["command"] for m in inv["git_mutations"]] == expected
+    assert inv["unclassified_commands"] == []
+
+
+def test_references_from_any_tool_input_but_not_file_contents():
+    inv = thread_inventory.inventory(assistant([
+        tool("Agent", {"description": "review", "prompt": "Review https://github.com/Owner/Repo/pull/155"}, "a1"),
+        tool("WebFetch", {"url": "https://github.com/Owner/Repo/issues/62", "prompt": "state?"}, "a2"),
+        tool("Write", {"file_path": "/w/doc.md", "content": "See https://github.com/Owner/Repo/issues/9"}, "a3"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    assert [(r["kind"], r["number"]) for r in inv["github_refs"]] == [("issues", 62), ("pull", 155)]
+
+
+@pytest.mark.parametrize("command, expected", [
+    ("gh api repos/o/r/issues/$(cat n)/comments -f body=x", ["gh api repos/o/r/issues/$(…)/comments -f body=x"]),
+    ("git commit -q -m \"$(cat <<'EOF'\nIt's done; git push origin main\nEOF\n)\" && git push", [
+        'git commit -q -m "$(…)"', "git push"]),
+    ("bash -c 'cd /w && git push origin x' && sh -ec \"gh pr merge 5\"", ["git push origin x", "gh pr merge 5"]),
+    ("bash run.sh <<'EOF'\ngit push\nEOF", []),
+    ("r(){ gh api -X POST repos/o/r/pulls/1/comments/$1/replies -f body=\"$2\"; }", [
+        'gh api -X POST repos/o/r/pulls/1/comments/$1/replies -f body="$2"']),
+    ("for f in a b; do git hash-object $f; done && git hash-object -w x", ["git hash-object -w x"]),
+])
+def test_substitutions_shell_scripts_and_functions(command, expected):
+    inv = thread_inventory.inventory(bash(command, "s"))
+    assert [m["command"] for m in inv["git_mutations"]] == expected
+    assert inv["unclassified_commands"] == []
+
+
+def test_references_come_from_executed_commands_not_heredoc_bodies():
+    inv = thread_inventory.inventory(bash(
+        "gh pr comment 5 -R o/r --body 'see https://github.com/o/r/issues/8' && cat > t.py <<'EOF'\n"
+        "URL = 'https://github.com/Owner/Repo/pull/155'\nEOF\necho $(gh pr view https://github.com/o/r/pull/9)", "rf"))
+    assert [(r["kind"], r["number"]) for r in inv["github_refs"]] == [("issues", 8), ("pull", 5), ("pull", 9)]

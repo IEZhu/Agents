@@ -275,6 +275,8 @@ Then make this turn's single `log_interaction` call, as the client protocol
 requires for every answer. Do not make a second call:
 
 - `agent_name` and `persona`: the active persona;
+- `persona_action`: `switch` when the flow's `persona_activation` returned
+  `SUCCESS` in this turn, `keep` when it returned `NO_CHANGE` or `ERROR`;
 - `query`: the user's request, verbatim;
 - `response_content`: the report exactly as it will be delivered.
 
