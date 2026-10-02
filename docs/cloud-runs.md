@@ -78,10 +78,11 @@ Routine and environment ids are account-specific and are not kept in this public
 repository. Find them with `RemoteTrigger` `list` (the routine used for the sweep is
 named "Agents-testing").
 
-**Egress.** Cloud sessions cannot reach huggingface.co. The runbook downloads the
-embedding model from fastembed's Google Cloud Storage mirror and points
-`AGENTS_MODEL_PATH` at it (step 1 of the runbook). Any new eval that builds prompts
-needs the same.
+**Egress.** In 2026-09 cloud sessions could not reach huggingface.co, so the runbook
+downloads the embedding model from fastembed's Google Cloud Storage mirror and points
+`AGENTS_MODEL_PATH` at it (step 1 of the runbook). On 2026-10-02 that mirror answered
+403 and huggingface.co was reachable; step 1 gives the Hugging Face download of the
+same weights. Any new eval that builds prompts needs one of the two.
 
 ## Running a batch
 
@@ -123,6 +124,7 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 | Session clones but cannot push (403) | GitHub App not installed on the repository | install it for this repository |
 | Session cannot fan out | routine created without a model and without Agent/Workflow in allowed tools | set model and allowed tools explicitly |
 | Embedding model download fails | huggingface.co blocked | GCS mirror + `AGENTS_MODEL_PATH` (runbook step 1) |
+| GCS mirror answers 403 (2026-10-02) | anonymous access denied: the object is private or gone; huggingface.co was reachable that day | `qdrant/multilingual-e5-large-onnx` from Hugging Face (runbook step 1) |
 | (precaution) a session would try to route | CLAUDE.md asks every session to route; Agents-Core is not connected in the cloud | "do not route" in the prompt, as above |
 | Some launches, and a `curl` inside a session, were denied by the auto-mode classifier | the classifier judged the command a bypass | not worked around in 2026-09: rephrase the request, or run that step yourself |
 | Cloud credit counter does not move | not established | check usage in the account settings before relying on included credits |
