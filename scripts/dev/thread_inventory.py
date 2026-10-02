@@ -85,6 +85,7 @@ REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the n
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
 # Tags the client writes into user entries; a prompt can start with `<` too, as <pasted_content> does.
+QUOTED_TILDE = re.compile(r"(?<![^\s=])(?:(['\"])|\\)~")  # a quoted or escaped ~ starting a word
 CLIENT_TAG = re.compile(r"<(?:command-|local-command-|bash-|task-notification|system-reminder|artifact-content-)")
 ARRAY_ASSIGNMENT = re.compile(r"(?:^|\s)[A-Za-z_]\w*\+?=$")  # NAME=( starts array elements, which are data
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
@@ -114,7 +115,7 @@ SECRET = re.compile(
     r"|(?:api[_-]?key|token|password|secret)[\"']?\s*[=:]\s*[\"']?)[^\s\"',;]+"
     r"|\bsk-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}"
     r"|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
-    r"|(?<=://)[^\s/@:'\"]+:[^\s/@'\"]+(?=@)")  # user:password@ in a URL
+    r"|(?<=://)[^\s/?#@:'\"]+:[^\s/?#'\"]+(?=@[^\s/?#@'\"]+(?:[/?#\s'\"]|$))")  # user:password@ in a URL
 WRITE_VERBS = {
     "add", "append", "approve", "archive", "assign", "attach", "batch", "cancel", "close", "comment", "complete",
     "create", "delete", "disable", "edit", "enable", "execute", "import", "insert", "invite", "link", "mark",
@@ -254,6 +255,7 @@ def _text(value) -> str:
 
 
 def _tokens(segment: str) -> list[str]:
+    segment = QUOTED_TILDE.sub(lambda match: (match.group(1) or "") + "./~", segment)  # '~/x' is ./~/x
     try:
         return shlex.split(segment, posix=True)
     except ValueError:  # a quote opened on an earlier line: keep quoted words together anyway
@@ -969,7 +971,8 @@ def _word(text: str, index: int) -> tuple[str, int]:
     An operator such as `(` in `>(cmd)` ends it at once."""
     while index < len(text) and text[index] in " \t":
         index += 1
-    word, quote = [], None
+    literal_tilde = text.startswith(("'~", '"~', "\\~"), index)  # not the home directory
+    word, quote = (["./"] if literal_tilde else []), None
     while index < len(text):
         char = text[index]
         if quote:
@@ -1127,7 +1130,9 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
 
 def _assistant(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
     key = message.get("id") or entry.get("requestId") or entry.get("uuid")
-    if key not in sink["responses"]:
+    if key is None:
+        sink["skipped"] += 1  # its model and tokens cannot be counted once; its content is still read
+    elif key not in sink["responses"]:
         sink["responses"].add(key)
         sink["models"][message.get("model") or "unknown"] += 1
         usage = message.get("usage") or {}
@@ -1359,13 +1364,14 @@ def collect(paths: list[Path]) -> dict:
     for part in subagent_transcripts(paths):
         part_entries, part_bad = load_entries([part])
         bad += part_bad
-        before = (len(sink["git_mutations"]), len(sink["external"]), len(sink["responses"]))
+        before = (len(sink["git_mutations"]), len(sink["external"]), len(sink["responses"]), len(sink["shell_writes"]))
         scan(part_entries, sink, actor=part.stem)
         counts = {"git_mutations": len(sink["git_mutations"]) - before[0],
                   "external_writes": len(sink["external"]) - before[1],
                   "files_written": sum(part.stem in writers for writers in sink["files"].values()),
-                  "responses": len(sink["responses"]) - before[2]}
-        if counts["git_mutations"] or counts["external_writes"] or counts["files_written"]:
+                  "responses": len(sink["responses"]) - before[2],
+                  "shell_writes": len(sink["shell_writes"]) - before[3]}
+        if counts["git_mutations"] or counts["external_writes"] or counts["files_written"] or counts["shell_writes"]:
             subagents.append({"agent": part.stem, "transcript": str(part), **counts})
     result = summarize(sink)
     result["subagents_with_writes"] = subagents

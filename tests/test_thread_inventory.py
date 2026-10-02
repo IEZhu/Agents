@@ -273,12 +273,15 @@ def test_credentials_are_masked_in_printed_text():
         *bash("curl -H 'Authorization: Bearer xyz.secret' https://x && git push "
               "https://ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r", "t1"),
         *bash("git clone https://bot:hunter2pass@git.example.com/o/r.git", "t2"),
+        *bash("git clone https://bot:p@ssw0rd@git.example.com/o/s.git", "t3"),
     ]
     inv = thread_inventory.inventory(entries)
     printed = json.dumps(inv)
-    assert "git clone https://[masked]@git.example.com/o/r.git" in [m["command"] for m in inv["git_mutations"]]
+    commands = [m["command"] for m in inv["git_mutations"]]
+    assert {"git clone https://[masked]@git.example.com/o/r.git",
+            "git clone https://[masked]@git.example.com/o/s.git"} <= set(commands)  # a password may contain @
     for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123", "sk-abcdefghijklmnop1234",
-                   "hunter2pass"):
+                   "hunter2pass", "ssw0rd"):
         assert secret not in printed
     assert "[masked]" in printed
 
@@ -308,8 +311,9 @@ def test_paths_are_masked_in_output_but_searched_raw(tmp_path, capsys):
 
 
 def test_heredocs_and_arithmetic_stay_linear():
-    command = ("cat <<A\nbody\nA\n" * 5000 + "echo $((1<<2))\n" * 5000 + "cat " + " ".join(f"<<B{i}" for i in range(2000))
-               + "\n" + "".join(f"x\nB{i}\n" for i in range(2000)) + "git push")
+    command = ("cat <<A\nbody\nA\n" * 5000 + "echo $((1<<2))\n" * 5000
+               + "cat " + " ".join(f"<<B{i}" for i in range(2000)) + "\n"
+               + "".join(f"x\nB{i}\n" for i in range(2000)) + "git push")
     start = time.monotonic()
     inv = thread_inventory.inventory(bash(command, "big"))
     assert time.monotonic() - start < 2
@@ -355,6 +359,10 @@ def test_shell_writes_list_redirection_and_tee_targets():
         [os.path.expanduser("~/.config/app")], ["/work/repo/notes.md"], ["/tmp/l.txt"],
         [os.path.expanduser("~/.zshrc"), "/work/repo/out.txt"], ["/work/repo/truncated.txt"]]
     assert {"/tmp", os.path.expanduser("~/.config")} <= set(inv["directories"])  # git_roots candidates
+    tilde = thread_inventory.inventory(bash(
+        "echo x > '~/.config/app' && echo y > ~/.real && echo z | tee \"~/t\"", "tl"))
+    assert [w["files"] for w in tilde["shell_writes"]] == [
+        ["/work/repo/~/.config/app"], [os.path.expanduser("~/.real")], ["/work/repo/~/t"]]  # a quoted ~ is literal
     child = thread_inventory.inventory(bash("env -C /other bash -c 'echo x > out && git init sub'", "ch"))
     assert [w["files"] for w in child["shell_writes"]] == [["/other/out"]] and "/other/sub" in child["directories"]
     assert inv["shell_writes"][2]["command"] == "git log > /tmp/l.txt 2>&1"
@@ -374,6 +382,13 @@ def test_pasted_notifications_end_no_task():
     ]
     tasks = thread_inventory.inventory(entries)["background_tasks"]
     assert [(t["id"], t["ended"]) for t in tasks] == [("bg9", None)]
+
+
+def test_responses_without_an_id_are_counted_as_skipped():
+    entries = [{"type": "assistant", "timestamp": "t1", "message": {"role": "assistant", "content": [
+        tool("Bash", {"command": "git push"}, f"x{i}")], "usage": {"output_tokens": 5}}} for i in range(2)]
+    inv = thread_inventory.inventory(entries)
+    assert (inv["responses"], inv["skipped_entries"], len(inv["git_mutations"])) == (0, 2, 2)
 
 
 def test_unexpected_entries_are_skipped_not_fatal():
@@ -445,7 +460,8 @@ def test_files_written_elsewhere_add_their_directory(tmp_path):
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     main = tmp_path / f"{SESSION}.jsonl"
     main.write_text("\n".join(json.dumps(e) for e in [
-        *assistant([tool("Edit", {"file_path": f"{repo}/a.py", "old_string": "a", "new_string": "b"}, "e1")], "t1", "m1"),
+        *assistant([tool("Edit", {"file_path": f"{repo}/a.py", "old_string": "a", "new_string": "b"}, "e1")],
+                   "t1", "m1"),
         {"type": "file-history-delta", "trackingPath": "/elsewhere/b.py", "timestamp": "t2"},
     ]) + "\n", encoding="utf-8")
     out = thread_inventory.collect([main])
@@ -604,6 +620,9 @@ def test_every_writer_of_a_file_is_kept(tmp_path):
     out = thread_inventory.collect([main])
     assert out["files_written"][0] == {"path": "/w/a.py", "ts": "t1", "by": ["main", "agent-b"]}
     assert [(s["agent"], s["files_written"]) for s in out["subagents_with_writes"]] == [("agent-b", 1), ("agent-c", 1)]
+    (sub / "agent-d.jsonl").write_text(json.dumps(bash("echo x > /w/d.txt", "d1")[0]) + "\n", encoding="utf-8")
+    shell_only = thread_inventory.collect([main])["subagents_with_writes"]
+    assert [(s["agent"], s["shell_writes"]) for s in shell_only if s["agent"] == "agent-d"] == [("agent-d", 1)]
 
 
 def test_quoted_config_survives_a_multiline_message():
@@ -646,7 +665,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
         "git push"]),  # array elements are data, their substitutions run
     ("trap -- 'git push origin x' EXIT; trap -p EXIT; trap - EXIT", ["git push origin x"]),
     ("<<'EOF' bash\ngit push\nEOF\nbash << 'EOF'\ngh pr merge 7\nEOF", ["git push", "gh pr merge 7"]),
-    ("cat <<'EOF' | bash\ngit push\nEOF\ncat <<'EOF' | python3 -\ngit tag v1\nEOF\ncat <<'EOF' |& sh\ngh pr merge 3\nEOF",
+    ("cat <<'EOF' | bash\ngit push\nEOF\ncat <<'EOF' | python3 -\ngit tag v1\nEOF\n"
+     "cat <<'EOF' |& sh\ngh pr merge 3\nEOF",
      ["git push", "gh pr merge 3"]),  # a heredoc piped into a shell runs there
     ("env -S 'git push origin main' && env --split-string='gh pr merge 5'", ["env -S 'git push origin main'",
                                                                          "env --split-string='gh pr merge 5'"]),
@@ -659,7 +679,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("X=a#b git push; echo a#b && git tag v3", ["X=a#b git push", "git tag v3"]),
     ("function g { gh pr merge 5; }; eval 'git push origin x'; trap 'git stash' EXIT", [
         "function g { gh pr merge 5", "git push origin x", "git stash"]),
-    ('GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x', ['GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x']),
+    ('GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x',
+     ['GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x']),
     ("URL=$(gh pr create --fill) && echo `git tag v1`", ["gh pr create --fill", "git tag v1"]),
     ("echo 'git push' \"git push\" $'it\\'s; git push'", []),
 ])
