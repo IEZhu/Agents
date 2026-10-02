@@ -119,6 +119,7 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
                                             selection=flow_persona.selection(spec))
         assert bundle.skills_loaded == spec["skills"]
         assert len(bundle.implants_loaded) == len(spec["implants"])
+    assert declared["documentation-refresh"]["agent"] == "tech_writer"
     assert declared["issue-plan"]["agent"] == "system_architect"
     assert declared["issue-implementation"]["agent"] == "software_engineer"
     assert declared["pr-review"]["agent"] == "code_reviewer"

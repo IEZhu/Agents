@@ -1,7 +1,7 @@
 ---
 persona:
   agent: system_architect
-  skills: [skill-content-structure, skill-system-design, skill-multi-step-planning, skill-decision-frameworks, skill-dev-api-design]
+  skills: [skill-content-structure, skill-system-design, skill-multi-step-planning, skill-decision-frameworks, skill-dev-api-design, skill-consultative-intake]
   implants: [implant-step-back-prompting, implant-verify-assumptions, implant-premortem]
 ---
 # Issue agent: plan and replan
