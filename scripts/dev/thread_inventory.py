@@ -502,11 +502,13 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
         reads = bool(tokens) and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin"
         for entry in piped:  # `cat <<'EOF' | bash`: the body reaches this shell, unless it has its own
             entry[2] = entry[2] or (reads and not undecided)
+        passes = tokens[:1] == ["tee"] or (tokens[:1] == ["cat"] and set(_positional(tokens[1:], set())) <= {"-"})
+        carried = piped[:] if passes else []  # `| cat |` and `| tee log |` pass their input on
         piped.clear()
         for entry in undecided:  # decided once per simple command, from its whole text
             entry[2] = reads
         if pipe:
-            piped.extend(undecided)
+            piped.extend(undecided + carried)
         undecided.clear()
         current.clear()
 
@@ -1150,9 +1152,9 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
     kind, ts, cwd = entry.get("type"), entry.get("timestamp"), entry.get("cwd")
     ts = ts if isinstance(ts, str) else None  # times are compared and sorted as text
     cwd = cwd if isinstance(cwd, str) else None
-    if ts and actor == "main":
-        sink["first"] = sink["first"] or ts
-        sink["last"] = ts
+    if ts and actor == "main":  # transcript parts may be given in any order
+        sink["first"] = ts if _earlier(ts, sink["first"]) else sink["first"]
+        sink["last"] = ts if not sink["last"] or ts > sink["last"] else sink["last"]
     if actor == "main" and entry.get("sessionId") and entry["sessionId"] not in sink["sessions"]:
         sink["sessions"].append(entry["sessionId"])
     if cwd:

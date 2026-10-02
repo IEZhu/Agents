@@ -511,6 +511,14 @@ def test_json_values_that_are_not_objects_are_skipped(tmp_path):
     assert [p["text"] for p in out["prompts"]] == ["hi"]
 
 
+def test_time_span_follows_time_not_file_order(tmp_path):
+    early, late = tmp_path / "early.jsonl", tmp_path / "late.jsonl"
+    early.write_text(json.dumps(human("a", "2026-10-02T08:00:00Z")) + "\n", encoding="utf-8")
+    late.write_text(json.dumps(human("b", "2026-10-02T09:00:00Z")) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([late, early])
+    assert (out["first"], out["last"]) == ("2026-10-02T08:00:00Z", "2026-10-02T09:00:00Z")
+
+
 def test_session_lookup_uses_the_claude_config_dir(tmp_path, monkeypatch):
     project = tmp_path / "cfg" / "projects" / "-work-repo"
     project.mkdir(parents=True)
@@ -687,6 +695,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("cat <<'EOF' | bash\ngit push\nEOF\ncat <<'EOF' | python3 -\ngit tag v1\nEOF\n"
      "cat <<'EOF' |& sh\ngh pr merge 3\nEOF",
      ["git push", "gh pr merge 3"]),  # a heredoc piped into a shell runs there
+    ("cat <<'EOF' | cat | bash\ngit push\nEOF\ncat <<'EOF' | tee log.txt | sh\ngh pr merge 9\nEOF\n"
+     "cat <<'EOF' | grep x | bash\ngit tag v5\nEOF", ["git push", "gh pr merge 9"]),  # cat and tee pass it on
     ("env -C/tmp git commit -m x && env -S'git tag v9'", ["env -C/tmp git commit -m x", "env -S'git tag v9'"]),
     ("cat <<'EOF' | bash < run.sh\ngit push\nEOF\nbash <<'EOF' < run.sh\ngit tag v1\nEOF\n"
      "bash < run.sh <<'EOF'\ngh pr merge 4\nEOF", ["gh pr merge 4"]),  # the last input redirection wins
