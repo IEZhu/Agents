@@ -1,3 +1,9 @@
+---
+persona:
+  agent: tech_writer
+  skills: [skill-content-structure, skill-tech-writing, skill-fact-verification, skill-git-conventions, skill-dense-summarization]
+  implants: [implant-chain-of-verification, implant-skeleton-of-thought]
+---
 # Refresh documentation for people and AI
 
 This is an executable instruction for an AI working on a target repository.
