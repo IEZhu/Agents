@@ -354,6 +354,9 @@ def test_shell_writes_list_redirection_and_tee_targets():
     assert [w["files"] for w in inv["shell_writes"]] == [
         [os.path.expanduser("~/.config/app")], ["/work/repo/notes.md"], ["/tmp/l.txt"],
         [os.path.expanduser("~/.zshrc"), "/work/repo/out.txt"], ["/work/repo/truncated.txt"]]
+    assert {"/tmp", os.path.expanduser("~/.config")} <= set(inv["directories"])  # git_roots candidates
+    child = thread_inventory.inventory(bash("env -C /other bash -c 'echo x > out && git init sub'", "ch"))
+    assert [w["files"] for w in child["shell_writes"]] == [["/other/out"]] and "/other/sub" in child["directories"]
     assert inv["shell_writes"][2]["command"] == "git log > /tmp/l.txt 2>&1"
     quoted = thread_inventory.inventory(bash(
         "printf '%s' '> not-written.txt' && echo \"a > b\" && git log --format='%h > %s' > out.txt"
@@ -581,8 +584,10 @@ def test_image_blocks_are_marked_in_prompts():
         user([{"type": "image", "source": {}}, {"type": "text", "text": "and this?"}], "t3"),  # no origin
         user([{"type": "text", "text": "<command-name>/clear</command-name>"}], "t4"),
         user([{"type": "text", "text": "[Request interrupted by user]"}], "t5"),  # written by the client
+        user("<pasted_content id=1>log</pasted_content> why?", "t6"), user("<local-command-stdout>x", "t7"),
     ])
-    assert [p["text"] for p in inv["prompts"]] == ["[image]", "[image] what is this?", "[image] and this?"]
+    assert [p["text"] for p in inv["prompts"]] == [
+        "[image]", "[image] what is this?", "[image] and this?", "<pasted_content id=1>log</pasted_content> why?"]
 
 
 def test_every_writer_of_a_file_is_kept(tmp_path):
@@ -594,9 +599,11 @@ def test_every_writer_of_a_file_is_kept(tmp_path):
     sub.mkdir(parents=True)
     (sub / "agent-b.jsonl").write_text(json.dumps(assistant([tool("Write", {"file_path": "/w/a.py", "content": "c"},
                                                                   "e2")], "t2", "m2")[0]) + "\n", encoding="utf-8")
+    (sub / "agent-c.jsonl").write_text(json.dumps({"type": "file-history-delta", "trackingPath": "/w/c.py",
+                                                   "timestamp": "t3"}) + "\n", encoding="utf-8")
     out = thread_inventory.collect([main])
-    assert out["files_written"] == [{"path": "/w/a.py", "ts": "t1", "by": ["main", "agent-b"]}]
-    assert out["subagents_with_writes"][0]["files_written"] == 1
+    assert out["files_written"][0] == {"path": "/w/a.py", "ts": "t1", "by": ["main", "agent-b"]}
+    assert [(s["agent"], s["files_written"]) for s in out["subagents_with_writes"]] == [("agent-b", 1), ("agent-c", 1)]
 
 
 def test_quoted_config_survives_a_multiline_message():
@@ -704,6 +711,8 @@ def test_references_come_from_executed_commands_not_heredoc_bodies():
     ("git config get user.name", "read"), ("git config list", "read"), ("git config --file f k v", "write"),
     ("git config -f .gitmodules submodule.x.path", "read"), ("git config --global user.email a@b", "write"),
     ("git config --get-urlmatch http https://x", "read"), ("git config -t bool core.filemode", "read"),
+    ("git config --global get user.name", "read"), ("git config --file cfg get user.name", "read"),
+    ("git config --global set user.name X", "write"),
 ])
 def test_git_config_reads_and_writes(command, kind):
     assert thread_inventory.git_kind(command.split()) == kind

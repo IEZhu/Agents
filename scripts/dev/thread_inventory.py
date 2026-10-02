@@ -80,9 +80,12 @@ WRAPPERS = {
 # Markers around the commands of a subshell, a substitution or a child shell: a `cd` there
 # does not move the commands after them.
 SCOPE_IN, SCOPE_OUT = object(), object()
+CHDIR = object()  # (CHDIR, path) sets the directory the next commands of a scope run in
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
+# Tags the client writes into user entries; a prompt can start with `<` too, as <pasted_content> does.
+CLIENT_TAG = re.compile(r"<(?:command-|local-command-|bash-|task-notification|system-reminder|artifact-content-)")
 ARRAY_ASSIGNMENT = re.compile(r"(?:^|\s)[A-Za-z_]\w*\+?=$")  # NAME=( starts array elements, which are data
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
@@ -690,7 +693,8 @@ def _git_subcommand_kind(sub: str, args: list[str]) -> str:
 
 
 def _git_config_kind(args: list[str]) -> str:
-    first = args[0] if args else ""
+    values = _positional(args, {"-f", "--file", "--blob", "-t", "--type", "--default", "--comment"})
+    first = values[0] if values else ""  # `git config --global get user.name` too
     if first in ("set", "unset", "rename-section", "remove-section", "edit"):
         return "write"  # subcommands since Git 2.46
     if first in ("get", "list"):
@@ -702,7 +706,6 @@ def _git_config_kind(args: list[str]) -> str:
              "-l", "--show-origin", "--show-scope"}
     if any(arg in reads for arg in args):
         return "read"
-    values = _positional(args, {"-f", "--file", "--blob", "-t", "--type", "--default", "--comment"})
     return "write" if len(values) >= 2 else "read"  # `git config <key> <value>` sets
 
 
@@ -871,6 +874,9 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
         if segment is SCOPE_OUT:
             current = saved.pop() if saved else current
             continue
+        if isinstance(segment, tuple) and segment[0] is CHDIR:
+            current = segment[1]
+            continue
         _scan_refs(segment, sink["refs"], ts)
         dirs: list[str] = []
         tokens = _command_tokens(segment, dirs)
@@ -881,6 +887,9 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
                 sink["directories"].setdefault(run_dir, ts)
         written = [_resolve(target, run_dir) or target for target in _written_files(segment, tokens)]
         written = [path for path in dict.fromkeys(written) if "/scratchpad" not in path]  # listed there already
+        for path in written:
+            if path.startswith("/"):
+                sink["directories"].setdefault(os.path.dirname(path), ts)
         if written:
             sink["shell_writes"].append({"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)),
                                          "by": actor, "files": written})
@@ -889,7 +898,8 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
         program = tokens[0]
         source, script = _shell_input(tokens) if program in SHELLS else (None, None)
         if source == "script" and script:
-            pending.extend(_scoped(_segments(script))[::-1])  # `bash -c '<script>'` runs them in a child shell
+            # `bash -c '<script>'` runs them in a child shell, in the directory of a wrapper such as env -C
+            pending.extend(_scoped([(CHDIR, run_dir), *_segments(script)])[::-1])
         elif program == "eval" and len(tokens) > 1:
             pending.extend(_segments(" ".join(tokens[1:]))[::-1])
         elif program == "trap":
@@ -1062,7 +1072,7 @@ def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
             "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
-            "unclassified_commands": [], "file_events": Counter(), "skipped": 0, "shell_writes": [],
+            "unclassified_commands": [], "skipped": 0, "shell_writes": [],
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
 
@@ -1181,7 +1191,7 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
     else:  # transcripts without `origin`: a string, or blocks with an image or a document, not a harness tag
         attached = isinstance(content, list) and any(
             isinstance(block, dict) and block.get("type") not in ("text", "tool_result") for block in content)
-        is_prompt = (isinstance(content, str) or attached) and not stripped.startswith("<")
+        is_prompt = (isinstance(content, str) or attached) and not CLIENT_TAG.match(stripped)
     prompt = _prompt_text(content).strip()
     if is_prompt and prompt:
         sink["prompts"].append({"ts": ts, "text": _short(prompt)})
@@ -1197,7 +1207,6 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
         path = data.get("file_path") or data.get("notebook_path")
         if isinstance(path, str) and path:
             _file(sink, path, ts, actor)
-            sink["file_events"][actor] += 1
             if MEMORY_PATH.search(path):
                 if path not in sink["memory"] or _earlier(ts, sink["memory"][path]["ts"]):
                     sink["memory"][path] = {"ts": ts, "by": actor}
@@ -1354,7 +1363,7 @@ def collect(paths: list[Path]) -> dict:
         scan(part_entries, sink, actor=part.stem)
         counts = {"git_mutations": len(sink["git_mutations"]) - before[0],
                   "external_writes": len(sink["external"]) - before[1],
-                  "files_written": sink["file_events"][part.stem],
+                  "files_written": sum(part.stem in writers for writers in sink["files"].values()),
                   "responses": len(sink["responses"]) - before[2]}
         if counts["git_mutations"] or counts["external_writes"] or counts["files_written"]:
             subagents.append({"agent": part.stem, "transcript": str(part), **counts})
