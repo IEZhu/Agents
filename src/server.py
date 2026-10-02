@@ -964,6 +964,8 @@ async def log_interaction(
     unavailable workspace writes nothing: it returns a protocol ERROR without
     ``timestamp``.
     """
+    if not request_id:
+        request_id = str(uuid.uuid4())
     logged = parse_persona_for_logging(persona, agent_name)
     warnings = list(logged.warnings)
     if persona_action is not None and persona_action not in ("keep", "switch", "refresh", "restore"):
@@ -1003,8 +1005,6 @@ async def log_interaction(
             attribution["persona_action"] = _short_action(persona_action)
     if warnings:
         attribution["warnings"] = warnings
-    if not request_id:
-        request_id = str(uuid.uuid4())
 
     # Issued once; shown by the model in the answer and stored in both sinks.
     timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")

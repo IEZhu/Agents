@@ -233,3 +233,12 @@ async def test_set_flow_persona_rejects_malformed_lists_instead_of_clearing(fiel
     from mcp.server.fastmcp.exceptions import ToolError
     with pytest.raises(ToolError):
         await server.mcp.call_tool("set_flow_persona", {"flow": "x", "agent": "lawyer", field: bad})
+
+
+@pytest.mark.asyncio
+async def test_generated_request_id_is_in_the_request_diagnostic(writer, monkeypatch):
+    seen = []
+    monkeypatch.setattr(server, "debug_log", lambda tool, kind, data: seen.append((kind, data)))
+    response = await call()
+    req = next(d for k, d in seen if k == "req")
+    assert req["request_id"] == response["request_id"]
