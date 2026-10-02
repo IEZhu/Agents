@@ -260,6 +260,38 @@ def test_credentials_are_masked_in_printed_text():
     assert "[masked]" in printed
 
 
+def test_paths_are_masked_in_output_but_searched_raw(tmp_path, capsys):
+    secret_dir = tmp_path / "token=abc123secret"
+    repo = secret_dir / "repo"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    entries = [
+        *assistant([tool("Write", {"file_path": f"{repo}/out.md", "content": "x"}, "w1"),
+                    tool("Edit", {"file_path": "/h/.claude/projects/p/memory/ghp_abcdefghijklmnopqrstuvwxyz0123.md",
+                                  "old_string": "a", "new_string": "b"}, "w2")], "2026-10-02T09:00:00Z", "m1"),
+        *bash(f"cd /tmp/sk-abcdefghijklmnop1234 && cat {SCRATCH}/xoxb-1234567890-abcdef.txt", "b1"),
+    ]
+    for entry in entries:
+        entry["cwd"] = str(repo)
+    transcript = secret_dir / f"{SESSION}.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n", encoding="utf-8")
+    assert thread_inventory.main(["--transcript", str(transcript)]) == 0
+    printed = capsys.readouterr().out
+    for secret in ("abc123secret", "ghp_abcdefghijklmnopqrstuvwxyz0123", "sk-abcdefghijklmnop1234",
+                   "xoxb-1234567890-abcdef"):
+        assert secret not in printed
+    roots = json.loads(printed)["git_roots"]
+    assert len(roots) == 1 and roots[0].endswith("/token=[masked]")  # found through the real path
+
+
+def test_heredocs_and_arithmetic_stay_linear():
+    command = "cat <<A\nbody\nA\n" * 5000 + "echo $((1<<2))\n" * 5000 + "git push"
+    start = time.monotonic()
+    inv = thread_inventory.inventory(bash(command, "big"))
+    assert time.monotonic() - start < 2
+    assert [m["command"] for m in inv["git_mutations"]] == ["git push"]
+
+
 def test_scratchpad_scan_is_linear_on_long_tokens():
     start = time.monotonic()
     thread_inventory.inventory(bash("echo " + "/a" * 80_000 + " " + "A" * 200_000, "big"))
@@ -325,6 +357,19 @@ def test_session_lookup_uses_the_claude_config_dir(tmp_path, monkeypatch):
     ("git bundle create x.bundle HEAD", "read"),
 ])
 def test_git_subcommands(command, kind):
+    assert thread_inventory.git_kind(command.split()) == kind
+
+
+@pytest.mark.parametrize("command, kind", [
+    ("git tag", "read"), ("git tag -v v1", "read"), ("git tag --verify v1", "read"), ("git tag -n5", "read"),
+    ("git tag --format %(refname)", "read"), ("git tag --sort -creatordate", "read"), ("git tag --column", "read"),
+    ("git tag -a v2 -m x", "write"), ("git tag -d v1", "write"),
+    ("git branch --no-track feat origin/main", "write"), ("git branch -q feat", "write"),
+    ("git branch -v feat", "write"), ("git branch -m new", "write"), ("git branch --set-upstream-to=o/x", "write"),
+    ("git branch --format %(refname)", "read"), ("git branch --sort -committerdate", "read"),
+    ("git branch -vv", "read"), ("git branch -r", "read"), ("git branch --contains HEAD", "read"),
+])
+def test_git_tag_and_branch_list_unless_given_a_name(command, kind):
     assert thread_inventory.git_kind(command.split()) == kind
 
 
@@ -398,6 +443,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
 
 @pytest.mark.parametrize("command, expected", [
     ("cat > notes.md <<'EOF'\ngit push origin main\nEOF\ngit status", []),
+    ("cat > notes.md <<'EOF'\ngit push origin main", []),  # no delimiter line: the rest is the body
+    ("bash <<'EOF'\ngit push origin main", ["git push origin main"]),
     ("git commit -F - <<-EOF\n\tgh pr merge 5\n\tEOF", ["git commit -F - <<-EOF"]),
     ("bash <<'EOF'\ngit push origin main\nEOF", ["git push origin main"]),
     ('gh pr comment 5 --body "fixed\ngit push origin main; git reset --hard"', ['gh pr comment 5 --body "fixed']),

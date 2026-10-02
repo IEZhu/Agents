@@ -23,12 +23,13 @@ Shell commands are split into simple commands at unquoted operators and line end
 so quoted text is never read as a command, while command substitutions and the
 scripts of `bash -c` are. A heredoc body counts as commands only when a shell reads
 it; otherwise it is data, such as a commit message or a file, and its references
-are not collected.
+are not collected. A heredoc without its delimiter line takes the rest of the
+command, as the shell reads it.
 
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
-are shortened and common credential shapes are masked; tool inputs are reduced to
-the tool name and its target identifiers.
+are shortened, common credential shapes are masked in every printed string, paths
+included, and tool inputs are reduced to the tool name and its target identifiers.
 """
 from __future__ import annotations
 
@@ -113,6 +114,15 @@ GIT_SUBCOMMAND_READS = {"notes": {"show", "list", "get-ref"}, "sparse-checkout":
                         "bundle": {"create", "verify", "list-heads"},
                         "submodule": {"status", "summary", "foreach"}, "bisect": {"log", "visualize", "view"},
                         "lfs": {"ls-files", "status", "env", "version", "logs", "locks"}}
+# `git tag` and `git branch` list unless given a name or a flag that changes refs.
+GIT_TAG_READS = {"-l", "--list", "-v", "--verify", "-n", "--contains", "--no-contains", "--merged", "--no-merged",
+                 "--points-at"}
+GIT_TAG_VALUES = {"-m", "--message", "-F", "--file", "-u", "--local-user", "--sort", "--format", "--cleanup",
+                  "--trailer"}
+GIT_BRANCH_WRITES = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-u", "--set-upstream-to",
+                     "--unset-upstream", "--edit-description"}
+GIT_BRANCH_READS = {"-l", "--list", "-a", "--all", "-r", "--remotes", "--show-current", "--contains", "--no-contains",
+                    "--merged", "--no-merged", "--points-at"}
 GH_READ_GROUPS = {"auth", "config", "help", "version", "search", "browse", "status"}  # after GH_WRITES
 GH_READ_VERBS = {"view", "list", "status", "checks", "diff", "search", "browse", "watch", "download", "verify"}
 GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--title", "-B", "--base", "-H", "--head",
@@ -145,6 +155,20 @@ def _mask(match: re.Match) -> str:
 def _short(text, limit: int = MAX_TEXT) -> str:
     text = SECRET.sub(_mask, " ".join(str(text).split()))
     return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _masked(value):
+    """The output with credential shapes masked in every string, paths and keys included.
+
+    Paths are kept raw until here: git roots are found from the real directories.
+    """
+    if isinstance(value, str):
+        return SECRET.sub(_mask, value)
+    if isinstance(value, dict):
+        return {_masked(key): _masked(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_masked(item) for item in value]
+    return value
 
 
 def _first_line(text: str) -> str:
@@ -185,9 +209,11 @@ def _command_tokens(segment: str) -> list[str]:
     return tokens
 
 
-def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool) -> tuple[str, int] | None:
-    """The body of a heredoc that starts at ``index`` and the index after its delimiter line,
-    or None when no line closes it."""
+def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool) -> tuple[str, int]:
+    """The body of a heredoc that starts at ``index`` and the index after its delimiter line.
+
+    Without a delimiter line the body runs to the end of the input, as bash and zsh read it.
+    """
     lines, length = [], len(command)
     while index < length:
         end = command.find("\n", index)
@@ -195,9 +221,9 @@ def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool) -> tuple
         line = command[index:end]
         index = end + 1
         if (line.lstrip("\t") if tabs else line).rstrip("\r") == delimiter:
-            return "\n".join(lines), min(index, length)
+            break
         lines.append(line)
-    return None
+    return "\n".join(lines), min(index, length)
 
 
 def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
@@ -225,13 +251,13 @@ def _segments(command: str) -> list[str]:
     Command substitutions become segments of their own and `$(…)` in the command around
     them. A heredoc body is skipped unless a shell reads it, as in `bash <<'EOF'`.
     """
-    return _parse(command, 0, 0, set())[0]
+    return _parse(command, 0, 0)[0]
 
 
-def _parse(command: str, index: int, depth: int, unclosed: set) -> tuple[list[str], int]:
+def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
     """Segments from ``index`` to the end, or to the `)` that closes a nested parse (``depth`` > 0).
 
-    ``unclosed`` holds heredoc delimiters that no later line closes, so each is searched for once.
+    A `<<` inside parentheses that close on the same line, as in `$((1<<2))`, opens no heredoc.
     """
     segments, current, heredocs = [], [], []
     quote, length = None, len(command)
@@ -262,7 +288,7 @@ def _parse(command: str, index: int, depth: int, unclosed: set) -> tuple[list[st
             add(command[index:match.start()])
             index, found = match.start(), match.group()
             if found == "$(" and depth < MAX_DEPTH:  # a substitution inside "..." runs too
-                inner, index = _parse(command, index + 2, depth + 1, unclosed)
+                inner, index = _parse(command, index + 2, depth + 1)
                 segments.extend(inner)
                 current.append("$(…)")
             elif found == "`":
@@ -316,11 +342,7 @@ def _parse(command: str, index: int, depth: int, unclosed: set) -> tuple[list[st
             flush()
             index += 1
             for delimiter, tabs, owner in heredocs:
-                found = None if (delimiter, tabs) in unclosed else _heredoc_body(command, index, delimiter, tabs)
-                if found is None:
-                    unclosed.add((delimiter, tabs))
-                    continue  # no delimiter line, so not a heredoc, as in $((1<<2))
-                body, index = found
+                body, index = _heredoc_body(command, index, delimiter, tabs)
                 tokens = _command_tokens(owner)
                 if tokens and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin":
                     segments.extend(_segments(body))
@@ -332,7 +354,7 @@ def _parse(command: str, index: int, depth: int, unclosed: set) -> tuple[list[st
             substitution = command[index - 1:index] == "$"
             if not substitution:
                 flush()  # a subshell, a group or a function's parentheses
-            inner, index = _parse(command, index + 1, depth + 1, unclosed)
+            inner, index = _parse(command, index + 1, depth + 1)
             segments.extend(inner)
             if substitution:
                 current.append("(…)")
@@ -408,15 +430,11 @@ def git_kind(tokens: list[str]) -> str:
     if sub == "stash":
         return "read" if first in ("list", "show") else "write"
     if sub == "tag":
-        listing = {"-l", "--list", "--contains", "--merged", "--no-merged", "--points-at", "-n"}
-        return "write" if args and not any(arg in listing for arg in args) else "read"
+        return _list_or_create(args, {"-d", "--delete"}, GIT_TAG_READS, GIT_TAG_VALUES)
     if sub == "worktree":
         return "write" if first in ("add", "remove", "prune", "move", "repair", "lock", "unlock") else "read"
     if sub == "branch":
-        flags = {"-d", "-D", "--delete", "-m", "-M", "--move", "-f", "--force", "-c", "-C", "--copy",
-                 "-u", "--set-upstream-to", "--unset-upstream", "--edit-description"}
-        changes = any(arg in flags or arg.startswith("--set-upstream-to=") for arg in args)
-        return "write" if changes or (args and not first.startswith("-")) else "read"
+        return _list_or_create(args, GIT_BRANCH_WRITES, GIT_BRANCH_READS, {"--sort", "--format"})
     if sub == "remote":
         return "write" if first in ("add", "remove", "rm", "rename", "set-url", "set-head", "prune") else "read"
     if sub == "config":
@@ -441,15 +459,33 @@ def _git_config_kind(args: list[str]) -> str:
              "-l", "--show-origin", "--show-scope"}
     if any(arg in reads for arg in args):
         return "read"
-    values, skip = [], False
+    values = _positional(args, {"-f", "--file", "--blob", "--type", "--default", "--comment"})
+    return "write" if len(values) >= 2 else "read"  # `git config <key> <value>` sets
+
+
+def _list_or_create(args: list[str], writes: set, reads: set, values: set) -> str:
+    """`git tag` or `git branch`: a flag in ``writes`` changes refs, one in ``reads`` lists or
+    verifies, and otherwise a name creates while options alone list."""
+    for arg in args:
+        flag = arg.split("=", 1)[0]
+        if flag in writes:
+            return "write"
+        if flag.rstrip("0123456789") in reads:  # -n5 is -n with its value
+            return "read"
+    return "write" if _positional(args, values) else "read"
+
+
+def _positional(args: list[str], values: set) -> list[str]:
+    """Arguments that are not options, skipping the value of each option in ``values``."""
+    found, skip = [], False
     for arg in args:
         if skip:
             skip = False
-        elif arg in ("-f", "--file", "--blob", "--type", "--default", "--comment"):
-            skip = True  # the option's value, not a key or a value
+        elif arg in values:
+            skip = True
         elif not arg.startswith("-"):
-            values.append(arg)
-    return "write" if len(values) >= 2 else "read"  # `git config <key> <value>` sets
+            found.append(arg)
+    return found
 
 
 def git_write(tokens: list[str]) -> bool:
@@ -542,17 +578,10 @@ def _git_paths(tokens: list[str], current: str | None, ts, sink: dict) -> None:
                 sink["directories"].setdefault(path, ts)
                 current = path  # git resolves the remaining relative paths from -C
     if "worktree" in tokens and "add" in tokens:
-        skip = False
-        for arg in tokens[tokens.index("add") + 1:]:
-            if skip:
-                skip = False
-            elif arg in ("-b", "-B", "--reason"):
-                skip = True
-            elif not arg.startswith("-"):
-                path = _resolve(arg, current)
-                if path:
-                    sink["directories"].setdefault(path, ts)
-                break
+        names = _positional(tokens[tokens.index("add") + 1:], {"-b", "-B", "--reason"})
+        path = _resolve(names[0], current) if names else None
+        if path:
+            sink["directories"].setdefault(path, ts)
 
 
 def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
@@ -851,7 +880,7 @@ def summarize(sink: dict) -> dict:
 
 def inventory(entries: list[dict]) -> dict:
     """The thread's artifacts and signals from one transcript's entries."""
-    return summarize(scan(entries))
+    return _masked(summarize(scan(entries)))
 
 
 def subagent_transcripts(paths: list[Path]) -> list[Path]:
@@ -928,7 +957,7 @@ def collect(paths: list[Path]) -> dict:
     result["transcripts"] = [str(path) for path in paths]
     result["unreadable_lines"] = bad
     result["git_roots"] = git_roots(result["directories"])
-    return result
+    return _masked(result)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -957,7 +986,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": "transcript not found"}))
         return 1
     result = collect(paths)
-    result["notes"] = notes
+    result["notes"] = _masked(notes)
     json.dump(result, sys.stdout, ensure_ascii=False, indent=1)
     print()
     return 0

@@ -128,10 +128,23 @@ Rules:
    in the conversation. For each one, collect:
    - `git status --short`, the current branch, `git stash list` and
      `git worktree list`;
-   - commits that exist on no remote: `git log --branches --not --remotes --oneline`.
-     This, not the upstream, decides whether work is pushed. Confirm a branch
-     with `git branch -r --contains <branch>`: an empty result means its head is
-     on no remote branch;
+   - commits that exist on no remote. The remote, not the upstream, decides
+     whether work is pushed:
+     - `git log --branches --not --remotes --oneline` lists them, and
+       `git branch -r --contains <branch>` is empty for a branch whose head is
+       on no remote branch. Both read remote-tracking refs, which show the
+       remote as of the last fetch or push: a branch deleted or force-pushed
+       there can still look pushed, and one pushed from another clone can look
+       unpushed.
+     - Confirm with the live heads from `git ls-remote --heads <remote>`, which
+       changes nothing. A branch is pushed when a live head equals its head or
+       contains it (`git merge-base --is-ancestor <branch> <live head>`), and
+       unpushed when every live head is present locally and none contains it.
+     - Otherwise, or when the remote cannot be reached, its push status is `?`
+       and the report proposes `git fetch --prune <remote>`.
+     - A branch whose head is the head of a merged pull request is preserved
+       by that merge, even after a squash merge or when its remote branch is
+       gone;
    - each branch's upstream, for information only:
      `git for-each-ref --format='%(refname:short) %(upstream:short) %(upstream:track)' refs/heads`.
      A missing upstream says nothing about pushing (`git push origin <branch>`
