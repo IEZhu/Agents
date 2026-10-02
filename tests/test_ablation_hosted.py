@@ -99,6 +99,13 @@ def test_judge_keeps_only_verdicts_aggregate_accepts(tmp_path):
     assert all("<file>\n# Case c1" in p for p in prompts)
 
 
+def test_parse_verdict_takes_the_first_object():
+    reply = "```json\n" + json.dumps(VERDICT) + "\n```\nNote: {\"winner\": \"B\"}"
+    assert hosted.parse_verdict(reply, 2) == VERDICT
+    with pytest.raises(ValueError):
+        hosted.parse_verdict("no verdict here", 2)
+
+
 def test_judge_instructions_follow_the_cloud_judge():
     text = hosted.judge_instructions()
     js = (HARNESS / "workflows" / "judges.js").read_text(encoding="utf-8")

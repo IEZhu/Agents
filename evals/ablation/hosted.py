@@ -89,11 +89,12 @@ def judge_instructions() -> str:
 
 def parse_verdict(text: str, rubric_size: int) -> dict:
     """A verdict object aggregate.py accepts, with each rubric item judged once; else ValueError."""
-    body = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
-    start, end = body.find("{"), body.rfind("}")
-    if start < 0 or end < start:
+    body = re.sub(r"^```(?:json)?\s*", "", text.strip())
+    start = body.find("{")
+    if start < 0:
         raise ValueError("no JSON object in the reply")
-    verdict = json.loads(body[start:end + 1])
+    # The first object only: some models append a closing fence, notes or a second object.
+    verdict, _ = json.JSONDecoder().raw_decode(body[start:])
     with tempfile.TemporaryDirectory() as tmp:
         probe = Path(tmp) / "verdict.json"
         probe.write_text(json.dumps(verdict))
@@ -219,7 +220,9 @@ def openrouter_chat(model: str, max_tokens: int, *, sample: bool, reasoning: str
             raise p.ContaminatedResponseError("reply leaked agentic-harness scaffolding")
         return text
 
-    settings = {"model": model, "max_tokens": max_tokens, "routing": routing,
+    temperature = (os.getenv("OPENROUTER_TEMPERATURE", "0") if sample
+                   else os.getenv("OPENROUTER_GRADER_TEMPERATURE", "0"))
+    settings = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "routing": routing,
                 "request_settings": p.request_settings("openrouter")}
     if reasoning is not None:
         settings["reasoning"] = reasoning
