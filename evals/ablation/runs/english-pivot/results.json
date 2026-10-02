@@ -1,0 +1,613 @@
+{
+ "verdicts": [
+  {
+   "component": "rule-english-pivot",
+   "case": "mix-runbook-checklist",
+   "A": "without",
+   "B": "with",
+   "stem": "01b00e8f68__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers keep all five steps in order, copy both kubectl commands exactly, translate the rollback condition precisely, and keep #incidents and the DBA approval rule. B keeps the original numbering but adds a redundant 'Roll back if needed' label, while A says 'a release' rather than 'the release'; neither difference matters in practice.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "mix-runbook-checklist",
+   "A": "with",
+   "B": "without",
+   "stem": "01b00e8f68__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers keep all five steps in order, copy both kubectl commands exactly, translate the rollback condition precisely, and keep #incidents and the DBA approval rule. A keeps the step numbers and B does not, but A adds a 'Roll back if needed' label; neither difference changes what the reader would do. The two answers are effectively equivalent.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-vryad-li-edva-li",
+   "A": "with",
+   "B": "without",
+   "stem": "06167f9575__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A covers both standalone senses of «едва» ('barely' and 'as soon as'), while B gives only 'с трудом/чуть-чуть' and omits 'as soon as'. A also correctly says «вряд ли не знает» is grammatical but reverses the meaning, whereas B marks «вряд ли не придёт» and «вряд ли не опоздаем» as errors, which overstates the case. B's style table and three-sentence summary are useful, but they do not outweigh these gaps.",
+   "errors_with": [],
+   "errors_without": [
+    "Presents «Он вряд ли не придёт» / «Мы вряд ли не опоздаем» as errors, although they are grammatical sentences that mean 'he will probably come' / 'we will probably be late'."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-vryad-li-edva-li",
+   "A": "without",
+   "B": "with",
+   "stem": "06167f9575__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B covers both standalone senses of «едва» ('barely' and 'as soon as') while A gives only 'с трудом/чуть-чуть'. A labels «вряд ли не придёт» as a plain error, but such a sentence is grammatical with the opposite meaning; B explains this correctly. Both explain style and «едва ли не» well and give good B1 examples and exercises.",
+   "errors_with": [],
+   "errors_without": [
+    "Presents «Он вряд ли не придёт» / «Мы вряд ли не опоздаем» as ungrammatical errors, whereas they are grammatical sentences with the opposite meaning ('probably will')."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-1c-query-characteristic",
+   "A": "without",
+   "B": "with",
+   "stem": "07d6ce5388__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give essentially the same correct solution: an optional parameter defaulting to Неопределено, a condition built dynamically inside the virtual-table parameters, and СУММА with ЕСТЬNULL. Both also correctly explain the first-row bug and the difference between Неопределено and an empty reference. B adds slightly more test cases (other dimensions, unchanged result for goods without characteristics) and uses the more conventional # placeholder, but these differences are too small to decide the comparison.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-1c-query-characteristic",
+   "A": "with",
+   "B": "without",
+   "stem": "07d6ce5388__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give essentially the same correct solution: an optional parameter defaulting to Неопределено, a filter added to the virtual-table parameters only when the characteristic is passed, and СУММА with ЕСТЬNULL, all explained in Russian. B adds advice to find existing callers and a note on injection safety, while A adds test cases for items without characteristics and for other dimensions. These extras offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-proofread-sentence",
+   "A": "without",
+   "B": "with",
+   "stem": "101eb865c2__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both fix «не были», remove «то» and address the tautology; A resolves it in its main version while B flags it and offers a shortened variant. A's explanation of its conservative alternative is inaccurate (it claims a comma was added after «поскольку» and after «заранее», though the comma comes after «предупреждения» and the one after «заранее» was already there), and it calls that version 'errors only' despite changing the voice. B also keeps the original's causal framing, so it changes the meaning less.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims commas were placed after «поскольку» and «заранее» in the alternative; the comma actually comes after «предупреждения», and the one after «заранее» was already in the original.",
+    "Says only errors were fixed in the alternative, yet it also changes «был перезагружен» to «перезагрузили»."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-proofread-sentence",
+   "A": "with",
+   "B": "without",
+   "stem": "101eb865c2__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both fix the spelling and the redundant «то», and both notice the tautology, but A's main version keeps the original causal meaning and offers the shorter non-tautological wording as an option. B's main version turns cause and effect into an explanation joined by a colon, which shifts the meaning. B's explanations also contain inaccuracies: it calls «то» part of a colloquial construction and describes commas after «поскольку» that are not in its own sentence. A's explanation runs slightly long but is accurate.",
+   "errors_with": [],
+   "errors_without": [
+    "Describes the correlative «то» in «если… то» as coming from a colloquial construction.",
+    "Claims a comma was placed after «поскольку», but the sentence has none there."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-landing-translation",
+   "A": "without",
+   "B": "with",
+   "stem": "17033f794f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "A's first two variants keep the three beats and turn the imperative into a promise from the service, with natural renderings such as «Без ночных звонков» and «Сон — спокойным». Its third variant drops the three-beat structure. B's first variant keeps «Ничего не ломайте», which B itself admits reads as an order to the user, its second variant («Деплой без страха») loses the 'faster' meaning, and it suggests the awkward «Релизьте».",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-landing-translation",
+   "A": "with",
+   "B": "without",
+   "stem": "17033f794f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A gives three variants that all keep the three short beats and includes the natural «Спите спокойно». B's third variant («Деплой в пятницу вечером? Спокойно.») drops the three-beat structure and works as an in-joke rather than a translation, so B only partly meets item 1. Both avoid calques and flag the imperative «ничего не ломайте» problem, and B's «Прод — целым» reads a little stiffly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-psql-connection-refused",
+   "A": "with",
+   "B": "without",
+   "stem": "1eb6c429aa__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers diagnose listen_addresses (restart required), REJECT vs DROP firewall behaviour and pg_hba.conf with its distinct error, quoting the user's Russian error text. A leaves an untranslated English internal note ('recalled, not verified: ...') in the Russian reply, which breaks rubric item 4. B also adds the useful point that local psql without -h uses the unix socket, so working locally does not prove TCP listening.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-psql-connection-refused",
+   "A": "without",
+   "B": "with",
+   "stem": "1eb6c429aa__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical diagnostics. A is tighter and adds the useful point that local psql without -h uses the Unix socket. B adds a good server-side LAN-IP test, but it also leaves an internal 'recalled, not verified' note in the answer, gets the PG version for pg_hba_file_rules wrong, invents an 'appdb' database, and drifts into a pgBouncer recommendation.",
+   "errors_with": [
+    "Implies pg_hba_file_rules error checking is a PG 15+ feature and that rule_number was added in 15; the view exists since PG 10 and rule_number was added in PG 16."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-meeting-slots",
+   "A": "with",
+   "B": "without",
+   "stem": "37e4bf6db7__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers find the single schedule B, D, A, C, rule out every other case with the same correct case analysis, and are written entirely in Russian. A adds a brute-force count over the permutations as a cross-check, but this repeats the same argument and decides nothing. B is more concise while being equally complete.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-meeting-slots",
+   "A": "without",
+   "B": "with",
+   "stem": "37e4bf6db7__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers find the single schedule B, D, A, C, give the same correct case analysis on A's position, and are written entirely in Russian. B adds a table and a correct brute-force count cross-check, but that only repeats the same argument and changes nothing material, while A is equally rigorous and more concise.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "without",
+   "B": "with",
+   "stem": "439d9900fe__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B explicitly states that the refund cannot exceed the НДФЛ actually paid, which A only implies through 'возвращают уже уплаченный НДФЛ'. A's opening is slightly self-contradictory (says it is the same thing, then says there is no legal identity) and has a grammatical slip, while B frames the льгота/вычет distinction cleanly and adds the useful separation from property-tax льготы. Both are otherwise accurate, well-hedged and in Russian.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "with",
+   "B": "without",
+   "stem": "439d9900fe__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with accurate core content: Article 220, limits of 2 million and 3 million roubles, a refund capped by the tax paid, and replies entirely in Russian. B adds useful practical detail, including the finishing costs, per-spouse family totals, the effective date of the right and the caveat for deductions used before 2014. It also gives more precise clause references, although one of them is slightly off, and its opening sentence is a little self-contradictory.",
+   "errors_with": [],
+   "errors_without": [
+    "Cites п. 8 ст. 220 for the rule that the mortgage-interest deduction is allowed only once; that clause covers the employer route, and the ban on a repeat deduction is in п. 11."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-pushkin-meter",
+   "A": "with",
+   "B": "without",
+   "stem": "4499ca08b5__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both correctly identify iambic tetrameter, mark the pyrrhic on syllable 6 of line 1 and the feminine and masculine clausulae, and explain this in Russian at school level. B mispronounces 'передо' as перЕдо to make line 2 fully regular, while A's scheme correctly leaves the first foot unstressed, although A's prose wrongly puts the word's stress on its last syllable. A also adds the useful strong-position explanation and the ABAB rhyme scheme.",
+   "errors_with": [
+    "Claims 'передо' has a single stress on its last syllable; it is stressed пе́редо, and this also contradicts A's own scheme."
+   ],
+   "errors_without": [
+    "Marks 'передо' as stressed on the second syllable (перЕдо); the correct stress is пе́редо."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-pushkin-meter",
+   "A": "without",
+   "B": "with",
+   "stem": "4499ca08b5__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both correctly identify four-foot iamb with clear syllable/stress tables, pyrrhic on the third foot, and alternating feminine/masculine clausulae. B adds the useful explanation of strong/weak positions, notes the text is two lines, and gives the correct ABAB rhyme scheme, while A's marking of 'пере́до' misplaces the word's lexical stress. B's claim that 'передо' is stressed on its last syllable is also wrong, but its metrical scheme (pyrrhic on the first foot) is still valid, so overall B is slightly more instructive.",
+   "errors_with": [
+    "States that 'передо' has its single stress on the last syllable; it is lexically пе́редо."
+   ],
+   "errors_without": [
+    "Marks 'передо' as stressed on the second syllable (пере́до); the word is lexically пе́редо or an unstressed proclitic in this line."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-phone-regex",
+   "A": "with",
+   "B": "without",
+   "stem": "62612d4374__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the same correct, fullmatch-anchored pattern with good valid/invalid tests in Russian. B adds re.ASCII, which closes a real gap where A would accept non-ASCII Unicode digits (e.g. Arabic-Indic) after the leading 9, and explains the VERBOSE character-class behavior. B's small English leftovers ('MEDIUM', 'backtracking') are minor and do not restate the request.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-phone-regex",
+   "A": "without",
+   "B": "with",
+   "stem": "62612d4374__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give the same correct fullmatch-based pattern with paired-parenthesis handling and similar test suites, and both are in Russian. A additionally uses re.ASCII to stop \\d from matching non-ASCII digits and tests that case, a real robustness gain over B. B's notes on number existence and normalization are useful, but they do not outweigh A's stricter digit handling.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-git-reset-reflog",
+   "A": "with",
+   "B": "without",
+   "stem": "72756d9d4f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers give essentially the same correct reflog procedure: a backup branch, then reset --hard to the hash or ORIG_HEAD, a cherry-pick alternative, and a clear warning about uncommitted changes. A adds slightly more useful detail, such as handling uncommitted work with stash, a git diff check and a fsck fallback for dangling commits. However, A leaks an untranslated English aside ('recalled, not verified') into the Russian reply, while B stays fully in Russian.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-git-reset-reflog",
+   "A": "without",
+   "B": "with",
+   "stem": "72756d9d4f__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly recover the commits via reflog, a backup branch, reset --hard to the hash or ORIG_HEAD, and cherry-pick, and both warn that uncommitted changes cannot be recovered. B adds useful extras (stash/pop handling, a git diff check, an fsck fallback), but it lets an English phrase ('recalled, not verified') slip into the Russian text, which the rubric's language item penalizes. A is fully in Russian and equally correct on the core procedure, so it wins narrowly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-bakery-puns",
+   "A": "without",
+   "B": "with",
+   "stem": "7f3463f458__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "All five of A's slogans twist a genuinely Russian idiom (крошить батон, мять булки, хлебом не корми, свой в доску/разделочная доска), and each twist works. B's best lines (Сдоба пожаловать, Жуй пока горячо, Батоны крошим только уткам) are strong and shorter, but its fifth slogan is an awkward ellipsis with a weak pun. A's explanation slightly misnumbers which slogans rework proverbs.",
+   "errors_with": [],
+   "errors_without": [
+    "Explanation says the second and fourth slogans are inverted proverbs, though the proverb-based ones are the third and fourth (the second is an idiom)."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-bakery-puns",
+   "A": "with",
+   "B": "without",
+   "stem": "7f3463f458__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers build on real Russian set phrases (A: «Сдоба пожаловать», «Жуй, пока горячо»; B: «мять булки», «Хлебом не корми», «Кто рано встаёт»). A's slogans are shorter and fit a sign better, and «Сдоба пожаловать» is an especially strong sign line. B's first and fifth slogans are wordier and a bit clunky, and its explanation names the wrong slogans as the reworked proverbs (it says the second and fourth, but they are the third and fourth).",
+   "errors_with": [],
+   "errors_without": [
+    "Explanation says the proverbs are reworked in slogans 2 and 4, but they are actually in slogans 3 and 4."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-urn-probability",
+   "A": "with",
+   "B": "without",
+   "stem": "851b7ad02c__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reach 3/7 with the same correct conditional-probability derivation and enumeration of the 14 ordered pairs (6 with a white second ball), entirely in Russian. B lists all 20 outcomes and A only the 14 conditioned ones, which makes no real difference in quality.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-urn-probability",
+   "A": "without",
+   "B": "with",
+   "stem": "851b7ad02c__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers reach 3/7 with the same conditional-probability derivation and a 14-pair enumeration check, fully in Russian. A shows the full 20-outcome table while B lists only the 14 conditioning pairs; neither difference changes correctness or clarity in a meaningful way.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "en-liveness-readiness",
+   "A": "with",
+   "B": "without",
+   "stem": "9abbace5aa__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers fully meet every rubric item with correct, nearly identical explanations and YAML. B edges ahead with a clearer, decisive recommendation on whether readiness should check a shared DB, a startup-probe column in the comparison, and useful extras like graceful shutdown and the rollout-stall risk if /livez is missing from the image. A is equally accurate and adds good points (cached readiness status, Spring Boot actuator groups), so the gap is small.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "en-liveness-readiness",
+   "A": "without",
+   "B": "with",
+   "stem": "9abbace5aa__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers explain the probe semantics and why the DB check in liveness made every pod restart in a loop. Both recommend a process-only /livez and give a sound startupProbe/failureThreshold config. A takes a slightly firmer stance on keeping the DB out of readiness, and B adds useful extras (cached readiness status, Spring Boot actuator groups, initialDelaySeconds), but neither difference is decisive.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "en-float-compare",
+   "A": "with",
+   "B": "without",
+   "stem": "a113d187b9__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers fully and correctly cover all three rubric items with nearly identical structure. B explains the mismatch slightly more completely by showing the exact stored values of 0.1 and 0.3 (sum lands above 0.3, literal 0.3 lands below), and adds useful practical context (Money value object, Pydantic/ORM boundaries, when float is appropriate). A's concrete round(2.675, 2) example and migration advice are strong, but do not quite offset B's fuller explanation.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "en-float-compare",
+   "A": "without",
+   "B": "with",
+   "stem": "a113d187b9__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers fully and correctly cover all three rubric items with nearly identical structure and accurate details. B adds slightly more practical value for the price question: the concrete round(2.675, 2) pitfall, the note that integer minor units still need a rounding policy for division and percentages, and migration advice for existing float data. A's extras (a Money value object and the Pydantic/ORM notes) are useful but marginally less decisive.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-refund-letter",
+   "A": "without",
+   "B": "with",
+   "stem": "a9c7bce68d__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both rewrites keep the refusal and the 30-day reason clear, use natural polite Russian, and offer help without promising a refund. A adds a bit more empathy and advises naming a concrete alternative; B offers an extra shorter variant and warns against giving false hope. These small strengths offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-refund-letter",
+   "A": "with",
+   "B": "without",
+   "stem": "a9c7bce68d__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both keep the refusal and the 30-day reason clear, use natural polite Russian, and offer help without promising a refund. A adds a shorter variant and an honest caveat about not raising false hope; B adds a signature, a bit more empathy, and advice to name a concrete alternative. These strengths offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-sql-second-order",
+   "A": "with",
+   "B": "without",
+   "stem": "ad16b339b7__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give essentially the same correct ROW_NUMBER query with created_at ASC and id tiebreakers, the same explanation of why single-order customers drop out, and are in Russian. A's description of dense_rank is slightly more precise and it leaves the NULL customer_id filter optional, while B applies that filter without being asked but gives more careful index caveats; these differences offset each other.",
+   "errors_with": [],
+   "errors_without": [
+    "Says dense_rank() would return the next amount rather than the next order; with the given ORDER BY keys it ranks distinct (amount, created_at[, id]) combinations, not distinct amounts."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-sql-second-order",
+   "A": "without",
+   "B": "with",
+   "stem": "ad16b339b7__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers use the same correct ROW_NUMBER query with NULLS LAST and an id tiebreaker, and both give a correct Russian explanation. A quietly filters out NULL customer_id while B leaves that as an option and adds output ordering and a LATERAL alternative. These differences are minor and offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-heart-failure-terms",
+   "A": "with",
+   "B": "without",
+   "stem": "be0a716f77__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers explain the Strazhesko-Vasilenko stage and NYHA class correctly, keep the original wording, stay calm and defer to the cardiologist, all in Russian. A describes IIA congestion at rest a little more precisely and gives emergency numbers, while B separates urgent from routine warning signs more clearly but calls the condition 'early' and adds an awkward note that it is quoting from memory. These small differences offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-heart-failure-terms",
+   "A": "without",
+   "B": "with",
+   "stem": "be0a716f77__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers explain the Strazhesko–Vasilenko stage and NYHA class correctly, in Russian, keep the original wording and avoid alarmism. B is slightly more useful: its stage IIA description (moderate congestion signs at rest, one circulation circle) matches the classic definition more closely, and it adds practical detail such as the EF threshold for treatment choice and emergency numbers. A's awkward self-disclaimer about quoting a threshold from memory adds little.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-jvm-oomkilled",
+   "A": "with",
+   "B": "without",
+   "stem": "cea3bd5a99__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item with nearly identical structure and correct core explanations. B adds slightly more practical depth: it shows how to check the JVM flags actually applied, gives a heap-to-limit rule of thumb, covers native/malloc growth (MALLOC_ARENA_MAX), and says which kubelet metric to watch after the change. A's mention of heap-leak diagnosis via a heap dump partly offsets this.",
+   "errors_with": [
+    "Claims requests == limits means the pod will not land on an overloaded node; equal memory requests/limits mainly affect QoS/eviction, and without CPU limits the pod is not Guaranteed QoS anyway."
+   ],
+   "errors_without": [
+    "Claims requests == limits keeps the pod from being evicted first, but its snippet sets a CPU request without a CPU limit, so the pod is Burstable rather than Guaranteed QoS."
+   ]
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-jvm-oomkilled",
+   "A": "without",
+   "B": "with",
+   "stem": "cea3bd5a99__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain heap vs non-heap memory, the container OOM kill (137 = SIGKILL, not OutOfMemoryError), recommend MaxRAMPercentage with a raised limit or a smaller -Xmx, and give NMT-based measurement steps in Russian. A adds useful extras (MALLOC_ARENA_MAX, checking effective flags) while B adds heap-after-GC and heap-dump checks for a genuine leak; these offset each other. Neither has a substantive factual error.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-office-move-plan",
+   "A": "without",
+   "B": "with",
+   "stem": "cec2b152b4__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly compute the deadlines, accounting for the 4 November holiday (internet ready 17 Nov, furniture 13/18 Nov), plan a 4-hour server window with backup, rehearsal and rollback, and are well structured in Russian. B schedules the rehearsal earlier, books movers in week 1, and adds lease and handover items, while A orders the backup channel on day 1 and includes an explicit restore test, so neither has a decisive edge.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-office-move-plan",
+   "A": "with",
+   "B": "without",
+   "stem": "cec2b152b4__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers get the date arithmetic right, including the 4 November holiday (internet ready 17.11, furniture 13.11 or 18.11), and both fit a timed 4-hour server window with a backup and a rollback plan. A schedules the shutdown rehearsal in week 2, which leaves time to adjust. B adds cable labelling, a test restore in week 2 and a backup channel ordered on day 1, but its rehearsal on 19.11 leaves almost no time to act on what it finds. The strengths roughly offset each other.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "mix-inn-validator",
+   "A": "with",
+   "B": "without",
+   "stem": "d11a60b672__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers implement the same correct algorithm and input screening and give correct test vectors that were checked by hand. A also tests the remainder-10 case (5000000000 -> control digit 0), which exercises the % 10 branch, and it uses an explicit isinstance guard with a test for it. B leaves the remainder-10 path untested.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "mix-inn-validator",
+   "A": "without",
+   "B": "with",
+   "stem": "d11a60b672__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers implement identical, correct FNS check-digit logic with strict ASCII fullmatch screening, and their hand-verified test vectors are correct. B adds a valid test case (5000000000) that exercises the remainder-10 -> 0 branch, plus an explicit, tested TypeError guard, so its tests cover the algorithm slightly more thoroughly.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-petersburg-quatrain",
+   "A": "without",
+   "B": "with",
+   "stem": "dd46ce8398__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both quatrains are clean iambic tetrameter with ABAB structure, but A's rhymes (гнёт/встаёт, канале/зале) are full and exact while B's впрок/залог is only an approximate rhyme. A's imagery (Atlanteans, maple leaves on the canal, a raised bridge as a piano lid) is vivid and reads naturally. B's pawnshop conceit is original, but 'считает впрок' is an awkward collocation, and 'подносит к небу под залог' leaves the object only implied, so the syntax is strained.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-petersburg-quatrain",
+   "A": "with",
+   "B": "without",
+   "stem": "dd46ce8398__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both quatrains scan as clean iambic tetrameter with valid ABAB rhymes (B alternates masculine and feminine endings; A's впрок/залог is a looser rhyme). B's imagery (Atlantes, maple minting copper in the canal, the raised bridge as a piano lid) is vivid, coherent and clearly Petersburg. A's pawnbroker conceit is clever, but its last line leaves the object of 'подносит' implicit and reads somewhat strained.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "en-refund-letter",
+   "A": "with",
+   "B": "without",
+   "stem": "dd581c72bb__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both rewrites keep a clear refusal with the 30-day reason, use warm natural English, replace 'Read the terms' with a link, and offer non-committal further help with sensible guidance about not implying exceptions. A states the refusal slightly more prominently while B is a bit more concise and gives a concrete reply-to-email next step; neither difference is decisive.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "en-refund-letter",
+   "A": "without",
+   "B": "with",
+   "stem": "dd581c72bb__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both rewrites keep a clear refusal with the 30-day reason, use a warm natural tone, replace 'Read the terms' with a link, and offer general help without implying a refund. Their editing notes give equivalent advice about not hinting at options that don't exist. B's opening assumes the purchase 'didn't work out' and A's offer is slightly more generic, but neither difference is enough to pick a winner.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-python-default-list",
+   "A": "without",
+   "B": "with",
+   "stem": "f3ec05d55d__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain one-time evaluation of the default at def time, give the correct None-sentinel fix, warn against `bucket or []`, and are in Russian with code untouched. A adds the aliasing point (a is b), while B shows that a passed-in list is still mutated and gives a fully typed variant; these extras roughly balance out.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "rule-english-pivot",
+   "case": "ru-python-default-list",
+   "A": "with",
+   "B": "without",
+   "stem": "f3ec05d55d__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain that the default is evaluated once at def time, show __defaults__, and give the standard None-sentinel fix in correct Python, entirely in Russian. A adds an example with a caller-supplied list and an int-typed variant, while B adds the aliasing point (a is b) and dataclass default_factory; these extras roughly balance out.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": []
+}

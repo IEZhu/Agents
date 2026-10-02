@@ -1,0 +1,290 @@
+{
+ "a113d187b9__o1": {
+  "component": "rule-english-pivot",
+  "case": "en-float-compare",
+  "A": "with",
+  "B": "without"
+ },
+ "a113d187b9__o2": {
+  "component": "rule-english-pivot",
+  "case": "en-float-compare",
+  "A": "without",
+  "B": "with"
+ },
+ "9abbace5aa__o1": {
+  "component": "rule-english-pivot",
+  "case": "en-liveness-readiness",
+  "A": "with",
+  "B": "without"
+ },
+ "9abbace5aa__o2": {
+  "component": "rule-english-pivot",
+  "case": "en-liveness-readiness",
+  "A": "without",
+  "B": "with"
+ },
+ "dd581c72bb__o1": {
+  "component": "rule-english-pivot",
+  "case": "en-refund-letter",
+  "A": "with",
+  "B": "without"
+ },
+ "dd581c72bb__o2": {
+  "component": "rule-english-pivot",
+  "case": "en-refund-letter",
+  "A": "without",
+  "B": "with"
+ },
+ "d11a60b672__o1": {
+  "component": "rule-english-pivot",
+  "case": "mix-inn-validator",
+  "A": "with",
+  "B": "without"
+ },
+ "d11a60b672__o2": {
+  "component": "rule-english-pivot",
+  "case": "mix-inn-validator",
+  "A": "without",
+  "B": "with"
+ },
+ "01b00e8f68__o1": {
+  "component": "rule-english-pivot",
+  "case": "mix-runbook-checklist",
+  "A": "without",
+  "B": "with"
+ },
+ "01b00e8f68__o2": {
+  "component": "rule-english-pivot",
+  "case": "mix-runbook-checklist",
+  "A": "with",
+  "B": "without"
+ },
+ "07d6ce5388__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-1c-query-characteristic",
+  "A": "without",
+  "B": "with"
+ },
+ "07d6ce5388__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-1c-query-characteristic",
+  "A": "with",
+  "B": "without"
+ },
+ "7f3463f458__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-bakery-puns",
+  "A": "without",
+  "B": "with"
+ },
+ "7f3463f458__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-bakery-puns",
+  "A": "with",
+  "B": "without"
+ },
+ "72756d9d4f__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-git-reset-reflog",
+  "A": "with",
+  "B": "without"
+ },
+ "72756d9d4f__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-git-reset-reflog",
+  "A": "without",
+  "B": "with"
+ },
+ "be0a716f77__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-heart-failure-terms",
+  "A": "with",
+  "B": "without"
+ },
+ "be0a716f77__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-heart-failure-terms",
+  "A": "without",
+  "B": "with"
+ },
+ "cea3bd5a99__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-jvm-oomkilled",
+  "A": "with",
+  "B": "without"
+ },
+ "cea3bd5a99__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-jvm-oomkilled",
+  "A": "without",
+  "B": "with"
+ },
+ "17033f794f__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-landing-translation",
+  "A": "without",
+  "B": "with"
+ },
+ "17033f794f__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-landing-translation",
+  "A": "with",
+  "B": "without"
+ },
+ "37e4bf6db7__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-meeting-slots",
+  "A": "with",
+  "B": "without"
+ },
+ "37e4bf6db7__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-meeting-slots",
+  "A": "without",
+  "B": "with"
+ },
+ "cec2b152b4__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-office-move-plan",
+  "A": "without",
+  "B": "with"
+ },
+ "cec2b152b4__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-office-move-plan",
+  "A": "with",
+  "B": "without"
+ },
+ "dd46ce8398__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-petersburg-quatrain",
+  "A": "without",
+  "B": "with"
+ },
+ "dd46ce8398__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-petersburg-quatrain",
+  "A": "with",
+  "B": "without"
+ },
+ "62612d4374__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-phone-regex",
+  "A": "with",
+  "B": "without"
+ },
+ "62612d4374__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-phone-regex",
+  "A": "without",
+  "B": "with"
+ },
+ "101eb865c2__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-proofread-sentence",
+  "A": "without",
+  "B": "with"
+ },
+ "101eb865c2__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-proofread-sentence",
+  "A": "with",
+  "B": "without"
+ },
+ "1eb6c429aa__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-psql-connection-refused",
+  "A": "with",
+  "B": "without"
+ },
+ "1eb6c429aa__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-psql-connection-refused",
+  "A": "without",
+  "B": "with"
+ },
+ "4499ca08b5__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-pushkin-meter",
+  "A": "with",
+  "B": "without"
+ },
+ "4499ca08b5__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-pushkin-meter",
+  "A": "without",
+  "B": "with"
+ },
+ "f3ec05d55d__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-python-default-list",
+  "A": "without",
+  "B": "with"
+ },
+ "f3ec05d55d__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-python-default-list",
+  "A": "with",
+  "B": "without"
+ },
+ "a9c7bce68d__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-refund-letter",
+  "A": "without",
+  "B": "with"
+ },
+ "a9c7bce68d__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-refund-letter",
+  "A": "with",
+  "B": "without"
+ },
+ "ad16b339b7__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-sql-second-order",
+  "A": "with",
+  "B": "without"
+ },
+ "ad16b339b7__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-sql-second-order",
+  "A": "without",
+  "B": "with"
+ },
+ "439d9900fe__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-tax-deduction-vs-benefit",
+  "A": "without",
+  "B": "with"
+ },
+ "439d9900fe__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-tax-deduction-vs-benefit",
+  "A": "with",
+  "B": "without"
+ },
+ "851b7ad02c__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-urn-probability",
+  "A": "with",
+  "B": "without"
+ },
+ "851b7ad02c__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-urn-probability",
+  "A": "without",
+  "B": "with"
+ },
+ "06167f9575__o1": {
+  "component": "rule-english-pivot",
+  "case": "ru-vryad-li-edva-li",
+  "A": "with",
+  "B": "without"
+ },
+ "06167f9575__o2": {
+  "component": "rule-english-pivot",
+  "case": "ru-vryad-li-edva-li",
+  "A": "without",
+  "B": "with"
+ }
+}
