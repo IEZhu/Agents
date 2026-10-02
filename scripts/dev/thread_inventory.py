@@ -59,19 +59,20 @@ HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|(\\?)([^\s;&|<>
 BODY_EXPANSION = re.compile(r"\\|`|\$\(")  # what an unquoted heredoc body runs, and its escape
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 KEYWORDS = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "builtin"}
-# Programs that run the command after their own options: the options that take a value, and
-# the operands before the command, such as the duration of `timeout 60 git push`.
+# Programs that run the command after their own options: the options that take a value, the
+# operands before the command (the duration of `timeout 60 git push`), and the options that
+# set the directory the command runs in.
 WRAPPERS = {
-    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0),
+    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0, {"-C", "--chdir"}),
     "sudo": ({"-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-r",
-              "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"}, 0),
+              "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"}, 0, {"-D", "--chdir"}),
     "xargs": ({"-I", "-J", "-R", "-S", "-n", "--max-args", "-L", "--max-lines", "-P", "--max-procs", "-s",
-               "--max-chars", "-E", "--eof", "-d", "--delimiter", "-a", "--arg-file"}, 0),
-    "timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1),
-    "nice": ({"-n", "--adjustment"}, 0),
-    "stdbuf": ({"-i", "--input", "-o", "--output", "-e", "--error"}, 0),
-    "exec": ({"-a"}, 0),
-    "time": (set(), 0), "nohup": (set(), 0), "command": (set(), 0),
+               "--max-chars", "-E", "--eof", "-d", "--delimiter", "-a", "--arg-file"}, 0, set()),
+    "timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1, set()),
+    "nice": ({"-n", "--adjustment"}, 0, set()),
+    "stdbuf": ({"-i", "--input", "-o", "--output", "-e", "--error"}, 0, set()),
+    "exec": ({"-a"}, 0, set()),
+    "time": (set(), 0, set()), "nohup": (set(), 0, set()), "command": (set(), 0, set()),
 }
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
@@ -246,11 +247,12 @@ def _tokens(segment: str) -> list[str]:
                 if token not in ("'", '"')]
 
 
-def _command_tokens(segment: str) -> list[str]:
+def _command_tokens(segment: str, dirs: list | None = None) -> list[str]:
     """Tokens of a simple command from its program on, which is reduced to its name.
 
     Keywords, assignments, `function NAME` and wrappers with their options, such as
-    `sudo -u bot` or `timeout 60`, come off the front.
+    `sudo -u bot` or `timeout 60`, come off the front. The directories that wrappers such
+    as `env -C DIR` run the command in are appended to ``dirs``.
     """
     tokens = _tokens(segment)
     while tokens:
@@ -260,7 +262,7 @@ def _command_tokens(segment: str) -> list[str]:
         elif word == "function":
             tokens = tokens[2:]  # `function name { … }`: the body follows the name
         elif word in WRAPPERS:
-            tokens = _unwrap(tokens[1:], *WRAPPERS[word])
+            tokens = _unwrap(tokens[1:], *WRAPPERS[word], dirs)
         else:
             break
     if tokens and tokens[0].startswith("/"):
@@ -268,14 +270,20 @@ def _command_tokens(segment: str) -> list[str]:
     return tokens
 
 
-def _unwrap(args: list[str], values: set, operands: int) -> list[str]:
+def _unwrap(args: list[str], values: set, operands: int, chdir: set, dirs: list | None) -> list[str]:
     """The command a wrapper runs: what follows its options, their values and its operands."""
     index = 0
     while index < len(args) and len(args[index]) > 1 and args[index].startswith("-"):
-        if args[index] == "--":
+        option = args[index]
+        if option == "--":
             index += 1
             break
-        index += 2 if args[index] in values else 1
+        name, equals, attached = option.partition("=")
+        if dirs is not None and name in chdir:
+            value = attached if equals else args[index + 1] if index + 1 < len(args) else ""
+            if value:
+                dirs.append(value)
+        index += 2 if not equals and option in values else 1
     return args[index + operands:]
 
 
@@ -607,7 +615,7 @@ def _git_config_kind(args: list[str]) -> str:
              "-l", "--show-origin", "--show-scope"}
     if any(arg in reads for arg in args):
         return "read"
-    values = _positional(args, {"-f", "--file", "--blob", "--type", "--default", "--comment"})
+    values = _positional(args, {"-f", "--file", "--blob", "-t", "--type", "--default", "--comment"})
     return "write" if len(values) >= 2 else "read"  # `git config <key> <value>` sets
 
 
@@ -769,7 +777,13 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
     while pending:
         segment = pending.pop()
         _scan_refs(segment, sink["refs"], ts)
-        tokens = _command_tokens(segment)
+        dirs: list[str] = []
+        tokens = _command_tokens(segment, dirs)
+        run_dir = current
+        for directory in dirs:  # `env -C DIR git ...` runs git in DIR
+            run_dir = _resolve(directory, run_dir)
+            if run_dir:
+                sink["directories"].setdefault(run_dir, ts)
         if not tokens:
             continue
         program = tokens[0]
@@ -786,7 +800,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
                 sink["directories"].setdefault(current, ts)
         elif program in ("git", "gh"):
             if program == "git":
-                _git_paths(tokens, current, ts, sink)
+                _git_paths(tokens, run_dir, ts, sink)
                 kind = git_kind(tokens)
             else:
                 kind = gh_kind(tokens, segment)
@@ -834,8 +848,9 @@ def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
         _add_ref(sink["refs"], repo, "pull" if tokens[1] == "pr" else "issues", int(positional.lstrip("#")), ts)
 
 
-def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
-    """Entries of all transcript parts in file order, and the count of unreadable lines."""
+def load_entries(paths: list[Path]) -> tuple[list, int]:
+    """Entries of all transcript parts in file order, and the count of lines that are not JSON.
+    A JSON value that is not an object stays in, for `scan` to count as skipped."""
     entries, bad = [], 0
     for path in paths:
         with path.open(encoding="utf-8", errors="replace") as stream:
@@ -845,8 +860,7 @@ def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
                 except ValueError:
                     bad += 1
                     continue
-                if isinstance(entry, dict):
-                    entries.append(entry)
+                entries.append(entry)
     return entries, bad
 
 

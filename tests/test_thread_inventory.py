@@ -316,6 +316,11 @@ def test_git_clone_and_init_destinations_are_directories():
         " && git -C /w commit -C HEAD", "cl"))
     assert {"/w", "/w/r", "/w/t", "/w/new"} <= set(inv["directories"])
     assert "/w/HEAD" not in inv["directories"]  # -C after the subcommand is not a directory
+    wrapped = thread_inventory.inventory(bash(
+        "env -C /other/repo git commit -m x && sudo -D /srv/x git status && env --chdir=/a/b git push", "wr"))
+    assert {"/other/repo", "/srv/x", "/a/b"} <= set(wrapped["directories"])
+    assert [m["command"] for m in wrapped["git_mutations"]] == [
+        "env -C /other/repo git commit -m x", "env --chdir=/a/b git push"]
     unresolved = thread_inventory.inventory(bash("cd $SP && git init repo && git -C \"$HOME/x\" status", "v"))
     assert [d for d in unresolved["directories"] if "$" in d] == []  # a shell variable is not a path
 
@@ -377,6 +382,7 @@ def test_cli_reads_transcripts_subagents_and_git_roots(entries, tmp_path, capsys
     assert thread_inventory.main(["--transcript", str(transcript)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["unreadable_lines"] == 2
+    assert out["skipped_entries"] == 0
     assert out["git_roots"] in ([str(repo.resolve())], [str(repo)])
     assert out["subagent_transcripts"] == 1
     assert out["subagents_with_writes"][0]["agent"] == "agent-a1"
@@ -398,6 +404,15 @@ def test_cli_missing_transcript_and_latest_notes(tmp_path, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["transcripts"] == [str(project / "new.jsonl")]
     assert "old.jsonl" in out["notes"][0]
+
+
+def test_json_values_that_are_not_objects_are_skipped(tmp_path):
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text("[1, 2]\n\"text\"\nnull\nnot json\n" + json.dumps(human("hi", "t1")) + "\n",
+                          encoding="utf-8")
+    out = thread_inventory.collect([transcript])
+    assert (out["skipped_entries"], out["unreadable_lines"]) == (3, 1)
+    assert [p["text"] for p in out["prompts"]] == ["hi"]
 
 
 def test_session_lookup_uses_the_claude_config_dir(tmp_path, monkeypatch):
@@ -600,7 +615,7 @@ def test_references_come_from_executed_commands_not_heredoc_bodies():
     ("git config --edit", "write"), ("git config set user.name X", "write"), ("git config unset user.name", "write"),
     ("git config get user.name", "read"), ("git config list", "read"), ("git config --file f k v", "write"),
     ("git config -f .gitmodules submodule.x.path", "read"), ("git config --global user.email a@b", "write"),
-    ("git config --get-urlmatch http https://x", "read"),
+    ("git config --get-urlmatch http https://x", "read"), ("git config -t bool core.filemode", "read"),
 ])
 def test_git_config_reads_and_writes(command, kind):
     assert thread_inventory.git_kind(command.split()) == kind
