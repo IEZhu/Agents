@@ -53,11 +53,13 @@ from pathlib import Path
 MAX_TEXT = 500
 MAX_COMMAND = 200
 MAX_DEPTH = 20  # nested substitutions and subshells parsed recursively
+ARITHMETIC_SCAN = 4096  # how far `((` looks for its `))` before it is read as subshells
 GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
 SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
 QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(r'["\\`]|\$\(')}
-HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|(\\?)([^\s;&|<>()'\"]+))")
+HEREDOC = re.compile(r"<<(-?)[ \t]*((?:'[^'\n]*'|\"[^\"\n]*\"|\\.|[^\s;&|<>()'\"\\])+)")
+QUOTING = re.compile(r"'([^']*)'|\"([^\"]*)\"|\\(.)")  # quote removal in a heredoc delimiter
 BODY_EXPANSION = re.compile(r"\\|`|\$\(")  # what an unquoted heredoc body runs, and its escape
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 KEYWORDS = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "builtin"}
@@ -168,8 +170,9 @@ GIT_CLONE_VALUES = {"-o", "--origin", "-b", "--branch", "-u", "--upload-pack", "
                     "--revision"}
 GIT_INIT_VALUES = {"--template", "--separate-git-dir", "-b", "--initial-branch", "--object-format", "--ref-format"}
 # Subcommands with --dry-run, and those where -n, also in a cluster such as -fdn, means it.
-GIT_DRY_RUN = {"push", "clean", "commit", "add", "rm", "mv", "prune", "filter-repo", "worktree", "remote", "reflog"}
-GIT_DRY_RUN_N = {"push", "clean", "add", "rm", "mv", "prune", "worktree", "remote", "reflog"}
+GIT_DRY_RUN = {"push", "clean", "commit", "add", "rm", "mv", "prune", "filter-repo", "worktree", "remote", "reflog",
+               "notes"}
+GIT_DRY_RUN_N = {"push", "clean", "add", "rm", "mv", "prune", "worktree", "remote", "reflog", "notes"}
 GIT_FETCH_VALUES = {"--depth", "--deepen", "--shallow-since", "--shallow-exclude", "-j", "--jobs", "--upload-pack",
                     "--negotiation-tip", "-o", "--server-option", "--filter", "--refmap"}
 GH_READ_GROUPS = {"auth", "config", "help", "version", "search", "browse", "status"}  # after GH_WRITES
@@ -361,10 +364,11 @@ def _expansions(body: str, depth: int) -> list[str]:
             segments.extend(_scoped(inner))
 
 
-def _skip_group(command: str, index: int) -> int:
-    """The index after the `)` that closes the `(` at ``index``, past quotes and inner groups."""
-    depth, quote = 0, None
-    while index < len(command):
+def _skip_group(command: str, index: int, stop: int | None = None) -> int | None:
+    """The index after the `)` that closes the `(` at ``index``, past quotes and inner groups,
+    or None when nothing before ``stop`` closes it."""
+    depth, quote, stop = 0, None, len(command) if stop is None else min(stop, len(command))
+    while index < stop:
         char = command[index]
         if quote:
             if char == "\\" and quote != "'":
@@ -382,7 +386,16 @@ def _skip_group(command: str, index: int) -> int:
             if not depth:
                 return index + 1
         index += 1
-    return len(command)
+    return None
+
+
+def _arithmetic_end(command: str, index: int) -> int | None:
+    """The index after `((...))` at ``index``, where `<` and `>` compare, or None when the
+    parentheses are subshells. Arithmetic is short, so the search stops after ARITHMETIC_SCAN."""
+    if not command.startswith("((", index):
+        return None
+    end = _skip_group(command, index, index + ARITHMETIC_SCAN)
+    return end if end is not None and command[end - 2:end] == "))" else None
 
 
 def _scoped(segments: list) -> list:
@@ -509,7 +522,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
                 index = backquoted(index)
             elif found == "$(":  # nesting past MAX_DEPTH is not read
                 current.append("$(…)")
-                index = _skip_group(command, index + 1)
+                index = _skip_group(command, index + 1) or length
             elif found == "\\":  # an escape inside "..." or $'...'
                 if command.startswith("\n", index + 1):
                     index += 2  # a line continuation
@@ -547,9 +560,9 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             heredoc = HEREDOC.match(command, index)
             text = heredoc.group() if heredoc else "<<"
             if heredoc:
-                single, double, escaped, word = heredoc.group(2, 3, 4, 5)
-                delimiter = next(part for part in (single, double, word) if part is not None)
-                quoted = word is None or bool(escaped)  # 'EOF', "EOF" and \EOF keep the body text
+                word = heredoc.group(2)
+                delimiter = QUOTING.sub(lambda part: "".join(filter(None, part.groups())), word)
+                quoted = word != delimiter  # any quoting, as in 'EOF', E"OF" or \EOF, keeps the body text
                 entry = [delimiter, heredoc.group(1) == "-", False, quoted]
                 heredocs.append(entry)
                 undecided.append(entry)
@@ -572,6 +585,10 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
         elif char == "&" and (command[index - 1:index] in (">", "<") or command.startswith(">", index + 1)):
             current.append(char)  # a redirection such as 2>&1 or &>file
             index += 1
+        elif char == "(" and (end := _arithmetic_end(command, index)) is not None:
+            segments.extend(_expansions(command[index + 2:end - 2], depth + 1))  # only its substitutions run
+            current.append("((…))")
+            index = end
         elif char == "(" and depth < MAX_DEPTH:
             substitution = command[index - 1:index] == "$"
             array = not substitution and bool(ARRAY_ASSIGNMENT.search("".join(current[-1:])))
@@ -584,7 +601,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
                 current.append("(…)")
         elif char == "(":  # nesting past MAX_DEPTH is not read
             current.append("(…)")
-            index = _skip_group(command, index)
+            index = _skip_group(command, index) or length
         elif char == ")":
             flush()
             index += 1
@@ -952,6 +969,8 @@ def _written_files(segment: str, tokens: list[str]) -> list[str]:
     redirections, such as `> f`, `2>> log` or `&> out`, and the files `tee` writes. `>&2` and
     `>(cmd)` write no file, and other programs' writes are not read."""
     files, index, quote = [], 0, None
+    if tokens[:1] == ["[["]:
+        return files  # `[[ a > b ]]` compares
     while index < len(segment):
         char = segment[index]
         if quote:

@@ -367,6 +367,8 @@ def test_shell_writes_list_redirection_and_tee_targets():
     child = thread_inventory.inventory(bash("env -C /other bash -c 'echo x > out && git init sub'", "ch"))
     assert [w["files"] for w in child["shell_writes"]] == [["/other/out"]] and "/other/sub" in child["directories"]
     assert inv["shell_writes"][2]["command"] == "git log > /tmp/l.txt 2>&1"
+    compared = thread_inventory.inventory(bash("[[ a > b ]] && echo $((1 > 0)) && (( x > 2 )) && [ a > c ]", "cmp"))
+    assert [w["files"] for w in compared["shell_writes"]] == [["/work/repo/c"]]  # only [ ... ] redirects
     quoted = thread_inventory.inventory(bash(
         "printf '%s' '> not-written.txt' && echo \"a > b\" && git log --format='%h > %s' > out.txt"
         " && echo x >&2 && echo y 2>&1 && echo z >& log.txt && date > runs/$(date +%s).txt", "q"))
@@ -423,6 +425,13 @@ def test_deep_nesting_never_raises():
         f"E{i}\n" for i in reversed(range(50)))
     for command in (nested, mixed):
         thread_inventory.inventory(bash(command, "deep"))
+
+
+def test_long_parentheses_stay_linear():
+    start = time.monotonic()
+    for command in ("(" * 300_000, "((" + "x" * 300_000, "$((" * 100_000):
+        thread_inventory.inventory(bash(command, "paren"))
+    assert time.monotonic() - start < 3
 
 
 def test_scratchpad_scan_is_linear_on_long_tokens():
@@ -541,7 +550,8 @@ def test_git_tag_and_branch_list_unless_given_a_name(command, kind):
     ("git apply --check x.patch", "read"), ("git worktree prune -n", "read"),
     ("git remote prune --dry-run origin", "read"), ("git reflog expire -n --all", "read"),
     ("git apply --stat --apply x.patch", "write"), ("git commit -n -m x", "write"),  # -n is --no-verify
-    ("git clean -fdx", "write"), ("git add -N x", "write"),
+    ("git clean -fdx", "write"), ("git add -N x", "write"), ("git notes prune -n", "read"),
+    ("git notes prune --dry-run", "read"), ("git notes prune", "write"),
 ])
 def test_dry_runs_and_checks_are_reads(command, kind):
     assert thread_inventory.git_kind(command.split()) == kind
@@ -713,6 +723,9 @@ def test_references_from_any_tool_input_but_not_file_contents():
     ("cat > n.md <<EOF\nSee $(git push origin main) and `gh pr merge 5`\n\\$(git reset --hard)\nEOF", [
         "git push origin main", "gh pr merge 5"]),  # an unquoted body runs its substitutions
     ("cat > n.md <<'EOF'\n$(git push)\nEOF\ncat > m.md <<\\EOF\n`git push`\nEOF", []),
+    ("cat > f <<E'OF'\n$(git push)\nEOF\ngit tag v1\nbash <<\"E\"OF\ngh pr merge 2\nEOF", [
+        "git tag v1", "gh pr merge 2"]),  # a partly quoted delimiter is the whole word, quoted
+    ("[[ a > b ]] && echo $((1 > 0)) && (( x > 2 )) && echo $(( $(git push) + 1 ))", ["git push"]),
     ('cat > n.md <<"EOF"\n$(git push)\nEOF', []),
     ("r(){ gh api -X POST repos/o/r/pulls/1/comments/$1/replies -f body=\"$2\"; }", [
         'gh api -X POST repos/o/r/pulls/1/comments/$1/replies -f body="$2"']),
