@@ -1222,8 +1222,8 @@ async def read_history(
         if query:
             if (problem := await _readiness_problem("read_history")) is not None:
                 status = "warming_up" if problem == "warming_up" else "error"
-                return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT},
-                                  ensure_ascii=False)
+                return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT,
+                                   **workspace_report}, ensure_ascii=False)
 
             def search():
                 with _history_stores.acquire(client) as store:

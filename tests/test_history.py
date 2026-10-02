@@ -374,7 +374,7 @@ def test_failed_archive_append_restores_entries(tmp_path, history_path, monkeypa
     real_open = open
 
     def refuse_archive(path, mode="r", *args, **kwargs):
-        if str(path).startswith(str(archive_dir) + os.sep) and "a" in mode:
+        if str(path).startswith(str(archive_dir) + os.sep) and "w" in mode:
             raise OSError(28, "no space")
         return real_open(path, mode, *args, **kwargs)
 
@@ -397,7 +397,7 @@ def test_interrupted_rotation_is_recovered_not_overwritten(tmp_path, history_pat
     assert "PENDING-ENTRIES" in archived
 
 
-def test_partial_archive_write_is_rolled_back(tmp_path, history_path, monkeypatch):
+def test_partial_archive_write_never_reaches_the_archive(tmp_path, history_path, monkeypatch):
     archive_dir = tmp_path / "history"
     writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
     for i in range(3):
@@ -408,7 +408,7 @@ def test_partial_archive_write_is_rolled_back(tmp_path, history_path, monkeypatc
 
     def partial(path, mode="r", *args, **kwargs):
         handle = real_open(path, mode, *args, **kwargs)
-        if str(path) == str(archive) and "a" in mode:
+        if str(path) == str(archive) + ".tmp" and "w" in mode:
             class Boom:
                 def __enter__(self):
                     return self
@@ -416,8 +416,8 @@ def test_partial_archive_write_is_rolled_back(tmp_path, history_path, monkeypatc
                 def __exit__(self, *exc):
                     handle.close()
 
-                def write(self, text):
-                    handle.write(text[:5])
+                def write(self, data):
+                    handle.write(data[:5])
                     handle.flush()
                     raise OSError(28, "no space")
             return Boom()
@@ -427,6 +427,7 @@ def test_partial_archive_write_is_rolled_back(tmp_path, history_path, monkeypatc
     assert writer.append_entry("last " + "z" * 2000, "a", "o")["status"] == "recorded"
     monkeypatch.undo()
     assert archive.read_bytes() == before
+    assert not list(archive_dir.glob("*.tmp"))
     assert "last " in Path(history_path).read_text(encoding="utf-8")
 
 

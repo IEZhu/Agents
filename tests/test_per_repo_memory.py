@@ -145,3 +145,21 @@ class TestHistoryFailureReporting:
         await server.log_interaction("software_engineer", "q3", "r3")
         assert server.drain_pending_logs(5)
         assert "history_last_error" not in json.loads(await server.read_history())
+
+
+@pytest.mark.asyncio
+async def test_semantic_read_readiness_error_still_reports_workspace(client_root, monkeypatch):
+    import json
+
+    import src.server as server
+
+    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+
+    async def not_ready(name):
+        return "warming_up"
+
+    monkeypatch.setattr(server, "_readiness_problem", not_ready)
+    result = json.loads(await server.read_history(query="anything"))
+    assert result["status"] == "warming_up"
+    assert result["workspace"]["root"] == str(client_root)
+    assert result["pid"] == os.getpid()
