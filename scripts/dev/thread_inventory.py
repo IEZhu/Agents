@@ -774,7 +774,7 @@ def gh_write(tokens: list[str], segment: str) -> bool:
         elif token.startswith("-X") and len(token) > 2:
             method = token[2:]
         if method:
-            return method.upper() != "GET"
+            return method.upper() not in ("GET", "HEAD")
     if "graphql" in tokens:
         return "mutation" in segment
     return any(token in ("-f", "-F", "--field", "--raw-field", "--input") for token in tokens)

@@ -208,7 +208,7 @@ def test_git_and_gh_writes_are_detected(command):
 @pytest.mark.parametrize("command", [
     "git stash list", "git tag -l", "git merge-base --is-ancestor a b", "git branch --show-current",
     "git status --short", "git log --oneline -3", "gh pr view 5 --json state", "gh api repos/o/r/pulls/1",
-    "gh api graphql -f query='query { viewer { login } }'", "git config user.email",
+    "gh api graphql -f query='query { viewer { login } }'", "git config user.email", "gh api -X HEAD repos/o/r",
 ])
 def test_reads_are_not_mutations(command):
     assert thread_inventory.inventory(bash(command, "c"))["git_mutations"] == []

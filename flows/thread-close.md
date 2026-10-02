@@ -305,16 +305,17 @@ In `apply` mode, also curate the call:
 
 - `intent`: `Close thread: <title>`;
 - `action`: `Flow: thread-close (apply)`;
-- `outcome`: the summary and the count of artifacts per level;
+- no `outcome`: the history entry then keeps the whole report from
+  `response_content`, with its artifacts, errors, open loops and how to resume;
 - `files`: the artifact paths;
 - `tags`: `#thread-close` and `#session-<id>`.
 
 `history.md` is append-only. Before closing a thread again, look for its earlier
 close with `read_history`, which returns recent or similar entries without a
 session filter. Accept an entry only when its tags contain both `#thread-close`
-and this thread's `#session-<id>`, and name that entry's time in `outcome`. If
-none matches, say that no earlier close was found. Without Agents-Core MCP there
-is no history entry; say so in the report.
+and this thread's `#session-<id>`, and name that entry's time in the report. If
+none matches, the report says that no earlier close was found. Without
+Agents-Core MCP there is no history entry; say so in the report.
 
 **Hand-off keys.** List the session id, pull request and issue numbers, and
 branch names in the report, so that daily summaries such as a personal day-close
