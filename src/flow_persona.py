@@ -84,6 +84,7 @@ def check_known(spec: dict | None) -> None:
     """
     if spec is None:
         return
+    from src.engine.persona_bundle import read_agent
     from src.engine.rules import load_selected_rules
     from src.utils.prompt_loader import resolve_path
 
@@ -95,6 +96,10 @@ def check_known(spec: dict | None) -> None:
 
     if not exists(f"@agents/{spec['agent']}/system_prompt.mdc"):
         raise FlowError(f"flow_invalid: unknown agent {spec['agent']}")
+    try:
+        read_agent(spec["agent"])  # The same identity and role checks as the bundle.
+    except (ValueError, OSError) as error:
+        raise FlowError(f"flow_invalid: agent {spec['agent']}: {error}") from None
     for kind in ("skills", "implants"):
         missing = [item for item in spec.get(kind) or () if not exists(f"@{kind}/{item}.mdc")]
         if missing:

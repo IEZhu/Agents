@@ -177,7 +177,11 @@ class FlowLibrary:
     def _persona_path(self, scope: str, flow_id: str) -> Path:
         relative = Path("builtin") if scope == "builtin" else self._relative(scope)
         directory = self.user_dir / "personas" / relative
-        if not directory.resolve().is_relative_to(self.user_dir.resolve()):
+        try:
+            inside = directory.resolve().is_relative_to(self.user_dir.resolve())
+        except (OSError, RuntimeError) as error:  # e.g. a symlink loop
+            raise FlowError(f"flow_invalid: persona directory cannot be resolved ({error})") from None
+        if not inside:
             raise FlowError("flow_invalid: persona directory escapes the library")
         return directory / f"{flow_id}.json"
 

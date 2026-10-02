@@ -436,7 +436,15 @@ async function openFlow(id, version, repo, view) {
   const params = new URLSearchParams({ id });
   if (repo) params.set("repo", repo);
   if (version) params.set("version", version);
-  const data = await api("/ui/api/flow?" + params);
+  // Persona actions wait for the selection: a save now could cancel this navigation.
+  state.flowLoading = gen;
+  personaButtons();
+  let data;
+  try {
+    data = await api("/ui/api/flow?" + params);
+  } finally {
+    if (state.flowLoading === gen) { state.flowLoading = null; personaButtons(); }
+  }
   if (state.tab !== "flows" || gen !== state.gen) return;
   if (version) {
     // Viewing an old version keeps the current identity and revision, so saving restores it.
@@ -1256,7 +1264,7 @@ async function renderPersona() {
 // Save needs this flow's controls; Reset needs a personal choice or an error to clear.
 function personaButtons() {
   const flow = state.current;
-  const idle = !!flow && !state.personaPending;
+  const idle = !!flow && !state.personaPending && !state.flowLoading;
   $("persona-save").disabled = !idle || state.personaReady !== flow;
   $("persona-reset").disabled = !idle || (flow.persona_source !== "overlay" && !flow.persona_error);
 }
@@ -1277,9 +1285,10 @@ async function savePersona(reset) {
   // showing a choice that is no longer stored.
   state.personaPending = true;
   $("persona-save").disabled = $("persona-reset").disabled = true;
+  const gen = state.gen;  // any later selection, even one still loading, supersedes this save
   try {
     const result = await api("/ui/api/flow/persona", { method: "PUT", body });
-    if (state.current !== flow) return;  // another flow was opened meanwhile
+    if (state.current !== flow || state.gen !== gen) return;
     // Only the persona fields: the text and its revision stay as the editor loaded them,
     // so a text save still detects a concurrent edit.
     const updated = Object.assign({}, flow, {
