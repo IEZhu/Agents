@@ -306,3 +306,31 @@ def test_importing_build_contexts_leaves_the_environment_alone(monkeypatch):
     _module("build_contexts")
     assert "EMBEDDING_MODEL" not in __import__("os").environ
 
+
+
+def test_an_arm_build_keeps_the_other_arms_entries_and_errors():
+    previous = {"t1": {"arm": "with", "case": "c1"}, "t2": {"arm": "without", "case": "c1"}}
+    errors = [{"case": "c2", "arm": "with", "error": "x"}, {"case": "c3", "arm": "without", "error": "y"},
+              {"case": "c4", "error": "not in store"}]
+    plan, kept = build_contexts.start_plan(previous, errors, "without")
+    assert plan == {"t1": previous["t1"]}
+    assert kept == [errors[0]]
+    assert build_contexts.start_plan(previous, errors, None) == ({}, [])
+
+
+def test_an_arm_build_finds_the_other_arm_with_the_same_context():
+    text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
+    other = build_contexts.token_of("embed-x", "c1", "without")
+    plan = {other: {"arm": "without", "ctx_sha256": build_contexts.ctx_sha256(text)}}
+    assert build_contexts.identical_other_arm(plan, "embed-x", "c1", "with", text) == other
+    assert build_contexts.identical_other_arm(plan, "embed-x", "c1", "with", text + " changed") is None
+    assert build_contexts.identical_other_arm({}, "embed-x", "c1", "with", text) is None
+
+
+def test_build_meta_records_each_arm_of_an_arm_build():
+    meta = build_contexts.merge_build_meta({}, "without", {"commit": "a"})
+    meta = build_contexts.merge_build_meta(meta, "with", {"commit": "b", "embedding_model": "m"})
+    assert meta == {"arms": {"without": {"commit": "a"}, "with": {"commit": "b", "embedding_model": "m"}}}
+    assert build_contexts.merge_build_meta(meta, None, {"commit": "c"}) == {"commit": "c"}
+    # Tokens do not depend on the build mode, so both arms of a case pair up for the judges.
+    assert build_contexts.token_of("embed-x", "c1", "with") != build_contexts.token_of("embed-x", "c1", "without")
