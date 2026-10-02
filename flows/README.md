@@ -15,10 +15,12 @@ and the [documentation map](../docs/README.md) for supporting references.
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 
-The development flows declare their persona: `issue-plan` runs as
-`system_architect`, `issue-implementation` as `software_engineer` and
-`pr-review` as `code_reviewer`, each with an exact list of skills and implants
-(see [choosing a flow's agent](#choose-a-flows-agent-and-components)).
+Built-in flows declare their persona: `documentation-refresh` runs as
+`tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
+`software_engineer` and `pr-review` as `code_reviewer`, each with an exact list
+of skills and implants (see [choosing a flow's
+agent](#choose-a-flows-agent-and-components)). The `issue-agent` dispatcher has
+none.
 
 The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
