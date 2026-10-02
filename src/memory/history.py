@@ -42,6 +42,9 @@ from src.memory.config import (
 
 logger = logging.getLogger(__name__)
 
+# (path, errno) of rotation failures already logged: a persistent failure warns once.
+_ROTATION_WARNED: set = set()
+
 
 # Cross-platform file lock — fcntl on POSIX, no-op shim on Windows where the
 # MCP server does not support concurrent stdio sessions anyway.
@@ -137,37 +140,47 @@ class HistoryWriter:
         # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
         # attached to the same repo) cannot interleave and corrupt the file.
         rotated_to: Optional[str] = None
-        with _WRITE_LOCK, file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")), open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
-            try:
-                _lock_exclusive(fh)
+        lock_path = os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")
+        with _WRITE_LOCK, file_lock(lock_path):
+            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+                try:
+                    _lock_exclusive(fh)
 
-                # Re-check size under the lock — a concurrent writer may have
-                # created the file between our os.makedirs and open().
-                fh.seek(0, os.SEEK_END)
-                if fh.tell() == 0:
-                    fh.write(self._render_header())
+                    # Re-check size under the lock — a concurrent writer may have
+                    # created the file between our os.makedirs and open().
+                    fh.seek(0, os.SEEK_END)
+                    if fh.tell() == 0:
+                        fh.write(self._render_header())
+                        fh.flush()
+
+                    if self._is_duplicate_from_handle(fh, entry_id):
+                        return {
+                            "status": "duplicate",
+                            "entry_id": entry_id,
+                            "path": self.history_path,
+                        }
+
+                    timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+                    block = self._render_entry(
+                        entry_id, timestamp, intent, action, outcome, files, tags, metadata
+                    )
+                    fh.write(block)
                     fh.flush()
+                    os.fsync(fh.fileno())
+                finally:
+                    _unlock(fh)
 
-                if self._is_duplicate_from_handle(fh, entry_id):
-                    return {
-                        "status": "duplicate",
-                        "entry_id": entry_id,
-                        "path": self.history_path,
-                    }
-
-                timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
-                block = self._render_entry(
-                    entry_id, timestamp, intent, action, outcome, files, tags, metadata
-                )
-                fh.write(block)
-                fh.flush()
-                os.fsync(fh.fileno())
-
-                # Rotate inside the lock — if we cross the threshold mid-write,
-                # the move/merge must not race a second writer.
+            # Rotate after the append handle is closed (Windows cannot move an
+            # open file) but still inside both locks, so the move/merge cannot
+            # race a second writer. The entry is already written: a rotation
+            # failure is logged and never turns it into an error.
+            try:
                 rotated_to = self._maybe_rotate_locked()
-            finally:
-                _unlock(fh)
+            except Exception as err:
+                key = (self.history_path, getattr(err, "errno", None))
+                if key not in _ROTATION_WARNED:
+                    _ROTATION_WARNED.add(key)
+                    logger.warning("history rotation failed for %s: %s", self.history_path, err)
 
         result: Dict[str, Any] = {
             "status": "recorded",
@@ -254,6 +267,11 @@ class HistoryWriter:
 
         Returns the archive path if rotation happened, else ``None``.
         """
+        # A pending file left by an interrupted rotation is merged first, before
+        # any early return, so its entries never stay hidden or get overwritten.
+        pending = self.history_path + ".rotating"
+        if os.path.exists(pending):
+            self._merge_pending_locked(pending)
         if not os.path.exists(self.history_path):
             return None
         size_kb = os.path.getsize(self.history_path) / 1024
@@ -269,12 +287,18 @@ class HistoryWriter:
         # If a file for this month already exists, append-merge with a separator
         # so multi-rotation months stay in one archive file.
         if os.path.exists(archive_path):
-            with open(self.history_path, "r", encoding="utf-8") as src:
-                payload = src.read()
-            with open(archive_path, "a", encoding="utf-8") as dst:
-                dst.write("\n\n<!-- merged on rotation -->\n\n")
-                dst.write(payload)
-            os.unlink(self.history_path)
+            # Move the live file aside first: if another process holds it open
+            # (Windows), this fails before anything reaches the archive, so a
+            # repeated failure cannot merge the same payload twice.
+            os.replace(self.history_path, pending)
+            try:
+                archive_path = self._merge_pending_locked(pending)
+            except Exception:
+                # The archive was rolled back: put the entries back so
+                # read_history still sees them.
+                if not os.path.exists(self.history_path):
+                    os.replace(pending, self.history_path)
+                raise
         else:
             shutil.move(self.history_path, archive_path)
 
@@ -287,6 +311,88 @@ class HistoryWriter:
                 f"on {_dt.datetime.now(_dt.timezone.utc).isoformat(timespec='seconds')}.\n"
             )
 
+        return archive_path
+
+    @staticmethod
+    def _discard_pending(pending: str) -> None:
+        """Remove (or empty) an already-archived pending file, never raising.
+
+        The archive holds the payload at this point, so a cleanup failure must
+        not look like a failed merge: a leftover payload is recognized by
+        `_archive_ends_with` and skipped on the next recovery.
+        """
+        try:
+            os.unlink(pending)
+            return
+        except OSError:
+            pass
+        try:
+            with open(pending, "w", encoding="utf-8"):
+                pass
+        except OSError as err:
+            key = (pending, getattr(err, "errno", None))
+            if key not in _ROTATION_WARNED:
+                _ROTATION_WARNED.add(key)
+                logger.warning("could not clear archived pending file %s: %s", pending, err)
+
+    @staticmethod
+    def _archive_ends_with(archive_path: str, payload: str) -> bool:
+        data = payload.encode("utf-8")
+        try:
+            with open(archive_path, "rb") as fh:
+                size = fh.seek(0, os.SEEK_END)
+                if size < len(data):
+                    return False
+                fh.seek(size - len(data))
+                return fh.read() == data
+        except OSError:
+            return False
+
+    def _merge_pending_locked(self, pending: str) -> str:
+        """Append the pending file to its month's archive, then empty it.
+
+        The archive is rebuilt in a temporary file and replaced atomically, so a
+        failure or crash cannot leave partial content. Returns the archive path.
+        """
+        with open(pending, "r", encoding="utf-8") as src:
+            payload = src.read()
+        if not payload:
+            # Emptied after an archived merge: nothing to add to the archive.
+            try:
+                os.unlink(pending)
+            except OSError:
+                pass
+            return ""
+        matches = _HEADER_RE.findall(payload)
+        month = (matches[-1][0] if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
+        os.makedirs(self.archive_dir, exist_ok=True)
+        archive_path = os.path.join(self.archive_dir, f"{month}.md")
+        existed = os.path.exists(archive_path)
+        if existed and self._archive_ends_with(archive_path, payload):
+            # A crash after the append but before the unlink: already archived.
+            self._discard_pending(pending)
+            return archive_path
+        # Build the merged archive beside the real one and replace it in one
+        # step: a crash or error at any point leaves the archive as it was, and
+        # the pending file is only emptied after the replace.
+        temp = archive_path + ".tmp"
+        try:
+            with open(temp, "wb") as dst:
+                if existed:
+                    with open(archive_path, "rb") as old:
+                        shutil.copyfileobj(old, dst)
+                    dst.write(b"\n\n<!-- merged on rotation -->\n\n")
+                dst.write(payload.encode("utf-8"))
+                dst.flush()
+                os.fsync(dst.fileno())
+            os.replace(temp, archive_path)
+        except Exception:
+            try:
+                os.unlink(temp)
+            except OSError:
+                pass
+            raise
+        self._discard_pending(pending)
         return archive_path
 
     def _read_last_timestamp(self) -> Optional[str]:

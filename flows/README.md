@@ -76,14 +76,16 @@ Absolute paths outside it and escaping symlinks are rejected.
   UUID in `X-Agents-Workspace`, including when `repo_path` is provided. A global
   connection without it can list flows but cannot start one. See
   [workspace setup](../docs/shared-mcp-daemon.md#installation-and-client-migration).
-- **Stdio:** the target is `AGENTS_CLIENT_REPO_ROOT` when set, used as given;
-  otherwise the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR`
-  (exported by Claude Code) or the server's working directory, then that
-  directory. Such an inferred root is refused with `workspace_required` when it
-  is a filesystem root or, on Windows, lies inside the Windows directory
-  (`%SystemRoot%`). Set the variable when the client launches MCP from another
-  directory. An unavailable working directory fails instead of falling back to
-  the installation.
+- **Stdio:** the target is `AGENTS_CLIENT_REPO_ROOT` when set; otherwise the
+  nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` (exported by
+  Claude Code) or the server's working directory. A `CLAUDE_PROJECT_DIR` without
+  a marker is used as named; a working directory without a marker is refused
+  with `workspace_required`. A root (including the override) that is a filesystem
+  root, the home directory, or a system or program directory (such as
+  `%SystemRoot%` or `%ProgramFiles%` on Windows, `/usr` or `/etc` on POSIX) is
+  refused with `workspace_unsafe`. Set the variable to one project's directory
+  when the client launches MCP from another directory. An unavailable working
+  directory fails instead of falling back to the installation.
 
 `list_flows` returns `status="success"` and a `flows` array. Each item contains
 `id`, `title`, `source_path`, a SHA-256 `revision` and its `source`; built-in
@@ -114,8 +116,8 @@ On failure, `run_flow` returns `status="error"` with an `error` string that star
 with a code, usually followed by a colon and an explanation: `flow_invalid` for
 an invalid name or an empty or oversized file, `flow_not_found` for a missing
 flow, `flow_unreadable` for a file that cannot be read as UTF-8, and
-`workspace_required` or `workspace_invalid` for a missing or invalid caller
-workspace. Match the code prefix, not the whole string; the flow management
+`workspace_required`, `workspace_unsafe` or `workspace_invalid` for a missing,
+unsafe or invalid caller workspace. Match the code prefix, not the whole string; the flow management
 errors below use the same format. An unusable `repo_path` (outside the
 workspace, through an escaping symlink, or not an existing directory) is an
 exception: it returns the uncoded message

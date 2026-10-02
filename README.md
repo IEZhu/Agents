@@ -182,7 +182,7 @@ selected by its controller.
 |---|---|---|
 | `EMBEDDING_MODEL` | Balanced (multilingual MiniLM) when unset | Standalone embedding model |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
-| `AGENTS_CLIENT_REPO_ROOT` | Unset: inferred from `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target, used as given. Set it in an MCP entry's `env`, never in the installation `.env`, which every stdio session loads |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: inferred from `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
@@ -698,19 +698,28 @@ client project:
 - **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`) that the final answer shows as its first line (rule `answer-timestamp`); both writes happen in the background and are drained on shutdown.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
 
-Over stdio, the project is `AGENTS_CLIENT_REPO_ROOT` when set, used as given;
-otherwise the nearest `.git` or `CLAUDE.md` at or above the start directory, then
-the start directory itself. The start directory is `CLAUDE_PROJECT_DIR`, which Claude Code
-exports to the servers it starts, or else the launch directory. An inferred root
-that is a filesystem root or, on Windows, lies inside the Windows directory is
-refused with `workspace_required`. On Windows, for example, the Claude desktop app
-starts the servers in `claude_desktop_config.json` in `C:\Windows\System32` without
-a project hint; register Agents-Core with Claude Code instead, or set
-`AGENTS_CLIENT_REPO_ROOT` in the entry's `env`. If the launch directory no longer
-exists, memory falls back to the installation and workflows return an error.
+Over stdio, the project is `AGENTS_CLIENT_REPO_ROOT` when set; otherwise the
+nearest `.git` or `CLAUDE.md` at or above the start directory. The start directory
+is `CLAUDE_PROJECT_DIR`, which Claude Code exports to the servers it starts, or else
+the launch directory. A `CLAUDE_PROJECT_DIR` without a marker is used as named. A
+launch directory without a marker is refused with `workspace_required`: it says
+nothing about the project. A root (including the override) that is a filesystem
+root, the home directory, or a system or program directory is refused with
+`workspace_unsafe`: on Windows the Windows directory, `%ProgramFiles%`,
+`%ProgramFiles(x86)%`, `%ProgramData%` and `C:\Users` itself; on POSIX `/usr`,
+`/var`, `/home`, `/Users` and similar, plus `/etc`, `/bin`, `/usr/bin` and the other
+system subtrees (`/usr/local`, `/private/tmp` and macOS temporary directories stay
+allowed). For example, the Claude desktop app starts the servers in
+`claude_desktop_config.json` in `C:\Windows\System32` without a project hint;
+register Agents-Core with Claude Code instead. Set `AGENTS_CLIENT_REPO_ROOT` only on
+a per-project registration, never on a shared or Desktop one. If the launch directory
+no longer exists, memory falls back to the installation and workflows return an error.
+`log_interaction` and `read_history` results carry `workspace` (`root`, `source`) and
+`pid`, and, after a failed history write, `history_last_error`
+(`code=history_unwritable`, `errno`, `path`, `at`), which the model should mention once.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. If a memory tool
-returns `workspace_required` or `workspace_invalid`, routing remains available.
+returns `workspace_required`, `workspace_unsafe` or `workspace_invalid`, routing remains available.
 For HTTP, register the project with `migrate --workspace /absolute/project` (see
 [service operations](docs/shared-mcp-daemon.md#installation-and-client-migration))
 and reconnect MCP before retrying memory operations; for stdio, set

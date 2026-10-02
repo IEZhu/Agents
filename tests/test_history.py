@@ -299,3 +299,207 @@ class TestSemanticStore:
         assert "fresh" in results[0]["intent"].lower()
         # Store file was rewritten
         assert os.path.getmtime(npz_path) >= first_mtime
+
+
+class TestRotationWithOpenHandle:
+    """Windows cannot move an open file: rotation must run after the handle closed."""
+
+    def test_rotation_happens_with_append_handle_closed(self, tmp_path, history_path, monkeypatch):
+        import builtins
+
+        writer = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
+        opened = []
+        real_open = builtins.open
+
+        def tracking_open(path, *args, **kwargs):
+            handle = real_open(path, *args, **kwargs)
+            if os.path.abspath(str(path)) == os.path.abspath(history_path) and "a" in (args[0] if args else kwargs.get("mode", "r")):
+                opened.append(handle)
+            return handle
+
+        real_rotate = writer._maybe_rotate_locked
+
+        def rotate_checking_handle():
+            assert opened and all(handle.closed for handle in opened)
+            return real_rotate()
+
+        monkeypatch.setattr(builtins, "open", tracking_open)
+        monkeypatch.setattr(writer, "_maybe_rotate_locked", rotate_checking_handle)
+        statuses = [
+            writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)["status"]
+            for i in range(4)
+        ]
+        monkeypatch.undo()
+        assert statuses == ["recorded"] * 4
+        archives = list((tmp_path / "history").glob("*"))
+        assert len(archives) >= 1
+
+    def test_rotation_failure_still_reports_recorded(self, tmp_path, history_path, monkeypatch, caplog):
+        writer = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
+
+        def boom():
+            raise PermissionError(32, "in use")
+
+        monkeypatch.setattr(writer, "_maybe_rotate_locked", boom)
+        with caplog.at_level("WARNING"):
+            result = writer.append_entry("q " + "x" * 2000, "a", "o")
+        assert result["status"] == "recorded"
+        assert "history rotation failed" in caplog.text
+
+
+def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path, monkeypatch):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    archives = list(archive_dir.glob("*.md"))
+    assert archives
+    before = archives[0].read_text(encoding="utf-8")
+
+    def locked(src, dst):
+        raise PermissionError(32, "in use")
+
+    monkeypatch.setattr("src.memory.history.os.replace", locked)
+    for i in range(3, 6):
+        assert writer.append_entry(f"q{i} " + "y" * 600, "a", "o" * 600)["status"] == "recorded"
+    assert archives[0].read_text(encoding="utf-8") == before
+
+
+def test_failed_archive_append_restores_entries(tmp_path, history_path, monkeypatch):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    assert list(archive_dir.glob("*.md"))
+    real_open = open
+
+    def refuse_archive(path, mode="r", *args, **kwargs):
+        if str(path).startswith(str(archive_dir) + os.sep) and "w" in mode:
+            raise OSError(28, "no space")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("src.memory.history.open", refuse_archive, raising=False)
+    result = writer.append_entry("last " + "z" * 2000, "a", "o")
+    monkeypatch.undo()
+    assert result["status"] == "recorded"
+    assert not os.path.exists(history_path + ".rotating")
+    assert "last " in Path(history_path).read_text(encoding="utf-8")
+
+
+def test_interrupted_rotation_is_recovered_not_overwritten(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    Path(history_path + ".rotating").write_text("PENDING-ENTRIES", encoding="utf-8")
+    writer.append_entry("more " + "y" * 2000, "a", "o")
+    archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
+    assert "PENDING-ENTRIES" in archived
+
+
+def test_partial_archive_write_never_reaches_the_archive(tmp_path, history_path, monkeypatch):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    archive = next(archive_dir.glob("*.md"))
+    before = archive.read_bytes()
+    real_open = open
+
+    def partial(path, mode="r", *args, **kwargs):
+        handle = real_open(path, mode, *args, **kwargs)
+        if str(path) == str(archive) + ".tmp" and "w" in mode:
+            class Boom:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc):
+                    handle.close()
+
+                def write(self, data):
+                    handle.write(data[:5])
+                    handle.flush()
+                    raise OSError(28, "no space")
+            return Boom()
+        return handle
+
+    monkeypatch.setattr("src.memory.history.open", partial, raising=False)
+    assert writer.append_entry("last " + "z" * 2000, "a", "o")["status"] == "recorded"
+    monkeypatch.undo()
+    assert archive.read_bytes() == before
+    assert not list(archive_dir.glob("*.tmp"))
+    assert "last " in Path(history_path).read_text(encoding="utf-8")
+
+
+def test_pending_file_is_recovered_before_size_check(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=512)
+    Path(history_path + ".rotating").write_text(
+        "## 2026-01-02T03:04:05+00:00 | abcdef123456\nPENDING-ENTRIES\n", encoding="utf-8")
+    writer.append_entry("small", "a", "o")
+    archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
+    assert "PENDING-ENTRIES" in archived
+    assert (archive_dir / "2026-01.md").exists()
+    assert not os.path.exists(history_path + ".rotating") or Path(history_path + ".rotating").stat().st_size == 0
+
+
+def test_empty_pending_file_never_touches_the_archive(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=512)
+    archive_dir.mkdir()
+    month = _dt.datetime.now(_dt.timezone.utc).isoformat()[:7]
+    archive = archive_dir / f"{month}.md"
+    archive.write_text("ARCHIVE", encoding="utf-8")
+    Path(history_path + ".rotating").write_text("", encoding="utf-8")
+    writer.append_entry("small", "a", "o")
+    assert archive.read_text(encoding="utf-8") == "ARCHIVE"
+    assert not os.path.exists(history_path + ".rotating")
+
+
+def test_committed_pending_payload_is_not_archived_twice(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=512)
+    archive_dir.mkdir()
+    payload = "## 2026-01-02T03:04:05+00:00 | abcdef123456\nENTRY\n"
+    archive = archive_dir / "2026-01.md"
+    archive.write_text("OLD\n\n<!-- merged on rotation -->\n\n" + payload, encoding="utf-8")
+    Path(history_path + ".rotating").write_text(payload, encoding="utf-8")
+    writer.append_entry("small", "a", "o")
+    assert archive.read_text(encoding="utf-8").count("ENTRY") == 1
+    assert not os.path.exists(history_path + ".rotating") or Path(history_path + ".rotating").stat().st_size == 0
+
+
+def test_cleanup_failure_after_archive_commit_does_not_restore_pending(tmp_path, history_path, monkeypatch, caplog):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    real_unlink = os.unlink
+    real_open = open
+
+    def locked_unlink(path, *args, **kwargs):
+        if str(path).endswith(".rotating"):
+            raise PermissionError(32, "in use")
+        return real_unlink(path, *args, **kwargs)
+
+    def locked_open(path, mode="r", *args, **kwargs):
+        if str(path).endswith(".rotating") and "w" in mode:
+            raise PermissionError(32, "in use")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("src.memory.history.os.unlink", locked_unlink)
+    monkeypatch.setattr("src.memory.history.open", locked_open, raising=False)
+    with caplog.at_level("WARNING"):
+        writer.append_entry("tail " + "y" * 2000, "a", "o" * 600)
+        writer.append_entry("again", "a", "o")
+        writer.append_entry("and again", "a", "o")
+    monkeypatch.undo()
+    assert len([r for r in caplog.records if "could not clear archived pending" in r.getMessage()]) <= 1
+    live = Path(history_path).read_text(encoding="utf-8")
+    archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
+    assert "tail " in archived
+    assert "tail " not in live
+    # The leftover payload is recognized as archived on the next call.
+    writer.append_entry("next", "a", "o")
+    archived_after = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
+    assert archived_after.count("tail ") == archived.count("tail ")

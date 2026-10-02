@@ -50,10 +50,26 @@ class TestResolutionOrder:
         monkeypatch.chdir(unrelated)
         assert engine_config.get_client_repo_root() == os.path.realpath(str(tmp_path))
 
-    def test_env_override_expands_tilde(self, monkeypatch):
+    def test_env_override_tilde_is_refused(self, monkeypatch):
+        # `~` expands to the home directory, which would collect every project.
         monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", "~")
-        resolved = engine_config.get_client_repo_root()
-        assert resolved == os.path.realpath(os.path.expanduser("~"))
+        with pytest.raises(engine_config.ClientRootError, match="home directory") as info:
+            engine_config.get_client_repo_root()
+        assert info.value.code == "workspace_unsafe"
+
+    def test_env_override_expands_tilde_below_home(self, tmp_path, monkeypatch):
+        project = tmp_path / "home" / "project"
+        project.mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", "~/project")
+        assert engine_config.get_client_repo_root_info() == (str(project.resolve()), "env")
+
+    def test_env_override_into_system_dir_is_refused(self, fake_windows, monkeypatch):
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(fake_windows / "System32"))
+        with pytest.raises(engine_config.ClientRootError, match="Windows directory") as info:
+            engine_config.get_client_repo_root()
+        assert info.value.code == "workspace_unsafe"
 
     def test_env_override_realpaths_symlink(self, tmp_path, monkeypatch):
         real = tmp_path / "real"
@@ -136,17 +152,26 @@ class TestResolutionOrder:
         assert resolved == engine_config.INSTALL_ROOT
         assert any("cwd unavailable" in rec.message for rec in caplog.records)
 
-    def test_cwd_fallback_when_no_marker(self, tmp_path, monkeypatch):
+    def test_markerless_cwd_is_refused(self, tmp_path, monkeypatch):
         monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        # No ancestor of the start directory may carry a marker.
+        monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
         isolated = tmp_path / "no_markers_here"
         isolated.mkdir()
         monkeypatch.chdir(isolated)
-        # Walk-up will still find `/` likely lacking markers — but tmp_path
-        # itself is under / so it may hit a distant marker. Only assert we
-        # returned *some* absolute path, not that it equals cwd — real
-        # filesystems often have .git at / or elsewhere in the ancestry.
-        resolved = engine_config.get_client_repo_root()
-        assert os.path.isabs(resolved)
+        with pytest.raises(engine_config.ClientRootError, match="no .git or CLAUDE.md") as info:
+            engine_config.get_client_repo_root()
+        assert info.value.code == "workspace_required"
+
+    def test_markerless_claude_project_dir_is_accepted(self, tmp_path, monkeypatch):
+        # The client named this directory as the project.
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
+        project = tmp_path / "plain"
+        project.mkdir()
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project))
+        assert engine_config.get_client_repo_root_info() == (str(project.resolve()), "CLAUDE_PROJECT_DIR")
 
 
 class TestUnsafeRootsRefused:
@@ -193,8 +218,74 @@ class TestUnsafeRootsRefused:
         monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
         monkeypatch.chdir(fake_windows / "System32")
         context = client_context()
-        with pytest.raises(WorkspaceError, match="^workspace_required: refusing"):
+        with pytest.raises(WorkspaceError, match="^workspace_unsafe: refusing"):
             context.require_root()
+
+
+class TestMoreUnsafeRoots:
+    """Program directories, `C:\\Users` and the home directory hold no project."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self, monkeypatch):
+        monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
+
+    @pytest.mark.parametrize("variable", ["ProgramFiles", "ProgramFiles(x86)", "ProgramData"])
+    def test_windows_program_directories(self, tmp_path, monkeypatch, variable):
+        base = tmp_path / "prog"
+        (base / "tool").mkdir(parents=True)
+        monkeypatch.setattr(engine_config, "_is_windows", lambda: True)
+        monkeypatch.setattr(engine_config, "_windows_directory", lambda: None)
+        monkeypatch.setenv(variable, str(base))
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(base / "tool"))
+        with pytest.raises(engine_config.ClientRootError, match=variable.replace("(", "\\(").replace(")", "\\)")):
+            engine_config.get_client_repo_root()
+
+    def test_windows_users_directory_is_exact(self, tmp_path, monkeypatch):
+        users = tmp_path / "Users"
+        (users / "me" / "project").mkdir(parents=True)
+        monkeypatch.setattr(engine_config, "_is_windows", lambda: True)
+        monkeypatch.setattr(engine_config, "_windows_directory", lambda: None)
+        monkeypatch.setenv("SystemDrive", str(tmp_path))
+        monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(users))
+        with pytest.raises(engine_config.ClientRootError, match="users directory"):
+            engine_config.get_client_repo_root()
+        engine_config._reset_client_repo_root_cache()
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(users / "me" / "project"))
+        assert engine_config.get_client_repo_root() == str((users / "me" / "project").resolve())
+
+    def test_home_directory_is_refused_but_projects_below_are_not(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / "project").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(home))
+        with pytest.raises(engine_config.ClientRootError, match="home directory"):
+            engine_config.get_client_repo_root()
+        engine_config._reset_client_repo_root_cache()
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(home / "project"))
+        assert engine_config.get_client_repo_root() == str((home / "project").resolve())
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX system directories")
+    @pytest.mark.parametrize("path", ["/usr", "/var", "/home", "/etc", "/etc/ssh", "/usr/bin", "/usr/share/doc", "/bin"])
+    def test_posix_system_directories(self, monkeypatch, path):
+        if not os.path.isdir(path):
+            pytest.skip(f"{path} does not exist")
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", path)
+        with pytest.raises(engine_config.ClientRootError, match="system directory"):
+            engine_config.get_client_repo_root()
+
+    @pytest.mark.parametrize("path", ["/usr/local", "/private/tmp", "/private/var/folders", "/tmp"])
+    def test_posix_allowed_directories(self, path):
+        if sys.platform == "win32":
+            pytest.skip("POSIX paths")
+        root = engine_config.Path(os.path.realpath(path))
+        assert engine_config._unsafe_client_root_reason(root) is None
+
+    def test_pytest_tmp_path_is_allowed(self, tmp_path):
+        assert engine_config._unsafe_client_root_reason(tmp_path.resolve()) is None
 
 
 class TestInstallRootUnchanged:
@@ -293,3 +384,13 @@ class TestCacheReset:
         assert engine_config.get_client_repo_root() == os.path.realpath(
             str(tmp_path / "b")
         )
+
+
+def test_darwin_case_variants_are_unsafe(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_config.sys, "platform", "darwin")
+    monkeypatch.setattr(engine_config, "_real", lambda path: engine_config.Path(path) if path else None)
+    monkeypatch.setattr(engine_config, "_home_directory", lambda: engine_config.Path("/Users/Alex"))
+    assert "system directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/users"))
+    assert "system directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/system/library"))
+    assert "home directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/users/alex"))
+    assert engine_config._unsafe_client_root_reason(engine_config.Path("/Users/Alex/project")) is None

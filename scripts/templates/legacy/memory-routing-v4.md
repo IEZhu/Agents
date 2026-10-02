@@ -28,9 +28,6 @@ action. The call returns at once; when the footer's `Rules` list includes
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
-When a `log_interaction` or `read_history` result carries `history_last_error`, or
-returns `workspace_required`, `workspace_unsafe` or `workspace_invalid`, mention it
-once in the answer and do not retry logging in a loop.
 
 When MCP is unavailable, follow the explicit fallback in CLAUDE.md: keep valid
 retained attribution when available, skip unavailable logging, and label manual

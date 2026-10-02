@@ -18,6 +18,7 @@ import json
 import asyncio
 import datetime
 import queue
+from pathlib import Path
 import threading
 import time
 import dotenv
@@ -144,8 +145,9 @@ mcp = FastMCP(
         "Exceptions: code blocks, technical terms, tool/CLI output, and the footer "
         "labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.\n"
         "Append the exact footer returned with the active bundle.\n"
-        "HTTP memory tools require X-Agents-Workspace. On workspace_required or workspace_invalid, "
+        "HTTP memory tools require X-Agents-Workspace. On workspace_required, workspace_unsafe or workspace_invalid, "
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
+        "When log_interaction or read_history carries history_last_error, mention it once in the answer. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
         "Never replay an ambiguous write automatically; read the result first.\n"
         "For requested workflows, use list_flows and run_flow. Flows are built-in, "
@@ -394,9 +396,11 @@ async def run_flow(
     resolves repo:, then user:, then builtin:. request carries the user's scope,
     PR/MR URL and constraints such as no-merge. repo_path defaults to the caller
     workspace; an override must be an existing directory within it.
-    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT as
-    given, else the project inferred from CLAUDE_PROJECT_DIR or cwd; an inferred
-    filesystem root or a directory inside the Windows directory is refused.
+    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT, else the
+    project inferred from CLAUDE_PROJECT_DIR or cwd. A filesystem root, the home
+    directory or a system or program directory (also as the override) is refused
+    with workspace_unsafe, and a cwd without .git or CLAUDE.md is refused with
+    workspace_required.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.
@@ -835,6 +839,56 @@ async def list_agents(include_metadata: bool = True) -> str:
 
     return json.dumps({"agents": catalog}, ensure_ascii=False, indent=2)
 
+# Last history write failure per workspace root, and the (path, errno) pairs
+# already warned about: a broken history.md is reported on the next result
+# and once in the log, not with a traceback per call.
+_history_errors: dict[str, dict] = {}
+_history_warned: set[tuple[str, Optional[int]]] = set()
+_history_errors_lock = threading.Lock()
+
+
+def _record_history_failure(root: Path, path: str, error: BaseException) -> None:
+    code = getattr(error, "errno", None)
+    with _history_errors_lock:
+        _history_errors[str(root)] = {
+            "code": "history_unwritable",
+            "errno": code,
+            "path": path,
+            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "error": f"{type(error).__name__}: {error}",
+        }
+        first = (path, code) not in _history_warned
+        _history_warned.add((path, code))
+    if first:
+        logger.warning(
+            "History append failed: code=history_unwritable errno=%s path=%s: %s",
+            code, path, error,
+        )
+
+
+def _clear_history_failure(root: Path) -> None:
+    with _history_errors_lock:
+        _history_errors.pop(str(root), None)
+        # Let a later failure at this path warn again after a recovery.
+        path = str(root / "history.md")
+        _history_warned.difference_update({key for key in _history_warned if key[0] == path})
+
+
+def _workspace_report(client, root: Path) -> dict:
+    """Where this call's memory went: the resolved root, how it was found, the PID."""
+    report = {
+        "workspace": {"root": str(root), "source": client.source or client.transport},
+        "pid": os.getpid(),
+    }
+    with _history_errors_lock:
+        failure = _history_errors.get(str(root))
+    if failure:
+        report["history_last_error"] = {
+            key: failure[key] for key in ("code", "errno", "path", "at")
+        }
+    return report
+
+
 @mcp.tool()
 async def log_interaction(
     agent_name: str,
@@ -870,13 +924,17 @@ async def log_interaction(
 
     Returns at once, after validation and before either sink is written:
     ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
-    plus the attribution. While retrieval is still warming up, ``langfuse`` is
+    plus ``workspace`` (``root``, ``source``), ``pid``, ``history_last_error``
+    (``code``, ``errno``, ``path``, ``at``; only after an earlier history write
+    failed) and the attribution. While retrieval is still warming up, ``langfuse`` is
     ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
-    background with that timestamp; their failures go to the server log only
-    and do not prevent each other. An unavailable workspace or invalid
-    attribution writes nothing and returns a protocol ERROR without ``timestamp``.
+    background with that timestamp and do not prevent each other. A
+    failed history write is logged once per path and errno (WARNING,
+    ``code=history_unwritable``) and reported on the next result as
+    ``history_last_error``; Langfuse failures are only logged. An unavailable
+    workspace or invalid attribution writes nothing and returns a protocol ERROR without ``timestamp``.
     """
     try:
         client = client_context(ctx)
@@ -890,8 +948,9 @@ async def log_interaction(
             raise ValueError("Invalid persona_action")
     except ValueError as error:
         return error_response(error, request_id, instruction=(
-            "Nothing was logged. Keep the current activation; on workspace_required or "
-            "workspace_invalid report unavailable logging, and do not retry logging in a loop."
+            "Nothing was logged. Keep the current activation; on workspace_required, "
+            "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
+            "retry logging in a loop."
         ))
     attribution = ({
         "persona": active.model_dump(), "persona_action": persona_action,
@@ -944,8 +1003,9 @@ async def log_interaction(
 
     # --- History append (always; defaults to raw query/response) ---
     def _send_history() -> None:
+        history_path = str(root / "history.md")
         try:
-            writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
+            writer = HistoryWriter(history_path, str(root / "history"))
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
             if active:
@@ -961,8 +1021,14 @@ async def log_interaction(
             )
             if result.get("status") == "error":
                 logger.error("History append failed: %s", result.get("error"))
+            else:
+                _clear_history_failure(root)
         except Exception as e:
-            logger.error("History append failed: %s", e, exc_info=True)
+            _record_history_failure(root, history_path, e)
+
+    # Snapshot before the workers run: a failure of this very write must show
+    # up on the next call, not nondeterministically on this one.
+    workspace_report = _workspace_report(client, root)
 
     # Both sinks are independent; the response does not wait for either.
     # While startup runs, importing Langfuse would compete with it: skip the trace.
@@ -976,6 +1042,7 @@ async def log_interaction(
         "timestamp": timestamp,
         "langfuse": {"status": "skipped", "reason": "warming_up"} if langfuse_skipped else {"status": "queued"},
         "history": {"status": "queued"},
+        **workspace_report,
         **attribution,
     }
     debug_log("log_interaction", "res", payload)
@@ -1136,8 +1203,10 @@ async def read_history(
       then returns semantically nearest entries with cosine distance.
 
     Returns JSON:
-      {entries: [...], total, mode}
-      mode ∈ {"recency", "semantic"}.
+      {entries: [...], total, mode, workspace: {root, source}, pid,
+       history_last_error?}
+      mode ∈ {"recency", "semantic"}. history_last_error ({code, errno, path,
+      at}) is present only after a history write failed.
 
     Entry shape depends on mode:
     - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
@@ -1146,6 +1215,7 @@ async def read_history(
     try:
         client = client_context(ctx)
         root = client.require_root()
+        workspace_report = _workspace_report(client, root)
         limit = max(1, min(limit, 500))
         query = (query or "").strip() or None
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
@@ -1154,8 +1224,8 @@ async def read_history(
         if query:
             if (problem := await _readiness_problem("read_history")) is not None:
                 status = "warming_up" if problem == "warming_up" else "error"
-                return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT},
-                                  ensure_ascii=False)
+                return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT,
+                                   **workspace_report}, ensure_ascii=False)
 
             def search():
                 with _history_stores.acquire(client) as store:
@@ -1173,7 +1243,13 @@ async def read_history(
                 "total": len(entries),
                 "entries": [e.to_dict() for e in entries],
             }
+        payload.update(workspace_report)
         debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
+        return json.dumps(payload, ensure_ascii=False)
+    except WorkspaceError as e:
+        # A known condition (no usable workspace): no traceback per call.
+        payload = {"status": "error", "error": str(e)}
+        debug_log("read_history", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("read_history failed: %s", e, exc_info=True)
