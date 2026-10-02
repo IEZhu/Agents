@@ -1,0 +1,333 @@
+{
+ "component": "rule-english-pivot",
+ "cases": [
+  {
+   "id": "ru-sql-second-order",
+   "agent": "database_admin",
+   "language": "ru",
+   "history": [],
+   "user_message": "PostgreSQL 16, таблица orders(id bigint, customer_id bigint, created_at timestamptz, amount numeric). Нужно для каждого клиента вывести его второй заказ по сумме: заказы клиента упорядочиваем по amount по убыванию, при равной сумме — по created_at по возрастанию, и берём второй в этом порядке. Клиентов с одним заказом не выводить. Напиши запрос и коротко поясни, почему он корректен.",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Numbers each customer's orders with ROW_NUMBER() (or an equivalent that always yields exactly one second row) partitioned by customer_id and ordered by amount DESC, created_at ASC, and keeps row number 2 (NULLS LAST or a final id tiebreaker is fine).",
+    "Customers with a single order drop out because they have no second row, or the query excludes them explicitly.",
+    "The explanation correctly describes how equal amounts are ordered by created_at.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-meeting-slots",
+   "agent": "math_scientist",
+   "language": "ru",
+   "history": [],
+   "user_message": "Четыре встречи A, B, C и D надо расставить по слотам 10:00, 11:00, 12:00 и 13:00, по одной на слот. Условия: B раньше D; A не в 10:00 и не в 13:00; C идёт сразу после A; D не в 13:00. Найди все допустимые расписания и покажи, почему других нет.",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Finds exactly one schedule: B at 10:00, D at 11:00, A at 12:00, C at 13:00.",
+    "Shows that no other schedule works: A at 11:00 puts C at 12:00 and B, D at 10:00/13:00, breaking 'B before D' or 'D not at 13:00'; A at 12:00 puts C at 13:00, and 'B before D' forces B at 10:00, D at 11:00. Any equivalent argument counts.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-jvm-oomkilled",
+   "agent": "devops_engineer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Под с сервисом на Java 21 в Kubernetes каждые пару часов перезапускается, в kubectl describe pod вижу Last State: Terminated, Reason: OOMKilled, Exit Code: 137. В контейнере limits.memory: 512Mi, приложение запускается с -Xmx512m. Почему так и что поменять?",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Explains that -Xmx caps only the heap while the JVM also uses non-heap memory (metaspace, thread stacks, code cache, direct buffers), so a 512m heap lets the process exceed the 512Mi limit and the container is OOM-killed (exit code 137).",
+    "Recommends a concrete fix: a heap well below the limit (for example replacing -Xmx with -XX:MaxRAMPercentage, or a smaller -Xmx) and/or a higher limits.memory, and suggests measuring actual memory use.",
+    "Does not mistake the symptom for a Java OutOfMemoryError: it is a container OOM kill.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-python-default-list",
+   "agent": "software_engineer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Не понимаю, что происходит. Есть функция:\n\ndef add_item(item, bucket=[]):\n    bucket.append(item)\n    return bucket\n\nadd_item(1) возвращает [1], а следующий вызов add_item(2) — уже [1, 2]. Почему так и как правильно написать?",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Explains that the default value is evaluated once, when def runs, so calls without bucket share one list object.",
+    "Gives the standard fix with a None default (bucket=None, then a new list inside the function) in correct Python.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-urn-probability",
+   "agent": "math_scientist",
+   "language": "ru",
+   "history": [],
+   "user_message": "В урне 3 белых и 2 чёрных шара. Наугад достают два шара по очереди без возвращения. Какова вероятность, что второй шар белый, если известно, что среди двух вынутых есть хотя бы один чёрный?",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Gets 3/7 (about 0.43).",
+    "Shows the computation, for example 14 ordered pairs with at least one black ball (black-white 6, white-black 6, black-black 2), 6 of them with a white second ball.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-git-reset-reflog",
+   "agent": "software_engineer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Случайно сделал git reset --hard HEAD~3 на своей локальной ветке feature/payments. Три последних коммита я не пушил. Их можно вернуть? Напиши по шагам.",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Says the commits are recoverable through git reflog and shows how to find the commit before the reset.",
+    "Restores them with exact commands: git reset --hard to that hash (or HEAD@{1} / ORIG_HEAD), or a new branch at that commit.",
+    "Warns that uncommitted changes discarded by reset --hard cannot be recovered through reflog.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-office-move-plan",
+   "agent": "universal_agent",
+   "language": "ru",
+   "history": [],
+   "user_message": "Нужен план переезда офиса на три недели, начиная с понедельника 2 ноября 2026 года. Условия: 25 сотрудников; сам переезд — только в выходные 21–22 ноября; серверную стойку можно выключить максимум на 4 часа; интернет на новом месте провайдер подключает за 10 рабочих дней после заявки; мебель для новых рабочих мест привозят за 5 рабочих дней после заказа. Распиши по неделям, что и когда делать, и отметь, что нельзя пропустить.",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "Orders the internet connection in week 1, early enough that 10 working days pass before the 21–22 November move.",
+    "Orders the furniture no later than week 2, so that 5 working days pass before the move.",
+    "Plans the server rack move as a window of at most 4 hours on the 21–22 November weekend, prepared in advance (backup, checklist or rollback).",
+    "Organises the plan by the three weeks. The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-phone-regex",
+   "agent": "software_engineer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Нужна регулярка (Python, re) для проверки российского мобильного номера. Должны проходить варианты вроде +7 912 345-67-89, 8 (912) 345-67-89, 89123456789 и +79123456789: пробелы, скобки и дефисы необязательны. Номер после +7 или 8 должен начинаться с 9. Дай регулярку и несколько проверок.",
+   "why_in_scope": "A Russian request where the rule makes the model restate the task in English before working; the reply must still be in Russian with no English restatement.",
+   "rubric": [
+    "The pattern accepts all four examples from the request.",
+    "It requires +7 or 8, then 9, then nine more digits, and rejects a wrong digit count or a first digit other than 9.",
+    "It is anchored to the whole string (re.fullmatch or ^...\\Z) and comes with a few test cases.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-psql-connection-refused",
+   "agent": "database_admin",
+   "language": "ru",
+   "history": [],
+   "user_message": "Пытаюсь подключиться: psql -h db.local -p 5432 -U app, получаю «psql: ошибка: подключиться к серверу \"db.local\" (192.168.1.20), порту 5432 не удалось: В соединении отказано. Сервер действительно работает по данному адресу и принимает TCP-соединения?». С самого сервера через localhost всё работает. Что проверить?",
+   "why_in_scope": "A Russian request carrying text the rule says to keep untranslated (quoted error, terms of art, identifiers, a verse line); a pivot that paraphrases it through English would lose or distort it.",
+   "rubric": [
+    "Identifies the likely causes: the server listens only on localhost (listen_addresses in postgresql.conf, which needs a restart to change) or a firewall that rejects connections to 5432 (one that drops packets would time out instead).",
+    "Mentions pg_hba.conf as the next step for remote clients, and that a pg_hba rejection gives a different error than a refused connection.",
+    "Refers to the error in the user's own Russian wording or quotes it, rather than only an English paraphrase.",
+    "The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-tax-deduction-vs-benefit",
+   "agent": "lawyer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Покупаю квартиру в ипотеку. Знакомый говорит, что мне положена «налоговая льгота», а в банке говорят про «налоговый вычет». Это одно и то же? Что именно я могу получить по НК РФ?",
+   "why_in_scope": "A Russian request carrying text the rule says to keep untranslated (quoted error, terms of art, identifiers, a verse line); a pivot that paraphrases it through English would lose or distort it.",
+   "rubric": [
+    "Explains that the buyer's right is the property tax deduction (имущественный налоговый вычет, статья 220 НК РФ), which returns or reduces personal income tax already paid, and that «льгота» is a broader, looser word.",
+    "States the limits: up to 2 million roubles of the purchase price and, separately, up to 3 million roubles of mortgage interest.",
+    "Keeps the Russian legal terms (налоговый вычет, НДФЛ, НК РФ) as they are.",
+    "Notes that the actual refund depends on the income tax the buyer has paid. The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-pushkin-meter",
+   "agent": "education_tutor",
+   "language": "ru",
+   "history": [],
+   "user_message": "Помогите с домашкой по литературе: определить размер строки Пушкина «Я помню чудное мгновенье: передо мной явилась ты». Как это расписать по слогам и ударениям?",
+   "why_in_scope": "A Russian request carrying text the rule says to keep untranslated (quoted error, terms of art, identifiers, a verse line); a pivot that paraphrases it through English would lose or distort it.",
+   "rubric": [
+    "Identifies iambic tetrameter (четырёхстопный ямб).",
+    "Lays out both Russian verse lines by syllables and stresses, with stressed syllables on even positions (a skipped stress is acceptable), not an English translation of them.",
+    "Quotes the words as given (splitting them into the poem's two lines is fine).",
+    "Explains it in Russian at a school student's level."
+   ]
+  },
+  {
+   "id": "ru-1c-query-characteristic",
+   "agent": "software_engineer",
+   "language": "ru",
+   "history": [],
+   "user_message": "В конфигурации 1С есть функция:\n\nФункция ПолучитьОстатокТовара(Номенклатура, Склад) Экспорт\n\tЗапрос = Новый Запрос;\n\tЗапрос.Текст =\n\t\"ВЫБРАТЬ\n\t|\tЕСТЬNULL(ТоварыНаСкладахОстатки.КоличествоОстаток, 0) КАК Остаток\n\t|ИЗ\n\t|\tРегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура = &Номенклатура И Склад = &Склад) КАК ТоварыНаСкладахОстатки\";\n\tЗапрос.УстановитьПараметр(\"Номенклатура\", Номенклатура);\n\tЗапрос.УстановитьПараметр(\"Склад\", Склад);\n\tВыборка = Запрос.Выполнить().Выбрать();\n\tВозврат ?(Выборка.Следующий(), Выборка.Остаток, 0);\nКонецФункции\n\nВ регистре ТоварыНаСкладах есть измерение ХарактеристикаНоменклатуры. Нужно, чтобы функция учитывала характеристику, если её передали, а если не передали — возвращала остаток по номенклатуре и складу, как раньше. Перепиши функцию.",
+   "why_in_scope": "A Russian request carrying text the rule says to keep untranslated (quoted error, terms of art, identifiers, a verse line); a pivot that paraphrases it through English would lose or distort it.",
+   "rubric": [
+    "Adds an optional characteristic parameter and filters by ХарактеристикаНоменклатуры only when it is passed.",
+    "When no characteristic is passed, still returns the total over all characteristics: the filter stays in the virtual-table parameters, or СУММА is used if ХарактеристикаНоменклатуры appears in the outer query; never only the first characteristic's row.",
+    "Keeps the existing Russian identifiers (ПолучитьОстатокТовара, ТоварыНаСкладах, Номенклатура, Склад) exactly and writes valid 1C syntax.",
+    "Explains the change in Russian."
+   ]
+  },
+  {
+   "id": "ru-heart-failure-terms",
+   "agent": "medical_expert",
+   "language": "ru",
+   "history": [],
+   "user_message": "У папы в выписке из кардиологии написано: «ХСН IIА стадии, ФК II по NYHA». Объясните простыми словами, что это значит и насколько это серьёзно.",
+   "why_in_scope": "A Russian request carrying text the rule says to keep untranslated (quoted error, terms of art, identifiers, a verse line); a pivot that paraphrases it through English would lose or distort it.",
+   "rubric": [
+    "Explains both scales correctly: the stage (Strazhesko–Vasilenko: I, IIА, IIБ, III) describes how far the disease has progressed, and NYHA class II means symptoms with ordinary exertion and none at rest.",
+    "Explains stage IIА in plain words without overstating it as end-stage.",
+    "Keeps the discharge-summary wording (ХСН IIА, ФК II по NYHA) rather than translating it.",
+    "Avoids alarmism and advises following the cardiologist's plan. The reply is in Russian, with code, commands and identifiers left as written, and contains no English restatement of the request."
+   ]
+  },
+  {
+   "id": "ru-bakery-puns",
+   "agent": "literary_writer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Открываем маленькую пекарню «Батон» в спальном районе. Придумай пять коротких слоганов для вывески с игрой слов — чтобы было смешно именно по-русски.",
+   "why_in_scope": "Language is the task here, so the rule's exception says to work in Russian; an English pivot would tend to produce calques or puns that only work in English.",
+   "rubric": [
+    "Most slogans carry real Russian wordplay (a pun, a twisted set phrase, sound play on «Батон»), not jokes that only work in English or literal translations.",
+    "The Russian is natural and grammatical, with no calques.",
+    "Gives five short slogans that fit a neighbourhood bakery sign."
+   ]
+  },
+  {
+   "id": "ru-proofread-sentence",
+   "agent": "tech_writer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Исправь ошибки и поправь стиль, не меняя смысла, и коротко объясни правки: «В связи с тем что сервер был перезагружен без предупреждения, то пользователи небыли уведомлены заранее, что привело к большому количеству жалоб.»",
+   "why_in_scope": "Language is the task here, so the rule's exception says to work in Russian; an English pivot would tend to produce calques or puns that only work in English.",
+   "rubric": [
+    "Fixes «небыли» to «не были»; a comma inside «В связи с тем что» is optional, so adding or omitting it is not an error.",
+    "Removes the redundant «то» after the subordinate clause.",
+    "Notices or resolves the tautology: 'without warning' and 'not notified in advance' say the same thing.",
+    "Keeps the meaning and explains the edits briefly in Russian."
+   ]
+  },
+  {
+   "id": "ru-petersburg-quatrain",
+   "agent": "literary_writer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Напиши одно четверостишие про осенний Петербург: четырёхстопный ямб, перекрёстная рифма (АБАБ). Без банальных «дождь — грусть».",
+   "why_in_scope": "Language is the task here, so the rule's exception says to work in Russian; an English pivot would tend to produce calques or puns that only work in English.",
+   "rubric": [
+    "Four lines of Russian iambic tetrameter (8–10 syllables with a masculine, feminine or dactylic ending, stresses on even syllables; an occasional skipped stress is fine).",
+    "Cross rhyme ABAB with real Russian rhymes.",
+    "Natural Russian imagery of autumn St Petersburg that avoids the rain-and-sadness cliché the user excluded."
+   ]
+  },
+  {
+   "id": "ru-landing-translation",
+   "agent": "literary_writer",
+   "language": "ru",
+   "history": [],
+   "user_message": "Переведи для лендинга нашего CI-сервиса так, чтобы звучало естественно по-русски, а не как перевод: «Ship faster. Break nothing. Sleep at night.» Дай 2–3 варианта.",
+   "why_in_scope": "Language is the task here, so the rule's exception says to work in Russian; an English pivot would tend to produce calques or puns that only work in English.",
+   "rubric": [
+    "Gives two or three variants that keep the three short beats.",
+    "Uses idiomatic Russian rather than calques (no literal «Отгружайте быстрее»), and renders 'Sleep at night' as a natural image of peace of mind such as «Спите спокойно».",
+    "Keeps the meaning: faster releases, nothing broken, no night-time incidents."
+   ]
+  },
+  {
+   "id": "ru-refund-letter",
+   "agent": "universal_agent",
+   "language": "ru",
+   "history": [],
+   "user_message": "Перепиши ответ клиенту помягче, но суть оставь — вернуть деньги мы не можем, прошло больше 30 дней: «Возврат невозможен. Срок истёк. Читайте условия.»",
+   "why_in_scope": "Language is the task here, so the rule's exception says to work in Russian; an English pivot would tend to produce calques or puns that only work in English.",
+   "rubric": [
+    "Keeps the refusal and its reason (more than 30 days have passed) clear.",
+    "Polite, empathetic, natural Russian business tone, without bureaucratese or translationese.",
+    "Offers a constructive next step (an alternative, help or a contact) without promising a refund."
+   ]
+  },
+  {
+   "id": "ru-vryad-li-edva-li",
+   "agent": "education_tutor",
+   "language": "ru",
+   "history": [],
+   "user_message": "Я преподаю русский как иностранный. Студент спрашивает, чем отличаются «вряд ли» и «едва ли». Объясни так, чтобы я мог пересказать студенту уровня B1, с примерами.",
+   "why_in_scope": "Language is the task here, so the rule's exception says to work in Russian; an English pivot would tend to produce calques or puns that only work in English.",
+   "rubric": [
+    "Explains that both express doubt ('it is unlikely that'), with «едва ли» more bookish and formal and «вряд ли» neutral and common in speech.",
+    "Notes that «едва» alone means 'barely' or 'as soon as', and «едва ли не» means 'almost, perhaps', a sense «вряд ли» does not have.",
+    "Gives natural Russian example sentences suitable for B1.",
+    "Is written in Russian for the teacher."
+   ]
+  },
+  {
+   "id": "mix-inn-validator",
+   "agent": "software_engineer",
+   "language": "en",
+   "history": [],
+   "user_message": "Our Russian team wrote the spec below. Please implement it in Python with a few tests.\n\nСпецификация: функция validate_inn(inn: str) -> bool. ИНН юрлица — 10 цифр, ИНН физлица — 12 цифр. Проверять контрольные цифры по алгоритму ФНС. Пустая строка, пробелы и любые нецифровые символы — False. Длина, отличная от 10 и 12, — False.",
+   "why_in_scope": "An English request with Russian instructions pasted in; the rule covers instructions in another language, while the reply stays in English.",
+   "rubric": [
+    "Implements the official check digits: weights 2,4,10,3,5,9,4,6,8 give the 10th digit of a 10-digit INN; weights 7,2,4,10,3,5,9,4,6,8 give the 11th and 3,7,2,4,10,3,5,9,4,6,8 the 12th digit of a 12-digit INN; each control digit is (weighted sum mod 11) mod 10.",
+    "Returns False for empty input, spaces, non-digits and any length other than 10 or 12, as the spec requires.",
+    "Includes tests for both lengths and for the invalid inputs.",
+    "Replies in English, the language of the request."
+   ]
+  },
+  {
+   "id": "mix-runbook-checklist",
+   "agent": "devops_engineer",
+   "language": "en",
+   "history": [],
+   "user_message": "Our on-call runbook is in Russian. Turn it into a short English checklist for a new SRE. Keep every command exactly as written and don't add steps.\n\n1. Проверить статус деплоя: kubectl rollout status deployment/api -n prod\n2. Если ошибки 5xx выросли больше чем вдвое за 10 минут после релиза — откатить: kubectl rollout undo deployment/api -n prod\n3. Сообщить в канал #incidents: что откатили и во сколько.\n4. Не перезапускать базу данных без согласования с дежурным DBA.\n5. После стабилизации завести задачу на разбор инцидента.",
+   "why_in_scope": "An English request with Russian instructions pasted in; the rule covers instructions in another language, while the reply stays in English.",
+   "rubric": [
+    "All five steps appear in the original order, with nothing added.",
+    "Both kubectl commands are copied exactly, character for character.",
+    "The rollback condition is translated precisely: 5xx errors more than doubled within 10 minutes after the release.",
+    "The checklist is in English and keeps #incidents and the rule about DBA approval."
+   ]
+  },
+  {
+   "id": "en-float-compare",
+   "agent": "software_engineer",
+   "language": "en",
+   "history": [],
+   "user_message": "Why does 0.1 + 0.2 == 0.3 evaluate to False in Python, and what's the right way to compare floats? We also store prices — should we use float for those?",
+   "why_in_scope": "An English request: the rule does not apply, so the arms should not differ beyond noise.",
+   "rubric": [
+    "Explains binary floating point: 0.1 and 0.2 have no exact binary form, so the sum is 0.30000000000000004.",
+    "Recommends math.isclose with a tolerance for comparisons.",
+    "Recommends Decimal or integer minor units, not float, for prices."
+   ]
+  },
+  {
+   "id": "en-liveness-readiness",
+   "agent": "devops_engineer",
+   "language": "en",
+   "history": [],
+   "user_message": "What's the actual difference between readiness and liveness probes in Kubernetes? We had a liveness probe hitting /health that checks the database, and during a DB outage all our pods restarted in a loop. Why, and how should we set it up?",
+   "why_in_scope": "An English request: the rule does not apply, so the arms should not differ beyond noise.",
+   "rubric": [
+    "A failing readiness probe removes the pod from Service endpoints without a restart; a failing liveness probe makes the kubelet restart the container.",
+    "Explains that the database check in the liveness probe turned a dependency outage into restarts of every pod, and keeps liveness to the process itself.",
+    "Mentions a sensible setting such as a startup probe, initialDelaySeconds or failureThreshold."
+   ]
+  },
+  {
+   "id": "en-refund-letter",
+   "agent": "universal_agent",
+   "language": "en",
+   "history": [],
+   "user_message": "Make this reply to a customer friendlier but keep the answer the same — we can't refund, it's been more than 30 days: 'No refunds after 30 days. Read the terms.'",
+   "why_in_scope": "An English request: the rule does not apply, so the arms should not differ beyond noise.",
+   "rubric": [
+    "Keeps the refusal and the 30-day reason clear.",
+    "Friendly, empathetic tone in natural English.",
+    "Offers a constructive next step without promising a refund."
+   ]
+  }
+ ],
+ "checked": true,
+ "checker_notes": "Hand-written for the english-pivot A/B rather than by cases.js: 19 Russian cases in three groups (reasoning, text kept verbatim, language as the task), 2 English requests with Russian instructions and 3 English controls. Rubric facts were checked by a separate review."
+}

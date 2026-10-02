@@ -101,3 +101,33 @@ End with:
 - the counts of components, cases, answers and verdicts, and anything missing and why;
 - components the checker marked untestable;
 - the pushed branch name.
+
+## Prepared case sets
+
+A case set written by hand replaces step 3 for its component: copy it to
+`$RUN/cases/<component>.json` after step 2 and continue with step 4. The file uses
+the same format and carries `"checked": true` with `checker_notes` saying who wrote
+and reviewed it. `evals/datasets/english_pivot_cases.json` is one, for
+`rule-english-pivot`: 19 Russian cases, 2 English requests with Russian
+instructions and 3 English controls.
+
+## Hosted models (OpenRouter)
+
+Steps 5 and 6 can run on a model served by OpenRouter instead of Claude Code
+agents, from the same `ctx/` and judge files, so one set of contexts compares
+several models. Build the contexts once (steps 2–4), copy the run directory per
+answer model, and run, with `OPENROUTER_API_KEY` set and the endpoints pinned:
+
+```bash
+export OPENROUTER_PROVIDER=deepinfra/bf16,google-ai-studio OPENROUTER_REASONING=medium
+python evals/ablation/hosted.py answer $RUN --model qwen/qwen3.8-27b --concurrency 8
+python evals/ablation/build_judges.py $RUN
+python evals/ablation/hosted.py judge $RUN --model google/gemini-3.8-flash --concurrency 8
+python evals/ablation/aggregate.py $RUN
+```
+
+`hosted.py` sends the context's operating instructions as the system prompt and the
+conversation as chat turns. Its judge gets the criteria, verdict example and allowed
+values of `workflows/judges.js`, without tools, so it cannot check facts on the web
+as the cloud judge can. `$RUN/hosted.json` records each step's model and request
+settings, and a step whose existing outputs used other settings is refused.
