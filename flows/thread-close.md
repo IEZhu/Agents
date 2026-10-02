@@ -189,7 +189,8 @@ The helper sees files changed by edit tools. Files changed by shell commands are
 covered by the git state only inside repositories. Outside them, check the paths
 named in the commands. Commands that a program or script runs, such as a Python
 heredoc calling `gh`, are invisible to the helper; the live git and GitHub state
-covers them.
+covers them. A non-zero `skipped_entries` counts transcript entries of a shape the
+helper does not know; the inventory can then miss items, and the report says so.
 
 ## 3. Verify against the current state
 

@@ -26,12 +26,14 @@ scripts of `bash -c` are. A heredoc body counts as commands only when a shell re
 it; otherwise it is data, such as a commit message or a file, and its references
 are not collected. Only the command substitutions of an unquoted body (`<<EOF`)
 run. A heredoc without its delimiter line takes the rest of the command, as the
-shell reads it.
+shell reads it. Wrappers such as `sudo -u bot`, `timeout 60` or `xargs` are read
+through to the command they run, and the arguments of `eval` and `trap` are commands.
 
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
 are shortened, common credential shapes are masked in every printed string, paths
 included, and tool inputs are reduced to the tool name and its target identifiers.
+An entry of an unexpected shape is counted in `skipped_entries` and never stops the run.
 """
 from __future__ import annotations
 
@@ -56,10 +58,24 @@ QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(
 HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|(\\?)([^\s;&|<>()'\"]+))")
 BODY_EXPANSION = re.compile(r"\\|`|\$\(")  # what an unquoted heredoc body runs, and its escape
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
-COMMAND_PREFIXES = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "time", "exec", "command",
-                    "builtin", "nohup", "env", "sudo"}
+KEYWORDS = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "builtin"}
+# Programs that run the command after their own options: the options that take a value, and
+# the operands before the command, such as the duration of `timeout 60 git push`.
+WRAPPERS = {
+    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0),
+    "sudo": ({"-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-r",
+              "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"}, 0),
+    "xargs": ({"-I", "-J", "-R", "-S", "-n", "--max-args", "-L", "--max-lines", "-P", "--max-procs", "-s",
+               "--max-chars", "-E", "--eof", "-d", "--delimiter", "-a", "--arg-file"}, 0),
+    "timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1),
+    "nice": ({"-n", "--adjustment"}, 0),
+    "stdbuf": ({"-i", "--input", "-o", "--output", "-e", "--error"}, 0),
+    "exec": ({"-a"}, 0),
+    "time": (set(), 0), "nohup": (set(), 0), "command": (set(), 0),
+}
+REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
-ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")  # NAME=value before a program, a quoted value with spaces too
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
@@ -133,18 +149,37 @@ GIT_BRANCH_WRITES = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "
                      "--unset-upstream", "--edit-description"}
 GIT_BRANCH_READS = {"-l", "--list", "-a", "--all", "-r", "--remotes", "--show-current", "--contains", "--no-contains",
                     "--merged", "--no-merged", "--points-at"}
+GIT_CLONE_VALUES = {"-o", "--origin", "-b", "--branch", "-u", "--upload-pack", "--reference", "--reference-if-able",
+                    "--separate-git-dir", "--depth", "--shallow-since", "--shallow-exclude", "-c", "--config",
+                    "--filter", "--template", "-j", "--jobs", "--server-option", "--bundle-uri", "--ref-format",
+                    "--revision"}
+GIT_INIT_VALUES = {"--template", "--separate-git-dir", "-b", "--initial-branch", "--object-format", "--ref-format"}
 GIT_FETCH_VALUES = {"--depth", "--deepen", "--shallow-since", "--shallow-exclude", "-j", "--jobs", "--upload-pack",
                     "--negotiation-tip", "-o", "--server-option", "--filter", "--refmap"}
 GH_READ_GROUPS = {"auth", "config", "help", "version", "search", "browse", "status"}  # after GH_WRITES
 GH_READ_VERBS = {"view", "list", "status", "checks", "diff", "search", "browse", "watch", "download", "verify"}
-GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--title", "-B", "--base", "-H", "--head",
-                  "-l", "--label", "-a", "--assignee", "-m", "--milestone", "-r", "--reviewer", "-p", "--project",
-                  "-c", "--comment", "--reason", "-s", "--state", "-L", "--limit", "-q", "--jq", "-T", "--template",
-                  "--json", "-S", "--search", "-A", "--author", "--subject", "--match-head-commit", "--add-label",
-                  "--remove-label", "--add-assignee", "--remove-assignee", "--add-reviewer", "--remove-reviewer",
-                  "--add-project", "--remove-project", "--duplicate-of"}
+# Flags of `gh pr` and `gh issue` that take a value (gh 2.96), and the verbs where the same short
+# flag is a switch instead, as `-s` is --squash for `gh pr merge` and --state elsewhere.
+GH_VALUE_FLAGS = {
+    "-A", "-B", "-F", "-H", "-L", "-R", "-S", "-T", "-a", "-b", "-c", "-e", "-i", "-l", "-m", "-n", "-p", "-q", "-r",
+    "-s", "-t", "--add-assignee", "--add-blocked-by", "--add-blocking", "--add-label", "--add-project",
+    "--add-reviewer", "--add-sub-issue", "--app", "--assignee", "--author", "--author-email", "--base",
+    "--blocked-by", "--blocking", "--body", "--body-file", "--branch", "--branch-repo", "--color", "--comment",
+    "--duplicate-of", "--exclude", "--head", "--interval", "--jq", "--json", "--label", "--limit",
+    "--match-head-commit", "--mention", "--milestone", "--name", "--parent", "--project", "--reason", "--recover",
+    "--remove-assignee", "--remove-blocked-by", "--remove-blocking", "--remove-label", "--remove-project",
+    "--remove-reviewer", "--remove-sub-issue", "--repo", "--reviewer", "--search", "--state", "--subject",
+    "--template", "--title", "--type"}
+GH_SWITCHES = {("pr", "merge"): {"-m", "-r", "-s"}, ("pr", "review"): {"-a", "-c", "-r", "--comment"},
+               ("pr", "create"): {"-e"}, ("pr", "comment"): {"-e"}, ("pr", "view"): {"-c"}, ("pr", "status"): {"-c"},
+               ("issue", "create"): {"-e"}, ("issue", "comment"): {"-e"}, ("issue", "view"): {"-c"},
+               ("issue", "develop"): {"-c", "-l"}}
+GH_API_VALUES = {"-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "-q", "--jq", "-t",
+                 "--template", "--input", "-p", "--preview", "--cache", "--hostname"}
+GH_API_REF = re.compile(r"(?:^|/)repos/([^/\s?]+)/([^/\s?]+)/(issues|pulls)/([0-9]+)(?:[/?]|$)")
 GH_WRITES = {
-    "pr": {"create", "merge", "close", "reopen", "comment", "edit", "review", "ready", "lock", "unlock"},
+    "pr": {"create", "merge", "close", "reopen", "comment", "edit", "review", "ready", "lock", "unlock", "revert",
+           "update-branch", "checkout"},
     "issue": {"create", "close", "reopen", "comment", "edit", "delete", "transfer", "pin", "unpin", "lock", "unlock",
               "develop"},
     "release": {"create", "delete", "edit", "upload"},
@@ -212,30 +247,58 @@ def _tokens(segment: str) -> list[str]:
 
 
 def _command_tokens(segment: str) -> list[str]:
-    """Tokens of a simple command from its program on, which is reduced to its name."""
+    """Tokens of a simple command from its program on, which is reduced to its name.
+
+    Keywords, assignments, `function NAME` and wrappers with their options, such as
+    `sudo -u bot` or `timeout 60`, come off the front.
+    """
     tokens = _tokens(segment)
-    while tokens and (tokens[0] in COMMAND_PREFIXES or ASSIGNMENT.match(tokens[0])):
-        tokens = tokens[1:]  # keywords, wrappers and environment assignments before the program
+    while tokens:
+        word = os.path.basename(tokens[0]) if tokens[0].startswith("/") else tokens[0]
+        if word in KEYWORDS or ASSIGNMENT.match(word):
+            tokens = tokens[1:]
+        elif word == "function":
+            tokens = tokens[2:]  # `function name { … }`: the body follows the name
+        elif word in WRAPPERS:
+            tokens = _unwrap(tokens[1:], *WRAPPERS[word])
+        else:
+            break
     if tokens and tokens[0].startswith("/"):
         tokens[0] = os.path.basename(tokens[0])
     return tokens
 
 
-def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool) -> tuple[str, int]:
-    """The body of a heredoc that starts at ``index`` and the index after its delimiter line.
+def _unwrap(args: list[str], values: set, operands: int) -> list[str]:
+    """The command a wrapper runs: what follows its options, their values and its operands."""
+    index = 0
+    while index < len(args) and len(args[index]) > 1 and args[index].startswith("-"):
+        if args[index] == "--":
+            index += 1
+            break
+        index += 2 if args[index] in values else 1
+    return args[index + operands:]
 
-    Without a delimiter line the body runs to the end of the input, as bash and zsh read it.
+
+def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool, substitution: bool) -> tuple[str, int]:
+    """The body of a heredoc that starts at ``index``, and where the parse goes on after it.
+
+    The body ends at its delimiter line. Inside `$(…)` bash also ends it at a line that starts
+    with the delimiter and `)`, as in `EOF)"`, and the parse goes on at that `)`. Without either,
+    the body runs to the end of the input, as bash and zsh read it.
     """
     lines, length = [], len(command)
     while index < length:
         end = command.find("\n", index)
         end = length if end < 0 else end
         line = command[index:end]
-        index = end + 1
-        if (line.lstrip("\t") if tabs else line).rstrip("\r") == delimiter:
-            break
+        text = line.lstrip("\t") if tabs else line
+        if text.rstrip("\r") == delimiter:
+            return "\n".join(lines), min(end + 1, length)
+        if substitution and text.startswith(delimiter + ")"):
+            return "\n".join(lines), index + len(line) - len(text) + len(delimiter)
         lines.append(line)
-    return "\n".join(lines), min(index, length)
+        index = end + 1
+    return "\n".join(lines), length
 
 
 def _expansions(body: str, depth: int) -> list[str]:
@@ -254,64 +317,85 @@ def _expansions(body: str, depth: int) -> list[str]:
         elif match.group() == "`":
             end = body.find("`", index + 1)
             end = length if end < 0 else end
-            segments.extend(_segments(body[index + 1:end]))
+            segments.extend(_segments(body[index + 1:end], depth + 1))
             index = end + 1
         else:
-            inner, index = _parse(body, index + 2, depth + 1)
+            inner, index = _parse(body, index + 2, depth + 1, "$(")
             segments.extend(inner)
 
 
 def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
-    """Where a shell takes its commands from: ("script", text) for -c, ("stdin", None) or ("file", None)."""
-    index = 1
-    while index < len(tokens):
+    """Where a shell takes its commands from: ("script", text) for -c or a here-string,
+    ("stdin", None) or ("file", None).
+
+    Redirections, the value of --rcfile, and the option names after -o or -O, also in a
+    cluster such as `-euo pipefail`, are not the script.
+    """
+    command_string = stdin = False
+    here = operand = None
+    index, options = 1, True
+    while index < len(tokens) and operand is None:
         token = tokens[index]
-        if token in ("-o", "+o"):
+        if token == "<<<":
+            here = tokens[index + 1] if index + 1 < len(tokens) else ""
             index += 2
-            continue
-        if len(token) > 1 and token[0] in "-+" and not token.startswith("--"):
-            if "c" in token[1:]:
-                return ("script", tokens[index + 1]) if index + 1 < len(tokens) else ("file", None)
-            if "s" in token[1:]:
-                return "stdin", None
-        elif not token.startswith("-"):
-            return "file", None
-        index += 1
-    return "stdin", None
+        elif REDIRECTION.fullmatch(token):
+            index += 2  # an operator such as > or 2> and its target
+        elif REDIRECTION.match(token):
+            index += 1  # 2>&1, >file
+        elif options and token == "--":
+            options, index = False, index + 1
+        elif options and token in ("--rcfile", "--init-file"):
+            index += 2
+        elif options and len(token) > 1 and token[0] in "-+":
+            flags = "" if token.startswith("--") else token[1:]
+            command_string = command_string or "c" in flags
+            stdin = stdin or "s" in flags
+            index += 1 + flags.count("o") + flags.count("O")
+        else:
+            operand = token
+    if command_string:
+        return ("script", operand) if operand is not None else ("file", None)
+    if operand is not None and not stdin:
+        return "file", None
+    return ("script", here) if here is not None else ("stdin", None)
 
 
-def _segments(command: str) -> list[str]:
+def _segments(command: str, depth: int = 0) -> list[str]:
     """Simple commands of a shell command line, split at unquoted operators and line ends.
 
     Command substitutions become segments of their own and `$(…)` in the command around
     them. A heredoc body is data unless a shell reads it, as in `bash <<'EOF'`, but the
-    substitutions of an unquoted body (`<<EOF`) run.
+    substitutions of an unquoted body (`<<EOF`) run. Nesting past MAX_DEPTH is not read.
     """
-    return _parse(command, 0, 0)[0]
+    return _parse(command, 0, depth, None)[0] if depth < MAX_DEPTH else []
 
 
-def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
-    """Segments from ``index`` to the end, or to the `)` that closes a nested parse (``depth`` > 0).
+def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[list[str], int]:
+    """Segments from ``index`` to the end, or with a ``context`` to the `)` that closes it:
+    "(" for a subshell, "$(" inside a command substitution.
 
     A `<<` inside parentheses that close on the same line, as in `$((1<<2))`, opens no heredoc.
     """
     segments, current, heredocs = [], [], []
-    quote, length = None, len(command)
+    quote, length, shell_reads = None, len(command), None
 
     def add(text: str) -> None:
         if text:
             current.append(text)
 
     def flush() -> None:
+        nonlocal shell_reads
         segment = "".join(current).strip()
         if segment:
             segments.append(segment)
         current.clear()
+        shell_reads = None  # the next simple command decides again
 
     def backquoted(start: int) -> int:
         end = command.find("`", start + 1)
         end = length if end < 0 else end
-        segments.extend(_segments(command[start + 1:end]))
+        segments.extend(_segments(command[start + 1:end], depth + 1))
         current.append("`…`")
         return end + 1
 
@@ -324,7 +408,7 @@ def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
             add(command[index:match.start()])
             index, found = match.start(), match.group()
             if found == "$(" and depth < MAX_DEPTH:  # a substitution inside "..." runs too
-                inner, index = _parse(command, index + 2, depth + 1)
+                inner, index = _parse(command, index + 2, depth + 1, "$(")
                 segments.extend(inner)
                 current.append("$(…)")
             elif found == "`":
@@ -362,14 +446,20 @@ def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
         elif char == "#" and word_start:  # a comment runs to the end of the line
             end = command.find("\n", index)
             index = length if end < 0 else end
+        elif char == "#":
+            current.append(char)  # inside a word, as in a#b
+            index += 1
         elif char == "<" and command.startswith("<<", index) and not command.startswith("<<<", index):
             heredoc = HEREDOC.match(command, index)
             text = heredoc.group() if heredoc else "<<"
             if heredoc:
                 single, double, escaped, word = heredoc.group(2, 3, 4, 5)
                 delimiter = next(part for part in (single, double, word) if part is not None)
+                if shell_reads is None:  # once per simple command, from its words before the first <<
+                    tokens = _command_tokens("".join(current))
+                    shell_reads = bool(tokens) and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin"
                 quoted = word is None or bool(escaped)  # 'EOF', "EOF" and \EOF keep the body text
-                heredocs.append((delimiter, heredoc.group(1) == "-", "".join(current), quoted))
+                heredocs.append((delimiter, heredoc.group(1) == "-", shell_reads, quoted))
             current.append(text)
             index += len(text)
         elif char == "<":
@@ -379,13 +469,12 @@ def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
         elif char == "\n":
             flush()
             index += 1
-            for delimiter, tabs, owner, quoted in heredocs:
-                body, index = _heredoc_body(command, index, delimiter, tabs)
-                tokens = _command_tokens(owner)
-                if tokens and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin":
-                    segments.extend(_segments(body))
+            for delimiter, tabs, reads, quoted in heredocs:
+                body, index = _heredoc_body(command, index, delimiter, tabs, context == "$(")
+                if reads:
+                    segments.extend(_segments(body, depth + 1))
                 elif not quoted:
-                    segments.extend(_expansions(body, depth))
+                    segments.extend(_expansions(body, depth + 1))
             heredocs = []
         elif char == "&" and (command[index - 1:index] in (">", "<") or command.startswith(">", index + 1)):
             current.append(char)  # a redirection such as 2>&1 or &>file
@@ -394,14 +483,15 @@ def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
             substitution = command[index - 1:index] == "$"
             if not substitution:
                 flush()  # a subshell, a group or a function's parentheses
-            inner, index = _parse(command, index + 1, depth + 1)
+            inner_context = "$(" if substitution or context == "$(" else "("
+            inner, index = _parse(command, index + 1, depth + 1, inner_context)
             segments.extend(inner)
             if substitution:
                 current.append("(…)")
         elif char == ")":
             flush()
             index += 1
-            if depth:
+            if context:
                 return segments, index
         elif char == "`":
             index = backquoted(index)
@@ -450,14 +540,24 @@ def classify_tool(name: str, data) -> str:
     return "unclassified"
 
 
-def git_kind(tokens: list[str]) -> str:
-    """write, read or unknown for a tokenised `git ...` command."""
-    index = 1
+def _git_subcommand(tokens: list[str]) -> tuple[str, list[str], list[str]]:
+    """The subcommand of a tokenised `git ...` command, its arguments, and the -C directories
+    among git's own options before it."""
+    index, directories = 1, []
     while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] == "-C" and index + 1 < len(tokens):
+            directories.append(tokens[index + 1])
         index += 2 if tokens[index] in ("-C", "-c") else 1
     if index >= len(tokens):
+        return "", [], directories
+    return tokens[index], tokens[index + 1:], directories
+
+
+def git_kind(tokens: list[str]) -> str:
+    """write, read or unknown for a tokenised `git ...` command."""
+    sub, args, _ = _git_subcommand(tokens)
+    if not sub or "--help" in args or "-h" in args:
         return "read"
-    sub, args = tokens[index], tokens[index + 1:]
     first = args[0] if args else ""
     if sub in GIT_READ_ONLY:
         return "read"
@@ -555,7 +655,7 @@ def git_write(tokens: list[str]) -> bool:
 
 def gh_kind(tokens: list[str], segment: str) -> str:
     """write, read or unknown for a tokenised `gh ...` command."""
-    if len(tokens) < 2:
+    if len(tokens) < 2 or "--help" in tokens or "-h" in tokens:
         return "read"
     group, verb = tokens[1], tokens[2] if len(tokens) > 2 else ""
     if group == "api":
@@ -592,7 +692,10 @@ def gh_write(tokens: list[str], segment: str) -> bool:
 
 
 def _resolve(path: str, cwd: str | None) -> str | None:
+    """An absolute path, or None when it depends on an unknown directory or a shell variable."""
     path = os.path.expanduser(path)
+    if "$" in path or "`" in path:
+        return None
     if not path.startswith("/"):
         if not cwd:
             return None
@@ -631,17 +734,32 @@ def _notices(text: str, ts, ended: dict) -> None:
 
 
 def _git_paths(tokens: list[str], current: str | None, ts, sink: dict) -> None:
-    for index, token in enumerate(tokens[:-1]):
-        if token == "-C":
-            path = _resolve(tokens[index + 1], current)
-            if path:
-                sink["directories"].setdefault(path, ts)
-                current = path  # git resolves the remaining relative paths from -C
-    if "worktree" in tokens and "add" in tokens:
-        names = _positional(tokens[tokens.index("add") + 1:], {"-b", "-B", "--reason"})
-        path = _resolve(names[0], current) if names else None
+    """Directories a git command works in or creates: -C, `worktree add`, `clone` and `init`."""
+    sub, args, directories = _git_subcommand(tokens)
+    for directory in directories:
+        path = _resolve(directory, current)
         if path:
             sink["directories"].setdefault(path, ts)
+            current = path  # git resolves the remaining relative paths from -C
+    target = None
+    if sub == "worktree" and args[:1] == ["add"]:
+        names = _positional(args[1:], {"-b", "-B", "--reason"})
+        target = names[0] if names else None
+    elif sub == "clone":
+        names = _positional(args, GIT_CLONE_VALUES)
+        target = names[1] if len(names) > 1 else _clone_dir(names[0]) if names else None
+    elif sub == "init":
+        names = _positional(args, GIT_INIT_VALUES)
+        target = names[0] if names else None
+    path = _resolve(target, current) if target else None
+    if path:
+        sink["directories"].setdefault(path, ts)
+
+
+def _clone_dir(source: str) -> str | None:
+    """The directory `git clone <source>` creates without a destination: the source's last name."""
+    name = re.split(r"[/:]", re.sub(r"/\.git$", "", source.rstrip("/")))[-1]
+    return re.sub(r"\.(?:git|bundle)$", "", name) or None
 
 
 def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
@@ -658,6 +776,10 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
         source, script = _shell_input(tokens) if program in SHELLS else (None, None)
         if source == "script" and script:
             pending.extend(_segments(script)[::-1])  # `bash -c '<script>'` runs the script's commands
+        elif program == "eval" and len(tokens) > 1:
+            pending.extend(_segments(" ".join(tokens[1:]))[::-1])
+        elif program == "trap" and len(tokens) > 2:
+            pending.extend(_segments(tokens[1])[::-1])  # the command run on exit or a signal
         elif program == "cd" and len(tokens) > 1:
             current = _resolve(tokens[1], current)
             if current:
@@ -680,9 +802,18 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
-    """The pull request or issue a `gh pr|issue <verb>` command names, with its repository."""
+    """The pull request or issue that a `gh pr|issue <verb>` command or a `gh api` endpoint names."""
+    if len(tokens) > 2 and tokens[1] == "api":
+        endpoints = _positional(tokens[2:], GH_API_VALUES)
+        match = GH_API_REF.search(endpoints[0]) if endpoints else None
+        if match:
+            owner, repo, kind, number = match.groups()
+            repository = None if "{" in owner + repo else f"{owner}/{repo}"  # {owner}/{repo} is the current one
+            _add_ref(sink["refs"], repository, "pull" if kind == "pulls" else "issues", int(number), ts)
+        return
     if len(tokens) < 4 or tokens[1] not in ("pr", "issue"):
         return
+    values = GH_VALUE_FLAGS - GH_SWITCHES.get((tokens[1], tokens[2]), set())
     repo, positional, skip = None, None, False
     for index, token in enumerate(tokens[3:], start=3):
         if skip:
@@ -693,13 +824,13 @@ def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
         elif token in ("-R", "--repo"):
             repo = tokens[index + 1] if index + 1 < len(tokens) else None
             skip = True
-        elif token in GH_VALUE_FLAGS:
+        elif token in values:
             skip = True
         elif token.startswith("-"):
             continue  # a boolean flag, or a value given with `=`
         elif positional is None:
             positional = token
-    if positional and positional.lstrip("#").isdigit():
+    if positional and re.fullmatch(r"#?[0-9]+", positional):
         _add_ref(sink["refs"], repo, "pull" if tokens[1] == "pr" else "issues", int(positional.lstrip("#")), ts)
 
 
@@ -741,43 +872,57 @@ def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
             "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
-            "unclassified_commands": [], "file_events": Counter(),
+            "unclassified_commands": [], "file_events": Counter(), "skipped": 0,
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
 
 def scan(entries: list[dict], sink: dict | None = None, actor: str = "main") -> dict:
-    """Accumulate one transcript's signals into ``sink`` without touching the file system."""
+    """Accumulate one transcript's signals into ``sink`` without touching the file system.
+
+    An entry of a shape this helper does not expect is counted in ``skipped`` instead of
+    stopping the inventory: the transcript format belongs to the client and can change.
+    """
     sink = sink if sink is not None else _new_sink()
     for entry in entries:
-        kind, ts, cwd = entry.get("type"), entry.get("timestamp"), entry.get("cwd")
-        if ts and actor == "main":
-            sink["first"] = sink["first"] or ts
-            sink["last"] = ts
-        if actor == "main" and entry.get("sessionId") and entry["sessionId"] not in sink["sessions"]:
-            sink["sessions"].append(entry["sessionId"])
-        if cwd:
-            sink["directories"].setdefault(cwd, ts)
-        if kind == "bridge-session" and entry.get("bridgeSessionId") and entry["bridgeSessionId"] not in sink["bridges"]:
-            sink["bridges"].append(entry["bridgeSessionId"])
-        elif kind == "ai-title" and entry.get("aiTitle"):
-            sink["titles"].append(_short(entry["aiTitle"], 200))
-        elif kind == "pr-link" and entry.get("prNumber"):
-            _add_ref(sink["refs"], entry.get("prRepository"), "pull", int(entry["prNumber"]), ts)
-        elif kind == "file-history-delta" and entry.get("trackingPath"):
-            parent = (entry.get("backup") or {}).get("realParentDir")
-            path = entry["trackingPath"]
-            full = path if path.startswith("/") or not parent else str(Path(parent) / Path(path).name)
-            _file(sink, full, ts, actor)
-
-        top = entry.get("content")
-        if isinstance(top, str) and "<task-id>" in top:
-            _notices(top, ts, sink["ended"])
-        message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
-        if kind == "user":
-            _user(entry, message, ts, cwd, sink, actor)
-        elif kind == "assistant":
-            _assistant(entry, message, ts, cwd, sink, actor)
+        try:
+            _entry(entry, sink, actor)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            sink["skipped"] += 1
     return sink
+
+
+def _entry(entry: dict, sink: dict, actor: str) -> None:
+    kind, ts, cwd = entry.get("type"), entry.get("timestamp"), entry.get("cwd")
+    ts = ts if isinstance(ts, str) else None  # times are compared and sorted as text
+    cwd = cwd if isinstance(cwd, str) else None
+    if ts and actor == "main":
+        sink["first"] = sink["first"] or ts
+        sink["last"] = ts
+    if actor == "main" and entry.get("sessionId") and entry["sessionId"] not in sink["sessions"]:
+        sink["sessions"].append(entry["sessionId"])
+    if cwd:
+        sink["directories"].setdefault(cwd, ts)
+    if kind == "bridge-session" and entry.get("bridgeSessionId") and entry["bridgeSessionId"] not in sink["bridges"]:
+        sink["bridges"].append(entry["bridgeSessionId"])
+    elif kind == "ai-title" and entry.get("aiTitle"):
+        sink["titles"].append(_short(entry["aiTitle"], 200))
+    elif kind == "pr-link" and entry.get("prNumber"):
+        repository = entry.get("prRepository")
+        _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", int(entry["prNumber"]), ts)
+    elif kind == "file-history-delta" and entry.get("trackingPath"):
+        parent = (entry.get("backup") or {}).get("realParentDir")
+        path = entry["trackingPath"]
+        full = path if path.startswith("/") or not parent else str(Path(parent) / Path(path).name)
+        _file(sink, full, ts, actor)
+
+    top = entry.get("content")
+    if isinstance(top, str) and "<task-id>" in top:
+        _notices(top, ts, sink["ended"])
+    message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
+    if kind == "user":
+        _user(entry, message, ts, cwd, sink, actor)
+    elif kind == "assistant":
+        _assistant(entry, message, ts, cwd, sink, actor)
 
 
 def _assistant(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
@@ -816,7 +961,10 @@ def _prompt_text(content) -> str:
 def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
     content = message.get("content")
     text = _text(content)
-    if "<task-id>" in text:
+    origin = entry.get("origin")
+    origin_kind = origin.get("kind") if isinstance(origin, dict) else None
+    # A notification ends tasks; the same text pasted into a prompt does not.
+    if origin_kind == "task-notification" or (origin_kind is None and text.lstrip().startswith("<task-notification>")):
         _notices(text, ts, sink["ended"])
     for block in content if isinstance(content, list) else []:
         if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -832,8 +980,6 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
                 sink["started"].append({**tool, "id": match.group(1), "by": actor})
     if actor != "main" or entry.get("isMeta") or entry.get("isCompactSummary"):
         return
-    origin = entry.get("origin")
-    origin_kind = origin.get("kind") if isinstance(origin, dict) else None
     stripped = text.strip()
     if stripped.startswith("<bash-input>"):
         command = re.sub(r"</?bash-input>", "", stripped)
@@ -857,7 +1003,7 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
     sink["tools"][block.get("id")] = {"tool": name, "ts": ts, "description": _short(description, 160)}
     if name in WRITE_TOOLS:
         path = data.get("file_path") or data.get("notebook_path")
-        if path:
+        if isinstance(path, str) and path:
             _file(sink, path, ts, actor)
             sink["file_events"][actor] += 1
             if MEMORY_PATH.search(path):
@@ -866,7 +1012,8 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
             if "/scratchpad" in path:
                 sink["scratch"].setdefault(path, ts)
     elif name == "Bash":
-        _shell(data.get("command") or "", cwd, ts, sink, actor)
+        command = data.get("command")
+        _shell(command if isinstance(command, str) else "", cwd, ts, sink, actor)
     elif name in SCHEDULE_TOOLS:
         sink["scheduled"].append({"ts": ts, "tool": name, "by": actor,
                                   "summary": _short(data.get("reason") or data.get("prompt") or "", 160)})
@@ -905,7 +1052,8 @@ def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
     for key, kind in (("pullNumber", "pull"), ("pull_number", "pull"), ("issue_number", "issues"),
                       ("issueNumber", "issues"), ("number", "pull" if "pull" in lowered else "issues")):
         value = data.get(key)
-        if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+        if (isinstance(value, int) and not isinstance(value, bool)) or (
+                isinstance(value, str) and re.fullmatch(r"[0-9]+", value)):
             _add_ref(sink["refs"], f"{owner}/{repo}", kind, int(value), ts)
             return
 
@@ -937,6 +1085,7 @@ def summarize(sink: dict) -> dict:
         "background_tasks": background,
         "scratchpad_paths": sorted(sink["scratch"]),
         "corrections": _in_time_order(sink["corrections"]),
+        "skipped_entries": sink["skipped"],
     }
 
 
@@ -959,10 +1108,13 @@ def git_roots(directories: list[str]) -> list[str]:
     """Distinct git work trees among the directories that still exist."""
     roots = []
     for directory in directories:
-        if not os.path.isdir(directory):
+        try:
+            if not os.path.isdir(directory):
+                continue
+            result = subprocess.run(["git", "-C", directory, "rev-parse", "--show-toplevel"],
+                                    capture_output=True, text=True, check=False)
+        except (OSError, ValueError):  # a path with a NUL byte, or git missing
             continue
-        result = subprocess.run(["git", "-C", directory, "rev-parse", "--show-toplevel"],
-                                capture_output=True, text=True, check=False)
         root = result.stdout.strip()
         if result.returncode == 0 and root and root not in roots:
             roots.append(root)

@@ -302,11 +302,56 @@ def test_paths_are_masked_in_output_but_searched_raw(tmp_path, capsys):
 
 
 def test_heredocs_and_arithmetic_stay_linear():
-    command = "cat <<A\nbody\nA\n" * 5000 + "echo $((1<<2))\n" * 5000 + "git push"
+    command = ("cat <<A\nbody\nA\n" * 5000 + "echo $((1<<2))\n" * 5000 + "cat " + " ".join(f"<<B{i}" for i in range(2000))
+               + "\n" + "".join(f"x\nB{i}\n" for i in range(2000)) + "git push")
     start = time.monotonic()
     inv = thread_inventory.inventory(bash(command, "big"))
     assert time.monotonic() - start < 2
     assert [m["command"] for m in inv["git_mutations"]] == ["git push"]
+
+
+def test_git_clone_and_init_destinations_are_directories():
+    inv = thread_inventory.inventory(bash(
+        "cd /w && git clone https://github.com/o/r.git && git clone -b dev git@github.com:o/s.git t && git init new"
+        " && git -C /w commit -C HEAD", "cl"))
+    assert {"/w", "/w/r", "/w/t", "/w/new"} <= set(inv["directories"])
+    assert "/w/HEAD" not in inv["directories"]  # -C after the subcommand is not a directory
+    unresolved = thread_inventory.inventory(bash("cd $SP && git init repo && git -C \"$HOME/x\" status", "v"))
+    assert [d for d in unresolved["directories"] if "$" in d] == []  # a shell variable is not a path
+
+
+def test_pasted_notifications_end_no_task():
+    entries = [
+        *bash("sleep 600", "b1", run_in_background=True),
+        result("b1", "Command running in background with ID: bg9. Output is being written to: x", "t1"),
+        human("<task-notification> <task-id>bg9</task-id> <status>completed</status></task-notification>", "t2"),
+        user("see <task-notification> <task-id>bg9</task-id> <status>killed</status></task-notification>", "t3"),
+    ]
+    tasks = thread_inventory.inventory(entries)["background_tasks"]
+    assert [(t["id"], t["ended"]) for t in tasks] == [("bg9", None)]
+
+
+def test_unexpected_entries_are_skipped_not_fatal():
+    entries = [
+        {"type": "file-history-delta", "trackingPath": 5},
+        {"type": "pr-link", "prNumber": "x"},
+        {"type": "assistant", "message": {"id": {"not": "hashable"}, "content": []}},
+        {"type": "user", "timestamp": 5, "origin": {"kind": "human"}, "message": {"content": "hi"}},
+        *assistant([tool("Bash", {"command": ["git", "push"]}, "l1"),
+                    tool("Edit", {"file_path": ["a"], "old_string": "a", "new_string": "b"}, "l2")], "t", "ml"),
+    ]
+    inv = thread_inventory.inventory(entries)
+    assert inv["skipped_entries"] == 3
+    assert [p["text"] for p in inv["prompts"]] == ["hi"] and inv["files_written"] == []
+
+
+def test_deep_nesting_never_raises():
+    nested = "".join(f"bash <<'E{i}'\n" for i in range(600)) + "git push\n" + "".join(
+        f"E{i}\n" for i in reversed(range(600)))
+    mixed = "".join(f"bash <<'E{i}'\necho {'$(' * 20}x{')' * 20}\n" for i in range(50)) + "".join(
+        f"E{i}\n" for i in reversed(range(50)))
+    for command in (nested, mixed):
+        thread_inventory.inventory(bash(command, "deep"))
 
 
 def test_scratchpad_scan_is_linear_on_long_tokens():
@@ -414,6 +459,11 @@ def test_unknown_git_and_gh_commands_are_listed_not_dropped():
     ("gh issue close --repo=o/r 63", ("issues", 63, "o/r")),
     ("gh pr comment 5 --body 12", ("pull", 5, None)),
     ("gh pr view '#7' --json state", ("pull", 7, None)),
+    ("gh pr checks --interval 30 153", ("pull", 153, None)), ("gh pr merge -s 12", ("pull", 12, None)),
+    ("gh pr review -a 155", ("pull", 155, None)), ("gh pr view -c 7", ("pull", 7, None)),
+    ("gh pr diff -e '*.md' 9", ("pull", 9, None)),
+    ("gh api repos/o/r/issues/62/comments -f body=x", ("issues", 62, "o/r")),
+    ("gh api -X POST 'repos/{owner}/{repo}/pulls/155/requested_reviewers' -f 'reviewers[]=x'", ("pull", 155, None)),
 ])
 def test_gh_reference_parsing_skips_flags(command, expected):
     refs = thread_inventory.inventory(bash(command, "r"))["github_refs"]
@@ -422,6 +472,8 @@ def test_gh_reference_parsing_skips_flags(command, expected):
 
 def test_gh_list_limit_is_not_a_reference():
     assert thread_inventory.inventory(bash("gh pr list --limit 30", "r"))["github_refs"] == []
+    assert thread_inventory.inventory(bash("gh api repos/o/r/issues/comments/123", "r"))["github_refs"] == []
+    assert thread_inventory.inventory(bash("gh pr view \u00b2", "r"))["github_refs"] == []  # no int() of a superscript
 
 
 def test_structured_mcp_references():
@@ -481,6 +533,22 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("echo $((1<<2))\ngit push", ["git push"]),
     ("if git diff --quiet; then echo same; else git commit -am x; fi", ["git commit -am x"]),
     ("git push origin main 2>&1 | tail -1", ["git push origin main 2>&1"]),
+    ("git branch --merged main | grep -v main | xargs git branch -d", ["xargs git branch -d"]),
+    ("gh pr list --json number --jq '.[].number' | xargs -I {} gh pr close {}", ["xargs -I {} gh pr close {}"]),
+    ("timeout 60 git push origin main && sudo -u bot git commit -m x", [
+        "timeout 60 git push origin main", "sudo -u bot git commit -m x"]),
+    ("env -i PATH=/bin git push; env -u X git tag v2; time -p gh issue close 5; nice -n 10 git gc", [
+        "env -i PATH=/bin git push", "env -u X git tag v2", "time -p gh issue close 5", "nice -n 10 git gc"]),
+    ("X+=1 git push && command -v git", ["X+=1 git push"]),
+    ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [
+        "git push origin main", "gh pr merge 5"]),
+    ("bash -euo pipefail <<'EOF'\ngit push\nEOF\nbash -euo pipefail -c 'git tag v1'; bash <<< 'gh pr merge 6'", [
+        "git push", "git tag v1", "gh pr merge 6"]),
+    ("git commit -m \"$(cat <<'EOF'\nRevert\n\ngit push --force rewrote main\nEOF)\" && git push origin main", [
+        'git commit -m "$(…)"', "git push origin main"]),  # bash ends the body at EOF) inside $(…)
+    ("X=a#b git push; echo a#b && git tag v3", ["X=a#b git push", "git tag v3"]),
+    ("function g { gh pr merge 5; }; eval 'git push origin x'; trap 'git stash' EXIT", [
+        "function g { gh pr merge 5", "git push origin x", "git stash"]),
     ('GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x', ['GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x']),
     ("URL=$(gh pr create --fill) && echo `git tag v1`", ["gh pr create --fill", "git tag v1"]),
     ("echo 'git push' \"git push\" $'it\\'s; git push'", []),
@@ -541,7 +609,7 @@ def test_git_config_reads_and_writes(command, kind):
 @pytest.mark.parametrize("command, kind", [
     ("gh auth login --web", "write"), ("gh auth setup-git", "write"), ("gh auth switch", "write"),
     ("gh auth status", "read"), ("gh auth token", "read"), ("gh config set editor vim", "write"),
-    ("gh config get editor", "read"),
+    ("gh config get editor", "read"), ("gh $group --help", "read"), ("gh pr -h", "read"),
 ])
 def test_gh_auth_and_config(command, kind):
     assert thread_inventory.gh_kind(command.split(), command) == kind
