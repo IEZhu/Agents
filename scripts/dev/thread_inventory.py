@@ -28,6 +28,8 @@ are not collected. Only the command substitutions of an unquoted body (`<<EOF`)
 run. A heredoc without its delimiter line takes the rest of the command, as the
 shell reads it. Wrappers such as `sudo -u bot`, `timeout 60` or `xargs` are read
 through to the command they run, and the arguments of `eval` and `trap` are commands.
+Files the shell itself writes, through output redirections and `tee`, are listed in
+`shell_writes`; what other programs write, such as cp, mv or sed -i, is not.
 
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
@@ -78,6 +80,7 @@ WRAPPERS = {
 # Markers around the commands of a subshell, a substitution or a child shell: a `cd` there
 # does not move the commands after them.
 SCOPE_IN, SCOPE_OUT = object(), object()
+OUTPUT_REDIRECTION = re.compile(r"\d*(?:>\||&>>?|>>?)(.*)", re.S)  # then the target, or it is the next word
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
@@ -108,7 +111,8 @@ SECRET = re.compile(
     r"(?i)(authorization:\s*(?:bearer\s+|basic\s+|token\s+)?|bearer\s+"
     r"|(?:api[_-]?key|token|password|secret)[\"']?\s*[=:]\s*[\"']?)[^\s\"',;]+"
     r"|\bsk-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}"
-    r"|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
+    r"|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+    r"|(?<=://)[^\s/@:'\"]+:[^\s/@'\"]+(?=@)")  # user:password@ in a URL
 WRITE_VERBS = {
     "add", "append", "approve", "archive", "assign", "attach", "batch", "cancel", "close", "comment", "complete",
     "create", "delete", "disable", "edit", "enable", "execute", "import", "insert", "invite", "link", "mark",
@@ -378,6 +382,8 @@ def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
         if token == "<<<":
             here = tokens[index + 1] if index + 1 < len(tokens) else ""
             index += 2
+        elif token in ("<<", "<<-"):
+            index += 2  # a heredoc and its delimiter
         elif REDIRECTION.fullmatch(token):
             index += 2  # an operator such as > or 2> and its target
         elif REDIRECTION.match(token):
@@ -416,20 +422,24 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
 
     A `<<` inside parentheses that close on the same line, as in `$((1<<2))`, opens no heredoc.
     """
-    segments, current, heredocs = [], [], []
-    quote, length, shell_reads = None, len(command), None
+    segments, current, heredocs, undecided = [], [], [], []
+    quote, length = None, len(command)
 
     def add(text: str) -> None:
         if text:
             current.append(text)
 
     def flush() -> None:
-        nonlocal shell_reads
         segment = "".join(current).strip()
         if segment:
             segments.append(segment)
+        if undecided:  # once per simple command, with its whole text: `<<'EOF' bash` reads too
+            tokens = _command_tokens(segment)
+            reads = bool(tokens) and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin"
+            for entry in undecided:
+                entry[2] = reads
+            undecided.clear()
         current.clear()
-        shell_reads = None  # the next simple command decides again
 
     def backquoted(start: int) -> int:
         end = command.find("`", start + 1)
@@ -494,11 +504,10 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             if heredoc:
                 single, double, escaped, word = heredoc.group(2, 3, 4, 5)
                 delimiter = next(part for part in (single, double, word) if part is not None)
-                if shell_reads is None:  # once per simple command, from its words before the first <<
-                    tokens = _command_tokens("".join(current))
-                    shell_reads = bool(tokens) and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin"
                 quoted = word is None or bool(escaped)  # 'EOF', "EOF" and \EOF keep the body text
-                heredocs.append((delimiter, heredoc.group(1) == "-", shell_reads, quoted))
+                entry = [delimiter, heredoc.group(1) == "-", False, quoted]
+                heredocs.append(entry)
+                undecided.append(entry)
             current.append(text)
             index += len(text)
         elif char == "<":
@@ -836,6 +845,11 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
+        written = [_resolve(target, run_dir) or target for target in _written_files(_tokens(segment), tokens)]
+        written = [path for path in dict.fromkeys(written) if "/scratchpad" not in path]  # listed there already
+        if written:
+            sink["shell_writes"].append({"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)),
+                                         "by": actor, "files": written})
         if not tokens:
             continue
         program = tokens[0]
@@ -852,8 +866,10 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
                 args = []  # -p prints, -l lists and - resets: no handler
             if len(args) > 1:
                 pending.extend(_segments(args[0])[::-1])  # the command run on exit or a signal
-        elif program == "cd" and len(tokens) > 1:
-            current = _resolve(tokens[1], current)
+        elif program == "cd":
+            names = _positional(tokens[1:], set())
+            target = names[0] if names else "-" if "-" in tokens[1:] else "~"  # `cd` alone goes home
+            current = None if target == "-" else _resolve(target, current)  # `cd -`: an earlier directory
             if current:
                 sink["directories"].setdefault(current, ts)
         elif program in ("git", "gh"):
@@ -871,6 +887,19 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
     for token in TOKEN_SPLIT.split(command):  # heredoc bodies too: a script there may write the file
         if token.startswith("/") and "/scratchpad" in token:
             sink["scratch"].setdefault(token.rstrip(".,:"), ts)
+
+
+def _written_files(words: list[str], tokens: list[str]) -> list[str]:
+    """Files a simple command writes through the shell: its output redirections such as `> f`,
+    `2>> log` or `&> out`, and the files `tee` writes. Other programs' writes are not read."""
+    files = []
+    for index, word in enumerate(words):
+        match = OUTPUT_REDIRECTION.fullmatch(word)
+        if match:
+            files.append(match.group(1) or (words[index + 1] if index + 1 < len(words) else ""))
+    if tokens[:1] == ["tee"]:
+        files += _positional(tokens[1:], set())
+    return [path for path in files if path and not path.startswith(("&", "/dev/"))]
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
@@ -947,7 +976,7 @@ def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
             "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
-            "unclassified_commands": [], "file_events": Counter(), "skipped": 0,
+            "unclassified_commands": [], "file_events": Counter(), "skipped": 0, "shell_writes": [],
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
 
@@ -1154,6 +1183,7 @@ def summarize(sink: dict) -> dict:
         "memory_writes": [{"path": path, **info} for path, info in sorted(sink["memory"].items())],
         "git_mutations": _in_time_order(sink["git_mutations"]),
         "unclassified_commands": _in_time_order(sink["unclassified_commands"]),
+        "shell_writes": _in_time_order(sink["shell_writes"]),
         "github_refs": refs,
         "external_writes": _in_time_order(sink["external"]),
         "scheduled": _in_time_order(sink["scheduled"]),

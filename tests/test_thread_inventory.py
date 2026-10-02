@@ -270,9 +270,13 @@ def test_credentials_are_masked_in_printed_text():
         {"type": "ai-title", "aiTitle": "Rotate sk-abcdefghijklmnop1234 key", "sessionId": SESSION},
         *bash("curl -H 'Authorization: Bearer xyz.secret' https://x && git push "
               "https://ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r", "t1"),
+        *bash("git clone https://bot:hunter2pass@git.example.com/o/r.git", "t2"),
     ]
-    printed = json.dumps(thread_inventory.inventory(entries))
-    for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123", "sk-abcdefghijklmnop1234"):
+    inv = thread_inventory.inventory(entries)
+    printed = json.dumps(inv)
+    assert "git clone https://[masked]@git.example.com/o/r.git" in [m["command"] for m in inv["git_mutations"]]
+    for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123", "sk-abcdefghijklmnop1234",
+                   "hunter2pass"):
         assert secret not in printed
     assert "[masked]" in printed
 
@@ -332,6 +336,23 @@ def test_cd_in_a_subshell_or_child_shell_stays_there():
     dirs = set(inv["directories"])
     assert {"/work/repo/next", "/a/b/x", "/a/y", "/a/w", "/a/v"} <= dirs
     assert not {"/tmp/other/next", "/z/w", "/q/v", "/r/v"} & dirs
+
+
+def test_cd_alone_goes_home_and_cd_dash_is_unknown():
+    dirs = set(thread_inventory.inventory(bash(
+        "cd /a && cd && git init h; cd -- /b && git init c; cd - && git init d", "cd"))["directories"])
+    assert {os.path.expanduser("~/h"), "/b/c"} <= dirs and "/b/--" not in dirs
+    assert not [d for d in dirs if d.endswith("/d")]  # `cd -` returns to a directory the helper cannot know
+
+
+def test_shell_writes_list_redirection_and_tee_targets():
+    inv = thread_inventory.inventory(bash(
+        "printf x > ~/.config/app && echo y >> notes.md && git log > /tmp/l.txt 2>&1 && ls > /dev/null"
+        f" && echo z | tee -a ~/.zshrc out.txt && echo s > {SCRATCH}/s.txt && > truncated.txt", "sw"))
+    assert [w["files"] for w in inv["shell_writes"]] == [
+        [os.path.expanduser("~/.config/app")], ["/work/repo/notes.md"], ["/tmp/l.txt"],
+        [os.path.expanduser("~/.zshrc"), "/work/repo/out.txt"], ["/work/repo/truncated.txt"]]
+    assert inv["shell_writes"][2]["command"] == "git log > /tmp/l.txt 2>&1"
 
 
 def test_pasted_notifications_end_no_task():
@@ -601,6 +622,7 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ('args=(git push origin main); declare -a more=(gh pr merge 5) && files=($(git ls-files) "$(git push)")', [
         "git push"]),  # array elements are data, their substitutions run
     ("trap -- 'git push origin x' EXIT; trap -p EXIT; trap - EXIT", ["git push origin x"]),
+    ("<<'EOF' bash\ngit push\nEOF\nbash << 'EOF'\ngh pr merge 7\nEOF", ["git push", "gh pr merge 7"]),
     ("env -S 'git push origin main' && env --split-string='gh pr merge 5'", ["env -S 'git push origin main'",
                                                                          "env --split-string='gh pr merge 5'"]),
     ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [

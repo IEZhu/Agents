@@ -185,12 +185,14 @@ subagent or user), and what the thread claimed about it. Cover:
 - **Promises**: things the thread said it would do or check later, such as
   "after the pause I will request a review once".
 
-The helper sees files changed by edit tools. Files changed by shell commands are
-covered by the git state only inside repositories. Outside them, check the paths
-named in the commands. Commands that a program or script runs, such as a Python
-heredoc calling `gh`, are invisible to the helper; the live git and GitHub state
-covers them. A non-zero `skipped_entries` counts transcript entries of a shape the
-helper does not know; the inventory can then miss items, and the report says so.
+The helper sees files changed by edit tools and, in `shell_writes`, the files that
+shell redirections and `tee` wrote. Files that other programs change, such as
+`cp`, `mv`, `sed -i` or a package manager, are covered by the git state only
+inside repositories; outside them, check the paths the conversation names.
+Commands that a program or script runs, such as a Python heredoc calling `gh`,
+are invisible to the helper; the live git and GitHub state covers them. A
+non-zero `skipped_entries` counts transcript entries of a shape the helper does
+not know; the inventory can then miss items, and the report says so.
 
 ## 3. Verify against the current state
 
