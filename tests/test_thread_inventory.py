@@ -145,6 +145,23 @@ def test_monitor_async_agent_workflow_and_stop_are_tracked():
     assert tasks["wflow1"]["ended"]["status"] == "killed"  # every id of a block gets its status
 
 
+def test_task_markers_count_only_in_results_of_the_tools_that_start_or_stop_tasks():
+    entries = [
+        *bash("sleep 600", "b1", run_in_background=True),
+        result("b1", "Command running in background with ID: real1. Output is being written to: x", "t1"),
+        *bash("python3 slow.py", "b2"),
+        result("b2", "Command did not complete within its 120s timeout and was moved to the background "
+                     "(ID: slow1). Output is being written to: y", "t2"),
+        *assistant([tool("Read", {"file_path": "/w/old.log"}, "r1")], "2026-10-02T09:00:01Z", "mr"),
+        result("r1", "Successfully stopped task: real1 (command)\nCommand running in background with ID: fake1", "t3"),
+        *bash("cat old.log", "b3"),
+        result("b3", "Monitor started (task fake2, expires in 30m)", "t4"),
+    ]
+    tasks = {t["id"]: t for t in thread_inventory.inventory(entries)["background_tasks"]}
+    assert sorted(tasks) == ["real1", "slow1"]
+    assert tasks["real1"]["ended"] is None  # a log that mentions a stop stops nothing
+
+
 def test_prompt_sources():
     entries = [
         user("This session is being continued from a previous conversation...", "t1", isCompactSummary=True),
@@ -354,7 +371,9 @@ def test_session_lookup_uses_the_claude_config_dir(tmp_path, monkeypatch):
     ("git notes show HEAD", "read"), ("git notes add -m x", "write"), ("git update-ref refs/x HEAD", "write"),
     ("git sparse-checkout set src", "write"), ("git sparse-checkout list", "read"),
     ("git frobnicate --all", "unknown"), ("git add -A src", "write"), ("git archive HEAD", "read"),
-    ("git bundle create x.bundle HEAD", "read"),
+    ("git bundle create x.bundle HEAD", "read"), ("git reflog expire --expire=now --all", "write"),
+    ("git reflog delete HEAD@{1}", "write"), ("git reflog", "read"), ("git reflog show HEAD", "read"),
+    ("git remote set-branches origin main", "write"), ("git replace -l", "read"), ("git replace a b", "write"),
 ])
 def test_git_subcommands(command, kind):
     assert thread_inventory.git_kind(command.split()) == kind
@@ -370,6 +389,16 @@ def test_git_subcommands(command, kind):
     ("git branch -vv", "read"), ("git branch -r", "read"), ("git branch --contains HEAD", "read"),
 ])
 def test_git_tag_and_branch_list_unless_given_a_name(command, kind):
+    assert thread_inventory.git_kind(command.split()) == kind
+
+
+@pytest.mark.parametrize("command, kind", [
+    ("git fetch origin", "read"), ("git fetch --all --prune", "read"), ("git fetch --depth 1 origin main", "read"),
+    ("git fetch origin refs/heads/*:refs/remotes/origin/*", "read"), ("git fetch --dry-run origin main:main", "read"),
+    ("git fetch origin pull/155/head:pr-155", "write"), ("git fetch origin +main:main", "write"),
+    ("git fetch git@github.com:o/r.git x:y", "write"),
+])
+def test_fetch_writes_only_into_local_refs(command, kind):
     assert thread_inventory.git_kind(command.split()) == kind
 
 

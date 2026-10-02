@@ -17,7 +17,8 @@ run in one project at the same time.
 
 Work delegated to subagents and workflow agents is read from the transcripts in the
 session's directory (`<uuid>/subagents/`, `<uuid>/workflows/`); its items carry the
-agent's file name in `by`.
+agent's file name in `by`. Background tasks come only from the results of the tools
+that start or stop them, including commands that a timeout moved to the background.
 
 Shell commands are split into simple commands at unquoted operators and line ends,
 so quoted text is never read as a command, while command substitutions and the
@@ -60,10 +61,16 @@ TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
 STATUS = re.compile(r"<status>(\w+)</status>")
-STARTED = (re.compile(r"running in background with ID: (\w+)"), re.compile(r"Task ID: (\w+)"),
-           re.compile(r"Monitor started \(task (\w+)"))
-ASYNC_AGENT = re.compile(r"Async agent launched.*?agentId: (\w+)", re.S)
-STOPPED = re.compile(r"stopped task: (\w+)")
+# Background work is read only from the results of the tools that start or stop it: the same
+# words in a file, a log or another command's output start or stop nothing.
+STARTED = {
+    "Bash": re.compile(r"\s*Command (?:running in background with ID: |did not complete within .*?"
+                       r"moved to the background \(ID: )(\w+)"),
+    "Monitor": re.compile(r"\s*Monitor started \(task (\w+)"),
+    "Workflow": re.compile(r"\s*Workflow launched in background\. Task ID: (\w+)"),
+    "Agent": re.compile(r"\s*Async agent launched.*?agentId: (\w+)", re.S),
+}
+STOPPED = re.compile(r"Successfully stopped task: (\w+)")  # in TaskStop results
 MEMORY_PATH = re.compile(r"/projects/[^/]+/memory/")
 # Phrases with which a model takes back its own earlier statement. They are candidates
 # for the audit, not conclusions: the flow reads each one in context.
@@ -92,15 +99,15 @@ WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 SCHEDULE_TOOLS = {"ScheduleWakeup", "CronCreate", "CronDelete"}
 REMOTE_WRITE_ACTIONS = {"create", "update", "run", "create_webhook_trigger", "delete"}
 ARTIFACT_READ_ACTIONS = {"read", "list", "get", "query", "open", "quickstart", "watch"}
-GIT_READ_ONLY = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "merge-base", "ls-files",
+GIT_READ_ONLY = {"status", "log", "diff", "show", "rev-parse", "rev-list", "merge-base", "ls-files",
                  "ls-remote", "ls-tree", "describe", "blame", "grep", "shortlog", "for-each-ref", "cat-file",
-                 "check-ignore", "version", "help", "reflog", "count-objects", "name-rev", "var", "archive",
+                 "check-ignore", "version", "help", "count-objects", "name-rev", "var", "archive",
                  "merge-tree", "format-patch", "range-diff", "whatchanged", "show-ref", "verify-commit",
                  "diff-tree", "diff-index", "diff-files", "check-attr", "check-ref-format", "show-branch",
                  "cherry", "fsck", "verify-tag", "get-tar-commit-id"}
 GIT_WRITES = {"commit", "push", "pull", "rebase", "merge", "reset", "cherry-pick", "revert", "clean", "rm", "mv",
               "restore", "am", "apply", "init", "clone", "switch", "checkout", "gc", "prune", "update-ref", "add",
-              "filter-branch", "filter-repo", "fast-import", "replace", "rerere"}
+              "filter-branch", "filter-repo", "fast-import", "rerere"}
 GIT_SUBCOMMAND_WRITES = {
     "notes": {"add", "append", "copy", "edit", "merge", "remove", "prune"},
     "sparse-checkout": {"set", "add", "init", "disable", "reapply"},
@@ -114,7 +121,7 @@ GIT_SUBCOMMAND_READS = {"notes": {"show", "list", "get-ref"}, "sparse-checkout":
                         "bundle": {"create", "verify", "list-heads"},
                         "submodule": {"status", "summary", "foreach"}, "bisect": {"log", "visualize", "view"},
                         "lfs": {"ls-files", "status", "env", "version", "logs", "locks"}}
-# `git tag` and `git branch` list unless given a name or a flag that changes refs.
+# `git tag`, `git branch` and `git replace` list unless given a name or a flag that changes refs.
 GIT_TAG_READS = {"-l", "--list", "-v", "--verify", "-n", "--contains", "--no-contains", "--merged", "--no-merged",
                  "--points-at"}
 GIT_TAG_VALUES = {"-m", "--message", "-F", "--file", "-u", "--local-user", "--sort", "--format", "--cleanup",
@@ -123,6 +130,8 @@ GIT_BRANCH_WRITES = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "
                      "--unset-upstream", "--edit-description"}
 GIT_BRANCH_READS = {"-l", "--list", "-a", "--all", "-r", "--remotes", "--show-current", "--contains", "--no-contains",
                     "--merged", "--no-merged", "--points-at"}
+GIT_FETCH_VALUES = {"--depth", "--deepen", "--shallow-since", "--shallow-exclude", "-j", "--jobs", "--upload-pack",
+                    "--negotiation-tip", "-o", "--server-option", "--filter", "--refmap"}
 GH_READ_GROUPS = {"auth", "config", "help", "version", "search", "browse", "status"}  # after GH_WRITES
 GH_READ_VERBS = {"view", "list", "status", "checks", "diff", "search", "browse", "watch", "download", "verify"}
 GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--title", "-B", "--base", "-H", "--head",
@@ -436,9 +445,17 @@ def git_kind(tokens: list[str]) -> str:
     if sub == "branch":
         return _list_or_create(args, GIT_BRANCH_WRITES, GIT_BRANCH_READS, {"--sort", "--format"})
     if sub == "remote":
-        return "write" if first in ("add", "remove", "rm", "rename", "set-url", "set-head", "prune") else "read"
+        return "write" if first in ("add", "remove", "rm", "rename", "set-url", "set-head", "set-branches",
+                                    "prune") else "read"
+    if sub == "reflog":
+        return "write" if first in ("expire", "delete", "drop", "write") else "read"
+    if sub == "replace":
+        return _list_or_create(args, {"-d", "--delete", "--edit", "--graft", "--convert-graft-file"},
+                               {"-l", "--list"}, {"--format"})
     if sub == "config":
         return _git_config_kind(args)
+    if sub == "fetch":
+        return _git_fetch_kind(args)
     if sub == "hash-object":
         return "write" if "-w" in args else "read"
     if sub == "symbolic-ref":
@@ -463,9 +480,21 @@ def _git_config_kind(args: list[str]) -> str:
     return "write" if len(values) >= 2 else "read"  # `git config <key> <value>` sets
 
 
+def _git_fetch_kind(args: list[str]) -> str:
+    """A fetch reads: it updates remote-tracking refs, which mirror the remote. It writes when a
+    refspec names a local destination, as `git fetch origin pull/1/head:pr-1` creates a branch."""
+    if "--dry-run" in args:
+        return "read"
+    for spec in _positional(args, GIT_FETCH_VALUES)[1:]:  # the first names the repository
+        destination = spec.split(":", 1)[1] if ":" in spec else ""
+        if destination and not destination.startswith("refs/remotes/"):
+            return "write"
+    return "read"
+
+
 def _list_or_create(args: list[str], writes: set, reads: set, values: set) -> str:
-    """`git tag` or `git branch`: a flag in ``writes`` changes refs, one in ``reads`` lists or
-    verifies, and otherwise a name creates while options alone list."""
+    """`git tag`, `git branch` or `git replace`: a flag in ``writes`` changes refs, one in ``reads``
+    lists or verifies, and otherwise a name creates while options alone list."""
     for arg in args:
         flag = arg.split("=", 1)[0]
         if flag in writes:
@@ -762,12 +791,14 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
         if isinstance(block, dict) and block.get("type") == "tool_result":
             result = _text(block.get("content"))
             _scan_refs(result, sink["refs"], ts)
-            for task_id in STOPPED.findall(result):
-                sink["ended"][task_id] = {"status": "stopped", "ts": ts}
             tool = sink["tools"].get(block.get("tool_use_id"), {})
-            ids = [m.group(1) for pattern in STARTED for m in pattern.finditer(result)] + ASYNC_AGENT.findall(result)
-            for task_id in dict.fromkeys(ids):
-                sink["started"].append({**tool, "id": task_id, "by": actor})
+            if tool.get("tool") == "TaskStop":
+                for task_id in STOPPED.findall(result):
+                    sink["ended"][task_id] = {"status": "stopped", "ts": ts}
+            started = STARTED.get(tool.get("tool"))
+            match = started.match(result) if started else None
+            if match:
+                sink["started"].append({**tool, "id": match.group(1), "by": actor})
     if actor != "main" or entry.get("isMeta") or entry.get("isCompactSummary"):
         return
     origin = entry.get("origin")
