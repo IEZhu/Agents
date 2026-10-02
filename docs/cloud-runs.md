@@ -129,6 +129,51 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 | Some launches, and a `curl` inside a session, were denied by the auto-mode classifier | the classifier judged the command a bypass | not worked around in 2026-09: rephrase the request, or run that step yourself |
 | Cloud credit counter does not move | not established | check usage in the account settings before relying on included credits |
 
+## Eval routine
+
+The [A/B eval flow](../flows/ab-eval.md) answers with Opus and judges every model's
+answers through one routine, `Agents-eval`, fired once per run with a short text. Its
+sessions follow
+[Answering and judging prepared runs](../evals/ablation/README.md#answering-and-judging-prepared-runs-cloud)
+on the experiment's branch, so they need no install and no embedding model. The flow
+creates the routine when `RemoteTrigger` `list` shows none of that name:
+
+| Setting | Value |
+|---|---|
+| name | `Agents-eval` |
+| model | `claude-opus-5-5` |
+| allowed tools | Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow |
+| repository | this repository |
+| environment | the default cloud environment |
+| connectors | none: `create` attached the account's connectors on 2026-10-02 although the body named none, so clear them with `update` and `clear_mcp_connections: true` |
+| schedule | none; fired with `run` |
+
+The prompt:
+
+```text
+Answer and judge prepared eval runs in this repository.
+
+The text attached to this run names a branch ("branch:"), the run directories to
+answer ("answer:"), the run directories to judge ("judge:", by default the answer
+runs) and an experiment name ("name:"). First: git fetch origin <branch> && git
+checkout <branch>. Then follow the section "Answering and judging prepared runs
+(cloud)" of evals/ablation/README.md on that branch exactly. I explicitly want the
+Workflow tool used for its answers and judges fan-out steps; multi-agent
+orchestration is intended here. Agents-Core MCP is not available in this session:
+do not route, just follow the runbook.
+
+Push the results to claude/eval-<name> as the README says and end with its final
+report.
+
+Ultracode: use multi-agent orchestration only where the runbook fans out (its answers and judges Workflow steps). Do not add agents that re-judge, edit or re-verify cases, answers or verdicts, and do not change any other runbook step: this run is a measurement.
+```
+
+Fire it with `RemoteTrigger` `run` and a body such as
+`{"text": "branch: eval/embed-harrier\nanswer: evals/ablation/runs/embed-harrier/opus\nname: embed-harrier-opus"}`.
+Runs with different `name:` values can go at once, each pushing its own branch. On
+2026-10-02 a one-off routine of the same kind, which also built the contexts, took
+19 minutes for 48 answers and 48 verdicts.
+
 ## Changing a routine
 
 `RemoteTrigger` `update` replaces the routine's `job_config.ccr` as a whole.

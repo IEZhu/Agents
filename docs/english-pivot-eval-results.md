@@ -2,7 +2,8 @@
 
 Date: October 2, 2026. Rule: `rules/rule-english-pivot.mdc` at `f164959`; contexts
 built at `2e9eaa2`, branch `feat/english-pivot-rule`. These results describe that
-rule text and the recorded models and settings only.
+rule text and the recorded models and settings only. The rule was not adopted; its
+text stays on that branch.
 
 ## Question
 

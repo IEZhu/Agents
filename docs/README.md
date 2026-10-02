@@ -53,13 +53,19 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
   `bench`; the [session playbook](session-playbook.md#evals) gives the
   prerequisites.
 - [Local and hosted model runners](../evals/LOCAL_MODELS.md).
+- [A/B eval flow](../flows/ab-eval.md): the whole cycle for one change, from case
+  set to recommendation, on hosted models and Opus.
 - [Component ablation workflow](../evals/ablation/README.md) and
   [case format](../evals/ablation/CASES.md).
+- Semantic-cache routing of the embedding model:
+  `python -m evals.runners.run_cache_routing` (leave-one-out nearest neighbours,
+  precision at fixed coverage per language).
 - [Telemetry export and analysis](../evals/telemetry/README.md).
 - [Dataset sources](../evals/datasets/SOURCES.md).
 - [Cloud sessions](cloud-runs.md): the September 2026 eval-sweep procedure (check
-  account and service setup before reusing it) and the maintained setup and
-  operations reference for the cloud [issue agent](cloud-runs.md#issue-agent).
+  account and service setup before reusing it), the [eval routine](cloud-runs.md#eval-routine)
+  of the A/B eval flow, and the maintained setup and operations reference for the
+  cloud [issue agent](cloud-runs.md#issue-agent).
 
 ## Plans, research and recorded results
 
