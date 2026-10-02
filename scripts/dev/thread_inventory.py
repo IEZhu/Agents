@@ -56,6 +56,12 @@ WRITE_VERB = re.compile(
 REMOTE_WRITE_ACTIONS = {"create", "update", "run", "create_webhook_trigger", "delete"}
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 MAX_TEXT = 500
+# Common credential shapes, masked in every text the inventory prints.
+SECRET = re.compile(
+    r"(?i)(authorization:\s*(?:bearer\s+|basic\s+|token\s+)?|bearer\s+"
+    r"|(?:api[_-]?key|token|password|secret)[\"']?\s*[=:]\s*[\"']?)[^\s\"',;]+"
+    r"|\bsk-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}"
+    r"|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
 
 
 def _content(entry: dict) -> list:
@@ -73,8 +79,12 @@ def _text(value) -> str:
     return ""
 
 
+def _mask(match: re.Match) -> str:
+    return (match.group(1) or "") + "[masked]"
+
+
 def _short(text: str) -> str:
-    text = " ".join(text.split())
+    text = SECRET.sub(_mask, " ".join(text.split()))
     return text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 1] + "…"
 
 

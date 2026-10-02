@@ -33,7 +33,8 @@ must say so.
 ## Inputs and authority
 
 - **Mode.**
-  - `draft` (default) reads and reports and writes nothing.
+  - `draft` (default) reads and reports. It writes nothing beyond the per-turn
+    logging the client already does.
   - `apply` also writes the history entry and memory items at level V2 or above,
     and removes verified-safe leftovers (step 5).
 - **Thread.**

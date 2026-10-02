@@ -138,3 +138,16 @@ def test_session_lookup_uses_the_claude_config_dir(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         thread_inventory.find_session("../etc/passwd")
     assert thread_inventory.project_dir_name("/Users/a.b/Documents/Agents") == "-Users-a-b-Documents-Agents"
+
+
+def test_credentials_are_masked_in_printed_text():
+    entries = [
+        user("use token=abc123secret please", "2026-10-02T09:00:00Z"),
+        *assistant([tool("Bash", {"command": "curl -H 'Authorization: Bearer xyz.secret' https://x && git push "
+                                             "https://ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r"}, "t1")],
+                   "2026-10-02T09:00:01Z", "msg_9"),
+    ]
+    printed = json.dumps(thread_inventory.inventory(entries))
+    for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123"):
+        assert secret not in printed
+    assert "[masked]" in printed
