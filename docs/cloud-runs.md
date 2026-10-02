@@ -130,9 +130,11 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 ## Changing a routine
 
 `RemoteTrigger` `update` replaces the routine's `job_config.ccr` as a whole.
-Send `environment_id`, `events` (the prompt) and `session_context` together:
+Send its execution target unchanged (`environment_id`, or
+`self_hosted_runner_pool_id` for a routine on self-hosted runners), `events`
+(the prompt) and `session_context` together:
 
-- Without `environment_id` the call fails with
+- Without an execution target the call fails with
   `job_config must set ccr.environment_id or ccr.self_hosted_runner_pool_id`.
 - Without `events` it succeeds and leaves the routine with an empty prompt
   (seen on 2026-10-02 on a disabled probe routine).
