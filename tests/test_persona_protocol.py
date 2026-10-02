@@ -207,13 +207,17 @@ async def test_removed_protocol_versions_return_error_without_routing_or_loading
 
 
 @pytest.mark.asyncio
-async def test_logging_checks_attribution_before_writing(monkeypatch):
+async def test_logging_writes_mismatched_attribution_with_warning(monkeypatch):
     writer = Mock()
+    writer.return_value.append_entry.return_value = {"status": "recorded"}
     monkeypatch.setattr(server, "HistoryWriter", writer)
+    monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
     response = json.loads(await server.log_interaction("lawyer", "q", "r", persona=descriptor(), persona_action="keep"))
-    assert response["status"] == "ERROR"
-    assert response["instruction"].startswith("Nothing was logged.")
-    writer.assert_not_called()
+    assert response["attribution"] == "mismatch"
+    assert "does not match" in " ".join(response["warnings"])
+    assert "Do not retry" in response["instruction"] and "timestamp" in response
+    assert server.drain_pending_logs(5)
+    assert "Persona (mismatch)" in writer.return_value.append_entry.call_args.args[1]
 
 
 @pytest.mark.asyncio

@@ -23,8 +23,10 @@ footer. Before delivering it, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
 request verbatim as `query`, and the complete composed answer plus footer as
-`response_content`. Pass the active descriptor and the actual keep/switch/refresh/restore
-action. The call returns at once; when the footer's `Rules` list includes
+`response_content`. Pass the `persona` object of the last SUCCESS/NO_CHANGE verbatim, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`),
+and the actual keep/switch/refresh/restore action only together with it; `files`/`tags`
+are JSON arrays. Without a retained descriptor (for example a subagent), omit both and
+add no footer. Incomplete attribution is still logged as `unverified`; do not retry. The call returns at once; when the footer's `Rules` list includes
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.

@@ -156,7 +156,7 @@ the agent and apply its core/preferred/capable restrictions and implant policy.
 Ordinary confirmations and continuations do not trigger refresh. Update component
 lists and the footer only after a successful tool response.
 
-`log_interaction` checks that `agent_name` agrees with the supplied descriptor.
+`log_interaction` compares `agent_name` with the supplied descriptor and records a disagreement as `mismatch` with a warning; it still writes the entry.
 The log records the reported active role and its revision; it is not proof that
 the model actually followed the instructions. On `keep`, reuse the last returned
 footer rather than guessing skill lists.

@@ -62,7 +62,11 @@ from src import flow_persona
 from src.flows import FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
-from src.engine.persona import load_persona, route_persona, parse_persona, error_response
+from src.engine.persona import (
+    load_persona, route_persona, parse_persona, error_response,
+    parse_persona_for_logging, persona_history_line,
+)
+from src.schemas import tool_args as ta
 from src.engine import readiness
 
 READINESS_SHUTDOWN_WAIT_SECONDS = 5.0
@@ -124,7 +128,10 @@ mcp = FastMCP(
         "switch personas. Except for the MCP-unavailable fallback below, compose the answer "
         "with the returned footer, call log_interaction "
         "with that answer (without any time line), the current user request verbatim as query, "
-        "and the active descriptor/action, then send the final answer. When the footer lists the "
+        "and persona (the last descriptor object, all 7 keys: agent, activation_id, bundle_revision, "
+        "scope, skills_loaded, implants_loaded, rules_loaded) with persona_action only together "
+        "with it; a caller with no retained descriptor omits both. files/tags are JSON arrays. "
+        "Then send the final answer. When the footer lists the "
         "`answer-timestamp` rule and the call returned a `timestamp`, put that `timestamp` on its own "
         "first line followed by an empty line.\n\n"
         "Response statuses:\n"
@@ -325,7 +332,7 @@ async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
 
 
 @mcp.tool()
-async def get_flow(flow: str, version: Optional[str] = None, ctx: Context | None = None) -> str:
+async def get_flow(flow: str, version: ta.opt_str("Optional version id of the flow; defaults to the current one.") = None, ctx: Context | None = None) -> str:
     """Read a flow's Markdown, revision and saved versions before editing it.
 
     flow: a bare ID or builtin:/user:/repo:<id>. version: an entry from history,
@@ -344,7 +351,7 @@ async def save_flow(
     flow: str,
     content: str,
     scope: str = "user",
-    expected_revision: Optional[str] = None,
+    expected_revision: ta.opt_str("Optional revision the caller last read; the save is refused if it changed.") = None,
     override: bool = False,
     ctx: Context | None = None,
 ) -> str:
@@ -386,8 +393,8 @@ async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = N
 async def run_flow(
     flow: str,
     request: str = "",
-    repo_path: Optional[str] = None,
-    current_persona: PersonaDescriptor | None = None,
+    repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
+    current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
     ctx: Context | None = None,
 ) -> str:
     """Start a user-requested flow in the CALLER's repository.
@@ -441,10 +448,10 @@ async def run_flow(
 @mcp.tool()
 async def set_flow_persona(
     flow: str,
-    agent: Optional[str] = None,
-    skills: Optional[List[str]] = None,
-    implants: Optional[List[str]] = None,
-    rules: Optional[List[str]] = None,
+    agent: ta.opt_str("Agent name for the flow persona.") = None,
+    skills: ta.str_list("Optional skill ids, as a JSON array of strings.") = None,
+    implants: ta.str_list("Optional implant ids, as a JSON array of strings.") = None,
+    rules: ta.str_list("Optional rule names, as a JSON array of strings.") = None,
     reset: bool = False,
     ctx: Context | None = None,
 ) -> str:
@@ -672,9 +679,9 @@ def _supports_sampling(ctx: Context | None) -> bool:
 @observe(name="route_and_load")
 async def route_and_load(
     query: str,
-    chat_history: Optional[List[str] | str] = None,
+    chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
     protocol_version: int = PROTOCOL_VERSION,
-    current_persona: PersonaDescriptor | None = None,
+    current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
 ) -> str:
     """
     Route to a specialist. Call only for initial selection or a needed
@@ -693,8 +700,9 @@ async def route_and_load(
 @observe(name="get_agent_context")
 async def get_agent_context(
     agent_name: str, query: str, reasoning: str = "Selected by calling LLM",
-    chat_history: Optional[List[str] | str] = None,
-    protocol_version: int = PROTOCOL_VERSION, current_persona: PersonaDescriptor | None = None,
+    chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
+    protocol_version: int = PROTOCOL_VERSION,
+    current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
     force_reload: bool = False,
 ) -> str:
     """
@@ -716,8 +724,8 @@ async def get_agent_context(
 
 @mcp.tool()
 async def refresh_persona_context(
-    query: str, current_persona: PersonaDescriptor,
-    chat_history: Optional[List[str] | str] = None,
+    query: str, current_persona: ta.persona_arg(ta.REFRESH_PERSONA_DESC),
+    chat_history: ta.text_or_lines(ta.CHAT_HISTORY_DESC) = None,
 ) -> str:
     """Protocol 2: refresh the current role's complete bundle without choosing an agent.
 
@@ -743,7 +751,7 @@ async def refresh_persona_context(
 @observe(name="load_implants")
 async def load_implants(
     query: str = "",
-    task_type: Optional[str] = None,
+    task_type: ta.opt_str("Optional task type to load implants for instead of a query.") = None,
     limit: int = 5,
 ) -> str:
     """
@@ -889,76 +897,77 @@ def _workspace_report(client, root: Path) -> dict:
     return report
 
 
+def _short_action(value: str) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= 64 else text[:64] + "…"
+
+
 @mcp.tool()
 async def log_interaction(
     agent_name: str,
     query: str,
     response_content: str,
-    request_id: Optional[str] = None,
-    reasoning: Optional[str] = None,
-    intent: Optional[str] = None,
-    action: Optional[str] = None,
-    outcome: Optional[str] = None,
-    files: Optional[List[str]] = None,
-    tags: Optional[List[str]] = None,
-    persona: PersonaDescriptor | None = None,
-    persona_action: PersonaAction | None = None,
+    request_id: ta.opt_str("Optional request id for correlation.") = None,
+    reasoning: ta.opt_str("Optional short reason for the selection.") = None,
+    intent: ta.opt_str("Optional curated intent; defaults to query.") = None,
+    action: ta.opt_str("Optional curated action; defaults to the agent name.") = None,
+    outcome: ta.opt_str("Optional curated outcome; defaults to response_content.") = None,
+    files: ta.str_list(ta.LOG_FILES_DESC) = None,
+    tags: ta.str_list(ta.LOG_TAGS_DESC, separators=r"[,\s]+") = None,
+    persona: ta.persona_arg(ta.LOG_PERSONA_DESC) = None,
+    persona_action: ta.opt_str(ta.LOG_PERSONA_ACTION_DESC) = None,
     ctx: Context | None = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
-    with that exact response_content, then deliver the final answer. Pass the active persona descriptor and persona_action (keep/switch/refresh/restore).
-    Pass the current user request verbatim as query, without paraphrasing or
-    substituting a conversation summary.
-    These are client-reported attribution, not proof of instruction compliance.
+    with that exact response_content, then deliver the final answer. Pass the
+    current user request verbatim as query, without paraphrasing or substituting
+    a conversation summary.
+
+    persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
+    with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
+    implants_loaded, rules_loaded); persona_action (keep/switch/refresh/restore)
+    only together with it. A caller with no retained descriptor, such as a
+    subagent, omits both and adds no footer. files and tags are JSON arrays.
+    Persona and persona_action are client-reported attribution, not proof of
+    instruction compliance. A partial, malformed or mismatching persona never
+    costs the turn: it is written marked ``unverified`` or ``mismatch`` and the
+    response carries ``warnings``. Do not retry such a call.
 
     Two sinks, independent of each other:
 
-    * **history.md** — always written via ``HistoryWriter`` (append-only,
-      content-hash deduped). Defaults: ``intent=query``, ``action="Agent: {agent_name}"``,
-      ``outcome=response_content``. Pass ``intent``/``action``/``outcome``/``files``/``tags``
-      to curate the entry; otherwise raw query/response are used.
+    * **history.md** — written via ``HistoryWriter`` (append-only, content-hash
+      deduped; the persona line is not part of the hash). Defaults:
+      ``intent=query``, ``action="Agent: {agent_name}"``, ``outcome=response_content``.
+      Pass ``intent``/``action``/``outcome``/``files``/``tags`` to curate the entry.
 
     * **Langfuse** — generation trace recorded only when ``LANGFUSE_PUBLIC_KEY`` /
       ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
       ``langfuse_compat``.
 
-    Returns at once, after validation and before either sink is written:
+    Returns at once, before either sink is written:
     ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
     plus ``workspace`` (``root``, ``source``), ``pid``, ``history_last_error``
     (``code``, ``errno``, ``path``, ``at``; only after an earlier history write
-    failed) and the attribution. While retrieval is still warming up, ``langfuse`` is
+    failed) and the attribution (with ``warnings`` and an ``instruction`` when it
+    was incomplete). While retrieval is still warming up, ``langfuse`` is
     ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
     background with that timestamp and do not prevent each other. A
     failed history write is logged once per path and errno (WARNING,
     ``code=history_unwritable``) and reported on the next result as
-    ``history_last_error``; Langfuse failures are only logged. An unavailable
-    workspace or invalid attribution writes nothing and returns a protocol ERROR without ``timestamp``.
+    ``history_last_error``; Langfuse failures are only logged. Only an
+    unavailable workspace writes nothing: it returns a protocol ERROR without
+    ``timestamp``.
     """
-    try:
-        client = client_context(ctx)
-        root = client.require_root()
-        active = parse_persona(persona)
-        if active is not None and active.agent != agent_name:
-            raise ValueError("agent_name does not match persona.agent")
-        if persona_action is not None and active is None:
-            raise ValueError("persona_action requires persona")
-        if persona_action not in (None, "keep", "switch", "refresh", "restore"):
-            raise ValueError("Invalid persona_action")
-    except ValueError as error:
-        return error_response(error, request_id, instruction=(
-            "Nothing was logged. Keep the current activation; on workspace_required, "
-            "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
-            "retry logging in a loop."
-        ))
-    attribution = ({
-        "persona": active.model_dump(), "persona_action": persona_action,
-        "attribution": "client-reported",
-    } if active else {})
-    if not request_id:
-        request_id = str(uuid.uuid4())
-
+    logged = parse_persona_for_logging(persona, agent_name)
+    warnings = list(logged.warnings)
+    if persona_action is not None and persona_action not in ("keep", "switch", "refresh", "restore"):
+        warnings.append("persona_action is not one of keep, switch, refresh, restore")
+        if logged.status == "client-reported":
+            logged.status = "unverified"
+    if persona_action is not None and persona is None:
+        warnings.append("persona_action was sent without persona")
     debug_log("log_interaction", "req", {
         "agent_name": agent_name,
         "request_id": request_id,
@@ -967,7 +976,31 @@ async def log_interaction(
         "curated": bool(intent or action or outcome or files or tags),
         "files": files or [],
         "tags": tags or [],
+        "persona_status": logged.status,
+        "persona_action": persona_action,
+        "warnings": warnings,
     })
+    try:
+        client = client_context(ctx)
+        root = client.require_root()
+    except ValueError as error:
+        return error_response(error, request_id, instruction=(
+            "Nothing was logged. Keep the current activation; on workspace_required, "
+            "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
+            "retry logging in a loop."
+        ))
+    attribution_status = logged.status or ("unverified" if persona_action is not None else None)
+    attribution = {}
+    if attribution_status:
+        attribution["attribution"] = attribution_status
+        if logged.descriptor is not None:
+            attribution["persona"] = logged.descriptor.model_dump()
+        if persona_action is not None:
+            attribution["persona_action"] = _short_action(persona_action)
+    if warnings:
+        attribution["warnings"] = warnings
+    if not request_id:
+        request_id = str(uuid.uuid4())
 
     # Issued once; shown by the model in the answer and stored in both sinks.
     timestamp = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
@@ -1001,23 +1034,20 @@ async def log_interaction(
         except Exception as e:
             logger.error("Langfuse logging failed: %s", e, exc_info=True)
 
-    # --- History append (always; defaults to raw query/response) ---
+    # --- History append (defaults to raw query/response) ---
     def _send_history() -> None:
         history_path = str(root / "history.md")
         try:
             writer = HistoryWriter(history_path, str(root / "history"))
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
-            if active:
-                eff_action += (
-                    f"\nPersona (client-reported): {active.agent}; "
-                    f"activation={active.activation_id}; revision={active.bundle_revision}; "
-                    f"action={persona_action or 'unspecified'}"
-                )
+            dedupe_action = eff_action
+            if line := persona_history_line(logged, persona_action):
+                eff_action += "\n" + line
             eff_outcome = (outcome or response_content or "").strip()
             result = writer.append_entry(
                 eff_intent, eff_action, eff_outcome, files, tags,
-                {"answer_timestamp": timestamp},
+                {"answer_timestamp": timestamp}, dedupe_action=dedupe_action,
             )
             if result.get("status") == "error":
                 logger.error("History append failed: %s", result.get("error"))
@@ -1045,6 +1075,12 @@ async def log_interaction(
         **workspace_report,
         **attribution,
     }
+    if warnings:
+        payload["instruction"] = (
+            "The turn was logged with unverified attribution. Do not retry logging. "
+            "Next time pass the full `persona` object from the last SUCCESS/NO_CHANGE "
+            "verbatim, and persona_action only together with it."
+        )
     debug_log("log_interaction", "res", payload)
     return json.dumps(payload, ensure_ascii=False)
 
@@ -1054,7 +1090,7 @@ async def log_interaction(
 @observe(name="describe_repo")
 async def describe_repo(
     ctx: Context | None = None,
-    repo_path: Optional[str] = None,
+    repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
     force_refresh: bool = False,
 ) -> str:
     """One-shot repo bootstrap.
@@ -1141,8 +1177,8 @@ async def describe_repo(
 async def write_repo_summary(
     summary: str,
     repo_hash: str,
-    repo_path: Optional[str] = None,
-    workspace_id: Optional[str] = None,
+    repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
+    workspace_id: ta.opt_str("Optional workspace id returned by describe_repo.") = None,
     ctx: Context | None = None,
 ) -> str:
     """Persist a repository summary after describe_repo returned status='needs_summary'.
@@ -1189,8 +1225,8 @@ async def write_repo_summary(
 @observe(name="read_history")
 async def read_history(
     limit: int = 20,
-    since: Optional[str] = None,
-    query: Optional[str] = None,
+    since: ta.opt_str("Optional ISO8601 prefix; only entries at or after it.") = None,
+    query: ta.opt_str("Optional text to search the history for.") = None,
     ctx: Context | None = None,
 ) -> str:
     """Read recent history entries or run a lazy semantic search.

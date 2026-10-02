@@ -120,8 +120,13 @@ class HistoryWriter:
         files: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        dedupe_action: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Append a single entry; returns a JSON-friendly status dict."""
+        """Append a single entry; returns a JSON-friendly status dict.
+
+        ``dedupe_action`` replaces ``action`` in the content hash, so a retry that
+        differs only in an appended attribution line is still a duplicate.
+        """
         intent = (intent or "").strip()
         action = (action or "").strip()
         outcome = (outcome or "").strip()
@@ -131,7 +136,7 @@ class HistoryWriter:
                 "error": "intent, action, and outcome are all required",
             }
 
-        entry_id = self._compute_entry_hash(intent, action, outcome)
+        entry_id = self._compute_entry_hash(intent, (dedupe_action or action).strip(), outcome)
 
         os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
 
