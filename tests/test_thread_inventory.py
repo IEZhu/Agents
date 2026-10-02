@@ -505,6 +505,10 @@ def test_references_from_any_tool_input_but_not_file_contents():
         'git commit -q -m "$(…)"', "git push"]),
     ("bash -c 'cd /w && git push origin x' && sh -ec \"gh pr merge 5\"", ["git push origin x", "gh pr merge 5"]),
     ("bash run.sh <<'EOF'\ngit push\nEOF", []),
+    ("cat > n.md <<EOF\nSee $(git push origin main) and `gh pr merge 5`\n\\$(git reset --hard)\nEOF", [
+        "git push origin main", "gh pr merge 5"]),  # an unquoted body runs its substitutions
+    ("cat > n.md <<'EOF'\n$(git push)\nEOF\ncat > m.md <<\\EOF\n`git push`\nEOF", []),
+    ('cat > n.md <<"EOF"\n$(git push)\nEOF', []),
     ("r(){ gh api -X POST repos/o/r/pulls/1/comments/$1/replies -f body=\"$2\"; }", [
         'gh api -X POST repos/o/r/pulls/1/comments/$1/replies -f body="$2"']),
     ("for f in a b; do git hash-object $f; done && git hash-object -w x", ["git hash-object -w x"]),

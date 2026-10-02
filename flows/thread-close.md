@@ -295,7 +295,9 @@ requires for every answer. Do not make a second call:
 - `persona_action`: `switch` when the flow's `persona_activation` returned
   `SUCCESS` in this turn, `keep` when it returned `NO_CHANGE` or `ERROR`;
 - `query`: the user's request, verbatim;
-- `response_content`: the report exactly as it will be delivered.
+- `response_content`: the report exactly as it will be delivered, footer
+  included, but without the time line that the `answer-timestamp` rule puts
+  first once this call returns.
 
 In `apply` mode, also curate the call:
 

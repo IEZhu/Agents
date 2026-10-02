@@ -24,8 +24,9 @@ Shell commands are split into simple commands at unquoted operators and line end
 so quoted text is never read as a command, while command substitutions and the
 scripts of `bash -c` are. A heredoc body counts as commands only when a shell reads
 it; otherwise it is data, such as a commit message or a file, and its references
-are not collected. A heredoc without its delimiter line takes the rest of the
-command, as the shell reads it.
+are not collected. Only the command substitutions of an unquoted body (`<<EOF`)
+run. A heredoc without its delimiter line takes the rest of the command, as the
+shell reads it.
 
 Token usage is counted once per model response: the transcript repeats a response's
 usage on every entry (thinking, text, tool call) that the response produced. Texts
@@ -52,7 +53,8 @@ GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\
 SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
 SHELL_SPECIAL = re.compile(r"[\\'\"#<\n;|&()`]")
 QUOTE_END = {"'": re.compile(r"'"), "$'": re.compile(r"['\\]"), '"': re.compile(r'["\\`]|\$\(')}
-HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([^\s;&|<>()'\"]+))")
+HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|(\\?)([^\s;&|<>()'\"]+))")
+BODY_EXPANSION = re.compile(r"\\|`|\$\(")  # what an unquoted heredoc body runs, and its escape
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 COMMAND_PREFIXES = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "time", "exec", "command",
                     "builtin", "nohup", "env", "sudo"}
@@ -235,6 +237,29 @@ def _heredoc_body(command: str, index: int, delimiter: str, tabs: bool) -> tuple
     return "\n".join(lines), min(index, length)
 
 
+def _expansions(body: str, depth: int) -> list[str]:
+    """Commands that an unquoted heredoc body runs: its `$(…)` and backquoted substitutions.
+    The rest of the body is data, and an escaped `\\$(` stays text."""
+    segments, index, length = [], 0, len(body)
+    if depth >= MAX_DEPTH:
+        return segments
+    while True:
+        match = BODY_EXPANSION.search(body, index)
+        if not match:
+            return segments
+        index = match.start()
+        if match.group() == "\\":
+            index += 2
+        elif match.group() == "`":
+            end = body.find("`", index + 1)
+            end = length if end < 0 else end
+            segments.extend(_segments(body[index + 1:end]))
+            index = end + 1
+        else:
+            inner, index = _parse(body, index + 2, depth + 1)
+            segments.extend(inner)
+
+
 def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
     """Where a shell takes its commands from: ("script", text) for -c, ("stdin", None) or ("file", None)."""
     index = 1
@@ -258,7 +283,8 @@ def _segments(command: str) -> list[str]:
     """Simple commands of a shell command line, split at unquoted operators and line ends.
 
     Command substitutions become segments of their own and `$(…)` in the command around
-    them. A heredoc body is skipped unless a shell reads it, as in `bash <<'EOF'`.
+    them. A heredoc body is data unless a shell reads it, as in `bash <<'EOF'`, but the
+    substitutions of an unquoted body (`<<EOF`) run.
     """
     return _parse(command, 0, 0)[0]
 
@@ -339,8 +365,10 @@ def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
             heredoc = HEREDOC.match(command, index)
             text = heredoc.group() if heredoc else "<<"
             if heredoc:
-                delimiter = next(group for group in heredoc.groups()[1:] if group is not None)
-                heredocs.append((delimiter, heredoc.group(1) == "-", "".join(current)))
+                single, double, escaped, word = heredoc.group(2, 3, 4, 5)
+                delimiter = next(part for part in (single, double, word) if part is not None)
+                quoted = word is None or bool(escaped)  # 'EOF', "EOF" and \EOF keep the body text
+                heredocs.append((delimiter, heredoc.group(1) == "-", "".join(current), quoted))
             current.append(text)
             index += len(text)
         elif char == "<":
@@ -350,11 +378,13 @@ def _parse(command: str, index: int, depth: int) -> tuple[list[str], int]:
         elif char == "\n":
             flush()
             index += 1
-            for delimiter, tabs, owner in heredocs:
+            for delimiter, tabs, owner, quoted in heredocs:
                 body, index = _heredoc_body(command, index, delimiter, tabs)
                 tokens = _command_tokens(owner)
                 if tokens and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin":
                     segments.extend(_segments(body))
+                elif not quoted:
+                    segments.extend(_expansions(body, depth))
             heredocs = []
         elif char == "&" and (command[index - 1:index] in (">", "<") or command.startswith(">", index + 1)):
             current.append(char)  # a redirection such as 2>&1 or &>file
