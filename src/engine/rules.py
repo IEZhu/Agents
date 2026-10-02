@@ -122,7 +122,7 @@ def _parse_rule_file(path: str, *, strict: bool = False) -> Optional[Rule]:
     raw_priority = fm.get("priority", 50)
     try:
         priority = int(raw_priority)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: priority: .inf
         # A non-numeric priority (e.g. "high", a list) used to crash the entire
         # enrichment pipeline because this exception bubbled up to every request.
         # Skip the rule instead — one malformed file must not break routing.
