@@ -81,6 +81,7 @@ SCOPE_IN, SCOPE_OUT = object(), object()
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
+ARRAY_ASSIGNMENT = re.compile(r"(?:^|\s)[A-Za-z_]\w*\+?=$")  # NAME=( starts array elements, which are data
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
@@ -266,6 +267,10 @@ def _command_tokens(segment: str, dirs: list | None = None) -> list[str]:
         word = os.path.basename(tokens[0]) if tokens[0].startswith("/") else tokens[0]
         if word in KEYWORDS or ASSIGNMENT.match(word):
             tokens = tokens[1:]
+        elif word in ("<<", "<<-", "<<<") or REDIRECTION.fullmatch(word):
+            tokens = tokens[2:]  # a redirection before the program, and its target
+        elif REDIRECTION.match(word):
+            tokens = tokens[1:]  # >out, 2>/tmp/e or <<EOF before the program
         elif word == "function":
             tokens = tokens[2:]  # `function name { … }`: the body follows the name
         elif word in WRAPPERS:
@@ -342,6 +347,17 @@ def _expansions(body: str, depth: int) -> list[str]:
 def _scoped(segments: list) -> list:
     """Segments that run in a subshell or a child shell, between scope markers."""
     return [SCOPE_IN, *segments, SCOPE_OUT]
+
+
+def _substitutions(segments: list) -> list:
+    """Only the scoped segments, such as the substitutions among array elements that are data."""
+    kept, depth = [], 0
+    for segment in segments:
+        depth += segment is SCOPE_IN
+        if depth:
+            kept.append(segment)
+        depth -= segment is SCOPE_OUT
+    return kept
 
 
 def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
@@ -501,12 +517,13 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             index += 1
         elif char == "(" and depth < MAX_DEPTH:
             substitution = command[index - 1:index] == "$"
-            if not substitution:
+            array = not substitution and bool(ARRAY_ASSIGNMENT.search("".join(current[-1:])))
+            if not substitution and not array:
                 flush()  # a subshell, a group or a function's parentheses
             inner_context = "$(" if substitution or context == "$(" else "("
             inner, index = _parse(command, index + 1, depth + 1, inner_context)
-            segments.extend(_scoped(inner))
-            if substitution:
+            segments.extend(_substitutions(inner) if array else _scoped(inner))
+            if substitution or array:
                 current.append("(…)")
         elif char == ")":
             flush()
@@ -824,8 +841,14 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             pending.extend(_scoped(_segments(script))[::-1])  # `bash -c '<script>'` runs them in a child shell
         elif program == "eval" and len(tokens) > 1:
             pending.extend(_segments(" ".join(tokens[1:]))[::-1])
-        elif program == "trap" and len(tokens) > 2:
-            pending.extend(_segments(tokens[1])[::-1])  # the command run on exit or a signal
+        elif program == "trap":
+            args = tokens[1:]
+            if args[:1] == ["--"]:
+                args = args[1:]
+            elif args and args[0].startswith("-"):
+                args = []  # -p prints, -l lists and - resets: no handler
+            if len(args) > 1:
+                pending.extend(_segments(args[0])[::-1])  # the command run on exit or a signal
         elif program == "cd" and len(tokens) > 1:
             current = _resolve(tokens[1], current)
             if current:

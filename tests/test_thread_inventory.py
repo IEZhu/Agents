@@ -577,6 +577,11 @@ def test_line_continuations_and_code_lines_in_heredocs():
         "env -i PATH=/bin git push", "env -u X git tag v2", "time -p gh issue close 5", "nice -n 10 git gc"]),
     ("X+=1 git push && command -v git", ["X+=1 git push"]),
     ("/usr/bin/time -o timing.txt git push", ["/usr/bin/time -o timing.txt git push"]),
+    (">out git push; 2>/tmp/e gh issue close 1; < in.txt git apply", [
+        ">out git push", "2>/tmp/e gh issue close 1", "< in.txt git apply"]),
+    ('args=(git push origin main); declare -a more=(gh pr merge 5) && files=($(git ls-files) "$(git push)")', [
+        "git push"]),  # array elements are data, their substitutions run
+    ("trap -- 'git push origin x' EXIT; trap -p EXIT; trap - EXIT", ["git push origin x"]),
     ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [
         "git push origin main", "gh pr merge 5"]),
     ("bash -euo pipefail <<'EOF'\ngit push\nEOF\nbash -euo pipefail -c 'git tag v1'; bash <<< 'gh pr merge 6'", [

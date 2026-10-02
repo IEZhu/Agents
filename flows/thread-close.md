@@ -252,10 +252,9 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
-- **Secrets and personal data.** Scan everything you persist or report, and
-  replace secrets with references. Keep medical, financial and other personal
-  details out of cloud logs and shared stores unless the user has allowed them.
-  The report is logged in both modes, so this applies to the report too.
+- **Secrets and personal data.** Scan everything you persist or report: replace
+  secrets with references and leave out medical, financial and other personal
+  details. The report is logged in both modes, so this applies to the report too.
 
 ## 7. Clean up (`apply`)
 
