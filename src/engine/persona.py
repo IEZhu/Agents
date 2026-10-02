@@ -19,7 +19,10 @@ APPLY_INSTRUCTION = (
     "rules supersede previous rules on switches, restores, and refreshes. Preserve "
     "higher-priority instructions, conversation, facts, goals, constraints, user "
     "permissions, and tool results. "
-    "This is a logical replacement, not deletion of transcript messages."
+    "This is a logical replacement, not deletion of transcript messages. "
+    "When a log_interaction or read_history result carries history_last_error, or "
+    "returns workspace_required, workspace_unsafe or workspace_invalid, mention it "
+    "once in the answer and do not retry logging in a loop."
 )
 
 

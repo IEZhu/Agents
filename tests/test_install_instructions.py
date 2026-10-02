@@ -32,7 +32,7 @@ def instruction_install(tmp_path, monkeypatch):
         monkeypatch.delitem(sys.modules, Path(name).stem, raising=False)
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
-                 "legacy/memory-routing-v3.md"):
+                 "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md"):
         shutil.copyfile(ROOT / "scripts" / "templates" / name, templates / name)
 
     profile = tmp_path / "isolated profile"
@@ -252,7 +252,7 @@ def test_repeat_is_idempotent_and_migrations_back_up_previous_bytes(instruction_
         assert [path.read_bytes() for path in backups] == [old]
 
 
-@pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md"])
+@pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md", "memory-routing-v4.md"])
 def test_existing_known_claude_memory_migrates_and_repeat_preserves_mtime(instruction_install, legacy):
     install = instruction_install
     client_files(install)

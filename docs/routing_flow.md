@@ -67,7 +67,7 @@ not establish support for a client and model; see the
 | `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
-| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency, returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (sink errors go to the server log; queued writes are drained on shutdown). Invalid attribution returns `ERROR` without `timestamp` |
+| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency, returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (a failed history write is logged once per path and errno and reported on the next result as `history_last_error`; Langfuse errors go to the server log; queued writes are drained on shutdown). Invalid attribution returns `ERROR` without `timestamp` |
 
 When the semantic cache has no decision, `route_and_load` loads `universal_agent`
 instead of returning `ROUTE_REQUIRED` for a standalone greeting,
@@ -191,10 +191,13 @@ UUID. Global connections can route and load personas without that header, but
 `describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
 a valid workspace. Over stdio, the workspace is the client root from
 `AGENTS_CLIENT_REPO_ROOT`, or one inferred from `CLAUDE_PROJECT_DIR` or the working
-directory; an inferred filesystem root, or on Windows a directory inside the
-Windows directory, is refused with `workspace_required` (resolution order:
-[Repository Memory](../README.md#-repository-memory)). On `workspace_required`
-or `workspace_invalid`, keep routing and report unavailable memory without
+directory. A launch directory without `.git` or `CLAUDE.md` is refused with
+`workspace_required`; a filesystem root, the home directory or a system or program
+directory (also as `AGENTS_CLIENT_REPO_ROOT`) with `workspace_unsafe` (resolution
+order: [Repository Memory](../README.md#-repository-memory)). The results of
+`log_interaction` and `read_history` report `workspace` and `pid`, and
+`history_last_error` after a failed history write. On `workspace_required`,
+`workspace_unsafe` or `workspace_invalid`, keep routing and report unavailable memory without
 retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
 `repo_path`, and `repo_hash` in the follow-up write. See
 [memory and errors](shared-mcp-daemon.md#memory-and-errors).

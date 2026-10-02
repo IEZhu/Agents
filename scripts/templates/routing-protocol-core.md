@@ -87,6 +87,9 @@ the tool loop as soon as the final answer is sent.
 Logging is permitted on `keep`; routing and enrichment are not. The log records
 declared attribution, not proof of the model's compliance. If a requested change
 failed, retain the previous descriptor and report that outcome in the log.
+When a `log_interaction` or `read_history` result carries `history_last_error`, or
+returns `workspace_required`, `workspace_unsafe` or `workspace_invalid`, mention it
+once in the answer and do not retry logging in a loop.
 
 ## Compatibility and unavailable servers
 

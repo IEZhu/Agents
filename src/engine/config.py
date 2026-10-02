@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -33,7 +34,16 @@ _CLIENT_ROOT_MARKERS = (".git", "CLAUDE.md")
 
 
 class ClientRootError(RuntimeError):
-    """No safe client repo root can be inferred for per-repo memory or flows."""
+    """No safe client repo root can be inferred for per-repo memory or flows.
+
+    `code` is the protocol error code: `workspace_required` when no project
+    could be inferred, `workspace_unsafe` when the candidate is a system or
+    home directory.
+    """
+
+    def __init__(self, message: str, code: str = "workspace_required"):
+        super().__init__(message)
+        self.code = code
 
 
 def _find_marker_upwards(start: Path) -> Optional[Path]:
@@ -49,12 +59,48 @@ def _find_marker_upwards(start: Path) -> Optional[Path]:
     return None
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def _windows_directory() -> Optional[Path]:
     """`%SystemRoot%` (normally C:\\Windows) on Windows, otherwise None."""
-    if os.name != "nt":
+    if not _is_windows():
         return None
     system_root = os.environ.get("SystemRoot") or os.environ.get("windir")
     return Path(os.path.realpath(system_root)) if system_root else None
+
+
+def _real(path: Optional[str]) -> Optional[Path]:
+    return Path(os.path.realpath(path)) if path else None
+
+
+def _inside(root: Path, base: Path) -> bool:
+    """`root` is `base` or below it; case-insensitive on macOS, whose volumes are."""
+    if sys.platform == "darwin":
+        root, base = Path(str(root).casefold()), Path(str(base).casefold())
+    return root.is_relative_to(base)
+
+
+def _home_directory() -> Optional[Path]:
+    try:
+        return _real(os.path.expanduser("~"))
+    except (OSError, RuntimeError):
+        return None
+
+
+# POSIX directories that hold no project themselves. Exact entries refuse only
+# the directory itself (projects below them are fine); subtree entries refuse
+# everything under them. /private/tmp, /private/var/folders (macOS TMPDIR and
+# pytest tmp_path) and /usr/local stay allowed.
+_POSIX_UNSAFE_EXACT = (
+    "/usr", "/var", "/private", "/private/var", "/Users", "/home", "/Library",
+)
+_POSIX_UNSAFE_SUBTREES = (
+    "/System", "/bin", "/sbin", "/etc", "/private/etc", "/private/var/db",
+    "/private/var/root", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/libexec",
+    "/usr/share",
+)
 
 
 def _unsafe_client_root_reason(root: Path) -> Optional[str]:
@@ -69,6 +115,26 @@ def _unsafe_client_root_reason(root: Path) -> Optional[str]:
     windows_dir = _windows_directory()
     if windows_dir is not None and root.is_relative_to(windows_dir):
         return f"it is inside the Windows directory {windows_dir}"
+    if _is_windows():
+        for name in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData"):
+            base = _real(os.environ.get(name))
+            if base is not None and root.is_relative_to(base):
+                return f"it is inside %{name}% {base}"
+        users = _real(os.path.join(os.environ.get("SystemDrive", "C:") + os.sep, "Users"))
+        if users is not None and root == users:
+            return f"it is the users directory {users}"
+    else:
+        for path in _POSIX_UNSAFE_SUBTREES:
+            base = _real(path)
+            if base is not None and _inside(root, base):
+                return f"it is inside the system directory {path}"
+        for path in _POSIX_UNSAFE_EXACT:
+            base = _real(path)
+            if base is not None and _inside(root, base) and _inside(base, root):
+                return f"it is the system directory {path}"
+    home = _home_directory()
+    if home is not None and _inside(root, home) and _inside(home, root):
+        return f"it is the home directory {home}"
     return None
 
 
@@ -79,34 +145,53 @@ def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
       1. `AGENTS_CLIENT_REPO_ROOT` env var — authoritative override.
       2. Walk up from the start directory to the nearest directory containing
          `.git` or `CLAUDE.md`.
-      3. Fallback: the start directory itself.
+      3. Fallback: `CLAUDE_PROJECT_DIR` itself when no marker is found. A bare
+         cwd without a marker is refused (`workspace_required`).
 
     The start directory is `CLAUDE_PROJECT_DIR` when it names an existing
     directory (Claude Code exports it to the stdio servers it spawns), else
-    `os.getcwd()`. Steps 2-3 raise `ClientRootError` instead of returning a
-    filesystem root or a directory inside the Windows directory.
+    `os.getcwd()`. Every step raises `ClientRootError` instead of returning a
+    filesystem root, a system or home directory (`workspace_unsafe`).
 
     With allow_install_fallback=False, an unavailable cwd raises OSError
     instead of selecting the installation as the target of a workflow.
     Memoized for the process lifetime; failures are not cached. Tests reset
     via `_reset_client_repo_root_cache()`.
     """
-    root, used_install_fallback = _resolve_client_repo_root()
+    return get_client_repo_root_info(allow_install_fallback=allow_install_fallback)[0]
+
+
+def get_client_repo_root_info(*, allow_install_fallback: bool = True) -> tuple[str, str]:
+    """Like `get_client_repo_root()`, plus how the root was found.
+
+    The source is `env`, `CLAUDE_PROJECT_DIR`, `cwd` or `install` (fallback for
+    a deleted cwd).
+    """
+    root, used_install_fallback, source = _resolve_client_repo_root()
     if used_install_fallback and not allow_install_fallback:
         raise OSError("workspace_required: cwd unavailable; set AGENTS_CLIENT_REPO_ROOT")
-    return root
+    return root, source
 
 
 @lru_cache(maxsize=1)
-def _resolve_client_repo_root() -> tuple[str, bool]:
-    """Pin one identity for both memory and flows, retaining fallback provenance."""
+def _resolve_client_repo_root() -> tuple[str, bool, str]:
+    """Pin one identity for both memory and flows: (root, install fallback, source)."""
     override = os.environ.get("AGENTS_CLIENT_REPO_ROOT")
     if override:
-        resolved = os.path.realpath(os.path.expanduser(override))
-        # Debug-level so the server's INFO-configured root logger stays quiet
-        # on normal startup; AGENTS_DEBUG=1 surfaces these when diagnosing.
-        logger.debug("client-repo-root: env override -> %s", resolved)
-        return resolved, False
+        resolved = Path(os.path.realpath(os.path.expanduser(override)))
+        # Validate before any filesystem side effect: a mistaken `~` or `C:\\`
+        # would otherwise collect every project's history.
+        reason = _unsafe_client_root_reason(resolved)
+        if reason is not None:
+            raise ClientRootError(
+                f"refusing {resolved} (from AGENTS_CLIENT_REPO_ROOT) as the client repo "
+                f"root for per-repo memory and flows: {reason}. Set "
+                "AGENTS_CLIENT_REPO_ROOT only to one project's directory, and only "
+                "on a per-project registration.",
+                code="workspace_unsafe",
+            )
+        _log_resolution(str(resolved), "env")
+        return str(resolved), False, "env"
 
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
     if project_dir and os.path.isdir(project_dir):
@@ -124,12 +209,10 @@ def _resolve_client_repo_root() -> tuple[str, bool]:
                 "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
                 err,
             )
-            return INSTALL_ROOT, True
+            return INSTALL_ROOT, True, "install"
 
     root = _find_marker_upwards(start)
-    if root is not None:
-        logger.debug("client-repo-root: walk-up marker from %s -> %s", source, root)
-    else:
+    if root is None:
         try:
             root = start.resolve()
         except OSError as err:
@@ -138,17 +221,35 @@ def _resolve_client_repo_root() -> tuple[str, bool]:
                 source,
                 err,
             )
-            return INSTALL_ROOT, True
-        logger.debug("client-repo-root: fallback %s -> %s", source, root)
+            return INSTALL_ROOT, True, "install"
+        if source == "cwd":
+            # The cwd of a shared or desktop-owned process says nothing about
+            # the project; only a directory the client named is trusted.
+            reason = _unsafe_client_root_reason(root)
+            raise ClientRootError(
+                f"refusing {root} (from cwd {start}) as the client repo root for "
+                "per-repo memory and flows: "
+                f"{reason or 'it has no .git or CLAUDE.md marker'}. Start the MCP "
+                "server in a project with .git or CLAUDE.md, as Claude Code does, "
+                "or set AGENTS_CLIENT_REPO_ROOT.",
+                code="workspace_unsafe" if reason else "workspace_required",
+            )
 
     reason = _unsafe_client_root_reason(root)
     if reason is not None:
         raise ClientRootError(
             f"refusing {root} (from {source} {start}) as the client repo root for "
             f"per-repo memory and flows: {reason}. Start the MCP server in the "
-            "project directory, as Claude Code does, or set AGENTS_CLIENT_REPO_ROOT."
+            "project directory, as Claude Code does, or set AGENTS_CLIENT_REPO_ROOT.",
+            code="workspace_unsafe",
         )
-    return str(root), False
+    _log_resolution(str(root), source)
+    return str(root), False, source
+
+
+def _log_resolution(root: str, source: str) -> None:
+    """Log the resolved root once per process (the result is memoized)."""
+    logger.info("client-repo-root: %s (source=%s, pid=%d)", root, source, os.getpid())
 
 
 def _reset_client_repo_root_cache() -> None:

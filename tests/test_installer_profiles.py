@@ -39,7 +39,7 @@ def profile_installer(request, tmp_path):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
-                 "legacy/memory-routing-v3.md"):
+                 "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
     home = tmp_path / "isolated home"
     home.mkdir()

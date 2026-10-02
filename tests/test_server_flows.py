@@ -109,7 +109,7 @@ async def test_stdio_cwd_in_windows_directory_is_refused(environment, tmp_path, 
     monkeypatch.chdir(windows / "System32")
     result = json.loads(await server.run_flow("check"))
     assert result["status"] == "error"
-    assert result["error"].startswith("workspace_required: refusing")
+    assert result["error"].startswith("workspace_unsafe: refusing")
     listing = json.loads(await server.list_flows())
     assert listing["status"] == "success" and listing["repo"]["status"] == "unavailable"
 
@@ -266,3 +266,27 @@ async def test_run_flow_persona_waits_for_readiness(environment, tmp_path, monke
     assert result["persona_activation"]["status"] == "ERROR"
     assert result["persona_activation"]["message"].startswith("warming_up")
     assert not built
+
+
+@pytest.mark.asyncio
+async def test_stdio_markerless_cwd_and_program_files_never_become_repo_path(environment, tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
+    monkeypatch.setattr(config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
+    config._reset_client_repo_root_cache()
+    result = json.loads(await server.run_flow("check"))
+    assert result["status"] == "error" and result["error"].startswith("workspace_required: refusing")
+    assert "repo_path" not in result
+
+    programs = tmp_path / "Program Files"
+    (programs / "tool").mkdir(parents=True)
+    monkeypatch.setattr(config, "_is_windows", lambda: True)
+    monkeypatch.setattr(config, "_windows_directory", lambda: None)
+    monkeypatch.setenv("ProgramFiles", str(programs))
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(programs / "tool"))
+    config._reset_client_repo_root_cache()
+    result = json.loads(await server.run_flow("check"))
+    assert result["status"] == "error" and result["error"].startswith("workspace_unsafe: refusing")
+    assert "repo_path" not in result

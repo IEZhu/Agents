@@ -191,3 +191,30 @@ async def test_slash_prompt_directs_the_needs_summary_fallback():
     assert "needs_summary" in text and "write_repo_summary" in text
     for key in ("repo_hash", "repo_path", "workspace_id"):
         assert key in text
+
+
+@pytest.mark.asyncio
+async def test_memory_tools_refuse_markerless_cwd(tmp_path, monkeypatch):
+    """A cwd without .git or CLAUDE.md is no project: nothing is read or written."""
+    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+    monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
+    engine_config._reset_client_repo_root_cache()
+    try:
+        logged = json.loads(await server.log_interaction("software_engineer", "q", "r"))
+        history = json.loads(await server.read_history())
+        described = json.loads(await server.describe_repo())
+        written = json.loads(await server.write_repo_summary(
+            summary=_valid_summary(), workspace_id=None, repo_hash="x", repo_path=str(plain),
+        ))
+    finally:
+        engine_config._reset_client_repo_root_cache()
+    assert logged["status"] == "ERROR" and logged["message"].startswith("workspace_required")
+    for result in (history, described, written):
+        assert result["status"] == "error", result
+        assert "workspace_required" in result["error"]
+    assert list(plain.iterdir()) == []
