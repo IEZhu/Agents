@@ -469,7 +469,7 @@ def test_committed_pending_payload_is_not_archived_twice(tmp_path, history_path)
     assert not os.path.exists(history_path + ".rotating") or Path(history_path + ".rotating").stat().st_size == 0
 
 
-def test_cleanup_failure_after_archive_commit_does_not_restore_pending(tmp_path, history_path, monkeypatch):
+def test_cleanup_failure_after_archive_commit_does_not_restore_pending(tmp_path, history_path, monkeypatch, caplog):
     archive_dir = tmp_path / "history"
     writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
     for i in range(3):
@@ -489,8 +489,12 @@ def test_cleanup_failure_after_archive_commit_does_not_restore_pending(tmp_path,
 
     monkeypatch.setattr("src.memory.history.os.unlink", locked_unlink)
     monkeypatch.setattr("src.memory.history.open", locked_open, raising=False)
-    writer.append_entry("tail " + "y" * 2000, "a", "o" * 600)
+    with caplog.at_level("WARNING"):
+        writer.append_entry("tail " + "y" * 2000, "a", "o" * 600)
+        writer.append_entry("again", "a", "o")
+        writer.append_entry("and again", "a", "o")
     monkeypatch.undo()
+    assert len([r for r in caplog.records if "could not clear archived pending" in r.getMessage()]) <= 1
     live = Path(history_path).read_text(encoding="utf-8")
     archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
     assert "tail " in archived

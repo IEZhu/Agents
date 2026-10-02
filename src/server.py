@@ -930,10 +930,11 @@ async def log_interaction(
     ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
-    background with that timestamp; their failures are logged once per
-    path and errno (WARNING, ``code=history_unwritable``), reported on the next
-    result as ``history_last_error`` and do not prevent each other. An unavailable workspace or invalid
-    attribution writes nothing and returns a protocol ERROR without ``timestamp``.
+    background with that timestamp and do not prevent each other. A
+    failed history write is logged once per path and errno (WARNING,
+    ``code=history_unwritable``) and reported on the next result as
+    ``history_last_error``; Langfuse failures are only logged. An unavailable
+    workspace or invalid attribution writes nothing and returns a protocol ERROR without ``timestamp``.
     """
     try:
         client = client_context(ctx)

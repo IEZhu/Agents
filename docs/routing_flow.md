@@ -67,7 +67,7 @@ not establish support for a client and model; see the
 | `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
-| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency, returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (sink errors go to the server log; queued writes are drained on shutdown). Invalid attribution returns `ERROR` without `timestamp` |
+| `log_interaction(..., persona=..., persona_action=...)` | Checks agent/descriptor consistency, returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (a failed history write is logged once per path and errno and reported on the next result as `history_last_error`; Langfuse errors go to the server log; queued writes are drained on shutdown). Invalid attribution returns `ERROR` without `timestamp` |
 
 When the semantic cache has no decision, `route_and_load` loads `universal_agent`
 instead of returning `ROUTE_REQUIRED` for a standalone greeting,

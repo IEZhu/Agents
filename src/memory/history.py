@@ -330,7 +330,10 @@ class HistoryWriter:
             with open(pending, "w", encoding="utf-8"):
                 pass
         except OSError as err:
-            logger.warning("could not clear archived pending file %s: %s", pending, err)
+            key = (pending, getattr(err, "errno", None))
+            if key not in _ROTATION_WARNED:
+                _ROTATION_WARNED.add(key)
+                logger.warning("could not clear archived pending file %s: %s", pending, err)
 
     @staticmethod
     def _archive_ends_with(archive_path: str, payload: str) -> bool:
