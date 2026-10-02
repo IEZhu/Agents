@@ -325,6 +325,15 @@ def test_git_clone_and_init_destinations_are_directories():
     assert [d for d in unresolved["directories"] if "$" in d] == []  # a shell variable is not a path
 
 
+def test_cd_in_a_subshell_or_child_shell_stays_there():
+    inv = thread_inventory.inventory(bash(
+        "(cd /tmp/other); git init next && cd /a && (cd b && git init x) && git init y"
+        " && bash -c 'cd /z' && git init w && echo \"$(cd /q && pwd)\" `cd /r` && git init v", "sc"))
+    dirs = set(inv["directories"])
+    assert {"/work/repo/next", "/a/b/x", "/a/y", "/a/w", "/a/v"} <= dirs
+    assert not {"/tmp/other/next", "/z/w", "/q/v", "/r/v"} & dirs
+
+
 def test_pasted_notifications_end_no_task():
     entries = [
         *bash("sleep 600", "b1", run_in_background=True),
@@ -453,6 +462,18 @@ def test_git_tag_and_branch_list_unless_given_a_name(command, kind):
 
 
 @pytest.mark.parametrize("command, kind", [
+    ("git push --dry-run", "read"), ("git push -n origin x", "read"), ("git clean -n", "read"),
+    ("git clean -fdn", "read"), ("git commit --dry-run", "read"), ("git add -n .", "read"),
+    ("git apply --check x.patch", "read"), ("git worktree prune -n", "read"),
+    ("git remote prune --dry-run origin", "read"), ("git reflog expire -n --all", "read"),
+    ("git apply --stat --apply x.patch", "write"), ("git commit -n -m x", "write"),  # -n is --no-verify
+    ("git clean -fdx", "write"), ("git add -N x", "write"),
+])
+def test_dry_runs_and_checks_are_reads(command, kind):
+    assert thread_inventory.git_kind(command.split()) == kind
+
+
+@pytest.mark.parametrize("command, kind", [
     ("git fetch origin", "read"), ("git fetch --all --prune", "read"), ("git fetch --depth 1 origin main", "read"),
     ("git fetch origin refs/heads/*:refs/remotes/origin/*", "read"), ("git fetch --dry-run origin main:main", "read"),
     ("git fetch origin pull/155/head:pr-155", "write"), ("git fetch origin +main:main", "write"),
@@ -555,6 +576,7 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("env -i PATH=/bin git push; env -u X git tag v2; time -p gh issue close 5; nice -n 10 git gc", [
         "env -i PATH=/bin git push", "env -u X git tag v2", "time -p gh issue close 5", "nice -n 10 git gc"]),
     ("X+=1 git push && command -v git", ["X+=1 git push"]),
+    ("/usr/bin/time -o timing.txt git push", ["/usr/bin/time -o timing.txt git push"]),
     ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [
         "git push origin main", "gh pr merge 5"]),
     ("bash -euo pipefail <<'EOF'\ngit push\nEOF\nbash -euo pipefail -c 'git tag v1'; bash <<< 'gh pr merge 6'", [

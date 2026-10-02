@@ -72,8 +72,12 @@ WRAPPERS = {
     "nice": ({"-n", "--adjustment"}, 0, set()),
     "stdbuf": ({"-i", "--input", "-o", "--output", "-e", "--error"}, 0, set()),
     "exec": ({"-a"}, 0, set()),
-    "time": (set(), 0, set()), "nohup": (set(), 0, set()), "command": (set(), 0, set()),
+    "time": ({"-o", "--output", "-f", "--format"}, 0, set()), "nohup": (set(), 0, set()),
+    "command": (set(), 0, set()),
 }
+# Markers around the commands of a subshell, a substitution or a child shell: a `cd` there
+# does not move the commands after them.
+SCOPE_IN, SCOPE_OUT = object(), object()
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
@@ -155,6 +159,9 @@ GIT_CLONE_VALUES = {"-o", "--origin", "-b", "--branch", "-u", "--upload-pack", "
                     "--filter", "--template", "-j", "--jobs", "--server-option", "--bundle-uri", "--ref-format",
                     "--revision"}
 GIT_INIT_VALUES = {"--template", "--separate-git-dir", "-b", "--initial-branch", "--object-format", "--ref-format"}
+# Subcommands with --dry-run, and those where -n, also in a cluster such as -fdn, means it.
+GIT_DRY_RUN = {"push", "clean", "commit", "add", "rm", "mv", "prune", "filter-repo", "worktree", "remote", "reflog"}
+GIT_DRY_RUN_N = {"push", "clean", "add", "rm", "mv", "prune", "worktree", "remote", "reflog"}
 GIT_FETCH_VALUES = {"--depth", "--deepen", "--shallow-since", "--shallow-exclude", "-j", "--jobs", "--upload-pack",
                     "--negotiation-tip", "-o", "--server-option", "--filter", "--refmap"}
 GH_READ_GROUPS = {"auth", "config", "help", "version", "search", "browse", "status"}  # after GH_WRITES
@@ -325,11 +332,16 @@ def _expansions(body: str, depth: int) -> list[str]:
         elif match.group() == "`":
             end = body.find("`", index + 1)
             end = length if end < 0 else end
-            segments.extend(_segments(body[index + 1:end], depth + 1))
+            segments.extend(_scoped(_segments(body[index + 1:end], depth + 1)))
             index = end + 1
         else:
             inner, index = _parse(body, index + 2, depth + 1, "$(")
-            segments.extend(inner)
+            segments.extend(_scoped(inner))
+
+
+def _scoped(segments: list) -> list:
+    """Segments that run in a subshell or a child shell, between scope markers."""
+    return [SCOPE_IN, *segments, SCOPE_OUT]
 
 
 def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
@@ -403,7 +415,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
     def backquoted(start: int) -> int:
         end = command.find("`", start + 1)
         end = length if end < 0 else end
-        segments.extend(_segments(command[start + 1:end], depth + 1))
+        segments.extend(_scoped(_segments(command[start + 1:end], depth + 1)))
         current.append("`…`")
         return end + 1
 
@@ -417,7 +429,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             index, found = match.start(), match.group()
             if found == "$(" and depth < MAX_DEPTH:  # a substitution inside "..." runs too
                 inner, index = _parse(command, index + 2, depth + 1, "$(")
-                segments.extend(inner)
+                segments.extend(_scoped(inner))
                 current.append("$(…)")
             elif found == "`":
                 index = backquoted(index)
@@ -480,7 +492,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             for delimiter, tabs, reads, quoted in heredocs:
                 body, index = _heredoc_body(command, index, delimiter, tabs, context == "$(")
                 if reads:
-                    segments.extend(_segments(body, depth + 1))
+                    segments.extend(_scoped(_segments(body, depth + 1)))
                 elif not quoted:
                     segments.extend(_expansions(body, depth + 1))
             heredocs = []
@@ -493,7 +505,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
                 flush()  # a subshell, a group or a function's parentheses
             inner_context = "$(" if substitution or context == "$(" else "("
             inner, index = _parse(command, index + 1, depth + 1, inner_context)
-            segments.extend(inner)
+            segments.extend(_scoped(inner))
             if substitution:
                 current.append("(…)")
         elif char == ")":
@@ -562,10 +574,24 @@ def _git_subcommand(tokens: list[str]) -> tuple[str, list[str], list[str]]:
 
 
 def git_kind(tokens: list[str]) -> str:
-    """write, read or unknown for a tokenised `git ...` command."""
+    """write, read or unknown for a tokenised `git ...` command; a dry run or a check reads."""
     sub, args, _ = _git_subcommand(tokens)
     if not sub or "--help" in args or "-h" in args:
         return "read"
+    kind = _git_subcommand_kind(sub, args)
+    return "read" if kind == "write" and _dry_run(sub, args) else kind
+
+
+def _dry_run(sub: str, args: list[str]) -> bool:
+    """Whether a git command that would write runs as a dry run or a check instead."""
+    if sub == "apply":
+        return "--apply" not in args and any(arg in ("--check", "--stat", "--numstat", "--summary") for arg in args)
+    if sub in GIT_DRY_RUN and "--dry-run" in args:
+        return True
+    return sub in GIT_DRY_RUN_N and any(re.fullmatch(r"-[A-Za-z]*n[A-Za-z]*", arg) for arg in args)
+
+
+def _git_subcommand_kind(sub: str, args: list[str]) -> str:
     first = args[0] if args else ""
     if sub in GIT_READ_ONLY:
         return "read"
@@ -772,10 +798,16 @@ def _clone_dir(source: str) -> str | None:
 
 def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
     """Record writes, directories, references and scratchpad paths of one shell command."""
-    current = cwd
+    current, saved = cwd, []
     pending = _segments(command)[::-1]
     while pending:
         segment = pending.pop()
+        if segment is SCOPE_IN:
+            saved.append(current)
+            continue
+        if segment is SCOPE_OUT:
+            current = saved.pop() if saved else current
+            continue
         _scan_refs(segment, sink["refs"], ts)
         dirs: list[str] = []
         tokens = _command_tokens(segment, dirs)
@@ -789,7 +821,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
         program = tokens[0]
         source, script = _shell_input(tokens) if program in SHELLS else (None, None)
         if source == "script" and script:
-            pending.extend(_segments(script)[::-1])  # `bash -c '<script>'` runs the script's commands
+            pending.extend(_scoped(_segments(script))[::-1])  # `bash -c '<script>'` runs them in a child shell
         elif program == "eval" and len(tokens) > 1:
             pending.extend(_segments(" ".join(tokens[1:]))[::-1])
         elif program == "trap" and len(tokens) > 2:
