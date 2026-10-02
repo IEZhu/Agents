@@ -957,12 +957,12 @@ async def log_interaction(
     ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
-    background with that timestamp and do not prevent each other. A
-    failed history write is logged once per path and errno (WARNING,
-    ``code=history_unwritable``) and reported on the next result as
-    ``history_last_error``; Langfuse failures are only logged. Only an
-    unavailable workspace writes nothing: it returns a protocol ERROR without
-    ``timestamp``.
+    background with that timestamp and do not prevent each other; a full queue
+    can also drop a write. A failed history write is logged once per path and
+    errno (WARNING, ``code=history_unwritable``) and reported on the next result
+    as ``history_last_error``; Langfuse failures are only logged. The only
+    request-level rejection is an unavailable workspace: it returns a protocol
+    ERROR without ``timestamp``.
     """
     if not request_id:
         request_id = str(uuid.uuid4())
