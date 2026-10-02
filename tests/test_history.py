@@ -299,3 +299,49 @@ class TestSemanticStore:
         assert "fresh" in results[0]["intent"].lower()
         # Store file was rewritten
         assert os.path.getmtime(npz_path) >= first_mtime
+
+
+class TestRotationWithOpenHandle:
+    """Windows cannot move an open file: rotation must run after the handle closed."""
+
+    def test_rotation_happens_with_append_handle_closed(self, tmp_path, history_path, monkeypatch):
+        import builtins
+
+        writer = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
+        opened = []
+        real_open = builtins.open
+
+        def tracking_open(path, *args, **kwargs):
+            handle = real_open(path, *args, **kwargs)
+            if os.path.abspath(str(path)) == os.path.abspath(history_path) and "a" in (args[0] if args else kwargs.get("mode", "r")):
+                opened.append(handle)
+            return handle
+
+        real_rotate = writer._maybe_rotate_locked
+
+        def rotate_checking_handle():
+            assert opened and all(handle.closed for handle in opened)
+            return real_rotate()
+
+        monkeypatch.setattr(builtins, "open", tracking_open)
+        monkeypatch.setattr(writer, "_maybe_rotate_locked", rotate_checking_handle)
+        statuses = [
+            writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)["status"]
+            for i in range(4)
+        ]
+        monkeypatch.undo()
+        assert statuses == ["recorded"] * 4
+        archives = list((tmp_path / "history").glob("*"))
+        assert len(archives) >= 1
+
+    def test_rotation_failure_still_reports_recorded(self, tmp_path, history_path, monkeypatch, caplog):
+        writer = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
+
+        def boom():
+            raise PermissionError(32, "in use")
+
+        monkeypatch.setattr(writer, "_maybe_rotate_locked", boom)
+        with caplog.at_level("WARNING"):
+            result = writer.append_entry("q " + "x" * 2000, "a", "o")
+        assert result["status"] == "recorded"
+        assert "history rotation failed" in caplog.text

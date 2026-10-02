@@ -191,10 +191,13 @@ UUID. Global connections can route and load personas without that header, but
 `describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
 a valid workspace. Over stdio, the workspace is the client root from
 `AGENTS_CLIENT_REPO_ROOT`, or one inferred from `CLAUDE_PROJECT_DIR` or the working
-directory; an inferred filesystem root, or on Windows a directory inside the
-Windows directory, is refused with `workspace_required` (resolution order:
-[Repository Memory](../README.md#-repository-memory)). On `workspace_required`
-or `workspace_invalid`, keep routing and report unavailable memory without
+directory. A launch directory without `.git` or `CLAUDE.md` is refused with
+`workspace_required`; a filesystem root, the home directory or a system or program
+directory (also as `AGENTS_CLIENT_REPO_ROOT`) with `workspace_unsafe` (resolution
+order: [Repository Memory](../README.md#-repository-memory)). The results of
+`log_interaction` and `read_history` report `workspace` and `pid`, and
+`history_last_error` after a failed history write. On `workspace_required`,
+`workspace_unsafe` or `workspace_invalid`, keep routing and report unavailable memory without
 retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
 `repo_path`, and `repo_hash` in the follow-up write. See
 [memory and errors](shared-mcp-daemon.md#memory-and-errors).

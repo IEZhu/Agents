@@ -90,7 +90,7 @@ async def test_sink_failures_are_logged_not_returned(workspace, monkeypatch, cap
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: True)
     monkeypatch.setattr(server.langfuse, "create_trace_id", Mock(side_effect=RuntimeError("lf down")))
     monkeypatch.setattr(HistoryWriter, "append_entry", Mock(side_effect=OSError("disk full")))
-    with caplog.at_level(logging.ERROR, logger="mcp-server"):
+    with caplog.at_level(logging.WARNING, logger="mcp-server"):
         response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
         assert server.drain_pending_logs(5)
     assert "error" not in json.dumps(response).lower()

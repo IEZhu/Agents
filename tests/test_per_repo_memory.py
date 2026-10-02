@@ -100,3 +100,48 @@ class TestInstallDataStaysShared:
         # Matches the binding in src/engine/skills.py / router.py / implants.py.
         assert INSTALL_DATA_DIR.endswith(os.sep + "data")
         assert not INSTALL_DATA_DIR.startswith(str(client_root))
+
+
+class TestHistoryFailureReporting:
+    """An unwritable history.md is reported, not hidden in a traceback."""
+
+    @pytest.mark.asyncio
+    async def test_unwritable_history_warns_once_and_is_reported(self, client_root, monkeypatch, caplog):
+        import json
+
+        import src.server as server
+
+        monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+        server._history_errors.clear()
+        server._history_warned.clear()
+        real_open = open
+
+        def refuse(path, *args, **kwargs):
+            if os.path.basename(str(path)) == "history.md":
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr("src.memory.history.open", refuse, raising=False)
+        with caplog.at_level("WARNING", logger=server.logger.name):
+            first = json.loads(await server.log_interaction("software_engineer", "q1", "r1"))
+            assert server.drain_pending_logs(5)
+            second = json.loads(await server.log_interaction("software_engineer", "q2", "r2"))
+            assert server.drain_pending_logs(5)
+        assert first["workspace"] == {"root": str(client_root), "source": "env"}
+        assert first["pid"] == os.getpid()
+        assert "history_last_error" not in first
+        assert second["history_last_error"]["code"] == "history_unwritable"
+        assert second["history_last_error"]["errno"] == 13
+        assert second["history_last_error"]["path"] == str(client_root / "history.md")
+        warnings = [r for r in caplog.records if "code=history_unwritable" in r.getMessage()]
+        assert len(warnings) == 1 and warnings[0].exc_info is None
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+        read = json.loads(await server.read_history())
+        assert read["history_last_error"]["errno"] == 13
+        assert read["workspace"]["root"] == str(client_root)
+
+        monkeypatch.undo()
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(client_root))
+        await server.log_interaction("software_engineer", "q3", "r3")
+        assert server.drain_pending_logs(5)
+        assert "history_last_error" not in json.loads(await server.read_history())

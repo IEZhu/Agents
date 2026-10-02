@@ -18,6 +18,7 @@ import json
 import asyncio
 import datetime
 import queue
+from pathlib import Path
 import threading
 import time
 import dotenv
@@ -144,7 +145,7 @@ mcp = FastMCP(
         "Exceptions: code blocks, technical terms, tool/CLI output, and the footer "
         "labels `Agent`, `Skills`, `Implants`, `Rules` stay in English.\n"
         "Append the exact footer returned with the active bundle.\n"
-        "HTTP memory tools require X-Agents-Workspace. On workspace_required or workspace_invalid, "
+        "HTTP memory tools require X-Agents-Workspace. On workspace_required, workspace_unsafe or workspace_invalid, "
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
         "Never replay an ambiguous write automatically; read the result first.\n"
@@ -835,6 +836,53 @@ async def list_agents(include_metadata: bool = True) -> str:
 
     return json.dumps({"agents": catalog}, ensure_ascii=False, indent=2)
 
+# Last history write failure per workspace root, and the (path, errno) pairs
+# already warned about: a broken history.md is reported on the next result
+# and once in the log, not with a traceback per call.
+_history_errors: dict[str, dict] = {}
+_history_warned: set[tuple[str, Optional[int]]] = set()
+_history_errors_lock = threading.Lock()
+
+
+def _record_history_failure(root: Path, path: str, error: BaseException) -> None:
+    code = getattr(error, "errno", None)
+    with _history_errors_lock:
+        _history_errors[str(root)] = {
+            "code": "history_unwritable",
+            "errno": code,
+            "path": path,
+            "at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "error": f"{type(error).__name__}: {error}",
+        }
+        first = (path, code) not in _history_warned
+        _history_warned.add((path, code))
+    if first:
+        logger.warning(
+            "History append failed: code=history_unwritable errno=%s path=%s: %s",
+            code, path, error,
+        )
+
+
+def _clear_history_failure(root: Path) -> None:
+    with _history_errors_lock:
+        _history_errors.pop(str(root), None)
+
+
+def _workspace_report(client, root: Path) -> dict:
+    """Where this call's memory went: the resolved root, how it was found, the PID."""
+    report = {
+        "workspace": {"root": str(root), "source": client.source or client.transport},
+        "pid": os.getpid(),
+    }
+    with _history_errors_lock:
+        failure = _history_errors.get(str(root))
+    if failure:
+        report["history_last_error"] = {
+            key: failure[key] for key in ("code", "errno", "path", "at")
+        }
+    return report
+
+
 @mcp.tool()
 async def log_interaction(
     agent_name: str,
@@ -890,8 +938,9 @@ async def log_interaction(
             raise ValueError("Invalid persona_action")
     except ValueError as error:
         return error_response(error, request_id, instruction=(
-            "Nothing was logged. Keep the current activation; on workspace_required or "
-            "workspace_invalid report unavailable logging, and do not retry logging in a loop."
+            "Nothing was logged. Keep the current activation; on workspace_required, "
+            "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
+            "retry logging in a loop."
         ))
     attribution = ({
         "persona": active.model_dump(), "persona_action": persona_action,
@@ -944,8 +993,9 @@ async def log_interaction(
 
     # --- History append (always; defaults to raw query/response) ---
     def _send_history() -> None:
+        history_path = str(root / "history.md")
         try:
-            writer = HistoryWriter(str(root / "history.md"), str(root / "history"))
+            writer = HistoryWriter(history_path, str(root / "history"))
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
             if active:
@@ -961,8 +1011,10 @@ async def log_interaction(
             )
             if result.get("status") == "error":
                 logger.error("History append failed: %s", result.get("error"))
+            else:
+                _clear_history_failure(root)
         except Exception as e:
-            logger.error("History append failed: %s", e, exc_info=True)
+            _record_history_failure(root, history_path, e)
 
     # Both sinks are independent; the response does not wait for either.
     # While startup runs, importing Langfuse would compete with it: skip the trace.
@@ -976,6 +1028,7 @@ async def log_interaction(
         "timestamp": timestamp,
         "langfuse": {"status": "skipped", "reason": "warming_up"} if langfuse_skipped else {"status": "queued"},
         "history": {"status": "queued"},
+        **_workspace_report(client, root),
         **attribution,
     }
     debug_log("log_interaction", "res", payload)
@@ -1173,6 +1226,7 @@ async def read_history(
                 "total": len(entries),
                 "entries": [e.to_dict() for e in entries],
             }
+        payload.update(_workspace_report(client, root))
         debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:

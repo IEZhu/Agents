@@ -137,37 +137,44 @@ class HistoryWriter:
         # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
         # attached to the same repo) cannot interleave and corrupt the file.
         rotated_to: Optional[str] = None
-        with _WRITE_LOCK, file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")), open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
-            try:
-                _lock_exclusive(fh)
+        lock_path = os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")
+        with _WRITE_LOCK, file_lock(lock_path):
+            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+                try:
+                    _lock_exclusive(fh)
 
-                # Re-check size under the lock — a concurrent writer may have
-                # created the file between our os.makedirs and open().
-                fh.seek(0, os.SEEK_END)
-                if fh.tell() == 0:
-                    fh.write(self._render_header())
+                    # Re-check size under the lock — a concurrent writer may have
+                    # created the file between our os.makedirs and open().
+                    fh.seek(0, os.SEEK_END)
+                    if fh.tell() == 0:
+                        fh.write(self._render_header())
+                        fh.flush()
+
+                    if self._is_duplicate_from_handle(fh, entry_id):
+                        return {
+                            "status": "duplicate",
+                            "entry_id": entry_id,
+                            "path": self.history_path,
+                        }
+
+                    timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+                    block = self._render_entry(
+                        entry_id, timestamp, intent, action, outcome, files, tags, metadata
+                    )
+                    fh.write(block)
                     fh.flush()
+                    os.fsync(fh.fileno())
+                finally:
+                    _unlock(fh)
 
-                if self._is_duplicate_from_handle(fh, entry_id):
-                    return {
-                        "status": "duplicate",
-                        "entry_id": entry_id,
-                        "path": self.history_path,
-                    }
-
-                timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
-                block = self._render_entry(
-                    entry_id, timestamp, intent, action, outcome, files, tags, metadata
-                )
-                fh.write(block)
-                fh.flush()
-                os.fsync(fh.fileno())
-
-                # Rotate inside the lock — if we cross the threshold mid-write,
-                # the move/merge must not race a second writer.
+            # Rotate after the append handle is closed (Windows cannot move an
+            # open file) but still inside both locks, so the move/merge cannot
+            # race a second writer. The entry is already written: a rotation
+            # failure is logged and never turns it into an error.
+            try:
                 rotated_to = self._maybe_rotate_locked()
-            finally:
-                _unlock(fh)
+            except Exception as err:
+                logger.warning("history rotation failed for %s: %s", self.history_path, err)
 
         result: Dict[str, Any] = {
             "status": "recorded",
