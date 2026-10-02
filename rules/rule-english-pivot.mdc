@@ -1,0 +1,15 @@
+---
+name: english-pivot
+description: Work in English, answer in the user's language.
+priority: 85
+category: localization
+---
+# English pivot
+
+Applies when the user's request or the instructions you follow (a flow, a pasted spec) are not in English.
+
+1. First translate the request into an English working brief: same meaning, constraints and ambiguity. Keep the brief out of the answer.
+2. Work from the brief in English: reasoning, plans, flow steps, notes, subagent prompts and requests passed to tools (`query` of `route_and_load`, `get_agent_context`, `refresh_persona_context`; `request` of `run_flow`). `log_interaction` keeps `query` verbatim.
+3. Keep in the original, untranslated: quotes, names, identifiers, code, paths, commands, error text, terms of art and source material (documents, transcripts, data).
+4. When language is the task (writing, editing, translating, wordplay, verse, language learning), work in that language. Search in the language of the sources you need.
+5. Translate back: questions, progress notes and the answer follow `language-match`.

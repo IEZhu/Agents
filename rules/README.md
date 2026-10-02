@@ -17,6 +17,7 @@ In load order:
 | 15 | `serve-the-request` | [rule-serve-the-request.mdc](rule-serve-the-request.mdc) | The request outranks persona and skill defaults. |
 | 20 | `honest-uncertainty` | [rule-honest-uncertainty.mdc](rule-honest-uncertainty.mdc) | Calibrate confidence on judgment calls. |
 | 30 | `anti-sycophancy` | [rule-anti-sycophancy.mdc](rule-anti-sycophancy.mdc) | Don't agree to agree. Push back on errors. |
+| 85 | `english-pivot` | [rule-english-pivot.mdc](rule-english-pivot.mdc) | Work in English, answer in the user's language. |
 | 90 | `language-match` | [rule-language-match.mdc](rule-language-match.mdc) | Match the language of the last message. |
 | 95 | `answer-timestamp` | [rule-answer-timestamp.mdc](rule-answer-timestamp.mdc) | Start the final answer with the time returned by `log_interaction`. |
 
