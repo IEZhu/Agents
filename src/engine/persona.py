@@ -1,11 +1,15 @@
 """Stateless version 2 handlers. Activation state belongs to the caller's dialogue."""
 
+import json
 import logging
 import os
 import uuid
+from dataclasses import dataclass, field
 
 from src.engine.persona_bundle import ComponentSelection, build_persona_bundle
 from src.engine.router import KEYWORD_VETO_ROUTE_REQUIRED
+from pydantic import ValidationError
+
 from src.schemas.protocol import PersonaDescriptor, PersonaResponse
 from src.version import agents_core_version
 
@@ -26,8 +30,134 @@ APPLY_INSTRUCTION = (
 )
 
 
-def parse_persona(value: PersonaDescriptor | dict | None) -> PersonaDescriptor | None:
-    return PersonaDescriptor.model_validate(value) if value is not None else None
+PERSONA_KEYS = tuple(PersonaDescriptor.model_fields)
+LOGGED_VALUE_MAX = 128
+
+
+def parse_persona(value: PersonaDescriptor | dict | str | None) -> PersonaDescriptor | None:
+    """Strict parse for the bundle tools; the error names what is wrong with the descriptor."""
+    if value is None:
+        return None
+    try:
+        return PersonaDescriptor.model_validate(value)
+    except ValidationError as error:
+        missing, invalid = [], []
+        for item in error.errors():
+            key = str(item["loc"][0]) if item["loc"] else "persona"
+            (missing if item["type"] == "missing" else invalid).append(key)
+        detail = "; ".join(part for part in (
+            f"missing: {', '.join(dict.fromkeys(missing))}" if missing else "",
+            f"invalid: {', '.join(dict.fromkeys(invalid))}" if invalid else "",
+        ) if part)
+        raise ValueError(
+            "current_persona must be the persona object of the last SUCCESS/NO_CHANGE with all "
+            f"{len(PERSONA_KEYS)} keys ({', '.join(PERSONA_KEYS)}); {detail}"
+        ) from error
+
+
+
+
+@dataclass
+class LoggedPersona:
+    """What ``log_interaction`` could read from a client-reported ``persona``.
+
+    ``status`` is None without a persona, else ``client-reported`` (complete and
+    valid), ``unverified`` (partial or invalid) or ``mismatch`` (names another
+    agent than ``agent_name``). ``descriptor`` is set only for a complete, valid one.
+    """
+
+    status: str | None = None
+    descriptor: PersonaDescriptor | None = None
+    fields: dict = field(default_factory=dict)
+    missing: list[str] = field(default_factory=list)
+    invalid: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def _short(value) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= LOGGED_VALUE_MAX else text[:LOGGED_VALUE_MAX] + "…"
+
+
+def parse_persona_for_logging(value, agent_name: str) -> LoggedPersona:
+    """Never raises: attribution metadata must not cost the logged turn.
+
+    Strict ``parse_persona`` stays authoritative for the bundle tools.
+    """
+    result = LoggedPersona()
+    if value is None:
+        return result
+    result.status = "unverified"
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            value = parsed
+        elif text:
+            value = {"agent": text}
+            result.warnings.append("persona was a bare string; read as the agent name")
+        else:
+            result.warnings.append("persona was an empty string")
+            return result
+    if isinstance(value, PersonaDescriptor):
+        value = value.model_dump()
+    if not isinstance(value, dict):
+        result.warnings.append(f"persona must be an object, got {type(value).__name__}")
+        return result
+
+    unknown = sorted(str(k) for k in value if k not in PERSONA_KEYS)
+    if unknown:
+        result.warnings.append(f"dropped unknown persona keys: {', '.join(unknown)}")
+    known = {k: v for k, v in value.items() if k in PERSONA_KEYS}
+    try:
+        result.descriptor = PersonaDescriptor.model_validate(known)
+        result.fields = result.descriptor.model_dump()
+        result.status = "unverified" if unknown else "client-reported"
+    except ValidationError as error:
+        for item in error.errors():
+            key = str(item["loc"][0]) if item["loc"] else "persona"
+            bucket = result.missing if item["type"] == "missing" else result.invalid
+            if key not in bucket:
+                bucket.append(key)
+        result.fields = {k: v for k, v in known.items() if k not in result.invalid}
+        if result.missing:
+            result.warnings.append(f"persona is missing: {', '.join(result.missing)}")
+        if result.invalid:
+            result.warnings.append(f"persona has invalid values: {', '.join(result.invalid)}")
+    agent = known.get("agent")
+    if isinstance(agent, str) and agent and agent != agent_name:
+        result.status = "mismatch"
+        result.warnings.append("agent_name does not match persona.agent")
+    return result
+
+
+def persona_history_line(logged: LoggedPersona, persona_action) -> str | None:
+    """The attribution line appended to a history entry's action; None without persona data."""
+    action = _short(persona_action) if persona_action else "unspecified"
+    if logged.status is None and persona_action is None:
+        return None
+    if logged.status == "client-reported":
+        d = logged.descriptor
+        return (f"Persona (client-reported): {d.agent}; activation={d.activation_id}; "
+                f"revision={d.bundle_revision}; action={action}")
+    parts = []
+    f = logged.fields
+    if f.get("agent") is not None:
+        parts.append(_short(f["agent"]))
+    if f.get("activation_id") is not None:
+        parts.append(f"activation={_short(f['activation_id'])}")
+    if f.get("bundle_revision") is not None:
+        parts.append(f"revision={_short(f['bundle_revision'])}")
+    missing = list(logged.missing) if logged.status else ["persona"]
+    if missing:
+        parts.append(f"missing={','.join(missing)}")
+    if logged.invalid:
+        parts.append(f"invalid={','.join(logged.invalid)}")
+    parts.append(f"action={action}")
+    return f"Persona ({logged.status or 'unverified'}): " + "; ".join(parts)
 
 
 _ui_port: int | None = None
