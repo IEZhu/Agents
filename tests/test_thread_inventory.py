@@ -201,7 +201,7 @@ def test_github_refs_from_gh_commands_keep_the_first_sighting():
     "gh api graphql -f query='mutation { resolveReviewThread(input:{}) { clientMutationId } }'",
     "gh pr reopen 5", "gh issue delete 7 --yes", "gh api repos/o/r/issues/1/comments --raw-field=body=x",
     "gh api repos/o/r/issues/1/comments --field=body=x", "gh api repos/o/r/pulls --input=pr.json",
-    "gh api repos/o/r/issues/1/comments -fbody=x",
+    "gh api repos/o/r/issues/1/comments -fbody=x", "gh api -X GET -X DELETE repos/o/r/git/refs/heads/x",
 ])
 def test_git_and_gh_writes_are_detected(command):
     assert len(thread_inventory.inventory(bash(command, "c"))["git_mutations"]) == 1
@@ -211,6 +211,7 @@ def test_git_and_gh_writes_are_detected(command):
     "git stash list", "git tag -l", "git merge-base --is-ancestor a b", "git branch --show-current",
     "git status --short", "git log --oneline -3", "gh pr view 5 --json state", "gh api repos/o/r/pulls/1",
     "gh api graphql -f query='query { viewer { login } }'", "git config user.email", "gh api -X HEAD repos/o/r",
+    "gh api -X DELETE -X GET repos/o/r",
 ])
 def test_reads_are_not_mutations(command):
     assert thread_inventory.inventory(bash(command, "c"))["git_mutations"] == []
@@ -350,6 +351,8 @@ def test_cd_alone_goes_home_and_cd_dash_is_unknown():
     dirs = set(thread_inventory.inventory(bash(
         "cd /a && cd && git init h; cd -- /b && git init c; cd - && git init d", "cd"))["directories"])
     assert {os.path.expanduser("~/h"), "/b/c"} <= dirs and "/b/--" not in dirs
+    dash = set(thread_inventory.inventory(bash("cd /a && cd -- -repo && git init x", "cd2"))["directories"])
+    assert "/a/-repo/x" in dash
     assert not [d for d in dirs if d.endswith("/d")]  # `cd -` returns to a directory the helper cannot know
 
 
@@ -562,6 +565,7 @@ def test_dry_runs_and_checks_are_reads(command, kind):
     ("git fetch origin", "read"), ("git fetch --all --prune", "read"), ("git fetch --depth 1 origin main", "read"),
     ("git fetch origin refs/heads/*:refs/remotes/origin/*", "read"), ("git fetch --dry-run origin main:main", "read"),
     ("git fetch origin pull/155/head:pr-155", "write"), ("git fetch origin +main:main", "write"),
+    ("git fetch origin tag v1", "write"), ("git fetch --tags", "write"),
     ("git fetch git@github.com:o/r.git x:y", "write"),
 ])
 def test_fetch_writes_only_into_local_refs(command, kind):
@@ -671,6 +675,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("env -i PATH=/bin git push; env -u X git tag v2; time -p gh issue close 5; nice -n 10 git gc", [
         "env -i PATH=/bin git push", "env -u X git tag v2", "time -p gh issue close 5", "nice -n 10 git gc"]),
     ("X+=1 git push && command -v git", ["X+=1 git push"]), ("env -a custom0 git push", ["env -a custom0 git push"]),
+    ("command -v gh pr close 5; sudo -l git push; sudo -u bot git tag v8", ["sudo -u bot git tag v8"]),
+    ("echo foo\\ #bar; git push", ["git push"]),  # an escaped blank keeps #bar in the word
     ("/usr/bin/time -o timing.txt git push", ["/usr/bin/time -o timing.txt git push"]),
     (">out git push; 2>/tmp/e gh issue close 1; < in.txt git apply", [
         ">out git push", "2>/tmp/e gh issue close 1", "< in.txt git apply"]),
@@ -761,6 +767,7 @@ def test_git_config_reads_and_writes(command, kind):
 @pytest.mark.parametrize("command, kind", [
     ("gh auth login --web", "write"), ("gh auth setup-git", "write"), ("gh auth switch", "write"),
     ("gh auth status", "read"), ("gh auth token", "read"), ("gh config set editor vim", "write"),
+    ("gh api graphql --input q.json", "unknown"),
     ("gh config get editor", "read"), ("gh $group --help", "read"), ("gh pr -h", "read"),
 ])
 def test_gh_auth_and_config(command, kind):

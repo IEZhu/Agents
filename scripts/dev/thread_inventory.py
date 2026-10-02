@@ -83,6 +83,9 @@ WRAPPERS = {
 # does not move the commands after them.
 SCOPE_IN, SCOPE_OUT = object(), object()
 CHDIR = object()  # (CHDIR, path) sets the directory the next commands of a scope run in
+# Wrapper options that run no command: `command -v git` looks it up, `sudo -l` lists rights.
+NO_EXEC = {"command": {"-v", "-V"}, "sudo": {"-l", "--list", "-v", "--validate", "-k", "-K", "--reset-timestamp",
+                                             "--remove-timestamp", "-V", "--version", "-h", "--help"}}
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
@@ -286,6 +289,13 @@ def _command_tokens(segment: str, dirs: list | None = None) -> list[str]:
         elif word == "function":
             tokens = tokens[2:]  # `function name { … }`: the body follows the name
         elif word in WRAPPERS:
+            options = []
+            for arg in tokens[1:]:
+                if not arg.startswith("-") or arg == "--":
+                    break
+                options.append(arg)
+            if NO_EXEC.get(word, set()) & set(options):
+                return []
             tokens = _unwrap(tokens[1:], *WRAPPERS[word], dirs)
         else:
             break
@@ -540,7 +550,8 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             break
         add(command[index:match.start()])
         index, char = match.start(), match.group()
-        word_start = not "".join(current[-1:])[-1:].strip()
+        last = "".join(current[-1:])
+        word_start = not last[-1:].strip() and not last.startswith("\\")  # `foo\ #bar` is one word
         if char == "\\":
             if command.startswith("\n", index + 1) or command.startswith("\r\n", index + 1):
                 index += 2 if command[index + 1] == "\n" else 3  # a line continuation
@@ -746,6 +757,8 @@ def _git_fetch_kind(args: list[str]) -> str:
     refspec names a local destination, as `git fetch origin pull/1/head:pr-1` creates a branch."""
     if "--dry-run" in args:
         return "read"
+    if "--tags" in args or "-t" in args or "tag" in _positional(args, GIT_FETCH_VALUES)[1:]:
+        return "write"  # local tags under refs/tags, as `git fetch origin tag v1` creates
     for spec in _positional(args, GIT_FETCH_VALUES)[1:]:  # the first names the repository
         destination = spec.split(":", 1)[1] if ":" in spec else ""
         if destination and not destination.startswith("refs/remotes/"):
@@ -766,14 +779,17 @@ def _list_or_create(args: list[str], writes: set, reads: set, values: set) -> st
 
 
 def _positional(args: list[str], values: set) -> list[str]:
-    """Arguments that are not options, skipping the value of each option in ``values``."""
-    found, skip = [], False
+    """Arguments that are not options, skipping the value of each option in ``values``; after
+    `--` every argument is an operand, as in `cd -- -repo`."""
+    found, skip, options = [], False, True
     for arg in args:
         if skip:
             skip = False
-        elif arg in values:
+        elif options and arg == "--":
+            options = False
+        elif options and arg in values:
             skip = True
-        elif not arg.startswith("-"):
+        elif not options or not arg.startswith("-"):
             found.append(arg)
     return found
 
@@ -789,6 +805,10 @@ def gh_kind(tokens: list[str], segment: str) -> str:
         return "read"
     group, verb = tokens[1], tokens[2] if len(tokens) > 2 else ""
     if group == "api":
+        hidden = "graphql" in tokens and "mutation" not in segment and any(
+            token == "--input" or token.startswith("--input=") for token in tokens)
+        if hidden:
+            return "unknown"  # the query is in a file the helper does not read
         return "write" if gh_write(tokens, segment) else "read"
     if group in GH_WRITES and verb in GH_WRITES[group]:
         return "write"
@@ -806,16 +826,16 @@ def gh_write(tokens: list[str], segment: str) -> bool:
         return verb in GH_WRITES[group]
     if group != "api":
         return False
-    for index, token in enumerate(tokens):
-        method = None
+    method = None
+    for index, token in enumerate(tokens):  # the last method given wins, as for any repeated option
         if token in ("-X", "--method") and index + 1 < len(tokens):
             method = tokens[index + 1]
         elif token.startswith("--method="):
             method = token.split("=", 1)[1]
         elif token.startswith("-X") and len(token) > 2:
             method = token[2:]
-        if method:
-            return method.upper() not in ("GET", "HEAD")
+    if method:
+        return method.upper() not in ("GET", "HEAD")
     if "graphql" in tokens:
         return "mutation" in segment
     return any(token in ("-f", "-F", "--field", "--raw-field", "--input")
