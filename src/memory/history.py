@@ -314,6 +314,25 @@ class HistoryWriter:
         return archive_path
 
     @staticmethod
+    def _discard_pending(pending: str) -> None:
+        """Remove (or empty) an already-archived pending file, never raising.
+
+        The archive holds the payload at this point, so a cleanup failure must
+        not look like a failed merge: a leftover payload is recognized by
+        `_archive_ends_with` and skipped on the next recovery.
+        """
+        try:
+            os.unlink(pending)
+            return
+        except OSError:
+            pass
+        try:
+            with open(pending, "w", encoding="utf-8"):
+                pass
+        except OSError as err:
+            logger.warning("could not clear archived pending file %s: %s", pending, err)
+
+    @staticmethod
     def _archive_ends_with(archive_path: str, payload: str) -> bool:
         data = payload.encode("utf-8")
         try:
@@ -348,11 +367,7 @@ class HistoryWriter:
         existed = os.path.exists(archive_path)
         if existed and self._archive_ends_with(archive_path, payload):
             # A crash after the append but before the unlink: already archived.
-            try:
-                os.unlink(pending)
-            except OSError:
-                with open(pending, "w", encoding="utf-8"):
-                    pass
+            self._discard_pending(pending)
             return archive_path
         # Build the merged archive beside the real one and replace it in one
         # step: a crash or error at any point leaves the archive as it was, and
@@ -374,12 +389,7 @@ class HistoryWriter:
             except OSError:
                 pass
             raise
-        try:
-            os.unlink(pending)
-        except OSError:
-            # Already archived: never leave a payload that could merge twice.
-            with open(pending, "w", encoding="utf-8"):
-                pass
+        self._discard_pending(pending)
         return archive_path
 
     def _read_last_timestamp(self) -> Optional[str]:
