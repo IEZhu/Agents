@@ -225,3 +225,11 @@ async def test_partial_current_persona_is_an_error_naming_fields(monkeypatch, to
     assert response["status"] == "ERROR"
     assert "persona" in response["message"] and "persona_block" not in response
     build.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,bad", [("skills", {"skill-a": True}), ("rules", ["ok", 3]), ("implants", 5)])
+async def test_set_flow_persona_rejects_malformed_lists_instead_of_clearing(field, bad):
+    from mcp.server.fastmcp.exceptions import ToolError
+    with pytest.raises(ToolError):
+        await server.mcp.call_tool("set_flow_persona", {"flow": "x", "agent": "lawyer", field: bad})

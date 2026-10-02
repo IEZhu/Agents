@@ -73,6 +73,23 @@ def str_list(description: str, *, separators: str = r"[,\n]"):
                      WithJsonSchema({**_STRS, "description": description})]
 
 
+def _strict_list(value: Any) -> Any:
+    """For mutating tools: a bad shape is an input error, never an empty list."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [part.strip() for part in re.split(r"[,\n]", value) if part.strip()]
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    raise ValueError("expected a JSON array of strings")
+
+
+def strict_str_list(description: str):
+    """Like ``str_list`` but rejects malformed shapes instead of coercing them."""
+    return Annotated[Any, BeforeValidator(_strict_list),
+                     WithJsonSchema({**_STRS, "description": description})]
+
+
 def persona_arg(description: str):
     """A persona descriptor object; the body validates it (strictly or leniently)."""
     return Annotated[Any, WithJsonSchema({

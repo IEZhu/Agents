@@ -450,9 +450,9 @@ async def run_flow(
 async def set_flow_persona(
     flow: str,
     agent: ta.opt_str("Agent name for the flow persona.") = None,
-    skills: ta.str_list("Optional skill ids, as a JSON array of strings.") = None,
-    implants: ta.str_list("Optional implant ids, as a JSON array of strings.") = None,
-    rules: ta.str_list("Optional rule names, as a JSON array of strings.") = None,
+    skills: ta.strict_str_list("Optional skill ids, as a JSON array of strings.") = None,
+    implants: ta.strict_str_list("Optional implant ids, as a JSON array of strings.") = None,
+    rules: ta.strict_str_list("Optional rule names, as a JSON array of strings.") = None,
     reset: bool = False,
     ctx: Context | None = None,
 ) -> str:
