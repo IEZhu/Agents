@@ -15,8 +15,14 @@ above the session's scratchpad. `--latest` takes the newest transcript of a proj
 lists the other transcripts written in the last hour, because several sessions can
 run in one project at the same time.
 
+Work delegated to subagents and workflow agents is read from the transcripts in the
+session's directory (`<uuid>/subagents/`, `<uuid>/workflows/`); its items carry the
+agent's file name in `by`.
+
 Token usage is counted once per model response: the transcript repeats a response's
-usage on every entry (thinking, text, tool call) that the response produced.
+usage on every entry (thinking, text, tool call) that the response produced. Texts
+are shortened and common credential shapes are masked; tool inputs are reduced to
+the tool name and its target identifiers.
 """
 from __future__ import annotations
 
@@ -24,44 +30,85 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
 from collections import Counter
 from pathlib import Path
 
-GIT_MUTATION = re.compile(
-    r"\bgit\b(?:\s+-C\s+\S+|\s+-c\s+\S+|\s+--no-optional-locks)*\s+"
-    r"(commit|push|pull|rebase|merge|reset|cherry-pick|revert|stash|tag|worktree\s+(?:add|remove|prune)"
-    r"|branch\s+-[dDmM]|switch\s+-[cC]|checkout\s+-[bB])\b")
-GH_MUTATION = re.compile(
-    r"\bgh\s+(?:pr\s+(?:create|merge|close|comment|edit|review|ready)|issue\s+(?:create|close|comment|edit|reopen)"
-    r"|api\s+(?:-X|--method)\s+(?:POST|PATCH|PUT|DELETE))\b")
-GITHUB_REF = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
-SCRATCHPAD = re.compile(r"(/[^\s'\"`|;&()<>]*?/scratchpad(?:/[^\s'\"`|;&()<>]*)?)")
-CD_PATH = re.compile(r"(?:\bcd|\bgit\s+-C|\bworktree\s+add(?:\s+-[bB]\s+\S+|\s+-\S+)*)\s+(['\"]?)([^\s'\";&|)<>]+)\1")
+MAX_TEXT = 500
+MAX_COMMAND = 200
+GITHUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/(pull|issues)/(\d+)")
+SHORT_REF = re.compile(r"(?<![\w/.-])([A-Za-z0-9][\w.-]*/[\w.-]+)#(\d+)\b")
+SEGMENT = re.compile(r"&&|\|\||[;\n|]")
+TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
+NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
+TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
+STATUS = re.compile(r"<status>(\w+)</status>")
+STARTED = (re.compile(r"running in background with ID: (\w+)"), re.compile(r"Task ID: (\w+)"),
+           re.compile(r"Monitor started \(task (\w+)"))
+ASYNC_AGENT = re.compile(r"Async agent launched.*?agentId: (\w+)", re.S)
+STOPPED = re.compile(r"stopped task: (\w+)")
+MEMORY_PATH = re.compile(r"/projects/[^/]+/memory/")
 # Phrases with which a model takes back its own earlier statement. They are candidates
 # for the audit, not conclusions: the flow reads each one in context.
 CORRECTION = re.compile(
     r"(?i)\b(?:my mistake|i was wrong|my error|i misstated|i retract|that was wrong|incorrectly (?:stated|claimed|said))\b"
     r"|мо(?:я|ей|ю) ошибк|я ошиб(?:ся|лась)|по моей вине|(?:неверн|ошибочн)\w* (?:подсч|утвержд|сказал|написал|назвал)"
     r"|был[аои]? неверн")
-BACKGROUND_STARTED = (re.compile(r"running in background with ID: (\w+)"), re.compile(r"Task ID: (\w+)"),
-                      re.compile(r"agentId: (\w+)"))
-BACKGROUND_ENDED = re.compile(r"<task-id>(\w+)</task-id>.*?<status>(\w+)</status>", re.S)
-STOPPED = re.compile(r"stopped task: (\w+)")
-WRITE_VERB = re.compile(
-    r"(?:^|_)(create|update|delete|add|save|write|set|post|send|comment|merge|close|upload|move|remove|edit|publish|batch)"
-    r"(?:_|$)", re.I)
-REMOTE_WRITE_ACTIONS = {"create", "update", "run", "create_webhook_trigger", "delete"}
-WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
-MAX_TEXT = 500
 # Common credential shapes, masked in every text the inventory prints.
 SECRET = re.compile(
     r"(?i)(authorization:\s*(?:bearer\s+|basic\s+|token\s+)?|bearer\s+"
     r"|(?:api[_-]?key|token|password|secret)[\"']?\s*[=:]\s*[\"']?)[^\s\"',;]+"
     r"|\bsk-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}"
     r"|\bAKIA[0-9A-Z]{16}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
+WRITE_VERBS = {
+    "add", "append", "approve", "archive", "assign", "attach", "batch", "cancel", "close", "comment", "complete",
+    "create", "delete", "disable", "edit", "enable", "execute", "import", "insert", "invite", "link", "mark",
+    "merge", "move", "patch", "pin", "post", "publish", "push", "put", "react", "remove", "rename", "reopen",
+    "replace", "reply", "request", "resolve", "restore", "run", "save", "schedule", "send", "set", "start", "stop",
+    "submit", "tag", "transition", "trigger", "unlink", "unpin", "untag", "update", "upload", "write"}
+READ_VERBS = {
+    "browse", "check", "count", "describe", "explore", "fetch", "filter", "find", "get", "guide", "history", "list",
+    "load", "lookup", "query", "read", "retrieve", "search", "select", "show", "status", "view"}
+TARGET_KEYS = ("trigger_id", "id", "task_id", "list_id", "doc_id", "url", "owner", "repo", "pullNumber",
+               "issue_number", "number", "path", "file_path", "name", "title", "collection", "channel")
+WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
+SCHEDULE_TOOLS = {"ScheduleWakeup", "CronCreate", "CronDelete"}
+REMOTE_WRITE_ACTIONS = {"create", "update", "run", "create_webhook_trigger", "delete"}
+ARTIFACT_READ_ACTIONS = {"read", "list", "get", "query", "open", "quickstart", "watch"}
+GIT_READ_ONLY = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "merge-base", "ls-files",
+                 "ls-remote", "ls-tree", "describe", "blame", "grep", "shortlog", "for-each-ref", "cat-file",
+                 "check-ignore", "version", "help", "reflog", "count-objects", "name-rev", "var"}
+GIT_WRITES = {"commit", "push", "pull", "rebase", "merge", "reset", "cherry-pick", "revert", "clean", "rm", "mv",
+              "restore", "am", "apply", "init", "clone", "switch", "checkout", "gc", "prune", "notes"}
+GH_WRITES = {
+    "pr": {"create", "merge", "close", "reopen", "comment", "edit", "review", "ready", "lock", "unlock"},
+    "issue": {"create", "close", "reopen", "comment", "edit", "delete", "transfer", "pin", "unpin", "lock", "unlock",
+              "develop"},
+    "release": {"create", "delete", "edit", "upload"},
+    "repo": {"create", "delete", "edit", "fork", "rename", "archive", "sync"},
+    "label": {"create", "delete", "edit", "clone"},
+    "workflow": {"run", "enable", "disable"},
+    "run": {"rerun", "cancel", "delete"},
+    "secret": {"set", "delete"},
+    "variable": {"set", "delete"},
+}
+
+
+def _mask(match: re.Match) -> str:
+    return (match.group(1) or "") + "[masked]"
+
+
+def _short(text, limit: int = MAX_TEXT) -> str:
+    text = SECRET.sub(_mask, " ".join(str(text).split()))
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _first_line(text: str) -> str:
+    text = text.strip()
+    return _short(text.splitlines()[0] if text else "", MAX_COMMAND)
 
 
 def _content(entry: dict) -> list:
@@ -71,7 +118,7 @@ def _content(entry: dict) -> list:
 
 
 def _text(value) -> str:
-    """Text of a tool result, which is a string or a list of content blocks."""
+    """Text of a tool result or message, which is a string or a list of content blocks."""
     if isinstance(value, str):
         return value
     if isinstance(value, list):
@@ -79,20 +126,197 @@ def _text(value) -> str:
     return ""
 
 
-def _mask(match: re.Match) -> str:
-    return (match.group(1) or "") + "[masked]"
+def _tokens(segment: str) -> list[str]:
+    try:
+        return shlex.split(segment, posix=True)
+    except ValueError:
+        return segment.split()
 
 
-def _short(text: str) -> str:
-    text = SECRET.sub(_mask, " ".join(text.split()))
-    return text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 1] + "…"
+def _name_words(name: str) -> list[str]:
+    tail = name.rsplit("__", 1)[-1]
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", tail).lower()
+    spaced = re.sub(r"pull[_\-\s]?requests?", "pullrequest", spaced)  # a noun, not the verb "request"
+    return [word for word in re.split(r"[_\-\s]+", spaced) if word]
+
+
+def _target(data) -> str:
+    """The tool's target identifiers, never its full input."""
+    if not isinstance(data, dict):
+        return ""
+    parts = [f"{key}={_short(data[key], 80)}" for key in TARGET_KEYS
+             if isinstance(data.get(key), (str, int)) and str(data[key])]
+    return " ".join(parts[:4])
+
+
+def classify_tool(name: str, data) -> str:
+    """write, read, logging or unclassified, for tools other than files and shell."""
+    data = data if isinstance(data, dict) else {}
+    action = data.get("action")
+    if name.endswith("log_interaction"):
+        return "logging"
+    if name == "RemoteTrigger":
+        return "write" if action in REMOTE_WRITE_ACTIONS else "read"
+    if name == "Artifact":
+        return "read" if (action or "publish") in ARTIFACT_READ_ACTIONS else "write"
+    if name in ("ArtifactData", "ArtifactComments"):
+        return "read" if not action or action in ARTIFACT_READ_ACTIONS else "write"
+    if not name.startswith("mcp__"):
+        return "read"
+    words = _name_words(name)
+    if any(word in WRITE_VERBS for word in words):
+        return "write"
+    if any(word in READ_VERBS for word in words):
+        return "read"
+    return "unclassified"
+
+
+def git_write(tokens: list[str]) -> bool:
+    """Whether a tokenised `git ...` command changes a repository or its configuration."""
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        index += 2 if tokens[index] in ("-C", "-c") else 1
+    if index >= len(tokens):
+        return False
+    sub, args = tokens[index], tokens[index + 1:]
+    if sub in GIT_READ_ONLY:
+        return False
+    if sub in GIT_WRITES:
+        return True
+    if sub == "stash":
+        return not args or args[0] not in ("list", "show")
+    if sub == "tag":
+        return bool(args) and not any(arg in ("-l", "--list", "--contains", "--merged", "--no-merged",
+                                              "--points-at") for arg in args)
+    if sub == "worktree":
+        return bool(args) and args[0] in ("add", "remove", "prune", "move", "repair", "lock", "unlock")
+    if sub == "branch":
+        flags = {"-d", "-D", "--delete", "-m", "-M", "--move", "-f", "--force", "-c", "-C", "--copy",
+                 "-u", "--set-upstream-to", "--unset-upstream", "--edit-description"}
+        return any(arg in flags or arg.startswith("--set-upstream-to=") for arg in args) or (
+            bool(args) and not args[0].startswith("-"))
+    if sub == "remote":
+        return bool(args) and args[0] in ("add", "remove", "rm", "rename", "set-url", "set-head", "prune")
+    if sub == "config":
+        reads = {"--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin", "--show-scope"}
+        return not any(arg in reads for arg in args) and len([a for a in args if not a.startswith("-")]) >= 2
+    return False
+
+
+def gh_write(tokens: list[str], segment: str) -> bool:
+    """Whether a tokenised `gh ...` command writes to GitHub."""
+    if len(tokens) < 2:
+        return False
+    group, verb = tokens[1], tokens[2] if len(tokens) > 2 else ""
+    if group in GH_WRITES:
+        return verb in GH_WRITES[group]
+    if group != "api":
+        return False
+    for index, token in enumerate(tokens):
+        method = None
+        if token in ("-X", "--method") and index + 1 < len(tokens):
+            method = tokens[index + 1]
+        elif token.startswith("--method="):
+            method = token.split("=", 1)[1]
+        elif token.startswith("-X") and len(token) > 2:
+            method = token[2:]
+        if method:
+            return method.upper() != "GET"
+    if "graphql" in tokens:
+        return "mutation" in segment
+    return any(token in ("-f", "-F", "--field", "--raw-field", "--input") for token in tokens)
+
+
+def _resolve(path: str, cwd: str | None) -> str | None:
+    path = os.path.expanduser(path)
+    if not path.startswith("/"):
+        if not cwd:
+            return None
+        path = os.path.join(cwd, path)
+    return os.path.normpath(path)
+
+
+def _add_ref(refs: dict, repository, kind: str, number: int, ts) -> None:
+    key = (repository, kind, number)
+    if key not in refs:  # entries are in time order, so the first sighting wins
+        url = f"https://github.com/{repository}/{kind}/{number}" if repository and kind != "ref" else None
+        refs[key] = {"repository": repository, "kind": kind, "number": number, "url": url, "first_seen": ts}
+
+
+def _scan_refs(text: str, refs: dict, ts) -> None:
+    for match in GITHUB_URL.finditer(text):
+        _add_ref(refs, match.group(1), match.group(2), int(match.group(3)), ts)
+    for match in SHORT_REF.finditer(text):
+        _add_ref(refs, match.group(1), "ref", int(match.group(2)), ts)
+
+
+def _notices(text: str, ts, ended: dict) -> None:
+    """Every task id of a notification block gets that block's status."""
+    for block in NOTICE.findall(text):
+        status = STATUS.search(block)
+        for task_id in TASK_ID.findall(block):
+            ended[task_id] = {"status": status.group(1) if status else "notified", "ts": ts}
+
+
+def _git_paths(tokens: list[str], current: str | None, ts, sink: dict) -> None:
+    for index, token in enumerate(tokens[:-1]):
+        if token == "-C":
+            path = _resolve(tokens[index + 1], current)
+            if path:
+                sink["directories"].setdefault(path, ts)
+                current = path  # git resolves the remaining relative paths from -C
+    if "worktree" in tokens and "add" in tokens:
+        skip = False
+        for arg in tokens[tokens.index("add") + 1:]:
+            if skip:
+                skip = False
+            elif arg in ("-b", "-B", "--reason"):
+                skip = True
+            elif not arg.startswith("-"):
+                path = _resolve(arg, current)
+                if path:
+                    sink["directories"].setdefault(path, ts)
+                break
+
+
+def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
+    """Record writes, directories, references and scratchpad paths of one shell command."""
+    current = cwd
+    for segment in SEGMENT.split(command):
+        segment = segment.strip()
+        if not segment:
+            continue
+        tokens = _tokens(segment)
+        while tokens and re.fullmatch(r"\w+=\S*", tokens[0]):
+            tokens = tokens[1:]  # environment assignments before the program
+        if not tokens:
+            continue
+        program = os.path.basename(tokens[0])
+        if program == "cd" and len(tokens) > 1:
+            current = _resolve(tokens[1], current)
+            if current:
+                sink["directories"].setdefault(current, ts)
+        elif program == "git":
+            _git_paths(tokens, current, ts, sink)
+            if git_write(tokens):
+                sink["git_mutations"].append({"ts": ts, "command": _first_line(segment), "by": actor})
+        elif program == "gh":
+            if gh_write(tokens, segment):
+                sink["git_mutations"].append({"ts": ts, "command": _first_line(segment), "by": actor})
+            if len(tokens) > 3 and tokens[1] in ("pr", "issue") and tokens[3].isdigit():
+                repo = next((tokens[i + 1] for i, t in enumerate(tokens[:-1]) if t in ("-R", "--repo")), None)
+                _add_ref(sink["refs"], repo, "pull" if tokens[1] == "pr" else "issues", int(tokens[3]), ts)
+        for token in TOKEN_SPLIT.split(segment):
+            if token.startswith("/") and "/scratchpad" in token:
+                sink["scratch"].setdefault(token.rstrip(".,:"), ts)
+        _scan_refs(segment, sink["refs"], ts)
 
 
 def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
     """Entries of all transcript parts in file order, and the count of unreadable lines."""
     entries, bad = [], 0
     for path in paths:
-        with path.open(encoding="utf-8") as stream:
+        with path.open(encoding="utf-8", errors="replace") as stream:
             for line in stream:
                 try:
                     entry = json.loads(line)
@@ -104,150 +328,175 @@ def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
     return entries, bad
 
 
-def inventory(entries: list[dict]) -> dict:
-    """The thread's artifacts and signals, without touching the file system."""
-    sessions, bridges, titles, prompts = [], [], [], []
-    models, tokens, responses = Counter(), Counter(), {}
-    files, memory, git_mutations, external, scratch, corrections = {}, {}, [], [], {}, []
-    directories, refs = {}, {}
-    started, ended, results = {}, {}, {}
-    first = last = None
+def _new_sink() -> dict:
+    return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
+            "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
+            "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
+            "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
+
+def scan(entries: list[dict], sink: dict | None = None, actor: str = "main") -> dict:
+    """Accumulate one transcript's signals into ``sink`` without touching the file system."""
+    sink = sink if sink is not None else _new_sink()
     for entry in entries:
-        kind, ts = entry.get("type"), entry.get("timestamp")
-        if ts:
-            first = first or ts
-            last = ts
-        for key in ("sessionId", "session_id"):
-            if entry.get(key) and entry[key] not in sessions:
-                sessions.append(entry[key])
-        if entry.get("cwd"):
-            directories.setdefault(entry["cwd"], ts)
-        if kind == "bridge-session" and entry.get("bridgeSessionId") not in bridges:
-            bridges.append(entry.get("bridgeSessionId"))
+        kind, ts, cwd = entry.get("type"), entry.get("timestamp"), entry.get("cwd")
+        if ts and actor == "main":
+            sink["first"] = sink["first"] or ts
+            sink["last"] = ts
+        if actor == "main" and entry.get("sessionId") and entry["sessionId"] not in sink["sessions"]:
+            sink["sessions"].append(entry["sessionId"])
+        if cwd:
+            sink["directories"].setdefault(cwd, ts)
+        if kind == "bridge-session" and entry.get("bridgeSessionId") and entry["bridgeSessionId"] not in sink["bridges"]:
+            sink["bridges"].append(entry["bridgeSessionId"])
         elif kind == "ai-title" and entry.get("aiTitle"):
-            titles.append(entry["aiTitle"])
-        elif kind == "pr-link" and entry.get("prUrl"):
-            refs[entry["prUrl"]] = {"url": entry["prUrl"], "repository": entry.get("prRepository"),
-                                    "number": entry.get("prNumber"), "kind": "pull", "first_seen": ts}
+            sink["titles"].append(entry["aiTitle"])
+        elif kind == "pr-link" and entry.get("prNumber"):
+            _add_ref(sink["refs"], entry.get("prRepository"), "pull", int(entry["prNumber"]), ts)
         elif kind == "file-history-delta" and entry.get("trackingPath"):
             parent = (entry.get("backup") or {}).get("realParentDir")
             path = entry["trackingPath"]
             full = path if path.startswith("/") or not parent else str(Path(parent) / Path(path).name)
-            files.setdefault(full, ts)
+            sink["files"].setdefault(full, {"ts": ts, "by": actor})
 
-        message = entry.get("message")
-        if kind == "user" and isinstance(message, dict) and isinstance(message.get("content"), str):
-            text = message["content"].strip()
-            if text and not entry.get("isMeta") and not text.startswith("<"):
-                prompts.append({"ts": ts, "text": _short(text)})
-        # Completion notices arrive in user messages or as queued operations.
-        notices = [entry.get("content"), message.get("content") if isinstance(message, dict) else None]
-        notices += [block.get("text") for block in _content(entry) if isinstance(block, dict)]
-        for notice in notices:
-            if isinstance(notice, str) and "<task-id>" in notice:
-                for task_id, status in BACKGROUND_ENDED.findall(notice):
-                    ended[task_id] = {"status": status, "ts": ts}
-        if kind == "assistant" and isinstance(message, dict):
-            key = message.get("id") or entry.get("requestId") or entry.get("uuid")
-            if key not in responses:
-                responses[key] = True
-                models[message.get("model") or "unknown"] += 1
-                usage = message.get("usage") or {}
-                for field in ("input_tokens", "output_tokens", "cache_read_input_tokens",
-                              "cache_creation_input_tokens"):
-                    tokens[field] += usage.get(field) or 0
-
-        for block in _content(entry):
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "text" and kind == "assistant":
-                text = block.get("text") or ""
-                for match in CORRECTION.finditer(text):
-                    start = max(0, match.start() - 160)
-                    corrections.append({"ts": ts, "snippet": _short(text[start:match.end() + 200])})
-            elif block.get("type") == "tool_use":
-                name, data = block.get("name") or "", block.get("input") or {}
-                _record_tool(name, data, ts, block.get("id"), entry.get("cwd"), files, memory, git_mutations,
-                             external, scratch, directories, started)
-            elif block.get("type") == "tool_result":
-                text = _text(block.get("content"))
-                results[block.get("tool_use_id")] = text
-                for url in GITHUB_REF.finditer(text):
-                    refs.setdefault(url.group(0), {"url": url.group(0), "repository": url.group(1),
-                                                   "number": int(url.group(3)), "kind": url.group(2),
-                                                   "first_seen": ts})
-                for task_id in STOPPED.findall(text):
-                    ended[task_id] = {"status": "stopped", "ts": ts}
-
-    background = []
-    for tool_use_id, task in started.items():
-        text = results.get(tool_use_id, "")
-        task_ids = [match.group(1) for pattern in BACKGROUND_STARTED for match in pattern.finditer(text)]
-        for task_id in task_ids or [None]:
-            end = ended.get(task_id) if task_id else None
-            background.append({**task, "id": task_id, "ended": end})
-    return {
-        "sessions": sessions,
-        "bridge_sessions": [b for b in bridges if b],
-        "title": titles[-1] if titles else None,
-        "first": first,
-        "last": last,
-        "models": dict(models),
-        "responses": len(responses),
-        "tokens": dict(tokens),
-        "prompts": prompts,
-        "directories": sorted(directories),
-        "files_written": sorted(files),
-        "memory_writes": sorted(memory),
-        "git_mutations": git_mutations,
-        "github_refs": sorted(refs.values(), key=lambda ref: (ref["repository"] or "", ref["number"] or 0)),
-        "external_writes": external,
-        "background_tasks": background,
-        "scratchpad_paths": sorted(scratch),
-        "corrections": corrections,
-    }
+        top = entry.get("content")
+        if isinstance(top, str) and "<task-id>" in top:
+            _notices(top, ts, sink["ended"])
+        message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
+        if kind == "user":
+            _user(entry, message, ts, cwd, sink, actor)
+        elif kind == "assistant":
+            _assistant(entry, message, ts, cwd, sink, actor)
+    return sink
 
 
-def _record_tool(name, data, ts, tool_use_id, cwd, files, memory, git_mutations, external, scratch,
-                 directories, started) -> None:
+def _assistant(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
+    key = message.get("id") or entry.get("requestId") or entry.get("uuid")
+    if key not in sink["responses"]:
+        sink["responses"].add(key)
+        sink["models"][message.get("model") or "unknown"] += 1
+        usage = message.get("usage") or {}
+        for field in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+            sink["tokens"][field] += usage.get(field) or 0
+    for block in _content(entry):
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            text = block.get("text") or ""
+            for match in CORRECTION.finditer(text):
+                start = max(0, match.start() - 160)
+                sink["corrections"].append({"ts": ts, "by": actor, "snippet": _short(text[start:match.end() + 200])})
+        elif block.get("type") == "tool_use":
+            _tool_use(block, ts, cwd, sink, actor)
+
+
+def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
+    content = message.get("content")
+    text = _text(content)
+    if "<task-id>" in text:
+        _notices(text, ts, sink["ended"])
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") == "tool_result":
+            result = _text(block.get("content"))
+            _scan_refs(result, sink["refs"], ts)
+            for task_id in STOPPED.findall(result):
+                sink["ended"][task_id] = {"status": "stopped", "ts": ts}
+            tool = sink["tools"].get(block.get("tool_use_id"), {})
+            ids = [m.group(1) for pattern in STARTED for m in pattern.finditer(result)] + ASYNC_AGENT.findall(result)
+            for task_id in dict.fromkeys(ids):
+                sink["started"].append({**tool, "id": task_id, "by": actor})
+    if actor != "main" or entry.get("isMeta") or entry.get("isCompactSummary"):
+        return
+    origin = entry.get("origin")
+    origin_kind = origin.get("kind") if isinstance(origin, dict) else None
+    stripped = text.strip()
+    if stripped.startswith("<bash-input>"):
+        command = re.sub(r"</?bash-input>", "", stripped)
+        sink["user_commands"].append({"ts": ts, "command": _first_line(command)})
+        _shell(command, cwd, ts, sink, "user")
+        return
+    if origin_kind:
+        is_prompt = origin_kind == "human"
+    else:  # transcripts without `origin`: a plain string that is not a harness tag
+        is_prompt = isinstance(content, str) and not stripped.startswith("<")
+    if is_prompt and stripped:
+        sink["prompts"].append({"ts": ts, "text": _short(stripped)})
+        _scan_refs(stripped, sink["refs"], ts)
+
+
+def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
+    name, data = block.get("name") or "", block.get("input") or {}
+    data = data if isinstance(data, dict) else {}
+    description = data.get("description") or data.get("name") or data.get("prompt") or ""
+    sink["tools"][block.get("id")] = {"tool": name, "ts": ts, "description": _short(description, 160)}
     if name in WRITE_TOOLS:
         path = data.get("file_path") or data.get("notebook_path")
         if path:
-            files.setdefault(path, ts)
-            if "/memory/" in path or path.endswith("MEMORY.md"):
-                memory.setdefault(path, ts)
-            for match in SCRATCHPAD.finditer(path):
-                scratch.setdefault(match.group(1), ts)
+            sink["files"].setdefault(path, {"ts": ts, "by": actor})
+            if MEMORY_PATH.search(path):
+                sink["memory"].setdefault(path, {"ts": ts, "by": actor})
+            if "/scratchpad" in path:
+                sink["scratch"].setdefault(path, ts)
     elif name == "Bash":
-        command = data.get("command") or ""
-        if GIT_MUTATION.search(command) or GH_MUTATION.search(command):
-            git_mutations.append({"ts": ts, "command": _short(command)})
-        for match in SCRATCHPAD.finditer(command):
-            scratch.setdefault(match.group(1).rstrip(".,"), ts)
-        for match in CD_PATH.finditer(command):
-            path = os.path.expanduser(match.group(2))
-            if not path.startswith("/") and cwd:
-                path = os.path.normpath(os.path.join(cwd, path))
-            if path.startswith("/"):
-                directories.setdefault(path, ts)
-        if data.get("run_in_background"):
-            started[tool_use_id] = {"tool": name, "ts": ts, "description": _short(data.get("description") or command)}
-    elif name in ("Monitor", "Workflow") or (name == "Agent" and data.get("run_in_background")):
-        started[tool_use_id] = {"tool": name, "ts": ts,
-                                "description": _short(data.get("description") or data.get("name") or "")}
-    elif name in ("ScheduleWakeup", "CronCreate"):
-        external.append({"ts": ts, "tool": name, "summary": _short(json.dumps(data, ensure_ascii=False))})
-    elif name == "RemoteTrigger" and data.get("action") in REMOTE_WRITE_ACTIONS:
-        external.append({"ts": ts, "tool": name,
-                         "summary": f"{data.get('action')} {data.get('trigger_id') or ''}".strip()})
-    elif name in ("Artifact", "ArtifactData") and (data.get("action") or "publish") not in ("read", "list", "get",
-                                                                                              "query", "open",
-                                                                                              "quickstart"):
-        external.append({"ts": ts, "tool": name, "summary": _short(
-            f"{data.get('action') or 'publish'} {data.get('url') or data.get('file_path') or ''}".strip())})
-    elif name.startswith("mcp__") and WRITE_VERB.search(name.rsplit("__", 1)[-1]):
-        external.append({"ts": ts, "tool": name, "summary": _short(json.dumps(data, ensure_ascii=False))})
+        _shell(data.get("command") or "", cwd, ts, sink, actor)
+    elif name in SCHEDULE_TOOLS:
+        sink["scheduled"].append({"ts": ts, "tool": name, "by": actor,
+                                  "summary": _short(data.get("reason") or data.get("prompt") or "", 160)})
+    else:
+        kind = classify_tool(name, data)
+        if kind == "write":
+            sink["external"].append({"ts": ts, "tool": name, "by": actor,
+                                     "summary": " ".join(filter(None, [data.get("action"), _target(data)]))})
+        elif kind == "logging":
+            sink["logging"] += 1
+        elif kind == "unclassified":
+            sink["unclassified"][name] += 1
+        if name.startswith("mcp__"):
+            _scan_refs(json.dumps(data, ensure_ascii=False), sink["refs"], ts)
+
+
+def summarize(sink: dict) -> dict:
+    background = [{**task, "ended": sink["ended"].get(task["id"])} for task in sink["started"]]
+    refs = sorted(sink["refs"].values(), key=lambda ref: (ref["repository"] or "", ref["kind"], ref["number"]))
+    return {
+        "sessions": sink["sessions"],
+        "bridge_sessions": sink["bridges"],
+        "title": sink["titles"][-1] if sink["titles"] else None,
+        "first": sink["first"],
+        "last": sink["last"],
+        "models": dict(sink["models"]),
+        "responses": len(sink["responses"]),
+        "tokens": dict(sink["tokens"]),
+        "prompts": sink["prompts"],
+        "user_commands": sink["user_commands"],
+        "directories": sorted(sink["directories"]),
+        "files_written": [{"path": path, **info} for path, info in sorted(sink["files"].items())],
+        "memory_writes": [{"path": path, **info} for path, info in sorted(sink["memory"].items())],
+        "git_mutations": sink["git_mutations"],
+        "github_refs": refs,
+        "external_writes": sink["external"],
+        "scheduled": sink["scheduled"],
+        "unclassified_tools": dict(sink["unclassified"]),
+        "logging_calls": sink["logging"],
+        "background_tasks": background,
+        "scratchpad_paths": sorted(sink["scratch"]),
+        "corrections": sink["corrections"],
+    }
+
+
+def inventory(entries: list[dict]) -> dict:
+    """The thread's artifacts and signals from one transcript's entries."""
+    return summarize(scan(entries))
+
+
+def subagent_transcripts(paths: list[Path]) -> list[Path]:
+    """Transcripts of subagents and workflow agents stored next to the session's transcript."""
+    found = []
+    for path in paths:
+        directory = path.with_suffix("")
+        if directory.is_dir():
+            found += sorted(p for p in directory.rglob("*.jsonl") if p.is_file())
+    return found
 
 
 def git_roots(directories: list[str]) -> list[str]:
@@ -292,6 +541,31 @@ def latest_in_project(directory: str) -> tuple[Path | None, list[str]]:
     return candidates[0], recent
 
 
+def collect(paths: list[Path]) -> dict:
+    """Inventory of the transcripts and of their subagents' transcripts."""
+    entries, bad = load_entries(paths)
+    sink = scan(entries)
+    subagents = []
+    for part in subagent_transcripts(paths):
+        part_entries, part_bad = load_entries([part])
+        bad += part_bad
+        before = (len(sink["git_mutations"]), len(sink["external"]), len(sink["files"]), len(sink["responses"]))
+        scan(part_entries, sink, actor=part.stem)
+        counts = {"git_mutations": len(sink["git_mutations"]) - before[0],
+                  "external_writes": len(sink["external"]) - before[1],
+                  "files_written": len(sink["files"]) - before[2],
+                  "responses": len(sink["responses"]) - before[3]}
+        if counts["git_mutations"] or counts["external_writes"] or counts["files_written"]:
+            subagents.append({"agent": part.stem, "transcript": str(part), **counts})
+    result = summarize(sink)
+    result["subagents_with_writes"] = subagents
+    result["subagent_transcripts"] = len(subagent_transcripts(paths))
+    result["transcripts"] = [str(path) for path in paths]
+    result["unreadable_lines"] = bad
+    result["git_roots"] = git_roots(result["directories"])
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     source = parser.add_mutually_exclusive_group(required=True)
@@ -317,11 +591,7 @@ def main(argv: list[str] | None = None) -> int:
     if not paths:
         print(json.dumps({"error": "transcript not found"}))
         return 1
-    entries, bad = load_entries(paths)
-    result = inventory(entries)
-    result["transcripts"] = [str(path) for path in paths]
-    result["unreadable_lines"] = bad
-    result["git_roots"] = git_roots(result["directories"])
+    result = collect(paths)
     result["notes"] = notes
     json.dump(result, sys.stdout, ensure_ascii=False, indent=1)
     print()
