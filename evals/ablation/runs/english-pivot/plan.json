@@ -1,0 +1,1402 @@
+{
+ "e59424ae1144": {
+  "component": "rule-english-pivot",
+  "case": "ru-sql-second-order",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 35017,
+  "ctx_sha256": "2c427af0c9e448efede6204b5bf1158d9984c389df4508532764dc199d8a6c9e",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "d4be63fb762e": {
+  "component": "rule-english-pivot",
+  "case": "ru-sql-second-order",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 34011,
+  "ctx_sha256": "edd7964560cdc474e34515a692b4fbfef41e805390ce3b6915a13922b265f857",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-analysis-critical",
+   "skill-web-search",
+   "skill-caveman-tokenomics",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "971f2dbe72c1": {
+  "component": "rule-english-pivot",
+  "case": "ru-meeting-slots",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 13392,
+  "ctx_sha256": "dc6bb019c1841f71a4f2cadf759f2404c185a401e725955c1b57e1c5b7596217",
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoC",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "9ab88b20c8f6": {
+  "component": "rule-english-pivot",
+  "case": "ru-meeting-slots",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 12386,
+  "ctx_sha256": "07f5df20b2d6434f4d3f82f79ea894c7bcb5d6415fe489d8b3a1874e310fbfb7",
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "CoC",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "ef7a59cfb279": {
+  "component": "rule-english-pivot",
+  "case": "ru-jvm-oomkilled",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 15527,
+  "ctx_sha256": "caf97e7bbcb18d26a1c38062794fb4498d416c2ea19456067b98f59018e1e06f",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "SelfConsistency"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "2558b11e216f": {
+  "component": "rule-english-pivot",
+  "case": "ru-jvm-oomkilled",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 14521,
+  "ctx_sha256": "a0554e7ffb3ff4d3ae96d76de7cb22b51aa15d3f5d64b317cbbec668d85a933c",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-caveman-tokenomics",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "SelfConsistency"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "b69ba38e5a6a": {
+  "component": "rule-english-pivot",
+  "case": "ru-python-default-list",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 22362,
+  "ctx_sha256": "8f69968df8f245eb7ea9a0bbd996093e8bb45c286d656ba1bb5f0cde2799ee7a",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "bbf2af89e321": {
+  "component": "rule-english-pivot",
+  "case": "ru-python-default-list",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 21356,
+  "ctx_sha256": "149c2509a1e498bf060defed6392b7970a4bb7fcb822a90bde774cdf9eb05177",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "bbad5efefb13": {
+  "component": "rule-english-pivot",
+  "case": "ru-urn-probability",
+  "arm": "with",
+  "agent": "math_scientist",
+  "chars": 13419,
+  "ctx_sha256": "359568b11a42a307016f4f6b4158993f76b13437bffa2a0167e952bf3da2f7fc",
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "CoC",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "eb443833adee": {
+  "component": "rule-english-pivot",
+  "case": "ru-urn-probability",
+  "arm": "without",
+  "agent": "math_scientist",
+  "chars": 12413,
+  "ctx_sha256": "adf23c93001faa7962c33fad80bef0d7409a844bb1af7bc9ba1f7c559a75b6f4",
+  "skills": [
+   "skill-content-structure",
+   "skill-mathematical-reasoning",
+   "skill-dev-debugging",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "CoC",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "bdbdc0c2683c": {
+  "component": "rule-english-pivot",
+  "case": "ru-git-reset-reflog",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 22362,
+  "ctx_sha256": "c7125cde6a32129d2461f80883a2eff966c78d560814611b322245c403f4d441",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "ea4a4b77a8ef": {
+  "component": "rule-english-pivot",
+  "case": "ru-git-reset-reflog",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 21356,
+  "ctx_sha256": "ab8e2fa8c095208951272a3ca1647742936cb2f39cc375f4049626c2993f2f4a",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-dev-debugging"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "0ac1eb3b5215": {
+  "component": "rule-english-pivot",
+  "case": "ru-office-move-plan",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 24617,
+  "ctx_sha256": "35f5b5d210ad05d4d9cb61a3d303da1578d800941fb87dbfc1cf2d9e6074d2f0",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "2bf2fd6e47ff": {
+  "component": "rule-english-pivot",
+  "case": "ru-office-move-plan",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 23611,
+  "ctx_sha256": "fe985f4f72e078469c674141ded2d42c0ed42341098df9447ed2074ac852fd0d",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical",
+   "skill-reasoning-logic",
+   "skill-consultative-intake"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "d1baccdf0a7f": {
+  "component": "rule-english-pivot",
+  "case": "ru-phone-regex",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 22635,
+  "ctx_sha256": "f95c14fac44565df224d4f68f88837e9b2bdbcb0a8b1285005c44759bbc5b20f",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "aaf7d2577887": {
+  "component": "rule-english-pivot",
+  "case": "ru-phone-regex",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 21629,
+  "ctx_sha256": "b7482003d6393a21eec08f457b4fceb8f7708bedeed56413a24c52ada1e5e523",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-api-design",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "fd80db92f337": {
+  "component": "rule-english-pivot",
+  "case": "ru-psql-connection-refused",
+  "arm": "with",
+  "agent": "database_admin",
+  "chars": 34164,
+  "ctx_sha256": "98089bf62d48b650aa80223773fb3f37ea7adbb1462e584d1e4b2aa9b31f412b",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "6369639338d8": {
+  "component": "rule-english-pivot",
+  "case": "ru-psql-connection-refused",
+  "arm": "without",
+  "agent": "database_admin",
+  "chars": 33158,
+  "ctx_sha256": "b11fa94dd982b180eed1308e9f219ee30a12ec39d50608cd0e0850aca3bf3d33",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-web-search",
+   "skill-analysis-critical",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "VerifyAssumptions",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "80608e1df835": {
+  "component": "rule-english-pivot",
+  "case": "ru-tax-deduction-vs-benefit",
+  "arm": "with",
+  "agent": "lawyer",
+  "chars": 19499,
+  "ctx_sha256": "eecf35fee88c4110d1d60967de37ca360abde4d2fefd4b339182861a5afbf513",
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "87ad2dfa3b03": {
+  "component": "rule-english-pivot",
+  "case": "ru-tax-deduction-vs-benefit",
+  "arm": "without",
+  "agent": "lawyer",
+  "chars": 18493,
+  "ctx_sha256": "22a661657b8a5c27eab499363db084523c8828512a3224c572acb3f82190df12",
+  "skills": [
+   "skill-content-structure",
+   "skill-legal-citation",
+   "skill-consultative-intake",
+   "skill-dense-summarization"
+  ],
+  "implants": [
+   "LayerOfThoughts",
+   "LoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "a3f8e7662710": {
+  "component": "rule-english-pivot",
+  "case": "ru-pushkin-meter",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 16110,
+  "ctx_sha256": "d853cfc984a14f117552a18376e3f9276592e662189f45498e1d164d0911e6c0",
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-literary-devices"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "d7f9ef90509f": {
+  "component": "rule-english-pivot",
+  "case": "ru-pushkin-meter",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 15104,
+  "ctx_sha256": "8124fa82844cec804c8e765d6787731bf8dcb86a677da310bbc159663d0a0817",
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-literary-devices"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "6d5aaf7c00a5": {
+  "component": "rule-english-pivot",
+  "case": "ru-1c-query-characteristic",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 39849,
+  "ctx_sha256": "379c2571072451b2086d252d1fe618d3e3c381f9436cd8a336bae1935c56f462",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-error-recovery",
+   "skill-dev-debugging",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "3a5e7780eecf": {
+  "component": "rule-english-pivot",
+  "case": "ru-1c-query-characteristic",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 38843,
+  "ctx_sha256": "814dea4579a7bf09c41b901fb157f616138a93ab881a175ffb49f704dd4ce5df",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-error-recovery",
+   "skill-dev-debugging",
+   "skill-dev-performance"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "OutputPriming"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "69a14de64ea3": {
+  "component": "rule-english-pivot",
+  "case": "ru-heart-failure-terms",
+  "arm": "with",
+  "agent": "medical_expert",
+  "chars": 22040,
+  "ctx_sha256": "95e2503a36beffe8295af295187cc8f187413922f26e3f59bb4dd46f493c277f",
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-fact-verification",
+   "skill-bio-protocols"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "519967131a0a": {
+  "component": "rule-english-pivot",
+  "case": "ru-heart-failure-terms",
+  "arm": "without",
+  "agent": "medical_expert",
+  "chars": 21034,
+  "ctx_sha256": "abfb105f388c2783dc5f212aa6efe56ae5026795c85b27fb04d26fcec51b7784",
+  "skills": [
+   "skill-content-structure",
+   "skill-bio-protocol-design",
+   "skill-fact-verification",
+   "skill-bio-protocols"
+  ],
+  "implants": [
+   "CoV",
+   "UncertaintyQ",
+   "CausalReasoning"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "4061c3cbb177": {
+  "component": "rule-english-pivot",
+  "case": "ru-bakery-puns",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 12988,
+  "ctx_sha256": "c7f8bc8d2b3cb35ce7f0aa7cc17fcada03f57b515aae9374fa7f7e5106bb2765",
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "98511ce61314": {
+  "component": "rule-english-pivot",
+  "case": "ru-bakery-puns",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 11982,
+  "ctx_sha256": "cd459679fff676ab08790bd25a01d5935f09bb0e1bde2f18206482b0cd48bd4a",
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "089f332300fa": {
+  "component": "rule-english-pivot",
+  "case": "ru-proofread-sentence",
+  "arm": "with",
+  "agent": "tech_writer",
+  "chars": 11605,
+  "ctx_sha256": "9f23538a67eb426bd486229d0dcbc1753eccda688e8fa5c804d0bac4f36d9cab",
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-dense-summarization",
+   "skill-git-conventions"
+  ],
+  "implants": [
+   "SoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "daa49f2f0932": {
+  "component": "rule-english-pivot",
+  "case": "ru-proofread-sentence",
+  "arm": "without",
+  "agent": "tech_writer",
+  "chars": 10599,
+  "ctx_sha256": "3f7c0f0f0c53a4f16a57151f73ba003fd97a58b585b13bae0340cd5e38fe0e34",
+  "skills": [
+   "skill-content-structure",
+   "skill-tech-writing",
+   "skill-dense-summarization",
+   "skill-git-conventions"
+  ],
+  "implants": [
+   "SoT",
+   "CoV"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "350aaa2c404d": {
+  "component": "rule-english-pivot",
+  "case": "ru-petersburg-quatrain",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 12988,
+  "ctx_sha256": "579c6fbdb638b4b20290b8214fe98a4dd9866cea4d2726720a68597af9c37ac6",
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "e7420fdbec53": {
+  "component": "rule-english-pivot",
+  "case": "ru-petersburg-quatrain",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 11982,
+  "ctx_sha256": "701a9af8f78b7f83e147b0b94b0f398bed57163bcff21ed77a2971e87be81ddf",
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "37fdca5b4a62": {
+  "component": "rule-english-pivot",
+  "case": "ru-landing-translation",
+  "arm": "with",
+  "agent": "literary_writer",
+  "chars": 12988,
+  "ctx_sha256": "614247744a11a6a44aa32b0bf8d2324d3d118894cf440e5637119fa6d7b78c81",
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "8dc6a10a24e5": {
+  "component": "rule-english-pivot",
+  "case": "ru-landing-translation",
+  "arm": "without",
+  "agent": "literary_writer",
+  "chars": 11982,
+  "ctx_sha256": "7d777bc49031bb94b5be4a3c9373bdbe01bd0a4d93da3a72e5226f9178e6d4b3",
+  "skills": [
+   "skill-creative-craft",
+   "skill-literary-devices",
+   "skill-narrative-craft"
+  ],
+  "implants": [
+   "AnalogicalPrompting",
+   "GeneratedKnowledge"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "c4b61e23fc31": {
+  "component": "rule-english-pivot",
+  "case": "ru-refund-letter",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 13239,
+  "ctx_sha256": "245d167c21761487a22b18b7917402b50866b57e6f30ad60fa5763eb9231c34e",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "64f8423845d2": {
+  "component": "rule-english-pivot",
+  "case": "ru-refund-letter",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 12233,
+  "ctx_sha256": "5b9649487e26ad31b51a1e973f933f0ea200edd384873dcc56df957d05c5a726",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-analysis-critical"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "78283b382228": {
+  "component": "rule-english-pivot",
+  "case": "ru-vryad-li-edva-li",
+  "arm": "with",
+  "agent": "education_tutor",
+  "chars": 16388,
+  "ctx_sha256": "0a5b5664783092924ef7fc775d852194a236d263480c931fe90aded3e80628f7",
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "f1b70bb84aa2": {
+  "component": "rule-english-pivot",
+  "case": "ru-vryad-li-edva-li",
+  "arm": "without",
+  "agent": "education_tutor",
+  "chars": 15382,
+  "ctx_sha256": "71d75d880ae714a196c849f99f6ce42d61da174dd6a213461cd200d9780e5f93",
+  "skills": [
+   "skill-pedagogy",
+   "skill-content-structure",
+   "skill-fact-verification"
+  ],
+  "implants": [
+   "MaieuticPrompting",
+   "AnalogicalPrompting",
+   "StepBack"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "86203f020319": {
+  "component": "rule-english-pivot",
+  "case": "mix-inn-validator",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 38184,
+  "ctx_sha256": "70b2ceeb9fd005db03eed28c3be9c41f4b603cc21e6d5476081ba8c8aabe94dd",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-dev-security",
+   "skill-web-search",
+   "skill-dev-api-design"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "ChainOfNote"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "bd54890feac9": {
+  "component": "rule-english-pivot",
+  "case": "mix-inn-validator",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 37178,
+  "ctx_sha256": "ec96c92de1bb3b1a2c102fd47d9ea47045345e13713107368791c909d32503ff",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-dev-debugging",
+   "skill-dev-security",
+   "skill-web-search",
+   "skill-dev-api-design"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "ChainOfNote"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "46927e585171": {
+  "component": "rule-english-pivot",
+  "case": "mix-runbook-checklist",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 33502,
+  "ctx_sha256": "addc26d04a35e2b7c24d9bc44da5407b9b428e63556ea66d82977c17035dcfc7",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "OutputAutomata",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "71c057a9ad77": {
+  "component": "rule-english-pivot",
+  "case": "mix-runbook-checklist",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 32496,
+  "ctx_sha256": "c2757d8437c84f537b779073a201dad87fcad224c17e7be860a1adcd19dac4e7",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-clean-code",
+   "skill-dev-debugging",
+   "skill-analysis-critical",
+   "skill-web-search"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "OutputAutomata",
+   "VerifyAssumptions"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "ad0f6ea20fe4": {
+  "component": "rule-english-pivot",
+  "case": "en-float-compare",
+  "arm": "with",
+  "agent": "software_engineer",
+  "chars": 39207,
+  "ctx_sha256": "ee35d9e8246498ec9ed456013172549f1bce46c1a94e0b881410084fb9dcd93d",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-performance",
+   "skill-error-recovery",
+   "skill-dev-security"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "e4e030eef8cf": {
+  "component": "rule-english-pivot",
+  "case": "en-float-compare",
+  "arm": "without",
+  "agent": "software_engineer",
+  "chars": 38201,
+  "ctx_sha256": "92379976d02569767f05f2c362bdb9cc7e3a39ea8abd052acd8ed795893423db",
+  "skills": [
+   "skill-content-structure",
+   "skill-dev-clean-code",
+   "skill-confidence-markers",
+   "skill-web-search",
+   "skill-dev-performance",
+   "skill-error-recovery",
+   "skill-dev-security"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget",
+   "PoT"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "deep"
+ },
+ "961e00f29788": {
+  "component": "rule-english-pivot",
+  "case": "en-liveness-readiness",
+  "arm": "with",
+  "agent": "devops_engineer",
+  "chars": 16362,
+  "ctx_sha256": "a876e5ce739b453b9709b707cf75ac34f2b34e1a702c370f11678ecb8b249c1a",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "d25e99f46d78": {
+  "component": "rule-english-pivot",
+  "case": "en-liveness-readiness",
+  "arm": "without",
+  "agent": "devops_engineer",
+  "chars": 15356,
+  "ctx_sha256": "9fe5a5be26c1311969664b8e16e36d8a62a40c010695c4753eadf5eb57183787",
+  "skills": [
+   "skill-content-structure",
+   "skill-system-design",
+   "skill-dev-debugging",
+   "skill-dev-clean-code"
+  ],
+  "implants": [
+   "RegressionFirst",
+   "IterBudget"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "03da06dfbc04": {
+  "component": "rule-english-pivot",
+  "case": "en-refund-letter",
+  "arm": "with",
+  "agent": "universal_agent",
+  "chars": 13266,
+  "ctx_sha256": "dfb04aa0376a8388c82b482013d602008c08855f9139f0afaa42b0912db2b6c8",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ },
+ "f102a64bbfb6": {
+  "component": "rule-english-pivot",
+  "case": "en-refund-letter",
+  "arm": "without",
+  "agent": "universal_agent",
+  "chars": 12260,
+  "ctx_sha256": "0e8d7c981ab535ccfa06b0b022a9d0d6c8b3152d17ca02666644d99fbd4b5024",
+  "skills": [
+   "skill-content-structure",
+   "skill-decision-frameworks",
+   "skill-dense-summarization",
+   "skill-reasoning-logic"
+  ],
+  "implants": [
+   "SelfDiscover",
+   "StepBack",
+   "DecompPrompt"
+  ],
+  "rules": [
+   "no-fabrication",
+   "serve-the-request",
+   "honest-uncertainty",
+   "anti-sycophancy",
+   "english-pivot",
+   "language-match",
+   "answer-timestamp"
+  ],
+  "tier": "standard"
+ }
+}
