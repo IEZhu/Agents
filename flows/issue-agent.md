@@ -143,7 +143,7 @@ not trigger the bridge.
 | `/agent run_plan [vN]` | issue | [issue-implementation](issue-implementation.md) with the approved plan version, including the complete bot review cycle in `no-merge` mode |
 | `/agent run` | issue | [issue-plan](issue-plan.md) then [issue-implementation](issue-implementation.md), including the complete bot review cycle in `no-merge` mode, without waiting for plan approval; stop at the first open question |
 | `/agent fix <what>` | pull request | apply the requested change, then [pr-review](pr-review.md) with `no-merge` |
-| `/agent review` | pull request | Resume interrupted review or start a later review with [pr-review](pr-review.md) in `no-merge` mode; also retry bots whose quota pause has expired |
+| `/agent review` | pull request | Resume interrupted review or start a later review with [pr-review](pr-review.md) in `no-merge` mode, first bringing a conflicting or outdated branch up to date; also retry bots whose quota pause has expired |
 | `/agent status` | both | reply with the state summary below |
 | `/agent stop` | both | set `stop_requested` in the state; a running session halts at its next checkpoint |
 | `/agent help` | both | reply with this table |
