@@ -23,6 +23,7 @@ from src.utils.prompt_loader import split_frontmatter
 _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
 _EXPECTED_RULE_NAMES = {
     "answer-timestamp",
+    "english-pivot",
     "no-fabrication",
     "honest-uncertainty",
     "anti-sycophancy",
@@ -355,6 +356,22 @@ def test_answer_timestamp_rule_forbids_inventing_the_time():
     text = rule.body.lower()
     assert "first line" in text
     assert "never invent" in text
+
+
+def test_english_pivot_rule_keeps_the_log_query_and_answer_language():
+    """The pivot changes how the client works, never what it logs or answers in.
+
+    ``log_interaction`` must still receive the request verbatim, and the reply
+    language stays with ``language-match``, which loads after the pivot.
+    """
+    from src.engine.rules import get_rules
+
+    rules = get_rules(strict=True)
+    names = [r.name for r in rules]
+    text = next(r for r in rules if r.name == "english-pivot").body
+    assert "`log_interaction` keeps `query` verbatim" in text
+    assert "`language-match`" in text
+    assert names.index("english-pivot") < names.index("language-match")
 
 
 def test_answer_timestamp_rule_follows_toggle(monkeypatch):
