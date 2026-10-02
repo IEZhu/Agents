@@ -453,3 +453,16 @@ def test_empty_pending_file_never_touches_the_archive(tmp_path, history_path):
     writer.append_entry("small", "a", "o")
     assert archive.read_text(encoding="utf-8") == "ARCHIVE"
     assert not os.path.exists(history_path + ".rotating")
+
+
+def test_committed_pending_payload_is_not_archived_twice(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=512)
+    archive_dir.mkdir()
+    payload = "## 2026-01-02T03:04:05+00:00 | abcdef123456\nENTRY\n"
+    archive = archive_dir / "2026-01.md"
+    archive.write_text("OLD\n\n<!-- merged on rotation -->\n\n" + payload, encoding="utf-8")
+    Path(history_path + ".rotating").write_text(payload, encoding="utf-8")
+    writer.append_entry("small", "a", "o")
+    assert archive.read_text(encoding="utf-8").count("ENTRY") == 1
+    assert not os.path.exists(history_path + ".rotating") or Path(history_path + ".rotating").stat().st_size == 0

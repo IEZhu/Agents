@@ -313,6 +313,19 @@ class HistoryWriter:
 
         return archive_path
 
+    @staticmethod
+    def _archive_ends_with(archive_path: str, payload: str) -> bool:
+        data = payload.encode("utf-8")
+        try:
+            with open(archive_path, "rb") as fh:
+                size = fh.seek(0, os.SEEK_END)
+                if size < len(data):
+                    return False
+                fh.seek(size - len(data))
+                return fh.read() == data
+        except OSError:
+            return False
+
     def _merge_pending_locked(self, pending: str) -> str:
         """Append the pending file to its month's archive, then empty it.
 
@@ -334,6 +347,14 @@ class HistoryWriter:
         archive_path = os.path.join(self.archive_dir, f"{month}.md")
         existed = os.path.exists(archive_path)
         size_before = os.path.getsize(archive_path) if existed else 0
+        if existed and self._archive_ends_with(archive_path, payload):
+            # A crash after the append but before the unlink: already archived.
+            try:
+                os.unlink(pending)
+            except OSError:
+                with open(pending, "w", encoding="utf-8"):
+                    pass
+            return archive_path
         try:
             with open(archive_path, "a", encoding="utf-8", newline="") as dst:
                 if existed:

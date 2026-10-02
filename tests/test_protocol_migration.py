@@ -73,7 +73,7 @@ def test_append_preserves_user_instructions_without_final_newline(tmp_path, help
     assert target.read_text(encoding="utf-8").startswith("User instructions\n" + injector.MARKER_BEGIN)
 
 
-@pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md"])
+@pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md", "memory-routing-v4.md"])
 def test_known_memory_and_index_migrate_with_backups(tmp_path, helpers, legacy):
     _, memory = helpers
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"
