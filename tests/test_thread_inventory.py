@@ -158,7 +158,7 @@ def test_prompt_sources():
     ]
     inv = thread_inventory.inventory(entries)
     assert [p["text"] for p in inv["prompts"]] == [
-        "what is on the screenshot?", "<pasted_content id=x>log text</pasted_content> explain",
+        "[image] what is on the screenshot?", "<pasted_content id=x>log text</pasted_content> explain",
         "close https://github.com/Owner/Repo/issues/62 please"]
     assert inv["user_commands"][0]["command"].startswith("cd /work/repo && git push")
     assert inv["git_mutations"] == [{"ts": "t6", "command": "git push origin eval/x", "by": "user"}]
@@ -315,3 +315,81 @@ def test_session_lookup_uses_the_claude_config_dir(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         thread_inventory.find_session("../etc/passwd")
     assert thread_inventory.project_dir_name("/Users/a.b/Documents/Agents") == "-Users-a-b-Documents-Agents"
+
+
+@pytest.mark.parametrize("command, kind", [
+    ("git notes show HEAD", "read"), ("git notes add -m x", "write"), ("git update-ref refs/x HEAD", "write"),
+    ("git sparse-checkout set src", "write"), ("git sparse-checkout list", "read"),
+    ("git frobnicate --all", "unknown"), ("git add -A src", "write"), ("git archive HEAD", "read"),
+    ("git bundle create x.bundle HEAD", "read"),
+])
+def test_git_subcommands(command, kind):
+    assert thread_inventory.git_kind(command.split()) == kind
+
+
+def test_unknown_git_and_gh_commands_are_listed_not_dropped():
+    inv = thread_inventory.inventory(bash("git frobnicate --all && gh extension install o/x && /usr/bin/git push", "u"))
+    assert [c["command"] for c in inv["unclassified_commands"]] == ["git frobnicate --all", "gh extension install o/x"]
+    assert [m["command"] for m in inv["git_mutations"]] == ["/usr/bin/git push"]
+
+
+@pytest.mark.parametrize("command, expected", [
+    ("gh pr merge --squash 12", ("pull", 12, None)),
+    ("gh issue close -R o/r 62", ("issues", 62, "o/r")),
+    ("gh issue close --repo=o/r 63", ("issues", 63, "o/r")),
+    ("gh pr comment 5 --body 12", ("pull", 5, None)),
+    ("gh pr view '#7' --json state", ("pull", 7, None)),
+])
+def test_gh_reference_parsing_skips_flags(command, expected):
+    refs = thread_inventory.inventory(bash(command, "r"))["github_refs"]
+    assert [(r["kind"], r["number"], r["repository"]) for r in refs] == [expected]
+
+
+def test_gh_list_limit_is_not_a_reference():
+    assert thread_inventory.inventory(bash("gh pr list --limit 30", "r"))["github_refs"] == []
+
+
+def test_structured_mcp_references():
+    inv = thread_inventory.inventory(assistant([
+        tool("mcp__github__pull_request_read", {"owner": "Owner", "repo": "Repo", "pullNumber": 153}, "s1"),
+        tool("mcp__github__issue_read", {"owner": "Owner", "repo": "Repo", "issue_number": "9"}, "s2"),
+    ], "2026-10-02T09:00:00Z", "msg"))
+    refs = [(r["repository"], r["kind"], r["number"]) for r in inv["github_refs"]]
+    assert refs == [("Owner/Repo", "issues", 9), ("Owner/Repo", "pull", 153)]
+
+
+def test_image_blocks_are_marked_in_prompts():
+    inv = thread_inventory.inventory([
+        human([{"type": "image", "source": {}}], "t1"),
+        human([{"type": "image", "source": {}}, {"type": "text", "text": "what is this?"}], "t2"),
+    ])
+    assert [p["text"] for p in inv["prompts"]] == ["[image]", "[image] what is this?"]
+
+
+def test_every_writer_of_a_file_is_kept(tmp_path):
+    main = tmp_path / f"{SESSION}.jsonl"
+    main.write_text(json.dumps(assistant([tool("Edit", {"file_path": "/w/a.py", "old_string": "a",
+                                                         "new_string": "b"}, "e1")], "t1", "m1")[0]) + "\n",
+                    encoding="utf-8")
+    sub = tmp_path / SESSION / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-b.jsonl").write_text(json.dumps(assistant([tool("Write", {"file_path": "/w/a.py", "content": "c"},
+                                                                  "e2")], "t2", "m2")[0]) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([main])
+    assert out["files_written"] == [{"path": "/w/a.py", "ts": "t1", "by": ["main", "agent-b"]}]
+    assert out["subagents_with_writes"][0]["files_written"] == 1
+
+
+def test_quoted_config_survives_a_multiline_message():
+    command = 'git -c user.name="Alexey Zhuchkov" -c user.email=a@b commit -q -m "Subject\n\nBody line"'
+    inv = thread_inventory.inventory(bash(command, "q"))
+    assert [m["command"] for m in inv["git_mutations"]] == [
+        'git -c user.name="Alexey Zhuchkov" -c user.email=a@b commit -q -m "Subject']
+    assert inv["unclassified_commands"] == []
+
+
+def test_line_continuations_and_code_lines_in_heredocs():
+    inv = thread_inventory.inventory(bash("git -c user.name=X \\\n  commit -m y && python3 - <<'EOF'\n"
+                                          "c['git/gh write'] += 1\nEOF", "lc"))
+    assert [m["command"] for m in inv["git_mutations"]] == ["git -c user.name=X commit -m y"]
+    assert inv["unclassified_commands"] == []

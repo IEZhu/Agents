@@ -80,9 +80,31 @@ REMOTE_WRITE_ACTIONS = {"create", "update", "run", "create_webhook_trigger", "de
 ARTIFACT_READ_ACTIONS = {"read", "list", "get", "query", "open", "quickstart", "watch"}
 GIT_READ_ONLY = {"status", "log", "diff", "show", "fetch", "rev-parse", "rev-list", "merge-base", "ls-files",
                  "ls-remote", "ls-tree", "describe", "blame", "grep", "shortlog", "for-each-ref", "cat-file",
-                 "check-ignore", "version", "help", "reflog", "count-objects", "name-rev", "var"}
+                 "check-ignore", "version", "help", "reflog", "count-objects", "name-rev", "var", "archive",
+                 "merge-tree", "format-patch", "range-diff", "whatchanged", "show-ref", "verify-commit"}
 GIT_WRITES = {"commit", "push", "pull", "rebase", "merge", "reset", "cherry-pick", "revert", "clean", "rm", "mv",
-              "restore", "am", "apply", "init", "clone", "switch", "checkout", "gc", "prune", "notes"}
+              "restore", "am", "apply", "init", "clone", "switch", "checkout", "gc", "prune", "update-ref", "add",
+              "filter-branch", "filter-repo", "fast-import", "replace", "rerere"}
+GIT_SUBCOMMAND_WRITES = {
+    "notes": {"add", "append", "copy", "edit", "merge", "remove", "prune"},
+    "sparse-checkout": {"set", "add", "init", "disable", "reapply"},
+    "submodule": {"add", "update", "init", "deinit", "sync", "absorbgitdirs", "set-branch", "set-url"},
+    "bisect": {"start", "good", "bad", "new", "old", "skip", "reset", "replay", "run"},
+    "lfs": {"track", "untrack", "install", "uninstall", "push", "pull", "fetch", "checkout", "migrate", "lock",
+            "unlock", "prune"},
+    "bundle": {"unbundle"},
+}
+GIT_SUBCOMMAND_READS = {"notes": {"show", "list", "get-ref"}, "sparse-checkout": {"list"},
+                        "bundle": {"create", "verify", "list-heads"},
+                        "submodule": {"status", "summary", "foreach"}, "bisect": {"log", "visualize", "view"},
+                        "lfs": {"ls-files", "status", "env", "version", "logs", "locks"}}
+GH_READ_VERBS = {"view", "list", "status", "checks", "diff", "search", "browse", "watch", "download", "verify"}
+GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--title", "-B", "--base", "-H", "--head",
+                  "-l", "--label", "-a", "--assignee", "-m", "--milestone", "-r", "--reviewer", "-p", "--project",
+                  "-c", "--comment", "--reason", "-s", "--state", "-L", "--limit", "-q", "--jq", "-T", "--template",
+                  "--json", "-S", "--search", "-A", "--author", "--subject", "--match-head-commit", "--add-label",
+                  "--remove-label", "--add-assignee", "--remove-assignee", "--add-reviewer", "--remove-reviewer",
+                  "--add-project", "--remove-project", "--duplicate-of"}
 GH_WRITES = {
     "pr": {"create", "merge", "close", "reopen", "comment", "edit", "review", "ready", "lock", "unlock"},
     "issue": {"create", "close", "reopen", "comment", "edit", "delete", "transfer", "pin", "unpin", "lock", "unlock",
@@ -93,6 +115,7 @@ GH_WRITES = {
     "workflow": {"run", "enable", "disable"},
     "run": {"rerun", "cancel", "delete"},
     "secret": {"set", "delete"},
+    "gist": {"create", "edit", "delete", "rename"},
     "variable": {"set", "delete"},
 }
 
@@ -129,8 +152,9 @@ def _text(value) -> str:
 def _tokens(segment: str) -> list[str]:
     try:
         return shlex.split(segment, posix=True)
-    except ValueError:
-        return segment.split()
+    except ValueError:  # a quote opened on an earlier line: keep quoted words together anyway
+        return [re.sub(r"[\"']", "", token) for token in re.findall(r"(?:[^\s'\"]|'[^']*'|\"[^\"]*\")+|['\"]", segment)
+                if token not in ("'", '"')]
 
 
 def _name_words(name: str) -> list[str]:
@@ -171,36 +195,63 @@ def classify_tool(name: str, data) -> str:
     return "unclassified"
 
 
-def git_write(tokens: list[str]) -> bool:
-    """Whether a tokenised `git ...` command changes a repository or its configuration."""
+def git_kind(tokens: list[str]) -> str:
+    """write, read or unknown for a tokenised `git ...` command."""
     index = 1
     while index < len(tokens) and tokens[index].startswith("-"):
         index += 2 if tokens[index] in ("-C", "-c") else 1
     if index >= len(tokens):
-        return False
+        return "read"
     sub, args = tokens[index], tokens[index + 1:]
+    first = args[0] if args else ""
     if sub in GIT_READ_ONLY:
-        return False
+        return "read"
     if sub in GIT_WRITES:
-        return True
+        return "write"
+    if sub in GIT_SUBCOMMAND_WRITES:
+        if first in GIT_SUBCOMMAND_WRITES[sub]:
+            return "write"
+        return "read" if not first or first in GIT_SUBCOMMAND_READS.get(sub, ()) else "unknown"
     if sub == "stash":
-        return not args or args[0] not in ("list", "show")
+        return "read" if first in ("list", "show") else "write"
     if sub == "tag":
-        return bool(args) and not any(arg in ("-l", "--list", "--contains", "--merged", "--no-merged",
-                                              "--points-at") for arg in args)
+        listing = {"-l", "--list", "--contains", "--merged", "--no-merged", "--points-at", "-n"}
+        return "write" if args and not any(arg in listing for arg in args) else "read"
     if sub == "worktree":
-        return bool(args) and args[0] in ("add", "remove", "prune", "move", "repair", "lock", "unlock")
+        return "write" if first in ("add", "remove", "prune", "move", "repair", "lock", "unlock") else "read"
     if sub == "branch":
         flags = {"-d", "-D", "--delete", "-m", "-M", "--move", "-f", "--force", "-c", "-C", "--copy",
                  "-u", "--set-upstream-to", "--unset-upstream", "--edit-description"}
-        return any(arg in flags or arg.startswith("--set-upstream-to=") for arg in args) or (
-            bool(args) and not args[0].startswith("-"))
+        changes = any(arg in flags or arg.startswith("--set-upstream-to=") for arg in args)
+        return "write" if changes or (args and not first.startswith("-")) else "read"
     if sub == "remote":
-        return bool(args) and args[0] in ("add", "remove", "rm", "rename", "set-url", "set-head", "prune")
+        return "write" if first in ("add", "remove", "rm", "rename", "set-url", "set-head", "prune") else "read"
     if sub == "config":
         reads = {"--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin", "--show-scope"}
-        return not any(arg in reads for arg in args) and len([a for a in args if not a.startswith("-")]) >= 2
-    return False
+        values = [arg for arg in args if not arg.startswith("-")]
+        return "write" if not any(arg in reads for arg in args) and len(values) >= 2 else "read"
+    if sub == "symbolic-ref":
+        return "write" if len([a for a in args if not a.startswith("-")]) >= 2 else "read"
+    return "unknown"
+
+
+def git_write(tokens: list[str]) -> bool:
+    """Whether a tokenised `git ...` command changes a repository or its configuration."""
+    return git_kind(tokens) == "write"
+
+
+def gh_kind(tokens: list[str], segment: str) -> str:
+    """write, read or unknown for a tokenised `gh ...` command."""
+    if len(tokens) < 2:
+        return "read"
+    group, verb = tokens[1], tokens[2] if len(tokens) > 2 else ""
+    if group == "api":
+        return "write" if gh_write(tokens, segment) else "read"
+    if group in GH_WRITES and verb in GH_WRITES[group]:
+        return "write"
+    if verb in GH_READ_VERBS or group in ("auth", "help", "version", "search", "browse", "status") or not verb:
+        return "read"
+    return "unknown"
 
 
 def gh_write(tokens: list[str], segment: str) -> bool:
@@ -282,6 +333,7 @@ def _git_paths(tokens: list[str], current: str | None, ts, sink: dict) -> None:
 def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
     """Record writes, directories, references and scratchpad paths of one shell command."""
     current = cwd
+    command = re.sub(r"\\\r?\n", " ", command)  # line continuations
     for segment in SEGMENT.split(command):
         segment = segment.strip()
         if not segment:
@@ -291,25 +343,50 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             tokens = tokens[1:]  # environment assignments before the program
         if not tokens:
             continue
-        program = os.path.basename(tokens[0])
+        program = os.path.basename(tokens[0]) if tokens[0].startswith("/") else tokens[0]
         if program == "cd" and len(tokens) > 1:
             current = _resolve(tokens[1], current)
             if current:
                 sink["directories"].setdefault(current, ts)
-        elif program == "git":
-            _git_paths(tokens, current, ts, sink)
-            if git_write(tokens):
+        elif program in ("git", "gh"):
+            if program == "git":
+                _git_paths(tokens, current, ts, sink)
+                kind = git_kind(tokens)
+            else:
+                kind = gh_kind(tokens, segment)
+                _gh_ref(tokens, ts, sink)
+            if kind == "write":
                 sink["git_mutations"].append({"ts": ts, "command": _first_line(segment), "by": actor})
-        elif program == "gh":
-            if gh_write(tokens, segment):
-                sink["git_mutations"].append({"ts": ts, "command": _first_line(segment), "by": actor})
-            if len(tokens) > 3 and tokens[1] in ("pr", "issue") and tokens[3].isdigit():
-                repo = next((tokens[i + 1] for i, t in enumerate(tokens[:-1]) if t in ("-R", "--repo")), None)
-                _add_ref(sink["refs"], repo, "pull" if tokens[1] == "pr" else "issues", int(tokens[3]), ts)
+            elif kind == "unknown":
+                sink["unclassified_commands"].append({"ts": ts, "command": _first_line(segment), "by": actor})
         for token in TOKEN_SPLIT.split(segment):
             if token.startswith("/") and "/scratchpad" in token:
                 sink["scratch"].setdefault(token.rstrip(".,:"), ts)
         _scan_refs(segment, sink["refs"], ts)
+
+
+def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
+    """The pull request or issue a `gh pr|issue <verb>` command names, with its repository."""
+    if len(tokens) < 4 or tokens[1] not in ("pr", "issue"):
+        return
+    repo, positional, skip = None, None, False
+    for index, token in enumerate(tokens[3:], start=3):
+        if skip:
+            skip = False
+            continue
+        if token.startswith("--repo="):
+            repo = token.split("=", 1)[1]
+        elif token in ("-R", "--repo"):
+            repo = tokens[index + 1] if index + 1 < len(tokens) else None
+            skip = True
+        elif token in GH_VALUE_FLAGS:
+            skip = True
+        elif token.startswith("-"):
+            continue  # a boolean flag, or a value given with `=`
+        elif positional is None:
+            positional = token
+    if positional and positional.lstrip("#").isdigit():
+        _add_ref(sink["refs"], repo, "pull" if tokens[1] == "pr" else "issues", int(positional.lstrip("#")), ts)
 
 
 def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
@@ -328,10 +405,18 @@ def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
     return entries, bad
 
 
+def _file(sink: dict, path: str, ts, actor: str) -> None:
+    """Every writer of a path is kept, with the time of the first write."""
+    info = sink["files"].setdefault(path, {"ts": ts, "by": []})
+    if actor not in info["by"]:
+        info["by"].append(actor)
+
+
 def _new_sink() -> dict:
     return {"files": {}, "memory": {}, "git_mutations": [], "external": [], "scheduled": [], "unclassified": Counter(),
             "logging": 0, "scratch": {}, "directories": {}, "refs": {}, "started": [], "ended": {}, "tools": {},
             "corrections": [], "prompts": [], "user_commands": [], "models": Counter(), "tokens": Counter(),
+            "unclassified_commands": [], "file_events": Counter(),
             "responses": set(), "sessions": [], "bridges": [], "titles": [], "first": None, "last": None}
 
 
@@ -357,7 +442,7 @@ def scan(entries: list[dict], sink: dict | None = None, actor: str = "main") -> 
             parent = (entry.get("backup") or {}).get("realParentDir")
             path = entry["trackingPath"]
             full = path if path.startswith("/") or not parent else str(Path(parent) / Path(path).name)
-            sink["files"].setdefault(full, {"ts": ts, "by": actor})
+            _file(sink, full, ts, actor)
 
         top = entry.get("content")
         if isinstance(top, str) and "<task-id>" in top:
@@ -390,6 +475,19 @@ def _assistant(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> N
             _tool_use(block, ts, cwd, sink, actor)
 
 
+def _prompt_text(content) -> str:
+    """A prompt's text, with a marker for each image or other non-text block."""
+    if not isinstance(content, list):
+        return _text(content)
+    parts = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text") or "")
+        elif isinstance(block, dict) and block.get("type") != "tool_result":
+            parts.append(f"[{block.get('type') or 'attachment'}]")
+    return " ".join(part for part in parts if part)
+
+
 def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
     content = message.get("content")
     text = _text(content)
@@ -419,9 +517,10 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
         is_prompt = origin_kind == "human"
     else:  # transcripts without `origin`: a plain string that is not a harness tag
         is_prompt = isinstance(content, str) and not stripped.startswith("<")
-    if is_prompt and stripped:
-        sink["prompts"].append({"ts": ts, "text": _short(stripped)})
-        _scan_refs(stripped, sink["refs"], ts)
+    prompt = _prompt_text(content).strip()
+    if is_prompt and prompt:
+        sink["prompts"].append({"ts": ts, "text": _short(prompt)})
+        _scan_refs(prompt, sink["refs"], ts)
 
 
 def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
@@ -432,7 +531,8 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
     if name in WRITE_TOOLS:
         path = data.get("file_path") or data.get("notebook_path")
         if path:
-            sink["files"].setdefault(path, {"ts": ts, "by": actor})
+            _file(sink, path, ts, actor)
+            sink["file_events"][actor] += 1
             if MEMORY_PATH.search(path):
                 sink["memory"].setdefault(path, {"ts": ts, "by": actor})
             if "/scratchpad" in path:
@@ -453,6 +553,21 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
             sink["unclassified"][name] += 1
         if name.startswith("mcp__"):
             _scan_refs(json.dumps(data, ensure_ascii=False), sink["refs"], ts)
+            _structured_ref(name, data, ts, sink)
+
+
+def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
+    """References given as owner, repo and a number, as GitHub MCP tools take them."""
+    owner, repo = data.get("owner"), data.get("repo")
+    if not (isinstance(owner, str) and isinstance(repo, str)):
+        return
+    lowered = name.lower()
+    for key, kind in (("pullNumber", "pull"), ("pull_number", "pull"), ("issue_number", "issues"),
+                      ("issueNumber", "issues"), ("number", "pull" if "pull" in lowered else "issues")):
+        value = data.get(key)
+        if isinstance(value, int) or (isinstance(value, str) and value.isdigit()):
+            _add_ref(sink["refs"], f"{owner}/{repo}", kind, int(value), ts)
+            return
 
 
 def summarize(sink: dict) -> dict:
@@ -473,6 +588,7 @@ def summarize(sink: dict) -> dict:
         "files_written": [{"path": path, **info} for path, info in sorted(sink["files"].items())],
         "memory_writes": [{"path": path, **info} for path, info in sorted(sink["memory"].items())],
         "git_mutations": sink["git_mutations"],
+        "unclassified_commands": sink["unclassified_commands"],
         "github_refs": refs,
         "external_writes": sink["external"],
         "scheduled": sink["scheduled"],
@@ -549,12 +665,12 @@ def collect(paths: list[Path]) -> dict:
     for part in subagent_transcripts(paths):
         part_entries, part_bad = load_entries([part])
         bad += part_bad
-        before = (len(sink["git_mutations"]), len(sink["external"]), len(sink["files"]), len(sink["responses"]))
+        before = (len(sink["git_mutations"]), len(sink["external"]), len(sink["responses"]))
         scan(part_entries, sink, actor=part.stem)
         counts = {"git_mutations": len(sink["git_mutations"]) - before[0],
                   "external_writes": len(sink["external"]) - before[1],
-                  "files_written": len(sink["files"]) - before[2],
-                  "responses": len(sink["responses"]) - before[3]}
+                  "files_written": sink["file_events"][part.stem],
+                  "responses": len(sink["responses"]) - before[2]}
         if counts["git_mutations"] or counts["external_writes"] or counts["files_written"]:
             subagents.append({"agent": part.stem, "transcript": str(part), **counts})
     result = summarize(sink)

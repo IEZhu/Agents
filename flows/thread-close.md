@@ -128,11 +128,15 @@ Rules:
    in the conversation. For each one, collect:
    - `git status --short`, the current branch, `git stash list` and
      `git worktree list`;
-   - each branch's upstream and sync state:
+   - commits that exist on no remote: `git log --branches --not --remotes --oneline`.
+     This, not the upstream, decides whether work is pushed. Confirm a branch
+     with `git branch -r --contains <branch>`: an empty result means its head is
+     on no remote branch;
+   - each branch's upstream, for information only:
      `git for-each-ref --format='%(refname:short) %(upstream:short) %(upstream:track)' refs/heads`.
-     A branch with no upstream has never been pushed: with `--no-track` branches,
-     an empty track column does not mean "in sync";
-   - commits that exist on no remote: `git log --branches --not --remotes --oneline`;
+     A missing upstream says nothing about pushing (`git push origin <branch>`
+     without `-u`, or a `--no-track` branch), and an empty track column does not
+     mean "in sync";
    - the commits the thread made.
 
 ## 2. Inventory the artifacts
@@ -282,9 +286,12 @@ In `apply` mode, also curate the call:
 - `files`: the artifact paths;
 - `tags`: `#thread-close` and `#session-<id>`.
 
-`history.md` is append-only. Before closing a thread again, find its earlier
-`#thread-close` entry with `read_history` and name that entry's time in
-`outcome`. Without Agents-Core MCP there is no history entry; say so in the report.
+`history.md` is append-only. Before closing a thread again, look for its earlier
+close with `read_history`, which returns recent or similar entries without a
+session filter. Accept an entry only when its tags contain both `#thread-close`
+and this thread's `#session-<id>`, and name that entry's time in `outcome`. If
+none matches, say that no earlier close was found. Without Agents-Core MCP there
+is no history entry; say so in the report.
 
 **Hand-off keys.** List the session id, pull request and issue numbers, and
 branch names in the report, so that daily summaries such as a personal day-close
