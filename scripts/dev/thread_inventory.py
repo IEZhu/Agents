@@ -113,6 +113,7 @@ GIT_SUBCOMMAND_READS = {"notes": {"show", "list", "get-ref"}, "sparse-checkout":
                         "bundle": {"create", "verify", "list-heads"},
                         "submodule": {"status", "summary", "foreach"}, "bisect": {"log", "visualize", "view"},
                         "lfs": {"ls-files", "status", "env", "version", "logs", "locks"}}
+GH_READ_GROUPS = {"auth", "config", "help", "version", "search", "browse", "status"}  # after GH_WRITES
 GH_READ_VERBS = {"view", "list", "status", "checks", "diff", "search", "browse", "watch", "download", "verify"}
 GH_VALUE_FLAGS = {"-R", "--repo", "-b", "--body", "-F", "--body-file", "-t", "--title", "-B", "--base", "-H", "--head",
                   "-l", "--label", "-a", "--assignee", "-m", "--milestone", "-r", "--reviewer", "-p", "--project",
@@ -132,6 +133,8 @@ GH_WRITES = {
     "secret": {"set", "delete"},
     "gist": {"create", "edit", "delete", "rename"},
     "variable": {"set", "delete"},
+    "auth": {"login", "logout", "refresh", "setup-git", "switch"},
+    "config": {"set", "clear-cache"},
 }
 
 
@@ -417,14 +420,36 @@ def git_kind(tokens: list[str]) -> str:
     if sub == "remote":
         return "write" if first in ("add", "remove", "rm", "rename", "set-url", "set-head", "prune") else "read"
     if sub == "config":
-        reads = {"--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin", "--show-scope"}
-        values = [arg for arg in args if not arg.startswith("-")]
-        return "write" if not any(arg in reads for arg in args) and len(values) >= 2 else "read"
+        return _git_config_kind(args)
     if sub == "hash-object":
         return "write" if "-w" in args else "read"
     if sub == "symbolic-ref":
         return "write" if len([a for a in args if not a.startswith("-")]) >= 2 else "read"
     return "unknown"
+
+
+def _git_config_kind(args: list[str]) -> str:
+    first = args[0] if args else ""
+    if first in ("set", "unset", "rename-section", "remove-section", "edit"):
+        return "write"  # subcommands since Git 2.46
+    if first in ("get", "list"):
+        return "read"
+    if any(arg in ("--unset", "--unset-all", "--remove-section", "--rename-section", "--edit", "-e", "--add",
+                   "--replace-all") for arg in args):
+        return "write"
+    reads = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--get-color", "--get-colorbool", "--list",
+             "-l", "--show-origin", "--show-scope"}
+    if any(arg in reads for arg in args):
+        return "read"
+    values, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg in ("-f", "--file", "--blob", "--type", "--default", "--comment"):
+            skip = True  # the option's value, not a key or a value
+        elif not arg.startswith("-"):
+            values.append(arg)
+    return "write" if len(values) >= 2 else "read"  # `git config <key> <value>` sets
 
 
 def git_write(tokens: list[str]) -> bool:
@@ -441,7 +466,7 @@ def gh_kind(tokens: list[str], segment: str) -> str:
         return "write" if gh_write(tokens, segment) else "read"
     if group in GH_WRITES and verb in GH_WRITES[group]:
         return "write"
-    if verb in GH_READ_VERBS or group in ("auth", "help", "version", "search", "browse", "status") or not verb:
+    if verb in GH_READ_VERBS or group in GH_READ_GROUPS or not verb:
         return "read"
     return "unknown"
 
@@ -479,11 +504,19 @@ def _resolve(path: str, cwd: str | None) -> str | None:
     return os.path.normpath(path)
 
 
+def _earlier(ts, than) -> bool:
+    """Whether ``ts`` comes before ``than``. Transcripts stamp entries in ISO 8601 UTC, which sorts as text."""
+    return bool(ts) and (not than or ts < than)
+
+
 def _add_ref(refs: dict, repository, kind: str, number: int, ts) -> None:
     key = (repository, kind, number)
-    if key not in refs:  # entries are in time order, so the first sighting wins
+    ref = refs.get(key)
+    if ref is None:
         url = f"https://github.com/{repository}/{kind}/{number}" if repository and kind != "ref" else None
         refs[key] = {"repository": repository, "kind": kind, "number": number, "url": url, "first_seen": ts}
+    elif _earlier(ts, ref["first_seen"]):
+        ref["first_seen"] = ts  # subagent transcripts are read after the main one
 
 
 def _scan_refs(text: str, refs: dict, ts) -> None:
@@ -598,10 +631,21 @@ def load_entries(paths: list[Path]) -> tuple[list[dict], int]:
 
 
 def _file(sink: dict, path: str, ts, actor: str) -> None:
-    """Every writer of a path is kept, with the time of the first write."""
-    info = sink["files"].setdefault(path, {"ts": ts, "by": []})
-    if actor not in info["by"]:
-        info["by"].append(actor)
+    """Every writer of a path, with the time of its first write there."""
+    writers = sink["files"].setdefault(path, {})
+    if actor not in writers or _earlier(ts, writers[actor]):
+        writers[actor] = ts
+
+
+def _writers(path: str, writers: dict) -> dict:
+    """A written file with its first write's time and its writers in the order they started writing."""
+    order = sorted(writers, key=lambda actor: writers[actor] or "")
+    return {"path": path, "ts": writers[order[0]], "by": order}
+
+
+def _in_time_order(items: list[dict]) -> list[dict]:
+    """Items of the main and subagent transcripts in one chronological list; ties keep their order."""
+    return sorted(items, key=lambda item: item.get("ts") or "")
 
 
 def _new_sink() -> dict:
@@ -627,7 +671,7 @@ def scan(entries: list[dict], sink: dict | None = None, actor: str = "main") -> 
         if kind == "bridge-session" and entry.get("bridgeSessionId") and entry["bridgeSessionId"] not in sink["bridges"]:
             sink["bridges"].append(entry["bridgeSessionId"])
         elif kind == "ai-title" and entry.get("aiTitle"):
-            sink["titles"].append(entry["aiTitle"])
+            sink["titles"].append(_short(entry["aiTitle"], 200))
         elif kind == "pr-link" and entry.get("prNumber"):
             _add_ref(sink["refs"], entry.get("prRepository"), "pull", int(entry["prNumber"]), ts)
         elif kind == "file-history-delta" and entry.get("trackingPath"):
@@ -726,7 +770,8 @@ def _tool_use(block: dict, ts, cwd, sink: dict, actor: str) -> None:
             _file(sink, path, ts, actor)
             sink["file_events"][actor] += 1
             if MEMORY_PATH.search(path):
-                sink["memory"].setdefault(path, {"ts": ts, "by": actor})
+                if path not in sink["memory"] or _earlier(ts, sink["memory"][path]["ts"]):
+                    sink["memory"][path] = {"ts": ts, "by": actor}
             if "/scratchpad" in path:
                 sink["scratch"].setdefault(path, ts)
     elif name == "Bash":
@@ -775,7 +820,7 @@ def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
 
 
 def summarize(sink: dict) -> dict:
-    background = [{**task, "ended": sink["ended"].get(task["id"])} for task in sink["started"]]
+    background = [{**task, "ended": sink["ended"].get(task["id"])} for task in _in_time_order(sink["started"])]
     refs = sorted(sink["refs"].values(), key=lambda ref: (ref["repository"] or "", ref["kind"], ref["number"]))
     return {
         "sessions": sink["sessions"],
@@ -789,18 +834,18 @@ def summarize(sink: dict) -> dict:
         "prompts": sink["prompts"],
         "user_commands": sink["user_commands"],
         "directories": sorted(sink["directories"]),
-        "files_written": [{"path": path, **info} for path, info in sorted(sink["files"].items())],
+        "files_written": [_writers(path, writers) for path, writers in sorted(sink["files"].items())],
         "memory_writes": [{"path": path, **info} for path, info in sorted(sink["memory"].items())],
-        "git_mutations": sink["git_mutations"],
-        "unclassified_commands": sink["unclassified_commands"],
+        "git_mutations": _in_time_order(sink["git_mutations"]),
+        "unclassified_commands": _in_time_order(sink["unclassified_commands"]),
         "github_refs": refs,
-        "external_writes": sink["external"],
-        "scheduled": sink["scheduled"],
+        "external_writes": _in_time_order(sink["external"]),
+        "scheduled": _in_time_order(sink["scheduled"]),
         "unclassified_tools": dict(sink["unclassified"]),
         "logging_calls": sink["logging"],
         "background_tasks": background,
         "scratchpad_paths": sorted(sink["scratch"]),
-        "corrections": sink["corrections"],
+        "corrections": _in_time_order(sink["corrections"]),
     }
 
 

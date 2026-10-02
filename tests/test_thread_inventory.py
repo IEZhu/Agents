@@ -250,11 +250,12 @@ def test_file_history_delta_paths():
 def test_credentials_are_masked_in_printed_text():
     entries = [
         human("use token=abc123secret please", "2026-10-02T09:00:00Z"),
+        {"type": "ai-title", "aiTitle": "Rotate sk-abcdefghijklmnop1234 key", "sessionId": SESSION},
         *bash("curl -H 'Authorization: Bearer xyz.secret' https://x && git push "
               "https://ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r", "t1"),
     ]
     printed = json.dumps(thread_inventory.inventory(entries))
-    for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123"):
+    for secret in ("abc123secret", "xyz.secret", "ghp_abcdefghijklmnopqrstuvwxyz0123", "sk-abcdefghijklmnop1234"):
         assert secret not in printed
     assert "[masked]" in printed
 
@@ -443,3 +444,41 @@ def test_references_come_from_executed_commands_not_heredoc_bodies():
         "gh pr comment 5 -R o/r --body 'see https://github.com/o/r/issues/8' && cat > t.py <<'EOF'\n"
         "URL = 'https://github.com/Owner/Repo/pull/155'\nEOF\necho $(gh pr view https://github.com/o/r/pull/9)", "rf"))
     assert [(r["kind"], r["number"]) for r in inv["github_refs"]] == [("issues", 8), ("pull", 5), ("pull", 9)]
+
+
+@pytest.mark.parametrize("command, kind", [
+    ("git config --unset user.email", "write"), ("git config --global --remove-section alias", "write"),
+    ("git config --edit", "write"), ("git config set user.name X", "write"), ("git config unset user.name", "write"),
+    ("git config get user.name", "read"), ("git config list", "read"), ("git config --file f k v", "write"),
+    ("git config -f .gitmodules submodule.x.path", "read"), ("git config --global user.email a@b", "write"),
+    ("git config --get-urlmatch http https://x", "read"),
+])
+def test_git_config_reads_and_writes(command, kind):
+    assert thread_inventory.git_kind(command.split()) == kind
+
+
+@pytest.mark.parametrize("command, kind", [
+    ("gh auth login --web", "write"), ("gh auth setup-git", "write"), ("gh auth switch", "write"),
+    ("gh auth status", "read"), ("gh auth token", "read"), ("gh config set editor vim", "write"),
+    ("gh config get editor", "read"),
+])
+def test_gh_auth_and_config(command, kind):
+    assert thread_inventory.gh_kind(command.split(), command) == kind
+
+
+def test_subagent_items_keep_their_place_in_time(tmp_path):
+    main = tmp_path / f"{SESSION}.jsonl"
+    main.write_text("\n".join(json.dumps(e) for e in [
+        *bash("git push origin x && gh pr view https://github.com/o/r/pull/5", "m1", ts="2026-10-02T09:05:00Z"),
+        *assistant([tool("Write", {"file_path": "/w/a.py", "content": "m"}, "m2")], "2026-10-02T09:06:00Z", "mm2"),
+    ]) + "\n", encoding="utf-8")
+    sub = tmp_path / SESSION / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-c.jsonl").write_text("\n".join(json.dumps(e) for e in [
+        *bash("git commit -m early && gh pr view https://github.com/o/r/pull/5", "c1", ts="2026-10-02T09:01:00Z"),
+        *assistant([tool("Write", {"file_path": "/w/a.py", "content": "c"}, "c2")], "2026-10-02T09:02:00Z", "cm2"),
+    ]) + "\n", encoding="utf-8")
+    out = thread_inventory.collect([main])
+    assert [m["command"] for m in out["git_mutations"]] == ["git commit -m early", "git push origin x"]
+    assert out["github_refs"][0]["first_seen"] == "2026-10-02T09:01:00Z"
+    assert out["files_written"] == [{"path": "/w/a.py", "ts": "2026-10-02T09:02:00Z", "by": ["agent-c", "main"]}]

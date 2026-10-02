@@ -159,7 +159,9 @@ subagent or user), and what the thread claimed about it. Cover:
 - **Memory** written during the thread: files and what changed.
 - **External systems** the thread wrote to: trackers, chat, published pages,
   remote triggers. Use `external_writes`. Also inspect `unclassified_tools`:
-  these are MCP calls whose names did not say whether they write.
+  these are MCP calls whose names did not say whether they write. Likewise,
+  `unclassified_commands` lists git and gh commands the helper could not
+  classify as reads or writes.
 - **Scheduled work**: wake-ups and cron jobs, from `scheduled`.
 - **Session-local items**, which vanish with the session:
   - scratchpad and temporary files (`scratchpad_paths`);
@@ -172,7 +174,9 @@ subagent or user), and what the thread claimed about it. Cover:
 
 The helper sees files changed by edit tools. Files changed by shell commands are
 covered by the git state only inside repositories. Outside them, check the paths
-named in the commands.
+named in the commands. Commands that a program or script runs, such as a Python
+heredoc calling `gh`, are invisible to the helper; the live git and GitHub state
+covers them.
 
 ## 3. Verify against the current state
 
