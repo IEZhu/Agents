@@ -440,3 +440,16 @@ def test_pending_file_is_recovered_before_size_check(tmp_path, history_path):
     assert "PENDING-ENTRIES" in archived
     assert (archive_dir / "2026-01.md").exists()
     assert not os.path.exists(history_path + ".rotating") or Path(history_path + ".rotating").stat().st_size == 0
+
+
+def test_empty_pending_file_never_touches_the_archive(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=512)
+    archive_dir.mkdir()
+    month = _dt.datetime.now(_dt.timezone.utc).isoformat()[:7]
+    archive = archive_dir / f"{month}.md"
+    archive.write_text("ARCHIVE", encoding="utf-8")
+    Path(history_path + ".rotating").write_text("", encoding="utf-8")
+    writer.append_entry("small", "a", "o")
+    assert archive.read_text(encoding="utf-8") == "ARCHIVE"
+    assert not os.path.exists(history_path + ".rotating")

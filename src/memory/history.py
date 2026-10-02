@@ -321,6 +321,13 @@ class HistoryWriter:
         """
         with open(pending, "r", encoding="utf-8") as src:
             payload = src.read()
+        if not payload:
+            # Emptied after an archived merge: nothing to add to the archive.
+            try:
+                os.unlink(pending)
+            except OSError:
+                pass
+            return ""
         matches = _HEADER_RE.findall(payload)
         month = (matches[-1][0] if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
         os.makedirs(self.archive_dir, exist_ok=True)

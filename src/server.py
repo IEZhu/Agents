@@ -147,6 +147,7 @@ mcp = FastMCP(
         "Append the exact footer returned with the active bundle.\n"
         "HTTP memory tools require X-Agents-Workspace. On workspace_required, workspace_unsafe or workspace_invalid, "
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
+        "When log_interaction or read_history carries history_last_error, mention it once in the answer. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
         "Never replay an ambiguous write automatically; read the result first.\n"
         "For requested workflows, use list_flows and run_flow. Flows are built-in, "
