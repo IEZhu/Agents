@@ -353,6 +353,11 @@ def test_shell_writes_list_redirection_and_tee_targets():
         [os.path.expanduser("~/.config/app")], ["/work/repo/notes.md"], ["/tmp/l.txt"],
         [os.path.expanduser("~/.zshrc"), "/work/repo/out.txt"], ["/work/repo/truncated.txt"]]
     assert inv["shell_writes"][2]["command"] == "git log > /tmp/l.txt 2>&1"
+    quoted = thread_inventory.inventory(bash(
+        "printf '%s' '> not-written.txt' && echo \"a > b\" && git log --format='%h > %s' > out.txt"
+        " && echo x >&2 && echo y 2>&1 && echo z >& log.txt && date > runs/$(date +%s).txt", "q"))
+    assert [w["files"] for w in quoted["shell_writes"]] == [
+        ["/work/repo/out.txt"], ["/work/repo/log.txt"], ["runs/$(…).txt"]]  # unresolved, kept as written
 
 
 def test_pasted_notifications_end_no_task():
@@ -378,6 +383,15 @@ def test_unexpected_entries_are_skipped_not_fatal():
     inv = thread_inventory.inventory(entries)
     assert inv["skipped_entries"] == 3
     assert [p["text"] for p in inv["prompts"]] == ["hi"] and inv["files_written"] == []
+
+
+def test_nesting_past_the_limit_is_not_read():
+    def nested(levels, quoted=False):
+        command = "echo " + "$(" * levels + "git push" + ")" * levels
+        return f'echo "{command}"' if quoted else command
+    assert [m["command"] for m in thread_inventory.inventory(bash(nested(15), "n1"))["git_mutations"]] == ["git push"]
+    for command in (nested(25), nested(25, quoted=True), "(" * 25 + "git push" + ")" * 25):
+        assert thread_inventory.inventory(bash(command, "n2"))["git_mutations"] == []
 
 
 def test_deep_nesting_never_raises():

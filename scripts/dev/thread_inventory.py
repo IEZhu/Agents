@@ -80,7 +80,6 @@ WRAPPERS = {
 # Markers around the commands of a subshell, a substitution or a child shell: a `cd` there
 # does not move the commands after them.
 SCOPE_IN, SCOPE_OUT = object(), object()
-OUTPUT_REDIRECTION = re.compile(r"\d*(?:>\||&>>?|>>?)(.*)", re.S)  # then the target, or it is the next word
 REDIRECTION = re.compile(r"\d*(?:&>>?|>>?|<|>&|<&|>\|)")  # alone it takes the next word as its target
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*\+?=")  # NAME=value before a program, a quoted value with spaces too
@@ -351,6 +350,30 @@ def _expansions(body: str, depth: int) -> list[str]:
             segments.extend(_scoped(inner))
 
 
+def _skip_group(command: str, index: int) -> int:
+    """The index after the `)` that closes the `(` at ``index``, past quotes and inner groups."""
+    depth, quote = 0, None
+    while index < len(command):
+        char = command[index]
+        if quote:
+            if char == "\\" and quote != "'":
+                index += 1
+            elif char == quote:
+                quote = None
+        elif char == "\\":
+            index += 1
+        elif char in "'\"":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if not depth:
+                return index + 1
+        index += 1
+    return len(command)
+
+
 def _scoped(segments: list) -> list:
     """Segments that run in a subshell or a child shell, between scope markers."""
     return [SCOPE_IN, *segments, SCOPE_OUT]
@@ -462,9 +485,9 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
                 current.append("$(…)")
             elif found == "`":
                 index = backquoted(index)
-            elif found == "$(":
-                current.append(found)
-                index += 2
+            elif found == "$(":  # nesting past MAX_DEPTH is not read
+                current.append("$(…)")
+                index = _skip_group(command, index + 1)
             elif found == "\\":  # an escape inside "..." or $'...'
                 if command.startswith("\n", index + 1):
                     index += 2  # a line continuation
@@ -537,6 +560,9 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
             segments.extend(_substitutions(inner) if array else _scoped(inner))
             if substitution or array:
                 current.append("(…)")
+        elif char == "(":  # nesting past MAX_DEPTH is not read
+            current.append("(…)")
+            index = _skip_group(command, index)
         elif char == ")":
             flush()
             index += 1
@@ -544,7 +570,7 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
                 return segments, index
         elif char == "`":
             index = backquoted(index)
-        else:  # ; | & and parentheses past MAX_DEPTH end a simple command
+        else:  # ; | & end a simple command
             flush()
             index += 1
     flush()
@@ -845,7 +871,7 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             run_dir = _resolve(directory, run_dir)
             if run_dir:
                 sink["directories"].setdefault(run_dir, ts)
-        written = [_resolve(target, run_dir) or target for target in _written_files(_tokens(segment), tokens)]
+        written = [_resolve(target, run_dir) or target for target in _written_files(segment, tokens)]
         written = [path for path in dict.fromkeys(written) if "/scratchpad" not in path]  # listed there already
         if written:
             sink["shell_writes"].append({"ts": ts, "command": _first_line(KEYWORD_PREFIX.sub("", segment)),
@@ -889,17 +915,67 @@ def _shell(command: str, cwd: str | None, ts, sink: dict, actor: str) -> None:
             sink["scratch"].setdefault(token.rstrip(".,:"), ts)
 
 
-def _written_files(words: list[str], tokens: list[str]) -> list[str]:
-    """Files a simple command writes through the shell: its output redirections such as `> f`,
-    `2>> log` or `&> out`, and the files `tee` writes. Other programs' writes are not read."""
-    files = []
-    for index, word in enumerate(words):
-        match = OUTPUT_REDIRECTION.fullmatch(word)
-        if match:
-            files.append(match.group(1) or (words[index + 1] if index + 1 < len(words) else ""))
+def _written_files(segment: str, tokens: list[str]) -> list[str]:
+    """Files a simple command writes through the shell: the targets of its unquoted output
+    redirections, such as `> f`, `2>> log` or `&> out`, and the files `tee` writes. `>&2` and
+    `>(cmd)` write no file, and other programs' writes are not read."""
+    files, index, quote = [], 0, None
+    while index < len(segment):
+        char = segment[index]
+        if quote:
+            if char == "\\" and quote != "'":
+                index += 1
+            elif char == quote[-1]:
+                quote = None
+        elif char == "\\":
+            index += 1
+        elif char in "'\"":
+            quote = "$'" if char == "'" and segment[index - 1:index] == "$" else char
+        elif char == ">":
+            index += 1 + segment.startswith((">", "|"), index + 1)
+            if segment.startswith("&", index) and re.match(r"&(?:[0-9]+|-)", segment[index:]):
+                continue  # >&2 duplicates a descriptor, >&- closes it
+            index += segment.startswith("&", index)
+            target, index = _word(segment, index)
+            if target and not target.startswith("/dev/"):
+                files.append(target)
+            continue
+        index += 1
     if tokens[:1] == ["tee"]:
-        files += _positional(tokens[1:], set())
-    return [path for path in files if path and not path.startswith(("&", "/dev/"))]
+        files += [path for path in _positional(tokens[1:], set()) if not path.startswith("/dev/")]
+    return files
+
+
+def _word(text: str, index: int) -> tuple[str, int]:
+    """The shell word after the blanks at ``index``, without its quotes, and the index after it.
+    An operator such as `(` in `>(cmd)` ends it at once."""
+    while index < len(text) and text[index] in " \t":
+        index += 1
+    word, quote = [], None
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                quote = None
+            elif char == "\\" and quote == '"' and index + 1 < len(text):
+                index += 1
+                word.append(text[index])
+            else:
+                word.append(char)
+        elif char in "'\"":
+            quote = char
+        elif char == "\\" and index + 1 < len(text):
+            index += 1
+            word.append(text[index])
+        elif text.startswith("(…)", index) and word[-1:] == ["$"]:
+            word.append("(…)")  # the placeholder of a substitution stays in the word
+            index += 2
+        elif char in " \t\n;|&<>()":
+            break
+        else:
+            word.append(char)
+        index += 1
+    return "".join(word), index
 
 
 def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
