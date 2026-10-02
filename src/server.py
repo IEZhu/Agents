@@ -399,7 +399,8 @@ async def run_flow(
     HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT, else the
     project inferred from CLAUDE_PROJECT_DIR or cwd. A filesystem root, the home
     directory or a system or program directory (also as the override) is refused
-    with workspace_unsafe; a cwd without .git or CLAUDE.md with workspace_required.
+    with workspace_unsafe, and a cwd without .git or CLAUDE.md is refused with
+    workspace_required.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.
