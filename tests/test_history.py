@@ -363,3 +363,35 @@ def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path
     for i in range(3, 6):
         assert writer.append_entry(f"q{i} " + "y" * 600, "a", "o" * 600)["status"] == "recorded"
     assert archives[0].read_text(encoding="utf-8") == before
+
+
+def test_failed_archive_append_restores_entries(tmp_path, history_path, monkeypatch):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    assert list(archive_dir.glob("*.md"))
+    real_open = open
+
+    def refuse_archive(path, mode="r", *args, **kwargs):
+        if str(path).startswith(str(archive_dir) + os.sep) and "a" in mode:
+            raise OSError(28, "no space")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("src.memory.history.open", refuse_archive, raising=False)
+    result = writer.append_entry("last " + "z" * 2000, "a", "o")
+    monkeypatch.undo()
+    assert result["status"] == "recorded"
+    assert not os.path.exists(history_path + ".rotating")
+    assert "last " in Path(history_path).read_text(encoding="utf-8")
+
+
+def test_interrupted_rotation_is_recovered_not_overwritten(tmp_path, history_path):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    Path(history_path + ".rotating").write_text("PENDING-ENTRIES", encoding="utf-8")
+    writer.append_entry("more " + "y" * 2000, "a", "o")
+    archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
+    assert "PENDING-ENTRIES" in archived

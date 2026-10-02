@@ -395,9 +395,10 @@ async def run_flow(
     resolves repo:, then user:, then builtin:. request carries the user's scope,
     PR/MR URL and constraints such as no-merge. repo_path defaults to the caller
     workspace; an override must be an existing directory within it.
-    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT as
-    given, else the project inferred from CLAUDE_PROJECT_DIR or cwd; an inferred
-    filesystem root or a directory inside the Windows directory is refused.
+    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT, else the
+    project inferred from CLAUDE_PROJECT_DIR or cwd. A filesystem root, the home
+    directory or a system or program directory (also as the override) is refused
+    with workspace_unsafe; a cwd without .git or CLAUDE.md with workspace_required.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.
@@ -921,12 +922,15 @@ async def log_interaction(
 
     Returns at once, after validation and before either sink is written:
     ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
-    plus the attribution. While retrieval is still warming up, ``langfuse`` is
+    plus ``workspace`` (``root``, ``source``), ``pid``, ``history_last_error``
+    (``code``, ``errno``, ``path``, ``at``; only after an earlier history write
+    failed) and the attribution. While retrieval is still warming up, ``langfuse`` is
     ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
-    background with that timestamp; their failures go to the server log only
-    and do not prevent each other. An unavailable workspace or invalid
+    background with that timestamp; their failures are logged once per
+    path and errno (WARNING, ``code=history_unwritable``), reported on the next
+    result as ``history_last_error`` and do not prevent each other. An unavailable workspace or invalid
     attribution writes nothing and returns a protocol ERROR without ``timestamp``.
     """
     try:
@@ -1019,6 +1023,10 @@ async def log_interaction(
         except Exception as e:
             _record_history_failure(root, history_path, e)
 
+    # Snapshot before the workers run: a failure of this very write must show
+    # up on the next call, not nondeterministically on this one.
+    workspace_report = _workspace_report(client, root)
+
     # Both sinks are independent; the response does not wait for either.
     # While startup runs, importing Langfuse would compete with it: skip the trace.
     langfuse_skipped = readiness.is_warming()
@@ -1031,7 +1039,7 @@ async def log_interaction(
         "timestamp": timestamp,
         "langfuse": {"status": "skipped", "reason": "warming_up"} if langfuse_skipped else {"status": "queued"},
         "history": {"status": "queued"},
-        **_workspace_report(client, root),
+        **workspace_report,
         **attribution,
     }
     debug_log("log_interaction", "res", payload)
@@ -1192,8 +1200,10 @@ async def read_history(
       then returns semantically nearest entries with cosine distance.
 
     Returns JSON:
-      {entries: [...], total, mode}
-      mode ∈ {"recency", "semantic"}.
+      {entries: [...], total, mode, workspace: {root, source}, pid,
+       history_last_error?}
+      mode ∈ {"recency", "semantic"}. history_last_error ({code, errno, path,
+      at}) is present only after a history write failed.
 
     Entry shape depends on mode:
     - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
@@ -1202,6 +1212,7 @@ async def read_history(
     try:
         client = client_context(ctx)
         root = client.require_root()
+        workspace_report = _workspace_report(client, root)
         limit = max(1, min(limit, 500))
         query = (query or "").strip() or None
         debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
@@ -1229,7 +1240,7 @@ async def read_history(
                 "total": len(entries),
                 "entries": [e.to_dict() for e in entries],
             }
-        payload.update(_workspace_report(client, root))
+        payload.update(workspace_report)
         debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
         return json.dumps(payload, ensure_ascii=False)
     except WorkspaceError as e:

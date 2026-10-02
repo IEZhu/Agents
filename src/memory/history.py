@@ -284,15 +284,32 @@ class HistoryWriter:
         if os.path.exists(archive_path):
             # Move the live file aside first: if another process holds it open
             # (Windows), this fails before anything reaches the archive, so a
-            # repeated failure cannot merge the same payload twice.
+            # repeated failure cannot merge the same payload twice. A pending
+            # file left by an interrupted rotation is merged first, never
+            # overwritten.
             pending = self.history_path + ".rotating"
-            os.replace(self.history_path, pending)
-            with open(pending, "r", encoding="utf-8") as src:
-                payload = src.read()
-            with open(archive_path, "a", encoding="utf-8") as dst:
-                dst.write("\n\n<!-- merged on rotation -->\n\n")
-                dst.write(payload)
-            os.unlink(pending)
+            if not os.path.exists(pending):
+                os.replace(self.history_path, pending)
+            try:
+                with open(pending, "r", encoding="utf-8") as src:
+                    payload = src.read()
+                with open(archive_path, "a", encoding="utf-8") as dst:
+                    dst.write("\n\n<!-- merged on rotation -->\n\n")
+                    dst.write(payload)
+            except Exception:
+                # Nothing (or only part) reached the archive: put the entries
+                # back so read_history still sees them.
+                if not os.path.exists(self.history_path):
+                    os.replace(pending, self.history_path)
+                raise
+            try:
+                os.unlink(pending)
+            except OSError:
+                # Already archived: never leave a payload that could merge twice.
+                with open(pending, "w", encoding="utf-8"):
+                    pass
+            if os.path.exists(self.history_path):
+                return None  # recovered an interrupted rotation; live file untouched
         else:
             shutil.move(self.history_path, archive_path)
 
