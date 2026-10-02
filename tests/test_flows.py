@@ -124,4 +124,5 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     assert declared["issue-plan"]["agent"] == "system_architect"
     assert declared["issue-implementation"]["agent"] == "software_engineer"
     assert declared["pr-review"]["agent"] == "code_reviewer"
+    assert declared["ab-eval"]["agent"] == "ai_senior_engineer"
     assert declared["issue-agent"] is None
