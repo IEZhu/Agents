@@ -1,6 +1,6 @@
 """Build with/without-component contexts for one sweep run.
 
-    python evals/ablation/build_contexts.py RUN_DIR
+    python evals/ablation/build_contexts.py RUN_DIR [--arm with|without]
 
 Reads RUN_DIR/cases/<component>.json ({"component": id, "cases": [...]}) and
 writes RUN_DIR/ctx/<token>.md plus RUN_DIR/plan.json (token -> case, arm,
@@ -20,6 +20,14 @@ its context is known to be unchanged; otherwise it is deleted and answered again
 - skill-*:   with = production skills + this skill (added if retrieval missed it);
              without = production skills minus this skill
 - implant-*: with = exactly this implant;    without = no implant
+
+`--arm` compares two revisions or two settings instead of one component: it builds
+only the production context of this checkout and environment and records it as that
+arm, keeping the other arm's entries. Run it once per arm, for example `--arm with`
+in the candidate's checkout or with its `EMBEDDING_MODEL`, and `--arm without` in the
+baseline's. The component name is then just the experiment's name. A case whose two
+contexts are equal is dropped from both arms and listed in build_errors.json as
+"arms identical": the change does not reach it. build_meta.json records each arm.
 """
 import asyncio
 import hashlib
@@ -37,6 +45,15 @@ RUN_ENV = {"LANGFUSE_TRACING_ENABLED": "false", "AGENTS_AUTO_UPDATE": "0",
 
 
 PROMPT_SOURCES = ("agents", "skills", "implants", "rules", "src", "evals/ablation", "evals/runners")
+ARMS = ("with", "without")
+
+
+def token_of(component: str, case_id: str, arm: str) -> str:
+    return hashlib.sha1(f"{component}:{case_id}:{arm}".encode()).hexdigest()[:12]
+
+
+def other_arm(arm: str) -> str:
+    return ARMS[1 - ARMS.index(arm)]
 
 
 def ctx_sha256(text: str) -> str:
@@ -69,6 +86,31 @@ def skill_arm(retrieved: list[dict], filename: str, arm: str, forced: list[dict]
     if arm == "without":
         return [s for s in retrieved if s["filename"] != filename]
     return retrieved if any(s["filename"] == filename for s in retrieved) else retrieved + forced
+
+
+def start_plan(previous: dict, previous_errors: list, arm: str | None) -> tuple[dict, list]:
+    """The plan and errors a build starts from.
+
+    A two-arm build starts empty. An --arm build keeps the other arm's entries and
+    errors, and rebuilds its own.
+    """
+    if arm is None:
+        return {}, []
+    return ({t: p for t, p in previous.items() if p.get("arm") != arm},
+            [e for e in previous_errors if e.get("arm") == other_arm(arm)])
+
+
+def identical_other_arm(plan: dict, component: str, case_id: str, arm: str, text: str) -> str | None:
+    """The other arm's token when its context equals this arm's `text`, else None."""
+    other = token_of(component, case_id, other_arm(arm))
+    return other if plan.get(other, {}).get("ctx_sha256") == ctx_sha256(text) else None
+
+
+def merge_build_meta(existing: dict, arm: str | None, meta: dict) -> dict:
+    """build_meta.json content: the build's own meta, or one entry per arm for --arm builds."""
+    if arm is None:
+        return meta
+    return {"arms": {**existing.get("arms", {}), arm: meta}}
 
 
 def build_meta() -> dict:
@@ -111,7 +153,7 @@ def conversation_block(case: dict) -> str:
     return "\n".join(parts)
 
 
-async def main(run_dir: Path) -> None:
+async def main(run_dir: Path, only_arm: str | None = None) -> None:
     # Checked before the imports below, which load the embedding model.
     case_files = sorted((run_dir / "cases").glob("*.json"))
     # A case file names its component twice; building from the wrong one would test
@@ -172,7 +214,8 @@ async def main(run_dir: Path) -> None:
 
     async def build(agent, query, component, arm):
         restore()
-        kind = component.split("-", 1)[0]
+        # An --arm build is the production context as this checkout and environment make it.
+        kind = component.split("-", 1)[0] if only_arm is None else None
         if kind == "skill":
             forced = store_records(skills.store, [f"{component}.mdc"])
 
@@ -192,9 +235,15 @@ async def main(run_dir: Path) -> None:
                         "rules": list(rules), "tier": tier}
 
     (run_dir / "ctx").mkdir(exist_ok=True)
-    (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
+    meta_path = run_dir / "build_meta.json"
+    existing_meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    meta_path.write_text(json.dumps(merge_build_meta(existing_meta, only_arm, build_meta()), indent=1) + "\n")
     previous = json.loads((run_dir / "plan.json").read_text()) if (run_dir / "plan.json").exists() else {}
-    plan, errors = {}, list(removed_errors)
+    errors_path = run_dir / "build_errors.json"
+    previous_errors = json.loads(errors_path.read_text()) if errors_path.exists() else []
+    plan, kept_errors = start_plan(previous, previous_errors, only_arm)
+    errors = list(removed_errors) + kept_errors
+    arm_note = {"arm": only_arm} if only_arm else {}
     for path in case_files:
         if path.stem in removed:
             continue
@@ -203,21 +252,33 @@ async def main(run_dir: Path) -> None:
         for case in spec["cases"]:
             try:
                 built = {arm: await build(case["agent"], case["user_message"], component, arm)
-                         for arm in ("with", "without")}
+                         for arm in ((only_arm,) if only_arm else ARMS)}
             except Exception as exc:  # one bad case must not stop the batch
-                errors.append({"component": component, "case": case["id"], "error": repr(exc)})
+                errors.append({"component": component, "case": case["id"], "error": repr(exc), **arm_note})
                 print(f"ERROR {component}/{case['id']}: {exc!r}", flush=True)
                 continue
-            if built["with"][0] == built["without"][0]:
+            if only_arm is None and built["with"][0] == built["without"][0]:
                 errors.append({"component": component, "case": case["id"], "error": "arms identical"})
                 continue
+            texts = {arm: f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"
+                     for arm, (prompt, _) in built.items()}
+            if only_arm and (other := identical_other_arm(plan, component, case["id"], only_arm, texts[only_arm])):
+                # Neither arm is worth answering: drop the other arm's context too.
+                plan.pop(other)
+                for token in (other, token_of(component, case["id"], only_arm)):
+                    (run_dir / "ctx" / f"{token}.md").unlink(missing_ok=True)
+                errors.append({"component": component, "case": case["id"], "error": "arms identical", **arm_note})
+                continue
             for arm, (prompt, meta) in built.items():
-                token = hashlib.sha1(f"{component}:{case['id']}:{arm}".encode()).hexdigest()[:12]
-                text = f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"
-                drop_stale_answer(run_dir, token, text, previous)
-                (run_dir / "ctx" / f"{token}.md").write_text(text, encoding="utf-8")
+                token = token_of(component, case["id"], arm)
+                drop_stale_answer(run_dir, token, texts[arm], previous)
+                (run_dir / "ctx" / f"{token}.md").write_text(texts[arm], encoding="utf-8")
                 plan[token] = {"component": component, "case": case["id"], "arm": arm,
-                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(text), **meta}
+                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(texts[arm]), **meta}
+            if only_arm:
+                print(f"{component}/{case['id']}: {case['agent']} arm={only_arm} "
+                      f"tier={built[only_arm][1]['tier']} {len(built[only_arm][0])} chars", flush=True)
+                continue
             delta = len(built["with"][0]) - len(built["without"][0])
             print(f"{component}/{case['id']}: {case['agent']} tier={built['with'][1]['tier']} +{delta} chars", flush=True)
     restore()
@@ -227,7 +288,13 @@ async def main(run_dir: Path) -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build with/without contexts for one ablation run.")
+    parser.add_argument("run_dir", type=Path)
+    parser.add_argument("--arm", choices=ARMS, help="build only this arm's production context (see the module docstring)")
+    args = parser.parse_args()
     for key, value in RUN_ENV.items():
         os.environ.setdefault(key, value)
     sys.path.insert(0, str(ROOT))
-    asyncio.run(main(Path(sys.argv[1]).resolve()))
+    asyncio.run(main(args.run_dir.resolve(), only_arm=args.arm))

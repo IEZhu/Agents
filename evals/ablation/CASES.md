@@ -10,6 +10,7 @@ Each component gets one file, `<run_dir>/cases/<component>.json`:
       "id": "short-kebab-id-ru",
       "agent": "software_engineer",
       "language": "ru",
+      "group": "reasoning",
       "history": [
         {"role": "user", "content": "..."},
         {"role": "assistant", "content": "..."}
@@ -21,6 +22,9 @@ Each component gets one file, `<run_dir>/cases/<component>.json`:
   ]
 }
 ```
+
+`group` is optional: `compare.py` reports net verdicts per group, and group `control`
+marks cases the change under test should not affect, which gives the noise floor.
 
 `history` may be empty. Use it when the component is about multi-turn behaviour
 (pushback on a prior turn, repeated failed attempts, a user correcting the model).

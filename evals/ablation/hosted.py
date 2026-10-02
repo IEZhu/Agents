@@ -1,5 +1,6 @@
 """Answer and judge an ablation run with a model served by OpenRouter.
 
+    python evals/ablation/hosted.py probe --model MODEL [--judge]
     python evals/ablation/hosted.py answer RUN_DIR --model MODEL [--concurrency N]
     python evals/ablation/build_judges.py RUN_DIR
     python evals/ablation/hosted.py judge RUN_DIR --model MODEL [--concurrency N] [--reasoning low]
@@ -14,7 +15,9 @@ answered by several models and their verdicts aggregate the same way.
 case's conversation as chat turns. `judge` sends the criteria, verdict example and
 allowed values of workflows/judges.js with the judge file inline, without tools, and
 keeps a verdict only when aggregate.py would accept it. Both skip finished files, so
-an interrupted run resumes. RUN_DIR/hosted.json records each step's model and
+an interrupted run resumes. `probe` sends one short request with the answer settings
+(or, with --judge, the judge settings) and reports whether the pinned endpoints
+accept them. RUN_DIR/hosted.json records each step's model and
 request settings; a step that already has outputs made with other settings is
 refused, so one run never mixes them.
 
@@ -231,15 +234,28 @@ def openrouter_chat(model: str, max_tokens: int, *, sample: bool, reasoning: str
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    parser.add_argument("step", choices=("answer", "judge"))
-    parser.add_argument("run_dir", type=Path)
+    parser.add_argument("step", choices=("probe", "answer", "judge"))
+    parser.add_argument("run_dir", type=Path, nargs="?")
     parser.add_argument("--model", required=True)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--attempts", type=int, default=3)
     parser.add_argument("--max-tokens", type=int, help="default 12000 for answers, 8000 for verdicts")
     parser.add_argument("--reasoning", choices=REASONING, default="low",
                         help="judge reasoning effort (answers use OPENROUTER_REASONING)")
+    parser.add_argument("--judge", action="store_true", help="probe: send the judge settings instead of the answer ones")
     args = parser.parse_args(argv)
+    if args.step == "probe":
+        chat, settings = openrouter_chat(args.model, args.max_tokens or 4000, sample=not args.judge,
+                                         reasoning=args.reasoning if args.judge else None)
+        try:
+            text = asyncio.run(chat([{"role": "user", "content": "Reply with the single word: ready"}], "probe"))
+        except Exception as exc:
+            print(f"probe failed for {settings}: {exc}")
+            return 1
+        print(f"ok: {text.strip()[:40]!r} with {settings}")
+        return 0
+    if args.run_dir is None:
+        parser.error(f"{args.step} needs RUN_DIR")
     run_dir = args.run_dir.resolve()
     if args.step == "answer":
         chat, settings = openrouter_chat(args.model, args.max_tokens or 12000, sample=True, reasoning=None)
