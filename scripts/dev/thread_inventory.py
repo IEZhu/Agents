@@ -59,6 +59,7 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 COMMAND_PREFIXES = {"if", "then", "elif", "else", "while", "until", "do", "!", "{", "time", "exec", "command",
                     "builtin", "nohup", "env", "sudo"}
 KEYWORD_PREFIX = re.compile(r"^(?:(?:if|then|elif|else|while|until|do|!|\{)\s+)+")
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")  # NAME=value before a program, a quoted value with spaces too
 TOKEN_SPLIT = re.compile(r"[\s'\"`|;&()<>=,]+")
 NOTICE = re.compile(r"<task-notification>(.*?)(?:</task-notification>|$)", re.S)
 TASK_ID = re.compile(r"<task-id>(\w+)</task-id>")
@@ -213,7 +214,7 @@ def _tokens(segment: str) -> list[str]:
 def _command_tokens(segment: str) -> list[str]:
     """Tokens of a simple command from its program on, which is reduced to its name."""
     tokens = _tokens(segment)
-    while tokens and (tokens[0] in COMMAND_PREFIXES or re.fullmatch(r"\w+=\S*", tokens[0])):
+    while tokens and (tokens[0] in COMMAND_PREFIXES or ASSIGNMENT.match(tokens[0])):
         tokens = tokens[1:]  # keywords, wrappers and environment assignments before the program
     if tokens and tokens[0].startswith("/"):
         tokens[0] = os.path.basename(tokens[0])

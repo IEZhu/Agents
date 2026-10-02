@@ -481,6 +481,7 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("echo $((1<<2))\ngit push", ["git push"]),
     ("if git diff --quiet; then echo same; else git commit -am x; fi", ["git commit -am x"]),
     ("git push origin main 2>&1 | tail -1", ["git push origin main 2>&1"]),
+    ('GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x', ['GIT_AUTHOR_NAME="Alex Doe" env A="b c" git commit -m x']),
     ("URL=$(gh pr create --fill) && echo `git tag v1`", ["gh pr create --fill", "git tag v1"]),
     ("echo 'git push' \"git push\" $'it\\'s; git push'", []),
 ])
