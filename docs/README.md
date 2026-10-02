@@ -76,6 +76,7 @@ the maintained references above for current commands and behavior.
 | [Layer sensitivity proposal](layer-sensitivity-plan.md) | Partially implemented proposal (opt-in implant settings, default off); measurements tied to its recorded branch/model |
 | [Query decomposition research](query-decomposition-research.md) | Research synthesis and analysis of its recorded dataset |
 | [Ablation results](../evals/ablation/RESULTS.md) | Recorded experiment results |
+| [English pivot A/B](english-pivot-eval-results.md) | Recorded 2026-10-02 runs of `rule-english-pivot` on Qwen 3.8 27B, Gemini 3.8 Flash and Opus 5.5 |
 | [Evaluation baseline](../evals/reports/baseline.md) | Committed comparison base for `./scripts/eval.sh diff`; its title records the run date and commit, but that hash is not in the published history (the file was last committed in `c389797`, 2026-05-04, PR #48) |
 | [Preferred implant A/B](../evals/reports/implants_preferred_ab.md) | Recorded run added in commit `7e6fd79` (2026-05-23) by `evals/scripts/compare_implants.py`; not a guarantee about later revisions |
 
