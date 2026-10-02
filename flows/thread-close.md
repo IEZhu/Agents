@@ -190,9 +190,11 @@ shell redirections and `tee` wrote. Files that other programs change, such as
 `cp`, `mv`, `sed -i` or a package manager, are covered by the git state only
 inside repositories; outside them, check the paths the conversation names.
 Commands that a program or script runs, such as a Python heredoc calling `gh`,
-are invisible to the helper; the live git and GitHub state covers them. A
-non-zero `skipped_entries` counts transcript entries of a shape the helper does
-not know; the inventory can then miss items, and the report says so.
+are invisible to the helper; the live git and GitHub state covers them. When
+`unreadable_lines` (lines that are not JSON, such as the partial tail of a
+transcript still being written) or `skipped_entries` (entries of a shape the
+helper does not know) is not zero, the inventory can miss items; the report
+names which counter and how many.
 
 ## 3. Verify against the current state
 

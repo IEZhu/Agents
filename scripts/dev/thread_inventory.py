@@ -298,15 +298,21 @@ def _unwrap(args: list[str], values: set, operands: int, chdir: set, dirs: list 
         if option == "--":
             index += 1
             break
-        name, equals, attached = option.partition("=")
+        if option.startswith("--"):
+            name, equals, attached = option.partition("=")
+            given = bool(equals)
+        elif len(option) > 2 and option[:2] in values:
+            name, attached, given = option[:2], option[2:], True  # -C/tmp, -S'git push'
+        else:
+            name, attached, given = option, "", False
         if name in ("-S", "--split-string"):  # env -S 'git push': the value is the command line
-            line = attached if equals else args[index + 1] if index + 1 < len(args) else ""
-            return _tokens(line) + args[index + (1 if equals else 2):]
+            line = attached if given else args[index + 1] if index + 1 < len(args) else ""
+            return _tokens(line) + args[index + (1 if given else 2):]
         if dirs is not None and name in chdir:
-            value = attached if equals else args[index + 1] if index + 1 < len(args) else ""
+            value = attached if given else args[index + 1] if index + 1 < len(args) else ""
             if value:
                 dirs.append(value)
-        index += 2 if not equals and option in values else 1
+        index += 2 if not given and name in values else 1
     return args[index + operands:]
 
 
@@ -397,24 +403,30 @@ def _substitutions(segments: list) -> list:
 
 def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
     """Where a shell takes its commands from: ("script", text) for -c or a here-string,
-    ("stdin", None) or ("file", None).
+    ("stdin", None), or ("file", None) for a script file or `< file`.
 
     Redirections, the value of --rcfile, and the option names after -o or -O, also in a
     cluster such as `-euo pipefail`, are not the script.
     """
     command_string = stdin = False
-    here = operand = None
+    here = operand = source = None  # source: the last input redirection, which wins over a pipe
     index, options = 1, True
     while index < len(tokens) and operand is None:
         token = tokens[index]
         if token == "<<<":
-            here = tokens[index + 1] if index + 1 < len(tokens) else ""
+            here, source = (tokens[index + 1] if index + 1 < len(tokens) else ""), "here"
             index += 2
         elif token in ("<<", "<<-"):
+            source = "heredoc"
             index += 2  # a heredoc and its delimiter
         elif REDIRECTION.fullmatch(token):
+            source = "file" if token in ("<", "0<") else source
             index += 2  # an operator such as > or 2> and its target
         elif REDIRECTION.match(token):
+            if token.startswith("<<"):
+                source = "heredoc"  # <<EOF
+            elif re.match(r"0?<(?![&(])", token):
+                source = "file"  # <script.sh
             index += 1  # 2>&1, >file
         elif options and token == "--":
             options, index = False, index + 1
@@ -429,9 +441,9 @@ def _shell_input(tokens: list[str]) -> tuple[str, str | None]:
             operand = token
     if command_string:
         return ("script", operand) if operand is not None else ("file", None)
-    if operand is not None and not stdin:
+    if (operand is not None and not stdin) or source == "file":
         return "file", None
-    return ("script", here) if here is not None else ("stdin", None)
+    return ("script", here) if source == "here" else ("stdin", None)
 
 
 def _segments(command: str, depth: int = 0) -> list[str]:
@@ -1110,8 +1122,11 @@ def _entry(entry: dict, sink: dict, actor: str) -> None:
     elif kind == "ai-title" and entry.get("aiTitle"):
         sink["titles"].append(_short(entry["aiTitle"], 200))
     elif kind == "pr-link" and entry.get("prNumber"):
-        repository = entry.get("prRepository")
-        _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", int(entry["prNumber"]), ts)
+        number, repository = _whole_number(entry["prNumber"]), entry.get("prRepository")
+        if number is None:
+            sink["skipped"] += 1  # not a PR number, such as true or 1.9
+        else:
+            _add_ref(sink["refs"], repository if isinstance(repository, str) else None, "pull", number, ts)
     elif kind == "file-history-delta" and entry.get("trackingPath"):
         parent = (entry.get("backup") or {}).get("realParentDir")
         path = entry["trackingPath"]
@@ -1249,6 +1264,13 @@ def _strings(value) -> list[str]:
     return []
 
 
+def _whole_number(value) -> int | None:
+    """A PR or issue number given as an int or a decimal string; None for anything else."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return int(value) if isinstance(value, str) and re.fullmatch(r"[0-9]+", value) else None
+
+
 def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
     """References given as owner, repo and a number, as GitHub MCP tools take them."""
     owner, repo = data.get("owner"), data.get("repo")
@@ -1257,10 +1279,9 @@ def _structured_ref(name: str, data: dict, ts, sink: dict) -> None:
     lowered = name.lower()
     for key, kind in (("pullNumber", "pull"), ("pull_number", "pull"), ("issue_number", "issues"),
                       ("issueNumber", "issues"), ("number", "pull" if "pull" in lowered else "issues")):
-        value = data.get(key)
-        if (isinstance(value, int) and not isinstance(value, bool)) or (
-                isinstance(value, str) and re.fullmatch(r"[0-9]+", value)):
-            _add_ref(sink["refs"], f"{owner}/{repo}", kind, int(value), ts)
+        value = _whole_number(data.get(key))
+        if value is not None:
+            _add_ref(sink["refs"], f"{owner}/{repo}", kind, value, ts)
             return
 
 

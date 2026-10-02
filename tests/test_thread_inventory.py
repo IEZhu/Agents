@@ -327,8 +327,9 @@ def test_git_clone_and_init_destinations_are_directories():
     assert {"/w", "/w/r", "/w/t", "/w/new"} <= set(inv["directories"])
     assert "/w/HEAD" not in inv["directories"]  # -C after the subcommand is not a directory
     wrapped = thread_inventory.inventory(bash(
-        "env -C /other/repo git commit -m x && sudo -D /srv/x git status && env --chdir=/a/b git push", "wr"))
-    assert {"/other/repo", "/srv/x", "/a/b"} <= set(wrapped["directories"])
+        "env -C /other/repo git commit -m x && sudo -D /srv/x git status && env --chdir=/a/b git push"
+        " && env -C/opt/x git status", "wr"))
+    assert {"/other/repo", "/srv/x", "/a/b", "/opt/x"} <= set(wrapped["directories"])
     assert [m["command"] for m in wrapped["git_mutations"]] == [
         "env -C /other/repo git commit -m x", "env --chdir=/a/b git push"]
     unresolved = thread_inventory.inventory(bash("cd $SP && git init repo && git -C \"$HOME/x\" status", "v"))
@@ -394,14 +395,15 @@ def test_responses_without_an_id_are_counted_as_skipped():
 def test_unexpected_entries_are_skipped_not_fatal():
     entries = [
         {"type": "file-history-delta", "trackingPath": 5},
-        {"type": "pr-link", "prNumber": "x"},
+        {"type": "pr-link", "prNumber": "x"}, {"type": "pr-link", "prNumber": True},
+        {"type": "pr-link", "prNumber": 1.9},
         {"type": "assistant", "message": {"id": {"not": "hashable"}, "content": []}},
         {"type": "user", "timestamp": 5, "origin": {"kind": "human"}, "message": {"content": "hi"}},
         *assistant([tool("Bash", {"command": ["git", "push"]}, "l1"),
                     tool("Edit", {"file_path": ["a"], "old_string": "a", "new_string": "b"}, "l2")], "t", "ml"),
     ]
     inv = thread_inventory.inventory(entries)
-    assert inv["skipped_entries"] == 3
+    assert inv["skipped_entries"] == 5 and inv["github_refs"] == []
     assert [p["text"] for p in inv["prompts"]] == ["hi"] and inv["files_written"] == []
 
 
@@ -668,6 +670,9 @@ def test_line_continuations_and_code_lines_in_heredocs():
     ("cat <<'EOF' | bash\ngit push\nEOF\ncat <<'EOF' | python3 -\ngit tag v1\nEOF\n"
      "cat <<'EOF' |& sh\ngh pr merge 3\nEOF",
      ["git push", "gh pr merge 3"]),  # a heredoc piped into a shell runs there
+    ("env -C/tmp git commit -m x && env -S'git tag v9'", ["env -C/tmp git commit -m x", "env -S'git tag v9'"]),
+    ("cat <<'EOF' | bash < run.sh\ngit push\nEOF\nbash <<'EOF' < run.sh\ngit tag v1\nEOF\n"
+     "bash < run.sh <<'EOF'\ngh pr merge 4\nEOF", ["gh pr merge 4"]),  # the last input redirection wins
     ("env -S 'git push origin main' && env --split-string='gh pr merge 5'", ["env -S 'git push origin main'",
                                                                          "env --split-string='gh pr merge 5'"]),
     ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [
