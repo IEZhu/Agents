@@ -199,7 +199,9 @@ def test_github_refs_from_gh_commands_keep_the_first_sighting():
     "LANG=C git push origin main", "gh api repos/o/r/issues/1/comments -X POST -f body=x",
     "gh api --method=PATCH repos/o/r/pulls/1", "gh api repos/o/r/issues -f title=x",
     "gh api graphql -f query='mutation { resolveReviewThread(input:{}) { clientMutationId } }'",
-    "gh pr reopen 5", "gh issue delete 7 --yes",
+    "gh pr reopen 5", "gh issue delete 7 --yes", "gh api repos/o/r/issues/1/comments --raw-field=body=x",
+    "gh api repos/o/r/issues/1/comments --field=body=x", "gh api repos/o/r/pulls --input=pr.json",
+    "gh api repos/o/r/issues/1/comments -fbody=x",
 ])
 def test_git_and_gh_writes_are_detected(command):
     assert len(thread_inventory.inventory(bash(command, "c"))["git_mutations"]) == 1
@@ -543,7 +545,7 @@ def test_unknown_git_and_gh_commands_are_listed_not_dropped():
 @pytest.mark.parametrize("command, expected", [
     ("gh pr merge --squash 12", ("pull", 12, None)),
     ("gh issue close -R o/r 62", ("issues", 62, "o/r")),
-    ("gh issue close --repo=o/r 63", ("issues", 63, "o/r")),
+    ("gh issue close --repo=o/r 63", ("issues", 63, "o/r")), ("gh issue close -Ro/r 64", ("issues", 64, "o/r")),
     ("gh pr comment 5 --body 12", ("pull", 5, None)),
     ("gh pr view '#7' --json state", ("pull", 7, None)),
     ("gh pr checks --interval 30 153", ("pull", 153, None)), ("gh pr merge -s 12", ("pull", 12, None)),
@@ -637,6 +639,8 @@ def test_line_continuations_and_code_lines_in_heredocs():
         "git push"]),  # array elements are data, their substitutions run
     ("trap -- 'git push origin x' EXIT; trap -p EXIT; trap - EXIT", ["git push origin x"]),
     ("<<'EOF' bash\ngit push\nEOF\nbash << 'EOF'\ngh pr merge 7\nEOF", ["git push", "gh pr merge 7"]),
+    ("cat <<'EOF' | bash\ngit push\nEOF\ncat <<'EOF' | python3 -\ngit tag v1\nEOF\ncat <<'EOF' |& sh\ngh pr merge 3\nEOF",
+     ["git push", "gh pr merge 3"]),  # a heredoc piped into a shell runs there
     ("env -S 'git push origin main' && env --split-string='gh pr merge 5'", ["env -S 'git push origin main'",
                                                                          "env --split-string='gh pr merge 5'"]),
     ("bash 2>&1 <<'EOF'\ngit push origin main\nEOF\nbash > /tmp/o.log <<'EOF'\ngh pr merge 5\nEOF", [

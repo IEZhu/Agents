@@ -445,23 +445,28 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
 
     A `<<` inside parentheses that close on the same line, as in `$((1<<2))`, opens no heredoc.
     """
-    segments, current, heredocs, undecided = [], [], [], []
+    segments, current, heredocs, undecided, piped = [], [], [], [], []
     quote, length = None, len(command)
 
     def add(text: str) -> None:
         if text:
             current.append(text)
 
-    def flush() -> None:
+    def flush(pipe: bool = False) -> None:
+        """End a simple command; with ``pipe`` its output goes to the next one."""
         segment = "".join(current).strip()
         if segment:
             segments.append(segment)
-        if undecided:  # once per simple command, with its whole text: `<<'EOF' bash` reads too
-            tokens = _command_tokens(segment)
-            reads = bool(tokens) and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin"
-            for entry in undecided:
-                entry[2] = reads
-            undecided.clear()
+        tokens = _command_tokens(segment) if undecided or piped else []
+        reads = bool(tokens) and tokens[0] in SHELLS and _shell_input(tokens)[0] == "stdin"
+        for entry in piped:  # `cat <<'EOF' | bash`: the body reaches this shell, unless it has its own
+            entry[2] = entry[2] or (reads and not undecided)
+        piped.clear()
+        for entry in undecided:  # decided once per simple command, from its whole text
+            entry[2] = reads
+        if pipe:
+            piped.extend(undecided)
+        undecided.clear()
         current.clear()
 
     def backquoted(start: int) -> int:
@@ -570,9 +575,10 @@ def _parse(command: str, index: int, depth: int, context: str | None) -> tuple[l
                 return segments, index
         elif char == "`":
             index = backquoted(index)
-        else:  # ; | & end a simple command
-            flush()
-            index += 1
+        else:  # ; | & end a simple command, and | or |& passes its output on
+            pipe = char == "|" and command[index + 1:index + 2] != "|" and command[index - 1:index] != "|"
+            flush(pipe)
+            index += 2 if pipe and command.startswith("&", index + 1) else 1
     flush()
     return segments, length
 
@@ -777,7 +783,9 @@ def gh_write(tokens: list[str], segment: str) -> bool:
             return method.upper() not in ("GET", "HEAD")
     if "graphql" in tokens:
         return "mutation" in segment
-    return any(token in ("-f", "-F", "--field", "--raw-field", "--input") for token in tokens)
+    return any(token in ("-f", "-F", "--field", "--raw-field", "--input")
+               or token.startswith(("--field=", "--raw-field=", "--input=")) or re.match(r"-[fF].", token)
+               for token in tokens)  # fields or an input body make the request a POST
 
 
 def _resolve(path: str, cwd: str | None) -> str | None:
@@ -998,6 +1006,8 @@ def _gh_ref(tokens: list[str], ts, sink: dict) -> None:
             continue
         if token.startswith("--repo="):
             repo = token.split("=", 1)[1]
+        elif token.startswith("-R") and len(token) > 2:
+            repo = token[2:]  # -Rowner/repo
         elif token in ("-R", "--repo"):
             repo = tokens[index + 1] if index + 1 < len(tokens) else None
             skip = True
