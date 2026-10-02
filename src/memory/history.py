@@ -42,6 +42,9 @@ from src.memory.config import (
 
 logger = logging.getLogger(__name__)
 
+# (path, errno) of rotation failures already logged: a persistent failure warns once.
+_ROTATION_WARNED: set = set()
+
 
 # Cross-platform file lock — fcntl on POSIX, no-op shim on Windows where the
 # MCP server does not support concurrent stdio sessions anyway.
@@ -174,7 +177,10 @@ class HistoryWriter:
             try:
                 rotated_to = self._maybe_rotate_locked()
             except Exception as err:
-                logger.warning("history rotation failed for %s: %s", self.history_path, err)
+                key = (self.history_path, getattr(err, "errno", None))
+                if key not in _ROTATION_WARNED:
+                    _ROTATION_WARNED.add(key)
+                    logger.warning("history rotation failed for %s: %s", self.history_path, err)
 
         result: Dict[str, Any] = {
             "status": "recorded",
@@ -276,12 +282,17 @@ class HistoryWriter:
         # If a file for this month already exists, append-merge with a separator
         # so multi-rotation months stay in one archive file.
         if os.path.exists(archive_path):
-            with open(self.history_path, "r", encoding="utf-8") as src:
+            # Move the live file aside first: if another process holds it open
+            # (Windows), this fails before anything reaches the archive, so a
+            # repeated failure cannot merge the same payload twice.
+            pending = self.history_path + ".rotating"
+            os.replace(self.history_path, pending)
+            with open(pending, "r", encoding="utf-8") as src:
                 payload = src.read()
             with open(archive_path, "a", encoding="utf-8") as dst:
                 dst.write("\n\n<!-- merged on rotation -->\n\n")
                 dst.write(payload)
-            os.unlink(self.history_path)
+            os.unlink(pending)
         else:
             shutil.move(self.history_path, archive_path)
 

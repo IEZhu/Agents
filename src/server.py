@@ -866,6 +866,9 @@ def _record_history_failure(root: Path, path: str, error: BaseException) -> None
 def _clear_history_failure(root: Path) -> None:
     with _history_errors_lock:
         _history_errors.pop(str(root), None)
+        # Let a later failure at this path warn again after a recovery.
+        path = str(root / "history.md")
+        _history_warned.difference_update({key for key in _history_warned if key[0] == path})
 
 
 def _workspace_report(client, root: Path) -> dict:
@@ -1228,6 +1231,11 @@ async def read_history(
             }
         payload.update(_workspace_report(client, root))
         debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
+        return json.dumps(payload, ensure_ascii=False)
+    except WorkspaceError as e:
+        # A known condition (no usable workspace): no traceback per call.
+        payload = {"status": "error", "error": str(e)}
+        debug_log("read_history", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("read_history failed: %s", e, exc_info=True)

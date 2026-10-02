@@ -384,3 +384,13 @@ class TestCacheReset:
         assert engine_config.get_client_repo_root() == os.path.realpath(
             str(tmp_path / "b")
         )
+
+
+def test_darwin_case_variants_are_unsafe(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_config.sys, "platform", "darwin")
+    monkeypatch.setattr(engine_config, "_real", lambda path: engine_config.Path(path) if path else None)
+    monkeypatch.setattr(engine_config, "_home_directory", lambda: engine_config.Path("/Users/Alex"))
+    assert "system directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/users"))
+    assert "system directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/system/library"))
+    assert "home directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/users/alex"))
+    assert engine_config._unsafe_client_root_reason(engine_config.Path("/Users/Alex/project")) is None

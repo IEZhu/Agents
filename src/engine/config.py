@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -74,6 +75,13 @@ def _real(path: Optional[str]) -> Optional[Path]:
     return Path(os.path.realpath(path)) if path else None
 
 
+def _inside(root: Path, base: Path) -> bool:
+    """`root` is `base` or below it; case-insensitive on macOS, whose volumes are."""
+    if sys.platform == "darwin":
+        root, base = Path(str(root).casefold()), Path(str(base).casefold())
+    return root.is_relative_to(base)
+
+
 def _home_directory() -> Optional[Path]:
     try:
         return _real(os.path.expanduser("~"))
@@ -118,13 +126,14 @@ def _unsafe_client_root_reason(root: Path) -> Optional[str]:
     else:
         for path in _POSIX_UNSAFE_SUBTREES:
             base = _real(path)
-            if base is not None and root.is_relative_to(base):
+            if base is not None and _inside(root, base):
                 return f"it is inside the system directory {path}"
         for path in _POSIX_UNSAFE_EXACT:
-            if root == _real(path):
+            base = _real(path)
+            if base is not None and _inside(root, base) and _inside(base, root):
                 return f"it is the system directory {path}"
     home = _home_directory()
-    if home is not None and root == home:
+    if home is not None and _inside(root, home) and _inside(home, root):
         return f"it is the home directory {home}"
     return None
 

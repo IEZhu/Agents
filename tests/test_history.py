@@ -345,3 +345,21 @@ class TestRotationWithOpenHandle:
             result = writer.append_entry("q " + "x" * 2000, "a", "o")
         assert result["status"] == "recorded"
         assert "history rotation failed" in caplog.text
+
+
+def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path, monkeypatch):
+    archive_dir = tmp_path / "history"
+    writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
+    for i in range(3):
+        writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
+    archives = list(archive_dir.glob("*.md"))
+    assert archives
+    before = archives[0].read_text(encoding="utf-8")
+
+    def locked(src, dst):
+        raise PermissionError(32, "in use")
+
+    monkeypatch.setattr("src.memory.history.os.replace", locked)
+    for i in range(3, 6):
+        assert writer.append_entry(f"q{i} " + "y" * 600, "a", "o" * 600)["status"] == "recorded"
+    assert archives[0].read_text(encoding="utf-8") == before
