@@ -58,6 +58,25 @@ def test_a_run_counts_verdicts_robust_cases_and_missing_ones(tmp_path):
     assert result["groups"] == ["reasoning", "control"]  # controls last
 
 
+def test_cases_of_different_components_with_one_id_stay_apart(tmp_path):
+    run = tmp_path / "r"
+    (run / "cases").mkdir(parents=True)
+    (run / "judge").mkdir()
+    plan = {}
+    for component, group, winner in (("rule-x", "reasoning", "A"), ("rule-y", "control", "B")):
+        cases = [{"id": "c1", "group": group, "user_message": "q", "rubric": ["a"]}]
+        (run / "cases" / f"{component}.json").write_text(json.dumps({"component": component, "cases": cases}))
+        stem = f"{component}__c1__o1"
+        plan[stem] = {"component": component, "case": "c1", "A": "with", "B": "without"}
+        (run / "judge" / f"{stem}.verdict.json").write_text(json.dumps(_verdict(winner)))
+    (run / "judge_plan.json").write_text(json.dumps(plan))
+    result = compare.compare([run])
+    assert result["runs"][0]["all"]["cases"] == 2
+    assert result["runs"][0]["groups"]["control"]["without"] == 1
+    across = result["across"]
+    assert (across["change applies"]["better"], across["controls"]["worse"]) == (1, 1)
+
+
 def test_across_runs_scores_cases_and_keeps_controls_apart(tmp_path):
     first = _run(tmp_path, "one", {"r1": ("without", "without"), "r2": ("with", "tie"), "k1": ("with", "with")})
     second = _run(tmp_path, "two", {"r1": ("without", "tie"), "r2": ("with", "with"), "k1": ("without", "tie")})

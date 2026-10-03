@@ -3,7 +3,8 @@
     python evals/ablation/compare.py RUN_DIR [RUN_DIR ...] [--json]
 
 Each RUN_DIR needs aggregate.py's inputs: cases/, judge_plan.json and
-judge/<stem>.verdict.json. A case's optional `group` field groups the tables; a
+judge/<stem>.verdict.json. A case is its component and id, since ids are unique only
+within a component's file. A case's optional `group` field groups the tables; a
 case without one is in "all". Group "control" marks cases the change under test
 should not affect, so their result is the noise floor.
 
@@ -51,8 +52,9 @@ def load_run(run_dir: Path) -> dict:
     """Cases with their groups, and each verdict's winning arm per case."""
     groups = {}
     for path in (run_dir / "cases").glob("*.json"):
-        for case in json.loads(path.read_text()).get("cases", []):
-            groups[case["id"]] = case.get("group", "all")
+        spec = json.loads(path.read_text())
+        for case in spec.get("cases", []):
+            groups[(spec["component"], case["id"])] = case.get("group", "all")
     plan_path = run_dir / "judge_plan.json"
     if not plan_path.exists():
         raise SystemExit(f"{run_dir}: no judge_plan.json; run build_judges.py first")
@@ -63,7 +65,7 @@ def load_run(run_dir: Path) -> dict:
         except (OSError, ValueError):
             missing += 1
             continue
-        winners[p["case"]].append({"A": p["A"], "B": p["B"], "tie": "tie"}[verdict["winner"]])
+        winners[(p["component"], p["case"])].append({"A": p["A"], "B": p["B"], "tie": "tie"}[verdict["winner"]])
     return {"name": run_dir.name, "groups": groups, "winners": dict(winners), "missing": missing}
 
 
