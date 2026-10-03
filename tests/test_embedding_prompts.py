@@ -34,6 +34,14 @@ def test_templates_follow_the_model_cards():
     assert embedding_prompts.templates("some/unknown-model") == embedding_prompts.PLAIN
 
 
+def test_model_names_match_in_any_case_as_fastembed_resolves_them(tmp_path):
+    assert embedding_prompts.as_query("INTFLOAT/Multilingual-E5-Large", "q") == "query: q"
+    assert embedding_prompts.as_passage("INTFLOAT/Multilingual-E5-Large", "d") == "passage: d"
+    mixed, canonical = "Microsoft/Harrier-OSS-v1-270m", "microsoft/harrier-oss-v1-270m"
+    assert embedding_prompts.local_copy(mixed, str(tmp_path)) == embedding_prompts.local_copy(canonical, str(tmp_path))
+    assert embedding_prompts.pinned_revision(mixed) == embedding_prompts.pinned_revision(canonical) is not None
+
+
 def test_prompts_can_be_switched_off(monkeypatch):
     monkeypatch.setenv("EMBEDDING_PROMPTS", "off")
     assert embedding_prompts.as_query("intfloat/multilingual-e5-large", "q") == "q"
@@ -71,9 +79,10 @@ def test_custom_models_register_without_extra_pooling(monkeypatch):
     monkeypatch.setattr(TextEmbedding, "add_custom_model", classmethod(lambda cls, **kw: calls.append(kw)))
     embedding_prompts.register_custom("intfloat/multilingual-e5-large")
     assert calls == []
-    embedding_prompts.register_custom("microsoft/harrier-oss-v1-270m")
+    embedding_prompts.register_custom("Microsoft/Harrier-OSS-v1-270m")
     assert len(calls) == 1
     call = calls[0]
+    assert call["model"] == "microsoft/harrier-oss-v1-270m"  # the CUSTOM_MODELS name, whatever the case asked
     # The export already ends in a pooled sentence_embedding output.
     assert call["pooling"] == PoolingType.DISABLED and call["normalization"] is True
     assert call["dim"] == 640 and call["sources"].hf == "onnx-community/harrier-oss-v1-270m-ONNX"
@@ -124,6 +133,27 @@ def test_exports_with_weight_files_load_from_a_pinned_plain_copy(monkeypatch, tm
     # A published copy loads without the Hub.
     monkeypatch.setattr(huggingface_hub, "snapshot_download", _offline)
     assert embedding_prompts.materialize("google/embeddinggemma-300m", str(tmp_path)) == target
+
+
+def test_linked_files_of_a_download_are_published_as_plain_files(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    blob = tmp_path / "blob"
+    blob.write_text("weights")
+    download = _hub([])
+
+    def linking(repo, revision, local_dir, allow_patterns):
+        # huggingface_hub before 0.23 links large local_dir files into its blob cache.
+        download(repo, revision, local_dir, allow_patterns)
+        os.symlink(blob, os.path.join(local_dir, "onnx", "model.onnx_data"))
+        return local_dir
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", linking)
+    target = embedding_prompts.materialize("microsoft/harrier-oss-v1-270m", str(tmp_path / "cache"))
+    weights = os.path.join(target, "onnx", "model.onnx_data")
+    assert not os.path.islink(weights)
+    with open(weights) as stream:
+        assert stream.read() == "weights"
 
 
 def test_a_failed_download_publishes_nothing(monkeypatch, tmp_path):

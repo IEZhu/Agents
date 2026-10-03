@@ -60,6 +60,11 @@ LOCAL_COPIES: dict[str, dict] = {
 COMPLETE = ".complete"
 
 
+def _entry(table: dict, model: str) -> tuple[str, object] | None:
+    """`table`'s (name, value) for `model`, ignoring case as fastembed does when it resolves names."""
+    return next(((name, value) for name, value in table.items() if name.lower() == model.lower()), None)
+
+
 def templates(model: str) -> tuple[str, str]:
     """(query template, passage template) for `model`; plain text for unknown models.
 
@@ -70,7 +75,8 @@ def templates(model: str) -> tuple[str, str]:
 
     if os.environ.get("EMBEDDING_PROMPTS", "on").strip().lower() == "off":
         return PLAIN
-    return PROMPTS.get(model, PLAIN)
+    entry = _entry(PROMPTS, model)
+    return entry[1] if entry else PLAIN
 
 
 def as_query(model: str, text: str) -> str:
@@ -81,14 +87,21 @@ def as_passage(model: str, text: str) -> str:
     return templates(model)[1].format(text=text)
 
 
+def pinned_revision(model: str) -> str | None:
+    """`<export>@<revision>` of a LOCAL_COPIES model, which its plain-file copy holds exactly."""
+    entry = _entry(LOCAL_COPIES, model)
+    return f"{entry[1]['hf']}@{entry[1]['revision']}" if entry else None
+
+
 def local_copy(model: str, cache_dir: str) -> str | None:
     """Directory of the plain-file copy of a LOCAL_COPIES export; None for other models."""
-    spec = LOCAL_COPIES.get(model)
-    if spec is None:
+    entry = _entry(LOCAL_COPIES, model)
+    if entry is None:
         return None
     import os
 
-    return os.path.join(cache_dir, "local", model.replace("/", "--"), spec["revision"])
+    name, spec = entry
+    return os.path.join(cache_dir, "local", name.replace("/", "--"), spec["revision"])
 
 
 def materialize(model: str, cache_dir: str) -> str | None:
@@ -114,12 +127,13 @@ def materialize(model: str, cache_dir: str) -> str | None:
         return target
     from huggingface_hub import snapshot_download
 
-    spec = LOCAL_COPIES[model]
+    spec = _entry(LOCAL_COPIES, model)[1]
     os.makedirs(os.path.dirname(target), exist_ok=True)
     staging = tempfile.mkdtemp(prefix=".partial-", dir=os.path.dirname(target))
     try:
         snapshot_download(spec["hf"], revision=spec["revision"], local_dir=staging,
                           allow_patterns=["onnx/model.onnx", *spec["files"], "*.json", "tokenizer*"])
+        _plain_files(staging)
         _cap_max_length(os.path.join(staging, "tokenizer_config.json"), MAX_INPUT_TOKENS)
         with open(os.path.join(staging, COMPLETE), "w", encoding="utf-8") as stream:
             stream.write(spec["revision"])
@@ -162,6 +176,24 @@ def cap_tokens(text_embedding, limit: int = MAX_INPUT_TOKENS) -> None:
         tokenizer.enable_truncation(max_length=limit)
 
 
+def _plain_files(root: str) -> None:
+    """Replace symlinks under `root` with copies of their targets.
+
+    huggingface_hub before 0.23 links large files of a local_dir download into its
+    blob cache, where ONNX Runtime refuses external weights.
+    """
+    import os
+    import shutil
+
+    for folder, _subfolders, names in os.walk(root):
+        for name in names:
+            path = os.path.join(folder, name)
+            if os.path.islink(path):
+                target = os.path.realpath(path)
+                os.unlink(path)
+                shutil.copyfile(target, path)
+
+
 def _cap_max_length(path: str, limit: int) -> None:
     """Cap the tokenizer limit in a copy that is not yet published, so no other process reads it."""
     import json
@@ -176,14 +208,18 @@ def _cap_max_length(path: str, limit: int) -> None:
 
 
 def register_custom(model: str) -> None:
-    """Register a model from CUSTOM_MODELS with fastembed once; other models are left alone."""
-    spec = CUSTOM_MODELS.get(model)
-    if spec is None:
+    """Register a model from CUSTOM_MODELS with fastembed once; other models are left alone.
+
+    The model registers under its CUSTOM_MODELS name; fastembed finds it by any case.
+    """
+    entry = _entry(CUSTOM_MODELS, model)
+    if entry is None:
         return
+    model, spec = entry
     from fastembed import TextEmbedding
     from fastembed.common.model_description import ModelSource, PoolingType
 
-    if any(entry["model"] == model for entry in TextEmbedding.list_supported_models()):
+    if any(listed["model"].lower() == model.lower() for listed in TextEmbedding.list_supported_models()):
         return
     TextEmbedding.add_custom_model(
         model=model, pooling=PoolingType.DISABLED, normalization=True,
