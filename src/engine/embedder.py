@@ -20,7 +20,7 @@ from typing import List
 import numpy as np
 
 from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
-from src.engine.embedding_prompts import as_passage, as_query, materialize, register_custom
+from src.engine.embedding_prompts import as_passage, as_query, batch_size, cap_tokens, materialize, register_custom
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ def _get_model():
                             elif local := materialize(EMBEDDING_MODEL, FASTEMBED_CACHE_DIR):
                                 options["specific_model_path"] = local
                             _model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR, **options)
+                            cap_tokens(_model)
                         logger.info("Embedding model loaded")
                         break
                     except Exception:
@@ -93,7 +94,8 @@ def reset_model():
 def _embed_texts(texts: List[str]) -> np.ndarray:
     """Embed documents/passages. Returns (N, D) numpy array."""
     model = _get_model()
-    return np.array(list(model.passage_embed([as_passage(EMBEDDING_MODEL, t) for t in texts])))
+    return np.array(list(model.passage_embed([as_passage(EMBEDDING_MODEL, t) for t in texts],
+                                             batch_size=batch_size())))
 
 
 def _embed_query(text: str) -> np.ndarray:

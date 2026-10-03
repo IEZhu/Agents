@@ -24,9 +24,10 @@ def fingerprint(model=None):
             ref = cache / "refs/main"
             if ref.is_file(): refs.append(cache.name + ":" + ref.read_text().strip())
         revision = ",".join(refs) or "unresolved"
-    from src.engine.embedding_prompts import templates
+    from src.engine.embedding_prompts import MAX_INPUT_TOKENS, templates
     payload = {"model": model, "revision": revision, "schema": INDEX_SCHEMA,
-               "preprocessing": PREPROCESSING, "prompts": list(templates(model)), "fastembed": version("fastembed")}
+               "preprocessing": PREPROCESSING, "prompts": list(templates(model)),
+               "max_input_tokens": MAX_INPUT_TOKENS, "fastembed": version("fastembed")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 

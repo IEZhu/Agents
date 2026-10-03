@@ -9,14 +9,15 @@ from src.engine import embedder, embedding_prompts, fingerprint
 
 class _FakeModel:
     def __init__(self):
-        self.queries, self.passages = [], []
+        self.queries, self.passages, self.kwargs = [], [], {}
 
     def query_embed(self, texts):
         self.queries += list(texts)
         return [np.zeros(3) for _ in texts]
 
-    def passage_embed(self, texts):
+    def passage_embed(self, texts, **kwargs):
         self.passages += list(texts)
+        self.kwargs = kwargs
         return [np.zeros(3) for _ in texts]
 
 
@@ -43,6 +44,7 @@ def test_embedder_applies_the_templates(monkeypatch):
     embedder._embed_texts(["skill text"])
     assert fake.queries == ["query: как вернуть налог"]
     assert fake.passages == ["passage: skill text"]
+    assert fake.kwargs == {"batch_size": embedding_prompts.BATCH_SIZE}
 
 
 def test_a_template_change_changes_the_index_fingerprint(monkeypatch):
@@ -102,4 +104,21 @@ def test_exports_with_weight_files_load_from_a_plain_copy(monkeypatch, tmp_path)
     assert calls == [("onnx-community/embeddinggemma-300m-ONNX",
                       ["onnx/model.onnx", "onnx/model.onnx_data", "*.json", "tokenizer*"])]
     with open(f"{target}/tokenizer_config.json") as stream:
-        assert json.load(stream)["model_max_length"] == embedding_prompts.MAX_LENGTH
+        assert json.load(stream)["model_max_length"] == embedding_prompts.MAX_INPUT_TOKENS
+
+
+class _Tokenizer:
+    def __init__(self, max_length):
+        self.truncation = None if max_length is None else {"max_length": max_length}
+
+    def enable_truncation(self, max_length):
+        self.truncation = {"max_length": max_length}
+
+
+@pytest.mark.parametrize("own, expected", [(32768, 2048), (None, 2048), (512, 512)])
+def test_inputs_are_capped_unless_the_model_limit_is_lower(own, expected):
+    class Wrapped:
+        model = type("Inner", (), {"tokenizer": _Tokenizer(own)})()
+
+    embedding_prompts.cap_tokens(Wrapped, 2048)
+    assert Wrapped.model.tokenizer.truncation["max_length"] == expected

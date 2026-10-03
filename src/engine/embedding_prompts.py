@@ -89,13 +89,36 @@ def materialize(model: str, cache_dir: str) -> str | None:
     target = os.path.join(cache_dir, "local", model.replace("/", "--"))
     snapshot_download(spec["hf"], local_dir=target,
                       allow_patterns=["onnx/model.onnx", *spec["files"], "*.json", "tokenizer*"])
-    _cap_max_length(os.path.join(target, "tokenizer_config.json"), MAX_LENGTH)
+    _cap_max_length(os.path.join(target, "tokenizer_config.json"), MAX_INPUT_TOKENS)
     return target
 
 
-# fastembed needs a real model_max_length; these exports carry the 1e30 "unlimited"
-# sentinel. 8192 tokens holds every skill and implant text with room to spare.
-MAX_LENGTH = 8192
+# Input length and document batch size bound the embedder's memory. Attention memory
+# grows with batch × length², and fastembed's default batch of 256 padded to the
+# longest skill text (about 2.8k tokens) exhausted a 36 GB laptop with a 270M model
+# on 2026-10-03. 2048 tokens covers 121 of the 127 skill and implant files whole.
+MAX_INPUT_TOKENS = 2048
+BATCH_SIZE = 4
+
+
+def batch_size() -> int:
+    """Documents per embedding batch; EMBEDDING_BATCH_SIZE overrides it."""
+    import os
+
+    return max(1, int(os.environ.get("EMBEDDING_BATCH_SIZE", BATCH_SIZE)))
+
+
+def cap_tokens(text_embedding, limit: int = MAX_INPUT_TOKENS) -> None:
+    """Truncate inputs at `limit` tokens unless the model's own limit is lower.
+
+    Covers models whose tokenizer allows far more, such as Qwen3-Embedding's 32768.
+    """
+    tokenizer = getattr(getattr(text_embedding, "model", None), "tokenizer", None)
+    if tokenizer is None:
+        return
+    current = (tokenizer.truncation or {}).get("max_length")
+    if current is None or current > limit:
+        tokenizer.enable_truncation(max_length=limit)
 
 
 def _cap_max_length(path: str, limit: int) -> None:
