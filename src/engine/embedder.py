@@ -103,8 +103,9 @@ def _loaded_fingerprint(model) -> str:
     process can move the cache's refs/main before it ends, so the revision is
     taken from the directory fastembed opened (``<cache dir>:<commit>``, which
     equals what ``fingerprint()`` reads from refs when one cache directory
-    matches the model). A plain-file copy has its pinned revision
-    (``compute_fingerprint``); other directories fall back to refs.
+    matches the model). A plain-file copy, which is no snapshot directory, gets
+    its pinned revision in ``compute_fingerprint``; other directories fall back to
+    refs.
     """
     from src.engine.fingerprint import compute_fingerprint
     revision = None

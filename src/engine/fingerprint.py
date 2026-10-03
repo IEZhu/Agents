@@ -14,14 +14,15 @@ PREPROCESSING = "prompt-templates-v2"
 def compute_fingerprint(model=None, revision=None):
     """Uncached fingerprint; *revision* names the snapshot a loaded model came from.
 
-    ``AGENTS_MODEL_ARTIFACT`` takes precedence, then the pinned revision of a model
-    that loads from a plain-file copy (``embedding_prompts.materialize``); without
-    any of them, the revision is read from the model cache's refs.
+    ``AGENTS_MODEL_ARTIFACT`` takes precedence, then *revision*, then the pinned
+    revision of a model that loads from a plain-file copy
+    (``embedding_prompts.materialize``); without any of them, the revision is read
+    from the model cache's refs.
     """
     from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
     from src.engine.embedding_prompts import MAX_INPUT_TOKENS, pinned_revision, templates
     model = model or EMBEDDING_MODEL
-    revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or pinned_revision(model) or revision
+    revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or revision or pinned_revision(model)
     if not revision:
         # HF snapshot names are immutable commit IDs. Non-HF artifacts must be
         # pinned by AGENTS_MODEL_ARTIFACT in the installed service configuration.

@@ -71,6 +71,15 @@ def test_a_template_change_changes_the_index_fingerprint(monkeypatch):
         fingerprint.fingerprint.cache_clear()
 
 
+def test_a_loaded_snapshot_outranks_the_pinned_copy_in_the_fingerprint(monkeypatch):
+    model = "microsoft/harrier-oss-v1-270m"
+    monkeypatch.delenv("AGENTS_MODEL_ARTIFACT", raising=False)
+    pinned = fingerprint.compute_fingerprint(model)
+    assert fingerprint.compute_fingerprint(model, revision="models--x:abc") != pinned
+    monkeypatch.setenv("AGENTS_MODEL_ARTIFACT", "artifact-1")
+    assert fingerprint.compute_fingerprint(model, revision="models--x:abc") == fingerprint.compute_fingerprint(model)
+
+
 def test_custom_models_register_without_extra_pooling(monkeypatch):
     from fastembed import TextEmbedding
     from fastembed.common.model_description import PoolingType
