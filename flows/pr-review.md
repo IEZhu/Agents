@@ -224,17 +224,16 @@ neither approves nor clears findings.
 | Bot | Evidence | Meaning | Next action |
 |---|---|---|---|
 | CodeRabbit | A comment marked `rate limited by coderabbit.ai`: "Review limit reached. Next included review available in N minutes." | Rate limit with a stated wait | Pause CodeRabbit until the time the comment was last updated plus N minutes: CodeRabbit rewrites this text into its long-lived summary comment, so its creation time is too early. After that, if no review of the current head has started, request one with a PR comment `@coderabbitai review`, once. A rate-limit reply to that request starts a new pause. |
-| CodeRabbit | A reply to `@coderabbitai review`: "Action not completed" and "Review rate limited.", with the status `Review rate limited`; after a push, the status alone | The same rate limit; the reply states no wait | Read the wait from CodeRabbit's summary comment on the PR, which then says "Review limit reached" and "Next included review available in N minutes", and pause as in the row above. When no comment states a wait (seen in 2026-10 after a push), pause for one hour from the status time. |
+| CodeRabbit | A reply to `@coderabbitai review`: "Action not completed" and "Review rate limited.", with the status `Review rate limited`; after a push, the status alone | The same rate limit; the reply states no wait | Read the wait from CodeRabbit's summary comment on the PR, which then says "Review limit reached" and "Next included review available in N minutes", and pause as in the row above. CodeRabbit can replace that block within a minute (seen in 2026-10), so read the comment when the status appears, or from its edit history; when the wait can no longer be read, pause for one hour from the status time. |
 | CodeRabbit | The status `Review paused`, and "Reviews paused" in its summary comment | Not a quota pause: CodeRabbit is available but stopped reviewing new pushes on its own because the branch received many commits | Do not record a pause. Request one review of the current head with `@coderabbitai review` when the head needs one, and wait for it like any other review. Do not send `@coderabbitai resume`, which reviews every later push. |
 | Copilot | A review body "...the user who requested the review has reached their quota limit." | Account quota exhausted; no reset time is given (in 2026-09 it returned within days, not at a fixed date) | Pause Copilot. While paused, request a review at most once per 24 hours, and only when the current head still needs one. A normal review ends the pause. |
 | Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
 
 Review allowances are shared across PRs. CodeRabbit's review attempts of the past
-seven days set its hourly allowance (in 2026-10, 93 attempts set it to one review
-per hour), and a rate-limited request appeared to count as an attempt too.
-Request a review only for a head that needs one; batching fixes into one push per
-round, as in [Resolve findings](#4-resolve-findings-and-repeat), keeps those
-heads few.
+seven days set its hourly allowance (in 2026-10, 92 to 93 attempts set it to one
+review per hour). Request a review only for a head that needs one; batching
+fixes into one push per round, as in
+[Resolve findings](#4-resolve-findings-and-repeat), keeps those heads few.
 
 Keep each pause with its evidence (the comment or review link), the time it was
 seen and the earliest next attempt. Read the current time from the clock
