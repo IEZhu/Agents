@@ -598,6 +598,11 @@ class HistoryStore:
                     # Stored vectors stay valid only for the embedding
                     # configuration that produced them.
                     reuse = saved is not None and saved.partition(":")[2] == digest.partition(":")[2]
+                    if saved is not None:
+                        # A rebuild that saves the store but dies before the
+                        # new marker must not leave the old marker vouching
+                        # for vectors from another configuration.
+                        os.remove(marker)
                     self._rebuild(embed_texts=embed_texts, reuse_vectors=reuse)
                     atomic_private(marker, digest)
             return self._store
@@ -637,7 +642,9 @@ class HistoryStore:
         vectors = self._reusable_vectors(dict(zip(ids, documents))) if reuse_vectors else {}
         missing = [i for i, id_ in enumerate(ids) if id_ not in vectors]
         if missing:
-            fresh = embed_texts([documents[i] for i in missing])
+            fresh = list(embed_texts([documents[i] for i in missing]))
+            if len(fresh) != len(missing):
+                raise ValueError(f"Embedder returned {len(fresh)} vectors for {len(missing)} history entries")
             vectors.update((ids[i], vector) for i, vector in zip(missing, fresh))
         embeddings = np.stack([np.asarray(vectors[id_], dtype=np.float32) for id_ in ids])
 

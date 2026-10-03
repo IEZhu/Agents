@@ -339,7 +339,11 @@ class TestIncrementalIndex:
         assert len(embedded) == 1 and len(embedded[0]) == 1
         assert embedded[0][0].startswith("Intent: delta")
         assert results[0]["intent"] == "delta"
+        # Reused vectors stay attached to their own entries.
+        for intent in ("alpha", "beta", "gamma"):
+            assert search(intent)[0]["intent"] == intent
         assert len(search("alpha")) == 4
+        assert len(embedded) == 1
 
     def test_unchanged_history_makes_no_embedding_call(self, search, embedded, seeded):
         search()
@@ -351,6 +355,27 @@ class TestIncrementalIndex:
         monkeypatch.setattr(fingerprint_module, "fingerprint", lambda model=None: "other-model")
         writer.append_entry("delta", "act", "out")
 
+        search()
+
+        assert [len(batch) for batch in embedded] == [4]
+
+    def test_interrupted_rebuild_does_not_vouch_for_saved_vectors(
+        self, tmp_path, writer, search, embedded, seeded, monkeypatch
+    ):
+        import src.daemon.state as state_module
+        import src.engine.fingerprint as fingerprint_module
+
+        current = fingerprint_module.fingerprint()
+        monkeypatch.setattr(fingerprint_module, "fingerprint", lambda model=None: "other-model")
+        monkeypatch.setattr(state_module, "atomic_private", lambda *args: (_ for _ in ()).throw(OSError("crash")))
+        writer.append_entry("delta", "act", "out")
+        with pytest.raises(OSError):
+            search()
+        assert not (tmp_path / "memory_data" / ".history_fingerprint").exists()
+        monkeypatch.undo()
+        embedded.clear()
+
+        assert fingerprint_module.fingerprint() == current
         search()
 
         assert [len(batch) for batch in embedded] == [4]
