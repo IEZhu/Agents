@@ -377,5 +377,8 @@ def test_build_meta_records_each_arm_of_an_arm_build():
     meta = build_contexts.merge_build_meta(meta, "with", {"commit": "b", "embedding_model": "m"})
     assert meta == {"arms": {"without": {"commit": "a"}, "with": {"commit": "b", "embedding_model": "m"}}}
     assert build_contexts.merge_build_meta(meta, None, {"commit": "c"}) == {"commit": "c"}
+    # After a two-arm build, an --arm build keeps that build's meta for the other arm.
+    assert build_contexts.merge_build_meta({"commit": "c"}, "with", {"commit": "d"}) == {
+        "arms": {"with": {"commit": "d"}, "without": {"commit": "c"}}}
     # Tokens do not depend on the build mode, so both arms of a case pair up for the judges.
     assert build_contexts.token_of("embed-x", "c1", "with") != build_contexts.token_of("embed-x", "c1", "without")

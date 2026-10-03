@@ -147,10 +147,15 @@ def identical_other_arm(plan: dict, component: str, case_id: str, arm: str, text
 
 
 def merge_build_meta(existing: dict, arm: str | None, meta: dict) -> dict:
-    """build_meta.json content: the build's own meta, or one entry per arm for --arm builds."""
+    """build_meta.json content: the build's own meta, or one entry per arm for --arm builds.
+
+    A two-arm build's meta stands for both arms, so an --arm build after it keeps that
+    meta for the other arm.
+    """
     if arm is None:
         return meta
-    return {"arms": {**existing.get("arms", {}), arm: meta}}
+    arms = existing.get("arms") or ({each: existing for each in ARMS} if "commit" in existing else {})
+    return {"arms": {**arms, arm: meta}}
 
 
 def build_meta() -> dict:
