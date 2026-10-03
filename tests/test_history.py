@@ -301,6 +301,84 @@ class TestSemanticStore:
         assert os.path.getmtime(npz_path) >= first_mtime
 
 
+@pytest.mark.skipif(not _numpy_available(), reason="numpy unavailable in this env")
+class TestIncrementalIndex:
+    """After the first build, only new or edited entries are embedded (#157)."""
+
+    @pytest.fixture
+    def embedded(self):
+        return []
+
+    @pytest.fixture
+    def search(self, tmp_path, writer, embedded):
+        embedder = FakeEmbedder(["alpha", "beta", "gamma", "delta"])
+
+        def embed_texts(texts):
+            embedded.append(list(texts))
+            return embedder.embed_texts(texts)
+
+        def run(query="alpha"):
+            store = HistoryStore(history_path=writer.history_path, data_dir=str(tmp_path / "memory_data"))
+            return store.search(query, limit=5, embed_query=embedder.embed_query, embed_texts=embed_texts)
+
+        return run
+
+    @pytest.fixture
+    def seeded(self, writer, search, embedded):
+        for intent in ("alpha", "beta", "gamma"):
+            writer.append_entry(intent, "act", "out")
+        search()
+        assert [len(batch) for batch in embedded] == [3]
+        embedded.clear()
+
+    def test_append_embeds_only_the_new_entry(self, writer, search, embedded, seeded):
+        writer.append_entry("delta", "act", "out")
+
+        results = search("delta")
+
+        assert len(embedded) == 1 and len(embedded[0]) == 1
+        assert embedded[0][0].startswith("Intent: delta")
+        assert results[0]["intent"] == "delta"
+        assert len(search("alpha")) == 4
+
+    def test_unchanged_history_makes_no_embedding_call(self, search, embedded, seeded):
+        search()
+        assert embedded == []
+
+    def test_changed_fingerprint_reembeds_everything(self, writer, search, embedded, seeded, monkeypatch):
+        import src.engine.fingerprint as fingerprint_module
+
+        monkeypatch.setattr(fingerprint_module, "fingerprint", lambda model=None: "other-model")
+        writer.append_entry("delta", "act", "out")
+
+        search()
+
+        assert [len(batch) for batch in embedded] == [4]
+
+    def test_tag_edit_reembeds_only_that_entry(self, writer, search, embedded, seeded):
+        text = Path(writer.history_path).read_text(encoding="utf-8")
+        text = text.replace("**Intent:** beta\n**Action:** act\n**Outcome:** out\n",
+                            "**Intent:** beta\n**Action:** act\n**Outcome:** out\n**Tags:** #edited\n")
+        Path(writer.history_path).write_text(text, encoding="utf-8")
+
+        search()
+
+        assert len(embedded) == 1 and len(embedded[0]) == 1
+        assert embedded[0][0].startswith("Intent: beta") and "Tags: #edited" in embedded[0][0]
+
+    def test_removed_entry_leaves_the_index(self, writer, search, embedded, seeded):
+        text = Path(writer.history_path).read_text(encoding="utf-8")
+        head, _, rest = text.partition("**Intent:** beta")
+        heading_start = head.rstrip("\n").rfind("## ")
+        _, _, tail = rest.partition("**Outcome:** out\n")
+        Path(writer.history_path).write_text(head[:heading_start] + tail.lstrip("\n"), encoding="utf-8")
+
+        results = search()
+
+        assert embedded == []
+        assert sorted(r["intent"] for r in results) == ["alpha", "gamma"]
+
+
 class TestRotationWithOpenHandle:
     """Windows cannot move an open file: rotation must run after the handle closed."""
 

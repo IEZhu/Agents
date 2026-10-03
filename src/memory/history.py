@@ -12,7 +12,8 @@ Three classes:
 
 * ``HistoryStore`` — lazy ``NumpyVectorStore`` wrapper. Built only on the
   first ``read_history(query=...)`` call; rebuilds when the content of the
-  markdown file or the embedding fingerprint changes. The embedder is
+  markdown file or the embedding fingerprint changes, re-embedding only new
+  or edited entries while the fingerprint is unchanged. The embedder is
   imported lazily so ``HistoryWriter``/``HistoryReader`` users never pay the
   numpy cost.
 """
@@ -594,12 +595,22 @@ class HistoryStore:
                 except FileNotFoundError:
                     saved = None
                 if saved != digest or not os.path.exists(os.path.join(self.data_dir, f"{self.store_name}.npz")):
-                    self._rebuild(embed_texts=embed_texts)
+                    # Stored vectors stay valid only for the embedding
+                    # configuration that produced them.
+                    reuse = saved is not None and saved.partition(":")[2] == digest.partition(":")[2]
+                    self._rebuild(embed_texts=embed_texts, reuse_vectors=reuse)
                     atomic_private(marker, digest)
             return self._store
 
     # ------------------------------------------------------------------ helpers
-    def _rebuild(self, embed_texts=None) -> None:
+    def _rebuild(self, embed_texts=None, reuse_vectors: bool = False) -> None:
+        """Replace the index with every current entry.
+
+        With *reuse_vectors*, an entry whose id and formatted document are
+        already stored keeps its vector, so only new or edited entries are
+        embedded; the caller passes it only when the stored vectors come from
+        the current embedding fingerprint.
+        """
         reader = HistoryReader(self.history_path)
         entries = reader.read_all()
         if not entries:
@@ -619,10 +630,17 @@ class HistoryStore:
         unique_indices = sorted(seen.values())
         entries = [entries[i] for i in unique_indices]
 
-        documents = [self._format_for_embedding(e) for e in entries]
-        embeddings = embed_texts(documents)
+        import numpy as np  # heavy import — defer
 
         ids = [e.id for e in entries]
+        documents = [self._format_for_embedding(e) for e in entries]
+        vectors = self._reusable_vectors(dict(zip(ids, documents))) if reuse_vectors else {}
+        missing = [i for i, id_ in enumerate(ids) if id_ not in vectors]
+        if missing:
+            fresh = embed_texts([documents[i] for i in missing])
+            vectors.update((ids[i], vector) for i, vector in zip(missing, fresh))
+        embeddings = np.stack([np.asarray(vectors[id_], dtype=np.float32) for id_ in ids])
+
         metadatas = [
             {
                 "timestamp": e.timestamp,
@@ -634,6 +652,13 @@ class HistoryStore:
         ]
         self._store.replace(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
         self._store.save()
+
+    def _reusable_vectors(self, documents: dict[str, str]) -> dict:
+        """Map each id whose stored document equals ``documents[id]`` to its stored vector."""
+        stored = self._store.get(list(documents))
+        unchanged = [id_ for id_, document in zip(stored.ids, stored.documents)
+                     if document == documents[id_]]
+        return self._store.get_embeddings(unchanged)
 
     @staticmethod
     def _format_for_embedding(entry: HistoryEntry) -> str:

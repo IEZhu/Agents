@@ -323,6 +323,12 @@ def _int_env(name: str, default: int, lo: int = 0, hi: Optional[int] = None) -> 
     return value
 
 
+# Documents per fastembed inference batch. fastembed pads a batch to its longest
+# document, so activation memory grows with batch size × 512 tokens: its default
+# of 256 sent a whole 163-entry history as one batch and kept ~11 GB (#157).
+EMBEDDING_BATCH_SIZE = _int_env("EMBEDDING_BATCH_SIZE", 4, lo=1, hi=256)
+
+
 def _choice_env(name: str, default: str, choices: tuple[str, ...]) -> str:
     """Read a lower-cased enum env var, falling back to *default* on unknown values.
 

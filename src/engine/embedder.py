@@ -18,7 +18,7 @@ from typing import List
 
 import numpy as np
 
-from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
+from src.engine.config import EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +86,9 @@ def reset_model():
 
 
 def _embed_texts(texts: List[str]) -> np.ndarray:
-    """Embed documents/passages. Returns (N, D) numpy array."""
+    """Embed documents/passages in bounded batches. Returns (N, D) numpy array."""
     model = _get_model()
-    return np.array(list(model.passage_embed(texts)))
+    return np.array(list(model.passage_embed(texts, batch_size=EMBEDDING_BATCH_SIZE)))
 
 
 def _embed_query(text: str) -> np.ndarray:
