@@ -41,7 +41,7 @@ def test_cache_metrics_report_coverage_precision_and_cross_language_hits():
     markdown = cache.to_markdown({"model": "m", "threshold": 0.95, "samples": 4, "sets": result,
                                   "datasets": datasets, "repeated": 0})
     assert "| all | 4 | 50% | 50% | 100% |" in markdown
-    assert "100% (0.990, 50% with ties)" in markdown
+    assert f"100% ({float(sim[0])!r}, 50% with ties)" in markdown  # the exact cutoff
     assert "d.jsonl: 5 rows, 4 used (drift 1, fetch errors 0)" in markdown
 
 

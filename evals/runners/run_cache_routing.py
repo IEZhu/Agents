@@ -104,7 +104,8 @@ def _pct(value: float | None) -> str:
 
 
 def _cell(value: dict) -> str:
-    similarity = "—" if value["similarity"] is None else f"{value['similarity']:.3f}"
+    # Exact: a threshold is set just below the cutoff, which rounding could cross.
+    similarity = "—" if value["similarity"] is None else repr(value["similarity"])
     reached = f", {_pct(value['coverage'])} with ties" if value["tied"] else ""
     return f"{_pct(value['precision'])} ({similarity}{reached})"
 
