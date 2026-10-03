@@ -14,6 +14,7 @@ import os
 import shutil
 import threading
 import warnings
+from pathlib import Path
 from typing import List
 
 import numpy as np
@@ -77,12 +78,28 @@ def _get_model():
                             clear_model_cache(EMBEDDING_MODEL)
                         else:
                             raise
-                from src.engine.fingerprint import fingerprint
-                # Uncached and after the load, which may have downloaded the
-                # snapshot; set before the model is published.
-                _model_fingerprint = fingerprint.__wrapped__(EMBEDDING_MODEL)
+                # Set before the model is published.
+                _model_fingerprint = _loaded_fingerprint(model)
                 _model = model
     return _model
+
+
+def _loaded_fingerprint(model) -> str:
+    """Fingerprint of the snapshot *model* was loaded from.
+
+    fastembed picks the Hugging Face snapshot when the load starts, and another
+    process can move the cache's refs/main before it ends, so the revision is
+    taken from the directory fastembed opened (``<cache dir>:<commit>``, the
+    form ``fingerprint()`` reads from refs). Other directories fall back to refs.
+    """
+    from src.engine.fingerprint import compute_fingerprint
+    revision = None
+    model_dir = getattr(getattr(model, "model", None), "_model_dir", None)
+    if isinstance(model_dir, (str, os.PathLike)):
+        path = Path(model_dir)
+        if path.parent.name == "snapshots" and path.parent.parent.name.startswith("models--"):
+            revision = f"{path.parent.parent.name}:{path.name}"
+    return compute_fingerprint(EMBEDDING_MODEL, revision=revision)
 
 
 def reset_model():
@@ -94,11 +111,12 @@ def reset_model():
 
 
 def model_fingerprint() -> str:
-    """Embedding fingerprint of the loaded model, or of the model a load would use.
+    """Embedding fingerprint of the snapshot the loaded model came from.
 
     ``fingerprint()`` reads the model cache when first called, so in a process
     that loaded its model earlier it can describe a snapshot another process
-    downloaded since. Indexes that label their vectors use this value instead.
+    downloaded since. Indexes that label their vectors use this value instead;
+    before the first load it falls back to ``fingerprint()``.
     """
     if _model_fingerprint is not None:
         return _model_fingerprint
