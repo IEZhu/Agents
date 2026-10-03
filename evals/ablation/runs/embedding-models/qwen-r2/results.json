@@ -1,0 +1,631 @@
+{
+ "verdicts": [
+  {
+   "component": "embed-model",
+   "case": "ru-proofread-sentence",
+   "A": "without",
+   "B": "with",
+   "stem": "152c40ed22__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A explicitly identifies the tautology between «без предупреждения» and «не были уведомлены заранее» and offers a fix, while B misses it entirely. B's rewrite with «поэтому» makes the redundancy into a circular cause-effect claim, and its note about the comma before «что» refers to a comma no longer relevant in the new sentence. A's optional rewrite adds «простой», a slight addition, but its main corrected version keeps the meaning.",
+   "errors_with": [
+    "Point 3 claims the comma before «что» in the subordinate clause is 'already in place' in the new version, which is confused: the «что» left is the relative «что привело», not the one from «в связи с тем, что»."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-proofread-sentence",
+   "A": "with",
+   "B": "without",
+   "stem": "152c40ed22__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both fix «небыли» and remove the redundant «то» with brief Russian explanations, but only B notices the tautology between «без предупреждения» and «не были уведомлены заранее» and offers a fix. B's optional rewrite adds «о простое», a slight embellishment, but it is clearly marked as optional; A's third edit note about the comma is vague and adds little.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-inn-validator",
+   "A": "with",
+   "B": "without",
+   "stem": "15805d4651__o1",
+   "winner_arm": "without",
+   "margin": "large",
+   "reasons": "A implements the wrong algorithm: it gives the 10-digit INN two control digits and checks the 12-digit INN at positions 10-11 with the 12th digit left unchecked, so real valid INNs such as 7707083893 would be rejected and its 'valid' test vectors are invalid. B uses the correct FNS weights for both lengths, and its test vectors (7707083893, 500100000199) do pass the checksum. Both answers claim test runs they could not perform; B's fabricated log also has duplicated lines, but this matters much less than A's broken core logic.",
+   "errors_with": [
+    "Claims a 10-digit INN has two control digits computed with weights (2,4,10,3,5,9,4,6) and (7,2,4,10,3,5,9,4,6); the real FNS algorithm has a single control digit using weights 2,4,10,3,5,9,4,6,8",
+    "Claims the 12th digit of a 12-digit INN is an unchecked serial number; it is the second control digit (weights 3,7,2,4,10,3,5,9,4,6,8)",
+    "Test vectors 7700000097, 5024000141, 770000000931 and 780502133497 are described as valid but fail the real FNS checksum",
+    "Claims a test run (21 passed) that could not have been performed"
+   ],
+   "errors_without": [
+    "Claims a test run that could not have been performed; the shown log has duplicated and inconsistent entries"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-inn-validator",
+   "A": "without",
+   "B": "with",
+   "stem": "15805d4651__o2",
+   "winner_arm": "without",
+   "margin": "large",
+   "reasons": "A implements the correct FNS weights and control-digit positions, and its test vectors check out (7707083893, 500100000199); B invents two control digits for 10-digit INNs, shifts the 12-digit checks to positions 10-11 and claims the 12th digit is unchecked, so it rejects real INNs and its test data is wrong. B also accepts non-ASCII Unicode digits and writes its docstrings in Russian. A has a weakness of its own: its pytest log looks fabricated (it has duplicate entries), though both answers claim test runs they could not have performed.",
+   "errors_with": [
+    "Claims a 10-digit INN has two control digits (9th and 10th); it has only the 10th, computed with weights 2,4,10,3,5,9,4,6,8",
+    "Claims the 12th digit of a 12-digit INN is an unchecked serial number; the 11th and 12th are both control digits",
+    "Uses wrong weights and positions for 12-digit check digits",
+    "Claims all tests pass and that its test vectors are valid, but they are built with the wrong algorithm",
+    "Lists Cyrillic letters as digit lookalikes accepted by isdigit(), which is incorrect"
+   ],
+   "errors_without": [
+    "Presents a pytest run output that could not have been executed and that contains duplicated test entries"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-bakery-puns",
+   "A": "without",
+   "B": "with",
+   "stem": "2ac05b08ae__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A's slogans have some real Russian play (батон/батут sound play, 'Один батон на район' rhyme and double meaning, спальный/просыпается contrast), though 'Просыпает' is misused (it means 'oversleeps') and the commentary has a grammar slip. B builds its jokes on an invented prison-slang idiom 'отбывать батон', and its explanations contain errors and nonsense ('анти-колоние', 'оркестр, рэли'), so it delivers almost no real wordplay. Several of B's slogans ('Никакого батона', 'Батон, который не бьёт') are confusing or would hurt a bakery sign.",
+   "errors_with": [
+    "'Отбывать батон' is not an existing prison-slang expression; the explanation is fabricated",
+    "'анти-колоние' is not a correct Russian word form",
+    "The explanation of slogan 5 ('оркестр, рэли') is meaningless"
+   ],
+   "errors_without": [
+    "'Просыпает' means 'oversleeps', not 'wakes up', so slogan 4 says the opposite of the intended pun",
+    "'Ложная родство' is ungrammatical (should be 'ложное родство')"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-bakery-puns",
+   "A": "with",
+   "B": "without",
+   "stem": "2ac05b08ae__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "B offers genuine sound play on «Батон» (батут, багет) and a workable double meaning («Один батон на район»), while A's puns rest on an invented prison idiom «отбывать батон» and explanations that do not make sense («оркестр, рэли»). Both contain language slips (A: «анти-колоние»; B: «Ложная родство», «Просыпает» misused for 'wakes up'), but A's core jokes mostly fail to land. B therefore better meets the main wordplay criterion.",
+   "errors_with": [
+    "Claims a prison-slang idiom «отбывать батон» exists; it does not.",
+    "Non-word «анти-колоние» and nonsensical associations «оркестр, рэли» for «палка»."
+   ],
+   "errors_without": [
+    "«Просыпает» means 'oversleeps/spills', not 'wakes up', so slogan 4's antithesis is broken.",
+    "Grammatical error «Ложная родство» (should be «Ложное родство»)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-landing-translation",
+   "A": "without",
+   "B": "with",
+   "stem": "2e042d859f__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B keeps the speed beat in all three variants and uses the target image «Спи спокойно» / «Крепкий сон», while A drops 'faster' in variants 1 and 3 and reduces 'Sleep at night' to a curt «Спи.». B's third variant «Шипи быстрее» is the kind of calque the rubric warns against, and A's «Чистый билд» shifts the meaning, so neither is clean on idiom, but B preserves meaning better overall.",
+   "errors_with": [
+    "Claims «шипить» is commonly accepted in Russian-speaking dev usage; it is a rare anglicism, not standard."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-landing-translation",
+   "A": "with",
+   "B": "without",
+   "stem": "2e042d859f__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A's variants 1 and 2 are idiomatic, keep all three beats including speed, and render the last beat as «Спи спокойно»/«Крепкий сон»; its variant 3 «Шипи быстрее» is a slangy calque, though. B drops the 'faster' meaning in variants 1 and 3 and uses a bare «Спи», which loses the peace-of-mind image, so only its variant 2 fully works. A also adds a useful note on how absolute the «Break nothing» promise is.",
+   "errors_with": [
+    "Claims «Шипи» is generally accepted in Russian-speaking dev jargon, which overstates its usage"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-liveness-readiness",
+   "A": "with",
+   "B": "without",
+   "stem": "461025735f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers fully meet every rubric item with correct semantics, a clear causal explanation of the restart loop and sensible probe settings. B adds a concrete handler example and a per-scenario behavior table that make the fix more actionable, while A includes a dubious claim that an HPA will scale out in a feedback loop when pods go NotReady. B's stray timestamp line is a minor presentation flaw that does not outweigh this.",
+   "errors_with": [
+    "Claims an HPA will scale out new pods in a feedback loop when all pods become NotReady during a DB outage; HPA scales on metrics and treats unready pods conservatively, so this is not a typical consequence."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-liveness-readiness",
+   "A": "without",
+   "B": "with",
+   "stem": "461025735f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers fully cover all three rubric items with correct probe semantics, a clear causal explanation and sensible startupProbe/failureThreshold settings. B adds practical value: a TCP-socket stopgap when code cannot change immediately and concrete verification commands. A opens with a stray, unrelated timestamp line and says Kubernetes 'schedules a new container' on liveness failure, although the kubelet restarts the container in place. B's HPA scale-out claim is somewhat dubious.",
+   "errors_with": [
+    "Claims HPA will scale out because pods are NotReady; HPA scales on metrics and treats not-ready pods conservatively, so this feedback loop is overstated."
+   ],
+   "errors_without": [
+    "Says K8s 'schedules a new container' on liveness failure; the kubelet restarts the container in place within the same pod."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-phone-regex",
+   "A": "with",
+   "B": "without",
+   "stem": "4d5b15e260__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A anchors with re.fullmatch, so a trailing newline is rejected, and its expected-output listing is consistent with its test harness. B uses re.match with ^...$, so '89123456789\\n' is accepted; it also claims '15 passed' for 14 parametrized cases (one a duplicate). B also uses English section headings (Analysis, Implementation, Verification, Confidence) in a Russian reply.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the pytest run gives '15 passed' when the parametrized tests produce 14 cases",
+    "Says '$' means no extra characters after the number, but with re.match, '$' still allows a trailing newline"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-phone-regex",
+   "A": "without",
+   "B": "with",
+   "stem": "4d5b15e260__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B anchors with re.fullmatch, so a trailing newline is rejected, while A's re.match with ^...$ accepts '+79123456789\\n'. A also reports a run of '15 passed' that it cannot have made: its suite has 14 cases, one of them a duplicate. B's checks are runnable without pytest and its expected output is correct; A also uses English section headings.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims '15 passed' though the parametrized tests define 14 cases (one duplicated), so the test run is fabricated",
+    "Says '$' guarantees no extra characters, but with re.match a trailing newline still matches"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-1c-query-characteristic",
+   "A": "without",
+   "B": "with",
+   "stem": "695f0d919e__o1",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "Answer A uses NaN as a default value and in the query, which does not exist in 1C/BSL, and references the table alias inside the virtual-table parameters, so the code is invalid. Answer B correctly adds an optional parameter defaulting to Неопределено and conditionally appends the filter inside the Остатки() parameters, preserving aggregation over all characteristics. B has only a minor imprecision about why the parameter is set conditionally.",
+   "errors_with": [
+    "Implies setting an unused query parameter would cause a 'parameter not found' error; in 1C setting an extra unused parameter does not cause an error (the error occurs when a used parameter is not set)."
+   ],
+   "errors_without": [
+    "NaN is not a valid 1C/BSL literal or default parameter value, nor usable in query language.",
+    "Referencing the alias ТоварыНаСкладахОстатки.ХарактеристикаНоменклатуры inside the virtual table's own condition parameter is invalid; dimensions must be referenced without the alias there.",
+    "Claims '&Параметр = NaN ИЛИ ...' is an established 1C idiom."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-1c-query-characteristic",
+   "A": "with",
+   "B": "without",
+   "stem": "695f0d919e__o2",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "A builds the virtual-table filter conditionally, keeps the filter inside the Остатки() parameters and uses valid 1C syntax, so the default call still sums over all characteristics. B uses NaN, which does not exist in 1C (neither as a default value in the built-in language nor in the query language), and references the outer alias ТоварыНаСкладахОстатки inside the virtual-table condition, so its code would not compile or run. A has only a cosmetic typo in a table example (Хarakт).",
+   "errors_with": [],
+   "errors_without": [
+    "NaN is not a valid value or literal in 1C built-in language or query language; the claimed 'established 1C idiom' with NaN does not exist",
+    "Referencing the alias ТоварыНаСкладахОстатки inside the virtual-table parameter condition is invalid in 1C queries"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-jvm-oomkilled",
+   "A": "with",
+   "B": "without",
+   "stem": "8b5b9bd16b__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both correctly explain that -Xmx caps only the heap and that the container's cgroup OOM kill produces exit code 137. B recommends -XX:MaxRAMPercentage, checks that its own memory budget fits 512Mi, and suggests measuring through cgroup memory.current and actuator metrics. A keeps a 512Mi limit with flags whose caps add up to more than 512 MiB (384 heap + 128 metaspace + 64 direct + 128 code cache), and both answers wrongly imply that a heap dump on OutOfMemoryError would capture a container OOM kill.",
+   "errors_with": [
+    "Lists JIT code under Metaspace; compiled code lives in the separate code cache.",
+    "Recommended caps (Xmx384m + MaxMetaspaceSize=128m + MaxDirectMemorySize=64m + ReservedCodeCacheSize=128m) exceed the 512Mi limit it says to keep.",
+    "Suggests -XX:+HeapDumpOnOutOfMemoryError captures state 'before kill', but a cgroup SIGKILL does not trigger it."
+   ],
+   "errors_without": [
+    "Section titled 'explicit Xmx' actually uses MaxRAMPercentage instead of -Xmx.",
+    "Says a heapdump.hprof can be opened in JFR; JFR/JMC does not open hprof heap dumps (MAT does).",
+    "Implies a heap dump will be written on the next container OOM kill, which a SIGKILL does not produce."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-jvm-oomkilled",
+   "A": "without",
+   "B": "with",
+   "stem": "8b5b9bd16b__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers explain that -Xmx limits only the heap, call this a cgroup OOM kill, and recommend a smaller heap or MaxRAMPercentage, a higher limit, and measurement. A labels its MaxRAMPercentage option as 'explicit Xmx' and contains small errors, but it does notice that 384m heap plus 128m metaspace plus 64m direct memory exceeds 512Mi. B is cleaner and explicitly checks for a Java 'heap space' error, but recommends that same over-budget set of caps (plus a 128m code cache) without noticing it.",
+   "errors_with": [
+    "Lists JIT code under Metaspace; compiled code lives in the code cache, not Metaspace",
+    "Recommends -Xmx384m + MaxMetaspaceSize=128m + MaxDirectMemorySize=64m + ReservedCodeCacheSize=128m under a 512Mi limit, whose caps together exceed the limit"
+   ],
+   "errors_without": [
+    "Suggests opening heapdump.hprof in JFR; JFR does not read hprof heap dumps (MAT does)",
+    "Section titled 'Вариант A — явный Xmx' actually uses MaxRAMPercentage, not an explicit Xmx"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-sql-second-order",
+   "A": "with",
+   "B": "without",
+   "stem": "90544708dd__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give the same correct ROW_NUMBER query and meet all rubric items. B adds a useful explanation of why ROW_NUMBER rather than RANK/DENSE_RANK and a concrete id tiebreaker for determinism, while A only notes the nondeterminism. B slightly overstates that amount+created_at is a total order in practice, though it immediately qualifies this.",
+   "errors_with": [],
+   "errors_without": [
+    "Calls ORDER BY amount DESC, created_at ASC a total order and says microsecond timestamptz gives no collisions in practice; ties are possible (it hedges this right away)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-sql-second-order",
+   "A": "without",
+   "B": "with",
+   "stem": "90544708dd__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both give the same correct ROW_NUMBER query and explanation in Russian. A wrongly calls amount DESC, created_at ASC a total order and claims timestamptz gives no collisions in practice, which contradicts its own later determinism note, and it overstates that the index will make the planner use an index scan. B correctly says ties get unique numbers in an undefined order and hedges the index benefit properly.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims ORDER BY amount DESC, created_at ASC is a total order; equal amount and created_at are possible, so it is not."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-python-default-list",
+   "A": "without",
+   "B": "with",
+   "stem": "9a7c63d7fe__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both explain definition-time evaluation and give the correct None-default fix, and B adds a useful non-mutating variant and a clear comparison table. However, B uses English section headers (Analysis, Implementation, Verification, Confidence) and English prose in its confidence note, whereas A keeps its prose and headers almost entirely in Russian. A's irrelevant PEP 3132 citation is a minor blemish that does not outweigh the language fit.",
+   "errors_with": [],
+   "errors_without": [
+    "Cites PEP 3132 (extended iterable unpacking) as if relevant to default-argument evaluation; it is unrelated."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-python-default-list",
+   "A": "with",
+   "B": "without",
+   "stem": "9a7c63d7fe__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers explain correctly that the default is evaluated once and give the correct None-default fix. A uses English section headings (Analysis, Implementation, Verification) and an English sentence in its confidence note, while B is almost entirely in Russian and walks through the user's exact calls step by step. B's mention of PEP 3132 is irrelevant but not false, so it only slightly weakens B.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "without",
+   "B": "with",
+   "stem": "a350e94069__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B correctly grounds the property deduction in ст. 220 НК РФ, while A repeatedly cites ст. 219 (social deductions) as the legal basis, which is a core error for the user's question. A also contains calculation and rule errors (300 000 not 390 000 at 15% on 2 млн; since 2014 each co-owner has their own 2 млн limit) and starts with a stray timestamp line. B has smaller slips (employer route cited as ст. 221 п. 3, an odd hotline number, dated framing of the progressive-rate reform) but is more accurate on the main points.",
+   "errors_with": [
+    "Employer route cited as ст. 221 п. 3; the correct basis is п. 8 ст. 220 НК РФ.",
+    "Gives the ФНС hotline as 802-122-002; the actual number is 8-800-222-22-22.",
+    "Describes the progressive НДФЛ scale as only under discussion, though 15% applies from 2021 and a multi-tier scale from 2025; also implies the deduction requires the 13% rate."
+   ],
+   "errors_without": [
+    "Cites ст. 219 НК РФ as the basis for the property deduction; the property deduction is in ст. 220 (219 covers social deductions).",
+    "Max refund on 2 млн at 15% given as 390 000 ₽; it would be 300 000 ₽.",
+    "States the 2 млн limit is divided among co-owners (п. 3 ст. 219); since 2014 each owner has their own limit.",
+    "Attributes transfer of the unused balance to ФЗ № 302-ФЗ of 21.11.2013; the change came from 212-ФЗ of 23.07.2013.",
+    "Employer route cited as ст. 219.1, which is not the correct provision."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "with",
+   "B": "without",
+   "stem": "a350e94069__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A correctly grounds the property deduction in ст. 220 НК РФ, while B consistently cites ст. 219 (the social deduction article) and adds further legal errors, such as saying co-owners share one 2 million limit. B also starts with a stray timestamp line. A has its own minor inaccuracies, but its core legal framing is correct.",
+   "errors_with": [
+    "Simplified procedure (ст. 221.1) was introduced by Federal Law 100-ФЗ of 20.04.2021, not 131-ФЗ of 08.04.2021",
+    "Simplified procedure eligibility depends on the bank or tax agent participating in information exchange with ФНС, not on buying from a developer or under a notarized contract",
+    "Employer route is governed by п. 8 ст. 220, not п. 3 ст. 221",
+    "ФНС hotline number 802-122-002 is wrong (it is 8-800-222-22-22)",
+    "Describes the progressive НДФЛ scale as only under discussion, although it was adopted and has applied since 2025"
+   ],
+   "errors_without": [
+    "Cites ст. 219 НК РФ as the basis for the property deduction; it is ст. 220",
+    "Cites ст. 219.1 for the employer route; this is wrong (п. 8 ст. 220)",
+    "Cites п. 6 ст. 219 for the related-party exclusion; this is wrong (п. 5 ст. 220)",
+    "Claims co-owners share one 2 million limit split by share; since 2014 each owner has their own 2 million limit",
+    "Ignores the 2025 progressive НДФЛ scale and presents 13/15% as the full current rates"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-office-move-plan",
+   "A": "without",
+   "B": "with",
+   "stem": "b18ed4f755__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A orders internet and furniture on Nov 2-3 with correct working-day arithmetic and buffer, and gives a coherent single 4-hour server window on Sunday backed by a tested restore, runbook and cable labelling. B orders internet on Nov 6 with zero slack, miscalculates furniture delivery dates, and splits the server move between a Saturday shutdown/loading window and a Sunday install/power-on block, which contradicts the 4-hour limit. Both are in Russian and organised by week; A has minor typos but no substantive logic errors.",
+   "errors_with": [
+    "Furniture ordered Mon Nov 9 with 5 working days arrives Nov 16, not Nov 19-20 as stated.",
+    "Says furniture ordered after Thu Nov 12 arrives on the 23rd; an order on Fri Nov 13 still arrives Nov 20.",
+    "Server schedule shuts the rack down Saturday 09:00-13:00 and powers it on Sunday 12:00-14:00, so downtime far exceeds 4 hours."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-office-move-plan",
+   "A": "with",
+   "B": "without",
+   "stem": "b18ed4f755__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "B gives a single, coherent 4-hour server window on Sunday with a timed runbook, a restore test, a final backup and a plan B. A splits the rack move across Saturday (shutdown and loading 09:00-13:00) and Sunday (mounting and power-on), which would keep the server off far longer than 4 hours, and its furniture delivery dates are miscalculated. B orders the internet and furniture earlier with correct working-day arithmetic, though its deadline statements are somewhat inconsistent and it has minor typos.",
+   "errors_with": [
+    "Furniture ordered Mon 9 Nov with a 5-working-day lead time arrives Mon 16 Nov, not Thu 19 / Fri 20 Nov",
+    "Claims furniture ordered after Thu 12 Nov arrives on the 23rd; an order on Fri 13 Nov arrives Fri 20 Nov",
+    "The server plan has shutdown and loading on Saturday 09:00-13:00 and mounting and power-on on Sunday, which breaks the 4-hour limit"
+   ],
+   "errors_without": [
+    "The week-1 note says furniture ordered after 13 Nov will not arrive, which conflicts with its own 6 Nov deadline; an order on 13 Nov arrives 20 Nov",
+    "Internet deadline given as 3-4 Nov in the table, although an order on 6 Nov still connects by 20 Nov (inconsistent with its own week-1 note)"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-vryad-li-edva-li",
+   "A": "with",
+   "B": "without",
+   "stem": "b67c9e0022__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both answers rest mainly on an exaggerated difference in degree of certainty, but B at least says that «вряд ли» is more conversational and «едва ли» more bookish, and it separates «едва» meaning 'barely' from «едва ли». A never mentions register or «едва»/«едва ли не», and its exercise is broken: «___ ли ты будешь» would produce «вряд ли ли» and also contains English text. B's examples and exercise are usable at B1, although its «вряд» mnemonic is nonsense.",
+   "errors_with": [
+    "Presents a strict certainty scale (70-80% vs 95-99%) as the core difference, while the main real difference is register (neutral vs bookish)",
+    "Claims «вряд ли не придёт» is ungrammatical; «вряд ли не» constructions are possible",
+    "Exercise template '___ ли ты будешь' yields the malformed «вряд ли ли» / «едва ли ли»"
+   ],
+   "errors_without": [
+    "Overstates certainty difference as the primary distinction",
+    "Mnemonic invents non-words «врядно», «врядет»",
+    "«Практически не придёт» presented as a natural paraphrase is awkward"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-vryad-li-edva-li",
+   "A": "without",
+   "B": "with",
+   "stem": "b67c9e0022__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both answers wrongly make a large difference in certainty the main distinction, but A at least says «едва ли» is more formal and bookish and notes that «едва» on its own ('с трудом / только что') is a different word, while B leaves out register and the senses of «едва» completely. B's exercise is broken: a blank before «ли» would give «вряд ли ли», and it contains English ('hates cold'). B also wrongly bans «вряд ли не». A has its own flaws, such as the made-up mnemonic words «врядно» and «врядет» and a misused «едва ли не», but these are less harmful.",
+   "errors_with": [
+    "Gives numeric certainty ranges (70-80% vs 95-99%) and treats degree of certainty as the main difference; the actual difference is register",
+    "Claims «вряд ли не» + verb is ungrammatical, but constructions like «вряд ли он не знал» are normal",
+    "The exercise has a blank before «ли», so filling it in gives «вряд ли ли» / «едва ли ли»; it also contains English text",
+    "Leaves out that «едва ли» is bookish/formal and does not cover the «едва ли не» sense"
+   ],
+   "errors_without": [
+    "Presents «едва ли» as expressing much stronger certainty than «вряд ли»; the main difference is register (bookish vs neutral), not degree",
+    "Mnemonic uses non-existent words «врядно, врядет»",
+    "Misuses «едва ли не» as if it meant 'definitely not'; it actually means 'almost, perhaps'"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-heart-failure-terms",
+   "A": "with",
+   "B": "without",
+   "stem": "b8ee6cebfc__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers misdescribe the Strazhesko-Vasilenko stages as symptom-severity levels, but B is worse: it calls this classification European, says NYHA merely duplicates the stages, and its IIA ('significant exertion only') contradicts its own NYHA II ('ordinary exertion'). A explains NYHA II correctly and lists current therapy, including SGLT2 inhibitors. B's therapy section is outdated (MRA 'at late stages', no SGLT2i) and gives an unsupported survival figure, although its tone is somewhat calmer than A's 'working at the limit / 40% of resource' phrasing.",
+   "errors_with": [
+    "Stage IIb described as symptoms at rest; IIA/IIB are actually distinguished by hemodynamic disturbance in one vs both circulation circles, not by symptoms at rest",
+    "'Engine at 40% of resource' is an invented quantification"
+   ],
+   "errors_without": [
+    "Claims the Strazhesko-Vasilenko staging is also the European classification",
+    "Stage IIБ described as symptoms with ordinary exertion and III as symptoms at rest, a misdescription of the stages",
+    "States NYHA essentially duplicates the stages",
+    "MRA described as for late stages; current guidelines recommend MRA from NYHA II in HFrEF; SGLT2 inhibitors omitted",
+    "Unsupported 80-90% five-year survival figure attributed to Framingham/ESC-HF"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-heart-failure-terms",
+   "A": "without",
+   "B": "with",
+   "stem": "b8ee6cebfc__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both explain NYHA II correctly and simplify the Strazhesko-Vasilenko stages imprecisely, but A adds more errors: it calls the classification European, says NYHA duplicates the stages, cites shaky 80-90% five-year survival figures attributed to Framingham, and describes MRAs as a late-stage drug while leaving out SGLT2 inhibitors. B's therapy overview is current, and its reassurance stays measured. B's lowercase 'IIa' and its unsupported '40% of capacity' analogy are smaller flaws.",
+   "errors_with": [
+    "Describes stage IIa as symptoms only on exertion with the person well at rest; in Strazhesko-Vasilenko, IIA includes signs of congestion at rest in one circulation",
+    "Unsupported analogy that the heart works at '40% of capacity'"
+   ],
+   "errors_without": [
+    "Calls the Strazhesko-Vasilenko staging a Russian and European classification; it is a Russian/Soviet classification",
+    "Describes stage IIB as symptoms with ordinary exertion; in Strazhesko-Vasilenko, IIB means marked congestion in both circulations",
+    "Claims NYHA essentially duplicates the stages",
+    "Gives 80-90%+ five-year survival for NYHA II from Framingham/ESC-HF registries; this figure is unsupported, and Framingham reports much lower survival",
+    "Presents MRAs as a later-stage drug and leaves out SGLT2 inhibitors from current core therapy"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-git-reset-reflog",
+   "A": "with",
+   "B": "without",
+   "stem": "cd65504e21__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both recover the commits correctly via reflog and reset --hard, and neither warns that uncommitted changes discarded by reset --hard are unrecoverable. B is written in clean Russian and offers a safer recovery branch; A uses English section headings (Analysis, Implementation, Prevention, Verification, Confidence) and has garbled words ('треды', 'бlobs', 'Алик'). B's sample reflog has the wrong entry order, which costs it some clarity but does not outweigh A's language problems.",
+   "errors_with": [
+    "Lists creating a new clone / git init as dangerous to the existing repo's recovery, which it is not"
+   ],
+   "errors_without": [
+    "Sample reflog shows the reset entry as HEAD@{2}, below the commit at HEAD@{1}; the reset should be HEAD@{0}, with the pre-reset commit at HEAD@{1}"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-git-reset-reflog",
+   "A": "without",
+   "B": "with",
+   "stem": "cd65504e21__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "B's reflog example correctly shows the reset as HEAD@{0} and the pre-reset commit as HEAD@{1}, while A's example puts the reset entry below the commit, which is the wrong order and could mislead the user when picking the hash. A also gives a branch rename command that fails because feature/payments already exists. B, however, uses English section headings and has typos, and neither answer warns that uncommitted changes lost to reset --hard cannot be recovered.",
+   "errors_with": [],
+   "errors_without": [
+    "Reflog example lists the commit as HEAD@{1} above the reset entry as HEAD@{2}; after the reset, the reset entry is HEAD@{0} and the pre-reset commit is HEAD@{1}.",
+    "git branch -m feature/payments-recovered feature/payments fails because the target branch already exists (it needs -M)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "en-float-compare",
+   "A": "with",
+   "B": "without",
+   "stem": "de7bd5bdbf__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers meet every rubric item. A's error is in its advice: it says math.fsum([0.1, 0.2]) == 0.3 is True, which suggests fsum fixes the comparison problem when it does not. B's errors are only in illustrative outputs, and B adds useful guidance on exact alternatives (Decimal/Fraction), DB column types and JSON serialization of prices.",
+   "errors_with": [
+    "Claims math.fsum([0.1, 0.2]) == 0.3 is True; a two-operand IEEE addition is already correctly rounded, so fsum returns 0.30000000000000004 and the comparison is False."
+   ],
+   "errors_without": [
+    "Claims 0.1 + 0.2 - 0.3 gives 4.440892098500626e-17; it is 5.551115123125783e-17.",
+    "Claims sum([0.1] * 1_000_000) gives 100.00000000001164 and the Decimal sum is 100.00; a million 0.1s sum to about 100000 (float gives ~100000.0000013329)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "en-float-compare",
+   "A": "without",
+   "B": "with",
+   "stem": "de7bd5bdbf__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers fully cover all three rubric items with correct core explanations and sound money advice. B's claim that math.fsum([0.1, 0.2]) == 0.3 is True is wrong (fsum returns 0.30000000000000004) and bears directly on the comparison question, while A's error is limited to a mis-scaled illustrative summation example. A also adds useful extras such as Fraction and JSON serialization guidance, and B's Decimal(19.99) pitfall only partly offsets this.",
+   "errors_with": [
+    "Claims math.fsum([0.1, 0.2]) == 0.3 is True; fsum correctly rounds the exact sum of the stored values to 0.30000000000000004, so it is False."
+   ],
+   "errors_without": [
+    "Claims sum([0.1] * 1_000_000) gives 100.00000000001164 and the Decimal sum is exactly 100.00; a million times 0.1 is about 100000, not 100."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-runbook-checklist",
+   "A": "without",
+   "B": "with",
+   "stem": "e30dd1fc24__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers keep all five steps in order, copy both kubectl commands exactly, translate the doubling-within-10-minutes condition accurately, and keep #incidents and the DBA rule. The only differences are formatting and wording ('postmortem' vs 'post-incident review'), and both are faithful renderings of the source.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-runbook-checklist",
+   "A": "with",
+   "B": "without",
+   "stem": "e30dd1fc24__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers keep all five steps in order with nothing added, copy both kubectl commands exactly, and translate the rollback condition and the DBA rule faithfully. The only differences are cosmetic: A puts commands on their own lines, while B is more compact and checklist-like. Neither difference matters for the user.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-psql-connection-refused",
+   "A": "with",
+   "B": "without",
+   "stem": "f73867093f__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A correctly states that a pg_hba.conf rejection produces a different FATAL error. B wrongly lists pg_hba.conf as a cause of the same refused-connection error. B also uses English section headings and paraphrases the error in English, though it better explains why the error means a reject rather than a drop (RST vs timeout).",
+   "errors_with": [
+    "Suggests a Homebrew/source config path ~/Postgres/*/postgresql.conf, which is not a standard location"
+   ],
+   "errors_without": [
+    "Claims a missing pg_hba.conf rule gives the same 'connection refused' error; it actually yields 'FATAL: pg_hba.conf rejects connection' / 'no pg_hba.conf entry'",
+    "Says scram-sha-256 became the default in PostgreSQL 16+; it became the default password_encryption in PostgreSQL 14",
+    "Labels 'systemctl restart postgresql-16' as the Debian command; Debian uses postgresql or postgresql@16-main"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-psql-connection-refused",
+   "A": "without",
+   "B": "with",
+   "stem": "f73867093f__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B correctly explains that pg_hba.conf produces a different FATAL error rather than a refused connection, while A wrongly lists pg_hba.conf as a cause of the same error. A uses English section headings (Analysis, Fix) and contains minor factual slips, whereas B is fully in Russian. A better explains REJECT vs timeout, but that does not outweigh B's correctness on pg_hba.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims a missing pg_hba.conf rule gives the same 'connection refused' error; it gives a FATAL pg_hba.conf rejects connection error instead.",
+    "States scram-sha-256 became the default in PostgreSQL 16+; it became the default password_encryption in PostgreSQL 14.",
+    "Labels 'systemctl restart postgresql-16' as the Debian unit name; Debian uses postgresql or postgresql@16-main."
+   ]
+  }
+ ],
+ "missing": [
+  {
+   "pair": "embed-model/ru-meeting-slots",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-urn-probability",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-pushkin-meter",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-petersburg-quatrain",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-refund-letter",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/en-refund-letter",
+   "error": "context not built: arms identical"
+  }
+ ]
+}
