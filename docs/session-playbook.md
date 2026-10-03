@@ -53,14 +53,22 @@ process. It is the shared source for concise English descriptions, checking thei
 alignment after every commit, reviewing full discussions, and replying in English
 without long dashes or judgments about findings.
 
+Review the diff yourself before the bots, and every fix before pushing it.
 CodeRabbit and Copilot start the first review automatically in the expected GitHub
-setup. Confirm that they started. CodeRabbit normally reviews later pushes;
-re-request Copilot explicitly after each pushed fix commit while it is available,
-and preserve its lite configuration. When a bot reports a quota limit, rate limit or error,
+setup. Confirm that they started. Handle each round's findings together and push
+the fixes once. CodeRabbit normally reviews later pushes; re-request Copilot
+explicitly after each push of fixes while it is available, at the Lite review
+effort: a review at Balanced (GitHub's default since 2026-09-28) stops further
+requests until the owner switches it. From the third round, fix in the PR only
+blocker, major, security, data-corrupting and production-code findings and
+regressions of the PR's own fixes, and move the rest to the PR's Follow-ups
+([converging](../flows/pr-review.md#keep-the-cycle-converging)).
+When a bot reports a quota limit, rate limit or error,
 follow the flow's [quota rules](../flows/pr-review.md#quota-rate-limits-and-errors):
 record the evidence and the next attempt time, pause that bot instead of
 re-requesting it on every push, and continue with the available bots. Use the
-flow's current-head review, validation, and merge conditions before finishing.
+flow's current-head review, validation, and merge conditions before finishing;
+commits that no bot reviewed need an independent review before a merge.
 
 **Merged PRs.** Unresolved threads on merged or closed PRs are still answered:
 `python scripts/dev/pr_threads.py --closed` lists them.

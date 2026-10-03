@@ -102,9 +102,11 @@ scope.
    commits and `/agent review` as the way to resume after a manual fix.
    A wait timeout or silence does not complete review or prove a bot unavailable.
    Apply the review flow's quota rules and continue with every available bot.
-3. Read all findings, fix or explain each one, run the relevant checks, push fixes,
-   reply in the threads and obtain fresh reviews for the new head as required by
-   `pr-review`. Repeat until its conditions for completing review hold.
+3. Read all findings, then fix, explain or move each one to the PR's Follow-ups
+   as `pr-review` decides from the third round on, run the relevant checks, push
+   each round's fixes once, reply in the threads and obtain fresh reviews for the
+   new head as required by `pr-review`. Repeat until its conditions for
+   completing review hold.
 4. Update the trusted state summary after each review round, before waiting.
    Include the current head, each bot's status and evidence, outstanding findings
    and the next action. Keep `phase: pr_open`, preserve bot pauses in `bots`, and
