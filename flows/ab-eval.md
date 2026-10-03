@@ -175,7 +175,9 @@ After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
    hypothesis language exists (step 1). The report counts each dataset's rows,
    drift, fetch errors and repeated queries; explain any it lists.
    Compare models at equal coverage, because similarity scales differ, and propose
-   the `ROUTER_SIMILARITY_THRESHOLD` that keeps the baseline's precision.
+   the `ROUTER_SIMILARITY_THRESHOLD` that keeps the baseline's precision. The router
+   needs a similarity above its threshold, so set the threshold just below the
+   cutoff similarity that the report gives for that coverage.
 4. An embedding model needs its query and passage prompts from its model card in
    `src/engine/embedding_prompts.py` before any measurement; without them the comparison is
    not fair to it.

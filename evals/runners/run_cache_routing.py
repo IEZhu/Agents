@@ -14,7 +14,8 @@ Reports, overall and per language:
   * precision at fixed coverage (10/20/30/50%) with the similarity that gives it.
     Queries tied with that similarity count as hits too, so the coverage reached can
     exceed the target. Similarity scales differ between models, so compare models at
-    equal coverage and pick a new model's threshold from these rows;
+    equal coverage and pick a new model's threshold from these rows: the router needs
+    a similarity above its threshold, so set it just below the reported cutoff;
   * cross-language neighbours: queries whose nearest neighbour is in another language.
 
 Texts come from the loader (inline `query` fields or a fetch); queries are embedded
