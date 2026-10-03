@@ -386,6 +386,15 @@ class NumpyVectorStore:
 
             return GetResult(ids=found_ids, documents=found_docs, metadatas=found_metas)
 
+    def get_embeddings(self, ids: List[str]) -> Dict[str, np.ndarray]:
+        """Return copies of the stored embeddings for the found *ids*."""
+        with self._lock:
+            return {
+                id_: self._embeddings[self._id_to_idx[id_]].copy()
+                for id_ in ids
+                if id_ in self._id_to_idx
+            }
+
     def trim(self, max_size: int):
         """Keep only the most recent max_size entries (by insertion order)."""
         with self._lock:

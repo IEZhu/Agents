@@ -30,7 +30,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 | Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. `src/server.py` wraps the call in `_sample_with_agent`; since protocol 1 was removed (#101), `describe_repo` is its only caller and persona routing never samples. A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
 | `history.md` location | **Repo root; ignored in the Agents-Core checkout only** | The file stays next to the code as local per-repo memory. Agents-Core's own `.gitignore` excludes `history.md` and `history/`, but nothing adds these entries to a client project. By default the log stores raw prompts and responses, so add both entries to the client's ignore rules unless the team wants a versioned log. |
 | History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
-| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and fully rebuilt when the SHA-256 of `history.md` plus the embedding configuration fingerprint differs from the stored `.history_fingerprint`, or the store file is missing. The index is keyed by workspace and kept outside the client repository (see [service memory behavior](shared-mcp-daemon.md#memory-and-errors)). |
+| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and refreshed when the SHA-256 of `history.md` plus the embedding configuration fingerprint differs from the stored `.history_fingerprint`, or the store file is missing. The fingerprint names the snapshot directory the process loaded the model from (`model_fingerprint()` in `src/engine/embedder.py`; `AGENTS_MODEL_ARTIFACT` takes precedence), not a snapshot another process downloaded later. A search checks the index, returns no results for a missing or empty history without loading the model, and checks the index again when the model it loaded has a different fingerprint than the one the index was checked against. When one cache directory matches the model, the fingerprint equals the one read from the cache refs, so existing markers stay valid. While the fingerprint is unchanged, the refresh reuses the stored vector of every entry whose id and document are unchanged and embeds only new or edited entries; a changed fingerprint, a missing marker or a missing store file re-embeds every entry. Reused vectors are read from the store file the marker describes, not from a copy another process may have replaced. Documents are embedded in batches of `EMBEDDING_BATCH_SIZE` (default 4), which bounds inference memory. The index is keyed by workspace and kept outside the client repository (see [service memory behavior](shared-mcp-daemon.md#memory-and-errors)). |
 
 ### Prior Art Comparison
 
@@ -98,8 +98,9 @@ log_interaction(..., intent, action, outcome, files?, tags?)
 
 read_history(limit=20, since?, query?)
   ├─ if query:
-  │    ├─ HistoryStore.ensure_index()        # lazy: full rebuild when history.md content
-  │    │                                     # or the embedding fingerprint changes
+  │    ├─ HistoryStore.ensure_index()        # lazy: refresh when history.md content or the
+  │    │                                     # embedding fingerprint changes; embeds only new
+  │    │                                     # or edited entries unless the fingerprint changed
   │    └─ semantic search via NumpyVectorStore + embedder
   └─ else:
        └─ HistoryReader.read_recent()        # parse bottom-up, filter by since
@@ -539,7 +540,7 @@ The implementation as of 2026-04-15 matched the spec, apart from the clarificati
 
 12. **Context bundle and hash.** Entry-point file headers, `.mdc` frontmatter samples, a test list and scripts were not added to the context bundle. Both the bundle and the repo hash cover all eleven root manifests listed in section 5, not only `pyproject.toml` and `package.json`.
 
-13. **History index.** `ensure_index()` does not compare mtimes or embed incrementally: it re-embeds every entry when the content fingerprint changes (see the design decisions in section 1). The index is keyed by workspace and lives in private daemon state over HTTP, or in a leased stdio slot of the installation (temporary storage where process locking is unavailable), not in the client repository.
+13. **History index.** `ensure_index()` does not compare mtimes: a changed content fingerprint triggers a refresh that embeds only new or edited entries, and re-embeds every entry when the embedding fingerprint changes or the marker is missing (see the design decisions in section 1). The index is keyed by workspace and lives in private daemon state over HTTP, or in a leased stdio slot of the installation (temporary storage where process locking is unavailable), not in the client repository.
 
 14. **Marker editor not shared.** The installers never imported `managed_section`; they use `scripts/_helpers/inject_claude_md.py` (see 3.3).
 

@@ -12,7 +12,8 @@ Three classes:
 
 * ``HistoryStore`` — lazy ``NumpyVectorStore`` wrapper. Built only on the
   first ``read_history(query=...)`` call; rebuilds when the content of the
-  markdown file or the embedding fingerprint changes. The embedder is
+  markdown file or the embedding fingerprint changes, re-embedding only new
+  or edited entries while the fingerprint is unchanged. The embedder is
   imported lazily so ``HistoryWriter``/``HistoryReader`` users never pay the
   numpy cost.
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 from src.file_lock import file_lock
 
+import contextlib
 import datetime as _dt
 import hashlib
 import json
@@ -533,15 +535,22 @@ class HistoryStore:
         deterministic fakes; production callers leave them None and the
         FastEmbed-backed defaults are loaded lazily.
         """
+        from src.engine.embedder import model_fingerprint
         with self._index_lock:
+            checked = model_fingerprint()
             store = self.ensure_index(embed_texts=embed_texts)
             if store.count() == 0:
                 return []
             if embed_query is None:
                 from src.engine.embedder import embed_query as _eq
                 embed_query = _eq
-
             vec = embed_query(query)
+            if model_fingerprint() != checked:
+                # Loading the model changed the fingerprint the index was
+                # checked against: check it again for the loaded snapshot.
+                store = self.ensure_index(embed_texts=embed_texts)
+                if store.count() == 0:
+                    return []
             result = store.query(vec, n_results=limit)
             out: List[Dict[str, Any]] = []
             for i, eid in enumerate(result.ids):
@@ -559,10 +568,11 @@ class HistoryStore:
     def ensure_index(self, embed_texts=None):
         """Build / refresh the vector index when its content fingerprint changes.
 
-        The fingerprint is sha256(history.md) plus the embedding fingerprint
-        (``src.engine.fingerprint.fingerprint``: model, revision, index schema,
-        preprocessing, fastembed version), compared with ``.history_fingerprint``
-        in ``data_dir``; a missing index file also triggers a rebuild.
+        The fingerprint is sha256(history.md) plus the embedding fingerprint of
+        the loaded model (``src.engine.embedder.model_fingerprint``: model,
+        revision, index schema, preprocessing, fastembed version), compared with
+        ``.history_fingerprint`` in ``data_dir``; a missing index file also
+        triggers a rebuild.
 
         Thread-safe: serialized via ``_index_lock`` so concurrent
         ``read_history(query=...)`` calls don't race on rebuild.
@@ -582,24 +592,44 @@ class HistoryStore:
                     self._store.save()
                 return self._store
 
-            from src.engine.fingerprint import fingerprint
+            from src.engine.embedder import model_fingerprint
             from src.daemon.state import atomic_private
             with file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")):
                 # Content-based invalidation catches edits that preserve mtimes.
                 with open(self.history_path, "rb") as source:
-                    digest = hashlib.sha256(source.read()).hexdigest() + ":" + fingerprint()
+                    digest = hashlib.sha256(source.read()).hexdigest() + ":" + model_fingerprint()
                 marker = os.path.join(self.data_dir, ".history_fingerprint")
                 try:
                     with open(marker) as stream: saved = stream.read()
                 except FileNotFoundError:
                     saved = None
                 if saved != digest or not os.path.exists(os.path.join(self.data_dir, f"{self.store_name}.npz")):
-                    self._rebuild(embed_texts=embed_texts)
+                    # Stored vectors stay valid only for the embedding
+                    # configuration that produced them.
+                    reuse = saved is not None and saved.partition(":")[2] == digest.partition(":")[2]
+                    if reuse:
+                        # Reuse the vectors this marker describes: another
+                        # process may have rewritten the store since it loaded.
+                        self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
+                    if saved is not None:
+                        # A rebuild that saves the store but dies before the
+                        # new marker must not leave the old marker vouching
+                        # for vectors from another configuration.
+                        with contextlib.suppress(FileNotFoundError):
+                            os.remove(marker)
+                    self._rebuild(embed_texts=embed_texts, reuse_vectors=reuse)
                     atomic_private(marker, digest)
             return self._store
 
     # ------------------------------------------------------------------ helpers
-    def _rebuild(self, embed_texts=None) -> None:
+    def _rebuild(self, embed_texts=None, reuse_vectors: bool = False) -> None:
+        """Replace the index with every current entry.
+
+        With *reuse_vectors*, an entry whose id and formatted document are
+        already stored keeps its vector, so only new or edited entries are
+        embedded; the caller passes it only when the stored vectors come from
+        the current embedding fingerprint.
+        """
         reader = HistoryReader(self.history_path)
         entries = reader.read_all()
         if not entries:
@@ -619,10 +649,19 @@ class HistoryStore:
         unique_indices = sorted(seen.values())
         entries = [entries[i] for i in unique_indices]
 
-        documents = [self._format_for_embedding(e) for e in entries]
-        embeddings = embed_texts(documents)
+        import numpy as np  # heavy import — defer
 
         ids = [e.id for e in entries]
+        documents = [self._format_for_embedding(e) for e in entries]
+        vectors = self._reusable_vectors(dict(zip(ids, documents))) if reuse_vectors else {}
+        missing = [i for i, id_ in enumerate(ids) if id_ not in vectors]
+        if missing:
+            fresh = list(embed_texts([documents[i] for i in missing]))
+            if len(fresh) != len(missing):
+                raise ValueError(f"Embedder returned {len(fresh)} vectors for {len(missing)} history entries")
+            vectors.update((ids[i], vector) for i, vector in zip(missing, fresh))
+        embeddings = np.stack([np.asarray(vectors[id_], dtype=np.float32) for id_ in ids])
+
         metadatas = [
             {
                 "timestamp": e.timestamp,
@@ -634,6 +673,13 @@ class HistoryStore:
         ]
         self._store.replace(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
         self._store.save()
+
+    def _reusable_vectors(self, documents: dict[str, str]) -> dict:
+        """Map each id whose stored document equals ``documents[id]`` to its stored vector."""
+        stored = self._store.get(list(documents))
+        unchanged = [id_ for id_, document in zip(stored.ids, stored.documents)
+                     if document == documents[id_]]
+        return self._store.get_embeddings(unchanged)
 
     @staticmethod
     def _format_for_embedding(entry: HistoryEntry) -> str:
