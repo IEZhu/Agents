@@ -56,11 +56,12 @@ without long dashes or judgments about findings.
 Review the diff yourself before the bots, and every fix before pushing it.
 CodeRabbit and Copilot start the first review automatically in the expected GitHub
 setup. Confirm that they started. Handle each round's findings together and push
-them at once: CodeRabbit normally reviews later pushes; re-request Copilot
+the fixes once. CodeRabbit normally reviews later pushes; re-request Copilot
 explicitly after each push of fixes while it is available, and preserve its lite
-configuration. From the third round, keep only blocker, major, security,
-data-corrupting and production-code findings in the PR and move the rest to a
-follow-up issue ([converging](../flows/pr-review.md#keep-the-cycle-converging)).
+configuration. From the third round, fix in the PR only blocker, major, security,
+data-corrupting and production-code findings and regressions of the PR's own
+fixes, and move the rest to the PR's Follow-ups
+([converging](../flows/pr-review.md#keep-the-cycle-converging)).
 When a bot reports a quota limit, rate limit or error,
 follow the flow's [quota rules](../flows/pr-review.md#quota-rate-limits-and-errors):
 record the evidence and the next attempt time, pause that bot instead of

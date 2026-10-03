@@ -35,17 +35,20 @@ before making changes.
 
 Optional constraints include a specific review scope or `review-only` / `no-merge`.
 Without a URL, locate the current branch's existing PR/MR. If the task includes
-submission and none exists, create it from the prepared branch. Ask for the
-target only when the repository or branch is ambiguous.
+submission and none exists, create it from the prepared branch after the scope
+check in step 1 and the session's own review in step 3, because opening it
+starts the bot reviews. Ask for the target only when the repository or branch is
+ambiguous.
 
 An explicit user invocation of this flow authorizes the review work, necessary
 fixes, commits, pushes, PR/MR updates, review requests, thread replies, resolution,
-a follow-up issue for findings moved out of the PR under
+in an interactive run one follow-up issue for findings moved out of the PR under
 [Keep the cycle converging](#keep-the-cycle-converging), and merge when the
-conditions below are met. An explicit `review-only` or
-`no-merge` instruction disables merge. A request only to submit a PR/MR for review
-does not authorize merge. Other user restrictions and repository protections
-still apply.
+conditions below are met. When the task includes submission, it also authorizes
+one PR/MR per independent part of a split branch (step 1). An explicit
+`review-only` or `no-merge` instruction disables merge. A request only to submit
+a PR/MR for review does not authorize merge. Other user restrictions and
+repository protections still apply.
 
 Record the invocation language for the final report. Titles, descriptions, and
 review replies must be English. Run the flow in the current model session.
@@ -63,11 +66,15 @@ Write committed documentation in English under the
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 - Check the scope before the first review round. Each bot pass reports a few
-  findings, so a large PR that mixes runtime code with tooling, evaluation data
+  findings, so a large PR that mixes
+  [production code](#keep-the-cycle-converging) with tooling, evaluation data
   or documentation takes many rounds. When this flow creates the PR from such a
-  branch, open one PR per part, runtime code first, unless the user asked for a
-  single PR. Keep the scope of a PR under review fixed: merge no branch or PR
-  into it other than the target, and put a change outside its scope in its own PR.
+  branch and its parts do not depend on each other, open one PR per part, each
+  against the target and production code first, and take each through this
+  flow, unless the user asked for a single PR or the run is the
+  [issue agent's](issue-agent.md), which keeps one pull request per issue. Keep
+  the scope of a PR under review fixed: merge no branch or PR into it other than
+  the target, and put a change outside its scope in its own PR.
 
 ### Keep the branch current and git healthy
 
@@ -196,7 +203,7 @@ Use bounded waits with backoff and keep the user informed of meaningful changes.
 A wait timeout alone does not establish quota exhaustion or unavailability.
 Inspect failed requests and bot status before retrying. If every bot is
 unavailable, handle all existing findings and continue to the merge conditions,
-which then require an independent review of the commits no bot reviewed;
+which then require an independent review of the changes no bot reviewed;
 unavailability is not approval.
 
 ### Quota, rate limits and errors
@@ -207,17 +214,18 @@ neither approves nor clears findings.
 
 | Bot | Evidence | Meaning | Next action |
 |---|---|---|---|
-| CodeRabbit | A comment marked `rate limited by coderabbit.ai`: "Review limit reached. Next included review available in N minutes." | Rate limit with a stated wait | Pause CodeRabbit until the comment time plus N minutes. After that, if no review of the current head has started, request one with a PR comment `@coderabbitai review`, once. A rate-limit reply to that request starts a new pause. |
-| CodeRabbit | A reply to `@coderabbitai review`: "Action not completed" and "Review rate limited.", with the status `Review rate limited` | The same rate limit; the reply states no wait | Read the wait from CodeRabbit's summary comment on the PR, which then says "Review limit reached" and "Next included review available in N minutes", and pause as above from that comment's update time. |
-| CodeRabbit | The status `Review paused`, and "Reviews paused" in its summary comment | It stopped reviewing new pushes automatically because the branch received many commits | Request one review of the current head with `@coderabbitai review` when the head needs one. Do not send `@coderabbitai resume`, which reviews every later push. |
+| CodeRabbit | A comment marked `rate limited by coderabbit.ai`: "Review limit reached. Next included review available in N minutes." | Rate limit with a stated wait | Pause CodeRabbit until the time the comment was last updated plus N minutes: CodeRabbit rewrites this text into its long-lived summary comment, so its creation time is too early. After that, if no review of the current head has started, request one with a PR comment `@coderabbitai review`, once. A rate-limit reply to that request starts a new pause. |
+| CodeRabbit | A reply to `@coderabbitai review`: "Action not completed" and "Review rate limited.", with the status `Review rate limited` | The same rate limit; the reply states no wait | Read the wait from CodeRabbit's summary comment on the PR, which then says "Review limit reached" and "Next included review available in N minutes", and pause as in the row above. |
+| CodeRabbit | The status `Review paused`, and "Reviews paused" in its summary comment | Not a quota pause: CodeRabbit is available but stopped reviewing new pushes on its own because the branch received many commits | Do not record a pause. Request one review of the current head with `@coderabbitai review` when the head needs one, and wait for it like any other review. Do not send `@coderabbitai resume`, which reviews every later push. |
 | Copilot | A review body "...the user who requested the review has reached their quota limit." | Account quota exhausted; no reset time is given (in 2026-09 it returned within days, not at a fixed date) | Pause Copilot. While paused, request a review at most once per 24 hours, and only when the current head still needs one. A normal review ends the pause. |
 | Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
 
 Review allowances are shared across PRs. CodeRabbit's review attempts of the past
-seven days set its hourly allowance (in 2026-10, 93 attempts left one review per
-hour), and a rate-limited request appeared to count as an attempt too. Request a
-review only for a head that needs one; batching fixes into one push per round, as
-in [Resolve findings](#4-resolve-findings-and-repeat), keeps those heads few.
+seven days set its hourly allowance (in 2026-10, 93 attempts set it to one review
+per hour), and a rate-limited request appeared to count as an attempt too.
+Request a review only for a head that needs one; batching fixes into one push per
+round, as in [Resolve findings](#4-resolve-findings-and-repeat), keeps those
+heads few.
 
 Keep each pause with its evidence (the comment or review link), the time it was
 seen and the earliest next attempt. Read the current time from the clock
@@ -273,10 +281,10 @@ deciding a finding is handled. Also read PR conversation comments and bot status
 
 ## 4. Resolve findings and repeat
 
-A round is one pushed head and the bot reviews of it. Handle a round's findings
-together: start when each available bot has finished reviewing the current head
-or is paused, and push all of the round's fixes at once, because every push
-starts a new round.
+A round is one head that the bots review, with their reviews of it. Handle a
+round's findings together: start when each available bot has finished reviewing
+the current head or is paused, and push the round's fixes once, because each
+pushed head the bots review is a new round.
 
 1. Read all new comments, inline threads, and full review bodies, including
    findings present only in summaries. Include outstanding findings from earlier
@@ -291,11 +299,11 @@ starts a new round.
    [documentation flow](documentation-refresh.md) when public behavior or AI
    instructions need corresponding documentation updates.
 4. Inspect the diff, review the fixes as new code as in
-   [Obtain reviews](#3-obtain-reviews-for-the-current-head), commit them, check
-   title/description alignment, and push once for the round.
-   [Keep the branch current](#keep-the-branch-current-and-git-healthy)
-   before requesting the next reviews. Confirm the remote head matches the
-   pushed commit. Do not count an
+   [Obtain reviews](#3-obtain-reviews-for-the-current-head), commit them, and
+   check title/description alignment.
+   [Keep the branch current](#keep-the-branch-current-and-git-healthy) before
+   pushing, so that one push carries the round's fixes and any branch update.
+   Confirm the remote head matches the pushed commit. Do not count an
    older review or an earlier passing check as verification of the new head.
    If CI intentionally skips a check by changed-file filters, verify that its
    code, tests, and configuration are unchanged since the last passing run.
@@ -309,7 +317,7 @@ starts a new round.
    - `No change needed. This path already checks ownership before reading the record.`
 
 6. Resolve a thread only after its answer is posted and the issue is fixed, moved
-   to the follow-up issue, or its rejection is justified. For a finding in a
+   to the PR's Follow-ups, or its rejection is justified. For a finding in a
    review body without a thread,
    respond in the platform's corresponding discussion, identifying the finding.
    Do not mark unresolved human approval requirements as satisfied by a reply.
@@ -328,7 +336,7 @@ threads first: that condition alone does not prove they were handled correctly.
 The review cycle is complete when all available bots have approved or completed
 a review of the current head with no remaining actionable findings, and every
 earlier finding has been handled: fixed, declined with a reason, or moved to the
-follow-up issue. It also ends when no bot can review because each is explicitly
+PR's Follow-ups. It also ends when no bot can review because each is explicitly
 unavailable or out of quota, after existing findings are handled.
 If one bot is unavailable, continue with every bot that can still review.
 
@@ -337,23 +345,29 @@ If one bot is unavailable, continue with every bot that can still review.
 A bot reports a few findings per pass, and every fix is new code to review, so a
 large PR can run many rounds without converging: in 2026-10, a PR of about 3,400
 added lines took 14 Copilot rounds with one to four findings in each. Count
-rounds over the PR's whole history, earlier sessions included. From the third
-round on, decide each real finding by its impact. Start from the bot's severity
-label (CodeRabbit's Major or Minor, Copilot's high or medium, for example) and
-judge the impact yourself.
+rounds over the PR's whole history, earlier sessions included: each head with a
+completed bot review is one. From the third round on, decide each real finding
+by its impact. Start from the bot's severity label (CodeRabbit's Major or Minor,
+Copilot's high or medium, for example) and judge the impact yourself.
 
 - Fix in this PR a blocker or major finding, a security finding, a finding that
-  can silently corrupt results or data whatever its label, a finding in code that
-  runs in production rather than in tests, tooling or documentation, and a
-  regression that one of this PR's fixes caused.
-- Move every other finding to one follow-up issue that links each finding, reply
-  in its thread with the issue link, and resolve the thread. When an issue cannot
-  be created, list these findings under "Follow-ups" in the description. A round
-  whose findings all move out needs no push and ends the cycle.
+  can silently corrupt results or data whatever its label, a finding in
+  production code, and a regression that one of this PR's fixes caused.
+  Production code is what the project ships or runs for its users: in
+  Agents-Core, `src/`, installers and scripts, and the agents, skills, implants,
+  rules and flows it serves. Tests, evaluation harnesses and data, and
+  documentation for people are not.
+- Move every other finding out of the PR: list it with its link under
+  "Follow-ups" in the description, reply in its thread that it moved there, and
+  resolve the thread. An interactive run also opens one follow-up issue with
+  that list and links it under "Follow-ups"; a later session adds to the same
+  issue. The issue agent only lists them. A round whose findings all move out
+  needs no push and ends the cycle.
 - Make each fix the smallest change that removes the problem, with a regression
-  test that fails without it, and review it before pushing as in
-  [Obtain reviews](#3-obtain-reviews-for-the-current-head). In that PR, a late
-  fix for a leftover download directory broke concurrent downloads on Windows.
+  test that fails without it where the change can be tested, and review it before
+  pushing as in [Obtain reviews](#3-obtain-reviews-for-the-current-head). In the
+  2026-10 PR above, a late fix for a leftover download directory broke
+  concurrent downloads on Windows.
 
 When fixes to one component keep producing findings, its design is the likely
 cause: say so in the report and propose a simpler design instead of another
@@ -365,18 +379,21 @@ Re-read the remote state immediately before merging. Confirm all of the followin
 
 - The current head is the commit that was checked and handled in the final round.
 - Required project checks pass, and relevant local validation has passed.
-- Every actionable finding is fixed or moved to the follow-up issue; each
+- Every actionable finding is fixed or moved to the PR's Follow-ups; each
   declined finding has an explanation.
 - Threads have been answered and resolved as appropriate; required approvals
   are satisfied and no conflicts or other merge blockers remain.
 - The title and description reflect the final diff, and merge is authorized.
-- When the bots are paused or unavailable, each commit made after the newest
-  head that a bot fully reviewed has had an independent review if it changes
-  code, tests or configuration (changes that a merge of the target branch
-  brought in are exempt): a fresh subagent, given the diff without this
-  session's reasoning, reviewed it, and its findings were handled as in step 4.
-  The session's own review of its fixes does not count here. Without a subagent
-  tool, do not merge: report those commits and the earliest next bot attempt.
+- When the bots are paused or unavailable, the changes since the newest head
+  that a bot fully reviewed have had an independent review if they touch code,
+  tests or configuration. Leave out what came in unchanged from the target
+  branch, and after a rebase compare the commits with `git range-diff`. A fresh
+  subagent, given that diff without this session's reasoning, reviews it, and
+  its findings are handled as in step 4; fixes for them get the session's own
+  review, not another subagent round. The session's own review of its fixes
+  does not replace this one. Without a subagent tool, do not merge: report those
+  changes and the earliest next bot attempt. A `no-merge` run skips this check
+  and reports the changes no bot reviewed.
 
 Merge using the project's permitted merge method, then verify the platform reports
 the PR/MR as merged and record its merge commit or resulting revision. Never
@@ -391,11 +408,11 @@ Reply in the language of the original invocation. Include:
 - The PR/MR link, merged status and revision, or the exact remaining blocker.
 - **All changes made in response to review**, across every round, grouped briefly
   by behavior or file. Include fix commits where they help trace the result.
-- Every declined finding and its reason, and the follow-up issue with the
-  findings moved to it.
+- Every declined finding and its reason, and the findings moved to Follow-ups,
+  with the follow-up issue when one was opened.
 - Tests and required checks, their results, and any validation limitations.
 - Any unavailable bots, quota failures, or unverified review-mode configuration,
-  and the commits that no bot reviewed, with the review that covered them.
+  and the changes that no bot reviewed, with the review that covered them.
 
 For `review-only` or `no-merge`, report that merge was intentionally omitted.
 Distinguish verified approval, completed review without findings, and unavailable
