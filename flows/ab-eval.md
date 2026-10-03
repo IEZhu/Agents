@@ -142,7 +142,9 @@ Skip the writing when the request names a case set; still check it.
 1. Find the routine `Agents-eval` with `RemoteTrigger` `list`. When it is missing,
    create it exactly as [eval routine](../docs/cloud-runs.md#eval-routine) says,
    clear its connectors and read it back.
-2. Fire it three times with `RemoteTrigger` `run`, so the sessions run in parallel:
+2. Fire it three times with `RemoteTrigger` `run`, so the sessions run in parallel.
+   The routine judges the runs it answers unless the text names `judge:`, so the
+   first fire answers the Opus run and judges it:
    - `branch: eval/<name>` / `answer: evals/ablation/runs/<name>/opus` / `name: <name>-opus`;
    - `branch: eval/<name>` / `judge: evals/ablation/runs/<name>/gemma-r1 evals/ablation/runs/<name>/gemma-r2` / `name: <name>-gemma`;
    - `branch: eval/<name>` / `judge: evals/ablation/runs/<name>/qwen-r1 evals/ablation/runs/<name>/qwen-r2` / `name: <name>-qwen`.
@@ -166,7 +168,10 @@ After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
 2. Skills and implants:
    `python -m evals.runners.run_retrieval --expected-from-agent --json`.
 3. Semantic cache routing:
-   `python -m evals.runners.run_cache_routing --dataset evals/datasets/routing.jsonl --dataset evals/datasets/routing_<lang>.jsonl --json`.
+   `python -m evals.runners.run_cache_routing --dataset evals/datasets/routing.jsonl --json`,
+   adding `--dataset evals/datasets/routing_<lang>.jsonl` when a set for the
+   hypothesis language exists (step 1). The report counts each dataset's rows,
+   drift, fetch errors and repeated queries; explain any it lists.
    Compare models at equal coverage, because similarity scales differ, and propose
    the `ROUTER_SIMILARITY_THRESHOLD` that keeps the baseline's precision.
 4. An embedding model needs its query and passage prompts from its model card in
