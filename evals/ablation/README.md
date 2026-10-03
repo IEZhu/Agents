@@ -36,13 +36,15 @@ these steps.
    git fetch origin main && git checkout main && git merge --ff-only origin/main
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
-   The embedding model (`intfloat/multilingual-e5-large`, set by
-   `build_contexts.py`) downloads from Hugging Face on first use, so run the
-   batch in an environment that allows it
+   The embedding model (`microsoft/harrier-oss-v1-270m`, set by
+   `build_contexts.py`, about 1.1 GB) downloads from Hugging Face on first use:
+   `embedding_prompts.materialize()` fetches the pinned onnx-community export
+   into a plain-file copy under the fastembed cache. Run the batch in an
+   environment that allows it
    ([cloud environment setup](../../docs/cloud-runs.md#cloud-environment-with-agents-core));
    the default cloud environment blocks huggingface.co. Leave `AGENTS_MODEL_PATH`
-   unset. The 2026-09 runs fetched fastembed's Google Cloud Storage copy instead,
-   which answered `403 AccessDenied` on 2026-10-03.
+   unset. The 2026-09 runs used `intfloat/multilingual-e5-large`; rebuild with
+   `EMBEDDING_MODEL` set to it to compare against them.
 2. **Pick the components and the run directory**
    ```bash
    IDS=$(python evals/ablation/components.py --batch 3)     # or the explicit ids

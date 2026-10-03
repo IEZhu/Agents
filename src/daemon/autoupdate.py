@@ -7,6 +7,11 @@ and then runs the same controller transaction as ``update`` (drain, stop,
 fast-forward, reindex, probation, ready, rollback on failure). Clients use
 stateless HTTP, so they reach the restarted process on their next request.
 
+Once per embedding model generation (`src/model_migration.py`) a run also
+switches the service to the default model, with no new commit needed: the
+model downloads while the service still serves, then the same transaction
+rebuilds the stores for it and verifies the restarted service.
+
 Targets that the transaction would refuse (a diverged branch, a dirty tree,
 changed dependency manifests) are rejected before the service is touched, so a
 blocked update never costs a restart.
@@ -215,10 +220,13 @@ def _run(controller):
         found = check_target(controller)
     except (subprocess.SubprocessError, OSError) as error:
         return _record(controller, {"state": "skipped", "reason": f"git failed: {type(error).__name__}: {error}"})
+    from src.model_migration import service_switch_pending
+    if found["state"] == "up_to_date" and service_switch_pending(controller.config):
+        # The update that brought this code left the service on its old model;
+        # the same transaction switches it (`offline_update`).
+        found = {**found, "state": "available", "target": found["head"], "model_switch": True}
     if found["state"] != "available":
-        if found["state"] == "up_to_date":
-            # Recorded so `status` shows the latest run; `_record` logs only changes.
-            return _record(controller, found)
+        # Recorded so `status` shows the latest run; `_record` logs only changes.
         return _record(controller, found)
     health = controller.status()
     if health.get("state") != "ready":
@@ -249,4 +257,5 @@ def _run(controller):
         return {"state": "disabled"}
     if result.get("state") == "deferred":
         return _record(controller, {**found, **result})
-    return _record(controller, {**found, "state": str(result.get("state"))})
+    return _record(controller, {**found, "state": str(result.get("state")),
+                                **{key: result[key] for key in ("model", "model_from") if key in result}})

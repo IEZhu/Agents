@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import subprocess
+import sys
 
 import pytest
 
@@ -9,6 +10,7 @@ from src.daemon.state import write_json, read_json
 from src.daemon.update import offline_update, recover
 from src.daemon.bootstrap import assert_service_safe
 from src.file_lock import file_lock
+from src.model_migration import DEFAULT_MODEL, GENERATION
 
 
 def git(root, *args):
@@ -20,7 +22,8 @@ class FakeController:
         self.directory = directory
         self.config = {"installation": str(root), "git": "/usr/bin/git", "model": "test",
                        "model_cache": "/unused", "model_artifact": "test", "model_path": "/unused",
-                       "path": "/usr/bin:/bin", "autostart": True}
+                       "path": "/usr/bin:/bin", "autostart": True, "python": sys.executable,
+                       "model_generation": GENERATION}
         self.running = True
         self.fail_ready = 0
         self.fail_drain = False
@@ -68,6 +71,7 @@ def installation(tmp_path, monkeypatch):
     (data / "skills_store.npz").write_text("old-index")
     directory = tmp_path / "state"; directory.mkdir()
     controller = FakeController(root, directory)
+    write_json(directory / "service.json", controller.config)
     for name, filename in [("STATE_FILE", ".last_update.json"), ("CHECK_STAMP", ".last_update_check")]:
         monkeypatch.setattr(self_update, name, str(data / filename))
     def reindex(root, timeout):
@@ -160,3 +164,132 @@ def test_dependency_changes_rejected_before_merge(installation):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == old
     assert controller.running
+
+
+@pytest.fixture
+def model_switch(installation, monkeypatch):
+    """An installation whose service.json predates the current model generation."""
+    from src.daemon import control, update
+    controller, root, old, target = installation
+    controller.config = {key: value for key, value in controller.config.items() if key != "model_generation"}
+    write_json(controller.directory / "service.json", controller.config)
+    downloads = []
+
+    def switched(config):
+        assert controller.running  # the download happens before the service stops
+        with pytest.raises(BlockingIOError):  # and under the control lock
+            with file_lock(controller.directory / "control.lock", blocking=False): pass
+        downloads.append(config["model"])
+        return {**config, "model": DEFAULT_MODEL, "model_generation": GENERATION,
+                "model_artifact": "export@rev", "model_path": "/cache/local/copy"}
+
+    rebuilt = []
+
+    def reindex(current):
+        assert not current.running
+        with pytest.raises(BlockingIOError):  # the leases stay held while the stores rebuild
+            with file_lock(root / "data/.sessions.lock", shared=True, blocking=False): pass
+        assert read_json(current.directory / "service.json")["model"] == DEFAULT_MODEL
+        rebuilt.append(current.config["model"])
+        (root / "data/skills_store.npz").write_text("default-model-index")
+
+    monkeypatch.setattr(control, "switched_model_config", switched)
+    monkeypatch.setattr(update, "reindex", reindex)
+    return controller, root, old, target, downloads, rebuilt
+
+
+def test_update_switches_the_service_to_the_default_model_once(model_switch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+    result = offline_update(controller)
+
+    assert result["state"] == "UPDATED" and result["model"] == DEFAULT_MODEL and result["model_from"] == "test"
+    assert git(root, "rev-parse", "HEAD") == target
+    config = read_json(controller.directory / "service.json")
+    assert (config["model"], config["model_path"], config["model_generation"]) == (DEFAULT_MODEL, "/cache/local/copy", GENERATION)
+    assert config["autostart"] is True and config["installation"] == str(root)
+    assert rebuilt == [DEFAULT_MODEL]
+    assert (root / "data/skills_store.npz").read_text() == "default-model-index"
+    assert controller.probes == 1
+    assert not (controller.directory / "transaction.json").exists()
+
+    # A later update keeps the model, including one the operator chose after the switch.
+    assert offline_update(controller)["state"] == "UP_TO_DATE"
+    assert downloads == ["test"] and rebuilt == [DEFAULT_MODEL]
+
+
+def test_up_to_date_installation_still_switches_its_model(model_switch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+    git(root, "merge", "--ff-only", target)
+
+    result = offline_update(controller)
+
+    assert result["state"] == "UP_TO_DATE" and result["model"] == DEFAULT_MODEL
+    assert read_json(controller.directory / "service.json")["model"] == DEFAULT_MODEL
+    assert controller.probes == 1
+
+
+@pytest.mark.parametrize("failure", ["probation", "reindex"])
+def test_failed_model_switch_restores_model_code_and_indexes(model_switch, monkeypatch, failure):
+    from src.daemon import update
+    controller, root, old, target, downloads, rebuilt = model_switch
+    if failure == "probation":
+        controller.fail_ready = 1
+        assert offline_update(controller)["state"] == "rolled_back"
+    else:
+        def broken(current):
+            (root / "data/skills_store.npz").write_text("torn")
+            raise RuntimeError("reindex failed")
+        monkeypatch.setattr(update, "reindex", broken)
+        with pytest.raises(RuntimeError, match="reindex failed"):
+            offline_update(controller)
+
+    config = read_json(controller.directory / "service.json")
+    assert config["model"] == "test" and "model_generation" not in config
+    assert controller.config["model"] == "test"
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert controller.running
+    assert not (controller.directory / "transaction.json").exists()
+
+
+def test_recover_restores_an_interrupted_model_switch(model_switch, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target, downloads, rebuilt = model_switch
+    git(root, "merge", "--ff-only", target)
+
+    def crash(current):
+        raise KeyboardInterrupt  # the controller dies; rollback is left to recover
+    monkeypatch.setattr(update, "reindex", crash)
+    rollback = update.rollback
+    monkeypatch.setattr(update, "rollback", lambda *args: None)
+    with pytest.raises(KeyboardInterrupt):
+        offline_update(controller)
+    assert read_json(controller.directory / "service.json")["model"] == DEFAULT_MODEL
+    monkeypatch.setattr(update, "rollback", rollback)
+
+    controller.config = read_json(controller.directory / "service.json")
+    assert recover(controller)["state"] == "rolled_back"
+    assert read_json(controller.directory / "service.json")["model"] == "test"
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert not (controller.directory / "transaction.json").exists()
+
+
+def test_rolled_back_file_update_leaves_the_model_switch_pending(model_switch, monkeypatch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+    monkeypatch.setattr(self_update, "_run_reindex", lambda root, timeout: False)  # REINDEX_FAILED, rolled back
+
+    offline_update(controller)
+
+    config = read_json(controller.directory / "service.json")
+    assert config["model"] == "test" and "model_generation" not in config
+    assert rebuilt == []
+    assert git(root, "rev-parse", "HEAD") == old
+    assert not (controller.directory / "transaction.json").exists()
+
+
+def test_update_refuses_a_service_uninstalled_meanwhile(model_switch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+    (controller.directory / "service.json").unlink()
+    with pytest.raises(RuntimeError, match="not installed"):
+        offline_update(controller)
+    assert downloads == [] and git(root, "rev-parse", "HEAD") == old

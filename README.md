@@ -26,8 +26,10 @@ The script clones the repository to `~/.agents-core` (or updates an existing
 checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
 `--yes` applies the defaults:
 
-- an `EMBEDDING_MODEL` already set in `.env` is kept; otherwise the model is
-  chosen from installed RAM (see [Environment Variables](#environment-variables));
+- an `EMBEDDING_MODEL` already set in `.env` is kept, except that an `.env`
+  from before the current model generation moves to the default model once
+  ([model switch on update](#model-switch-on-update)); otherwise setup writes the
+  one default model (see [Environment Variables](#environment-variables));
 - an existing `.venv` is reused and its dependencies are refreshed; it is
   recreated only when its Python version is unknown or older than 3.11;
 - the Claude instruction and routing-reminder prompts are accepted. Client
@@ -172,25 +174,45 @@ placeholders `pk-lf-...` and `sk-lf-...`, which an `.env` copied from an older
 `ANTHROPIC_API_KEY`.
 
 Embeddings run locally through FastEmbed (ONNX Runtime); the initial model download
-requires network access. Setup writes the selected model to `EMBEDDING_MODEL` in
-`.env` and keeps an existing setting on later runs. Full is
-`intfloat/multilingual-e5-large`, Balanced is
-`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, and Light is the
-English-only `sentence-transformers/all-MiniLM-L6-v2`. `scripts/init_repo.sh`
-offers a default based on installed RAM, which `--yes` applies: Full with 32 GB or
-more, Balanced with 16 GB or more, otherwise Light (Balanced when RAM cannot be
-detected); `init_repo.bat` defaults to Balanced. When `EMBEDDING_MODEL` is
-unset, for example after `--skip-index` (which also skips the model choice),
-standalone stdio uses Balanced. To change the model, edit `EMBEDDING_MODEL` and,
-with server sessions stopped, run `.venv/bin/python -m src.reindex`. The
-[shared macOS service](#shared-macos-service) always uses a cached Full snapshot
-selected by its controller.
+requires network access. The default model is `microsoft/harrier-oss-v1-270m`
+(MIT, multilingual, about 1.1 GB to download and 0.85 GB loaded): on the project's
+retrieval sets it ranks implants and skills better than the earlier defaults
+([results](docs/embedding-models-eval-results.md)). It loads from a plain-file
+copy of the onnx-community export, pinned in
+[embedding_prompts.py](src/engine/embedding_prompts.py), which also loads offline
+once downloaded. Setup no longer asks: harrier-270m is the one model for every
+machine, replacing the earlier Full, Balanced and Light choices. Setup writes it
+to `EMBEDDING_MODEL` in `.env`, together with `EMBEDDING_MODEL_GENERATION`. When
+`EMBEDDING_MODEL` is unset, for example after `--skip-index`, standalone stdio
+uses it as well. Any FastEmbed model stays selectable,
+`intfloat/multilingual-e5-large` included: edit `EMBEDDING_MODEL` and, with
+server sessions stopped, run
+`.venv/bin/python -m src.reindex`. The [shared macOS service](#shared-macos-service)
+pins its model in its own configuration.
+
+#### Model switch on update
+
+Earlier setups pinned the model chosen then (Full e5-large, Balanced multilingual
+MiniLM or Light English MiniLM). The first idle start after an update to this
+version moves an `.env` from any of these, or any other model, to harrier-270m
+once: it rewrites `EMBEDDING_MODEL`, keeps the old value in a comment, and
+records `EMBEDDING_MODEL_GENERATION=2`
+([model_migration.py](src/model_migration.py)). The server restarts itself
+into the new model, downloads it in the background and re-embeds the skill,
+implant and history indexes; the router cache resets. Until the indexes are ready,
+tools answer `warming_up`. Rerunning `init_repo.sh` or `init_repo.bat` applies the
+same switch and downloads the model during setup. A model set after the switch,
+for example e5-large again, stays: the generation marker is already current. An
+`EMBEDDING_MODEL` exported in the server's environment overrides `.env` as before.
+The shared service switches in its update transaction instead
+([daemon guide](docs/shared-mcp-daemon.md#embedding-model)).
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `EMBEDDING_MODEL` | Balanced (multilingual MiniLM) when unset | Standalone embedding model |
+| `EMBEDDING_MODEL` | `microsoft/harrier-oss-v1-270m` when unset | Standalone embedding model |
+| `EMBEDDING_MODEL_GENERATION` | Written by setup and the model switch | Model generation the `.env` reached; an older one switches to the default model once ([model switch](#model-switch-on-update)) |
 | `EMBEDDING_PROMPTS` | `on` | Model-specific query and passage prompts ([embedding_prompts.py](src/engine/embedding_prompts.py)); `off` embeds text as given |
-| `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large`; larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
+| `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at 2.5–2.8 GB with the default); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
 | `AGENTS_CLIENT_REPO_ROOT` | Unset: inferred from `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
@@ -530,10 +552,11 @@ Before `install`, capture a baseline and stop this installation's stdio servers,
 either by disabling Agents-Core in open clients or by ending those sessions;
 `install` fails while any of them holds the installation lease. See
 [installation and client migration](docs/shared-mcp-daemon.md#installation-and-client-migration).
-The service uses a cached `intfloat/multilingual-e5-large` snapshot, which
-`install` does not download: choose Full during setup, or set `EMBEDDING_MODEL`
-to it in `.env` and run `.venv/bin/python -m src.reindex` with stdio sessions
-stopped. Export a custom `FASTEMBED_CACHE_DIR` in the shell before `install`,
+The service pins the plain-file copy of `microsoft/harrier-oss-v1-270m`, which
+`install` does not download: run setup with the default model, or set
+`EMBEDDING_MODEL` to it in `.env` and run `.venv/bin/python -m src.reindex` with
+stdio sessions stopped. `install --model intfloat/multilingual-e5-large` pins a
+cached e5-large snapshot instead. Export a custom `FASTEMBED_CACHE_DIR` in the shell before `install`,
 which does not read it from `.env`. Desktop and tracked project configurations use
 the Node 22+ bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
 Run controller commands from the installation checkout (`~/.agents-core`, or

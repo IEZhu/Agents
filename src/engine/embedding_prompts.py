@@ -12,6 +12,14 @@ first load. Exports with separate weight files load from a plain-file copy (see
 `materialize`).
 """
 
+import os
+
+# huggingface_hub 1.x keeps blobs in a cache-wide store, so e5-large's model.onnx
+# and model.onnx_data resolve into different directories and ONNX Runtime 1.30
+# refuses the external weights. Per-repository blobs keep them together. The hub
+# reads this when it is first imported, which happens after this module loads.
+os.environ.setdefault("HF_HUB_DISABLE_SHARED_BLOBS", "1")
+
 TASK = "Given a request to an AI assistant, retrieve the guidance that helps answer it"
 
 _E5 = ("query: {text}", "passage: {text}")

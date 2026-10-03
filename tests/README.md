@@ -59,8 +59,8 @@ Agent metadata and the Node bridge have their own checks:
 node --test bridge/test.mjs                  # bridge/ changes; Node 22+, no npm install
 ```
 
-The daemon smoke and soak tests (`scripts/daemon_smoke.py`) need the e5-large
-model and start a temporary daemon. Run them alone in a dedicated checkout, as
+The daemon smoke and soak tests (`scripts/daemon_smoke.py`) need the default
+model's plain-file copy (`microsoft/harrier-oss-v1-270m`) and start a temporary daemon. Run them alone in a dedicated checkout, as
 described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 
 ## Choose tests by change
@@ -149,7 +149,10 @@ configuration. Tests that need one of these variables set it themselves.
 
 Tests that load retrievers may still initialize an embedding model during
 collection. A fresh worktree has no copied `.env` or `data/`, so it may need a
-cached model or a download even when slow tests are excluded. Do not copy secrets
+cached model or a download even when slow tests are excluded: the engine default,
+`microsoft/harrier-oss-v1-270m`, is about 1.1 GB. To use a model that is already
+cached, export it, for example
+`EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. Do not copy secrets
 or symlink the live `data/` directory just to make a documentation check run.
 Run one heavy test or embedding process at a time; start with focused checks.
 

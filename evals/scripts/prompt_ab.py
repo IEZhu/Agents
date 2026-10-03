@@ -71,7 +71,7 @@ HARNESS_FILES = (Path(__file__).resolve(), BUILDER, Path(cr.__file__).resolve(),
                  REPO_ROOT / "evals/runners/_providers.py", REPO_ROOT / "evals/runners/run_mcp_vs_vanilla.py")
 DEFAULT_DATASET = cr.DEFAULT_DATASET
 MAX_TOKENS = 800  # default answer budget; a thinking model spends part of it reasoning
-DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-large"  # picks skills and implants in the builds
+DEFAULT_EMBEDDING_MODEL = "microsoft/harrier-oss-v1-270m"  # picks skills and implants in the builds
 # Providers whose answers run at a temperature this script controls.
 TEMPERATURE_ENV = {"local": "LOCAL_LLM_TEMPERATURE", "openrouter": "OPENROUTER_TEMPERATURE"}
 

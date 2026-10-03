@@ -294,8 +294,8 @@ semantic retrieval. See the [rules reference](../rules/README.md).
    skill files and rebuilds the index. For a shared daemon, run
    `.venv/bin/python -m src.daemon restart`
    ([service control](../docs/shared-mcp-daemon.md#service-control)); its warmup
-   rebuilds changed indexes with the service's `intfloat/multilingual-e5-large`
-   model before it reports ready. A manual `python -m src.reindex` does not replace
+   rebuilds changed indexes with the model pinned in the service's `service.json`
+   before it reports ready. A manual `python -m src.reindex` does not replace
    that step: it embeds with `.env`'s `EMBEDDING_MODEL`, and the daemon rebuilds
    again when the model fingerprint differs. For standalone stdio, reconnect the
    server, or rebuild manually with the installation's interpreter
