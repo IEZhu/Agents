@@ -208,13 +208,33 @@ def main(argv: list[str] | None = None) -> int:
         help="forward each expected_agent's preferred_implants to the retriever (fast-path).",
     )
     parser.add_argument(
+        "--dataset", action="append", type=Path,
+        help="labeled set to evaluate (repeatable; default evals/datasets/routing.jsonl)",
+    )
+    parser.add_argument(
         "--expected-from-agent",
         action="store_true",
         help="derive expected_implants from expected_agent's preferred_implants when sample has none.",
     )
     args = parser.parse_args(argv)
 
+    preloaded = None
+    if args.dataset:
+        paths = [path.resolve() for path in args.dataset]
+        if len(set(paths)) != len(paths):  # a repeated set would count its rows twice
+            raise SystemExit("each --dataset may be given only once")
+        samples, stats = [], LoaderStats()
+        for path in paths:
+            loaded, part = load_samples(path)
+            samples += loaded
+            stats.total += part.total
+            stats.drift += part.drift
+            stats.fetch_errors += part.fetch_errors
+            stats.used_local_cache = stats.used_local_cache or part.used_local_cache
+            stats.drift_ids += part.drift_ids
+        preloaded = (samples, stats)
     skill_results, implant_results, loader_meta = run(
+        preloaded=preloaded,
         use_preferred_implants=args.use_preferred_implants,
         expected_from_agent=args.expected_from_agent,
     )

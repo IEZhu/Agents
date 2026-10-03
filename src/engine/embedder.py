@@ -4,8 +4,9 @@ Replaces sentence-transformers + PyTorch with a much lighter dependency
 footprint (~100 MB installed vs ~2 GB for torch + transformers).
 Model is selected via EMBEDDING_MODEL env var (set during setup).
 
-Uses query_embed() for queries and passage_embed() for documents
-to apply model-specific instruction prefixes (e.g. "query: " / "passage: ").
+Queries go through query_embed() and documents through passage_embed(), after
+the model's prompt template from src/engine/embedding_prompts.py: fastembed itself
+adds no "query: " / "passage: " prefix or task instruction for these models.
 """
 
 import glob
@@ -20,6 +21,9 @@ from typing import List
 import numpy as np
 
 from src.engine.config import EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
+from src.engine.embedding_prompts import (
+    as_passage, as_query, cap_tokens, local_copy, materialize, register_custom,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +34,15 @@ _model_fingerprint = None
 
 
 def clear_model_cache(model_name: str) -> None:
-    """Remove fastembed's cached files for *model_name* so the next load re-downloads."""
+    """Remove fastembed's cached files and the plain-file copy of *model_name* so the next load re-downloads."""
     if not os.path.isdir(FASTEMBED_CACHE_DIR):
         return
     suffix = model_name.split("/")[-1]
-    for d in glob.glob(os.path.join(FASTEMBED_CACHE_DIR, f"models--*{suffix}*")):
+    stale = glob.glob(os.path.join(FASTEMBED_CACHE_DIR, f"models--*{suffix}*"))
+    copy = local_copy(model_name, FASTEMBED_CACHE_DIR)
+    if copy and os.path.isdir(copy):
+        stale.append(copy)
+    for d in stale:
         logger.warning("Removing corrupted model cache: %s", d)
         shutil.rmtree(d, ignore_errors=True)
 
@@ -56,8 +64,10 @@ def _get_model():
                 from fastembed import TextEmbedding
 
                 os.makedirs(FASTEMBED_CACHE_DIR, exist_ok=True)
+                register_custom(EMBEDDING_MODEL)
 
                 for attempt in range(_MAX_LOAD_RETRIES):
+                    local = None
                     try:
                         logger.info("Loading embedding model: %s (attempt %d)", EMBEDDING_MODEL, attempt + 1)
                         with warnings.catch_warnings():
@@ -66,7 +76,10 @@ def _get_model():
                             if os.environ.get("AGENTS_MODEL_PATH"):
                                 options["specific_model_path"] = os.environ["AGENTS_MODEL_PATH"]
                                 options["local_files_only"] = True
+                            elif local := materialize(EMBEDDING_MODEL, FASTEMBED_CACHE_DIR):
+                                options["specific_model_path"] = local
                             model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR, **options)
+                            cap_tokens(model)
                         logger.info("Embedding model loaded")
                         break
                     except Exception:
@@ -77,6 +90,11 @@ def _get_model():
                             )
                             clear_model_cache(EMBEDDING_MODEL)
                         else:
+                            if local and not os.environ.get("AGENTS_MODEL_PATH"):
+                                # Single-attempt transports (the daemon) would reuse a broken
+                                # plain-file copy on every later load; the next one downloads it again.
+                                logger.warning("Removing the plain-file copy that failed to load: %s", local)
+                                shutil.rmtree(local, ignore_errors=True)
                             raise
                 # Set before the model is published.
                 _model_fingerprint = _loaded_fingerprint(model)
@@ -91,7 +109,9 @@ def _loaded_fingerprint(model) -> str:
     process can move the cache's refs/main before it ends, so the revision is
     taken from the directory fastembed opened (``<cache dir>:<commit>``, which
     equals what ``fingerprint()`` reads from refs when one cache directory
-    matches the model). Other directories fall back to refs.
+    matches the model). A plain-file copy, which is no snapshot directory, gets
+    its pinned revision in ``compute_fingerprint``; other directories fall back to
+    refs.
     """
     from src.engine.fingerprint import compute_fingerprint
     revision = None
@@ -131,17 +151,17 @@ def model_fingerprint() -> str:
 def _embed_texts(texts: List[str]) -> np.ndarray:
     """Embed documents/passages in bounded batches. Returns (N, D) numpy array."""
     model = _get_model()
-    return np.array(list(model.passage_embed(texts, batch_size=EMBEDDING_BATCH_SIZE)))
+    return np.array(list(model.passage_embed([as_passage(EMBEDDING_MODEL, t) for t in texts],
+                                             batch_size=EMBEDDING_BATCH_SIZE)))
 
 
 def _embed_query(text: str) -> np.ndarray:
     """Embed a single query. Returns (D,) numpy array.
 
-    Uses query_embed() which adds model-specific query prefixes
-    for better retrieval quality.
+    The model's query template (a prefix or task instruction) is applied first.
     """
     model = _get_model()
-    return np.array(list(model.query_embed([text])))[0]
+    return np.array(list(model.query_embed([as_query(EMBEDDING_MODEL, text)])))[0]
 
 
 # One inference worker for every embedding entry point in the shared runtime.

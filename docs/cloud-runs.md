@@ -43,6 +43,7 @@ claude.ai/code. Set these explicitly, because the defaults did not work:
 |---|---|---|
 | model | `claude-opus-5-5` (or the model being evaluated) | the routine was first created without one and had to be updated; a routine without a model silently runs the default model (`Agents-issues` ran `claude-sonnet-5-5` until 2026-10-02, visible as `init: model=` in its run log) |
 | allowed tools | Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, **Agent, Workflow** | the runbook fans out through the Workflow tool; without Agent/Workflow the session cannot |
+| effort | a first event `/effort xhigh`, before the prompt | without it the session runs Opus 5.5 at its default `medium` effort (see [Effort](#effort)) |
 | repository | this repository | the session clones it |
 | environment | one that allows Hugging Face | see the egress note below |
 
@@ -131,6 +132,52 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 | Some launches, and a `curl` inside a session, were denied by the auto-mode classifier | the classifier judged the command a bypass | not worked around in 2026-09: rephrase the request, or run that step yourself |
 | Cloud credit counter does not move | not established | check usage in the account settings before relying on included credits |
 
+## Eval routine
+
+The [A/B eval flow](../flows/ab-eval.md) answers with Opus and judges every model's
+answers through one routine, `Agents-eval`, fired once per run with a short text. Its
+sessions follow
+[Answering and judging prepared runs](../evals/ablation/README.md#answering-and-judging-prepared-runs-cloud)
+on the experiment's branch, so they need no install and no embedding model. The flow
+creates the routine when `RemoteTrigger` `list` shows none of that name:
+
+| Setting | Value |
+|---|---|
+| name | `Agents-eval` |
+| model | `claude-opus-5-5` |
+| allowed tools | Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow |
+| effort | a first event `/effort xhigh`, before the prompt (see [Effort](#effort)) |
+| repository | this repository |
+| environment | the default cloud environment |
+| connectors | none: `create` attached the account's connectors on 2026-10-02 although the body named none, so clear them with `update` and `clear_mcp_connections: true` |
+| schedule | `create` needs one, so give `run_once_at` a far-future date (`2099-01-01T00:00:00Z`) and set `enabled: true`; it is fired with `run` |
+
+The prompt:
+
+```text
+Answer and judge prepared eval runs in this repository.
+
+The text attached to this run names a branch ("branch:"), the run directories to
+answer ("answer:"), the run directories to judge ("judge:", by default the answer
+runs) and an experiment name ("name:"). First: git fetch origin <branch> && git
+checkout <branch>. Then follow the section "Answering and judging prepared runs
+(cloud)" of evals/ablation/README.md on that branch exactly. I explicitly want the
+Workflow tool used for its answers and judges fan-out steps; multi-agent
+orchestration is intended here. Agents-Core MCP is not available in this session:
+do not route, just follow the runbook.
+
+Push the results to claude/eval-<name> as the README says and end with its final
+report.
+
+Ultracode: use multi-agent orchestration only where the runbook fans out (its answers and judges Workflow steps). Do not add agents that re-judge, edit or re-verify cases, answers or verdicts, and do not change any other runbook step: this run is a measurement.
+```
+
+Fire it with `RemoteTrigger` `run` and a body such as
+`{"text": "branch: eval/embed-harrier\nanswer: evals/ablation/runs/embed-harrier/opus\nname: embed-harrier-opus"}`.
+Runs with different `name:` values can go at once, each pushing its own branch. On
+2026-10-02 a one-off routine of the same kind, which also built the contexts, took
+19 minutes for 48 answers and 48 verdicts.
+
 ## Changing a routine
 
 `RemoteTrigger` `update` replaces the routine's `job_config.ccr` as a whole.
@@ -147,10 +194,25 @@ Read the routine with `get` first, change only the intended fields, and compare
 the saved prompt and `session_context` with what you sent. `list` returns
 the same objects for every routine.
 
-The routine configuration has no reasoning effort setting: an `effort` key in
-`session_context` is accepted and silently dropped. Claude Code documents
-`CLAUDE_CODE_EFFORT_LEVEL` for its sessions; whether a routine run honours it
-when set in the cloud environment was not verified.
+### Effort
+
+A routine session runs Opus 5.5 at its default effort, `medium`, unless the
+routine's first event is the command `/effort <level>`. The session runs the
+command before the prompt event, reports "Set effort level to xhigh (this session
+only)", and works at that level; subagents and Workflow agents inherit it. A probe
+routine verified this on 2026-10-03. Without the command, the main session and a
+subagent both saw `<reasoning_effort>10</reasoning_effort>` in their context. With
+`/effort xhigh`, both saw `<reasoning_effort>40</reasoning_effort>`. The working
+routines start with `/effort xhigh`. The `Effort-probe` routine repeats the check:
+fire it with `run` and read its log with `get_run_log`.
+
+To add it, prepend an event like the prompt event, with content `/effort xhigh`
+and a new `uuid`, and send `events`, `session_context` and the execution target as
+above. With two events, `derived_state.prompt` reads empty; the prompt is still in
+`events`. The routine configuration has no other effort setting:
+- `session_context` silently drops an `effort` key;
+- `session_context.environment_variables`, such as `CLAUDE_CODE_EFFORT_LEVEL`, is
+  refused with "is not supported on triggers".
 
 ## Cloud environment with Agents-Core
 
@@ -401,7 +463,8 @@ its tests exercise both that installed workflow and the reusable template.
    target and this repository as sources; when the target is IEZhu/Agents,
    select it once. Set model `claude-opus-5-5`, allowed tools
    Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Agent, Workflow, and
-   only the connectors it needs. Look up the owner's GitHub account and verify
+   only the connectors it needs. Make `/effort xhigh` the routine's first event
+   ([Effort](#effort)). Look up the owner's GitHub account and verify
    its login and numeric user ID before pinning `AGENT_OWNER` and
    `AGENT_OWNER_ID` in the routine prompt. For the GitHub.com `WonderMr` account,
    the verified numeric ID is `5370211`; other installations must verify their

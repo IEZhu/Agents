@@ -7,18 +7,22 @@ import json
 import os
 
 INDEX_SCHEMA = 2
-PREPROCESSING = "fastembed-query-passage-v1"
+# v2: model prompt templates applied before embedding (src/engine/embedding_prompts.py).
+PREPROCESSING = "prompt-templates-v2"
 
 
 def compute_fingerprint(model=None, revision=None):
     """Uncached fingerprint; *revision* names the snapshot a loaded model came from.
 
-    ``AGENTS_MODEL_ARTIFACT`` takes precedence; without either, the revision is
-    read from the model cache's refs.
+    ``AGENTS_MODEL_ARTIFACT`` takes precedence, then *revision*, then the pinned
+    revision of a model that loads from a plain-file copy
+    (``embedding_prompts.materialize``); without any of them, the revision is read
+    from the model cache's refs.
     """
     from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
+    from src.engine.embedding_prompts import MAX_INPUT_TOKENS, pinned_revision, templates
     model = model or EMBEDDING_MODEL
-    revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or revision
+    revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or revision or pinned_revision(model)
     if not revision:
         # HF snapshot names are immutable commit IDs. Non-HF artifacts must be
         # pinned by AGENTS_MODEL_ARTIFACT in the installed service configuration.
@@ -28,7 +32,8 @@ def compute_fingerprint(model=None, revision=None):
             if ref.is_file(): refs.append(cache.name + ":" + ref.read_text().strip())
         revision = ",".join(refs) or "unresolved"
     payload = {"model": model, "revision": revision, "schema": INDEX_SCHEMA,
-               "preprocessing": PREPROCESSING, "fastembed": version("fastembed")}
+               "preprocessing": PREPROCESSING, "prompts": list(templates(model)),
+               "max_input_tokens": MAX_INPUT_TOKENS, "fastembed": version("fastembed")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 

@@ -1,6 +1,6 @@
 """Build with/without-component contexts for one sweep run.
 
-    python evals/ablation/build_contexts.py RUN_DIR
+    python evals/ablation/build_contexts.py RUN_DIR [--arm with|without]
 
 Reads RUN_DIR/cases/<component>.json ({"component": id, "cases": [...]}) and
 writes RUN_DIR/ctx/<token>.md plus RUN_DIR/plan.json (token -> case, arm,
@@ -20,6 +20,20 @@ its context is known to be unchanged; otherwise it is deleted and answered again
 - skill-*:   with = production skills + this skill (added if retrieval missed it);
              without = production skills minus this skill
 - implant-*: with = exactly this implant;    without = no implant
+
+`--arm` compares two revisions or two settings instead of one component: it builds
+only the production context of this checkout and environment and records it as that
+arm, keeping the other arm's entries. Run it once per arm, for example `--arm with`
+in the candidate's checkout or with its `EMBEDDING_MODEL`, and `--arm without` in the
+baseline's. The component name is then just the experiment's name. A case whose two
+contexts are equal is dropped from both arms and listed in build_errors.json as
+"arms identical", with the context's hash: the change does not reach it, and
+rebuilding either arm with that context leaves the case out again. An arm written
+while the other arm, already built, has no context for the case is listed as "other
+arm not built" until that arm is rebuilt. The arms' prompts may differ, but not the
+conversation: when a case's history or message changed since the other arm was
+built, that arm's context is dropped and listed the same way. build_meta.json
+records each arm.
 """
 import asyncio
 import hashlib
@@ -37,6 +51,15 @@ RUN_ENV = {"LANGFUSE_TRACING_ENABLED": "false", "AGENTS_AUTO_UPDATE": "0",
 
 
 PROMPT_SOURCES = ("agents", "skills", "implants", "rules", "src", "evals/ablation", "evals/runners")
+ARMS = ("with", "without")
+
+
+def token_of(component: str, case_id: str, arm: str) -> str:
+    return hashlib.sha1(f"{component}:{case_id}:{arm}".encode()).hexdigest()[:12]
+
+
+def other_arm(arm: str) -> str:
+    return ARMS[1 - ARMS.index(arm)]
 
 
 def ctx_sha256(text: str) -> str:
@@ -69,6 +92,100 @@ def skill_arm(retrieved: list[dict], filename: str, arm: str, forced: list[dict]
     if arm == "without":
         return [s for s in retrieved if s["filename"] != filename]
     return retrieved if any(s["filename"] == filename for s in retrieved) else retrieved + forced
+
+
+IDENTICAL = "arms identical"
+UNPAIRED = "other arm not built"
+
+
+def start_plan(previous: dict, previous_errors: list, arm: str | None,
+               cases: set | None = None) -> tuple[dict, list]:
+    """The plan and errors a build starts from.
+
+    A two-arm build starts empty. An --arm build keeps the other arm's entries and
+    errors and every "arms identical" record, whatever arm found it, and rebuilds its
+    own entries and errors. With `cases`, the (component, case id) pairs the run still
+    has, the entries and records of a removed or renamed case are dropped.
+    """
+    if arm is None:
+        return {}, []
+
+    def current(item: dict) -> bool:
+        return cases is None or (item.get("component"), item.get("case")) in cases
+
+    return ({t: p for t, p in previous.items() if p.get("arm") != arm and current(p)},
+            [e for e in previous_errors
+             if (e.get("arm") == other_arm(arm) or e.get("error") == IDENTICAL) and current(e)])
+
+
+def place_arm(plan: dict, errors: list, component: str, case_id: str, arm: str, text: str,
+              other_built: bool, conversation: str | None = None) -> bool:
+    """Whether an --arm build writes `text` for this case; updates `plan` and `errors`.
+
+    Arms with the same context are both left out under an "arms identical" record
+    holding the context's hash, so rebuilding either arm with that context leaves
+    the case out again. A changed context is written. The case is then "other arm
+    not built" while the other arm, already built (`other_built`), has neither a
+    context nor an error for it. The arms' prompts may differ by design, but they
+    must answer one conversation: the other arm's entry is dropped when its
+    `conversation_sha256` differs from `conversation`, the hash of this case's
+    conversation now.
+    """
+    digest = ctx_sha256(text)
+
+    def this_case(error: dict) -> bool:
+        return error.get("component") == component and error.get("case") == case_id
+
+    record = next((e for e in errors if this_case(e) and e.get("error") == IDENTICAL), None)
+    if record is not None:
+        if record.get("ctx_sha256") == digest:
+            return False
+        errors.remove(record)
+    elif other := identical_other_arm(plan, component, case_id, arm, text):
+        plan.pop(other)
+        # The other arm is built after all: its "not built" note gives way to the match.
+        errors[:] = [e for e in errors if not (this_case(e) and e.get("error") == UNPAIRED)]
+        errors.append({"component": component, "case": case_id, "error": IDENTICAL, "arm": arm,
+                       "ctx_sha256": digest})
+        return False
+    other_token = token_of(component, case_id, other_arm(arm))
+    if conversation and plan.get(other_token, {}).get("conversation_sha256") not in (None, conversation):
+        plan.pop(other_token)  # built for another version of the case: rebuild it before judging
+    errors[:] = [e for e in errors if not (this_case(e) and e.get("error") == UNPAIRED)]
+    reported = any(this_case(e) and e.get("arm") == other_arm(arm) for e in errors)
+    if other_built and other_token not in plan and not reported:
+        errors.append({"component": component, "case": case_id, "error": UNPAIRED, "arm": arm})
+    return True
+
+
+def identical_other_arm(plan: dict, component: str, case_id: str, arm: str, text: str) -> str | None:
+    """The other arm's token when its context equals this arm's `text`, else None."""
+    other = token_of(component, case_id, other_arm(arm))
+    return other if plan.get(other, {}).get("ctx_sha256") == ctx_sha256(text) else None
+
+
+def record_failure(errors: list, component: str, case_id: str, error: str, arm: str | None) -> None:
+    """Record a case whose context could not be built.
+
+    A failed --arm rebuild also drops the case's "arms identical" record: the failure
+    says nothing about whether the arms still match, and the case is a build gap.
+    """
+    if arm:
+        errors[:] = [e for e in errors if not (e.get("component") == component and e.get("case") == case_id
+                                               and e.get("error") == IDENTICAL)]
+    errors.append({"component": component, "case": case_id, "error": error, **({"arm": arm} if arm else {})})
+
+
+def merge_build_meta(existing: dict, arm: str | None, meta: dict) -> dict:
+    """build_meta.json content: the build's own meta, or one entry per arm for --arm builds.
+
+    A two-arm build's meta stands for both arms, so an --arm build after it keeps that
+    meta for the other arm.
+    """
+    if arm is None:
+        return meta
+    arms = existing.get("arms") or ({each: existing for each in ARMS} if "commit" in existing else {})
+    return {"arms": {**arms, arm: meta}}
 
 
 def build_meta() -> dict:
@@ -111,7 +228,7 @@ def conversation_block(case: dict) -> str:
     return "\n".join(parts)
 
 
-async def main(run_dir: Path) -> None:
+async def main(run_dir: Path, only_arm: str | None = None) -> None:
     # Checked before the imports below, which load the embedding model.
     case_files = sorted((run_dir / "cases").glob("*.json"))
     # A case file names its component twice; building from the wrong one would test
@@ -172,7 +289,8 @@ async def main(run_dir: Path) -> None:
 
     async def build(agent, query, component, arm):
         restore()
-        kind = component.split("-", 1)[0]
+        # An --arm build is the production context as this checkout and environment make it.
+        kind = component.split("-", 1)[0] if only_arm is None else None
         if kind == "skill":
             forced = store_records(skills.store, [f"{component}.mdc"])
 
@@ -192,9 +310,24 @@ async def main(run_dir: Path) -> None:
                         "rules": list(rules), "tier": tier}
 
     (run_dir / "ctx").mkdir(exist_ok=True)
-    (run_dir / "build_meta.json").write_text(json.dumps(build_meta(), indent=1) + "\n")
+    meta_path = run_dir / "build_meta.json"
+    existing_meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    meta = merge_build_meta(existing_meta, only_arm, build_meta())  # published with the completed plan
     previous = json.loads((run_dir / "plan.json").read_text()) if (run_dir / "plan.json").exists() else {}
-    plan, errors = {}, list(removed_errors)
+    errors_path = run_dir / "build_errors.json"
+    previous_errors = json.loads(errors_path.read_text()) if errors_path.exists() else []
+    cases = {(spec["component"], case["id"]) for path, spec in specs.items() if path.stem not in removed
+             for case in spec.get("cases", [])}
+    plan, kept_errors = start_plan(previous, previous_errors, only_arm, cases)
+    if only_arm:
+        # Until this build completes, the plan holds no entry of the arm being rebuilt,
+        # so an interrupted build cannot leave stale contexts to pair with the other arm.
+        (run_dir / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n")
+    errors = list(removed_errors) + kept_errors
+    arm_note = {"arm": only_arm} if only_arm else {}
+    # A two-arm build's meta has no "arms": it built both.
+    other_built = only_arm is not None and (other_arm(only_arm) in existing_meta.get("arms", {})
+                                            or "commit" in existing_meta)
     for path in case_files:
         if path.stem in removed:
             continue
@@ -203,31 +336,54 @@ async def main(run_dir: Path) -> None:
         for case in spec["cases"]:
             try:
                 built = {arm: await build(case["agent"], case["user_message"], component, arm)
-                         for arm in ("with", "without")}
+                         for arm in ((only_arm,) if only_arm else ARMS)}
             except Exception as exc:  # one bad case must not stop the batch
-                errors.append({"component": component, "case": case["id"], "error": repr(exc)})
+                record_failure(errors, component, case["id"], repr(exc), only_arm)
                 print(f"ERROR {component}/{case['id']}: {exc!r}", flush=True)
                 continue
-            if built["with"][0] == built["without"][0]:
-                errors.append({"component": component, "case": case["id"], "error": "arms identical"})
+            texts = {arm: f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"
+                     for arm, (prompt, _) in built.items()}
+            if only_arm is None and built["with"][0] == built["without"][0]:
+                errors.append({"component": component, "case": case["id"], "error": IDENTICAL,
+                               "ctx_sha256": ctx_sha256(texts["with"])})
                 continue
+            conversation = ctx_sha256(conversation_block(case))
+            if only_arm and not place_arm(plan, errors, component, case["id"], only_arm, texts[only_arm], other_built,
+                                          conversation):
+                # Neither arm is worth answering: no context of this case stays.
+                for arm in ARMS:
+                    (run_dir / "ctx" / f"{token_of(component, case['id'], arm)}.md").unlink(missing_ok=True)
+                continue
+            if only_arm and (other := token_of(component, case["id"], other_arm(only_arm))) not in plan:
+                (run_dir / "ctx" / f"{other}.md").unlink(missing_ok=True)  # dropped for another conversation
             for arm, (prompt, meta) in built.items():
-                token = hashlib.sha1(f"{component}:{case['id']}:{arm}".encode()).hexdigest()[:12]
-                text = f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"
-                drop_stale_answer(run_dir, token, text, previous)
-                (run_dir / "ctx" / f"{token}.md").write_text(text, encoding="utf-8")
+                token = token_of(component, case["id"], arm)
+                drop_stale_answer(run_dir, token, texts[arm], previous)
+                (run_dir / "ctx" / f"{token}.md").write_text(texts[arm], encoding="utf-8")
                 plan[token] = {"component": component, "case": case["id"], "arm": arm,
-                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(text), **meta}
+                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(texts[arm]),
+                               "conversation_sha256": conversation, **meta}
+            if only_arm:
+                print(f"{component}/{case['id']}: {case['agent']} arm={only_arm} "
+                      f"tier={built[only_arm][1]['tier']} {len(built[only_arm][0])} chars", flush=True)
+                continue
             delta = len(built["with"][0]) - len(built["without"][0])
             print(f"{component}/{case['id']}: {case['agent']} tier={built['with'][1]['tier']} +{delta} chars", flush=True)
     restore()
     (run_dir / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n")
     (run_dir / "build_errors.json").write_text(json.dumps(errors, ensure_ascii=False, indent=1) + "\n")
+    meta_path.write_text(json.dumps(meta, indent=1) + "\n")
     print(f"{len(plan)} contexts, {len(errors)} errors -> {run_dir}")
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build with/without contexts for one ablation run.")
+    parser.add_argument("run_dir", type=Path)
+    parser.add_argument("--arm", choices=ARMS, help="build only this arm's production context (see the module docstring)")
+    args = parser.parse_args()
     for key, value in RUN_ENV.items():
         os.environ.setdefault(key, value)
     sys.path.insert(0, str(ROOT))
-    asyncio.run(main(Path(sys.argv[1]).resolve()))
+    asyncio.run(main(args.run_dir.resolve(), only_arm=args.arm))
