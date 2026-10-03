@@ -140,7 +140,12 @@ def main(argv=None) -> int:
     if len(argv) != 1:
         print("usage: python -m src.model_migration [--print-model] <path to .env>", file=sys.stderr)
         return 2
-    changed = migrate_env_file(argv[0])
+    level = logger.level
+    logger.setLevel(logging.ERROR)  # the installers print the outcome once, below
+    try:
+        changed = migrate_env_file(argv[0])
+    finally:
+        logger.setLevel(level)
     if changed:
         print(f"Embedding model switched from {changed[0]} to {changed[1]}")
     return 0
