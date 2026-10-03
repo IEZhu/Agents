@@ -137,7 +137,9 @@ Skip the writing when the request names a case set; still check it.
    filled in.
 2. Commit to `eval/<name>`: `opus` with `cases/`, `ctx/`, `plan.json` and the build
    files, and each hosted run with `cases/`, `plan.json`, `answers/` and
-   `hosted.json`, without `ctx/`. Push the branch.
+   `hosted.json`, without `ctx/`. Push the branch. It is never merged: the
+   [session playbook](../docs/session-playbook.md) keeps eval outputs out of the main
+   line, and the cloud routine reads the runs from this branch.
 
 ## 6. Opus answers and judging (cloud)
 
@@ -168,7 +170,10 @@ After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
    `expected_agent` fields (the loader reads inline texts) and check the labels as
    in step 3.
 2. Skills and implants:
-   `python -m evals.runners.run_retrieval --expected-from-agent --json`.
+   `python -m evals.runners.run_retrieval --expected-from-agent --json`, then again with
+   `--dataset evals/datasets/routing_<lang>.jsonl` when a set for the hypothesis
+   language exists (step 1). `--dataset` replaces the default set, so the two runs
+   report the base set and the language set separately.
 3. Semantic cache routing:
    `python -m evals.runners.run_cache_routing --dataset evals/datasets/routing.jsonl --json`,
    adding `--dataset evals/datasets/routing_<lang>.jsonl` when a set for the
