@@ -36,7 +36,7 @@ class TextEmbedding:
         vector = generator.random(8)
         return vector / np.linalg.norm(vector)
 
-    def passage_embed(self, texts):
+    def passage_embed(self, texts, **kwargs):
         return (self._vector(text) for text in texts)
 
     def query_embed(self, texts):

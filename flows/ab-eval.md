@@ -177,7 +177,7 @@ After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
    Compare models at equal coverage, because similarity scales differ, and propose
    the `ROUTER_SIMILARITY_THRESHOLD` that keeps the baseline's precision.
 4. An embedding model needs its query and passage prompts from its model card in
-   `src/engine/embedder.py` before any measurement; without them the comparison is
+   `src/engine/embedding_prompts.py` before any measurement; without them the comparison is
    not fair to it.
 
 ## 8. Analyze
