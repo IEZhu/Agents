@@ -3,7 +3,8 @@
 // Prints JSON: the sign-in requests made and whether the sign-in section is shown, or, for the
 // "search" scenario, what the list shows after each step of the search sequence, or, for
 // "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
-// "agents", what the Agents tab lists, finds and shows, and which listings the page requested.
+// "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
+// for "ui_panes" and "ui_signout", which pane and header controls show as items open and close.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -11,9 +12,15 @@ const [, , pagePath, scenario] = process.argv;
 const html = readFileSync(pagePath, "utf8");
 const script = html.match(/<script nonce="\{\{NONCE\}\}">([\s\S]*?)<\/script>/)[1];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Stub elements start with the classes the markup gives them, so what the page hides starts hidden.
+const markupClasses = new Map();
+for (const [tag] of html.replace(/<script[\s\S]*?<\/script>/g, "").matchAll(/<[a-z][^>]*\sid="[^"]+"[^>]*>/g)) {
+  const cls = tag.match(/\sclass="([^"]*)"/);
+  markupClasses.set(tag.match(/\sid="([^"]+)"/)[1], cls ? cls[1].split(/\s+/).filter(Boolean) : []);
+}
 
 function element(id = "", tag = "") {
-  const classes = new Set(["signin"].includes(id) ? ["hidden"] : []);
+  const classes = new Set(markupClasses.get(id) || []);
   const handlers = {};
   const self = {
     id, tag, attrs: {}, classes, children: [], dataset: {}, style: {}, value: "", textContent: "", className: "",
@@ -45,6 +52,9 @@ const puts = [];
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
 let releasePersonaPut = null;  // persona_race: the test decides when the PUT answers
+const deletes = [];
+let holdDelete = false, releaseDelete = null;  // ui_panes: a delete that answers late
+let holdFlowGet = false, releaseFlowGet = null;  // ui_signout: a flow that loads past the sign-in screen
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
@@ -58,11 +68,17 @@ async function fetchStub(path, init = {}) {
     }
     await sleep(10);  // keep the attempt pending while other 401s arrive
     if ("code" in body) return respond(401, { error: "code_invalid" });
-    if (scenario === "refused") return respond(401, { error: "sign_in_required" });
+    if (scenario === "refused" || scenario === "ui_signout") return respond(401, { error: "sign_in_required" });
     if (scenario !== "cookie_lost") signedIn = true;
     return respond(200, { status: "ok" });
   }
   if (!signedIn) return respond(401, { error: "session_required" });
+  if (isUi && init.method === "DELETE") {
+    deletes.push(JSON.parse(init.body));
+    if (holdDelete) await new Promise((resolve) => { releaseDelete = resolve; });
+    return respond(200, { status: "deleted" });
+  }
+  if (isUi && holdFlowGet && path.startsWith("/ui/api/flow?")) await new Promise((resolve) => { releaseFlowGet = resolve; });
   if (isUi) return respond(...uiData(path, init));
   if (scenario === "agents") return respond(...agentsData(path, init));
   if (scenario === "search") {
@@ -304,6 +320,12 @@ const snap = (id) => {
 };
 const open = async (index) => { fire(buttons()[index], "click"); await sleep(40); };
 const seg = (id, index) => byId(id).children[index];
+// Which pane shows, and which controls the header shows for it.
+const panes = () => ({
+  shown: ["welcome", "editor", "component"].filter((id) => !byId(id).classes.has("hidden")),
+  group: !byId("item-actions").classes.has("hidden"), pane: byId("item-actions").dataset.pane ?? null,
+  e_actions: !byId("e-actions").classes.has("hidden"), c_actions: !byId("c-actions").classes.has("hidden"),
+});
 
 if (scenario === "render") {
   const chunks = [];
@@ -320,13 +342,71 @@ if (scenario === "render") {
 
 if (isUi) {
   const out = {};
+  if (scenario === "ui_panes") {
+    const steps = { start: panes() };
+    await open(0);
+    steps.flow = panes();
+    await openTab("rules");
+    steps.rules = panes();
+    await open(0);
+    steps.rule = { ...panes(), title: byId("c-title").textContent };
+    await openTab("flows");
+    steps.back_to_flows = panes();
+    await open(0);
+    fire(byId("delete"), "click");
+    await sleep(40);
+    steps.deleted = { ...panes(), deletes: deletes.length };
+    // A delete that answers late closes the deleted flow, even one opened again meanwhile…
+    holdDelete = true;
+    await open(0);
+    fire(byId("delete"), "click");
+    await sleep(5);
+    await open(0);
+    releaseDelete();
+    await sleep(40);
+    steps.late_delete_same_flow = panes();
+    // …and leaves anything else the user opened meanwhile open.
+    await open(0);
+    fire(byId("delete"), "click");
+    await sleep(5);
+    await open(1);
+    releaseDelete();
+    await sleep(40);
+    steps.late_delete_other_flow = { ...panes(), title: byId("title").textContent };
+    await open(1);
+    fire(byId("delete"), "click");
+    await sleep(5);
+    await openTab("rules");
+    await open(0);
+    releaseDelete();
+    await sleep(40);
+    steps.late_delete_rule = { ...panes(), title: byId("c-title").textContent, deletes: deletes.map((d) => d.id) };
+    console.log(JSON.stringify(steps));
+    process.exit(0);
+  }
+  if (scenario === "ui_signout") {
+    holdFlowGet = true;
+    const opening = context.openFlow("user:doc");  // its GET was sent while still signed in
+    await sleep(5);
+    signedIn = false;  // the session ends while that GET is pending
+    await context.api("/ui/api/workspaces").catch(() => {});  // automatic sign-in is refused
+    const signedOut = { signin: !byId("signin").classes.has("hidden"), main_hidden: byId("main").classes.has("hidden") };
+    holdFlowGet = false;
+    releaseFlowGet();
+    await opening.catch(() => {});
+    // Before a later request can fail and hide the controls again, as the persona catalog's does here.
+    const late = { ...panes(), title: byId("title").textContent };
+    await sleep(40);
+    console.log(JSON.stringify({ signed_out: signedOut, late, after: panes() }));
+    process.exit(0);
+  }
   out.stored_at_start = [...storage.entries()];
   out.initial_toc_hidden = byId("e-view").classes.has("toc-hidden");
   if (scenario === "ui_nostorage" || scenario.startsWith("ui_narrow")) {
     await open(0);
     out.opened = snap("e-view");
     fire(byId("e-toc"), "click");
-    out.after_toolbar = snap("e-view");
+    out.after_header_button = snap("e-view");
     out.stored_after = [...storage.entries()];
     console.log(JSON.stringify(out));
     process.exit(0);
@@ -351,7 +431,7 @@ if (isUi) {
   fire(eHide, "click");  // Keep open from the keyboard: focus reveals the dismissed panel, the pointer cannot
   out.dismissal.kept_open = { toc_hidden: eView.classes.has("toc-hidden"), dismissed: dismissed(eView) };
   fire(byId("e-toc"), "click");
-  out.dismissal.toolbar_hidden = { toc_hidden: eView.classes.has("toc-hidden"), dismissed: dismissed(eView) };
+  out.dismissal.header_hidden = { toc_hidden: eView.classes.has("toc-hidden"), dismissed: dismissed(eView) };
   await open(1);
   out.plain = { ...snap("e-view"), toc_button_hidden: byId("e-toc").classes.has("hidden") };
   await open(0);
@@ -411,7 +491,7 @@ if (scenario === "agents") {
   };
   await openTab("agents");
   out.list = { ...shown(), roles: buttons().map((b) => b.children.find((c) => c.tag === "small").textContent),
-               new_hidden: hidden("new") };
+               new_hidden: hidden("new"), header: panes() };
   await type("wireframe");  // a routing keyword of one agent, in no agent's name
   out.keyword = shown();
   await openTab("rules");
@@ -422,7 +502,8 @@ if (scenario === "agents") {
   out.by_name = shown();
   await type("");
   await open(0);
-  out.alpha = { ...pane(), view: snap("c-view"), body: byId("c-body").value, source_hidden: hidden("c-source") };
+  out.alpha = { ...pane(), view: snap("c-view"), body: byId("c-body").value, source_hidden: hidden("c-source"),
+                header: { ...panes(), seg: byId("c-seg").children.map((b) => b.textContent), toc: !hidden("c-toc") } };
   fire(byId("c-toggle"), "click");  // the switch is hidden; a click that still reaches it changes nothing
   await sleep(20);
   fire(seg("c-seg", 1), "click");

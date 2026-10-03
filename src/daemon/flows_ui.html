@@ -21,9 +21,24 @@
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
-header { flex: none; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+header { flex: none; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px;
   border-bottom: 1px solid var(--line); background: var(--panel); }
-header h1 { font-size: 16px; margin: 0 auto 0 0; }
+header h1 { font-size: 16px; margin: 0 auto 0 0; white-space: nowrap; }
+/* The open item's controls fill the header between the version and the tabs. */
+#item-actions { flex: 1 1 0; min-width: 0; display: flex; align-items: center;
+  padding-right: 8px; border-right: 1px solid var(--line); }
+#e-actions, #c-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+#item-actions button, #item-actions select { padding: 4px 8px; }
+#history { width: 10em; }
+#tabs { flex-wrap: wrap; }
+/* Below these widths the group takes its own header row: flows have more controls. */
+@media (max-width: 1249px) {
+  #item-actions[data-pane="editor"] { order: 1; flex-basis: 100%; padding-right: 0; border-right: 0; }
+}
+@media (max-width: 1023px) {
+  #item-actions { order: 1; flex-basis: 100%; padding-right: 0; border-right: 0; }
+}
+.item-title { overflow-wrap: anywhere; }
 select, input, button, textarea { font: inherit; color: inherit; }
 select, input { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
 button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
@@ -134,6 +149,7 @@ dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--p
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
 @media (max-width: 760px) {
+  header { padding: 8px 12px; }
   main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); }
   nav { border-right: 0; border-bottom: 1px solid var(--line); }
   .panes.split { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(12rem, 1fr)); }
@@ -145,6 +161,23 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <body>
 <header>
   <h1 id="version">Agents-Core {{VERSION}}</h1>
+  <div id="item-actions" class="hidden" role="group" aria-label="Item actions">
+    <div id="e-actions" class="hidden">
+      <div id="e-seg" class="seg inline" role="group" aria-label="Flow view"></div>
+      <button id="e-toc" class="hidden" aria-pressed="false">Contents</button>
+      <select id="history" title="Saved versions"></select>
+      <button id="toggle-upstream" class="hidden">Show built-in</button>
+      <button id="copy-user" class="hidden">Edit copy for me</button>
+      <button id="copy-repo" class="hidden">Edit copy for this repository</button>
+      <button id="delete" class="danger hidden">Delete</button>
+      <button id="save" class="primary">Save</button>
+    </div>
+    <div id="c-actions" class="hidden">
+      <div id="c-seg" class="seg inline" role="group" aria-label="Body view"></div>
+      <button id="c-toc" class="hidden" aria-pressed="false">Contents</button>
+      <button id="c-toggle" class="primary"></button>
+    </div>
+  </div>
   <div class="tabs" id="tabs" role="group" aria-label="Settings sections">
     <button data-tab="flows" class="active" aria-pressed="true">Flows</button>
     <button data-tab="agents" aria-pressed="false">Agents</button>
@@ -152,7 +185,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <button data-tab="skills" aria-pressed="false">Skills</button>
     <button data-tab="implants" aria-pressed="false">Implants</button>
   </div>
-  <button id="new" class="primary">New flow</button>
+  <button id="new">New flow</button>
 </header>
 <section id="signin" class="hidden"><h2>Sign in</h2><p>This browser could not sign in automatically. Automatic sign-in works only for a browser of the OS user who runs Agents-Core, and not after <code>flows-ui --auto off</code>. Run this command in the Agents-Core installation directory; it opens this page signed in for 30 days after your last visit:</p><p><code>.venv/bin/python -m src.daemon flows-ui</code></p></section>
 <main id="main">
@@ -164,7 +197,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div id="items"><div class="empty">Loading…</div></div>
   </nav>
   <section id="component" class="hidden detail">
-    <div class="bar"><strong id="c-title" class="grow"></strong><div id="c-seg" class="seg inline" role="group" aria-label="Body view"></div><button id="c-toc" class="hidden" aria-pressed="false">Contents</button><button id="c-toggle" class="primary"></button></div>
+    <strong id="c-title" class="item-title"></strong>
     <div id="c-meta" class="meta"></div>
     <p id="c-description"></p>
     <dl id="c-facts" class="facts hidden"></dl>
@@ -173,17 +206,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div class="pane hidden" id="c-source"><label for="c-body">Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
   </section>
   <section id="editor" class="hidden">
-    <div class="bar">
-      <strong id="title" class="grow"></strong>
-      <div id="e-seg" class="seg inline" role="group" aria-label="Flow view"></div>
-      <button id="e-toc" class="hidden" aria-pressed="false">Contents</button>
-      <select id="history" title="Saved versions"></select>
-      <button id="toggle-upstream" class="hidden">Show built-in</button>
-      <button id="copy-user" class="hidden">Edit copy for me</button>
-      <button id="copy-repo" class="hidden">Edit copy for this repository</button>
-      <button id="delete" class="danger hidden">Delete</button>
-      <button id="save" class="primary">Save</button>
-    </div>
+    <strong id="title" class="item-title"></strong>
     <div id="meta" class="meta"></div>
     <div id="notice" class="notice hidden"></div>
     <details id="persona" class="persona hidden">
@@ -260,6 +283,7 @@ function notice(text, kind = "") {
 
 function showSignIn() {
   $("main").classList.add("hidden");
+  $("item-actions").classList.add("hidden");
   $("tabs").classList.add("hidden");
   $("new").classList.add("hidden");
   $("signin").classList.remove("hidden");
@@ -491,12 +515,22 @@ function renderHistory(versions) {
   select.disabled = !versions.length;
 }
 
+// Each detail pane and the header controls that act on its item; the welcome pane has none.
+const PANE_ACTIONS = { editor: "e-actions", component: "c-actions" };
+// Shows one pane with its controls in the header. Signed out, the controls stay hidden, so a
+// response that arrives after the sign-in screen showed cannot reveal them.
+function showPane(pane) {
+  for (const id of ["welcome", ...Object.keys(PANE_ACTIONS)]) $(id).classList.toggle("hidden", id !== pane);
+  for (const [name, id] of Object.entries(PANE_ACTIONS)) $(id).classList.toggle("hidden", name !== pane);
+  const group = $("item-actions");
+  group.dataset.pane = pane;
+  group.classList.toggle("hidden", !(pane in PANE_ACTIONS) || $("main").classList.contains("hidden"));
+}
+
 function showEditor() {
   const flow = state.draft || state.current;
   const builtin = flow.source === "builtin";
-  $("welcome").classList.add("hidden");
-  $("component").classList.add("hidden");
-  $("editor").classList.remove("hidden");
+  showPane("editor");
   $("title").textContent = flow.title || flow.id;
   $("meta").textContent = state.draft
     ? "New " + (flow.source === "repo" ? "repository" : "personal") + " flow · " + flow.id
@@ -610,8 +644,11 @@ async function remove() {
     const body = { id: flow.id, expected_revision: flow.revision };
     if (flow.repo_key) body.repo = flow.repo_key;
     await api("/ui/api/flow", { method: "DELETE", body });
-    state.current = null; setDirty(false);
-    $("editor").classList.add("hidden"); $("welcome").classList.remove("hidden");
+    // The user may have opened something else while the request ran: close only this flow.
+    if (state.tab === "flows" && sameFlow(state.current, flow.id, flow.repo_key)) {
+      state.current = null; setDirty(false);
+      showPane("welcome");
+    }
     await loadList();
   } catch (error) { notice(error.message, "error"); }
 }
@@ -1103,7 +1140,7 @@ function setToc(hidden) {
   for (const view of mdViews) view.apply();
 }
 
-// A view lives inside `section`; `button` is the toolbar's "Contents" control for it.
+// A view lives inside `section`; `button` is its "Contents" control in the header.
 function createMdView(id, section, button) {
   const root = mdEl("div", "mdview hidden", section);
   root.setAttribute("id", id);
@@ -1375,8 +1412,7 @@ function renderComponentList(kind) {
 // The pane reads `state.item`, not the filtered list, so a query never closes the open item.
 function renderComponentDetail(kind) {
   const item = state.item;
-  $("component").classList.toggle("hidden", !item);
-  $("welcome").classList.toggle("hidden", !!item);
+  showPane(item ? "component" : "welcome");
   if (!item) return;
   // An agent is read-only: no switch, warning or bundle notice, its facts instead. Visibility goes
   // through `classList` on every render, so it holds after the switch's `className` is rewritten.
@@ -1464,9 +1500,7 @@ async function showTab(tab) {
   rebuildList((nav) => empty(nav, "Loading…"));
   showCount(0, 0, "");
   $("items").scrollTop = 0;
-  $("editor").classList.add("hidden");
-  $("component").classList.add("hidden");
-  $("welcome").classList.remove("hidden");
+  showPane("welcome");
   if (tab === "flows") {
     await loadList();
   } else {
