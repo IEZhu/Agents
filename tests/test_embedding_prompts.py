@@ -121,6 +121,11 @@ def _hub(calls, fail=False):
     return download
 
 
+def _entries(folder):
+    """A copy folder's entries without its per-revision lock files."""
+    return sorted(name for name in os.listdir(folder) if not name.endswith(".lock"))
+
+
 def _offline(*args, **kwargs):
     raise ConnectionError("no network")
 
@@ -136,7 +141,7 @@ def test_exports_with_weight_files_load_from_a_pinned_plain_copy(monkeypatch, tm
     assert calls == [("onnx-community/embeddinggemma-300m-ONNX", revision,
                       ["onnx/model.onnx", "onnx/model.onnx_data", "*.json", "tokenizer*"])]
     assert target == os.fspath(tmp_path / "local" / "google--embeddinggemma-300m" / revision)
-    assert os.listdir(os.path.dirname(target)) == [revision]  # no staging directory left
+    assert _entries(os.path.dirname(target)) == [revision]  # no staging directory left
     with open(f"{target}/tokenizer_config.json") as stream:
         assert json.load(stream)["model_max_length"] == embedding_prompts.MAX_INPUT_TOKENS
 
@@ -166,6 +171,22 @@ def test_linked_files_of_a_download_are_published_as_plain_files(monkeypatch, tm
         assert stream.read() == "weights"
 
 
+def test_a_staging_directory_left_by_a_killed_download_is_removed(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    model = "microsoft/harrier-oss-v1-270m"
+    target = embedding_prompts.local_copy(model, str(tmp_path))
+    revision = os.path.basename(target)
+    orphan = os.path.join(os.path.dirname(target), f".partial-{revision}")
+    os.makedirs(os.path.join(orphan, "onnx"))
+    with open(os.path.join(orphan, "onnx", "model.onnx_data"), "w") as stream:
+        stream.write("half a download")
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _hub([]))
+    assert embedding_prompts.materialize(model, str(tmp_path)) == target
+    assert _entries(os.path.dirname(target)) == [revision]
+    assert not os.path.exists(os.path.join(target, "onnx", "model.onnx_data"))  # nothing carried over
+
+
 def test_a_failed_download_publishes_nothing(monkeypatch, tmp_path):
     import huggingface_hub
 
@@ -173,7 +194,7 @@ def test_a_failed_download_publishes_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(huggingface_hub, "snapshot_download", _hub([], fail=True))
     with pytest.raises(ConnectionError):
         embedding_prompts.materialize(model, str(tmp_path))
-    assert os.listdir(os.path.dirname(embedding_prompts.local_copy(model, str(tmp_path)))) == []
+    assert _entries(os.path.dirname(embedding_prompts.local_copy(model, str(tmp_path)))) == []
 
 
 @pytest.mark.parametrize("download_fails", [False, True])
@@ -193,7 +214,7 @@ def test_a_copy_another_process_published_first_is_used(monkeypatch, tmp_path, d
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", racing)
     assert embedding_prompts.materialize(model, str(tmp_path)) == target
-    assert os.listdir(os.path.dirname(target)) == [os.path.basename(target)]
+    assert _entries(os.path.dirname(target)) == [os.path.basename(target)]
     assert not os.path.exists(os.path.join(target, "onnx"))  # the other process's copy stays as it was
 
 

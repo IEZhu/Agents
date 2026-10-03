@@ -110,26 +110,42 @@ def materialize(model: str, cache_dir: str) -> str | None:
     The Hugging Face cache keeps each file as a symlink into its own blob directory,
     and ONNX Runtime refuses external weights outside the model file's directory
     ("External data path escapes model directory"). A local_dir download holds real
-    files side by side. The pinned revision downloads into a private staging
-    directory that is renamed into place only when complete, so a published copy
-    never mixes revisions or writers, and a failed download leaves earlier copies as
-    they were. A published copy loads without the Hub (offline, HF_HUB_OFFLINE).
-    Returns None for other models.
+    files side by side. The pinned revision downloads, under a lock per revision,
+    into a staging directory that is renamed into place only when complete, so a
+    published copy never mixes revisions or writers, and a failed download leaves
+    earlier copies as they were. A staging directory left by a killed download is
+    removed before the next one starts. A published copy loads without the Hub
+    (offline, HF_HUB_OFFLINE). Returns None for other models.
     """
     target = local_copy(model, cache_dir)
     if target is None:
         return None
     import os
     import shutil
-    import tempfile
 
     if os.path.isfile(os.path.join(target, COMPLETE)):
         return target
     from huggingface_hub import snapshot_download
 
+    from src.file_lock import file_lock
+
     spec = _entry(LOCAL_COPIES, model)[1]
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    staging = tempfile.mkdtemp(prefix=".partial-", dir=os.path.dirname(target))
+    parent = os.path.dirname(target)
+    os.makedirs(parent, exist_ok=True)
+    with file_lock(os.path.join(parent, f".{spec['revision']}.lock")):
+        if os.path.isfile(os.path.join(target, COMPLETE)):
+            return target  # another process published it while this one waited
+        staging = os.path.join(parent, f".partial-{spec['revision']}")
+        shutil.rmtree(staging, ignore_errors=True)  # left by a download that was killed
+        os.makedirs(staging)
+        _download(spec, staging, target, snapshot_download)
+    return target
+
+
+def _download(spec: dict, staging: str, target: str, snapshot_download) -> None:
+    import os
+    import shutil
+
     try:
         snapshot_download(spec["hf"], revision=spec["revision"], local_dir=staging,
                           allow_patterns=["onnx/model.onnx", *spec["files"], "*.json", "tokenizer*"])
@@ -139,13 +155,12 @@ def materialize(model: str, cache_dir: str) -> str | None:
             stream.write(spec["revision"])
         os.rename(staging, target)
     except Exception:
-        # Another process may have published this revision meanwhile: its copy then
-        # serves, whether this download failed or lost the rename.
+        # A copy published meanwhile (by a process without this lock) still serves,
+        # whether this download failed or lost the rename.
         if not os.path.isfile(os.path.join(target, COMPLETE)):
             raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-    return target
 
 
 # Input length and document batch size (config.EMBEDDING_BATCH_SIZE) bound the
