@@ -148,19 +148,12 @@ def materialize(model: str, cache_dir: str) -> str | None:
     return target
 
 
-# Input length and document batch size bound the embedder's memory. Attention memory
-# grows with batch × length², and fastembed's default batch of 256 padded to the
-# longest skill text (about 2.8k tokens) exhausted a 36 GB laptop with a 270M model
-# on 2026-10-03. 2048 tokens covers 121 of the 127 skill and implant files whole.
+# Input length and document batch size (config.EMBEDDING_BATCH_SIZE) bound the
+# embedder's memory. Attention memory grows with batch × length², and fastembed's
+# default batch of 256 padded to the longest skill text (about 2.8k tokens) exhausted
+# a 36 GB laptop with a 270M model on 2026-10-03. 2048 tokens covers 121 of the 127
+# skill and implant files whole.
 MAX_INPUT_TOKENS = 2048
-BATCH_SIZE = 4
-
-
-def batch_size() -> int:
-    """Documents per embedding batch; EMBEDDING_BATCH_SIZE overrides it."""
-    import os
-
-    return max(1, int(os.environ.get("EMBEDDING_BATCH_SIZE", BATCH_SIZE)))
 
 
 def cap_tokens(text_embedding, limit: int = MAX_INPUT_TOKENS) -> None:

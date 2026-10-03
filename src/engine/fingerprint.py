@@ -11,13 +11,17 @@ INDEX_SCHEMA = 2
 PREPROCESSING = "prompt-templates-v2"
 
 
-@lru_cache(maxsize=8)
-def fingerprint(model=None):
+def compute_fingerprint(model=None, revision=None):
+    """Uncached fingerprint; *revision* names the snapshot a loaded model came from.
+
+    ``AGENTS_MODEL_ARTIFACT`` takes precedence, then the pinned revision of a model
+    that loads from a plain-file copy (``embedding_prompts.materialize``); without
+    any of them, the revision is read from the model cache's refs.
+    """
     from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
     from src.engine.embedding_prompts import MAX_INPUT_TOKENS, pinned_revision, templates
     model = model or EMBEDDING_MODEL
-    # A plain-file copy holds exactly its pinned export revision (embedding_prompts.materialize).
-    revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or pinned_revision(model)
+    revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or pinned_revision(model) or revision
     if not revision:
         # HF snapshot names are immutable commit IDs. Non-HF artifacts must be
         # pinned by AGENTS_MODEL_ARTIFACT in the installed service configuration.
@@ -30,6 +34,11 @@ def fingerprint(model=None):
                "preprocessing": PREPROCESSING, "prompts": list(templates(model)),
                "max_input_tokens": MAX_INPUT_TOKENS, "fastembed": version("fastembed")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+@lru_cache(maxsize=8)
+def fingerprint(model=None):
+    return compute_fingerprint(model)
 
 
 @lru_cache(maxsize=1)

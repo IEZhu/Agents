@@ -55,7 +55,7 @@ def test_embedder_applies_the_templates(monkeypatch):
     embedder._embed_texts(["skill text"])
     assert fake.queries == ["query: как вернуть налог"]
     assert fake.passages == ["passage: skill text"]
-    assert fake.kwargs == {"batch_size": embedding_prompts.BATCH_SIZE}
+    assert fake.kwargs == {"batch_size": embedder.EMBEDDING_BATCH_SIZE}
 
 
 def test_a_template_change_changes_the_index_fingerprint(monkeypatch):
