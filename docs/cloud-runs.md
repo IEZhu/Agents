@@ -192,7 +192,8 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
 1. Clones the repository into `~/.agents-core`, or lets `install.sh` fast-forward an
    existing checkout.
 2. Seeds `.env` with `EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE=0`, keeping keys that
-   are already set.
+   are already set; the verification in step 6 fails if `.env` still enables
+   auto-update.
 3. Runs `install.sh --skip-index`, which installs the dependencies, registers
    Agents-Core as a user-scope stdio server in `~/.claude.json` and writes the
    protocol 2 section to `~/.claude/CLAUDE.md`.

@@ -355,12 +355,22 @@ def test_rerun_keeps_excludes_file_mode(tmp_path, upstream):
 def test_dotenv_assignment_forms_are_kept(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     env_file = tmp_path / "home/.agents-core/.env"
-    custom = "export EMBEDDING_MODEL=intfloat/multilingual-e5-large\n  AGENTS_AUTO_UPDATE = 0\n"
+    custom = "export EMBEDDING_MODEL=intfloat/multilingual-e5-large\n  'AGENTS_AUTO_UPDATE' = 0\n"
     env_file.write_text(custom)
     result = run_setup(tmp_path, upstream)
     assert result.returncode == 0, result.stderr
     assert env_file.read_text() == custom
     assert "EMBEDDING_MODEL=intfloat/multilingual-e5-large" in result.stdout.splitlines()[-1]
+
+
+@pytest.mark.parametrize("line", ["AGENTS_AUTO_UPDATE=1", "AGENTS_AUTO_UPDATE=true"], ids=["one", "true"])
+def test_enabled_auto_update_in_env_file_fails(tmp_path, upstream, line):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    env_file = tmp_path / "home/.agents-core/.env"
+    env_file.write_text(env_file.read_text().replace("AGENTS_AUTO_UPDATE=0", line))
+    result = run_setup(tmp_path, upstream)
+    assert result.returncode != 0
+    assert ".env enables AGENTS_AUTO_UPDATE" in result.stderr
 
 
 def test_model_override_for_new_env(tmp_path, upstream):

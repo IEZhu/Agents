@@ -158,8 +158,9 @@ def test_init_repo_documents_yes_flag():
     assert source.count('if [ "$ASSUME_YES" = true ]; then REPLY=y') == 2
 
 
-ENV_EXAMPLE = "# comment\nAGENTS_AUTO_UPDATE=1\nEMBEDDING_MODEL=default/model\nNEW_KEY=z\n# COMMENTED=1\n"
-CUSTOM_ENV = "export AGENTS_AUTO_UPDATE=0\n  EMBEDDING_MODEL = custom/model\n"
+ENV_EXAMPLE = ("# comment\nAGENTS_AUTO_UPDATE=1\nEMBEDDING_MODEL=default/model\nQUOTED=default\n"
+               "NEW_KEY=z\n# COMMENTED=1\n")
+CUSTOM_ENV = "export AGENTS_AUTO_UPDATE=0\n  EMBEDDING_MODEL = custom/model\n'QUOTED'=mine\n"
 
 
 def test_env_merge_keeps_dotenv_assignment_forms(tmp_path):

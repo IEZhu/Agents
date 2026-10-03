@@ -405,7 +405,7 @@ print_success "pip available"
 
 # Appends each env.example line whose key has no assignment in the .env file,
 # recording the keys in MISSING_KEYS. Any form python-dotenv reads counts as an
-# assignment, including `export KEY=` and spaces around the key: otherwise the
+# assignment, including `export KEY=`, `'KEY'=` and spaces around the key: otherwise the
 # appended default would come last and win.
 # Usage: merge_missing_env_keys <env_file> <env_example>
 merge_missing_env_keys() {
@@ -418,7 +418,7 @@ merge_missing_env_keys() {
         key=$(echo "$line" | cut -d'=' -f1 | xargs)
         [[ -z "$key" ]] && continue
 
-        if ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$env_file" 2>/dev/null; then
+        if ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?('${key}'|${key})[[:space:]]*=" "$env_file" 2>/dev/null; then
             MISSING_KEYS+=("$key")
             # Append the whole line to .env
             echo "$line" >> "$env_file"

@@ -81,8 +81,8 @@ main() {
     for key in EMBEDDING_MODEL AGENTS_AUTO_UPDATE; do
         value="$model"
         [ "$key" = AGENTS_AUTO_UPDATE ] && value=0
-        # Any assignment python-dotenv accepts counts, including `export KEY=`.
-        grep -Eq "^[[:space:]]*(export[[:space:]]+)?$key[[:space:]]*=" "$env_file" \
+        # Any assignment python-dotenv accepts counts: `export KEY=`, `'KEY'=`.
+        grep -Eq "^[[:space:]]*(export[[:space:]]+)?('$key'|$key)[[:space:]]*=" "$env_file" \
             || printf '%s=%s\n' "$key" "$value" >> "$env_file"
     done
 
@@ -206,6 +206,11 @@ if entry.get("disabled"):
 # auto-update would run in every session.
 from dotenv import dotenv_values  # noqa: E402
 settings = dotenv_values(os.path.join(home, ".env"))
+# Sessions start from the cached snapshot, so an updater would fetch and
+# rebuild in every VM (src/engine/config.py: AUTO_UPDATE_ENABLED).
+auto_update = settings.get("AGENTS_AUTO_UPDATE")
+if (auto_update if auto_update is not None else "1").lower() in ("1", "true"):
+    sys.exit(f"{home}/.env enables AGENTS_AUTO_UPDATE; set AGENTS_AUTO_UPDATE=0 for a cloud environment")
 for source, values in ((f"the Agents-Core registration in {claude_json}", entry.get("env") or {}),
                        ("the environment", os.environ)):
     for key in ("EMBEDDING_MODEL", "AGENTS_AUTO_UPDATE"):
