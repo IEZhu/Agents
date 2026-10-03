@@ -77,6 +77,14 @@ def test_cases_of_different_components_with_one_id_stay_apart(tmp_path):
     assert (across["change applies"]["better"], across["controls"]["worse"]) == (1, 1)
 
 
+def test_a_verdict_that_skips_a_rubric_item_counts_as_missing(tmp_path):
+    run = _run(tmp_path, "r", {"r1": ("with", "with")})
+    cases = [{"id": "r1", "group": "reasoning", "user_message": "q", "rubric": ["a", "b"]}]
+    (run / "cases" / "rule-x.json").write_text(json.dumps({"component": "rule-x", "cases": cases}))
+    summary = compare.compare([run])["runs"][0]
+    assert summary["missing"] == 2 and summary["all"]["cases"] == 0  # both verdicts judge item 1 only
+
+
 def test_across_runs_scores_cases_and_keeps_controls_apart(tmp_path):
     first = _run(tmp_path, "one", {"r1": ("without", "without"), "r2": ("with", "tie"), "k1": ("with", "with")})
     second = _run(tmp_path, "two", {"r1": ("without", "tie"), "r2": ("with", "with"), "k1": ("without", "tie")})

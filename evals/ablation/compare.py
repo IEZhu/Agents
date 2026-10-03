@@ -14,7 +14,8 @@ every verdict scores +1 when the arm with the change wins, -1 when it loses and 
 a tie. A case's score sums its verdicts, and an exact two-sided sign test compares
 cases with a positive and a negative score, separately for controls; even cases
 drop out. Give runs of one answer model per call: the test assumes one model.
-Missing or malformed verdicts are counted and left out.
+Missing or malformed verdicts, including one that does not judge each of its case's
+rubric items once as aggregate.py requires, are counted and left out.
 """
 import argparse
 import importlib.util
@@ -58,10 +59,14 @@ def load_run(run_dir: Path) -> dict:
     plan_path = run_dir / "judge_plan.json"
     if not plan_path.exists():
         raise SystemExit(f"{run_dir}: no judge_plan.json; run build_judges.py first")
+    sizes = aggregate.rubric_sizes(run_dir)
     winners, missing = defaultdict(list), 0
     for stem, p in sorted(json.loads(plan_path.read_text()).items()):
         try:
             verdict, _errors = aggregate.read_verdict(run_dir / "judge" / f"{stem}.verdict.json")
+            size = sizes.get((p["component"], p["case"]))
+            if size is None or sorted(r["item"] for r in verdict["rubric"]) != list(range(1, size + 1)):
+                raise ValueError("the verdict does not judge each rubric item of its case once")
         except (OSError, ValueError):
             missing += 1
             continue
