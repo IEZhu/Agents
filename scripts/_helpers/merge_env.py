@@ -27,7 +27,11 @@ def main():
         for line in f:
             s = line.strip()
             if s and not s.startswith("#") and "=" in s:
-                existing.add(s.split("=", 1)[0].strip())
+                # python-dotenv also reads `export KEY=value`.
+                key = s.split("=", 1)[0].strip()
+                if key.startswith("export") and key[6:7].isspace():
+                    key = key[6:].strip()
+                existing.add(key)
 
     added = []
     with open(env_example, "r", encoding="utf-8") as f:

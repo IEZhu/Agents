@@ -244,18 +244,21 @@ def test_disabled_registration_fails(tmp_path, upstream):
     assert "Agents-Core is disabled in" in result.stderr
 
 
-@pytest.mark.parametrize("model, passes", [("other/model", False), (BALANCED, True)],
-                         ids=["conflicting", "matching"])
-def test_registration_env_model_must_match(tmp_path, upstream, model, passes):
+@pytest.mark.parametrize("override, passes", [
+    ({"EMBEDDING_MODEL": "other/model"}, False), ({"EMBEDDING_MODEL": BALANCED}, True),
+    ({"AGENTS_AUTO_UPDATE": "1"}, False), ({"AGENTS_AUTO_UPDATE": "0"}, True),
+], ids=["model-conflicting", "model-matching", "auto-update-on", "auto-update-off"])
+def test_registration_env_must_match_env_file(tmp_path, upstream, override, passes):
     assert run_setup(tmp_path, upstream).returncode == 0
     config = tmp_path / "home/.claude.json"
     document = json.loads(config.read_text())
-    document["mcpServers"]["Agents-Core"]["env"] = {"EMBEDDING_MODEL": model}
+    document["mcpServers"]["Agents-Core"]["env"] = override
     config.write_text(json.dumps(document))
     result = run_setup(tmp_path, upstream, {"STUB_SKIP_REGISTER": "1"})
     assert (result.returncode == 0) is passes, result.stderr
     if not passes:
-        assert "sets EMBEDDING_MODEL=other/model, but .env sets" in result.stderr
+        key, value = next(iter(override.items()))
+        assert f"sets {key}={value}, but .env sets" in result.stderr
 
 
 def test_excludes_hide_only_memory_files(tmp_path, upstream):
@@ -339,8 +342,10 @@ def test_dotenv_assignment_forms_are_kept(tmp_path, upstream):
     env_file = tmp_path / "home/.agents-core/.env"
     custom = "export EMBEDDING_MODEL=intfloat/multilingual-e5-large\n  AGENTS_AUTO_UPDATE = 0\n"
     env_file.write_text(custom)
-    assert run_setup(tmp_path, upstream).returncode == 0
+    result = run_setup(tmp_path, upstream)
+    assert result.returncode == 0, result.stderr
     assert env_file.read_text() == custom
+    assert "EMBEDDING_MODEL=intfloat/multilingual-e5-large" in result.stdout.splitlines()[-1]
 
 
 def test_model_override_for_new_env(tmp_path, upstream):

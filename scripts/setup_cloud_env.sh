@@ -201,14 +201,15 @@ if not entry or [os.path.realpath(arg) for arg in entry.get("args", [])] != [ser
     sys.exit(f"Agents-Core is not registered for {home} in {claude_json}: {entry!r}")
 if entry.get("disabled"):
     sys.exit(f"Agents-Core is disabled in {claude_json}; remove its \"disabled\" field")
-# The installer keeps a registration's env; a model set there would override
-# the one the indexes were built for.
+# The installer keeps a registration's env, which overrides .env: a model set
+# there would not match the indexes, and auto-update would run in every session.
 from dotenv import dotenv_values  # noqa: E402
-model = dotenv_values(os.path.join(home, ".env")).get("EMBEDDING_MODEL")
-registered = (entry.get("env") or {}).get("EMBEDDING_MODEL")
-if registered and registered != model:
-    sys.exit(f"the Agents-Core registration in {claude_json} sets EMBEDDING_MODEL={registered}, "
-             f"but .env sets {model}; make them match")
+settings = dotenv_values(os.path.join(home, ".env"))
+for key in ("EMBEDDING_MODEL", "AGENTS_AUTO_UPDATE"):
+    registered = (entry.get("env") or {}).get(key)
+    if registered is not None and registered != settings.get(key):
+        sys.exit(f"the Agents-Core registration in {claude_json} sets {key}={registered}, "
+                 f"but .env sets {settings.get(key)}; make them match")
 protocol = read_text(template).rstrip()
 instructions = read_text(claude_md)
 if (not protocol or f"{MARKER_BEGIN}\n\n{protocol}\n\n{MARKER_END}" not in instructions
@@ -272,7 +273,7 @@ except BaseException as error:
     sys.exit(f"Agents-Core server did not start or answer: {found}")
 PY
 
-    log "Ready: $(git -C "$home_dir" log -1 --format='%h %s'), EMBEDDING_MODEL=$(grep '^EMBEDDING_MODEL=' "$home_dir/.env" | cut -d= -f2-)"
+    log "Ready: $(git -C "$home_dir" log -1 --format='%h %s'), EMBEDDING_MODEL=$persisted"
 }
 
 main "$@"

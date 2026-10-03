@@ -403,6 +403,29 @@ if ! check_command pip3; then
 fi
 print_success "pip available"
 
+# Appends each env.example line whose key has no assignment in the .env file,
+# recording the keys in MISSING_KEYS. Any form python-dotenv reads counts as an
+# assignment, including `export KEY=` and spaces around the key: otherwise the
+# appended default would come last and win.
+# Usage: merge_missing_env_keys <env_file> <env_example>
+merge_missing_env_keys() {
+    local env_file="$1" env_example="$2" line key
+    while IFS= read -r line; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+        # Extract key (before =)
+        key=$(echo "$line" | cut -d'=' -f1 | xargs)
+        [[ -z "$key" ]] && continue
+
+        if ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$env_file" 2>/dev/null; then
+            MISSING_KEYS+=("$key")
+            # Append the whole line to .env
+            echo "$line" >> "$env_file"
+        fi
+    done < "$env_example"
+}
+
 # ============== Environment Configuration ==============
 
 print_header "⚙️  Environment Configuration"
@@ -417,27 +440,10 @@ if [ "$SKIP_ENV" = false ]; then
 
         # Check for missing keys and collect them with values
         MISSING_KEYS=()
-        ADDED_KEYS=0
-
-        while IFS= read -r line; do
-            # Skip empty lines and comments
-            [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-            # Extract key (before =)
-            key=$(echo "$line" | cut -d'=' -f1 | xargs)
-            [[ -z "$key" ]] && continue
-
-            # Check if key exists in .env
-            if ! grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-                MISSING_KEYS+=("$key")
-                # Append the whole line to .env
-                echo "$line" >> "$ENV_FILE"
-                ADDED_KEYS=$((ADDED_KEYS + 1))
-            fi
-        done < "$ENV_EXAMPLE"
+        merge_missing_env_keys "$ENV_FILE" "$ENV_EXAMPLE"
 
         if [ ${#MISSING_KEYS[@]} -gt 0 ]; then
-            print_success "Added $ADDED_KEYS missing keys: ${MISSING_KEYS[*]}"
+            print_success "Added ${#MISSING_KEYS[@]} missing keys: ${MISSING_KEYS[*]}"
             print_warn "Please configure the new keys in .env"
         else
             print_success "All required keys present in .env"
