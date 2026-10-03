@@ -1,4 +1,4 @@
-"""The flow editor page, run in Node against a stub DOM and fetch: automatic sign-in and search."""
+"""The flow editor page, run in Node against a stub DOM and fetch: sign-in, search, views and layout."""
 import json
 import re
 import shutil
@@ -116,6 +116,74 @@ def test_only_the_list_and_the_detail_pane_scroll():
     assert re.search(r"grid-template-rows: minmax\(0, 40%\) minmax\(0, 1fr\)", style)
     assert "vh" not in re.sub(r"100(d?)vh", "", style)  # no fixed viewport-height textareas
     assert html.index('id="search"') < html.index('id="items"')
+
+
+# The open item's controls, moved from the row beside its title into the header (issue #163).
+ITEM_CONTROLS = ("e-seg", "e-toc", "history", "toggle-upstream", "copy-user", "copy-repo", "delete", "save",
+                 "c-seg", "c-toc", "c-toggle")
+
+
+def test_the_open_items_controls_sit_in_the_header_between_the_version_and_the_tabs():
+    html, _, _ = page_parts()
+    header = html[html.index("<header>"):html.index("</header>")]
+    main = html[html.index('<main id="main">'):html.index("</main>")]
+    group = re.search(r'<div id="item-actions"[^>]*>', header).group(0)
+    assert 'role="group"' in group and re.search(r'aria-label="[^"]+"', group) and 'class="hidden"' in group
+    start, end = header.index('id="item-actions"'), header.index('id="tabs"')
+    assert header.index('id="version"') < start
+    for name in ITEM_CONTROLS:
+        assert html.count(f'id="{name}"') == 1, name
+        assert start < header.index(f'id="{name}"') < end, name
+        assert f'id="{name}"' not in main, name
+    assert 'id="title"' in main and 'id="c-title"' in main  # the title stays above the document
+    assert "primary" not in re.search(r'<button id="new"[^>]*>', html).group(0)
+    assert "primary" in re.search(r'<button id="save"[^>]*>', html).group(0)
+
+
+def test_the_header_stays_one_row_when_wide_and_gives_the_controls_a_row_when_narrow():
+    _, _, style = page_parts()
+    assert re.search(r"#item-actions \{[^}]*flex: 1 1 0[^}]*min-width: 0", style)
+    assert re.search(r"#history \{[^}]*width: 10em", style)
+    assert re.search(r"#tabs \{[^}]*flex-wrap: wrap", style)
+    second_row = r"\{[^}]*order: 1[^}]*flex-basis: 100%"
+    assert re.search(r'@media \(max-width: 1249px\) \{\s*#item-actions\[data-pane="editor"\] ' + second_row, style)
+    assert re.search(r"@media \(max-width: 899px\) \{\s*#item-actions " + second_row, style)
+
+
+@pytest.fixture(scope="module")
+def panes():
+    return run("ui_panes")
+
+
+def test_the_header_shows_the_controls_of_the_open_item_only(panes):
+    welcome = {"shown": ["welcome"], "group": False, "e_actions": False, "c_actions": False}
+    flow = {"shown": ["editor"], "group": True, "pane": "editor", "e_actions": True, "c_actions": False}
+    rule = {"shown": ["component"], "group": True, "pane": "component", "e_actions": False, "c_actions": True}
+    assert panes["start"] == {**welcome, "pane": None}
+    assert panes["flow"] == flow
+    assert panes["rules"] == {**welcome, "pane": "welcome"}
+    assert panes["rule"] == {**rule, "title": "skill-a"}
+    assert panes["switched"] == 1
+    assert (panes["flow_described_by"], panes["rule_described_by"]) == ("title", "c-title")  # the item's name
+    assert panes["back_to_flows"] == {**welcome, "pane": "welcome"}
+    assert panes["deleted"] == {**welcome, "pane": "welcome", "deletes": 1}
+
+
+def test_a_delete_that_answers_late_closes_only_the_deleted_flow(panes):
+    assert panes["late_delete_same_flow"] == {"shown": ["welcome"], "group": False, "pane": "welcome",
+                                              "e_actions": False, "c_actions": False}
+    assert panes["late_delete_other_flow"] == {"shown": ["editor"], "group": True, "pane": "editor",
+                                               "e_actions": True, "c_actions": False, "title": "plain"}
+    assert panes["late_delete_rule"] == {"shown": ["component"], "group": True, "pane": "component", "e_actions": False,
+                                         "c_actions": True, "title": "skill-a",
+                                         "deletes": ["user:doc", "user:doc", "user:doc", "user:plain"]}
+
+
+def test_a_flow_that_loads_after_sign_in_was_lost_shows_no_controls():
+    result = run("ui_signout")
+    assert result["signed_out"] == {"signin": True, "main_hidden": True}
+    assert result["late"]["title"] == "doc"  # the late response did arrive and was applied
+    assert result["late"]["group"] is False and result["after"]["group"] is False
 
 
 def test_the_page_keeps_its_content_security_policy():
@@ -302,15 +370,15 @@ def test_a_component_body_is_rendered_with_source_on_demand(ui):
     assert ui["skill_source"] == {"view_hidden": True, "source_hidden": False}
 
 
-@pytest.mark.parametrize("scenario, first_hidden, after_toolbar, stored", [
+@pytest.mark.parametrize("scenario, first_hidden, after_header_button, stored", [
     ("ui_narrow", True, False, [["agents-ui-toc-hidden", "0"]]),
     ("ui_narrow_stored", False, True, [["agents-ui-toc-hidden", "1"]]),
     ("ui_nostorage", False, True, []),
 ])
-def test_contents_default_to_hidden_on_narrow_screens_and_survive_missing_storage(scenario, first_hidden, after_toolbar, stored):
+def test_contents_default_to_hidden_on_narrow_screens_and_survive_missing_storage(scenario, first_hidden, after_header_button, stored):
     result = run(scenario)
     assert result["opened"]["toc_hidden"] is first_hidden
-    assert result["after_toolbar"]["toc_hidden"] is after_toolbar
+    assert result["after_header_button"]["toc_hidden"] is after_header_button
     assert result["stored_after"] == stored
 
 
@@ -363,7 +431,7 @@ def test_bare_urls_with_many_closing_parentheses_stay_linear():
     assert 'href="https://x.test/a(b)"' in html and html.endswith(")" * 60000 + " end</p>")
 
 
-def test_hiding_the_contents_moves_focus_to_the_toolbar_button(ui):
+def test_hiding_the_contents_moves_focus_to_the_header_button(ui):
     assert ui["hidden"]["focus_moved"] == 1
 
 
@@ -372,7 +440,7 @@ def test_hiding_from_the_panel_waits_for_a_new_hover_to_reveal_it(ui):
     assert ui["dismissal"] == {
         "over_panel": True, "over_document": False, "hidden_again": True,
         "kept_open": {"toc_hidden": False, "dismissed": False},  # pinning ends a dismissal the pointer never ended
-        "toolbar_hidden": {"toc_hidden": True, "dismissed": False},  # the pointer is on the toolbar, not on the panel
+        "header_hidden": {"toc_hidden": True, "dismissed": False},  # the pointer is on the header, not on the panel
     }
     assert ui["skill_dismissal"] == {"toc_hidden": True, "dismissed": True, "over_panel": True, "over_edge": False}
 
@@ -489,3 +557,11 @@ def test_the_persona_picker_keeps_the_short_agent_listing(agents):
     assert agents["agent_requests"] == ["/ui/api/agents?with_content=1", "/ui/api/agents?with_content=1", "/ui/api/agents"]
     assert agents["persona_options"] == ["Alpha Agent (alpha_agent) = alpha_agent", "Beta Agent (beta_agent) = beta_agent",
                                          "Gamma Agent (gamma_agent) = gamma_agent"]
+
+
+def test_an_open_agent_has_its_view_controls_in_the_header_without_a_switch(agents):
+    assert agents["list"]["header"] == {"shown": ["welcome"], "group": False, "pane": "welcome",
+                                        "e_actions": False, "c_actions": False}
+    assert agents["alpha"]["header"] == {"shown": ["component"], "group": True, "pane": "component", "e_actions": False,
+                                         "c_actions": True, "seg": ["Rendered", "Source"], "toc": True}
+    assert agents["alpha"]["hidden"]["toggle"]  # the switch shares the group and stays hidden for an agent
