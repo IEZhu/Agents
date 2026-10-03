@@ -31,11 +31,13 @@ header h1 { font-size: 16px; margin: 0 auto 0 0; white-space: nowrap; }
 #item-actions button, #item-actions select { padding: 4px 8px; }
 #history { width: 10em; }
 #tabs { flex-wrap: wrap; }
-/* Below these widths the group takes its own header row: flows have more controls. */
+/* Below these widths the group takes its own header row; above them a group that does not fit
+   wraps inside its cell. Measured with Arial metrics beside five tabs, a built-in flow's controls
+   fit from 1219 px and a rule's from 900 px: a new control can push them past the breakpoint. */
 @media (max-width: 1249px) {
   #item-actions[data-pane="editor"] { order: 1; flex-basis: 100%; padding-right: 0; border-right: 0; }
 }
-@media (max-width: 1023px) {
+@media (max-width: 899px) {
   #item-actions { order: 1; flex-basis: 100%; padding-right: 0; border-right: 0; }
 }
 .item-title { overflow-wrap: anywhere; }

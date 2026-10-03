@@ -350,6 +350,9 @@ if (isUi) {
     steps.rules = panes();
     await open(0);
     steps.rule = { ...panes(), title: byId("c-title").textContent };
+    fire(byId("c-toggle"), "click");  // the switch, now in the header, still sends its request
+    await sleep(40);
+    steps.switched = requests.filter((path) => path === "/ui/api/component").length;
     await openTab("flows");
     steps.back_to_flows = panes();
     await open(0);

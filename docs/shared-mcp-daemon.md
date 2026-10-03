@@ -328,7 +328,7 @@ tabs. A flow's controls are *Rendered / Source*, "Contents", the history, "Delet
 and "Save" (a built-in flow shows its "Edit copy" buttons instead of the last
 three); a rule, skill or implant has *Rendered / Source*, "Contents" and its
 switch, and an agent the same without a switch. With nothing open the header
-shows none. Below 1250 px for a flow, or 1024 px for the other tabs, the
+shows none. Below 1250 px for a flow, or 900 px for the other tabs, the
 controls take a second header row; the item's title stays above the document.
 Every tab has a search box above its list (`/` focuses it, `Esc` clears
 it). Matching is case-insensitive and every whitespace-separated term must

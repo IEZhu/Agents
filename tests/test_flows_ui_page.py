@@ -147,7 +147,7 @@ def test_the_header_stays_one_row_when_wide_and_gives_the_controls_a_row_when_na
     assert re.search(r"#tabs \{[^}]*flex-wrap: wrap", style)
     second_row = r"\{[^}]*order: 1[^}]*flex-basis: 100%"
     assert re.search(r'@media \(max-width: 1249px\) \{\s*#item-actions\[data-pane="editor"\] ' + second_row, style)
-    assert re.search(r"@media \(max-width: 1023px\) \{\s*#item-actions " + second_row, style)
+    assert re.search(r"@media \(max-width: 899px\) \{\s*#item-actions " + second_row, style)
 
 
 @pytest.fixture(scope="module")
@@ -163,6 +163,7 @@ def test_the_header_shows_the_controls_of_the_open_item_only(panes):
     assert panes["flow"] == flow
     assert panes["rules"] == {**welcome, "pane": "welcome"}
     assert panes["rule"] == {**rule, "title": "skill-a"}
+    assert panes["switched"] == 1
     assert panes["back_to_flows"] == {**welcome, "pane": "welcome"}
     assert panes["deleted"] == {**welcome, "pane": "welcome", "deletes": 1}
 
