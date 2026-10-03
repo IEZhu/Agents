@@ -1,6 +1,9 @@
 """Model prompt templates reach the embedding model and the index fingerprint; no model is loaded."""
 from __future__ import annotations
 
+import json
+import os
+
 import numpy as np
 import pytest
 
@@ -82,29 +85,98 @@ def test_custom_models_have_prompts(model):
     assert embedding_prompts.templates(model) != embedding_prompts.PLAIN
 
 
-def test_exports_with_weight_files_load_from_a_plain_copy(monkeypatch, tmp_path):
-    import json
+def _hub(calls, fail=False):
+    """A snapshot_download stand-in that writes a small export into local_dir."""
 
-    import huggingface_hub
-
-    calls = []
-
-    def fake_download(repo, local_dir, allow_patterns):
-        calls.append((repo, allow_patterns))
-        (tmp_path / "local").mkdir(exist_ok=True)
-        import os
-        os.makedirs(local_dir, exist_ok=True)
+    def download(repo, revision, local_dir, allow_patterns):
+        calls.append((repo, revision, allow_patterns))
+        os.makedirs(os.path.join(local_dir, "onnx"), exist_ok=True)
+        with open(os.path.join(local_dir, "onnx", "model.onnx"), "w") as stream:
+            stream.write("graph")
+        if fail:
+            raise ConnectionError("download interrupted")
         with open(os.path.join(local_dir, "tokenizer_config.json"), "w") as stream:
             json.dump({"model_max_length": 1e30}, stream)
         return local_dir
 
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
+    return download
+
+
+def _offline(*args, **kwargs):
+    raise ConnectionError("no network")
+
+
+def test_exports_with_weight_files_load_from_a_pinned_plain_copy(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    calls = []
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _hub(calls))
     assert embedding_prompts.materialize("intfloat/multilingual-e5-large", str(tmp_path)) is None
     target = embedding_prompts.materialize("google/embeddinggemma-300m", str(tmp_path))
-    assert calls == [("onnx-community/embeddinggemma-300m-ONNX",
+    revision = embedding_prompts.LOCAL_COPIES["google/embeddinggemma-300m"]["revision"]
+    assert calls == [("onnx-community/embeddinggemma-300m-ONNX", revision,
                       ["onnx/model.onnx", "onnx/model.onnx_data", "*.json", "tokenizer*"])]
+    assert target == os.fspath(tmp_path / "local" / "google--embeddinggemma-300m" / revision)
+    assert os.listdir(os.path.dirname(target)) == [revision]  # no staging directory left
     with open(f"{target}/tokenizer_config.json") as stream:
         assert json.load(stream)["model_max_length"] == embedding_prompts.MAX_INPUT_TOKENS
+
+    # A published copy loads without the Hub.
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _offline)
+    assert embedding_prompts.materialize("google/embeddinggemma-300m", str(tmp_path)) == target
+
+
+def test_a_failed_download_publishes_nothing(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    model = "microsoft/harrier-oss-v1-270m"
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _hub([], fail=True))
+    with pytest.raises(ConnectionError):
+        embedding_prompts.materialize(model, str(tmp_path))
+    assert os.listdir(os.path.dirname(embedding_prompts.local_copy(model, str(tmp_path)))) == []
+
+
+def test_a_copy_another_process_published_first_is_used(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    model = "microsoft/harrier-oss-v1-270m"
+    target = embedding_prompts.local_copy(model, str(tmp_path))
+    download = _hub([])
+
+    def racing(repo, revision, local_dir, allow_patterns):
+        download(repo, revision, local_dir, allow_patterns)
+        os.makedirs(target)
+        with open(os.path.join(target, embedding_prompts.COMPLETE), "w") as stream:
+            stream.write(revision)
+        return local_dir
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", racing)
+    assert embedding_prompts.materialize(model, str(tmp_path)) == target
+    assert os.listdir(os.path.dirname(target)) == [os.path.basename(target)]
+    assert not os.path.exists(os.path.join(target, "onnx"))  # the other process's copy stays as it was
+
+
+def test_a_failed_load_clears_the_plain_copy(monkeypatch, tmp_path):
+    model = "microsoft/harrier-oss-v1-270m"
+    target = embedding_prompts.local_copy(model, str(tmp_path))
+    os.makedirs(target)
+    monkeypatch.setattr(embedder, "FASTEMBED_CACHE_DIR", str(tmp_path))
+    embedder.clear_model_cache(model)
+    assert not os.path.exists(target)
+
+
+def test_the_pinned_revision_is_part_of_the_index_fingerprint(monkeypatch):
+    model = "microsoft/harrier-oss-v1-270m"
+    monkeypatch.delenv("AGENTS_MODEL_ARTIFACT", raising=False)
+    fingerprint.fingerprint.cache_clear()
+    try:
+        before = fingerprint.fingerprint(model)
+        monkeypatch.setitem(embedding_prompts.LOCAL_COPIES, model,
+                            {**embedding_prompts.LOCAL_COPIES[model], "revision": "0" * 40})
+        fingerprint.fingerprint.cache_clear()
+        assert fingerprint.fingerprint(model) != before
+    finally:
+        fingerprint.fingerprint.cache_clear()
 
 
 class _Tokenizer:
@@ -122,23 +194,3 @@ def test_inputs_are_capped_unless_the_model_limit_is_lower(own, expected):
 
     embedding_prompts.cap_tokens(Wrapped, 2048)
     assert Wrapped.model.tokenizer.truncation["max_length"] == expected
-
-
-def test_an_earlier_complete_copy_is_used_without_the_hub(monkeypatch, tmp_path):
-    import json
-    import os
-
-    import huggingface_hub
-
-    def offline(*args, **kwargs):
-        raise ConnectionError("no network")
-
-    monkeypatch.setattr(huggingface_hub, "snapshot_download", offline)
-    with pytest.raises(ConnectionError):  # nothing downloaded yet
-        embedding_prompts.materialize("microsoft/harrier-oss-v1-270m", str(tmp_path))
-    target = tmp_path / "local" / "microsoft--harrier-oss-v1-270m"
-    (target / "onnx").mkdir(parents=True)
-    for name in ("onnx/model.onnx", "onnx/model.onnx_data", "tokenizer.json"):
-        (target / name).write_text("x")
-    (target / "tokenizer_config.json").write_text(json.dumps({"model_max_length": 2048}))
-    assert embedding_prompts.materialize("microsoft/harrier-oss-v1-270m", str(tmp_path)) == os.fspath(target)

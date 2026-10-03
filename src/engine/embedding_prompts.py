@@ -34,20 +34,30 @@ PROMPTS: dict[str, tuple[str, str]] = {
 # pooled `sentence_embedding` output, so fastembed must not pool again.
 CUSTOM_MODELS: dict[str, dict] = {
     "microsoft/harrier-oss-v1-270m": {"hf": "onnx-community/harrier-oss-v1-270m-ONNX", "dim": 640,
+                                      "revision": "d59c919d0159aea2c19ed7d04288fcdd048d0f9c",
                                       "files": ["onnx/model.onnx_data"], "size_in_gb": 1.1},
     "microsoft/harrier-oss-v1-0.6b": {"hf": "onnx-community/harrier-oss-v1-0.6b-ONNX", "dim": 1024,
+                                      "revision": "e4daffa011e666dcd2ff2a3c6c05084090ac314d",
                                       "files": ["onnx/model.onnx_data", "onnx/model.onnx_data_1"], "size_in_gb": 2.4},
 }
 
 
 # Exports whose weights sit in a separate .onnx_data file. ONNX Runtime 1.30 refuses
 # such weights when they resolve into another Hugging Face blob directory, so these
-# load from a plain-file copy, built-in fastembed models included.
+# load from a plain-file copy, built-in fastembed models included. Each copy is pinned
+# to an export revision (the ones docs/embedding-models-eval-results.md measured); the
+# pin is part of the index fingerprint, so changing it re-embeds the stores.
 LOCAL_COPIES: dict[str, dict] = {
-    **{model: {"hf": spec["hf"], "files": spec["files"]} for model, spec in CUSTOM_MODELS.items()},
-    "google/embeddinggemma-300m": {"hf": "onnx-community/embeddinggemma-300m-ONNX", "files": ["onnx/model.onnx_data"]},
-    "Qwen/Qwen3-Embedding-0.6B": {"hf": "Qdrant/Qwen3-Embedding-0.6B-onnx", "files": ["onnx/model.onnx_data"]},
+    **{model: {key: spec[key] for key in ("hf", "revision", "files")} for model, spec in CUSTOM_MODELS.items()},
+    "google/embeddinggemma-300m": {"hf": "onnx-community/embeddinggemma-300m-ONNX",
+                                   "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+                                   "files": ["onnx/model.onnx_data"]},
+    "Qwen/Qwen3-Embedding-0.6B": {"hf": "Qdrant/Qwen3-Embedding-0.6B-onnx",
+                                  "revision": "af95f2c416ffe9379369ad64f9113e865db6112c",
+                                  "files": ["onnx/model.onnx_data"]},
 }
+# Written into a copy last, before it is published: a copy without it is not used.
+COMPLETE = ".complete"
 
 
 def templates(model: str) -> tuple[str, str]:
@@ -71,34 +81,56 @@ def as_passage(model: str, text: str) -> str:
     return templates(model)[1].format(text=text)
 
 
+def local_copy(model: str, cache_dir: str) -> str | None:
+    """Directory of the plain-file copy of a LOCAL_COPIES export; None for other models."""
+    spec = LOCAL_COPIES.get(model)
+    if spec is None:
+        return None
+    import os
+
+    return os.path.join(cache_dir, "local", model.replace("/", "--"), spec["revision"])
+
+
 def materialize(model: str, cache_dir: str) -> str | None:
     """A plain-file copy of a LOCAL_COPIES export, for fastembed's specific_model_path.
 
     The Hugging Face cache keeps each file as a symlink into its own blob directory,
     and ONNX Runtime refuses external weights outside the model file's directory
     ("External data path escapes model directory"). A local_dir download holds real
-    files side by side. Without the Hub (offline, HF_HUB_OFFLINE) a complete earlier
-    copy is used as it is; an incomplete one raises. Returns None for other models.
+    files side by side. The pinned revision downloads into a private staging
+    directory that is renamed into place only when complete, so a published copy
+    never mixes revisions or writers, and a failed download leaves earlier copies as
+    they were. A published copy loads without the Hub (offline, HF_HUB_OFFLINE).
+    Returns None for other models.
     """
-    spec = LOCAL_COPIES.get(model)
-    if spec is None:
+    target = local_copy(model, cache_dir)
+    if target is None:
         return None
     import os
+    import shutil
+    import tempfile
 
+    if os.path.isfile(os.path.join(target, COMPLETE)):
+        return target
     from huggingface_hub import snapshot_download
 
-    target = os.path.join(cache_dir, "local", model.replace("/", "--"))
-    required = ["onnx/model.onnx", *spec["files"], "tokenizer.json", "tokenizer_config.json"]
+    spec = LOCAL_COPIES[model]
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    staging = tempfile.mkdtemp(prefix=".partial-", dir=os.path.dirname(target))
     try:
-        snapshot_download(spec["hf"], local_dir=target,
+        snapshot_download(spec["hf"], revision=spec["revision"], local_dir=staging,
                           allow_patterns=["onnx/model.onnx", *spec["files"], "*.json", "tokenizer*"])
-    except Exception:
-        if not all(os.path.isfile(os.path.join(target, name)) for name in required):
-            raise
-        import logging
-
-        logging.getLogger(__name__).warning("Hub unreachable; using the local copy of %s in %s", model, target)
-    _cap_max_length(os.path.join(target, "tokenizer_config.json"), MAX_INPUT_TOKENS)
+        _cap_max_length(os.path.join(staging, "tokenizer_config.json"), MAX_INPUT_TOKENS)
+        with open(os.path.join(staging, COMPLETE), "w", encoding="utf-8") as stream:
+            stream.write(spec["revision"])
+        try:
+            os.rename(staging, target)
+        except OSError:
+            # Only another process publishing the same revision first is expected here.
+            if not os.path.isfile(os.path.join(target, COMPLETE)):
+                raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return target
 
 
@@ -131,18 +163,16 @@ def cap_tokens(text_embedding, limit: int = MAX_INPUT_TOKENS) -> None:
 
 
 def _cap_max_length(path: str, limit: int) -> None:
+    """Cap the tokenizer limit in a copy that is not yet published, so no other process reads it."""
     import json
-    import os
 
     with open(path, encoding="utf-8") as stream:
         config = json.load(stream)
     if 0 < int(config.get("model_max_length") or 0) <= limit:
         return
     config["model_max_length"] = limit
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as stream:
+    with open(path, "w", encoding="utf-8") as stream:
         json.dump(config, stream, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
 
 
 def register_custom(model: str) -> None:

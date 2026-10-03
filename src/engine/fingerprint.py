@@ -14,8 +14,12 @@ PREPROCESSING = "prompt-templates-v2"
 @lru_cache(maxsize=8)
 def fingerprint(model=None):
     from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
+    from src.engine.embedding_prompts import LOCAL_COPIES, MAX_INPUT_TOKENS, templates
     model = model or EMBEDDING_MODEL
     revision = os.environ.get("AGENTS_MODEL_ARTIFACT")
+    if not revision and model in LOCAL_COPIES:
+        # A plain-file copy holds exactly its pinned export revision (embedding_prompts.materialize).
+        revision = LOCAL_COPIES[model]["hf"] + "@" + LOCAL_COPIES[model]["revision"]
     if not revision:
         # HF snapshot names are immutable commit IDs. Non-HF artifacts must be
         # pinned by AGENTS_MODEL_ARTIFACT in the installed service configuration.
@@ -24,8 +28,7 @@ def fingerprint(model=None):
             ref = cache / "refs/main"
             if ref.is_file(): refs.append(cache.name + ":" + ref.read_text().strip())
         revision = ",".join(refs) or "unresolved"
-    from src.engine.embedding_prompts import MAX_INPUT_TOKENS, templates
-    payload = {"model": model, "revision": revision, "schema": INDEX_SCHEMA,
+    payload ={"model": model, "revision": revision, "schema": INDEX_SCHEMA,
                "preprocessing": PREPROCESSING, "prompts": list(templates(model)),
                "max_input_tokens": MAX_INPUT_TOKENS, "fastembed": version("fastembed")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

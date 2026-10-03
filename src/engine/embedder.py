@@ -20,7 +20,9 @@ from typing import List
 import numpy as np
 
 from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
-from src.engine.embedding_prompts import as_passage, as_query, batch_size, cap_tokens, materialize, register_custom
+from src.engine.embedding_prompts import (
+    as_passage, as_query, batch_size, cap_tokens, local_copy, materialize, register_custom,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +31,15 @@ _model = None
 
 
 def clear_model_cache(model_name: str) -> None:
-    """Remove fastembed's cached files for *model_name* so the next load re-downloads."""
+    """Remove fastembed's cached files and the plain-file copy of *model_name* so the next load re-downloads."""
     if not os.path.isdir(FASTEMBED_CACHE_DIR):
         return
     suffix = model_name.split("/")[-1]
-    for d in glob.glob(os.path.join(FASTEMBED_CACHE_DIR, f"models--*{suffix}*")):
+    stale = glob.glob(os.path.join(FASTEMBED_CACHE_DIR, f"models--*{suffix}*"))
+    copy = local_copy(model_name, FASTEMBED_CACHE_DIR)
+    if copy and os.path.isdir(copy):
+        stale.append(copy)
+    for d in stale:
         logger.warning("Removing corrupted model cache: %s", d)
         shutil.rmtree(d, ignore_errors=True)
 
