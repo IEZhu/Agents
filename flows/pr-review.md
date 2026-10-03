@@ -202,9 +202,9 @@ links and completion times in the working record and final report.
 Use bounded waits with backoff and keep the user informed of meaningful changes.
 A wait timeout alone does not establish quota exhaustion or unavailability.
 Inspect failed requests and bot status before retrying. If every bot is
-unavailable, handle all existing findings and continue to the merge conditions,
-which then require an independent review of the changes no bot reviewed;
-unavailability is not approval.
+unavailable, handle all existing findings and continue to the
+[merge conditions](#5-merge-when-ready), whose item on changes no bot reviewed
+says which of them need an independent review. Unavailability is not approval.
 
 ### Quota, rate limits and errors
 
