@@ -77,7 +77,9 @@ that is `.venv-tests`, because `.venv` lacks `openai`.
 ## 2. Prepare the workspace
 
 1. Never work in the checkout a running service uses. Create the eval worktree from
-   the candidate, or from the baseline for a component cut:
+   a revision that holds the component or change under test: the candidate for an
+   addition, an edit or a setting, and the baseline only for a cut of a component
+   that the candidate removes:
    `git worktree add --no-track -b eval/<name> .worktrees/eval-<name> <revision>`.
    For `--arm` builds, also create a baseline worktree; for two embedding models, one
    worktree per model, so each has its own `data/`.
