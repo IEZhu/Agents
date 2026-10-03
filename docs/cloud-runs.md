@@ -74,14 +74,15 @@ prompt asks for it. The `ultracode` keyword opts the whole session into orchestr
 so its paragraph confines it to the runbook's three fan-outs: agents that re-judge or
 edit cases and answers would change what the sweep measures. "Do not route" matters
 too, because the repository's CLAUDE.md tells every session to route through
-Agents-Core, which is not connected in the cloud.
+Agents-Core, which is not connected in the default cloud environment.
 
 Routine and environment ids are account-specific and are not kept in this public
 repository. Find them with `RemoteTrigger` `list` (the routine used for the sweep is
 named "Agents-testing").
 
-**Egress.** Cloud sessions cannot reach huggingface.co. The runbook downloads the
-embedding model from fastembed's Google Cloud Storage mirror and points
+**Egress.** Sessions in the default (Trusted) environment cannot reach
+huggingface.co. The runbook downloads the embedding model from fastembed's Google
+Cloud Storage mirror and points
 `AGENTS_MODEL_PATH` at it (step 1 of the runbook). Any new eval that builds prompts
 needs the same.
 
@@ -124,8 +125,8 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 | Results of "remote" agents show a local `cwd`; no cloud usage | `isolation: "remote"` ran locally | use a routine |
 | Session clones but cannot push (403) | GitHub App not installed on the repository | install it for this repository |
 | Session cannot fan out | routine created without a model and without Agent/Workflow in allowed tools | set model and allowed tools explicitly |
-| Embedding model download fails | huggingface.co blocked | GCS mirror + `AGENTS_MODEL_PATH` (runbook step 1) |
-| (precaution) a session would try to route | CLAUDE.md asks every session to route; Agents-Core is not connected in the cloud | "do not route" in the prompt, as above |
+| Embedding model download fails | huggingface.co blocked | GCS mirror + `AGENTS_MODEL_PATH` (runbook step 1); the mirror answered 403 on 2026-10-03, so allow Hugging Face as in [Cloud environment with Agents-Core](#cloud-environment-with-agents-core) |
+| (precaution) a session would try to route | CLAUDE.md asks every session to route; Agents-Core is not connected in the default cloud environment | "do not route" in the prompt, as above |
 | Some launches, and a `curl` inside a session, were denied by the auto-mode classifier | the classifier judged the command a bypass | not worked around in 2026-09: rephrase the request, or run that step yourself |
 | Cloud credit counter does not move | not established | check usage in the account settings before relying on included credits |
 
@@ -167,28 +168,46 @@ settings icon of an existing environment), and set:
 | Name | for example `Agents-Core` |
 | Network access | **Custom**, with **Also include default list of common package managers** checked and the allowed domains `huggingface.co`, `*.huggingface.co`, `hf.co` and `*.hf.co`; **Full** also works |
 | Environment variables | none needed |
-| Setup script | the two lines below |
+| Setup script | the three lines below |
 
 ```bash
 #!/bin/bash
+set -eo pipefail
 curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/scripts/setup_cloud_env.sh | bash
 ```
+
+`pipefail` makes a failed download (a 404 or a blocked host) fail the setup;
+without it, `bash` reads an empty script and the setup succeeds without
+Agents-Core. The script itself runs only from its last line, so a truncated
+download runs nothing.
 
 Hugging Face must be reachable because the embedding model downloads from it. The
 default **Trusted** level blocks it, and the fastembed Google Cloud Storage mirror
 used by the [ablation runbook](../evals/ablation/README.md) answered
 `403 AccessDenied` on 2026-10-03.
 
-**What the script does.** It clones the repository into `~/.agents-core`, or lets
-`install.sh` fast-forward an existing checkout. It seeds `.env` with
-`EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE=0`, keeping keys that are already set. It
-runs `install.sh --skip-index`, which installs the dependencies, registers
-Agents-Core as a user-scope stdio server in `~/.claude.json` and writes the
-protocol 2 section to `~/.claude/CLAUDE.md`. It then builds the indexes with
-`python -m src.reindex` and adds `/history.md`, the monthly `history/YYYY-MM.md`
-archives and `/data/memory/` to git's global excludes. Finally it starts the
-registered server over stdio and routes a test query, which also stores the router
-index in the cached filesystem.
+**What the script does.**
+
+1. Clones the repository into `~/.agents-core`, or lets `install.sh` fast-forward an
+   existing checkout.
+2. Seeds `.env` with `EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE=0`, keeping keys that
+   are already set.
+3. Runs `install.sh --skip-index`, which installs the dependencies, registers
+   Agents-Core as a user-scope stdio server in `~/.claude.json` and writes the
+   protocol 2 section to `~/.claude/CLAUDE.md`.
+4. Downloads the embedding model, then builds the indexes with
+   `python -m src.reindex`. The order matters: the index fingerprint includes the
+   model revision from the model cache, so indexes built before the download
+   would be rebuilt by the server on its first start.
+5. Writes a marked block to git's global excludes (`~/.config/git/ignore` unless
+   `core.excludesFile` names another file) with the files Agents-Core can leave in
+   a client repository's root: `history.md` with its lock, rotation and monthly
+   `history/YYYY-MM.md` archives, `data/memory/`, and the locks and temporary
+   files of `describe_repo`. Patterns are anchored at the root, and each run
+   replaces the block.
+6. Starts the registered server over stdio, checks its tools, calls
+   `route_and_load`, and calls `load_implants`, which embeds a query in the server
+   process.
 
 Any failed step exits non-zero, so the session fails to start and no broken
 installation is cached. Correct the cause, usually the network list, in the
@@ -205,22 +224,31 @@ the installer's choice for the session VM's 16 GB of RAM. Full
 so check that setup still finishes within the cache limit below.
 
 **Cache and updates.** The environment is cached only when setup finishes within
-about five minutes. In a 2026-10-03 trial with an isolated `HOME`, the clone,
-dependencies and client configuration took 42 seconds and a rerun took 6 seconds;
-the model download was not measured because that session's network blocked
-Hugging Face. The cache is rebuilt when the setup script or the allowed hosts
-change and when it expires after about seven days; a rebuild installs the current
-`AGENTS_BRANCH`. The standalone auto-updater stays off: each session starts from
-the snapshot, so it would fetch and rebuild indexes in every new VM.
+about five minutes. On 2026-10-03 the setup script took 51 seconds in a new
+session of an environment configured as above; a full local run, including the
+241 MB model download, took 76 seconds. The cache is rebuilt when the
+environment's setup-script field or allowed hosts change, not when the downloaded
+script changes: a commit to `main` reaches new sessions when the cache expires
+after about seven days, or earlier when the field changes, for example by editing
+a comment line in it. The standalone auto-updater stays off, because each session starts
+from the snapshot and would fetch and rebuild indexes in every new VM.
 
-**In a session.** Every session of the environment has the server and the routing
-instructions, whichever repository it works on, so it routes, adds the footer and
-calls `log_interaction` like a local client. A routine that runs in this
-environment gets the same, so drop "do not route" from its prompt.
-`log_interaction` writes `history.md` in the session repository's root; the global
-excludes keep it out of `git status`, and it is lost with the session VM unless
-committed. `describe_repo` still edits the repository's tracked `CLAUDE.md` when
-called.
+**In a session.** Verified on 2026-10-03 in a new session of such an environment:
+Claude Code listed Agents-Core as a connected user-scope server with its 16 tools,
+and the protocol section from `~/.claude/CLAUDE.md` was in the session's context.
+That session worked on this repository, whose own `.gitignore` covers the memory
+files; `tests/test_setup_cloud_env.py` checks the global excludes against a
+repository without such rules. The server
+behaves as in a local client, whichever repository the session works on, so a
+routine that runs in this environment can drop "do not route" from its prompt.
+What the server writes during a session, such as `history.md` and the routing
+cache, lives only as long as the session VM. The routing cache therefore starts
+empty in each session, and `route_and_load` returns `ROUTE_REQUIRED` with the
+agent catalog until the session has selected an agent for a similar request. Do not
+commit `history.md`: once tracked, it changes on every turn and the cloud session's
+check for uncommitted changes reports it.
+`describe_repo` creates or edits the repository's `CLAUDE.md`, which then needs a
+commit like any other change.
 
 ## Issue agent
 

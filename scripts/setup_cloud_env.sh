@@ -5,7 +5,11 @@
 # docs/cloud-runs.md#cloud-environment-with-agents-core):
 #
 #   #!/bin/bash
+#   set -eo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/scripts/setup_cloud_env.sh | bash
+#
+# pipefail makes a failed download fail the setup; the body below runs only from
+# the last line, so a truncated download runs nothing.
 #
 # The setup script runs as root before Claude Code starts, and the environment
 # caches the resulting filesystem. Every session of the environment then starts
@@ -13,16 +17,17 @@
 #   - the checkout in AGENTS_HOME, its .venv, the embedding model and indexes;
 #   - Agents-Core registered as a user-scope stdio server in ~/.claude.json;
 #   - the protocol 2 routing section in ~/.claude/CLAUDE.md;
-#   - repository-memory files (history.md, its monthly archives, data/memory/)
-#     in git's global excludes, so log_interaction never leaves untracked files
-#     in the session's repository.
+#   - the files Agents-Core writes into a client repository (history.md, its
+#     lock and archives, describe_repo's hash and locks) in git's global
+#     excludes, so they never show up as untracked files in the session's
+#     repository.
 #
 # Any failure exits non-zero, which fails the session start instead of caching
 # an environment without a working server: the last step starts the server over
 # stdio and routes a query. Rerunning the script updates the checkout and
 # rebuilds only what changed.
 #
-# Variables (set them in the environment's "Environment variables" field):
+# Variables (set them on the bash side of the pipe, e.g. `| AGENTS_BRANCH=x bash`):
 #   AGENTS_HOME             checkout directory      [~/.agents-core]
 #   AGENTS_REPO_URL         repository to clone     [https://github.com/IEZhu/Agents.git]
 #   AGENTS_BRANCH           branch to install       [main]
@@ -32,73 +37,101 @@
 # The model downloads from Hugging Face, which the default Trusted network level
 # blocks: allow huggingface.co, *.huggingface.co, hf.co and *.hf.co.
 
-set -euo pipefail
-unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
-      GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
-
-home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
-repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
-branch="${AGENTS_BRANCH:-main}"
-model="${AGENTS_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}"
-export AGENTS_HOME="$home_dir" AGENTS_REPO_URL="$repo_url" AGENTS_BRANCH="$branch"
-
 log() { printf '[agents-core] %s\n' "$*"; }
 fail() { printf '[agents-core] ERROR: %s\n' "$*" >&2; exit 1; }
 
-# 1. Checkout. install.sh (step 3) updates an existing one and refuses a
-#    directory that is not an Agents-Core checkout.
-if [ ! -e "$home_dir" ] || [ -z "$(ls -A "$home_dir")" ]; then
-    log "Cloning $repo_url ($branch) into $home_dir"
-    git clone --quiet --branch "$branch" "$repo_url" "$home_dir"
-fi
+main() {
+    set -euo pipefail
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
+          GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 
-# 2. Seed .env before setup reads it. Keys already present are kept, so manual
-#    edits survive reruns; init_repo.sh adds the remaining env.example keys.
-#    Auto-update stays off: every session starts from the cached snapshot, so the
-#    background updater would fetch and re-embed in each new VM. The cache is
-#    rebuilt from this script when it expires or the script changes.
-if [ -f "$home_dir/scripts/init_repo.sh" ]; then
-    env_file="$home_dir/.env"
+    local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
+    local repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
+    local branch="${AGENTS_BRANCH:-main}"
+    local model="${AGENTS_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}"
+    # The registration holds absolute paths; resolve a relative or ~ value now.
+    case "$home_dir" in "~" | "~/"*) home_dir="$HOME${home_dir#"~"}" ;; esac
+    case "$home_dir" in /*) ;; *) home_dir="$PWD/$home_dir" ;; esac
+    export AGENTS_HOME="$home_dir" AGENTS_REPO_URL="$repo_url" AGENTS_BRANCH="$branch"
+
+    # 1. Checkout. install.sh (step 3) updates an existing one.
+    if [ ! -e "$home_dir" ] || [ -z "$(ls -A "$home_dir")" ]; then
+        log "Cloning $repo_url ($branch) into $home_dir"
+        git clone --quiet --branch "$branch" "$repo_url" "$home_dir"
+    elif [ ! -d "$home_dir/.git" ] || [ ! -f "$home_dir/scripts/init_repo.sh" ]; then
+        fail "$home_dir exists and is not an Agents-Core checkout"
+    fi
+
+    # 2. Seed .env before setup reads it. Keys already present are kept, so
+    #    manual edits survive reruns; init_repo.sh adds the remaining env.example
+    #    keys. Auto-update stays off: every session starts from the cached
+    #    snapshot, so the background updater would fetch and re-embed in each new
+    #    VM. Updates arrive when the cache is rebuilt, which reruns this script:
+    #    after about seven days, or when the environment's setup-script field or
+    #    allowed hosts change (a change to this file alone does not rebuild it).
+    local env_file="$home_dir/.env"
     touch "$env_file"
     if [ -s "$env_file" ] && [ -n "$(tail -c 1 "$env_file")" ]; then
         echo >> "$env_file"
     fi
-    seed_env() {
-        grep -q "^$1=" "$env_file" || printf '%s=%s\n' "$1" "$2" >> "$env_file"
-    }
-    seed_env EMBEDDING_MODEL "$model"
-    seed_env AGENTS_AUTO_UPDATE 0
-fi
+    local key value
+    for key in EMBEDDING_MODEL AGENTS_AUTO_UPDATE; do
+        value="$model"
+        [ "$key" = AGENTS_AUTO_UPDATE ] && value=0
+        grep -q "^$key=" "$env_file" || printf '%s=%s\n' "$key" "$value" >> "$env_file"
+    done
 
-# 3. Update, dependencies and client configuration. init_repo.sh detects Claude
-#    Code by its configuration directory, which may not exist yet in a fresh VM.
-#    Indexing runs separately in step 4: init_repo.sh only warns when it fails.
-mkdir -p "$HOME/.claude"
-log "Running install.sh (dependencies, MCP registration, ~/.claude/CLAUDE.md)"
-AGENTS_ASSUME_YES=1 bash "$home_dir/install.sh" --skip-index </dev/null
+    # 3. Update, dependencies and client configuration. init_repo.sh detects
+    #    Claude Code by its configuration directory, which may not exist yet in a
+    #    fresh VM. Indexing runs separately in step 4: init_repo.sh only warns
+    #    when it fails.
+    mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    log "Running install.sh (dependencies, MCP registration, ~/.claude/CLAUDE.md)"
+    AGENTS_ASSUME_YES=1 bash "$home_dir/install.sh" --skip-index </dev/null
 
-python_bin="$home_dir/.venv/bin/python"
-[ -x "$python_bin" ] || fail "$python_bin was not created"
+    local python_bin="$home_dir/.venv/bin/python"
+    [ -x "$python_bin" ] || fail "$python_bin was not created"
 
-# 4. Download the embedding model and build the skill and implant indexes.
-log "Downloading the embedding model and building indexes"
-(cd "$home_dir" && "$python_bin" -m src.reindex) \
-    || fail "indexing failed; check that the network allows huggingface.co, *.huggingface.co, hf.co and *.hf.co"
+    # 4. Download the embedding model, then build the skill and implant indexes.
+    #    The download comes first, in its own process: the index fingerprint
+    #    includes the model revision read from the cache (src/engine/fingerprint.py),
+    #    and indexes built before the download would be rebuilt by the server.
+    log "Downloading the embedding model"
+    (cd "$home_dir" && "$python_bin" -c 'from dotenv import load_dotenv; load_dotenv(".env")
+from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
+        || fail "model download failed; check that the network allows huggingface.co, *.huggingface.co, hf.co and *.hf.co"
+    log "Building indexes"
+    (cd "$home_dir" && "$python_bin" -m src.reindex) || fail "indexing failed"
 
-# 5. Keep repository-memory files out of the session repository's git status.
-excludes="$(git config --global --path --get core.excludesFile || true)"
-excludes="${excludes:-${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore}"
-marker="# Agents-Core repository memory (scripts/setup_cloud_env.sh)"
-mkdir -p "$(dirname "$excludes")"
-if ! grep -qxF "$marker" "$excludes" 2>/dev/null; then
-    printf '%s\n/history.md\n/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md\n/data/memory/\n' \
-        "$marker" >> "$excludes"
-fi
+    # 5. Keep the files the server writes into the session repository out of
+    #    its git status: the history log with its lock, rotation and monthly
+    #    archives (src/memory/history.py), and describe_repo's hash, locks and
+    #    temporary files (src/memory/describer.py, src/memory/managed_section.py).
+    #    The block between the markers is replaced on every run.
+    local excludes begin end
+    excludes="$(git config --global --path --get core.excludesFile || true)"
+    excludes="${excludes:-${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore}"
+    begin="# >>> Agents-Core repository memory (scripts/setup_cloud_env.sh) >>>"
+    end="# <<< Agents-Core repository memory <<<"
+    mkdir -p "$(dirname "$excludes")"
+    touch "$excludes"
+    {
+        awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$excludes"
+        printf '%s\n' "$begin" \
+            /history.md /.history.md.lock /history.md.rotating \
+            '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md' \
+            '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md.tmp' \
+            /data/memory/ /.agents-description.lock /.CLAUDE.md.lock '/.managed_section.*.tmp' \
+            "$end"
+    } > "$excludes.tmp"
+    mv "$excludes.tmp" "$excludes"
 
-# 6. Verify the registration Claude Code reads, then start the server the same
-#    way and route a query. This also builds the router index into the snapshot.
-log "Verifying the Claude Code registration and the server"
-(cd "$home_dir" && "$python_bin" - "$home_dir" "$HOME/.claude.json" "$HOME/.claude/CLAUDE.md") <<'PY'
+    # 6. Verify the registration Claude Code reads (located as init_repo.sh
+    #    does, through src/client_paths.py), then start the server the same way.
+    #    route_and_load checks the protocol; load_implants embeds a query in the
+    #    server process, which the stdio warm-up alone does not prove.
+    log "Verifying the Claude Code registration and the server"
+    (cd "$home_dir" && "$python_bin" - "$home_dir") <<'PY'
 import asyncio
 import json
 import os
@@ -107,15 +140,27 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-home, claude_json, claude_md = sys.argv[1:4]
-with open(claude_json, encoding="utf-8") as stream:
-    entry = json.load(stream).get("mcpServers", {}).get("Agents-Core")
+home = sys.argv[1]
+sys.path.insert(0, home)
+from src.client_paths import client_config_path, client_home  # noqa: E402
+
+claude_json = client_config_path("claude")
+claude_md = client_home("claude") / "CLAUDE.md"
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            return stream.read()
+    except FileNotFoundError:
+        return ""
+
+
+entry = json.loads(read(claude_json) or "{}").get("mcpServers", {}).get("Agents-Core")
 server = os.path.realpath(os.path.join(home, "src", "server.py"))
 if not entry or [os.path.realpath(arg) for arg in entry.get("args", [])] != [server]:
     sys.exit(f"Agents-Core is not registered for {home} in {claude_json}: {entry!r}")
-with open(claude_md, encoding="utf-8") as stream:
-    if "Agents-Core Routing Protocol" not in stream.read():
-        sys.exit(f"{claude_md} has no Agents-Core routing section")
+if "Agents-Core Routing Protocol" not in read(claude_md):
+    sys.exit(f"{claude_md} has no Agents-Core routing section")
 
 
 async def smoke():
@@ -134,10 +179,19 @@ async def smoke():
             payload = json.loads(result.content[0].text)
             if payload.get("status") not in {"SUCCESS", "ROUTE_REQUIRED"}:
                 sys.exit(f"route_and_load returned {payload.get('status')}: {payload.get('message')}")
-            print(f"[agents-core] Server OK: {len(tools)} tools, route_and_load -> {payload['status']}")
+            implants = await session.call_tool("load_implants", {
+                "query": "Plan a database migration step by step", "limit": 2})
+            text = implants.content[0].text
+            if not text.startswith("## Dynamic Implants"):
+                sys.exit(f"load_implants returned: {text[:300]}")
+            print(f"[agents-core] Server OK: {len(tools)} tools, route_and_load -> {payload['status']}, "
+                  "load_implants -> implants")
 
 
 asyncio.run(smoke())
 PY
 
-log "Ready: $(git -C "$home_dir" log -1 --format='%h %s'), EMBEDDING_MODEL=$(grep '^EMBEDDING_MODEL=' "$home_dir/.env" | cut -d= -f2-)"
+    log "Ready: $(git -C "$home_dir" log -1 --format='%h %s'), EMBEDDING_MODEL=$(grep '^EMBEDDING_MODEL=' "$home_dir/.env" | cut -d= -f2-)"
+}
+
+main "$@"
