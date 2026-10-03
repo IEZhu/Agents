@@ -1,0 +1,546 @@
+{
+ "verdicts": [
+  {
+   "component": "embed-model",
+   "case": "ru-proofread-sentence",
+   "A": "without",
+   "B": "with",
+   "stem": "152c40ed22__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "A clearly identifies the tautology and fully resolves it in Variant 2, while B only drops «заранее», leaving «без предупреждения ... не были уведомлены» still largely redundant. However, A's explanation claims a comma was added before «что» that does not appear in its corrected sentence, and it is less brief, whereas B's concise explanation is accurate. These strengths and flaws roughly offset.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims a comma was added before «что» in «В связи с тем что», but Variant 1 contains no such comma."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-proofread-sentence",
+   "A": "with",
+   "B": "without",
+   "stem": "152c40ed22__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "B's second variant fully resolves the tautology, while A only drops «заранее» and leaves a circular sentence (rebooted without warning, so users were not notified). B's explanation wrongly says a comma was added before «что» (it was actually added before «пользователи»), and its first variant keeps the redundancy. Even so, B handles the main stylistic issue better.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims a comma was added before «что», but the corrected text has no comma there; the comma was added at the end of the subordinate clause, before «пользователи»."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-inn-validator",
+   "A": "with",
+   "B": "without",
+   "stem": "15805d4651__o1",
+   "winner_arm": "without",
+   "margin": "large",
+   "reasons": "B uses the official FNS weights for both 12-digit control digits, while A uses invented 12-digit weights (2,4,10,3,5,9,4,6,8,7,1), so A rejects real individual INNs. Both handle invalid inputs identically and reply in English. Both include incorrect 12-digit 'valid' test vectors, but A's broken core algorithm is decisive.",
+   "errors_with": [
+    "12-digit INN weights [2,4,10,3,5,9,4,6,8,7,1] are wrong; official weights are 7,2,4,10,3,5,9,4,6,8 and 3,7,2,4,10,3,5,9,4,6,8",
+    "Test vector 500100000023 is not a valid INN under the stated or official algorithm, so the test would fail",
+    "Claims the implementation strictly follows the FNS algorithm"
+   ],
+   "errors_without": [
+    "Test vectors 772752281611 and 500100515201 are labelled valid but fail the official checksum (11th digit mismatch), so the test reports failures"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-inn-validator",
+   "A": "without",
+   "B": "with",
+   "stem": "15805d4651__o2",
+   "winner_arm": "without",
+   "margin": "large",
+   "reasons": "A uses the correct official FNS weights for both 10- and 12-digit INNs, while B uses invalid 12-digit weights (2,4,10,3,5,9,4,6,8,7,1), so it rejects valid personal INNs and accepts invalid ones. Both cover the invalid-input cases, but A's two 12-digit 'valid' test vectors (772752281611, 500100515201) fail the correct checksum, so its own test run would report failures. B's 12-digit test vectors only pass because of its wrong algorithm.",
+   "errors_with": [
+    "12-digit INN weights [2,4,10,3,5,9,4,6,8,7,1] are wrong; the official weights are 7,2,4,10,3,5,9,4,6,8 for the 11th digit and 3,7,2,4,10,3,5,9,4,6,8 for the 12th.",
+    "Test vector 500100000023 is presented as a valid 12-digit INN but fails the official checksum."
+   ],
+   "errors_without": [
+    "Test vectors 772752281611 and 500100515201 are labeled valid 12-digit INNs but fail the FNS checksum."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-bakery-puns",
+   "A": "without",
+   "B": "with",
+   "stem": "2ac05b08ae__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A builds most slogans on genuine Russian wordplay, the slang verb «батонить» set against the bakery name, which works only in Russian. B has one good idiom twist («бить баклуши» turned into «бить батоны») and a mild «спальный район» double meaning, but slogans 3-5 are plain taglines with no pun. A's explanations are sometimes strained (it calls slogan 1 an oxymoron, for example), but the slogans themselves fit the request better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-bakery-puns",
+   "A": "with",
+   "B": "without",
+   "stem": "2ac05b08ae__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "B builds most slogans on real Russian wordplay with the name, using the slang verb «батонить» (to laze about) in three of them, plus «база» slang and the double meaning of «мягкий подход». In A, only #1 (the twist on «бить баклуши») and arguably #2 (a nod to «спальный район») are puns, and the rest are plain descriptive taglines. A also has slightly stiff, calque-like «Батон: ...» colon constructions with capitalized continuations.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-landing-translation",
+   "A": "without",
+   "B": "with",
+   "stem": "2e042d859f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give three triad variants, but A's phrasings read more naturally overall (\"Быстрый запуск. Стабильный прод. Спокойный сон.\", \"Покой по ночам\"), while B includes the awkward \"Покой в каждой ночи\" and the odd \"Не ломайте важное\". Both weaken 'Break nothing' in their dev-style variant (A's \"Ломайте реже\" concedes some breakage, B's \"Не ломайте важное\" implies unimportant breakage is fine), so meaning preservation is partial for both. B does render 'Sleep at night' as \"Спите спокойно\", but its other wording flaws leave A slightly ahead.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-landing-translation",
+   "A": "with",
+   "B": "without",
+   "stem": "2e042d859f__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "B's variants read more naturally in Russian («Быстрый запуск. Стабильный прод. Спокойный сон.», «Покой по ночам», «Спите крепче»), while A has awkward phrasings like «Покой в каждой ночи» and «Не ломайте важное», which suggests breaking unimportant things is fine. Both drift from the meaning in places: B's «Ломайте реже» softens 'break nothing', and A's «чаще» and «важное» shift the meaning too. B's set is more idiomatic and fits a landing page better overall.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-liveness-readiness",
+   "A": "with",
+   "B": "without",
+   "stem": "461025735f__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers explain the restart-vs-endpoint-removal difference and the cause of the restart loop correctly, and both give sensible probe settings. A also adds a startupProbe with a correct explanation, which is the most useful protection for slow-booting apps. B's manifest is more complete (it includes the selector and labels that A's Deployment omits), but that does not make up for A's fuller probe guidance.",
+   "errors_with": [
+    "Example Deployment omits the required spec.selector and pod template labels, so the manifest would be rejected as written."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-liveness-readiness",
+   "A": "without",
+   "B": "with",
+   "stem": "461025735f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers correctly distinguish the probes, diagnose the DB-in-liveness mistake, and give sensible probe settings. B adds a startup probe with an explained failureThreshold budget and walks step by step through why every pod kept restarting, which answers the user's 'why' more directly. B's Deployment manifest leaves out the required spec.selector, a minor flaw that A's manifest avoids.",
+   "errors_with": [
+    "Deployment manifest omits spec.selector, which apps/v1 requires"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-phone-regex",
+   "A": "with",
+   "B": "without",
+   "stem": "4d5b15e260__o1",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "B's group (?:\\s*[-()]*\\d) only allows whitespace before a paren or dash, so the requested example '8 (912) 345-67-89' fails at ') 3', and B's own test marks it as expected True. A's pattern [\\s\\-()]* between digits accepts all four examples and handles the counter-examples correctly. Both use ^...$ with re.match, which is anchored but lets a trailing newline through; this is a minor issue for both.",
+   "errors_with": [],
+   "errors_without": [
+    "The pattern rejects '8 (912) 345-67-89', a required example, even though the test table lists it as True and the answer says HIGH confidence that it covers all the cases."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-phone-regex",
+   "A": "without",
+   "B": "with",
+   "stem": "4d5b15e260__o2",
+   "winner_arm": "with",
+   "margin": "large",
+   "reasons": "A's pattern (?:\\s*[-()]*\\d){9} cannot match ') ' between digits, so it rejects the user's own example '8 (912) 345-67-89', which A's own test marks as expected True. B's pattern accepts all four examples and has correct digit-count and leading-9 checks. Both use re.match with $ rather than fullmatch or \\Z, so a trailing newline would pass, and A also leaves some English labels in its printed output.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the regex covers all the cases given, but it rejects '8 (912) 345-67-89' because a closing parenthesis followed by a space is not allowed between digits."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-1c-query-characteristic",
+   "A": "without",
+   "B": "with",
+   "stem": "695f0d919e__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "Answer A drops the leading comma in Остатки(...), so the filter condition goes into the Период parameter instead of the Условие parameter, and the query becomes invalid or wrong. Answer B keeps the comma, so the dynamic filter stays in the condition parameter and the total over all characteristics is preserved when none is passed. Otherwise the two answers are nearly identical in approach and explanation.",
+   "errors_with": [],
+   "errors_without": [
+    "Query text 'Остатки(\" + ТекстФильтра + \")' omits the leading comma, placing the condition in the Период parameter of the virtual table, contrary to the claim that the filter is passed as the virtual-table condition."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-1c-query-characteristic",
+   "A": "with",
+   "B": "without",
+   "stem": "695f0d919e__o2",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "B drops the leading comma in the virtual-table parameters (Остатки(\" + ТекстФильтра + \")), so the filter condition lands in the Период parameter and the query is invalid. A keeps the comma (Остатки(, ...)), so the filter stays in the condition parameter and correctly returns the total over all characteristics when none is passed. Otherwise the two are nearly identical.",
+   "errors_with": [],
+   "errors_without": [
+    "Builds РегистрНакопления.ТоварыНаСкладах.Остатки(<условие>) without the leading comma, so the condition is passed as the Период parameter and the query fails."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-jvm-oomkilled",
+   "A": "with",
+   "B": "without",
+   "stem": "8b5b9bd16b__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers explain the heap vs non-heap gap correctly and recommend MaxRAMPercentage, but B also suggests measuring real memory use (kubectl top, container_memory_working_set_bytes, GC logs), while A only checks the configured MaxHeapSize. A's verification command starts a fresh JVM through kubectl exec, so it would not show the app's actual JAVA_OPTS. Both use some English section headings (Verification/Rollback, Blast Radius), so they are equal on language.",
+   "errors_with": [
+    "The verification command 'kubectl exec <pod> -- java -XX:+PrintFlagsFinal -version' starts a new JVM that does not get the application's JAVA_OPTS, so it does not confirm the app's configured heap."
+   ],
+   "errors_without": [
+    "Says kubectl top shows RSS; it actually reports the container working set (minor)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-jvm-oomkilled",
+   "A": "without",
+   "B": "with",
+   "stem": "8b5b9bd16b__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both explain heap vs non-heap memory correctly and recommend MaxRAMPercentage with concrete limits, but A also tells the user to measure real memory use (kubectl top, container_memory_working_set_bytes, GC logs), while B only checks MaxHeapSize. B's check runs `kubectl exec ... java -XX:+PrintFlagsFinal -version`, which starts a new JVM without the app's JAVA_OPTS, so it would not show the configured heap. Both answers use some English section headings (Rollback, Verification/Blast Radius, Implementation), so neither fully meets the language item.",
+   "errors_with": [
+    "The verification command `kubectl exec <pod> -- java -XX:+PrintFlagsFinal -version` starts a fresh JVM that does not inherit the app's JAVA_OPTS flags, so it does not show the app's actual MaxHeapSize.",
+    "It says Kubernetes kills the process. In fact the kernel's cgroup OOM killer does."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-sql-second-order",
+   "A": "with",
+   "B": "without",
+   "stem": "90544708dd__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct ROW_NUMBER query and the same explanation. B begins with an English heading ('Solution'), and its reason for preferring ROW_NUMBER over RANK points to rank gaps instead of tied ranks, so the reasoning is muddled. A claims an Index Only Scan, which is wrong because the index does not cover id, but that sits in an optional performance tip and does not affect the core answer.",
+   "errors_with": [
+    "Claims the suggested index enables an Index Only Scan, but the query selects id, which the index (customer_id, amount, created_at) does not cover."
+   ],
+   "errors_without": [
+    "Justifies ROW_NUMBER over RANK by the absence of numbering gaps, but the real issue with RANK is that tied rows share the same rank (several rows with rank 2, or none)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-sql-second-order",
+   "A": "without",
+   "B": "with",
+   "stem": "90544708dd__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "The queries and explanations are essentially equivalent and both meet every rubric item. B claims the suggested index enables an Index Only Scan, which is wrong because the query selects id, which is not in the index. A's RANK comparison (gaps) is slightly imprecise and it has an English 'Solution' heading, but these are smaller issues.",
+   "errors_with": [
+    "Claims the index (customer_id, amount DESC, created_at) allows an Index Only Scan, but the query also returns id, which is not covered by the index"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-python-default-list",
+   "A": "without",
+   "B": "with",
+   "stem": "9a7c63d7fe__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers explain the evaluation of the default once at def time and give the correct None-default fix in Russian, with English only in boilerplate section headers. A additionally annotates the original buggy code to show the shared list across calls, which ties the explanation to the user's example a bit more clearly. Both attribute the pattern to PEP 8, which does not actually prescribe it, so neither gains on accuracy.",
+   "errors_with": [
+    "Claims the None-default pattern is a PEP 8 standard; PEP 8 does not specify it."
+   ],
+   "errors_without": [
+    "Claims the None-default pattern is a PEP 8 standard; PEP 8 does not specify it."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-python-default-list",
+   "A": "with",
+   "B": "without",
+   "stem": "9a7c63d7fe__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both explain once-at-definition evaluation and give the correct None-default fix in Russian. B also walks through the user's original code to show the shared list producing [1, 2], and it checks the case where the caller passes a list, so the explanation is a little clearer. A's wording that Python 'creates the same instance' at initialization is slightly muddled, though it is still accurate.",
+   "errors_with": [
+    "Cites PEP 8 as the source of the None-default idiom; PEP 8 does not address mutable default arguments."
+   ],
+   "errors_without": [
+    "Cites PEP 8 as the source of the None-default idiom; PEP 8 does not address mutable default arguments."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "without",
+   "B": "with",
+   "stem": "a350e94069__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "A correctly frames the deduction as a kind of the broader «льгота», matching rubric item 1, while B presents them as separate, opposed mechanisms. Both give the correct 2M/3M limits and note that the refund depends on NDFL paid. Each has a factual slip, but B's wrong claim of a 3-year deadline after purchase could mislead the user more than A's sequencing error.",
+   "errors_with": [
+    "States the deduction must be claimed within 3 years of purchase; the right has no time limit, only the refund is limited to the last 3 tax years."
+   ],
+   "errors_without": [
+    "Claims the mortgage-interest deduction applies only after the main 2M deduction is fully exhausted; both can be claimed in the same year.",
+    "Cites Federal Law No. 54-FZ as relevant to the NDFL deduction, which is a dubious or irrelevant citation."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "with",
+   "B": "without",
+   "stem": "a350e94069__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "B matches rubric item 1 by presenting «льгота» as the broader, looser term and «налоговый вычет» under ст. 220 as the precise one, while A says they are legally different mechanisms. Both give the 2M/3M limits correctly and tie refunds to НДФЛ paid, and each has comparable factual slips: A invents a 3-year deadline to claim the deduction, while B wrongly says the interest deduction only starts after the main one is used up and cites an irrelevant 54-ФЗ. On balance B fits the rubric slightly better.",
+   "errors_with": [
+    "Claims the deduction must be claimed within 3 years of purchase; the right to the deduction has no time limit, only refunds for past tax years are limited to 3 years",
+    "Spousal interest figure of up to 780 000 roubles is presented as a typical doubling without noting it depends on each spouse actually paying over 3M of interest"
+   ],
+   "errors_without": [
+    "States the interest deduction can only be used after the main 2M deduction is fully exhausted; both can be claimed in the same period",
+    "Cites Federal Law No. 54-FZ as relevant to НДФЛ changes; 54-ФЗ concerns cash registers",
+    "Labels the employer route as the 'упрощенный порядок', which is a separate procedure"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-office-move-plan",
+   "A": "without",
+   "B": "with",
+   "stem": "b18ed4f755__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both order internet in week 1 and furniture by week 2 with sufficient lead time, and both plan a 4-hour server window on the move weekend; A leaves more buffer by ordering internet on day one, while B delays the critical order to 4 November, a Russian public holiday. B prepares the server window more concretely with a full backup, a cabling scheme and an IT kit, whereas A gives only a shutdown/boot checklist. A uses English section headings (Context, Analysis, Solution, Summary) and English terms in a Russian reply, which weakens item 4.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-office-move-plan",
+   "A": "with",
+   "B": "without",
+   "stem": "b18ed4f755__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers order the internet and furniture in time and plan a prepared 4-hour server window. A also includes an explicit full backup before shutdown, and its date arithmetic is correct. B orders earlier and leaves more buffer, but it uses English section headings (Context, Analysis, Solution, Summary) and English phrases in a Russian reply. Neither answer notices that 4 November is a Russian public holiday.",
+   "errors_with": [],
+   "errors_without": [
+    "Expects the internet to be connected by 16.11 after a 02.11 request without accounting for the 4 November holiday (10 working days end on 17.11)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-vryad-li-edva-li",
+   "A": "with",
+   "B": "without",
+   "stem": "b67c9e0022__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both correctly explain the shared meaning and the neutral vs bookish stylistic split, with natural B1-level examples, in Russian. A also contrasts standalone «едва» ('barely', «я едва успел») with «едва ли», partly covering rubric item 2, while B leaves it out entirely; neither mentions «едва ли не». B's dialogue examples and SMS check question are slightly better for teaching, but not enough to outweigh A's extra rubric coverage.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-vryad-li-edva-li",
+   "A": "without",
+   "B": "with",
+   "stem": "b67c9e0022__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers explain the shared meaning of doubt and the stylistic contrast (neutral/spoken vs bookish/formal) well, with suitable B1 examples in Russian. B adds a note that «едва» alone means 'barely' («я едва успел») as distinct from «едва ли», partially covering rubric item 2, while A omits it entirely; neither mentions «едва ли не». A's practice section is slightly richer, but that does not outweigh B's coverage of the extra semantic point.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-heart-failure-terms",
+   "A": "with",
+   "B": "without",
+   "stem": "b8ee6cebfc__o1",
+   "winner_arm": "without",
+   "margin": "large",
+   "reasons": "Answer A is written entirely in English and restates the request in English, failing the language requirement for a Russian-speaking user and translating the discharge terms into CHF/Stage IIA. Answer B explains both scales correctly in plain Russian, keeps the original wording, stays calm and advises following the discharge plan; its only flaw is an English disclaimer. Both simplify the Strazhesko–Vasilenko stages a little, but neither calls IIA end-stage.",
+   "errors_with": [
+    "Describes Strazhesko–Vasilenko stage I as fully asymptomatic, though it is latent failure with symptoms on exertion (minor simplification)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-heart-failure-terms",
+   "A": "without",
+   "B": "with",
+   "stem": "b8ee6cebfc__o2",
+   "winner_arm": "without",
+   "margin": "large",
+   "reasons": "B is written entirely in English for a Russian-speaking user, restates the request in English in its History section and translates the discharge terms to CHF/Stage IIA, which fails rubric item 4 and partly item 3. A answers in Russian, keeps the original wording, explains NYHA II correctly and stays calm while pointing to the prescribed plan; its only language flaw is the English disclaimer. Both answers describe the Strazhesko-Vasilenko stages loosely in symptom terms, without the hemodynamic criteria.",
+   "errors_with": [
+    "Stage IIB is described as symptoms at very light activity or at rest, which conflates the Strazhesko-Vasilenko stage with NYHA functional classes (IIB reflects marked hemodynamic disturbance in both circulations)."
+   ],
+   "errors_without": [
+    "NYHA is rendered as 'Нью-Йоркская ассоциация кардиологов' rather than New York Heart Association (minor)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-git-reset-reflog",
+   "A": "with",
+   "B": "without",
+   "stem": "cd65504e21__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "B explicitly warns that uncommitted, unstaged work lost to reset --hard cannot be recovered through reflog; A only hints at this in its confidence note. A's sample reflog output is wrong: it puts the reset at HEAD@{4} below a commit at HEAD@{1}, which could mislead the user, while B shows a correct, clear example with the reset at HEAD@{0}. Both give correct restore commands (reset --hard <hash> or a new branch).",
+   "errors_with": [
+    "Example reflog lists the reset entry as HEAD@{4} after a commit at HEAD@{1}; the most recent reset would be HEAD@{0}, and the pre-reset commit HEAD@{1}."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-git-reset-reflog",
+   "A": "without",
+   "B": "with",
+   "stem": "cd65504e21__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "A explicitly warns that uncommitted, unstaged changes lost to reset --hard cannot be recovered, and it conditions the hard reset on having no uncommitted edits; B never gives this warning. B's sample reflog output is also inconsistent, listing the reset as HEAD@{4} below HEAD@{1} when it would be HEAD@{0} at the top, which could confuse the user. A's sample reflog is realistic and shows the three lost commits clearly.",
+   "errors_with": [
+    "Example reflog shows the reset entry as HEAD@{4} listed after HEAD@{1}; the most recent reset would be HEAD@{0} at the top of the reflog."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-float-compare",
+   "A": "with",
+   "B": "without",
+   "stem": "de7bd5bdbf__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers fully cover all three rubric items with correct explanations, math.isclose examples, and Decimal/integer-cents recommendations for prices. A gives the exact stored binary values, while B explains why isclose handles relative and absolute tolerance and shows the False/True output; these strengths offset each other. A's description of Decimal as 'fixed-precision' is slightly imprecise but minor.",
+   "errors_with": [
+    "Describes Decimal as 'fixed-precision' arithmetic; it is decimal floating point with user-configurable precision (minor imprecision)."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-float-compare",
+   "A": "without",
+   "B": "with",
+   "stem": "de7bd5bdbf__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers cover all three rubric items correctly. B gives the exact stored binary values of 0.1, 0.2 and their sum, which makes the explanation more concrete, and it shows an explicit tolerance with a manual epsilon example. Its one slip, calling Decimal 'fixed-precision', is minor, so B wins narrowly.",
+   "errors_with": [
+    "Describes Decimal as 'fixed-precision' arithmetic; Python's Decimal is decimal floating point with configurable context precision."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-runbook-checklist",
+   "A": "without",
+   "B": "with",
+   "stem": "e30dd1fc24__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers keep all five steps in order, copy both kubectl commands exactly, translate the rollback condition correctly and keep #incidents and the DBA rule. A's checkboxes suit a checklist slightly better, and B's 'approval' is slightly closer to the rubric's wording on the DBA rule. Neither difference is enough to pick a winner.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-runbook-checklist",
+   "A": "with",
+   "B": "without",
+   "stem": "e30dd1fc24__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers keep all five steps in order, copy both kubectl commands exactly, translate the rollback condition precisely, and keep #incidents and the DBA rule. B's checkbox format suits a checklist slightly better, and A's 'approval' reads a little more naturally than B's 'coordination'. Neither difference is substantive.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-psql-connection-refused",
+   "A": "with",
+   "B": "without",
+   "stem": "f73867093f__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers name listen_addresses (with restart), the firewall and pg_hba.conf as the next step, and both are in Russian. A's nc checklist separates refused (listen_addresses or a rejecting firewall) from timeout (packets dropped), which matches rubric item 1, although its firewall section loosely says refused means packets are dropped. B only says the firewall 'drops' packets and never makes that distinction.",
+   "errors_with": [
+    "Firewall section says a 'Connection refused' while listening on * means packets are dropped by the firewall; dropped packets cause a timeout, and refused implies a REJECT rule"
+   ],
+   "errors_without": [
+    "Implies a firewall dropping packets would produce 'Connection refused'; dropping causes a timeout instead"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-psql-connection-refused",
+   "A": "without",
+   "B": "with",
+   "stem": "f73867093f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers name listen_addresses (with a restart) and the firewall, and both cover pg_hba.conf as the next step. B also separates a refused connection (listen_addresses or a rejecting firewall) from a timeout (packets silently dropped), while A only says the firewall drops packets, which does not explain a refusal. B also shows the actual pg_hba error text and how to find the config file, which makes the steps easier to act on.",
+   "errors_with": [
+    "In the firewall section it says 'Connection refused' means packets are being dropped by the firewall, which contradicts its own later (correct) refused-vs-timeout distinction."
+   ],
+   "errors_without": [
+    "Gives a firewall dropping packets on 5432 as a cause of 'Connection refused'; dropped packets cause a timeout, while a refusal needs a REJECT/RST."
+   ]
+  }
+ ],
+ "missing": [
+  {
+   "pair": "embed-model/ru-meeting-slots",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-urn-probability",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-pushkin-meter",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-petersburg-quatrain",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-refund-letter",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/en-refund-letter",
+   "error": "context not built: arms identical"
+  }
+ ]
+}

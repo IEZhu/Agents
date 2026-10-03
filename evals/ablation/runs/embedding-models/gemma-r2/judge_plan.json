@@ -1,0 +1,218 @@
+{
+ "de7bd5bdbf__o1": {
+  "component": "embed-model",
+  "case": "en-float-compare",
+  "A": "with",
+  "B": "without"
+ },
+ "de7bd5bdbf__o2": {
+  "component": "embed-model",
+  "case": "en-float-compare",
+  "A": "without",
+  "B": "with"
+ },
+ "461025735f__o1": {
+  "component": "embed-model",
+  "case": "en-liveness-readiness",
+  "A": "with",
+  "B": "without"
+ },
+ "461025735f__o2": {
+  "component": "embed-model",
+  "case": "en-liveness-readiness",
+  "A": "without",
+  "B": "with"
+ },
+ "15805d4651__o1": {
+  "component": "embed-model",
+  "case": "mix-inn-validator",
+  "A": "with",
+  "B": "without"
+ },
+ "15805d4651__o2": {
+  "component": "embed-model",
+  "case": "mix-inn-validator",
+  "A": "without",
+  "B": "with"
+ },
+ "e30dd1fc24__o1": {
+  "component": "embed-model",
+  "case": "mix-runbook-checklist",
+  "A": "without",
+  "B": "with"
+ },
+ "e30dd1fc24__o2": {
+  "component": "embed-model",
+  "case": "mix-runbook-checklist",
+  "A": "with",
+  "B": "without"
+ },
+ "695f0d919e__o1": {
+  "component": "embed-model",
+  "case": "ru-1c-query-characteristic",
+  "A": "without",
+  "B": "with"
+ },
+ "695f0d919e__o2": {
+  "component": "embed-model",
+  "case": "ru-1c-query-characteristic",
+  "A": "with",
+  "B": "without"
+ },
+ "2ac05b08ae__o1": {
+  "component": "embed-model",
+  "case": "ru-bakery-puns",
+  "A": "without",
+  "B": "with"
+ },
+ "2ac05b08ae__o2": {
+  "component": "embed-model",
+  "case": "ru-bakery-puns",
+  "A": "with",
+  "B": "without"
+ },
+ "cd65504e21__o1": {
+  "component": "embed-model",
+  "case": "ru-git-reset-reflog",
+  "A": "with",
+  "B": "without"
+ },
+ "cd65504e21__o2": {
+  "component": "embed-model",
+  "case": "ru-git-reset-reflog",
+  "A": "without",
+  "B": "with"
+ },
+ "b8ee6cebfc__o1": {
+  "component": "embed-model",
+  "case": "ru-heart-failure-terms",
+  "A": "with",
+  "B": "without"
+ },
+ "b8ee6cebfc__o2": {
+  "component": "embed-model",
+  "case": "ru-heart-failure-terms",
+  "A": "without",
+  "B": "with"
+ },
+ "8b5b9bd16b__o1": {
+  "component": "embed-model",
+  "case": "ru-jvm-oomkilled",
+  "A": "with",
+  "B": "without"
+ },
+ "8b5b9bd16b__o2": {
+  "component": "embed-model",
+  "case": "ru-jvm-oomkilled",
+  "A": "without",
+  "B": "with"
+ },
+ "2e042d859f__o1": {
+  "component": "embed-model",
+  "case": "ru-landing-translation",
+  "A": "without",
+  "B": "with"
+ },
+ "2e042d859f__o2": {
+  "component": "embed-model",
+  "case": "ru-landing-translation",
+  "A": "with",
+  "B": "without"
+ },
+ "b18ed4f755__o1": {
+  "component": "embed-model",
+  "case": "ru-office-move-plan",
+  "A": "without",
+  "B": "with"
+ },
+ "b18ed4f755__o2": {
+  "component": "embed-model",
+  "case": "ru-office-move-plan",
+  "A": "with",
+  "B": "without"
+ },
+ "4d5b15e260__o1": {
+  "component": "embed-model",
+  "case": "ru-phone-regex",
+  "A": "with",
+  "B": "without"
+ },
+ "4d5b15e260__o2": {
+  "component": "embed-model",
+  "case": "ru-phone-regex",
+  "A": "without",
+  "B": "with"
+ },
+ "152c40ed22__o1": {
+  "component": "embed-model",
+  "case": "ru-proofread-sentence",
+  "A": "without",
+  "B": "with"
+ },
+ "152c40ed22__o2": {
+  "component": "embed-model",
+  "case": "ru-proofread-sentence",
+  "A": "with",
+  "B": "without"
+ },
+ "f73867093f__o1": {
+  "component": "embed-model",
+  "case": "ru-psql-connection-refused",
+  "A": "with",
+  "B": "without"
+ },
+ "f73867093f__o2": {
+  "component": "embed-model",
+  "case": "ru-psql-connection-refused",
+  "A": "without",
+  "B": "with"
+ },
+ "9a7c63d7fe__o1": {
+  "component": "embed-model",
+  "case": "ru-python-default-list",
+  "A": "without",
+  "B": "with"
+ },
+ "9a7c63d7fe__o2": {
+  "component": "embed-model",
+  "case": "ru-python-default-list",
+  "A": "with",
+  "B": "without"
+ },
+ "90544708dd__o1": {
+  "component": "embed-model",
+  "case": "ru-sql-second-order",
+  "A": "with",
+  "B": "without"
+ },
+ "90544708dd__o2": {
+  "component": "embed-model",
+  "case": "ru-sql-second-order",
+  "A": "without",
+  "B": "with"
+ },
+ "a350e94069__o1": {
+  "component": "embed-model",
+  "case": "ru-tax-deduction-vs-benefit",
+  "A": "without",
+  "B": "with"
+ },
+ "a350e94069__o2": {
+  "component": "embed-model",
+  "case": "ru-tax-deduction-vs-benefit",
+  "A": "with",
+  "B": "without"
+ },
+ "b67c9e0022__o1": {
+  "component": "embed-model",
+  "case": "ru-vryad-li-edva-li",
+  "A": "with",
+  "B": "without"
+ },
+ "b67c9e0022__o2": {
+  "component": "embed-model",
+  "case": "ru-vryad-li-edva-li",
+  "A": "without",
+  "B": "with"
+ }
+}
