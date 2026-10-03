@@ -200,14 +200,19 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
    model revision from the model cache, so indexes built before the download
    would be rebuilt by the server on its first start.
 5. Writes a marked block to git's global excludes (`~/.config/git/ignore` unless
-   `core.excludesFile` names another file) with the files Agents-Core can leave in
-   a client repository's root: `history.md` with its lock, rotation and monthly
-   `history/YYYY-MM.md` archives, `data/memory/`, and the locks and temporary
-   files of `describe_repo`. Patterns are anchored at the root, and each run
-   replaces the block.
-6. Starts the registered server over stdio, checks its tools, calls
-   `route_and_load`, and calls `load_implants`, which embeds a query in the server
-   process.
+   `core.excludesFile` names another file; a symlinked file stays a symlink) with
+   the files Agents-Core can leave in a client repository's root: `history.md`
+   with its lock, rotation and monthly `history/YYYY-MM.md` archives,
+   `data/memory/`, and the locks and temporary files of `describe_repo`.
+   Patterns are anchored at the root, and each run replaces the block.
+6. Checks that `~/.claude/CLAUDE.md` holds exactly one routing section, as
+   `inject_claude_md.py` writes it from the current template. It then starts the
+   registered server over stdio and requires the protocol 2 parameters
+   (`protocol_version`, `current_persona`) in the `route_and_load` and
+   `get_agent_context` schemas and a protocol 2 answer from `route_and_load`. It
+   also calls `load_implants`, which embeds the query in the server process when
+   the implant index from step 4 is not empty. An empty result passes, because no
+   implant may clear the relevance threshold; an error does not.
 
 Any failed step exits non-zero, so the session fails to start and no broken
 installation is cached. Correct the cause, usually the network list, in the

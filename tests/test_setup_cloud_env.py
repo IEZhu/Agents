@@ -1,12 +1,14 @@
 """Exercise scripts/setup_cloud_env.sh against a disposable upstream and HOME.
 
-The upstream carries the real install.sh and src/client_paths.py, a stub
+The upstream carries the real install.sh, src/client_paths.py,
+scripts/_helpers/inject_claude_md.py and the routing template, a stub
 init_repo.sh and a small fake MCP server. The stub registers that server the way
-init_repo.sh registers Agents-Core and creates a ``.venv/bin/python`` that records
-each call: it runs the script's verification program with the test interpreter
-and succeeds for the model download and indexing. The tests cover the script's
-own steps (checkout, .env seeding, git excludes, verification, failure handling)
-without installing dependencies or downloading a model.
+init_repo.sh registers Agents-Core, writes ~/.claude/CLAUDE.md with the real
+inject_claude_md.py, and creates a ``.venv/bin/python`` that records each call:
+it runs the script's verification program with the test interpreter and succeeds
+for the model download and indexing. The tests cover the script's own steps
+(checkout, .env seeding, git excludes, verification, failure handling) without
+installing dependencies or downloading a model.
 """
 import os
 from pathlib import Path
@@ -42,27 +44,52 @@ if [ -z "${STUB_SKIP_REGISTER:-}" ]; then
     printf '{"mcpServers": {"Agents-Core": {"command": "%s", "args": ["%s/src/server.py"]}}}' \\
         "$REAL_PYTHON" "$root" > "$config"
 fi
-if [ -z "${STUB_SKIP_INSTRUCTIONS:-}" ]; then
-    echo "# >>> Agents-Core Routing Protocol (managed by init_repo) >>>" > "$instructions"
-fi
+case "${STUB_INSTRUCTIONS:-}" in
+    skip) ;;
+    truncate) echo "# >>> Agents-Core Routing Protocol (managed by init_repo) >>>" > "$instructions" ;;
+    *)
+        "$REAL_PYTHON" "$root/scripts/_helpers/inject_claude_md.py" "$instructions" \\
+            "$root/scripts/templates/routing-protocol-core.md" > /dev/null
+        case "${STUB_INSTRUCTIONS:-}" in
+            duplicate) cat "$instructions" "$instructions" > "$instructions.2" && mv "$instructions.2" "$instructions" ;;
+            legacy) printf '%s\\nold\\n%s\\n' "# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>" \\
+                "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<" >> "$instructions" ;;
+        esac ;;
+esac
 """
 FAKE_SERVER = '''import json
 import os
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Agents-Core")
 
 
-@mcp.tool()
-def route_and_load(query: str, protocol_version: int = 2) -> str:
-    return json.dumps({"status": os.environ.get("FAKE_ROUTE_STATUS", "ROUTE_REQUIRED"),
-                       "message": "fake"})
+def answer():
+    return json.dumps({"protocol_version": int(os.environ.get("FAKE_PROTOCOL_VERSION", "2")),
+                       "status": os.environ.get("FAKE_ROUTE_STATUS", "ROUTE_REQUIRED"), "message": "fake"})
 
 
-@mcp.tool()
-def get_agent_context(agent_name: str, query: str) -> str:
-    return "{}"
+if os.environ.get("FAKE_OLD_SCHEMA") == "route":
+    @mcp.tool()
+    def route_and_load(query: str) -> str:
+        return answer()
+else:
+    @mcp.tool()
+    def route_and_load(query: str, protocol_version: int = 2, current_persona: Optional[dict] = None) -> str:
+        return answer()
+
+
+if os.environ.get("FAKE_OLD_SCHEMA") == "context":
+    @mcp.tool()
+    def get_agent_context(agent_name: str, query: str) -> str:
+        return "{}"
+else:
+    @mcp.tool()
+    def get_agent_context(agent_name: str, query: str, protocol_version: int = 2,
+                          current_persona: Optional[dict] = None) -> str:
+        return "{}"
 
 
 @mcp.tool()
@@ -86,10 +113,21 @@ MEMORY_FILES = ["history.md", ".history.md.lock", "history.md.rotating", "histor
                 ".CLAUDE.md.lock", ".managed_section.abc123.tmp"]
 
 
+def clean_env(**overrides):
+    """The caller's environment without git, XDG, client or script settings."""
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("GIT_", "AGENTS_", "STUB_", "FAKE_"))
+           and key not in ("XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR")}
+    env.update(overrides)
+    return env
+
+
 def git(*args, cwd=None):
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
-                   cwd=cwd, check=True, capture_output=True)
+                    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+                    "-c", "core.excludesFile=/dev/null", *args],
+                   cwd=cwd, check=True, capture_output=True,
+                   env=clean_env(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1"))
 
 
 @pytest.fixture
@@ -99,6 +137,9 @@ def upstream(tmp_path):
     (repo / "src").mkdir()
     shutil.copy(ROOT / "install.sh", repo / "install.sh")
     shutil.copy(ROOT / "src/client_paths.py", repo / "src/client_paths.py")
+    for helper in ("scripts/_helpers/inject_claude_md.py", "scripts/templates/routing-protocol-core.md"):
+        (repo / helper).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / helper, repo / helper)
     (repo / "src/__init__.py").write_text("")
     (repo / "src/server.py").write_text(FAKE_SERVER)
     stub = repo / "scripts/init_repo.sh"
@@ -114,12 +155,7 @@ def upstream(tmp_path):
 def setup_env(tmp_path, upstream, extra_env=None):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    env = dict(os.environ, HOME=str(home), AGENTS_REPO_URL=str(upstream), REAL_PYTHON=sys.executable)
-    for key in list(env):
-        if key.startswith(("AGENTS_HOME", "AGENTS_BRANCH", "AGENTS_EMBEDDING_MODEL", "STUB_", "FAKE_")):
-            del env[key]
-    for key in ("XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "CLAUDE_CONFIG_DIR"):
-        env.pop(key, None)
+    env = clean_env(HOME=str(home), AGENTS_REPO_URL=str(upstream), REAL_PYTHON=sys.executable)
     env.update(extra_env or {})
     return env
 
@@ -150,20 +186,35 @@ def test_fresh_setup_seeds_env_and_verifies(tmp_path, upstream):
     assert recorded[0].startswith("python:-c ") and "embed_texts" in recorded[0]
     assert recorded[1:] == ["python:-m src.reindex", f"python:- {checkout}"]
     assert "Server OK: 4 tools, route_and_load -> ROUTE_REQUIRED, load_implants -> implants" in result.stdout
+    assert "Agents-Core Persona Protocol" in (tmp_path / "home/.claude/CLAUDE.md").read_text()
     ignore = (tmp_path / "home/.config/git/ignore").read_text().splitlines()
     assert ignore[0] == BEGIN and ignore[-1] == END
 
 
 @pytest.mark.parametrize("extra_env, message", [
     ({"STUB_SKIP_REGISTER": "1"}, "Agents-Core is not registered for"),
-    ({"STUB_SKIP_INSTRUCTIONS": "1"}, "has no Agents-Core routing section"),
-    ({"FAKE_ROUTE_STATUS": "ERROR"}, "route_and_load returned ERROR"),
+    ({"STUB_INSTRUCTIONS": "skip"}, "lacks exactly one current Agents-Core routing section"),
+    ({"STUB_INSTRUCTIONS": "truncate"}, "lacks exactly one current Agents-Core routing section"),
+    ({"STUB_INSTRUCTIONS": "duplicate"}, "lacks exactly one current Agents-Core routing section"),
+    ({"STUB_INSTRUCTIONS": "legacy"}, "lacks exactly one current Agents-Core routing section"),
+    ({"FAKE_OLD_SCHEMA": "route"}, "route_and_load lacks protocol 2 parameters"),
+    ({"FAKE_OLD_SCHEMA": "context"}, "get_agent_context lacks protocol 2 parameters"),
+    ({"FAKE_PROTOCOL_VERSION": "1"}, "route_and_load returned protocol 1"),
+    ({"FAKE_ROUTE_STATUS": "ERROR"}, "route_and_load returned protocol 2, ERROR"),
     ({"FAKE_IMPLANTS": "Error loading implants: no model"}, "load_implants returned: Error loading implants"),
-], ids=["no-registration", "no-instructions", "route-error", "implants-error"])
+], ids=["no-registration", "no-instructions", "truncated-instructions", "duplicate-instructions",
+        "legacy-instructions", "old-route-schema", "old-context-schema", "protocol-1", "route-error",
+        "implants-error"])
 def test_verification_failures_fail_setup(tmp_path, upstream, extra_env, message):
     result = run_setup(tmp_path, upstream, extra_env)
     assert result.returncode != 0
     assert message in result.stderr
+
+
+def test_implant_query_without_match_passes(tmp_path, upstream):
+    result = run_setup(tmp_path, upstream, {"FAKE_IMPLANTS": ""})
+    assert result.returncode == 0, result.stderr
+    assert "load_implants -> no match" in result.stdout
 
 
 def test_registration_for_another_checkout_fails(tmp_path, upstream):
@@ -184,7 +235,7 @@ def test_excludes_hide_only_memory_files(tmp_path, upstream):
     git("init", "-q", cwd=repo)
     status = subprocess.run(["git", "status", "--porcelain", "-uall"], cwd=repo, check=True,
                             capture_output=True, text=True,
-                            env=dict(os.environ, HOME=str(tmp_path / "home"), GIT_CONFIG_NOSYSTEM="1")).stdout
+                            env=clean_env(HOME=str(tmp_path / "home"), GIT_CONFIG_NOSYSTEM="1")).stdout
     assert sorted(line[3:] for line in status.splitlines()) == [
         "data/keep.json", "history/notes.md", "notes.md", "sub/history.md"]
 
@@ -202,6 +253,32 @@ def test_rerun_keeps_edits_and_replaces_excludes_block(tmp_path, upstream):
     lines = ignore.read_text().splitlines()
     assert lines.count(BEGIN) == 1
     assert lines[:2] == ["*.swp", "*.bak"]
+
+
+def test_symlinked_excludes_file_stays_a_symlink(tmp_path, upstream):
+    dotfiles = tmp_path / "dotfiles/git-ignore"
+    dotfiles.parent.mkdir()
+    dotfiles.write_text("*.swp\n")
+    link = tmp_path / "home/.config/git/ignore"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(dotfiles)
+    assert run_setup(tmp_path, upstream).returncode == 0
+    assert link.is_symlink()
+    lines = dotfiles.read_text().splitlines()
+    assert lines[0] == "*.swp" and lines[1] == BEGIN and lines[-1] == END
+
+
+def test_failed_excludes_read_keeps_user_rules(tmp_path, upstream):
+    ignore = tmp_path / "home/.config/git/ignore"
+    ignore.parent.mkdir(parents=True)
+    ignore.write_text("*.swp\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "awk").write_text("#!/bin/sh\nexit 2\n")
+    (fake_bin / "awk").chmod(0o755)
+    result = run_setup(tmp_path, upstream, {"PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert result.returncode != 0
+    assert ignore.read_text() == "*.swp\n"
 
 
 def test_model_override_for_new_env(tmp_path, upstream):

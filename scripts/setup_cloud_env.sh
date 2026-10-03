@@ -115,21 +115,28 @@ from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
     end="# <<< Agents-Core repository memory <<<"
     mkdir -p "$(dirname "$excludes")"
     touch "$excludes"
+    # Replace the file a symlink points to (managed dotfiles keep their link),
+    # and only after the new content is complete.
+    local target
+    target="$(readlink -f -- "$excludes")"
     {
-        awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$excludes"
+        awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$target"
         printf '%s\n' "$begin" \
             /history.md /.history.md.lock /history.md.rotating \
             '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md' \
             '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md.tmp' \
             /data/memory/ /.agents-description.lock /.CLAUDE.md.lock '/.managed_section.*.tmp' \
             "$end"
-    } > "$excludes.tmp"
-    mv "$excludes.tmp" "$excludes"
+    } > "$target.tmp"
+    mv "$target.tmp" "$target"
 
-    # 6. Verify the registration Claude Code reads (located as init_repo.sh
-    #    does, through src/client_paths.py), then start the server the same way.
-    #    route_and_load checks the protocol; load_implants embeds a query in the
-    #    server process, which the stdio warm-up alone does not prove.
+    # 6. Verify what Claude Code reads (located as init_repo.sh does, through
+    #    src/client_paths.py): the registration, and the routing section exactly
+    #    as scripts/_helpers/inject_claude_md.py writes it from the template.
+    #    Then start the server the same way: the protocol 2 tool schemas and a
+    #    protocol 2 answer from route_and_load, and load_implants, which embeds
+    #    a query in the server process when the implant index built in step 4
+    #    is not empty (the stdio warm-up alone does not prove it).
     log "Verifying the Claude Code registration and the server"
     (cd "$home_dir" && "$python_bin" - "$home_dir") <<'PY'
 import asyncio
@@ -141,13 +148,16 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 home = sys.argv[1]
-sys.path.insert(0, home)
+sys.path[:0] = [home, os.path.join(home, "scripts", "_helpers")]
+from inject_claude_md import LEGACY_MARKER_BEGIN, LEGACY_MARKER_END, MARKER_BEGIN, MARKER_END  # noqa: E402
 from src.client_paths import client_config_path, client_home  # noqa: E402
 
 claude_json = client_config_path("claude")
 claude_md = client_home("claude") / "CLAUDE.md"
+template = os.path.join(home, "scripts", "templates", "routing-protocol-core.md")
 
-def read(path):
+
+def read_text(path):
     try:
         with open(path, encoding="utf-8") as stream:
             return stream.read()
@@ -155,12 +165,16 @@ def read(path):
         return ""
 
 
-entry = json.loads(read(claude_json) or "{}").get("mcpServers", {}).get("Agents-Core")
+entry = json.loads(read_text(claude_json) or "{}").get("mcpServers", {}).get("Agents-Core")
 server = os.path.realpath(os.path.join(home, "src", "server.py"))
 if not entry or [os.path.realpath(arg) for arg in entry.get("args", [])] != [server]:
     sys.exit(f"Agents-Core is not registered for {home} in {claude_json}: {entry!r}")
-if "Agents-Core Routing Protocol" not in read(claude_md):
-    sys.exit(f"{claude_md} has no Agents-Core routing section")
+protocol = read_text(template).rstrip()
+instructions = read_text(claude_md)
+if (not protocol or f"{MARKER_BEGIN}\n\n{protocol}\n\n{MARKER_END}" not in instructions
+        or instructions.count(MARKER_BEGIN) != 1 or instructions.count(MARKER_END) != 1
+        or LEGACY_MARKER_BEGIN in instructions or LEGACY_MARKER_END in instructions):
+    sys.exit(f"{claude_md} lacks exactly one current Agents-Core routing section from {template}")
 
 
 async def smoke():
@@ -170,22 +184,29 @@ async def smoke():
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            tools = {tool.name for tool in (await session.list_tools()).tools}
-            missing = {"route_and_load", "get_agent_context", "log_interaction"} - tools
+            tools = {tool.name: tool.inputSchema for tool in (await session.list_tools()).tools}
+            missing = {"route_and_load", "get_agent_context", "log_interaction", "load_implants"} - set(tools)
             if missing:
                 sys.exit(f"server lacks tools: {sorted(missing)}")
+            for name in ("route_and_load", "get_agent_context"):
+                absent = {"protocol_version", "current_persona"} - set(tools[name].get("properties", {}))
+                if absent:
+                    sys.exit(f"{name} lacks protocol 2 parameters: {sorted(absent)}")
             result = await session.call_tool("route_and_load", {
-                "query": "Set up a CI pipeline with GitHub Actions", "protocol_version": 2})
+                "query": "Set up a CI pipeline with GitHub Actions", "protocol_version": 2,
+                "current_persona": None})
             payload = json.loads(result.content[0].text)
-            if payload.get("status") not in {"SUCCESS", "ROUTE_REQUIRED"}:
-                sys.exit(f"route_and_load returned {payload.get('status')}: {payload.get('message')}")
+            if payload.get("protocol_version") != 2 or payload.get("status") not in {"SUCCESS", "ROUTE_REQUIRED"}:
+                sys.exit(f"route_and_load returned protocol {payload.get('protocol_version')!r}, "
+                         f"{payload.get('status')}: {payload.get('message')}")
             implants = await session.call_tool("load_implants", {
                 "query": "Plan a database migration step by step", "limit": 2})
             text = implants.content[0].text
-            if not text.startswith("## Dynamic Implants"):
+            # Empty is a valid answer: no implant passed the relevance threshold.
+            if text and not text.startswith("## Dynamic Implants"):
                 sys.exit(f"load_implants returned: {text[:300]}")
             print(f"[agents-core] Server OK: {len(tools)} tools, route_and_load -> {payload['status']}, "
-                  "load_implants -> implants")
+                  f"load_implants -> {'implants' if text else 'no match'}")
 
 
 asyncio.run(smoke())
