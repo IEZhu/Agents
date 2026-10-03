@@ -158,10 +158,19 @@ prove that a new review started.
 If expected automation did not start, check its status and request review through
 the installed integration's supported action.
 
-Keep Copilot in the user's configured **lite mode**. Check available repository
-and integration settings to confirm the mode; preserve that configuration.
-There is no assumed `lite` CLI flag. If the mode cannot be inspected, report that
-limit and use the established integration without changing its mode or billing.
+Keep Copilot at the owner's **Lite** review effort. Each Copilot review overview
+states its effort ("Review effort: Lite" or "Balanced"). Since 2026-09-28
+GitHub's default is Balanced unless Lite was selected explicitly, and Balanced
+reviews with a higher-reasoning model: in 2026-10 they used up the owner's
+Copilot quota within three days. When a Copilot review of the PR ran at Balanced,
+request no further Copilot reviews, treat Copilot as unavailable, and report it
+at once, with where the owner selects Lite under "Review effort level": the
+personal Copilot settings (Copilot, then Code review) for reviews requested with
+the owner's account, which this flow's requests are, and the repository's or
+organization's settings (Copilot, then Code review) for automatic reviews.
+Resume after the owner confirms the switch. Do not change the effort, the
+settings or billing yourself, and do not guess a request parameter for the
+effort: there is no assumed `lite` CLI flag.
 
 On GitLab, inspect the actual reviewers and integrations available to the MR.
 Use supported platform actions for requests and discussions. Do not assume that
@@ -411,7 +420,7 @@ Reply in the language of the original invocation. Include:
 - Every declined finding and its reason, and the findings moved to Follow-ups,
   with the follow-up issue when one was opened.
 - Tests and required checks, their results, and any validation limitations.
-- Any unavailable bots, quota failures, or unverified review-mode configuration,
+- Any unavailable bots, quota failures, or a Copilot review effort other than Lite,
   and the changes that no bot reviewed, with the review that covered them.
 
 For `review-only` or `no-merge`, report that merge was intentionally omitted.
