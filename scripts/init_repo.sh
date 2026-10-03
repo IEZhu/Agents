@@ -107,31 +107,6 @@ done
 
 # ============== Helper Functions ==============
 
-# Picks the default embedding model choice (1 Full, 2 Balanced, 3 Light) from RAM.
-# Prints 2 (Balanced) when RAM cannot be detected.
-detect_default_model_choice() {
-    local kb=0 bytes=0 gb
-    if [ -r /proc/meminfo ]; then
-        kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-        gb=$(( (${kb:-0} + 1048575) / 1048576 ))
-    elif command -v sysctl >/dev/null 2>&1; then
-        bytes=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
-        gb=$(( ${bytes:-0} / 1024 / 1024 / 1024 ))
-    else
-        gb=0
-    fi
-    # MemTotal sits slightly below installed RAM, hence the rounding up above.
-    if [ "${gb:-0}" -ge 32 ]; then
-        echo 1
-    elif [ "${gb:-0}" -ge 16 ]; then
-        echo 2
-    elif [ "${gb:-0}" -gt 0 ]; then
-        echo 3
-    else
-        echo 2
-    fi
-}
-
 print_header() {
     echo ""
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -552,6 +527,13 @@ else
     print_step "Skipping package installation"
 fi
 
+# An earlier install pinned the default embedding model of its time: move it to
+# the current default once (src/model_migration.py); a model chosen after that
+# stays. Runs with --skip-index too, so the server's next start re-embeds.
+if [ -f "$ENV_FILE" ]; then
+    (cd "$REPO_ROOT" && python -m src.model_migration "$ENV_FILE") || print_warn "Embedding model migration failed; keeping the configured model"
+fi
+
 # Pre-download embedding model AND pre-index vector stores so MCP server starts instantly.
 # Without this, first startup takes 30-60s for model download,
 # causing Claude Desktop to time out with "Request timed out" (-32001).
@@ -562,55 +544,31 @@ if [ "$SKIP_INDEX" = false ]; then
     # Check if model is already configured
     CURRENT_MODEL=""
     if [ -f "$ENV_FILE" ]; then
-        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | sed "s/[[:space:]]*#.*//; s/^['\"]//; s/['\"]$//" | xargs || true)
+        CURRENT_MODEL=$(grep '^EMBEDDING_MODEL=' "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | sed "s/[[:space:]]*#.*//; s/^['\"]//; s/['\"]$//" | xargs || true)
     fi
 
     if [ -n "$CURRENT_MODEL" ]; then
         print_success "Embedding model already configured: $CURRENT_MODEL"
     else
-        echo ""
-        echo -e "  ${CYAN}Select embedding model:${NC}"
-        echo ""
-        echo -e "    ${GREEN}1)${NC} Full     — intfloat/multilingual-e5-large                    ~1.1 GB  1024d  multilingual"
-        echo -e "               Best quality. For powerful machines (32+ GB RAM)."
-        echo ""
-        echo -e "    ${GREEN}2)${NC} Balanced — sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  ~120 MB  384d   multilingual"
-        echo -e "               Good quality, 9x lighter. For 16 GB machines. ${GREEN}(Recommended)${NC}"
-        echo ""
-        echo -e "    ${GREEN}3)${NC} Light    — sentence-transformers/all-MiniLM-L6-v2            ~22 MB   384d   English"
-        echo -e "               Minimal footprint. English queries only."
-        echo ""
-        DEFAULT_MODEL_CHOICE="$(detect_default_model_choice)"
-        if [ "$ASSUME_YES" = true ]; then
-            MODEL_CHOICE="$DEFAULT_MODEL_CHOICE"
-            print_step "--yes: embedding model choice $MODEL_CHOICE (detected from RAM)"
-        else
-            read -r -p "  Choice [1/2/3] (default: $DEFAULT_MODEL_CHOICE): " MODEL_CHOICE
-            MODEL_CHOICE="${MODEL_CHOICE:-$DEFAULT_MODEL_CHOICE}"
-        fi
+        # One model for every machine: multilingual, ~1.1 GB download, ~0.9 GB loaded.
+        CURRENT_MODEL="microsoft/harrier-oss-v1-270m"
 
-        case "$MODEL_CHOICE" in
-            1)
-                CURRENT_MODEL="intfloat/multilingual-e5-large"
-                ;;
-            3)
-                CURRENT_MODEL="sentence-transformers/all-MiniLM-L6-v2"
-                ;;
-            *)
-                CURRENT_MODEL="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-                ;;
-        esac
-
-        # Write to .env (use Python for macOS/Linux portability)
-        ENV_FILE_PATH="$ENV_FILE" NEW_MODEL="$CURRENT_MODEL" python -c "
-import os
+        # Write to .env (use Python for macOS/Linux portability). The generation
+        # marker keeps a later update from replacing this choice.
+        ENV_FILE_PATH="$ENV_FILE" NEW_MODEL="$CURRENT_MODEL" REPO_ROOT="$REPO_ROOT" python -c "
+import os, sys
+sys.path.insert(0, os.environ['REPO_ROOT'])
+from src.model_migration import GENERATION, GENERATION_KEY
 env_path = os.environ['ENV_FILE_PATH']
 new_model = os.environ['NEW_MODEL']
 lines = []
 if os.path.exists(env_path):
     with open(env_path) as f:
-        lines = [l for l in f.readlines() if not l.startswith('EMBEDDING_MODEL=')]
+        lines = [l for l in f.readlines() if not l.startswith(('EMBEDDING_MODEL=', GENERATION_KEY + '='))]
+if lines and not lines[-1].endswith('\n'):
+    lines[-1] += '\n'
 lines.append(f'EMBEDDING_MODEL={new_model}\n')
+lines.append(f'{GENERATION_KEY}={GENERATION}\n')
 with open(env_path, 'w') as f:
     f.writelines(lines)
 "

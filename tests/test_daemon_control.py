@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -5,6 +6,16 @@ import pytest
 from src.daemon import control
 from src.daemon.clients import ClientMigration
 from src.daemon.state import read_json
+from src.engine.embedding_prompts import COMPLETE, local_copy, pinned_revision
+from src.model_migration import DEFAULT_MODEL, GENERATION
+
+
+def _default_model_copy(cache):
+    """A published plain-file copy of the default model, as materialize() leaves it."""
+    copy = Path(local_copy(DEFAULT_MODEL, str(cache)))
+    copy.mkdir(parents=True)
+    (copy / COMPLETE).write_text("revision")
+    return copy
 
 
 @pytest.mark.parametrize("cache_state", ["missing_reference", "reference_is_directory", "missing_snapshot"])
@@ -26,8 +37,8 @@ def test_install_reports_missing_model_cache_before_writing_service(tmp_path, mo
         reference.write_text("missing-revision\n")
     controller = control.Controller(tmp_path / "state")
 
-    with pytest.raises(RuntimeError, match="The e5-large model must be cached before service installation"):
-        controller.install()
+    with pytest.raises(RuntimeError, match="The intfloat/multilingual-e5-large model must be cached before service installation"):
+        controller.install(model="intfloat/multilingual-e5-large")
 
     assert not (controller.directory / "service.json").exists()
     assert not (controller.directory / "token").exists()
@@ -43,10 +54,7 @@ def test_install_persists_node_path_for_other_working_directories(tmp_path, monk
     monkeypatch.setattr(control.socket, "socket", MagicMock())
     monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
     cache = tmp_path / "cache"
-    model = cache / "models--qdrant--multilingual-e5-large-onnx"
-    (model / "refs").mkdir(parents=True)
-    (model / "refs/main").write_text("cached-revision\n")
-    (model / "snapshots/cached-revision").mkdir(parents=True)
+    _default_model_copy(cache)
     monkeypatch.setenv("FASTEMBED_CACHE_DIR", str(cache))
     node = tmp_path / "bin/node"
     node.parent.mkdir()
@@ -80,10 +88,7 @@ def test_install_treats_blank_cache_dir_as_default(tmp_path, monkeypatch):
     monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
     home = tmp_path / "home"
     cache = home / ".cache/fastembed"
-    model = cache / "models--qdrant--multilingual-e5-large-onnx"
-    (model / "refs").mkdir(parents=True)
-    (model / "refs/main").write_text("cached-revision\n")
-    (model / "snapshots/cached-revision").mkdir(parents=True)
+    _default_model_copy(cache)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("FASTEMBED_CACHE_DIR", "")
     monkeypatch.chdir(tmp_path)
@@ -92,3 +97,58 @@ def test_install_treats_blank_cache_dir_as_default(tmp_path, monkeypatch):
     controller.install()
 
     assert read_json(controller.directory / "service.json")["model_cache"] == str(cache)
+
+
+def _installable(tmp_path, monkeypatch):
+    root = tmp_path / "install"
+    root.mkdir()
+    monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
+    monkeypatch.setattr(control.socket, "socket", MagicMock())
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("FASTEMBED_CACHE_DIR", str(cache))
+    return control.Controller(tmp_path / "state"), cache
+
+
+def test_install_pins_the_default_models_plain_file_copy(tmp_path, monkeypatch):
+    controller, cache = _installable(tmp_path, monkeypatch)
+    copy = _default_model_copy(cache)
+
+    controller.install()
+
+    config = read_json(controller.directory / "service.json")
+    assert config["model"] == DEFAULT_MODEL
+    assert config["model_path"] == str(copy)
+    assert config["model_artifact"] == pinned_revision(DEFAULT_MODEL)  # what the standalone fingerprint uses
+    assert config["model_generation"] == GENERATION
+
+
+def test_install_refuses_an_incomplete_default_model_copy(tmp_path, monkeypatch):
+    controller, cache = _installable(tmp_path, monkeypatch)
+    _default_model_copy(cache).joinpath(COMPLETE).unlink()  # an interrupted download
+
+    with pytest.raises(RuntimeError, match=f"The {DEFAULT_MODEL} model must be downloaded"):
+        controller.install()
+    assert not (controller.directory / "service.json").exists()
+
+
+def test_install_keeps_e5_selectable_by_its_cached_snapshot(tmp_path, monkeypatch):
+    controller, cache = _installable(tmp_path, monkeypatch)
+    model = cache / "models--qdrant--multilingual-e5-large-onnx"
+    (model / "refs").mkdir(parents=True)
+    (model / "refs/main").write_text("cached-revision\n")
+    (model / "snapshots/cached-revision").mkdir(parents=True)
+
+    controller.install(model="intfloat/multilingual-e5-large")
+
+    config = read_json(controller.directory / "service.json")
+    assert config["model"] == "intfloat/multilingual-e5-large"
+    assert config["model_path"] == str(model / "snapshots/cached-revision")
+    assert config["model_artifact"] == "models--qdrant--multilingual-e5-large-onnx:cached-revision"
+
+
+def test_install_refuses_a_model_it_cannot_pin(tmp_path, monkeypatch):
+    controller, _cache = _installable(tmp_path, monkeypatch)
+    with pytest.raises(RuntimeError, match="cannot pin"):
+        controller.install(model="sentence-transformers/all-MiniLM-L6-v2")

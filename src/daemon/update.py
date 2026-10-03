@@ -41,22 +41,72 @@ def cleanup(controller):
 def restore_files(controller, journal):
     """Called only while stopped, holding exclusive installation + updater leases."""
     root = Path(controller.config["installation"])
-    git = controller.config["git"]
-    current = subprocess.run([git, "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
-    if current not in (journal["old_sha"], journal.get("target_sha")):
-        raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
-    # The file updater starts from a verified clean tree and retains the leases.
-    from src import self_update
-    if not self_update._rollback_activation(str(root), journal["old_sha"], 30, clear_journal=False):
-        raise RuntimeError("Code rollback failed; maintenance retained")
-    backup = Path(journal["backup"])
-    for name in INDEX_FILES:
+    if journal.get("old_sha"):
+        git = controller.config["git"]
+        current = subprocess.run([git, "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+        if current not in (journal["old_sha"], journal.get("target_sha")):
+            raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
+        # The file updater starts from a verified clean tree and retains the leases.
+        from src import self_update
+        if not self_update._rollback_activation(str(root), journal["old_sha"], 30, clear_journal=False):
+            raise RuntimeError("Code rollback failed; maintenance retained")
+    if journal.get("service_backup"):
+        # The model switch rewrote service.json; the restored stores match the old model.
+        atomic_private(controller.directory / "service.json", Path(journal["service_backup"]).read_bytes())
+        controller.config = read_json(controller.directory / "service.json")
+    backup = Path(journal["backup"]) if journal.get("backup") else None
+    for name in INDEX_FILES if backup else ():
         target = root / "data" / name
         if (backup / name).exists(): atomic_private(target, (backup / name).read_bytes())
         else: target.unlink(missing_ok=True)
     # Router/history derivatives detect revision/content on next load.
     (root / "data/.update_in_progress.json").unlink(missing_ok=True)
     phase(controller, journal, "restored")
+
+
+def backup_indexes(controller, backup):
+    root = Path(controller.config["installation"])
+    for name in INDEX_FILES:
+        source = root / "data" / name
+        if source.exists(): atomic_private(backup / name, source.read_bytes())
+        else: (backup / name).unlink(missing_ok=True)
+
+
+def model_env(config):
+    """Process configuration that selects the service's embedding model."""
+    return {"EMBEDDING_MODEL": config["model"], "FASTEMBED_CACHE_DIR": config["model_cache"],
+            "AGENTS_MODEL_ARTIFACT": config["model_artifact"], "AGENTS_MODEL_PATH": config["model_path"]}
+
+
+def switch_model(controller, journal, switched):
+    """Move the stopped service to *switched*'s model and rebuild its stores for it.
+
+    Holds the exclusive installation and updater leases; `rollback` restores the
+    previous service.json and stores from the journal.
+    """
+    if not journal.get("backup"):
+        backup = private_dir(controller.directory / "rollback" / "model-switch")
+        backup_indexes(controller, backup)
+        journal["backup"] = str(backup)
+    backup = Path(journal["backup"])
+    atomic_private(backup / "service.json", (controller.directory / "service.json").read_bytes())
+    journal.update(service_backup=str(backup / "service.json"), model_from=controller.config["model"],
+                   model_to=switched["model"])
+    phase(controller, journal, "model_switch")
+    write_json(controller.directory / "service.json", switched)
+    controller.config = switched
+    reindex(controller)
+
+
+def reindex(controller):
+    """Rebuild the installation's stores with the service's model in a child that inherits the leases."""
+    from src import self_update
+    from src.engine.config import AUTO_UPDATE_REINDEX_TIMEOUT
+    config = controller.config
+    result = self_update._run_command([config["python"], "-m", "src.reindex"], cwd=config["installation"],
+                                      timeout=AUTO_UPDATE_REINDEX_TIMEOUT, env={**os.environ, **model_env(config)})
+    if result.returncode:
+        raise RuntimeError("Reindex for " + config["model"] + " failed: " + (result.stderr or "")[-500:])
 
 
 def rollback(controller, journal):
@@ -71,12 +121,28 @@ def rollback(controller, journal):
     return {"state": "rolled_back", "health": ready}
 
 
+def _live_settings(controller):
+    """Settings other commands may have changed in service.json since this update read it."""
+    current = read_json(controller.directory / "service.json", {})
+    return {key: current[key] for key in ("auto_update", "autostart") if key in current}
+
+
 class TargetMoved(RuntimeError):
     """The branch moved after auto-update checked it; nothing was applied."""
 
 
 def offline_update(controller, expected_target=None, precheck=None):
+    """Update the installation; once per model generation also switch its embedding model.
+
+    The default model downloads before the service stops (`switched_model_config`);
+    a failed download changes nothing.
+    """
     root = Path(controller.config["installation"])
+    from src.model_migration import service_switch_pending
+    switched = None
+    if service_switch_pending(controller.config):
+        from .control import switched_model_config
+        switched = switched_model_config(controller.config)
     with file_lock(controller.directory / "control.lock", blocking=False):
         if (controller.directory / "transaction.json").exists():
             raise RuntimeError("An unfinished transaction requires recover")
@@ -99,10 +165,7 @@ def offline_update(controller, expected_target=None, precheck=None):
                 # Stdlib config + updater only. Reindex is the sole model process
                 # and inherits both leases until it and its descendants exit.
                 os.environ["AGENTS_AUTO_UPDATE"] = "0"
-                os.environ["EMBEDDING_MODEL"] = controller.config["model"]
-                os.environ["FASTEMBED_CACHE_DIR"] = controller.config["model_cache"]
-                os.environ["AGENTS_MODEL_ARTIFACT"] = controller.config["model_artifact"]
-                os.environ["AGENTS_MODEL_PATH"] = controller.config["model_path"]
+                os.environ.update(model_env(controller.config))
                 os.environ["PATH"] = controller.config["path"]
                 from src import self_update
                 def validate(old, target):
@@ -115,10 +178,7 @@ def offline_update(controller, expected_target=None, precheck=None):
                     if changed.stdout.strip():
                         raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
                     backup = private_dir(controller.directory / "rollback" / old)
-                    for name in INDEX_FILES:
-                        source = root / "data" / name
-                        if source.exists(): atomic_private(backup / name, source.read_bytes())
-                        else: (backup / name).unlink(missing_ok=True)
+                    backup_indexes(controller, backup)
                     journal.update(old_sha=old, target_sha=target, backup=str(backup))
                     phase(controller, journal, "applying")
                     mutated = True
@@ -127,6 +187,12 @@ def offline_update(controller, expected_target=None, precheck=None):
                 if result == self_update.UpdateStatus.ROLLBACK_FAILED:
                     raise RuntimeError("File updater rollback failed")
                 phase(controller, journal, "files_complete")
+                if switched:
+                    # Also after a skipped or rolled-back file update: the tree still
+                    # holds at least this code, which loads the default model.
+                    mutated = True
+                    with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
+                        switch_model(controller, journal, {**switched, **_live_settings(controller)})
             if not mutated:
                 # Skip/up-to-date still verifies the existing runtime before
                 # restoring admission after maintenance.
@@ -140,6 +206,9 @@ def offline_update(controller, expected_target=None, precheck=None):
                 return rollback(controller, journal)
             phase(controller, journal, "committed")
             cleanup(controller)
+            if switched:
+                return {"state": result, "health": ready, "model": switched["model"],
+                        "model_from": journal["model_from"]}
             return {"state": result, "health": ready}
         except BaseException:
             if mutated:
@@ -160,7 +229,7 @@ def recover(controller):
         if journal.get("operation") == "token_rotate":
             from .rotation import restore_rotation
             return restore_rotation(controller, journal)
-        if journal.get("old_sha"):
+        if journal.get("old_sha") or journal.get("service_backup"):
             return rollback(controller, journal)
         if journal.get("was_running"):
             controller._stop()

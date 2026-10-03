@@ -15,7 +15,43 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from src.file_lock import file_lock
+from src.model_migration import DEFAULT_MODEL, GENERATION
 from .state import state_dir, private_dir, read_json, write_json, atomic_private
+
+
+# Models fastembed downloads into its Hugging Face cache, by cache directory.
+HF_CACHE_MODELS = {"intfloat/multilingual-e5-large": "models--qdrant--multilingual-e5-large-onnx"}
+
+
+def pin_model(model, cache):
+    """`model_path` and `model_artifact` of an already downloaded *model*; downloads nothing.
+
+    A model with a plain-file copy (`embedding_prompts.LOCAL_COPIES`) pins that copy
+    and its export revision, the value the standalone fingerprint uses. Models in
+    `HF_CACHE_MODELS` pin their cached snapshot.
+    """
+    from src.engine.embedding_prompts import COMPLETE, local_copy, pinned_revision
+    copy = local_copy(model, str(cache))
+    if copy is not None:
+        if not (Path(copy) / COMPLETE).is_file():
+            raise RuntimeError(f"The {model} model must be downloaded before service installation")
+        return {"model_artifact": pinned_revision(model), "model_path": copy}
+    if model not in HF_CACHE_MODELS:
+        raise RuntimeError(f"The service cannot pin {model}; use {DEFAULT_MODEL} or one of {sorted(HF_CACHE_MODELS)}")
+    folder = Path(cache) / HF_CACHE_MODELS[model]
+    reference = folder / "refs/main"
+    revision = reference.read_text().strip() if reference.is_file() else ""
+    if not revision or not (folder / "snapshots" / revision).is_dir():
+        raise RuntimeError(f"The {model} model must be cached before service installation")
+    return {"model_artifact": folder.name + ":" + revision, "model_path": str(folder / "snapshots" / revision)}
+
+
+def switched_model_config(config):
+    """*config* moved to the default model, downloading its plain-file copy when missing."""
+    from src.engine.embedding_prompts import materialize
+    materialize(DEFAULT_MODEL, config["model_cache"])
+    return {**config, "model": DEFAULT_MODEL, "model_generation": GENERATION,
+            **pin_model(DEFAULT_MODEL, config["model_cache"])}
 
 
 class Controller:
@@ -68,7 +104,7 @@ class Controller:
             time.sleep(.2)
         raise TimeoutError("Service did not become ready within the warmup budget")
 
-    def install(self, *, port=8765, python=None, node=None):
+    def install(self, *, port=8765, python=None, node=None, model=None):
         private_dir(self.directory)
         root = Path(__file__).resolve().parents[2]
         with file_lock(self.directory / "control.lock", blocking=False), file_lock(root / "data/.sessions.lock", blocking=False):
@@ -80,18 +116,11 @@ class Controller:
             if not git: raise RuntimeError("An absolute Git executable is required")
             node = node or shutil.which("node")
             config = {"installation": str(root), "python": python, "node": os.path.abspath(node) if node else None,
-                      "git": git, "port": port, "model": "intfloat/multilingual-e5-large",
+                      "git": git, "port": port, "model": model or DEFAULT_MODEL,
                       "model_cache": str(Path(os.environ.get("FASTEMBED_CACHE_DIR", "").strip() or "~/.cache/fastembed").expanduser()),
-                      "path": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), "autostart": True}
-            cache = Path(config["model_cache"]) / "models--qdrant--multilingual-e5-large-onnx"
-            reference = cache / "refs/main"
-            if not reference.is_file():
-                raise RuntimeError("The e5-large model must be cached before service installation")
-            revision = reference.read_text().strip()
-            model_path = cache / "snapshots" / revision
-            if not model_path.is_dir():
-                raise RuntimeError("The e5-large model must be cached before service installation")
-            config.update(model_artifact=cache.name + ":" + revision, model_path=str(model_path))
+                      "path": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), "autostart": True,
+                      "model_generation": GENERATION}
+            config.update(pin_model(config["model"], config["model_cache"]))
             write_json(self.directory / "service.json", config)
             atomic_private(self.directory / "token", secrets.token_urlsafe(48) + "\n")
             self.config = config
@@ -179,6 +208,7 @@ def main(argv=None):
     install = commands.add_parser("install")
     install.add_argument("--port", type=int, default=8765)
     install.add_argument("--python"); install.add_argument("--node")
+    install.add_argument("--model", help=f"embedding model (default {DEFAULT_MODEL}); it must already be downloaded")
     serve = commands.add_parser("serve"); serve.add_argument("--probation")
     for command in ("start", "status", "stop", "restart", "uninstall", "update", "recover", "clear-cache"):
         commands.add_parser(command)
@@ -224,7 +254,8 @@ def main(argv=None):
         from .bootstrap import serve
         serve(controller.directory, args.probation)
         return
-    if args.command == "install": result = controller.install(port=args.port, python=args.python, node=args.node)
+    if args.command == "install": result = controller.install(port=args.port, python=args.python, node=args.node,
+                                                                     model=args.model)
     elif args.command == "audit":
         from .audit import inventory
         result = inventory(workspace=args.workspace, client_configs=overrides, directory=controller.directory)

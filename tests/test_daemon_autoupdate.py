@@ -310,3 +310,34 @@ def test_cli_passes_a_zero_interval_through_to_validation(tmp_path):
     write_json(tmp_path / "service.json", {"installation": "/unused", "python": "/usr/bin/python3", "path": "/usr/bin"})
     with pytest.raises(ValueError, match="at least 60"):
         main(["--state", str(tmp_path), "auto-update", "enable", "--interval", "0"])
+
+
+def test_up_to_date_service_on_an_old_model_generation_is_switched_once(scheduled, monkeypatch):
+    from src.daemon import control, update
+    from src.model_migration import DEFAULT_MODEL, GENERATION
+    controller, root, old, target = scheduled
+    git(root, "merge", "--quiet", "--ff-only", target)
+    controller.config.pop("model_generation")
+    write_json(controller.directory / "service.json", controller.config)
+    monkeypatch.setattr(control, "switched_model_config", lambda config: {
+        **config, "model": DEFAULT_MODEL, "model_generation": GENERATION,
+        "model_artifact": "export@rev", "model_path": "/cache/local/copy"})
+    monkeypatch.setattr(update, "reindex", lambda current: None)
+
+    result = autoupdate.run(controller)
+
+    assert result["state"] == "UP_TO_DATE" and result["model"] == DEFAULT_MODEL and result["model_switch"]
+    assert read_json(controller.directory / "service.json")["model"] == DEFAULT_MODEL
+    assert controller.stops == 1 and controller.probes == 1
+    assert autoupdate.run(controller)["state"] == "up_to_date"
+    assert controller.stops == 1
+
+
+def test_switch_waits_for_an_idle_service(scheduled, monkeypatch):
+    controller, root, old, target = scheduled
+    git(root, "merge", "--quiet", "--ff-only", target)
+    controller.config.pop("model_generation")
+    controller.health["inflight"] = 1
+    result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and result["reason"] == "service is busy"
+    assert controller.stops == 0
