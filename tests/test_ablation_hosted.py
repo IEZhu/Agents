@@ -142,6 +142,13 @@ def test_counts_must_be_positive(tmp_path, flag):
         hosted.main(["answer", str(_run(tmp_path)), "--model", "m", flag, "0"])
 
 
+def test_parse_verdict_refuses_two_different_verdicts():
+    echoed = {**VERDICT, "winner": "B", "reasons": "placeholder"}
+    with pytest.raises(ValueError, match="2 different verdicts"):
+        hosted.parse_verdict(json.dumps(echoed) + "\n" + json.dumps(VERDICT), 2)
+    assert hosted.parse_verdict(json.dumps(VERDICT) + "\nAgain: " + json.dumps(VERDICT), 2) == VERDICT
+
+
 def test_judge_instructions_follow_the_cloud_judge():
     text = hosted.judge_instructions()
     js = (HARNESS / "workflows" / "judges.js").read_text(encoding="utf-8")

@@ -99,19 +99,26 @@ def judge_instructions() -> str:
 def parse_verdict(text: str, rubric_size: int) -> dict:
     """A verdict object aggregate.py accepts, with each rubric item judged once; else ValueError.
 
-    The verdict is the first JSON object in the reply that passes those checks: a
-    model may write a `{` in prose before it, or append a closing fence, notes or a
-    second object after it.
+    The verdict is the one JSON object in the reply that passes those checks: a model
+    may write a `{` in prose around it, or a closing fence or notes after it. Two
+    different objects that pass are refused, so the attempt is retried: the judge
+    prompt's own example is a valid verdict, and a model may echo it first.
     """
     body = re.sub(r"^```(?:json)?\s*", "", text.strip())
     decoder = json.JSONDecoder()
-    error = ValueError("no JSON object in the reply")
+    error, found = ValueError("no JSON object in the reply"), {}
     for brace in re.finditer(r"\{", body):
         try:
             verdict, _ = decoder.raw_decode(body, brace.start())
-            return _checked_verdict(verdict, rubric_size)
+            verdict = _checked_verdict(verdict, rubric_size)
         except ValueError as exc:  # json.JSONDecodeError is a ValueError too
             error = exc
+            continue
+        found[json.dumps(verdict, sort_keys=True)] = verdict
+    if len(found) > 1:
+        raise ValueError(f"{len(found)} different verdicts in the reply")
+    if found:
+        return next(iter(found.values()))
     raise error
 
 
