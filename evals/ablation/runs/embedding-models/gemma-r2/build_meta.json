@@ -1,0 +1,14 @@
+{
+ "arms": {
+  "without": {
+   "commit": "278b713bfd192eda055794c44b9d8364202bba23",
+   "dirty": false,
+   "embedding_model": "intfloat/multilingual-e5-large"
+  },
+  "with": {
+   "commit": "278b713bfd192eda055794c44b9d8364202bba23",
+   "dirty": false,
+   "embedding_model": "microsoft/harrier-oss-v1-270m"
+  }
+ }
+}
