@@ -535,19 +535,22 @@ class HistoryStore:
         deterministic fakes; production callers leave them None and the
         FastEmbed-backed defaults are loaded lazily.
         """
+        from src.engine.embedder import model_fingerprint
         with self._index_lock:
-            if not os.path.exists(self.history_path):
-                self.ensure_index(embed_texts=embed_texts)  # drops a stale index
+            checked = model_fingerprint()
+            store = self.ensure_index(embed_texts=embed_texts)
+            if store.count() == 0:
                 return []
             if embed_query is None:
                 from src.engine.embedder import embed_query as _eq
                 embed_query = _eq
-            # Embed the query first: loading the model fixes the fingerprint
-            # ensure_index checks, so stored and query vectors share a snapshot.
             vec = embed_query(query)
-            store = self.ensure_index(embed_texts=embed_texts)
-            if store.count() == 0:
-                return []
+            if model_fingerprint() != checked:
+                # Loading the model changed the fingerprint the index was
+                # checked against: check it again for the loaded snapshot.
+                store = self.ensure_index(embed_texts=embed_texts)
+                if store.count() == 0:
+                    return []
             result = store.query(vec, n_results=limit)
             out: List[Dict[str, Any]] = []
             for i, eid in enumerate(result.ids):

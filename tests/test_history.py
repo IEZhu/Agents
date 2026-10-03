@@ -393,7 +393,7 @@ class TestIncrementalIndex:
         assert [len(batch) for batch in embedded] == [4]
         assert marker.read_text().endswith(":newer-snapshot")
 
-    def test_search_loads_the_model_before_checking_the_index(self, tmp_path, writer, embedded, seeded, monkeypatch):
+    def test_search_rechecks_the_index_for_a_model_its_query_loaded(self, tmp_path, writer, embedded, seeded, monkeypatch):
         import src.engine.embedder as embedder
 
         marker = tmp_path / "memory_data" / ".history_fingerprint"
@@ -440,11 +440,16 @@ class TestIncrementalIndex:
         assert [len(batch) for batch in embedded] == [1]
         assert results[0]["intent"] == "alpha"
 
-    def test_missing_history_returns_nothing_without_the_model(self, tmp_path, writer, embedded, seeded):
-        os.remove(writer.history_path)
+    @pytest.mark.parametrize("history", ["missing", "header only"])
+    def test_empty_history_returns_nothing_without_the_model(self, tmp_path, writer, embedded, seeded, history):
+        if history == "missing":
+            os.remove(writer.history_path)
+        else:  # as rotation leaves it
+            text = Path(writer.history_path).read_text(encoding="utf-8")
+            Path(writer.history_path).write_text(text[:text.index("\n## ") + 1], encoding="utf-8")
 
         def embed_query(text):
-            raise AssertionError("a missing history must not load the model")
+            raise AssertionError("an empty history must not load the model")
 
         store = HistoryStore(history_path=writer.history_path, data_dir=str(tmp_path / "memory_data"))
 
