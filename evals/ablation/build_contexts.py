@@ -137,6 +137,8 @@ def place_arm(plan: dict, errors: list, component: str, case_id: str, arm: str, 
         errors.remove(record)
     elif other := identical_other_arm(plan, component, case_id, arm, text):
         plan.pop(other)
+        # The other arm is built after all: its "not built" note gives way to the match.
+        errors[:] = [e for e in errors if not (this_case(e) and e.get("error") == UNPAIRED)]
         errors.append({"component": component, "case": case_id, "error": IDENTICAL, "arm": arm,
                        "ctx_sha256": digest})
         return False

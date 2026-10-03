@@ -373,6 +373,18 @@ def test_a_changed_arm_is_written_and_waits_for_the_other_arm():
     assert errors == [] and sorted(p["arm"] for p in plan.values()) == ["with", "without"]
 
 
+def test_arms_that_match_again_leave_no_unpaired_note():
+    text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
+    plan, errors = {}, []
+    _place(plan, errors, "without", text, other_built=False)
+    _place(plan, errors, "with", text)  # identical
+    plan, errors = build_contexts.start_plan(plan, errors, "without")
+    _place(plan, errors, "without", text + " changed")  # unpaired until the other arm is rebuilt
+    plan, errors = build_contexts.start_plan(plan, errors, "with")
+    assert not _place(plan, errors, "with", text + " changed")  # the arms match again
+    assert [e["error"] for e in errors] == ["arms identical"]
+
+
 def test_the_first_arm_of_a_run_is_not_reported_unpaired():
     text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
     errors = []
