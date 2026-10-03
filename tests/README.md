@@ -70,7 +70,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2 and fresh bundles | `test_persona_protocol.py`, `test_persona_bundle.py` |
 | Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py` |
-| Installers: one-command install, version checks, client profiles, instructions and migration | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py` |
+| Installers: one-command install, version checks, client profiles, instructions and migration | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py` |
 | Agent frontmatter and metadata | `scripts/validate_agents.py` |
 | Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
 | Repository memory | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py` |
