@@ -121,10 +121,8 @@ def rollback(controller, journal):
     return {"state": "rolled_back", "health": ready}
 
 
-def _live_settings(controller):
-    """Settings other commands may have changed in service.json since this update read it."""
-    current = read_json(controller.directory / "service.json", {})
-    return {key: current[key] for key in ("auto_update", "autostart") if key in current}
+# File-updater outcomes that rolled the checkout back to its previous revision.
+ROLLED_BACK = ("MERGE_FAILED", "REINDEX_FAILED")
 
 
 class TargetMoved(RuntimeError):
@@ -134,18 +132,23 @@ class TargetMoved(RuntimeError):
 def offline_update(controller, expected_target=None, precheck=None):
     """Update the installation; once per model generation also switch its embedding model.
 
-    The default model downloads before the service stops (`switched_model_config`);
-    a failed download changes nothing.
+    The default model downloads under the control lock while the service still
+    serves (`switched_model_config`); a failed download changes nothing.
     """
     root = Path(controller.config["installation"])
-    from src.model_migration import service_switch_pending
-    switched = None
-    if service_switch_pending(controller.config):
-        from .control import switched_model_config
-        switched = switched_model_config(controller.config)
     with file_lock(controller.directory / "control.lock", blocking=False):
         if (controller.directory / "transaction.json").exists():
             raise RuntimeError("An unfinished transaction requires recover")
+        # Under the lock, so `uninstall` or another controller command cannot change
+        # service.json while the model downloads; the service keeps serving meanwhile.
+        controller.config = read_json(controller.directory / "service.json")
+        if not controller.config:
+            raise RuntimeError("Service is not installed")
+        from src.model_migration import service_switch_pending
+        switched = None
+        if service_switch_pending(controller.config):
+            from .control import switched_model_config
+            switched = switched_model_config(controller.config)
         # A scheduled update rechecks its preconditions under the lock that `disable`
         # and `stop` also take, so either one that returned before this point wins.
         if precheck is not None and (refusal := precheck()):
@@ -187,12 +190,14 @@ def offline_update(controller, expected_target=None, precheck=None):
                 if result == self_update.UpdateStatus.ROLLBACK_FAILED:
                     raise RuntimeError("File updater rollback failed")
                 phase(controller, journal, "files_complete")
+                if switched and result in ROLLED_BACK:
+                    # Leave the switch pending: a failed file update restored the
+                    # previous code and stores, and the next update tries both again.
+                    switched = None
                 if switched:
-                    # Also after a skipped or rolled-back file update: the tree still
-                    # holds at least this code, which loads the default model.
                     mutated = True
                     with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
-                        switch_model(controller, journal, {**switched, **_live_settings(controller)})
+                        switch_model(controller, journal, switched)
             if not mutated:
                 # Skip/up-to-date still verifies the existing runtime before
                 # restoring admission after maintenance.

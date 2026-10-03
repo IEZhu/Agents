@@ -15,7 +15,7 @@ Stdlib only: ``src/startup.py`` runs ``migrate_env_file`` inside the exclusive
 installation lease, before any engine module is imported.
 
 Run ``python -m src.model_migration <path to .env>`` to migrate one file (the
-installers do).
+installers do); ``--print-model <path>`` prints the effective ``EMBEDDING_MODEL``.
 """
 
 import logging
@@ -133,8 +133,12 @@ def service_switch_pending(config: dict) -> bool:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 2 and argv[0] == "--print-model":
+        # The installers read the effective model with the same parser as the migration.
+        print(read_env(argv[1])[0] or "" if os.path.isfile(argv[1]) else "")
+        return 0
     if len(argv) != 1:
-        print("usage: python -m src.model_migration <path to .env>", file=sys.stderr)
+        print("usage: python -m src.model_migration [--print-model] <path to .env>", file=sys.stderr)
         return 2
     changed = migrate_env_file(argv[0])
     if changed:

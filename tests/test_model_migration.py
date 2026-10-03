@@ -138,3 +138,11 @@ def test_symlinked_env_keeps_its_link(tmp_path):
     mm.migrate_env_file(str(link), {})
     assert link.is_symlink()
     assert dotenv_values(target)["EMBEDDING_MODEL"] == mm.DEFAULT_MODEL
+
+
+def test_cli_prints_the_effective_model_for_the_installers(tmp_path, capsys):
+    env = write(tmp_path / ".env", f"EMBEDDING_MODEL=old/one\nexport 'EMBEDDING_MODEL' = \"{E5}\"\n")
+    assert mm.main(["--print-model", str(env)]) == 0
+    assert capsys.readouterr().out == f"{E5}\n"
+    assert mm.main(["--print-model", str(tmp_path / "missing.env")]) == 0
+    assert capsys.readouterr().out == "\n"

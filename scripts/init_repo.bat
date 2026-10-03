@@ -278,17 +278,13 @@ echo %CYAN%===============================%NC%
 echo %BLUE%  Embedding Model Selection and Pre-indexing%NC%
 echo %CYAN%===============================%NC%
 
-REM Check if model is already configured in .env (strip quotes, inline comments)
+REM Check if model is already configured in .env: every assignment form
+REM python-dotenv reads (export, quoted key), the last one wins.
 set "CURRENT_MODEL="
 if exist "%ENV_FILE%" (
-    for /f "tokens=1,* delims==" %%A in ('findstr /B /L "EMBEDDING_MODEL=" "%ENV_FILE%" 2^>nul') do set "CURRENT_MODEL=%%B"
-)
-REM Strip surrounding quotes and inline comments from CURRENT_MODEL
-if defined CURRENT_MODEL (
-    set "CURRENT_MODEL=!CURRENT_MODEL:"=!"
-    for /f "tokens=1 delims=#" %%X in ("!CURRENT_MODEL!") do set "CURRENT_MODEL=%%X"
-    REM Trim trailing spaces
-    for /l %%i in (1,1,5) do if "!CURRENT_MODEL:~-1!"==" " set "CURRENT_MODEL=!CURRENT_MODEL:~0,-1!"
+    pushd "%REPO_ROOT%"
+    for /f "delims=" %%M in ('""%VENV_PATH%\Scripts\python.exe" -m src.model_migration --print-model "%ENV_FILE%"" 2^>nul') do set "CURRENT_MODEL=%%M"
+    popd
 )
 
 if defined CURRENT_MODEL (

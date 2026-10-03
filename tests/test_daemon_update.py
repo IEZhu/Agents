@@ -177,6 +177,8 @@ def model_switch(installation, monkeypatch):
 
     def switched(config):
         assert controller.running  # the download happens before the service stops
+        with pytest.raises(BlockingIOError):  # and under the control lock
+            with file_lock(controller.directory / "control.lock", blocking=False): pass
         downloads.append(config["model"])
         return {**config, "model": DEFAULT_MODEL, "model_generation": GENERATION,
                 "model_artifact": "export@rev", "model_path": "/cache/local/copy"}
@@ -270,3 +272,24 @@ def test_recover_restores_an_interrupted_model_switch(model_switch, monkeypatch)
     assert read_json(controller.directory / "service.json")["model"] == "test"
     assert (root / "data/skills_store.npz").read_text() == "old-index"
     assert not (controller.directory / "transaction.json").exists()
+
+
+def test_rolled_back_file_update_leaves_the_model_switch_pending(model_switch, monkeypatch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+    monkeypatch.setattr(self_update, "_run_reindex", lambda root, timeout: False)  # REINDEX_FAILED, rolled back
+
+    offline_update(controller)
+
+    config = read_json(controller.directory / "service.json")
+    assert config["model"] == "test" and "model_generation" not in config
+    assert rebuilt == []
+    assert git(root, "rev-parse", "HEAD") == old
+    assert not (controller.directory / "transaction.json").exists()
+
+
+def test_update_refuses_a_service_uninstalled_meanwhile(model_switch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+    (controller.directory / "service.json").unlink()
+    with pytest.raises(RuntimeError, match="not installed"):
+        offline_update(controller)
+    assert downloads == [] and git(root, "rev-parse", "HEAD") == old
