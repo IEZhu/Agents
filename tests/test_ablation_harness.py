@@ -319,6 +319,16 @@ def test_an_arm_build_keeps_the_other_arms_entries_and_errors():
     assert build_contexts.start_plan(previous, errors, None) == ({}, [])
 
 
+def test_an_arm_build_drops_the_entries_and_records_of_removed_cases():
+    previous = {"t1": {"component": "embed-x", "case": "gone", "arm": "with"},
+                "t2": {"component": "embed-x", "case": "c1", "arm": "with"}}
+    errors = [{"component": "embed-x", "case": "gone", "arm": "with", "error": "arms identical", "ctx_sha256": "h"},
+              {"component": "embed-x", "case": "c1", "arm": "with", "error": "arms identical", "ctx_sha256": "h"},
+              {"component": "embed-x", "case": "gone", "arm": "with", "error": "x"}]
+    plan, kept = build_contexts.start_plan(previous, errors, "without", {("embed-x", "c1")})
+    assert plan == {"t2": previous["t2"]} and kept == [errors[1]]
+
+
 def _place(plan, errors, arm, text, other_built=True):
     """build_contexts.main's handling of one case of an --arm build, without the model."""
     written = build_contexts.place_arm(plan, errors, "embed-x", "c1", arm, text, other_built)

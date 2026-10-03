@@ -95,17 +95,24 @@ IDENTICAL = "arms identical"
 UNPAIRED = "other arm not built"
 
 
-def start_plan(previous: dict, previous_errors: list, arm: str | None) -> tuple[dict, list]:
+def start_plan(previous: dict, previous_errors: list, arm: str | None,
+               cases: set | None = None) -> tuple[dict, list]:
     """The plan and errors a build starts from.
 
     A two-arm build starts empty. An --arm build keeps the other arm's entries and
     errors and every "arms identical" record, whatever arm found it, and rebuilds its
-    own entries and errors.
+    own entries and errors. With `cases`, the (component, case id) pairs the run still
+    has, the entries and records of a removed or renamed case are dropped.
     """
     if arm is None:
         return {}, []
-    return ({t: p for t, p in previous.items() if p.get("arm") != arm},
-            [e for e in previous_errors if e.get("arm") == other_arm(arm) or e.get("error") == IDENTICAL])
+
+    def current(item: dict) -> bool:
+        return cases is None or (item.get("component"), item.get("case")) in cases
+
+    return ({t: p for t, p in previous.items() if p.get("arm") != arm and current(p)},
+            [e for e in previous_errors
+             if (e.get("arm") == other_arm(arm) or e.get("error") == IDENTICAL) and current(e)])
 
 
 def place_arm(plan: dict, errors: list, component: str, case_id: str, arm: str, text: str,
@@ -286,7 +293,9 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
     previous = json.loads((run_dir / "plan.json").read_text()) if (run_dir / "plan.json").exists() else {}
     errors_path = run_dir / "build_errors.json"
     previous_errors = json.loads(errors_path.read_text()) if errors_path.exists() else []
-    plan, kept_errors = start_plan(previous, previous_errors, only_arm)
+    cases = {(spec["component"], case["id"]) for path, spec in specs.items() if path.stem not in removed
+             for case in spec.get("cases", [])}
+    plan, kept_errors = start_plan(previous, previous_errors, only_arm, cases)
     errors = list(removed_errors) + kept_errors
     arm_note = {"arm": only_arm} if only_arm else {}
     # A two-arm build's meta has no "arms": it built both.
