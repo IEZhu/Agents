@@ -9,7 +9,8 @@ query's nearest other query carries the same expected agent, and how similar it 
 Reports, overall and per language:
   * nearest-neighbour agent accuracy, with no threshold;
   * coverage and precision at the configured threshold: the share of queries whose
-    nearest neighbour passes it (cache hits), and the share of hits with the right agent;
+    nearest neighbour is more similar than it (cache hits; the router requires a
+    cosine distance below 1 - threshold), and the share of hits with the right agent;
   * precision at fixed coverage (10/20/30/50%) with the similarity that gives it.
     Queries tied with that similarity count as hits too, so the coverage reached can
     exceed the target. Similarity scales differ between models, so compare models at
@@ -71,7 +72,7 @@ def cache_metrics(agents: list[str], languages: list[str], idx: np.ndarray, sim:
     match = [agents[i] == agents[j] for i, j in enumerate(idx)]
 
     def block(rows: list[int]) -> dict:
-        hits = [i for i in rows if sim[i] >= threshold]
+        hits = [i for i in rows if sim[i] > threshold]
         out = {"queries": len(rows), "nn_accuracy": _share(match[i] for i in rows),
                "coverage": len(hits) / len(rows) if rows else None,
                "precision": _share(match[i] for i in hits), "at_coverage": {}}

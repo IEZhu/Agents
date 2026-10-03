@@ -45,6 +45,13 @@ def test_cache_metrics_report_coverage_precision_and_cross_language_hits():
     assert "d.jsonl: 5 rows, 4 used (drift 1, fetch errors 0)" in markdown
 
 
+def test_a_cache_hit_needs_a_similarity_above_the_threshold():
+    # The router hits only when the cosine distance is below 1 - threshold.
+    result = cache.cache_metrics(["a"] * 4, ["en"] * 4, np.array([1, 0, 3, 2]),
+                                 np.array([0.95, 0.95, 0.5, 0.5]), threshold=0.95)
+    assert result["all"]["coverage"] == 0.0 and result["all"]["precision"] is None
+
+
 def test_a_coverage_level_reaches_at_least_its_share():
     sim = np.array([0.9, 0.8, 0.7, 0.6, 0.5])
     result = cache.cache_metrics(["a"] * 5, ["en"] * 5, np.array([1, 0, 3, 2, 0]), sim, threshold=0.95)
