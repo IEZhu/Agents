@@ -216,6 +216,7 @@ def test_verification_failures_fail_setup(tmp_path, upstream, extra_env, message
     result = run_setup(tmp_path, upstream, extra_env)
     assert result.returncode != 0
     assert message in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_implant_query_without_match_passes(tmp_path, upstream):
@@ -319,19 +320,6 @@ def test_symlinked_excludes_file_stays_a_symlink(tmp_path, upstream):
     assert lines[0] == "*.swp" and lines[1] == BEGIN and lines[-1] == END
 
 
-def test_failed_excludes_read_keeps_user_rules(tmp_path, upstream):
-    ignore = tmp_path / "home/.config/git/ignore"
-    ignore.parent.mkdir(parents=True)
-    ignore.write_text("*.swp\n")
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    (fake_bin / "awk").write_text("#!/bin/sh\nexit 2\n")
-    (fake_bin / "awk").chmod(0o755)
-    result = run_setup(tmp_path, upstream, {"PATH": f"{fake_bin}:{os.environ['PATH']}"})
-    assert result.returncode != 0
-    assert ignore.read_text() == "*.swp\n"
-
-
 @pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
                     reason="as root, a regression would replace /dev/null")
 def test_dev_null_excludes_file_is_left_alone(tmp_path, upstream):
@@ -350,6 +338,22 @@ def test_rerun_keeps_excludes_file_mode(tmp_path, upstream):
     ignore.chmod(0o600)
     assert run_setup(tmp_path, upstream).returncode == 0
     assert ignore.stat().st_mode & 0o777 == 0o600
+
+
+def test_failed_excludes_read_keeps_user_rules(tmp_path, upstream):
+    ignore = tmp_path / "home/.config/git/ignore"
+    ignore.parent.mkdir(parents=True)
+    ignore.write_text("*.swp\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    # The marker check (first awk) passes; the read that builds the new file fails.
+    (fake_bin / "awk").write_text(f"#!/bin/sh\n[ -e {tmp_path}/awk-ran ] && exit 2\n"
+                                  f"touch {tmp_path}/awk-ran\nexec {shutil.which('awk')} \"$@\"\n")
+    (fake_bin / "awk").chmod(0o755)
+    result = run_setup(tmp_path, upstream, {"PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert result.returncode != 0
+    assert "unbalanced" not in result.stderr
+    assert ignore.read_text() == "*.swp\n"
 
 
 def test_dotenv_assignment_forms_are_kept(tmp_path, upstream):

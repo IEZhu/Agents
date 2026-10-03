@@ -248,7 +248,12 @@ async def smoke():
             result = await session.call_tool("route_and_load", {
                 "query": "Set up a CI pipeline with GitHub Actions", "protocol_version": 2,
                 "current_persona": None})
-            payload = json.loads(result.content[0].text)
+            try:
+                payload = {} if result.isError else json.loads(result.content[0].text)
+            except ValueError:
+                payload = {}
+            if not payload:
+                sys.exit(f"route_and_load failed: {result.content[0].text[:300]}")
             if payload.get("protocol_version") != 2 or payload.get("status") not in {"SUCCESS", "ROUTE_REQUIRED"}:
                 sys.exit(f"route_and_load returned protocol {payload.get('protocol_version')!r}, "
                          f"{payload.get('status')}: {payload.get('message')}")
@@ -262,12 +267,12 @@ async def smoke():
                   f"load_implants -> {'implants' if text else 'no match'}")
 
 
-def server_error(error):
-    """The first launch or protocol error in *error*, which anyio may wrap in groups."""
-    if isinstance(error, (McpError, OSError)):
+def find(error, types):
+    """The first *types* exception in *error*, which anyio may wrap in groups."""
+    if isinstance(error, types):
         return error
     for inner in getattr(error, "exceptions", ()):
-        if found := server_error(inner):
+        if found := find(inner, types):
             return found
     return None
 
@@ -275,7 +280,9 @@ def server_error(error):
 try:
     asyncio.run(smoke())
 except BaseException as error:
-    if not (found := server_error(error)):
+    if stop := find(error, (SystemExit,)):
+        sys.exit(stop.code)
+    if not (found := find(error, (McpError, OSError))):
         raise
     sys.exit(f"Agents-Core server did not start or answer: {found}")
 PY

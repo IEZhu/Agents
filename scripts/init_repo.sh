@@ -410,6 +410,10 @@ print_success "pip available"
 # Usage: merge_missing_env_keys <env_file> <env_example>
 merge_missing_env_keys() {
     local env_file="$1" env_example="$2" line key
+    # Never glue an appended line onto an unterminated last line.
+    if [ -s "$env_file" ] && [ -n "$(tail -c 1 "$env_file")" ]; then
+        echo >> "$env_file"
+    fi
     while IFS= read -r line; do
         # Skip empty lines and comments
         [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue

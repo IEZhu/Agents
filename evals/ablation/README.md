@@ -27,8 +27,9 @@ branch names the commit each archived run was built from.
 
 The request names a batch (`batch 3`) or explicit ids (`ids: skill-a implant-b`), and
 may set a run name and a case count (`name: retest-a`, `cases: 6`; default 2).
-Every step runs from the repository root. The Agents-Core MCP server is not
-available here and is not needed: do not route. Answer the user from these steps.
+Every step runs from the repository root. Do not route through Agents-Core, even
+where the environment connects it: this run is a measurement. Answer the user from
+these steps.
 
 1. **Checkout and install**
    ```bash
