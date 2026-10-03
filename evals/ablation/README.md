@@ -155,7 +155,10 @@ EMBEDDING_MODEL=<candidate> python evals/ablation/build_contexts.py $RUN --arm w
 Each run keeps the other arm's entries. A case whose two contexts come out equal is
 dropped from both arms and listed in `build_errors.json` as "arms identical": the
 change does not reach it, so `aggregate.py` needs `--allow-partial` and the report
-says how many cases that was. Arms with different embedding models need their own
+says how many cases that was. The entry keeps the context's hash, so rebuilding
+either arm with the same context leaves the case out again. A rebuilt arm whose
+context changed is written and listed as "other arm not built" until the other arm
+is rebuilt too. Arms with different embedding models need their own
 vector stores: build each in its own checkout, which has its own `data/`. Never
 build in the live installation.
 

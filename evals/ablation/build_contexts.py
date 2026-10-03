@@ -27,7 +27,10 @@ arm, keeping the other arm's entries. Run it once per arm, for example `--arm wi
 in the candidate's checkout or with its `EMBEDDING_MODEL`, and `--arm without` in the
 baseline's. The component name is then just the experiment's name. A case whose two
 contexts are equal is dropped from both arms and listed in build_errors.json as
-"arms identical": the change does not reach it. build_meta.json records each arm.
+"arms identical", with the context's hash: the change does not reach it, and
+rebuilding either arm with that context leaves the case out again. An arm written
+while the other arm, already built, has no context for the case is listed as "other
+arm not built" until that arm is rebuilt. build_meta.json records each arm.
 """
 import asyncio
 import hashlib
@@ -88,16 +91,53 @@ def skill_arm(retrieved: list[dict], filename: str, arm: str, forced: list[dict]
     return retrieved if any(s["filename"] == filename for s in retrieved) else retrieved + forced
 
 
+IDENTICAL = "arms identical"
+UNPAIRED = "other arm not built"
+
+
 def start_plan(previous: dict, previous_errors: list, arm: str | None) -> tuple[dict, list]:
     """The plan and errors a build starts from.
 
     A two-arm build starts empty. An --arm build keeps the other arm's entries and
-    errors, and rebuilds its own.
+    errors and every "arms identical" record, whatever arm found it, and rebuilds its
+    own entries and errors.
     """
     if arm is None:
         return {}, []
     return ({t: p for t, p in previous.items() if p.get("arm") != arm},
-            [e for e in previous_errors if e.get("arm") == other_arm(arm)])
+            [e for e in previous_errors if e.get("arm") == other_arm(arm) or e.get("error") == IDENTICAL])
+
+
+def place_arm(plan: dict, errors: list, component: str, case_id: str, arm: str, text: str,
+              other_built: bool) -> bool:
+    """Whether an --arm build writes `text` for this case; updates `plan` and `errors`.
+
+    Arms with the same context are both left out under an "arms identical" record
+    holding the context's hash, so rebuilding either arm with that context leaves
+    the case out again. A changed context is written. The case is then "other arm
+    not built" while the other arm, already built (`other_built`), has neither a
+    context nor an error for it.
+    """
+    digest = ctx_sha256(text)
+
+    def this_case(error: dict) -> bool:
+        return error.get("component") == component and error.get("case") == case_id
+
+    record = next((e for e in errors if this_case(e) and e.get("error") == IDENTICAL), None)
+    if record is not None:
+        if record.get("ctx_sha256") == digest:
+            return False
+        errors.remove(record)
+    elif other := identical_other_arm(plan, component, case_id, arm, text):
+        plan.pop(other)
+        errors.append({"component": component, "case": case_id, "error": IDENTICAL, "arm": arm,
+                       "ctx_sha256": digest})
+        return False
+    errors[:] = [e for e in errors if not (this_case(e) and e.get("error") == UNPAIRED)]
+    reported = any(this_case(e) and e.get("arm") == other_arm(arm) for e in errors)
+    if other_built and token_of(component, case_id, other_arm(arm)) not in plan and not reported:
+        errors.append({"component": component, "case": case_id, "error": UNPAIRED, "arm": arm})
+    return True
 
 
 def identical_other_arm(plan: dict, component: str, case_id: str, arm: str, text: str) -> str | None:
@@ -244,6 +284,9 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
     plan, kept_errors = start_plan(previous, previous_errors, only_arm)
     errors = list(removed_errors) + kept_errors
     arm_note = {"arm": only_arm} if only_arm else {}
+    # A two-arm build's meta has no "arms": it built both.
+    other_built = only_arm is not None and (other_arm(only_arm) in existing_meta.get("arms", {})
+                                            or "commit" in existing_meta)
     for path in case_files:
         if path.stem in removed:
             continue
@@ -257,17 +300,16 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
                 errors.append({"component": component, "case": case["id"], "error": repr(exc), **arm_note})
                 print(f"ERROR {component}/{case['id']}: {exc!r}", flush=True)
                 continue
-            if only_arm is None and built["with"][0] == built["without"][0]:
-                errors.append({"component": component, "case": case["id"], "error": "arms identical"})
-                continue
             texts = {arm: f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"
                      for arm, (prompt, _) in built.items()}
-            if only_arm and (other := identical_other_arm(plan, component, case["id"], only_arm, texts[only_arm])):
-                # Neither arm is worth answering: drop the other arm's context too.
-                plan.pop(other)
-                for token in (other, token_of(component, case["id"], only_arm)):
-                    (run_dir / "ctx" / f"{token}.md").unlink(missing_ok=True)
-                errors.append({"component": component, "case": case["id"], "error": "arms identical", **arm_note})
+            if only_arm is None and built["with"][0] == built["without"][0]:
+                errors.append({"component": component, "case": case["id"], "error": IDENTICAL,
+                               "ctx_sha256": ctx_sha256(texts["with"])})
+                continue
+            if only_arm and not place_arm(plan, errors, component, case["id"], only_arm, texts[only_arm], other_built):
+                # Neither arm is worth answering: no context of this case stays.
+                for arm in ARMS:
+                    (run_dir / "ctx" / f"{token_of(component, case['id'], arm)}.md").unlink(missing_ok=True)
                 continue
             for arm, (prompt, meta) in built.items():
                 token = token_of(component, case["id"], arm)

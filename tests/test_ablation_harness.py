@@ -311,11 +311,56 @@ def test_importing_build_contexts_leaves_the_environment_alone(monkeypatch):
 def test_an_arm_build_keeps_the_other_arms_entries_and_errors():
     previous = {"t1": {"arm": "with", "case": "c1"}, "t2": {"arm": "without", "case": "c1"}}
     errors = [{"case": "c2", "arm": "with", "error": "x"}, {"case": "c3", "arm": "without", "error": "y"},
-              {"case": "c4", "error": "not in store"}]
+              {"case": "c4", "error": "not in store"},
+              {"case": "c5", "arm": "without", "error": "arms identical", "ctx_sha256": "h"}]
     plan, kept = build_contexts.start_plan(previous, errors, "without")
     assert plan == {"t1": previous["t1"]}
-    assert kept == [errors[0]]
+    assert kept == [errors[0], errors[3]]  # an "arms identical" record stays, whichever arm found it
     assert build_contexts.start_plan(previous, errors, None) == ({}, [])
+
+
+def _place(plan, errors, arm, text, other_built=True):
+    """build_contexts.main's handling of one case of an --arm build, without the model."""
+    written = build_contexts.place_arm(plan, errors, "embed-x", "c1", arm, text, other_built)
+    if written:
+        plan[build_contexts.token_of("embed-x", "c1", arm)] = {
+            "component": "embed-x", "case": "c1", "arm": arm, "ctx_sha256": build_contexts.ctx_sha256(text)}
+    return written
+
+
+def test_identical_arms_stay_out_whichever_arm_is_rebuilt():
+    text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
+    plan, errors = {}, []
+    assert _place(plan, errors, "without", text, other_built=False)
+    assert not _place(plan, errors, "with", text)
+    assert plan == {}
+    assert errors == [{"component": "embed-x", "case": "c1", "error": "arms identical", "arm": "with",
+                       "ctx_sha256": build_contexts.ctx_sha256(text)}]
+    for arm in ("with", "without", "with"):
+        plan, errors = build_contexts.start_plan(plan, errors, arm)
+        assert not _place(plan, errors, arm, text)
+        assert plan == {} and [e["error"] for e in errors] == ["arms identical"]
+
+
+def test_a_changed_arm_is_written_and_waits_for_the_other_arm():
+    text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
+    plan, errors = {}, []
+    _place(plan, errors, "without", text, other_built=False)
+    _place(plan, errors, "with", text)  # identical: both arms out
+    plan, errors = build_contexts.start_plan(plan, errors, "without")
+    assert _place(plan, errors, "without", text + " changed")
+    assert errors == [{"component": "embed-x", "case": "c1", "error": "other arm not built", "arm": "without"}]
+    plan, errors = build_contexts.start_plan(plan, errors, "with")
+    assert _place(plan, errors, "with", text)
+    assert errors == [] and sorted(p["arm"] for p in plan.values()) == ["with", "without"]
+
+
+def test_the_first_arm_of_a_run_is_not_reported_unpaired():
+    text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
+    errors = []
+    assert _place({}, errors, "without", text, other_built=False) and errors == []
+    assert _place({}, errors, "with", text, other_built=True)
+    assert [e["error"] for e in errors] == ["other arm not built"]
 
 
 def test_an_arm_build_finds_the_other_arm_with_the_same_context():
