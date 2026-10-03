@@ -67,6 +67,7 @@ def _get_model():
                 register_custom(EMBEDDING_MODEL)
 
                 for attempt in range(_MAX_LOAD_RETRIES):
+                    local = None
                     try:
                         logger.info("Loading embedding model: %s (attempt %d)", EMBEDDING_MODEL, attempt + 1)
                         with warnings.catch_warnings():
@@ -89,6 +90,11 @@ def _get_model():
                             )
                             clear_model_cache(EMBEDDING_MODEL)
                         else:
+                            if local and not os.environ.get("AGENTS_MODEL_PATH"):
+                                # Single-attempt transports (the daemon) would reuse a broken
+                                # plain-file copy on every later load; the next one downloads it again.
+                                logger.warning("Removing the plain-file copy that failed to load: %s", local)
+                                shutil.rmtree(local, ignore_errors=True)
                             raise
                 # Set before the model is published.
                 _model_fingerprint = _loaded_fingerprint(model)

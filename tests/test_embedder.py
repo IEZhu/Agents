@@ -182,3 +182,20 @@ def test_model_fingerprint_before_the_first_load(model_cache):
 
     assert embedder.model_fingerprint() == fingerprint(embedder.EMBEDDING_MODEL)
     assert fingerprint(embedder.EMBEDDING_MODEL) == compute_fingerprint(embedder.EMBEDDING_MODEL)
+
+
+def test_a_plain_file_copy_that_fails_to_load_is_removed_on_the_last_attempt(model_cache, monkeypatch, tmp_path):
+    copy = tmp_path / "local" / "copy"
+    copy.mkdir(parents=True)
+
+    class BrokenTextEmbedding:
+        def __init__(self, model_name, cache_dir, **options):
+            raise RuntimeError("corrupt weights")
+
+    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=BrokenTextEmbedding))
+    monkeypatch.setattr(embedder, "materialize", lambda model, cache_dir: str(copy))
+    monkeypatch.setattr(embedder, "register_custom", lambda model: None)
+    monkeypatch.setattr(embedder, "_MAX_LOAD_RETRIES", 1)  # the daemon's single attempt
+    with pytest.raises(RuntimeError):
+        embedder._get_model()
+    assert not copy.exists()
