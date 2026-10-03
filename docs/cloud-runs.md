@@ -146,7 +146,7 @@ creates the routine when `RemoteTrigger` `list` shows none of that name:
 | repository | this repository |
 | environment | the default cloud environment |
 | connectors | none: `create` attached the account's connectors on 2026-10-02 although the body named none, so clear them with `update` and `clear_mcp_connections: true` |
-| schedule | none; fired with `run` |
+| schedule | `create` needs one, so give `run_once_at` a far-future date (`2099-01-01T00:00:00Z`) and set `enabled: true`; it is fired with `run` |
 
 The prompt:
 
