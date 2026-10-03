@@ -122,3 +122,23 @@ def test_inputs_are_capped_unless_the_model_limit_is_lower(own, expected):
 
     embedding_prompts.cap_tokens(Wrapped, 2048)
     assert Wrapped.model.tokenizer.truncation["max_length"] == expected
+
+
+def test_an_earlier_complete_copy_is_used_without_the_hub(monkeypatch, tmp_path):
+    import json
+    import os
+
+    import huggingface_hub
+
+    def offline(*args, **kwargs):
+        raise ConnectionError("no network")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", offline)
+    with pytest.raises(ConnectionError):  # nothing downloaded yet
+        embedding_prompts.materialize("microsoft/harrier-oss-v1-270m", str(tmp_path))
+    target = tmp_path / "local" / "microsoft--harrier-oss-v1-270m"
+    (target / "onnx").mkdir(parents=True)
+    for name in ("onnx/model.onnx", "onnx/model.onnx_data", "tokenizer.json"):
+        (target / name).write_text("x")
+    (target / "tokenizer_config.json").write_text(json.dumps({"model_max_length": 2048}))
+    assert embedding_prompts.materialize("microsoft/harrier-oss-v1-270m", str(tmp_path)) == os.fspath(target)

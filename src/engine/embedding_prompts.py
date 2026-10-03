@@ -77,7 +77,8 @@ def materialize(model: str, cache_dir: str) -> str | None:
     The Hugging Face cache keeps each file as a symlink into its own blob directory,
     and ONNX Runtime refuses external weights outside the model file's directory
     ("External data path escapes model directory"). A local_dir download holds real
-    files side by side. Returns None for other models.
+    files side by side. Without the Hub (offline, HF_HUB_OFFLINE) a complete earlier
+    copy is used as it is; an incomplete one raises. Returns None for other models.
     """
     spec = LOCAL_COPIES.get(model)
     if spec is None:
@@ -87,8 +88,16 @@ def materialize(model: str, cache_dir: str) -> str | None:
     from huggingface_hub import snapshot_download
 
     target = os.path.join(cache_dir, "local", model.replace("/", "--"))
-    snapshot_download(spec["hf"], local_dir=target,
-                      allow_patterns=["onnx/model.onnx", *spec["files"], "*.json", "tokenizer*"])
+    required = ["onnx/model.onnx", *spec["files"], "tokenizer.json", "tokenizer_config.json"]
+    try:
+        snapshot_download(spec["hf"], local_dir=target,
+                          allow_patterns=["onnx/model.onnx", *spec["files"], "*.json", "tokenizer*"])
+    except Exception:
+        if not all(os.path.isfile(os.path.join(target, name)) for name in required):
+            raise
+        import logging
+
+        logging.getLogger(__name__).warning("Hub unreachable; using the local copy of %s in %s", model, target)
     _cap_max_length(os.path.join(target, "tokenizer_config.json"), MAX_INPUT_TOKENS)
     return target
 
