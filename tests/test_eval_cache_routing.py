@@ -85,6 +85,10 @@ def test_each_dataset_and_query_counts_once(tmp_path):
     assert [s.query for s in samples] == ["How do I file a claim?", "Bake bread"]
     assert repeated == 1  # the same query again, up to whitespace
     assert [(d["total"], d["drift"], d["used"]) for d in datasets] == [(3, 1, 1), (2, 0, 2)]
+    conflicting = _dataset(tmp_path / "c.jsonl", [
+        {"id": "c1", "language": "en", "expected_agent": "chef", "query": "How do I file a claim?"}])
+    with pytest.raises(SystemExit):
+        cache.collect([first, conflicting])
 
 
 def test_loader_reads_inline_queries_without_a_fetch(tmp_path):

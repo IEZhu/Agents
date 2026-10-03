@@ -134,11 +134,15 @@ def _shown(path: Path) -> str:
 
 
 def collect(paths: list[Path]) -> tuple[list, list[dict], int]:
-    """Labeled samples from each dataset once, per-dataset loader counts, and repeats left out."""
+    """Labeled samples from each dataset once, per-dataset loader counts, and repeats left out.
+
+    A repeated query must carry the same agent and language; otherwise the result
+    would depend on the order of the datasets, so it is refused.
+    """
     paths = [path.resolve() for path in paths]
     if len(set(paths)) != len(paths):
         raise SystemExit("each --dataset may be given only once")
-    samples, datasets, seen, repeated = [], [], set(), 0
+    samples, datasets, seen, repeated = [], [], {}, 0
     for path in paths:
         loaded, stats = load_samples(path)
         usable = [s for s in iter_valid(loaded) if s.label.get("expected_agent")]
@@ -146,10 +150,14 @@ def collect(paths: list[Path]) -> tuple[list, list[dict], int]:
                          "fetch_errors": stats.fetch_errors, "used": len(usable)})
         for sample in usable:
             key = " ".join(sample.query.split())
+            label = (sample.label.get("expected_agent"), sample.label.get("language"))
             if key in seen:
+                if seen[key] != label:
+                    raise SystemExit(f"{_shown(path)}: {sample.label.get('id', key)!r} repeats a query "
+                                     f"labeled {seen[key]} with {label}")
                 repeated += 1
                 continue
-            seen.add(key)
+            seen[key] = label
             samples.append(sample)
     return samples, datasets, repeated
 
