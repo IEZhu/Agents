@@ -30,7 +30,10 @@ contexts are equal is dropped from both arms and listed in build_errors.json as
 "arms identical", with the context's hash: the change does not reach it, and
 rebuilding either arm with that context leaves the case out again. An arm written
 while the other arm, already built, has no context for the case is listed as "other
-arm not built" until that arm is rebuilt. build_meta.json records each arm.
+arm not built" until that arm is rebuilt. The arms' prompts may differ, but not the
+conversation: when a case's history or message changed since the other arm was
+built, that arm's context is dropped and listed the same way. build_meta.json
+records each arm.
 """
 import asyncio
 import hashlib
@@ -116,14 +119,17 @@ def start_plan(previous: dict, previous_errors: list, arm: str | None,
 
 
 def place_arm(plan: dict, errors: list, component: str, case_id: str, arm: str, text: str,
-              other_built: bool) -> bool:
+              other_built: bool, conversation: str | None = None) -> bool:
     """Whether an --arm build writes `text` for this case; updates `plan` and `errors`.
 
     Arms with the same context are both left out under an "arms identical" record
     holding the context's hash, so rebuilding either arm with that context leaves
     the case out again. A changed context is written. The case is then "other arm
     not built" while the other arm, already built (`other_built`), has neither a
-    context nor an error for it.
+    context nor an error for it. The arms' prompts may differ by design, but they
+    must answer one conversation: the other arm's entry is dropped when its
+    `conversation_sha256` differs from `conversation`, the hash of this case's
+    conversation now.
     """
     digest = ctx_sha256(text)
 
@@ -142,9 +148,12 @@ def place_arm(plan: dict, errors: list, component: str, case_id: str, arm: str, 
         errors.append({"component": component, "case": case_id, "error": IDENTICAL, "arm": arm,
                        "ctx_sha256": digest})
         return False
+    other_token = token_of(component, case_id, other_arm(arm))
+    if conversation and plan.get(other_token, {}).get("conversation_sha256") not in (None, conversation):
+        plan.pop(other_token)  # built for another version of the case: rebuild it before judging
     errors[:] = [e for e in errors if not (this_case(e) and e.get("error") == UNPAIRED)]
     reported = any(this_case(e) and e.get("arm") == other_arm(arm) for e in errors)
-    if other_built and token_of(component, case_id, other_arm(arm)) not in plan and not reported:
+    if other_built and other_token not in plan and not reported:
         errors.append({"component": component, "case": case_id, "error": UNPAIRED, "arm": arm})
     return True
 
@@ -334,17 +343,22 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
                 errors.append({"component": component, "case": case["id"], "error": IDENTICAL,
                                "ctx_sha256": ctx_sha256(texts["with"])})
                 continue
-            if only_arm and not place_arm(plan, errors, component, case["id"], only_arm, texts[only_arm], other_built):
+            conversation = ctx_sha256(conversation_block(case))
+            if only_arm and not place_arm(plan, errors, component, case["id"], only_arm, texts[only_arm], other_built,
+                                          conversation):
                 # Neither arm is worth answering: no context of this case stays.
                 for arm in ARMS:
                     (run_dir / "ctx" / f"{token_of(component, case['id'], arm)}.md").unlink(missing_ok=True)
                 continue
+            if only_arm and (other := token_of(component, case["id"], other_arm(only_arm))) not in plan:
+                (run_dir / "ctx" / f"{other}.md").unlink(missing_ok=True)  # dropped for another conversation
             for arm, (prompt, meta) in built.items():
                 token = token_of(component, case["id"], arm)
                 drop_stale_answer(run_dir, token, texts[arm], previous)
                 (run_dir / "ctx" / f"{token}.md").write_text(texts[arm], encoding="utf-8")
                 plan[token] = {"component": component, "case": case["id"], "arm": arm,
-                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(texts[arm]), **meta}
+                               "agent": case["agent"], "chars": len(prompt), "ctx_sha256": ctx_sha256(texts[arm]),
+                               "conversation_sha256": conversation, **meta}
             if only_arm:
                 print(f"{component}/{case['id']}: {case['agent']} arm={only_arm} "
                       f"tier={built[only_arm][1]['tier']} {len(built[only_arm][0])} chars", flush=True)

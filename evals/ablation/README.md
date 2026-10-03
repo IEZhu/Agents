@@ -158,7 +158,9 @@ change does not reach it, so `aggregate.py` needs `--allow-partial` and the repo
 says how many cases that was. The entry keeps the context's hash, so rebuilding
 either arm with the same context leaves the case out again. A rebuilt arm whose
 context changed is written and listed as "other arm not built" until the other arm
-is rebuilt too. Arms with different embedding models need their own
+is rebuilt too. The same happens when a case's history or message changed since the
+other arm was built: that arm's context is dropped, since both arms must answer
+one conversation. Arms with different embedding models need their own
 vector stores: build each in its own checkout, which has its own `data/`. Never
 build in the live installation.
 

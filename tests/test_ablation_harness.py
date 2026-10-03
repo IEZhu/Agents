@@ -385,6 +385,19 @@ def test_arms_that_match_again_leave_no_unpaired_note():
     assert [e["error"] for e in errors] == ["arms identical"]
 
 
+def test_an_arm_built_for_another_conversation_is_dropped_until_rebuilt():
+    other = build_contexts.token_of("embed-x", "c1", "without")
+    plan = {other: {"component": "embed-x", "case": "c1", "arm": "without", "ctx_sha256": "x",
+                    "conversation_sha256": "old"}}
+    errors = []
+    assert build_contexts.place_arm(plan, errors, "embed-x", "c1", "with", "ctx", True, "new")
+    assert other not in plan
+    assert [(e["error"], e["arm"]) for e in errors] == [("other arm not built", "with")]
+    # An entry without a recorded conversation (an older build) is kept.
+    plan = {other: {"component": "embed-x", "case": "c1", "arm": "without", "ctx_sha256": "x"}}
+    assert build_contexts.place_arm(plan, [], "embed-x", "c1", "with", "ctx", True, "new") and other in plan
+
+
 def test_the_first_arm_of_a_run_is_not_reported_unpaired():
     text = "# Operating context loaded for this conversation\nP\n\n# Conversation"
     errors = []
