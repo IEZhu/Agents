@@ -7,7 +7,8 @@ import json
 import os
 
 INDEX_SCHEMA = 2
-PREPROCESSING = "fastembed-query-passage-v1"
+# v2: model prompt templates applied before embedding (src/engine/embedding_prompts.py).
+PREPROCESSING = "prompt-templates-v2"
 
 
 @lru_cache(maxsize=8)
@@ -23,8 +24,9 @@ def fingerprint(model=None):
             ref = cache / "refs/main"
             if ref.is_file(): refs.append(cache.name + ":" + ref.read_text().strip())
         revision = ",".join(refs) or "unresolved"
+    from src.engine.embedding_prompts import templates
     payload = {"model": model, "revision": revision, "schema": INDEX_SCHEMA,
-               "preprocessing": PREPROCESSING, "fastembed": version("fastembed")}
+               "preprocessing": PREPROCESSING, "prompts": list(templates(model)), "fastembed": version("fastembed")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
