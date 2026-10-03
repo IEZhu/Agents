@@ -12,6 +12,8 @@ The [Issue agent](#issue-agent) section is the maintained setup and operations
 reference for the cloud issue agent that runs
 [flows/issue-agent.md](../flows/issue-agent.md).
 [Changing a routine](#changing-a-routine) applies to every routine.
+[Cloud environment with Agents-Core](#cloud-environment-with-agents-core) sets up
+an environment whose sessions have the MCP server connected.
 
 ## The short version
 
@@ -147,6 +149,78 @@ The routine configuration has no reasoning effort setting: an `effort` key in
 `session_context` is accepted and silently dropped. Claude Code documents
 `CLAUDE_CODE_EFFORT_LEVEL` for its sessions; whether a routine run honours it
 when set in the cloud environment was not verified.
+
+## Cloud environment with Agents-Core
+
+A Claude Code cloud environment can provide Agents-Core in every session, as a
+local installation does. The environment's setup script installs the server and
+registers it for Claude Code, and the environment cache keeps the result for later
+sessions. [`scripts/setup_cloud_env.sh`](../scripts/setup_cloud_env.sh) is that
+setup script.
+
+**Create the environment.** At claude.ai/code, open the environment selector (the
+cloud icon above the message box), choose **Add cloud environment** (or the
+settings icon of an existing environment), and set:
+
+| Field | Value |
+|---|---|
+| Name | for example `Agents-Core` |
+| Network access | **Custom**, with **Also include default list of common package managers** checked and the allowed domains `huggingface.co`, `*.huggingface.co`, `hf.co` and `*.hf.co`; **Full** also works |
+| Environment variables | none needed |
+| Setup script | the two lines below |
+
+```bash
+#!/bin/bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/scripts/setup_cloud_env.sh | bash
+```
+
+Hugging Face must be reachable because the embedding model downloads from it. The
+default **Trusted** level blocks it, and the fastembed Google Cloud Storage mirror
+used by the [ablation runbook](../evals/ablation/README.md) answered
+`403 AccessDenied` on 2026-10-03.
+
+**What the script does.** It clones the repository into `~/.agents-core`, or lets
+`install.sh` fast-forward an existing checkout. It seeds `.env` with
+`EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE=0`, keeping keys that are already set. It
+runs `install.sh --skip-index`, which installs the dependencies, registers
+Agents-Core as a user-scope stdio server in `~/.claude.json` and writes the
+protocol 2 section to `~/.claude/CLAUDE.md`. It then builds the indexes with
+`python -m src.reindex` and adds `/history.md`, the monthly `history/YYYY-MM.md`
+archives and `/data/memory/` to git's global excludes. Finally it starts the
+registered server over stdio and routes a test query, which also stores the router
+index in the cached filesystem.
+
+Any failed step exits non-zero, so the session fails to start and no broken
+installation is cached. Correct the cause, usually the network list, in the
+environment's settings; the next new session runs the script again.
+
+**Options.** The script reads `AGENTS_HOME`, `AGENTS_REPO_URL`, `AGENTS_BRANCH` and
+`AGENTS_EMBEDDING_MODEL` from its environment. Set them on the `bash` side of the
+pipe, for example `... | AGENTS_BRANCH=my-branch bash`. To try a version of the
+script that is not on `main` yet, change `main` in the URL as well.
+`AGENTS_EMBEDDING_MODEL` applies only when `.env` has no `EMBEDDING_MODEL`. The
+default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
+the installer's choice for the session VM's 16 GB of RAM. Full
+(`intfloat/multilingual-e5-large`) is a larger download and indexes more slowly,
+so check that setup still finishes within the cache limit below.
+
+**Cache and updates.** The environment is cached only when setup finishes within
+about five minutes. In a 2026-10-03 trial with an isolated `HOME`, the clone,
+dependencies and client configuration took 42 seconds and a rerun took 6 seconds;
+the model download was not measured because that session's network blocked
+Hugging Face. The cache is rebuilt when the setup script or the allowed hosts
+change and when it expires after about seven days; a rebuild installs the current
+`AGENTS_BRANCH`. The standalone auto-updater stays off: each session starts from
+the snapshot, so it would fetch and rebuild indexes in every new VM.
+
+**In a session.** Every session of the environment has the server and the routing
+instructions, whichever repository it works on, so it routes, adds the footer and
+calls `log_interaction` like a local client. A routine that runs in this
+environment gets the same, so drop "do not route" from its prompt.
+`log_interaction` writes `history.md` in the session repository's root; the global
+excludes keep it out of `git status`, and it is lost with the session VM unless
+committed. `describe_repo` still edits the repository's tracked `CLAUDE.md` when
+called.
 
 ## Issue agent
 
