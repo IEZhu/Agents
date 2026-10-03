@@ -90,7 +90,8 @@ textarea[readonly] { color: var(--muted); }
 .mdview.toc-hidden .md-edge { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 12px; z-index: 2; }
 .mdview.toc-hidden .md-toc { position: absolute; left: 0; top: 0; bottom: 0; width: min(15rem, 85%); z-index: 3;
   transform: translateX(-105%); box-shadow: 0 2px 12px rgba(0, 0, 0, .25); }
-.mdview.toc-hidden .md-edge:hover ~ .md-toc, .mdview.toc-hidden .md-toc:hover, .mdview.toc-hidden .md-toc:focus-within { transform: none; }
+.mdview.toc-hidden:not(.toc-dismissed) .md-edge:hover ~ .md-toc, .mdview.toc-hidden:not(.toc-dismissed) .md-toc:hover,
+.mdview.toc-hidden .md-toc:focus-within { transform: none; }
 .mdview.no-toc .md-toc, .mdview.no-toc .md-edge { display: none; }
 .md { padding: 4px 12px; line-height: 1.55; overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
@@ -1109,6 +1110,7 @@ function createMdView(id, section, button) {
     const has = view.headings.length > 0;
     root.classList.toggle("no-toc", !has);
     root.classList.toggle("toc-hidden", state.tocHidden);
+    if (!state.tocHidden) root.classList.remove("toc-dismissed");
     hide.textContent = state.tocHidden ? "Keep open" : "Hide contents";
     button.classList.toggle("hidden", !(has && view.shown));
     button.setAttribute("aria-pressed", String(has && !state.tocHidden));
@@ -1133,7 +1135,13 @@ function createMdView(id, section, button) {
   view.close = () => { view.shown = false; root.classList.add("hidden"); view.apply(); };
   hide.addEventListener("click", () => {
     setToc(!state.tocHidden);
-    if (state.tocHidden) button.focus();  // the hidden panel must not keep focus, or :focus-within keeps it open
+    if (!state.tocHidden) return;
+    button.focus();  // the hidden panel must not keep focus, or :focus-within keeps it open
+    root.classList.add("toc-dismissed");  // nor the pointer still on it, or :hover keeps it open
+  });
+  // A new hover reveals the dismissed panel again: the pointer over anything else in the view ends the dismissal.
+  root.addEventListener("pointerover", (event) => {
+    if (root.classList.contains("toc-dismissed") && !toc.contains(event.target)) root.classList.remove("toc-dismissed");
   });
   button.addEventListener("click", () => setToc(!state.tocHidden));
   mdViews.push(view);
