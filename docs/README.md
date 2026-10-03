@@ -54,14 +54,20 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
   `bench`; the [session playbook](session-playbook.md#evals) gives the
   prerequisites.
 - [Local and hosted model runners](../evals/LOCAL_MODELS.md).
+- [A/B eval flow](../flows/ab-eval.md): the whole cycle for one change, from case
+  set to recommendation, on hosted models and Opus.
 - [Component ablation workflow](../evals/ablation/README.md) and
   [case format](../evals/ablation/CASES.md).
+- Semantic-cache routing of the embedding model:
+  `python -m evals.runners.run_cache_routing` (leave-one-out nearest neighbours,
+  precision at fixed coverage per language).
 - [Telemetry export and analysis](../evals/telemetry/README.md).
 - [Dataset sources](../evals/datasets/SOURCES.md).
 - [Cloud sessions](cloud-runs.md): the September 2026 eval-sweep procedure (check
-  account and service setup before reusing it) and the maintained setup and
-  operations reference for the cloud [issue agent](cloud-runs.md#issue-agent) and
-  for a [cloud environment with Agents-Core](cloud-runs.md#cloud-environment-with-agents-core).
+  account and service setup before reusing it), the [eval routine](cloud-runs.md#eval-routine)
+  of the A/B eval flow, and the maintained setup and operations reference for the
+  cloud [issue agent](cloud-runs.md#issue-agent) and for a
+  [cloud environment with Agents-Core](cloud-runs.md#cloud-environment-with-agents-core).
 
 ## Plans, research and recorded results
 
@@ -78,6 +84,8 @@ the maintained references above for current commands and behavior.
 | [Layer sensitivity proposal](layer-sensitivity-plan.md) | Partially implemented proposal (opt-in implant settings, default off); measurements tied to its recorded branch/model |
 | [Query decomposition research](query-decomposition-research.md) | Research synthesis and analysis of its recorded dataset |
 | [Ablation results](../evals/ablation/RESULTS.md) | Recorded experiment results |
+| [English pivot A/B](english-pivot-eval-results.md) | Recorded 2026-10-02 runs of `rule-english-pivot` on Qwen 3.8 27B, Gemini 3.8 Flash and Opus 5.5 |
+| [Embedding models A/B](embedding-models-eval-results.md) | Recorded 2026-10-03 retrieval runs of six embedding configurations and an answer A/B of harrier-oss-v1-270m against e5-large |
 | [Evaluation baseline](../evals/reports/baseline.md) | Committed comparison base for `./scripts/eval.sh diff`; its title records the run date and commit, but that hash is not in the published history (the file was last committed in `c389797`, 2026-05-04, PR #48) |
 | [Preferred implant A/B](../evals/reports/implants_preferred_ab.md) | Recorded run added in commit `7e6fd79` (2026-05-23) by `evals/scripts/compare_implants.py`; not a guarantee about later revisions |
 

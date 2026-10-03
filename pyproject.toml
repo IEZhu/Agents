@@ -9,7 +9,8 @@ description = "Multi-agent MCP framework for Cursor IDE"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0",
-    "fastembed>=0.4",
+    "fastembed>=0.8.1",
+    "huggingface-hub>=0.23",
     "numpy>=1.24",
     "langfuse>=3.0",
     "python-dotenv",
