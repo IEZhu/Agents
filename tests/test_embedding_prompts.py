@@ -49,6 +49,7 @@ def test_prompts_can_be_switched_off(monkeypatch):
 
 def test_embedder_applies_the_templates(monkeypatch):
     fake = _FakeModel()
+    monkeypatch.delenv("EMBEDDING_PROMPTS", raising=False)
     monkeypatch.setattr(embedder, "_get_model", lambda: fake)
     monkeypatch.setattr(embedder, "EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
     embedder._embed_query("как вернуть налог")
