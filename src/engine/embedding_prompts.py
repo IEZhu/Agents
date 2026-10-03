@@ -123,12 +123,12 @@ def materialize(model: str, cache_dir: str) -> str | None:
         _cap_max_length(os.path.join(staging, "tokenizer_config.json"), MAX_INPUT_TOKENS)
         with open(os.path.join(staging, COMPLETE), "w", encoding="utf-8") as stream:
             stream.write(spec["revision"])
-        try:
-            os.rename(staging, target)
-        except OSError:
-            # Only another process publishing the same revision first is expected here.
-            if not os.path.isfile(os.path.join(target, COMPLETE)):
-                raise
+        os.rename(staging, target)
+    except Exception:
+        # Another process may have published this revision meanwhile: its copy then
+        # serves, whether this download failed or lost the rename.
+        if not os.path.isfile(os.path.join(target, COMPLETE)):
+            raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return target

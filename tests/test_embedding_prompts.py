@@ -136,19 +136,20 @@ def test_a_failed_download_publishes_nothing(monkeypatch, tmp_path):
     assert os.listdir(os.path.dirname(embedding_prompts.local_copy(model, str(tmp_path)))) == []
 
 
-def test_a_copy_another_process_published_first_is_used(monkeypatch, tmp_path):
+@pytest.mark.parametrize("download_fails", [False, True])
+def test_a_copy_another_process_published_first_is_used(monkeypatch, tmp_path, download_fails):
     import huggingface_hub
 
     model = "microsoft/harrier-oss-v1-270m"
     target = embedding_prompts.local_copy(model, str(tmp_path))
-    download = _hub([])
+    download = _hub([], fail=download_fails)
 
     def racing(repo, revision, local_dir, allow_patterns):
-        download(repo, revision, local_dir, allow_patterns)
+        # Another process publishes the same revision while this download runs.
         os.makedirs(target)
         with open(os.path.join(target, embedding_prompts.COMPLETE), "w") as stream:
             stream.write(revision)
-        return local_dir
+        return download(repo, revision, local_dir, allow_patterns)
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", racing)
     assert embedding_prompts.materialize(model, str(tmp_path)) == target
