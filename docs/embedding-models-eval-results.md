@@ -26,7 +26,9 @@ Russian requests for all 43 agents, labels reviewed independently). Skills and
 implants come from `run_retrieval --expected-from-agent`; implant labels are each
 agent's preferred implants, a proxy. Routing comes from the new
 `run_cache_routing`: a leave-one-out nearest neighbour over both sets, which
-simulates the semantic cache.
+simulates the semantic cache. Its precision at a coverage level counts every query
+tied with the cutoff similarity; the cache columns were measured again after that
+fix, and only harrier-0.6b's Russian precision moved (50% to 53%).
 
 **Track B, answers.** Production e5 (no prompts) against harrier-oss-v1-270m with
 its prompts, on `evals/datasets/embedding_ab_cases.json` (the checked english-pivot
@@ -51,7 +53,7 @@ Track A, in each model's best configuration:
 | e5-large, production (no prompts) | 0.590 / 0.566 | 51% / 62% | 0.062 / 0.209 | 54% / 29% | 25% | 1.59 GB | 2.1 GB |
 | e5-large with its prefixes | 0.587 / 0.570 | 53% / 61% | 0.066 / 0.228 | 53% / 34% | 25% | 1.59 GB | — |
 | harrier-oss-v1-270m | 0.593 / 0.571 | 58% / 66% | 0.137 / 0.353 | 61% / 30% | 50% | 0.85 GB | 2.8 GB |
-| harrier-oss-v1-0.6b (batch 2) | 0.595 / 0.571 | 56% / 64% | 0.205 / 0.313 | 64% / 32% | 50% | 1.87 GB | 3.7 GB |
+| harrier-oss-v1-0.6b (batch 2) | 0.595 / 0.571 | 56% / 64% | 0.205 / 0.313 | 64% / 32% | 53% | 1.87 GB | 3.7 GB |
 | EmbeddingGemma-300m | 0.589 / 0.564 | 57% / 60% | 0.095 / 0.351 | 59% / 42% | 62% | 0.88 GB | 2.7 GB |
 | Qwen3-Embedding-0.6B-Q | 0.592 / 0.563 | 55% / 62% | 0.053 / 0.230 | 57% / 29% | 50% | — | 8.9 GB |
 | paraphrase-multilingual-MiniLM-L12-v2 (installer Balanced) | 0.582 / 0.575 | 53% / 63% | 0.070 / 0.247 | 46% / 27% | 50% | 0.78 GB | 0.86 GB |
