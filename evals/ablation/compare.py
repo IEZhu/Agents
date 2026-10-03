@@ -78,11 +78,13 @@ def load_run(run_dir: Path) -> dict:
             missing += 1
             continue
         winners[(p["component"], p["case"])].append({"A": p["A"], "B": p["B"], "tie": "tie"}[verdict["winner"]])
+    # Cases, not records: each --arm build can record its own error for one case.
     build_errors = _json_list(run_dir / "build_errors.json")
-    identical = sum(1 for error in build_errors if error.get("error") == "arms identical")
+    identical = {(e.get("component"), e.get("case")) for e in build_errors if e.get("error") == "arms identical"}
+    not_built = {(e.get("component"), e.get("case")) for e in build_errors} - identical
     return {"name": run_dir.name, "groups": groups, "winners": dict(winners), "missing": missing,
-            "not_judged": len(_json_list(run_dir / "judge_skipped.json")),
-            "not_built": len(build_errors) - identical, "identical": identical}
+            "not_judged": len(set(_json_list(run_dir / "judge_skipped.json"))),
+            "not_built": len(not_built), "identical": len(identical)}
 
 
 def run_summary(run: dict, group: str | None = None) -> dict:

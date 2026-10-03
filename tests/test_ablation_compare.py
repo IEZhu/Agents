@@ -90,7 +90,8 @@ def test_pairs_left_out_upstream_are_reported_apart_from_identical_arms(tmp_path
     (run / "judge_skipped.json").write_text(json.dumps(["rule-x/r9"]))
     (run / "build_errors.json").write_text(json.dumps([
         {"component": "rule-x", "case": "r8", "error": "arms identical"},
-        {"component": "rule-x", "case": "r7", "error": "other arm not built", "arm": "with"}]))
+        {"component": "rule-x", "case": "r7", "error": "other arm not built", "arm": "with"},
+        {"component": "rule-x", "case": "r7", "error": "boom", "arm": "without"}]))  # one case, two records
     result = compare.compare([run])
     summary = result["runs"][0]
     assert (summary["missing"], summary["not_judged"], summary["not_built"], summary["identical"]) == (0, 1, 1, 1)
