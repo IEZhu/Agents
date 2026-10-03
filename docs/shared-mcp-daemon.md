@@ -323,7 +323,14 @@ The daemon serves a local settings page at `/ui` with five tabs.
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
 pane scrolls on its own, and the detail pane scrolls separately when its content is
-taller). Every tab has a search box above its list (`/` focuses it, `Esc` clears
+taller). The header holds the version, the controls of the open item and the
+tabs. A flow's controls are *Rendered / Source*, "Contents", the history, "Delete"
+and "Save" (a built-in flow shows its "Edit copy" buttons instead of the last
+three); a rule, skill or implant has *Rendered / Source*, "Contents" and its
+switch, and an agent the same without a switch. With nothing open the header
+shows none. Below 1250 px for a flow, or 900 px for the other tabs, the
+controls take a second header row; the item's title stays above the document.
+Every tab has a search box above its list (`/` focuses it, `Esc` clears
 it). Matching is case-insensitive and every whitespace-separated term must
 appear. Items whose name (ID, title, short name; an agent's ID and display name)
 matches are listed first, then items that match only in their text (description
@@ -347,7 +354,7 @@ frontmatter block is a collapsed "Metadata" section. When a document has
 headings (levels 1-4), a table of contents appears on its left and an entry
 scrolls the document to its heading. "Hide contents" hides it at once, even with the pointer
 still over it; while hidden, hovering the left edge of the view shows it as an overlay, and the
-toolbar's "Contents" button
+header's "Contents" button
 toggles it (the way on touch screens). The choice is remembered in the browser's
 `localStorage` and shared by all documents; without a stored choice it starts hidden at
 widths up to 760 px. The renderer is part of the page script (no library, no
