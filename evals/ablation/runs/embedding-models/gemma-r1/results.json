@@ -1,0 +1,534 @@
+{
+ "verdicts": [
+  {
+   "component": "embed-model",
+   "case": "ru-proofread-sentence",
+   "A": "without",
+   "B": "with",
+   "stem": "152c40ed22__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers produce the identical corrected sentence, fix «не были», remove «то», and miss the tautology between 'без предупреждения' and 'не были уведомлены заранее'. Both explanations wrongly claim a comma was added before «что», although the final text replaced the phrase with «Поскольку» and has no such comma. A labels the «не были» fix correctly as orthography while B calls it grammar, a difference too minor to decide the verdict.",
+   "errors_with": [
+    "Claims a comma was added before «что», but the corrected sentence contains no such comma (the phrase was replaced by «Поскольку»).",
+    "Labels the separate spelling of «не были» as a grammar fix rather than orthography."
+   ],
+   "errors_without": [
+    "Claims a comma was added before «что», but the corrected sentence contains no such comma (the phrase was replaced by «Поскольку»)."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-proofread-sentence",
+   "A": "with",
+   "B": "without",
+   "stem": "152c40ed22__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers give the same corrected sentence: they fix «не были», remove «то» and replace the conjunction with «Поскольку», but neither notices the tautology between «без предупреждения» and «не были уведомлены заранее». Both also claim a comma was added before «что», which the corrected text no longer contains, so their explanations are partly inaccurate. Only the explanation wording differs, and the difference is not meaningful.",
+   "errors_with": [
+    "Claims a comma was added before «что», but the corrected sentence uses «Поскольку» and has no «что» there."
+   ],
+   "errors_without": [
+    "Claims a comma was added before «что» to set off the clause, but the corrected sentence uses «Поскольку» and has no «что» there."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-inn-validator",
+   "A": "with",
+   "B": "without",
+   "stem": "15805d4651__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both get the 10-digit weights right, but A uses wrong weights for both 12-digit control digits, while B gets the 11th-digit weights (7,2,4,10,3,5,9,4,6,8) right and only the 12th-digit weights wrong. Neither answer's 12-digit valid test case is reliably valid, though B at least labels its case as hypothetical while A claims it was manually calculated. Input and length validation and the English reply are equivalent in both.",
+   "errors_with": [
+    "12-digit INN 11th-digit weights given as 2,4,10,3,5,9,4,6,8,9; correct is 7,2,4,10,3,5,9,4,6,8",
+    "12-digit INN 12th-digit weights given as 2,4,10,3,5,9,4,6,8,9,10; correct is 3,7,2,4,10,3,5,9,4,6,8",
+    "Claims the 12-digit test case was manually verified against the FNS algorithm, which the code does not implement correctly"
+   ],
+   "errors_without": [
+    "12-digit INN 12th-digit weights given as 7,2,4,10,3,5,9,4,6,8,1; correct is 3,7,2,4,10,3,5,9,4,6,8"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-inn-validator",
+   "A": "without",
+   "B": "with",
+   "stem": "15805d4651__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both handle the 10-digit check correctly, but A also uses the correct weights for the 11th digit and gets only the 12th-digit weights wrong, while B uses wrong weights for both 12-digit control digits, so B rejects nearly every real individual INN. Both include tests for both lengths and the invalid inputs, but their 12-digit 'valid' examples are unverified and probably fail. Both claim HIGH confidence without grounds.",
+   "errors_with": [
+    "11th-digit weights given as 2,4,10,3,5,9,4,6,8,9; the correct weights are 7,2,4,10,3,5,9,4,6,8",
+    "12th-digit weights given as 2,4,10,3,5,9,4,6,8,9,10; the correct weights are 3,7,2,4,10,3,5,9,4,6,8",
+    "Claims the 12-digit test INN was manually checked, which is unsupported"
+   ],
+   "errors_without": [
+    "12th-digit weights given as 7,2,4,10,3,5,9,4,6,8,1; the correct weights are 3,7,2,4,10,3,5,9,4,6,8",
+    "Test INN 772612345678 is claimed valid without verification and likely fails",
+    "The hand-check of 7707083893 lists the wrong digit sequence"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-bakery-puns",
+   "A": "without",
+   "B": "with",
+   "stem": "2ac05b08ae__o1",
+   "winner_arm": "with",
+   "margin": "clear",
+   "reasons": "A builds four of its five slogans on the same doubtful idiom «бить батоны», and «мягче, чем ваши оправдания» has no wordplay in it at all. B draws on several sources of wordplay, and «корочка» as both crust and diploma is a real Russian pun, though «тесто» meaning money is an English calque and «крутой» is weak. Overall B is more varied and funnier in Russian.",
+   "errors_with": [
+    "Presents «бить батоны» as an established idiom meaning to idle; the standard idiom is «бить баклуши».",
+    "Claims «тесто» is Russian slang for money; this is an English calque of 'dough', not common Russian slang."
+   ],
+   "errors_without": [
+    "Presents «бить батоны» as an established idiom meaning to idle; the standard idiom is «бить баклуши»."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-bakery-puns",
+   "A": "with",
+   "B": "without",
+   "stem": "2ac05b08ae__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "B builds several slogans on the real Russian idiom «бить батоны» (1, 2, 4), and its Russian reads naturally, though it repeats itself and slogans 3 and 5 have little wordplay. Apart from slogan 1, A's puns depend on meanings Russian doesn't have: «тесто» as money is the English 'dough' calque, «крутой» doesn't describe a crust, and «мякиш» isn't a common word for a weak person. A's slogan 3 is also phrased like an English template ('the only X you really need').",
+   "errors_with": [
+    "Claims «тесто» is Russian slang for money; that meaning is a calque of English 'dough'.",
+    "Claims «крутой» has a double meaning referring to a perfectly crisp crust; it has no such meaning.",
+    "Presents «мякиш» as a standard label for a weak, indecisive person; that usage is not established."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-landing-translation",
+   "A": "without",
+   "B": "with",
+   "stem": "2e042d859f__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both give three three-beat variants with natural peace-of-mind images and avoid literal calques. B's first variant uses the awkward slang verb «Релизьте» and turns 'Break nothing' into «Ломайте реже», which weakens the promise, while B's third variant is stronger than A's somewhat flat «Скорость доставки... Полный покой». Overall A's variants keep the meaning more consistently.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-landing-translation",
+   "A": "with",
+   "B": "without",
+   "stem": "2e042d859f__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "A's first variant 'Ломайте реже' weakens 'Break nothing' into still breaking things, and 'Релизьте' is an awkward coinage. B's variants, especially 'Быстрее в прод. Без багов. Спите спокойно.' and 'Релизы быстрее. Код стабильнее. Сон спокойнее.', keep the meaning and sound idiomatic. B's third variant 'Полный покой' loses the night image a little, but that is a smaller flaw.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-liveness-readiness",
+   "A": "with",
+   "B": "without",
+   "stem": "461025735f__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical: they give a correct readiness/liveness distinction, explain the restart storm caused by the DB check in liveness, and provide the same split-probe manifest. Neither mentions a startup probe or explains the reasoning behind initialDelaySeconds/failureThreshold, they only include them in YAML. A's Go handler snippet and flapping note roughly balance B's clearer framing of readiness for temporary unavailability and its recovery verification step.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-liveness-readiness",
+   "A": "without",
+   "B": "with",
+   "stem": "461025735f__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are nearly identical in their explanation and manifests. Each sets initialDelaySeconds and failureThreshold in the YAML without explaining them, and neither mentions a startup probe. B pulls slightly ahead with concrete handler code, a verification step that checks the RESTARTS column, and a warning about readiness flapping from aggressive timeouts.",
+   "errors_with": [
+    "Says Kubernetes 'killed the pod and started a new one'; a liveness failure restarts the container, not the pod."
+   ],
+   "errors_without": [
+    "Says the restart produced a 'new pod'; a liveness failure restarts the container inside the same pod."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-phone-regex",
+   "A": "with",
+   "B": "without",
+   "stem": "4d5b15e260__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers use the identical pattern and nearly identical test harnesses, so they accept and reject the same inputs. Both anchor with re.match and ^...$ rather than fullmatch or \\Z, so a trailing newline is still accepted, and neither mentions this. The differences are cosmetic: A adds a step-by-step breakdown and one extra positive test, while B comments each test case.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the ^ and $ anchors fully prevent partial matches, but in Python $ also matches before a trailing newline, so '89123456789\\n' passes."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-phone-regex",
+   "A": "without",
+   "B": "with",
+   "stem": "4d5b15e260__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers use the identical pattern with re.match and ^...$, which accepts all four examples and enforces +7/8, 9 and the digit count, but $ still allows a trailing newline instead of using \\Z or re.fullmatch. Test sets are essentially equivalent (B adds one extra positive case and type hints, A annotates each test case), and both are in Russian. No difference is significant enough to pick a winner.",
+   "errors_with": [],
+   "errors_without": [
+    "Claims the ^ and $ anchors fully prevent partial matches, but $ with re.match accepts a trailing newline."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-1c-query-characteristic",
+   "A": "without",
+   "B": "with",
+   "stem": "695f0d919e__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers use the same correct structure: an optional parameter, a filter built at runtime inside the virtual-table parameters, and the total over all characteristics when no characteristic is passed. Both misname the dimension in the filter: A writes ХарактеристикаНоменклатура (missing the letter ы) and B writes Характеристика, so in both versions the query fails whenever a characteristic is passed. The remaining differences are minor: A has a meaningless O(1) complexity claim and B adds a note on SQL injection, so neither answer is clearly better.",
+   "errors_with": [
+    "Filter uses nonexistent field Характеристика instead of the register dimension ХарактеристикаНоменклатуры, so the query errors when a characteristic is passed."
+   ],
+   "errors_without": [
+    "Filter uses nonexistent field ХарактеристикаНоменклатура instead of the register dimension ХарактеристикаНоменклатуры, so the query errors when a characteristic is passed."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-1c-query-characteristic",
+   "A": "with",
+   "B": "without",
+   "stem": "695f0d919e__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers have the same structure: an optional parameter, a filter built at runtime inside the virtual-table parameters, and the total over all characteristics when none is passed. Both misspell the dimension in the filter: A writes 'Характеристика' and B writes 'ХарактеристикаНоменклатура' instead of 'ХарактеристикаНоменклатуры', so the query fails whenever a characteristic is passed. Neither has a meaningful advantage.",
+   "errors_with": [
+    "Filter uses nonexistent dimension name 'Характеристика' instead of 'ХарактеристикаНоменклатуры', causing a query error when a characteristic is passed."
+   ],
+   "errors_without": [
+    "Filter uses misspelled dimension name 'ХарактеристикаНоменклатура' instead of 'ХарактеристикаНоменклатуры', causing a query error when a characteristic is passed."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-jvm-oomkilled",
+   "A": "with",
+   "B": "without",
+   "stem": "8b5b9bd16b__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both explain non-heap overhead and suggest MaxRAMPercentage plus measurement, but B also covers direct buffers, describes the cgroup SIGKILL clearly, and sets a Java heap-space OutOfMemoryError apart from the container kill. A's rollback advice, to revert to the old settings if GC slows down, would bring the OOMKill back. B's quick fix (-Xmx384m under the same limit) is a concrete, useful alternative to A's option of only raising the limit.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-jvm-oomkilled",
+   "A": "without",
+   "B": "with",
+   "stem": "8b5b9bd16b__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both explain heap vs non-heap correctly and propose MaxRAMPercentage or a smaller -Xmx; B explicitly says to remove -Xmx512m, gives more realistic headroom (768Mi limit) and suggests the container_memory_working_set_bytes metric for measurement, while A keeps 512Mi with only ~128Mi non-heap despite estimating 100-200MB overhead itself. B's use of JAVA_OPTS (not read by the JVM natively, unlike A's JAVA_TOOL_OPTIONS) is a minor weakness that does not outweigh this. Both use English section headers (Architecture, Blast Radius, etc.), so the language item is only partially met.",
+   "errors_with": [
+    "Claims -Xmx512m with a 512Mi limit leaves '0 bytes' for everything else, which overstates it (the heap is not necessarily fully committed); also uses JAVA_OPTS, which the JVM does not read by itself"
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-sql-second-order",
+   "A": "with",
+   "B": "without",
+   "stem": "90544708dd__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers use the same correct ROW_NUMBER query with PARTITION BY customer_id ORDER BY amount DESC, created_at ASC and filter rn = 2, and both give essentially identical Russian explanations. A mentions that RANK() duplicates numbers on ties, which is slightly more precise, but the difference is negligible.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-sql-second-order",
+   "A": "without",
+   "B": "with",
+   "stem": "90544708dd__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers give the same correct ROW_NUMBER query and meet every rubric item. The deciding difference is in the ROW_NUMBER vs RANK contrast: B notes that ROW_NUMBER does not duplicate numbers on ties, which is the real reason exactly one second row is guaranteed. A cites only the absence of gaps, which is less precise.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-python-default-list",
+   "A": "without",
+   "B": "with",
+   "stem": "9a7c63d7fe__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain that the default is evaluated once at def time and give the same correct None-default fix in Russian. B adds an annotated copy of the buggy code, while A's explanation of mutability is slightly clearer, so neither is meaningfully better. Both use English section headers and include an unnecessary complexity note, but neither restates the request in English.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-python-default-list",
+   "A": "with",
+   "B": "without",
+   "stem": "9a7c63d7fe__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers correctly explain that the default is evaluated once at def time and give the same correct None-default fix with matching examples. Both are in Russian but use English section headings (Analysis, Implementation, Verification, Confidence), so item 3 is only partly met for each. A annotates the original buggy code and B adds a short note on mutability; neither difference is enough to pick a winner.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "without",
+   "B": "with",
+   "stem": "a350e94069__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers cover every rubric item with nearly identical content. B frames the user's question more accurately: the friend and the bank mean the same right, just in looser and stricter terms, whereas A's 'the bank is right' suggests the friend is wrong. B also adds a worked example of the 2 million rouble cap, notes that spouses can both claim even when the flat is registered to one of them, and flags the 2025 progressive НДФЛ scale.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-tax-deduction-vs-benefit",
+   "A": "with",
+   "B": "without",
+   "stem": "a350e94069__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both cover article 220, the 2M/3M limits, and the need for paid НДФЛ, and are almost identical in substance. A opens by saying the two terms mean the same thing before correcting itself, which blurs the distinction the user asked about; B states it cleanly as genus and species and cites article 220 directly for each deduction. B also adds the tax-residency condition and mentions the 15% rate up front.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-office-move-plan",
+   "A": "without",
+   "B": "with",
+   "stem": "b18ed4f755__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both meet all rubric items with near-identical structure. A adds a pre-move internet test on 17 November and has furniture delivered and placed before the move weekend, while B never checks the connection before moving in and leaves furniture delivery ambiguous (possibly on the move weekend). B's concrete 09:00-13:00 server slot is a plus, but it does not outweigh A's better risk control; neither answer mentions the 4 November public holiday that shifts working-day counts.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-office-move-plan",
+   "A": "with",
+   "B": "without",
+   "stem": "b18ed4f755__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both order internet on 2 Nov and furniture on 9 Nov, plan a prepared 4-hour server window on 22 Nov, and are structured by weeks in Russian. B correctly computes the internet ready date (16-17 Nov) and adds an explicit internet check before the move, while A frames the internet deadline around 23 Nov, which would leave no connection test before the move weekend. A gives a more concrete server time slot, but B's verification step makes its plan slightly more robust.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-vryad-li-edva-li",
+   "A": "with",
+   "B": "without",
+   "stem": "b67c9e0022__o1",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers correctly frame вряд ли as neutral and едва ли as bookish, give suitable B1 examples, and are in Russian. B at least links едва ли to «едва» (barely), partially covering rubric item 2, while A says nothing about «едва» or «едва ли не». A's second exercise is also muddled because its prompt already contains the answer «вряд ли».",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-vryad-li-edva-li",
+   "A": "without",
+   "B": "with",
+   "stem": "b67c9e0022__o2",
+   "winner_arm": "without",
+   "margin": "small",
+   "reasons": "Both answers explain the shared meaning and the neutral-vs-bookish split well, with natural B1 examples, in Russian. A at least links «едва ли» to «едва» ('barely'), while B never touches that, and neither covers «едва ли не». A also gives a direct style-choice exercise with paired sentences, which is more useful in class than B's situational prompts.",
+   "errors_with": [
+    "Overstates the meaning of «едва ли» as 'почти невозможно'; it expresses the same degree of doubt as «вряд ли»."
+   ],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-heart-failure-terms",
+   "A": "with",
+   "B": "without",
+   "stem": "b8ee6cebfc__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers are written in English to a Russian-speaking user, translate the discharge wording (keeping the Russian only in parentheses) and open with an English boilerplate disclaimer, so both fail the language requirement. Both explain NYHA II correctly and avoid calling it end-stage, but both misdescribe the Strazhesko-Vasilenko stages: B rebuilds them as an exertion-level scale (IIB = mild activity, III = symptoms at rest), and A says IIA means symptoms only on exertion. B's plan reflects current quadruple therapy and its analogy is plainer, which offsets A's slightly smaller staging error.",
+   "errors_with": [
+    "Describes stage IIA as symptoms only on exertion with the heart coping at rest; in Strazhesko-Vasilenko, IIA means hemodynamic disturbance (congestion) in one circulation that is present at rest"
+   ],
+   "errors_without": [
+    "Redefines Strazhesko-Vasilenko stages by exertion level (IIA moderate, IIB mild activity, III symptoms at rest); IIB actually means pronounced disturbance in both circulations and III is terminal with irreversible organ changes",
+    "Stage I described as heart damaged but no symptoms on normal activity; Strazhesko stage I is latent failure with symptoms only on exertion"
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-heart-failure-terms",
+   "A": "without",
+   "B": "with",
+   "stem": "b8ee6cebfc__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers are written entirely in English despite the Russian request, and both restate the request in English, so both fail the language part of item 4. A misdefines the Strazhesko-Vasilenko stages, treating IIA vs IIB as moderate vs mild exertion and stage III as just symptoms at rest. B correctly frames the stage as disease progression (latent vs manifest), explains IIA without overstating it and keeps the original discharge wording in its headings. A's therapy summary (quadruple therapy) is more current than B's, but this does not outweigh B's more accurate core explanation.",
+   "errors_with": [],
+   "errors_without": [
+    "Defines stage IIA vs IIB by moderate vs mild exertion and stage III as symptoms at rest; in the Strazhesko-Vasilenko classification IIA/IIB are distinguished by congestion in one vs both circulatory circles, and III is the terminal stage with irreversible organ changes."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-git-reset-reflog",
+   "A": "with",
+   "B": "without",
+   "stem": "cd65504e21__o1",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "A's sample reflog output is realistic (reset at HEAD@{0}, the lost tip at HEAD@{1}), which clearly shows which entry to pick. B's sample is wrong: the reset appears as HEAD@{4} below a commit at HEAD@{1}, which could confuse the user about which hash to restore. B adds a useful git log check, but both use English section headings, and A has a small grammar slip and a meaningless O(1) note.",
+   "errors_with": [],
+   "errors_without": [
+    "Sample reflog lists the reset as HEAD@{4} below a commit at HEAD@{1}; right after the reset, it would be HEAD@{0} with the pre-reset commit at HEAD@{1}."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-git-reset-reflog",
+   "A": "without",
+   "B": "with",
+   "stem": "cd65504e21__o2",
+   "winner_arm": "with",
+   "margin": "small",
+   "reasons": "Both answers cover reflog recovery, restoring via reset --hard or a new branch, and the warning about uncommitted changes. A's sample reflog output is wrong and misleading: it shows the reset entry as HEAD@{4} and the earlier commit as HEAD@{1}, while B's sample correctly puts the reset at HEAD@{0} with the lost commits below it, and B adds a git show check. B has small flaws (a grammar slip, a pointless O(1) note), but they matter less than A's misleading example.",
+   "errors_with": [],
+   "errors_without": [
+    "Sample reflog output shows the reset entry at HEAD@{4} and the target commit at HEAD@{1}; the latest reset should be HEAD@{0}, with the earlier commits below it."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "en-float-compare",
+   "A": "with",
+   "B": "without",
+   "stem": "de7bd5bdbf__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers cover all three rubric items with nearly identical structure and correctness. A shows the binary expansion of 0.1 and explains why math.isclose beats a manual epsilon; B explains more clearly why Decimal(0.1) is a pitfall and shows the manual epsilon alternative. These small differences offset each other, and both loosely call Decimal 'fixed-precision'.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "en-float-compare",
+   "A": "without",
+   "B": "with",
+   "stem": "de7bd5bdbf__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers explain binary representation and the 0.30000000000000004 result, recommend math.isclose, and recommend Decimal (from strings) or integer minor units for prices. A adds a runnable demonstration and a manual epsilon fallback, while B shows the binary expansion of 0.1 and explains why isclose beats a fixed absolute epsilon; B misstates the error magnitude slightly. These offsetting minor differences leave them essentially equal.",
+   "errors_with": [
+    "Describes Decimal as 'fixed-precision'; it is a decimal floating-point type with configurable precision.",
+    "Cites the rounding error as 0.00000000000004, whereas the actual error in 0.1 + 0.2 is about 4e-17."
+   ],
+   "errors_without": [
+    "Describes Decimal as 'fixed-precision'; it is a decimal floating-point type with configurable precision."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-runbook-checklist",
+   "A": "without",
+   "B": "with",
+   "stem": "e30dd1fc24__o1",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "Both answers have the same wording, keep both kubectl commands exactly as written, and translate the rollback condition, #incidents and the DBA rule correctly. The only difference is formatting: A uses checkboxes, which suits the word 'checklist', while B uses numbers, which keeps the original step numbering. Neither format is clearly better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "mix-runbook-checklist",
+   "A": "with",
+   "B": "without",
+   "stem": "e30dd1fc24__o2",
+   "winner_arm": "tie",
+   "margin": "small",
+   "reasons": "The two answers have the same wording, keep both commands exactly and translate the rollback condition the same way. B's checkboxes suit a checklist a little better, but A's numbered list keeps the original step numbers, so neither is meaningfully better.",
+   "errors_with": [],
+   "errors_without": []
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-psql-connection-refused",
+   "A": "with",
+   "B": "without",
+   "stem": "f73867093f__o1",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both identify listen_addresses (with restart) and the firewall, and both explain that a pg_hba rejection gives a different error; neither notes that a firewall that drops packets would cause a timeout instead of a refusal. A uses English section headings (Analysis, Solution, Performance Impact, Migration Plan, Verification), which breaks the Russian-only requirement, while B is fully in Russian. B also gives a clearer diagnostic path: it reads the ss/nc results to tell listen/firewall problems apart from pg_hba, and it notes that a reload is enough for pg_hba.conf.",
+   "errors_with": [
+    "Claims 'Connection refused' unambiguously means the packet reaches the server, though a rejecting firewall on the path can also produce it."
+   ],
+   "errors_without": [
+    "Claims 'Connection refused' unambiguously means the request reaches the server, though a rejecting firewall on the path can also produce it."
+   ]
+  },
+  {
+   "component": "embed-model",
+   "case": "ru-psql-connection-refused",
+   "A": "without",
+   "B": "with",
+   "stem": "f73867093f__o2",
+   "winner_arm": "without",
+   "margin": "clear",
+   "reasons": "Both answers name listen_addresses (with restart) and the firewall, cover pg_hba.conf with its different error, and lead with the English 'Connection refused' before giving the Russian wording; neither notes that a dropping firewall would time out instead. A is written entirely in Russian, while B uses English section headers (Analysis, Solution, Performance Impact, Migration Plan, Verification) and adds irrelevant boilerplate sections. A's nc-based check also explains how to tell a listener or firewall problem apart from a pg_hba problem.",
+   "errors_with": [],
+   "errors_without": []
+  }
+ ],
+ "missing": [
+  {
+   "pair": "embed-model/ru-meeting-slots",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-urn-probability",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-pushkin-meter",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-petersburg-quatrain",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/ru-refund-letter",
+   "error": "context not built: arms identical"
+  },
+  {
+   "pair": "embed-model/en-refund-letter",
+   "error": "context not built: arms identical"
+  }
+ ]
+}
