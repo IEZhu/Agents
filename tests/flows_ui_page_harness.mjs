@@ -346,10 +346,12 @@ if (isUi) {
     const steps = { start: panes() };
     await open(0);
     steps.flow = panes();
+    steps.flow_described_by = byId("item-actions").attrs["aria-describedby"];
     await openTab("rules");
     steps.rules = panes();
     await open(0);
     steps.rule = { ...panes(), title: byId("c-title").textContent };
+    steps.rule_described_by = byId("item-actions").attrs["aria-describedby"];
     fire(byId("c-toggle"), "click");  // the switch, now in the header, still sends its request
     await sleep(40);
     steps.switched = requests.filter((path) => path === "/ui/api/component").length;

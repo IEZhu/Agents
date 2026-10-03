@@ -517,16 +517,19 @@ function renderHistory(versions) {
   select.disabled = !versions.length;
 }
 
-// Each detail pane and the header controls that act on its item; the welcome pane has none.
-const PANE_ACTIONS = { editor: "e-actions", component: "c-actions" };
+// Each detail pane: the header controls that act on its item and the title that names the item.
+// The welcome pane has neither.
+const PANES = { editor: { actions: "e-actions", title: "title" }, component: { actions: "c-actions", title: "c-title" } };
 // Shows one pane with its controls in the header. Signed out, the controls stay hidden, so a
 // response that arrives after the sign-in screen showed cannot reveal them.
 function showPane(pane) {
-  for (const id of ["welcome", ...Object.keys(PANE_ACTIONS)]) $(id).classList.toggle("hidden", id !== pane);
-  for (const [name, id] of Object.entries(PANE_ACTIONS)) $(id).classList.toggle("hidden", name !== pane);
+  for (const id of ["welcome", ...Object.keys(PANES)]) $(id).classList.toggle("hidden", id !== pane);
+  for (const [name, { actions }] of Object.entries(PANES)) $(actions).classList.toggle("hidden", name !== pane);
   const group = $("item-actions");
   group.dataset.pane = pane;
-  group.classList.toggle("hidden", !(pane in PANE_ACTIONS) || $("main").classList.contains("hidden"));
+  // Away from the title, the group still tells a screen reader which item it acts on.
+  if (pane in PANES) group.setAttribute("aria-describedby", PANES[pane].title);
+  group.classList.toggle("hidden", !(pane in PANES) || $("main").classList.contains("hidden"));
 }
 
 function showEditor() {

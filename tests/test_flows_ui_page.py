@@ -164,6 +164,7 @@ def test_the_header_shows_the_controls_of_the_open_item_only(panes):
     assert panes["rules"] == {**welcome, "pane": "welcome"}
     assert panes["rule"] == {**rule, "title": "skill-a"}
     assert panes["switched"] == 1
+    assert (panes["flow_described_by"], panes["rule_described_by"]) == ("title", "c-title")  # the item's name
     assert panes["back_to_flows"] == {**welcome, "pane": "welcome"}
     assert panes["deleted"] == {**welcome, "pane": "welcome", "deletes": 1}
 
