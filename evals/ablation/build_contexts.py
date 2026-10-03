@@ -312,13 +312,17 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
     (run_dir / "ctx").mkdir(exist_ok=True)
     meta_path = run_dir / "build_meta.json"
     existing_meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    meta_path.write_text(json.dumps(merge_build_meta(existing_meta, only_arm, build_meta()), indent=1) + "\n")
+    meta = merge_build_meta(existing_meta, only_arm, build_meta())  # published with the completed plan
     previous = json.loads((run_dir / "plan.json").read_text()) if (run_dir / "plan.json").exists() else {}
     errors_path = run_dir / "build_errors.json"
     previous_errors = json.loads(errors_path.read_text()) if errors_path.exists() else []
     cases = {(spec["component"], case["id"]) for path, spec in specs.items() if path.stem not in removed
              for case in spec.get("cases", [])}
     plan, kept_errors = start_plan(previous, previous_errors, only_arm, cases)
+    if only_arm:
+        # Until this build completes, the plan holds no entry of the arm being rebuilt,
+        # so an interrupted build cannot leave stale contexts to pair with the other arm.
+        (run_dir / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n")
     errors = list(removed_errors) + kept_errors
     arm_note = {"arm": only_arm} if only_arm else {}
     # A two-arm build's meta has no "arms": it built both.
@@ -368,6 +372,7 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
     restore()
     (run_dir / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1) + "\n")
     (run_dir / "build_errors.json").write_text(json.dumps(errors, ensure_ascii=False, indent=1) + "\n")
+    meta_path.write_text(json.dumps(meta, indent=1) + "\n")
     print(f"{len(plan)} contexts, {len(errors)} errors -> {run_dir}")
 
 
