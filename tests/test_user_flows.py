@@ -3,17 +3,21 @@ import asyncio
 import hashlib
 import json
 import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
+import yaml
 
 import src.server as server
+from src.component_catalog import list_agents
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
 from src.engine import config
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary, normalize_origin, parse_reference, repo_key
+from src.utils.prompt_loader import split_frontmatter
 
 
 TOKEN = "u" * 48
@@ -769,6 +773,37 @@ async def test_editor_chooses_a_flow_persona(editor, install, known_components, 
     blocked = await http.put("/ui/api/flow/persona", json=body,
                              headers={"X-Agents-UI": "1", "Origin": "https://attacker.example"})
     assert blocked.status_code == 403
+
+
+def agent_file(name):
+    head, body = split_frontmatter(
+        (Path(config.AGENTS_DIR) / name / "system_prompt.mdc").read_text(encoding="utf-8"))
+    return yaml.safe_load(head), body
+
+
+@pytest.mark.asyncio
+async def test_editor_lists_agents_and_adds_their_content_only_on_request(editor):
+    http, _ = editor
+    assert (await http.get("/ui/api/agents", params={"with_content": "1"})).status_code == 401
+    await login(http)
+    plain = (await http.get("/ui/api/agents")).json()["agents"]
+    assert [agent["id"] for agent in plain] == [agent["id"] for agent in list_agents()]
+    assert all(set(agent) == {"id", "display_name", "role"} for agent in plain)  # the Persona picker's entries
+    assert (await http.get("/ui/api/agents", params={"with_content": "0"})).json()["agents"] == plain
+    full = (await http.get("/ui/api/agents", params={"with_content": "1"})).json()["agents"]
+    assert [agent["id"] for agent in full] == [agent["id"] for agent in plain]
+    agents = {agent["id"]: agent for agent in full}
+    meta, body = agent_file("ux_designer")
+    ux = agents["ux_designer"]
+    assert (ux["role"], ux["tone"]) == (meta["identity"]["role"], meta["identity"]["tone"])
+    assert ux["trigger_command"] == "/ux" == meta["routing"]["trigger_command"]
+    assert ux["domain_keywords"] == meta["routing"]["domain_keywords"] and ux["aliases"] == []
+    assert ux["skills"] == {"core": meta["core_skills"], "preferred": meta["preferred_skills"],
+                            "capable": meta["capable_skills"]}
+    assert ux["implants"] == meta["preferred_implants"]
+    assert ux["body"] == body and ux["body"].startswith("## Identity") and "core_skills" not in ux["body"]
+    lawyer, _ = agent_file("lawyer")
+    assert agents["lawyer"]["aliases"] == lawyer["routing"]["aliases"] and "/ru_lawyer" in agents["lawyer"]["aliases"]
 
 
 def test_flow_opening_with_a_markdown_rule_is_not_frontmatter(install, tmp_path):

@@ -71,6 +71,9 @@ textarea[readonly] { color: var(--muted); }
 .detail { display: flex; flex-direction: column; gap: 10px; }
 .detail p { margin: 0; }
 .detail .pane { flex: 1; min-height: 12rem; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
 .seg.inline { margin: 0; }
 .seg.inline button { flex: none; }
 .mdview { position: relative; display: grid; grid-template-columns: 15rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
@@ -144,6 +147,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   <h1 id="version">Agents-Core {{VERSION}}</h1>
   <div class="tabs" id="tabs" role="group" aria-label="Settings sections">
     <button data-tab="flows" class="active" aria-pressed="true">Flows</button>
+    <button data-tab="agents" aria-pressed="false">Agents</button>
     <button data-tab="rules" aria-pressed="false">Rules</button>
     <button data-tab="skills" aria-pressed="false">Skills</button>
     <button data-tab="implants" aria-pressed="false">Implants</button>
@@ -163,8 +167,9 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div class="bar"><strong id="c-title" class="grow"></strong><div id="c-seg" class="seg inline" role="group" aria-label="Body view"></div><button id="c-toc" class="hidden" aria-pressed="false">Contents</button><button id="c-toggle" class="primary"></button></div>
     <div id="c-meta" class="meta"></div>
     <p id="c-description"></p>
+    <dl id="c-facts" class="facts hidden"></dl>
     <div id="c-warning" class="notice hidden"></div>
-    <div class="notice">Changes apply to the next bundle the server builds: a new conversation, a switch to another agent, a restore, or a refresh whose revision changed. Conversations that are already active keep their current bundle. Files are never changed.</div>
+    <div id="c-notice" class="notice">Changes apply to the next bundle the server builds: a new conversation, a switch to another agent, a restore, or a refresh whose revision changed. Conversations that are already active keep their current bundle. Files are never changed.</div>
     <div class="pane hidden" id="c-source"><label for="c-body">Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
   </section>
   <section id="editor" class="hidden">
@@ -214,11 +219,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
   upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
-  queries: { flows: "", rules: "", skills: "", implants: "" },
+  queries: { flows: "", agents: "", rules: "", skills: "", implants: "" },
   loadedTab: null };  // the tab whose list is on screen; null while a tab loads
 // Every list load bumps `gen`; a response that arrives for an older load is dropped.
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
-const KIND_LABEL = { rules: "Rules", skills: "Skills", implants: "Implants" };
+const KIND_LABEL = { agents: "Agents", rules: "Rules", skills: "Skills", implants: "Implants" };
 
 // The daemon signs in a browser of its own OS user without a code; concurrent 401s share one attempt.
 let autoSignIn = null;
@@ -353,6 +358,8 @@ const flowName = (flow) => [flow.id.replace(/^(builtin|user|repo):/, ""), flow.t
 const flowText = (flow) => flow.content || "";
 const itemName = (item) => [item.id, item.short_name, item.title].filter(Boolean).join("\n");
 const itemText = (item) => [item.description, item.body].filter(Boolean).join("\n");
+const agentName = (agent) => [agent.id, agent.display_name].filter(Boolean).join("\n");
+const agentText = (agent) => [agent.role, ...(agent.domain_keywords || []), agent.body].filter(Boolean).join("\n");
 
 function refreshList() {
   if (state.loadedTab !== state.tab) return;  // the list of this tab is still loading
@@ -1318,16 +1325,19 @@ async function savePersona(reset) {
 $("persona-save").addEventListener("click", () => savePersona(false));
 $("persona-reset").addEventListener("click", () => savePersona(true));
 
-// --- rules, skills and implants: view and switch on or off -------------------------------
+// --- agents (read-only); rules, skills and implants: view and switch on or off -----------
 
 // `keep` selects an ID; `keepCurrent` keeps whatever is selected when the response arrives.
 async function loadComponents(kind, keep, keepCurrent) {
   const gen = ++state.gen;
-  const data = await api("/ui/api/components?kind=" + kind);
+  // Agents have their own listing; `with_content=1` adds the fields the tab shows and searches.
+  const agents = kind === "agents";
+  const data = await api(agents ? "/ui/api/agents?with_content=1" : "/ui/api/components?kind=" + kind);
   if (state.tab !== kind || gen !== state.gen) return;  // superseded while loading
-  state.items = data.items;
+  const items = agents ? data.agents : data.items;
+  state.items = items;
   const wanted = keepCurrent ? (state.item && state.item.id) : keep;
-  state.item = wanted ? data.items.find((i) => i.id === wanted) || null : null;
+  state.item = wanted ? items.find((i) => i.id === wanted) || null : null;
   state.loadedTab = kind;
   renderComponents(kind);
 }
@@ -1338,20 +1348,22 @@ function renderComponents(kind) {
 }
 
 function renderComponentList(kind) {
-  const query = state.queries[kind];
-  const result = matchItems(state.items, query, itemName, itemText);
+  const query = state.queries[kind], agents = kind === "agents";  // agents have no on/off state
+  const result = agents ? matchItems(state.items, query, agentName, agentText)
+    : matchItems(state.items, query, itemName, itemText);
   rebuildList((nav) => {
-    heading(nav, KIND_LABEL[kind] + " (" + state.items.filter((i) => i.enabled).length + "/" + state.items.length + " on)");
+    heading(nav, KIND_LABEL[kind] + " (" + (agents ? state.items.length
+      : state.items.filter((i) => i.enabled).length + "/" + state.items.length + " on") + ")");
     if (!state.items.length) empty(nav, "None found");
     else if (!result.shown.length) empty(nav, "No matches");
     for (const { item, textOnly } of result.shown) {
       const button = document.createElement("button");
       button.className = "item" + (state.item && state.item.id === item.id ? " active" : "");
-      button.textContent = item.short_name || item.id;
-      if (!item.enabled) addChip(button, "off", "off");
+      button.textContent = agents ? item.display_name : item.short_name || item.id;
+      if (!agents && !item.enabled) addChip(button, "off", "off");
       if (textOnly) addChip(button, "in text");
       const small = document.createElement("small");
-      small.textContent = item.description || item.id;
+      small.textContent = (agents ? item.role : item.description) || item.id;
       button.appendChild(small);
       button.addEventListener("click", () => { state.item = item; state.cview = "rendered"; renderComponents(kind); });
       nav.appendChild(button);
@@ -1366,10 +1378,20 @@ function renderComponentDetail(kind) {
   $("component").classList.toggle("hidden", !item);
   $("welcome").classList.toggle("hidden", !!item);
   if (!item) return;
-  $("c-title").textContent = item.id;
-  $("c-description").textContent = item.description;
+  // An agent is read-only: no switch, warning or bundle notice, its facts instead. Visibility goes
+  // through `classList` on every render, so it holds after the switch's `className` is rewritten.
+  const agent = kind === "agents";
+  $("c-toggle").classList.toggle("hidden", agent);
+  $("c-notice").classList.toggle("hidden", agent);
+  $("c-facts").classList.toggle("hidden", !agent);
   $("c-body").value = item.body;
   setComponentView(state.cview || "rendered");
+  if (agent) {
+    renderAgentDetail(item);
+    return;
+  }
+  $("c-title").textContent = item.id;
+  $("c-description").textContent = item.description;
   const parts = [];
   if (item.short_name) parts.push("short name " + item.short_name);
   if (item.category) parts.push("category " + item.category);
@@ -1389,9 +1411,32 @@ function renderComponentDetail(kind) {
   toggle.className = item.enabled ? "danger" : "primary";
 }
 
+// Built from text nodes only; a row without a value is left out (most agents have no aliases).
+function renderAgentDetail(agent) {
+  $("c-title").textContent = agent.display_name;
+  $("c-meta").textContent = agent.id;
+  $("c-description").textContent = agent.role;
+  $("c-warning").classList.add("hidden");
+  const skills = agent.skills || {}, facts = $("c-facts");
+  facts.replaceChildren();
+  for (const [label, value] of [
+    ["Tone", agent.tone], ["Trigger command", agent.trigger_command], ["Aliases", agent.aliases],
+    ["Routing keywords", agent.domain_keywords], ["Core skills", skills.core], ["Preferred skills", skills.preferred],
+    ["Capable skills", skills.capable], ["Preferred implants", agent.implants],
+  ]) {
+    const text = Array.isArray(value) ? value.join(", ") : value || "";
+    if (!text) continue;
+    const term = document.createElement("dt"), detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = text;
+    facts.appendChild(term);
+    facts.appendChild(detail);
+  }
+}
+
 async function toggleItem() {
   const item = state.item, kind = state.tab;  // the tab can change while the request runs
-  if (!item) return;
+  if (!item || kind === "agents") return;  // agents are read-only
   try {
     await api("/ui/api/component", { method: "PUT", body: { kind, id: item.id, enabled: !item.enabled } });
     state.personaCatalog = null;  // the Persona panel marks switched-off components

@@ -315,7 +315,13 @@ class FlowsUI:
                     reset=body.get("reset", False))
                 return self._json(self._with_key(library, result))
             if path == "/ui/api/agents" and request.method == "GET":
-                return self._json({"agents": await asyncio.to_thread(list_agents)})
+                # `with_content=1` adds what the Agents tab shows and searches; the Persona
+                # picker asks without it and keeps getting the short entries.
+                if query.get("with_content") == "1":
+                    agents = await asyncio.to_thread(list_agents, with_content=True)
+                else:
+                    agents = await asyncio.to_thread(list_agents)
+                return self._json({"agents": agents})
             if path == "/ui/api/components" and request.method == "GET":
                 kind = query.get("kind", "")
                 if kind not in component_toggles.KINDS:

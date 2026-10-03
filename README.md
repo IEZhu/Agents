@@ -351,8 +351,9 @@ save, change, restore or delete one; it uses `get_flow`, `save_flow` and
 With the shared daemon, the version link in the persona footer or
 `.venv/bin/python -m src.daemon flows-ui` opens a local
 [flow editor](docs/shared-mcp-daemon.md#flow-editor); a browser of the OS user
-running the daemon signs in by itself. The same page lists rules, skills and
-implants and switches each one on or off for the installation.
+running the daemon signs in by itself. The same page shows every agent with its
+metadata and prompt (read-only) and lists rules, skills and implants and switches
+each one on or off for the installation.
 
 ### Persona continuity
 

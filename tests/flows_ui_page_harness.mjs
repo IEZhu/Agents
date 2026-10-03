@@ -2,7 +2,8 @@
 // fetch, for tests/test_flows_ui_page.py. Usage: node flows_ui_page_harness.mjs PAGE SCENARIO
 // Prints JSON: the sign-in requests made and whether the sign-in section is shown, or, for the
 // "search" scenario, what the list shows after each step of the search sequence, or, for
-// "persona_race", the Persona panel's state while a save and a navigation overlap.
+// "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
+// "agents", what the Agents tab lists, finds and shows, and which listings the page requested.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -37,8 +38,9 @@ const elements = new Map();
 const byId = (id) => { if (!elements.has(id)) elements.set(id, element(id)); return elements.get(id); };
 
 const posts = [];
+const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
-let signedIn = scenario === "search" || scenario === "render" || scenario === "persona_race" || isUi;
+let signedIn = ["search", "render", "persona_race", "agents"].includes(scenario) || isUi;
 const puts = [];
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
@@ -46,6 +48,7 @@ let releasePersonaPut = null;  // persona_race: the test decides when the PUT an
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
+  requests.push(path);
   if (path === "/ui/api/session") {
     const body = JSON.parse(init.body || "{}");
     posts.push(body);
@@ -61,6 +64,7 @@ async function fetchStub(path, init = {}) {
   }
   if (!signedIn) return respond(401, { error: "session_required" });
   if (isUi) return respond(...uiData(path, init));
+  if (scenario === "agents") return respond(...agentsData(path, init));
   if (scenario === "search") {
     if (path.includes("kind=skills")) await sleep(80);  // a slow tab, to type while it loads
     return respond(200, searchData(path));
@@ -95,6 +99,29 @@ function uiData(path, init) {
                              body: "# Skill A\n\n## Use\n\nBody <script>x</script>\n" }] }];
   }
   return [200, {}];
+}
+// The Agents tab: one agent with aliases, one found only by a routing keyword, one without a role.
+const tiers = (core = [], preferred = [], capable = []) => ({ core, preferred, capable });
+const AGENTS = [
+  { id: "alpha_agent", display_name: "Alpha Agent", role: "Plans releases", tone: "Calm", trigger_command: "/alpha",
+    domain_keywords: ["release"], aliases: ["/old_alpha", "/legacy_alpha"], skills: tiers(["skill-a"], [], ["skill-b", "skill-c"]),
+    implants: ["implant-x"], body: "## Identity\n\nAlpha body <script>x</script>\n\n## Protocol\n\nSteps\n" },
+  { id: "beta_agent", display_name: "Beta Agent", role: "Draws screens", tone: "Kind", trigger_command: "/beta",
+    domain_keywords: ["wireframe"], aliases: [], skills: tiers([], ["skill-a"]), implants: [], body: "Beta body\n" },
+  { id: "gamma_agent", display_name: "Gamma Agent", role: "", tone: "Dry", trigger_command: "/gamma",
+    domain_keywords: [], aliases: [], skills: tiers(), implants: [], body: "" },
+];
+function agentsData(path, init) {
+  if (path === "/ui/api/agents?with_content=1") return [200, { agents: AGENTS }];
+  if (path === "/ui/api/agents") {
+    return [200, { agents: AGENTS.map(({ id, display_name, role }) => ({ id, display_name, role })) }];
+  }
+  if (path.startsWith("/ui/api/components")) {
+    return [200, { items: [{ id: "skill-a", short_name: "", description: "A skill", enabled: true, body: "# A\n",
+                             declared_by: [{ agent: "alpha_agent", tier: "core" }] }] }];
+  }
+  if (path === "/ui/api/component" && init.method === "PUT") return [200, { status: "ok" }];
+  return uiData(path, init);  // the flows
 }
 const flow = (id, source, title, content, extra = {}) => ({ id, source, title, content, ...extra });
 const rule = (id, short_name, description, body, enabled = true) =>
@@ -154,7 +181,7 @@ const context = vm.createContext({
   fetch: fetchStub, alert() {}, confirm: () => true, setTimeout, clearTimeout, console, URLSearchParams,
   Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
 });
-for (const [index, tab] of ["flows", "rules", "skills", "implants"].entries()) {
+for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants"].entries()) {
   const button = element();
   button.dataset.tab = tab;
   byId("tabs").children[index] = button;
@@ -265,6 +292,18 @@ const findAll = (node, test, found = []) => {
   return found;
 };
 const hasClass = (name) => (node) => (node.className || "").split(" ").includes(name);
+// A rendered view as the user sees it: its classes, contents entries and document.
+const snap = (id) => {
+  const root = byId(id), doc = findAll(root, hasClass("md"))[0];
+  return {
+    hidden: root.classes.has("hidden"), toc_hidden: root.classes.has("toc-hidden"), no_toc: root.classes.has("no-toc"),
+    dismissed: root.classes.has("toc-dismissed"),
+    toc: findAll(root, hasClass("md-toc-item")).map((n) => n.className + ":" + n.textContent),
+    hide_label: findAll(root, hasClass("md-toc-hide"))[0].textContent, html: doc.children.map(ser).join(""),
+  };
+};
+const open = async (index) => { fire(buttons()[index], "click"); await sleep(40); };
+const seg = (id, index) => byId(id).children[index];
 
 if (scenario === "render") {
   const chunks = [];
@@ -281,17 +320,6 @@ if (scenario === "render") {
 
 if (isUi) {
   const out = {};
-  const snap = (id) => {
-    const root = byId(id), doc = findAll(root, hasClass("md"))[0];
-    return {
-      hidden: root.classes.has("hidden"), toc_hidden: root.classes.has("toc-hidden"), no_toc: root.classes.has("no-toc"),
-      dismissed: root.classes.has("toc-dismissed"),
-      toc: findAll(root, hasClass("md-toc-item")).map((n) => n.className + ":" + n.textContent),
-      hide_label: findAll(root, hasClass("md-toc-hide"))[0].textContent, html: doc.children.map(ser).join(""),
-    };
-  };
-  const open = async (index) => { fire(buttons()[index], "click"); await sleep(40); };
-  const seg = (id, index) => byId(id).children[index];
   out.stored_at_start = [...storage.entries()];
   out.initial_toc_hidden = byId("e-view").classes.has("toc-hidden");
   if (scenario === "ui_nostorage" || scenario.startsWith("ui_narrow")) {
@@ -364,6 +392,51 @@ if (isUi) {
   out.skill_dismissal.over_edge = pointerOver(cView, "md-edge");
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
+
+if (scenario === "agents") {
+  const out = {};
+  const hidden = (id) => byId(id).classes.has("hidden");
+  // The detail pane: its text, the facts as [term, detail] pairs and which parts are hidden.
+  const pane = () => {
+    const rows = byId("c-facts").children;
+    return {
+      title: byId("c-title").textContent, meta: byId("c-meta").textContent, description: byId("c-description").textContent,
+      facts: rows.filter((_, k) => k % 2 === 0).map((term, k) => [term.textContent, rows[2 * k + 1].textContent]),
+      tags: [...new Set(rows.map((row) => row.tag))],
+      hidden: { toggle: hidden("c-toggle"), notice: hidden("c-notice"), warning: hidden("c-warning"), facts: hidden("c-facts") },
+    };
+  };
+  await openTab("agents");
+  out.list = { ...shown(), roles: buttons().map((b) => b.children.find((c) => c.tag === "small").textContent),
+               new_hidden: hidden("new") };
+  await type("wireframe");  // a routing keyword of one agent, in no agent's name
+  out.keyword = shown();
+  await openTab("rules");
+  out.rules_query = shown().query;
+  await openTab("agents");
+  out.query_kept = shown();
+  await type("gamma_agent");
+  out.by_name = shown();
+  await type("");
+  await open(0);
+  out.alpha = { ...pane(), view: snap("c-view"), body: byId("c-body").value, source_hidden: hidden("c-source") };
+  fire(byId("c-toggle"), "click");  // the switch is hidden; a click that still reaches it changes nothing
+  await sleep(20);
+  fire(seg("c-seg", 1), "click");
+  out.alpha_source = { view_hidden: hidden("c-view"), source_hidden: hidden("c-source") };
+  await open(2);
+  out.gamma = { ...pane(), view: snap("c-view") };
+  await openTab("skills");
+  await open(0);
+  out.skill = pane();
+  await openTab("flows");
+  await open(0);  // opening a flow fills the Persona picker
+  out.persona_options = byId("persona-agent").children.map((option) => option.text + " = " + option.value);
+  out.agent_requests = requests.filter((path) => path.startsWith("/ui/api/agents"));
+  out.component_writes = requests.filter((path) => path === "/ui/api/component");
   console.log(JSON.stringify(out));
   process.exit(0);
 }
