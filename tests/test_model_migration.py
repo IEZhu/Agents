@@ -128,3 +128,13 @@ def test_env_example_never_assigns_the_generation():
     from pathlib import Path
     example = Path(__file__).resolve().parents[1] / "env.example"
     assert mm.read_env(str(example)) == (None, 1)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks")
+def test_symlinked_env_keeps_its_link(tmp_path):
+    target = write(tmp_path / "dotfiles.env", f"EMBEDDING_MODEL={E5}\n")
+    link = tmp_path / ".env"
+    link.symlink_to(target)
+    mm.migrate_env_file(str(link), {})
+    assert link.is_symlink()
+    assert dotenv_values(target)["EMBEDDING_MODEL"] == mm.DEFAULT_MODEL

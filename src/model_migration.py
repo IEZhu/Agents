@@ -65,8 +65,12 @@ def read_env(path: str) -> tuple[str | None, int]:
 
 
 def _write_atomic(path: str, text: str) -> None:
-    """Replace *path* with *text*, keeping its permission bits; readers see the old or the new file."""
-    folder = os.path.dirname(os.path.abspath(path))
+    """Replace *path* with *text*, keeping its permission bits; readers see the old or the new file.
+
+    A symlinked .env (a dotfiles checkout) keeps its link: the target is replaced.
+    """
+    path = os.path.realpath(path)
+    folder = os.path.dirname(path)
     mode = os.stat(path).st_mode & 0o7777
     descriptor, staging = tempfile.mkstemp(prefix=".env.", dir=folder)
     try:
