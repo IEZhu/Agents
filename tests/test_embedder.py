@@ -28,6 +28,8 @@ def test_embed_texts_passes_configured_batch_size(monkeypatch):
     model = RecordingModel()
     monkeypatch.setattr(embedder, "_get_model", lambda: model)
     monkeypatch.setattr(embedder, "EMBEDDING_BATCH_SIZE", 3)
+    # A model without a passage prompt, so the texts reach fastembed as given.
+    monkeypatch.setattr(embedder, "EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
     vectors = embedder._embed_texts(["a", "bb", "ccc", "dddd"])
 

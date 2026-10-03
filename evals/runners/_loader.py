@@ -8,6 +8,10 @@ fetch — drift count surfaces in the runner's report.
 Optimization: if `evals/datasets/_unlabeled.jsonl` exists locally (developer
 machine that ran `--prepare`), prefer that — avoids hitting HF. CI without
 the gitignored file falls back to HF fetch automatically.
+
+A label may instead carry its text inline in `query`, as hand-written sets in other
+languages do (`load_samples(path)` reads any such file). Those need no fetch; a
+`source_row_hash`, when present, is still checked.
 """
 
 from __future__ import annotations
@@ -132,7 +136,8 @@ def load_samples(routing_path: Path = ROUTING_JSONL) -> tuple[list[EvalSample], 
 
     for label in labels:
         lid = label["id"]
-        query: str | None = local.get(lid)
+        inline: str | None = label.get("query")
+        query: str | None = inline or local.get(lid)
 
         if query is None:
             try:
@@ -149,7 +154,8 @@ def load_samples(routing_path: Path = ROUTING_JSONL) -> tuple[list[EvalSample], 
                 continue
 
         actual_hash = sha256_short(query)
-        drift = actual_hash != label.get("source_row_hash")
+        expected_hash = label.get("source_row_hash")
+        drift = actual_hash != expected_hash and not (inline and expected_hash is None)
         if drift:
             stats.drift += 1
             stats.drift_ids.append(lid)

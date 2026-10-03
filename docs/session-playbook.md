@@ -29,8 +29,11 @@ for Langfuse analysis.
   to include slow tests.
   Run targeted test files while iterating; [tests/README.md](../tests/README.md)
   covers setup, slow tests and worktree isolation.
-- **Keep eval outputs out of the repository and out of temporary directories** that
-  get cleaned: `~/evals-runs/<name>/` has been the convention.
+- **Keep eval outputs out of the main line and out of temporary directories** that
+  get cleaned: `~/evals-runs/<name>/` has been the convention for local runs. The
+  [A/B eval flow](../flows/ab-eval.md) keeps its runs on an `eval/<name>` branch that
+  is never merged, because its cloud routine reads them from there; only the results
+  document reaches the main line, with the change it measured.
 - **Secrets.** `.env` holds the Langfuse keys; the OpenRouter key for hosted A/B evals
   lives in a user-level env file, not in the repository. Never print a secret; a
   token that was pasted into a chat or printed in a log is rotated.

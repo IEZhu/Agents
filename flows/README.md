@@ -15,11 +15,12 @@ and the [documentation map](../docs/README.md) for supporting references.
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 | [Thread close](thread-close.md) | Close a conversation: inventory what it produced, verify each result against the current state with evidence levels (V0 claimed to V4 accepted), audit the thread for its own errors and secure unsaved work | A report with per-artifact levels; in apply mode one `#thread-close` history entry and memory updates at V2 or above |
+| [A/B eval](ab-eval.md) | Evaluate a change (rule, skill, implant, prompt, setting or embedding model) on hosted models and Opus with blind judging and statistics | A recorded result, a recommendation and an unmerged pull request |
 
 Built-in flows declare their persona: `documentation-refresh` runs as
 `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
-`software_engineer`, `pr-review` as `code_reviewer` and `thread-close` as
-`investigative_analyst`, each with an exact list of skills and implants (see
+`software_engineer`, `pr-review` as `code_reviewer`, `thread-close` as
+`investigative_analyst` and `ab-eval` as `ai_senior_engineer`, each with an exact list of skills and implants (see
 [choosing a flow's agent](#choose-a-flows-agent-and-components)). The
 `issue-agent` dispatcher has none.
 
