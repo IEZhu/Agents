@@ -103,7 +103,7 @@ main() {
     local persisted
     persisted="$("$python_bin" -c 'import sys; from dotenv import dotenv_values
 print(dotenv_values(sys.argv[1]).get("EMBEDDING_MODEL") or "")' "$env_file")"
-    if [ -n "${EMBEDDING_MODEL:-}" ] && [ "$EMBEDDING_MODEL" != "$persisted" ]; then
+    if [ "${EMBEDDING_MODEL+set}" = set ] && [ "$EMBEDDING_MODEL" != "$persisted" ]; then
         fail "EMBEDDING_MODEL=$EMBEDDING_MODEL is exported, but $env_file sets $persisted; make them match"
     fi
 
@@ -201,15 +201,17 @@ if not entry or [os.path.realpath(arg) for arg in entry.get("args", [])] != [ser
     sys.exit(f"Agents-Core is not registered for {home} in {claude_json}: {entry!r}")
 if entry.get("disabled"):
     sys.exit(f"Agents-Core is disabled in {claude_json}; remove its \"disabled\" field")
-# The installer keeps a registration's env, which overrides .env: a model set
-# there would not match the indexes, and auto-update would run in every session.
+# The registration's env (kept by the installer) and the inherited environment
+# both override .env: a model set there would not match the indexes, and
+# auto-update would run in every session.
 from dotenv import dotenv_values  # noqa: E402
 settings = dotenv_values(os.path.join(home, ".env"))
-for key in ("EMBEDDING_MODEL", "AGENTS_AUTO_UPDATE"):
-    registered = (entry.get("env") or {}).get(key)
-    if registered is not None and registered != settings.get(key):
-        sys.exit(f"the Agents-Core registration in {claude_json} sets {key}={registered}, "
-                 f"but .env sets {settings.get(key)}; make them match")
+for source, values in ((f"the Agents-Core registration in {claude_json}", entry.get("env") or {}),
+                       ("the environment", os.environ)):
+    for key in ("EMBEDDING_MODEL", "AGENTS_AUTO_UPDATE"):
+        if key in values and values[key] != settings.get(key):
+            sys.exit(f"{source} sets {key}={values[key]}, but .env sets {settings.get(key)}; "
+                     "make them match")
 protocol = read_text(template).rstrip()
 instructions = read_text(claude_md)
 if (not protocol or f"{MARKER_BEGIN}\n\n{protocol}\n\n{MARKER_END}" not in instructions

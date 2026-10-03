@@ -230,9 +230,11 @@ script that is not on `main` yet, change `main` in the URL as well.
 `AGENTS_SETUP_VERIFY_TIMEOUT` (default 360) is how many seconds the verification
 step waits for each answer from the server before it fails the setup.
 `AGENTS_EMBEDDING_MODEL` (or an exported `EMBEDDING_MODEL`) applies only when
-`.env` has no `EMBEDDING_MODEL`; an exported `EMBEDDING_MODEL` that differs from
-the one in `.env` fails the setup, because the indexes would not match the model
-a session's server loads. The default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
+`.env` has no `EMBEDDING_MODEL`. `EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE` set in
+the setup's environment or in the registration's `env` override `.env` in the
+server, so the setup fails when they differ from it. Do not set them in the
+environment's **Environment variables** field either: sessions pass those to the
+server, and the setup cannot check them unless they also reach the setup script. The default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
 the installer's choice for the session VM's 16 GB of RAM. Full
 (`intfloat/multilingual-e5-large`) is a larger download and indexes more slowly,
 so check that setup still finishes within the cache limit below.

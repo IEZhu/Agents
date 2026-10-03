@@ -261,6 +261,21 @@ def test_registration_env_must_match_env_file(tmp_path, upstream, override, pass
         assert f"sets {key}={value}, but .env sets" in result.stderr
 
 
+@pytest.mark.parametrize("value, passes", [("1", False), ("0", True)], ids=["on", "off"])
+def test_inherited_auto_update_must_match_env_file(tmp_path, upstream, value, passes):
+    result = run_setup(tmp_path, upstream, {"AGENTS_AUTO_UPDATE": value})
+    assert (result.returncode == 0) is passes, result.stderr
+    if not passes:
+        assert "the environment sets AGENTS_AUTO_UPDATE=1, but .env sets 0" in result.stderr
+
+
+def test_empty_exported_model_fails(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": ""})
+    assert result.returncode != 0
+    assert "EMBEDDING_MODEL= is exported" in result.stderr
+
+
 def test_excludes_hide_only_memory_files(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     repo = tmp_path / "client"
