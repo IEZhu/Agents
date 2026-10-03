@@ -220,8 +220,11 @@ def main(argv: list[str] | None = None) -> int:
 
     preloaded = None
     if args.dataset:
+        paths = [path.resolve() for path in args.dataset]
+        if len(set(paths)) != len(paths):  # a repeated set would count its rows twice
+            raise SystemExit("each --dataset may be given only once")
         samples, stats = [], LoaderStats()
-        for path in args.dataset:
+        for path in paths:
             loaded, part = load_samples(path)
             samples += loaded
             stats.total += part.total
