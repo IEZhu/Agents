@@ -335,8 +335,9 @@ loaded history version and a save conflict open in *Source*. A rule, skill or
 implant body opens rendered, with *Source* showing the raw text. A leading
 frontmatter block is a collapsed "Metadata" section. When a document has
 headings (levels 1-4), a table of contents appears on its left and an entry
-scrolls the document to its heading. "Hide contents" hides it; while hidden, hovering the left edge
-of the view shows it as an overlay, and the toolbar's "Contents" button
+scrolls the document to its heading. "Hide contents" hides it at once, even with the pointer
+still over it; while hidden, hovering the left edge of the view shows it as an overlay, and the
+toolbar's "Contents" button
 toggles it (the way on touch screens). The choice is remembered in the browser's
 `localStorage` and shared by all documents; without a stored choice it starts hidden at
 widths up to 760 px. The renderer is part of the page script (no library, no

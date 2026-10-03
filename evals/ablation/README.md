@@ -27,28 +27,22 @@ branch names the commit each archived run was built from.
 
 The request names a batch (`batch 3`) or explicit ids (`ids: skill-a implant-b`), and
 may set a run name and a case count (`name: retest-a`, `cases: 6`; default 2).
-Every step runs from the repository root. The Agents-Core MCP server is not
-available here and is not needed: do not route. Answer the user from these steps.
+Every step runs from the repository root. Do not route through Agents-Core, even
+where the environment connects it: this run is a measurement. Answer the user from
+these steps.
 
 1. **Checkout and install**
    ```bash
    git fetch origin main && git checkout main && git merge --ff-only origin/main
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
-   In 2026-09 cloud egress blocked huggingface.co, so fetch the embedding model from
-   fastembed's Google Cloud Storage copy and point the embedder at it. Export
-   the variable in every shell that runs `build_contexts.py`:
-   ```bash
-   mkdir -p /tmp/e5 && curl -sSfL https://storage.googleapis.com/qdrant-fastembed/fast-multilingual-e5-large.tar.gz | tar xz -C /tmp/e5
-   find /tmp/e5 -name '._*' -delete
-   export AGENTS_MODEL_PATH=/tmp/e5/fast-multilingual-e5-large
-   ```
-   On 2026-10-02 that copy answered 403 while huggingface.co was reachable; the same
-   weights then come from `qdrant/multilingual-e5-large-onnx`, the repository fastembed
-   itself uses, and gave contexts identical to a local build:
-   ```bash
-   python -c "from huggingface_hub import snapshot_download as d; d('qdrant/multilingual-e5-large-onnx', local_dir='/tmp/e5/fast-multilingual-e5-large')"
-   ```
+   The embedding model (`intfloat/multilingual-e5-large`, set by
+   `build_contexts.py`) downloads from Hugging Face on first use, so run the
+   batch in an environment that allows it
+   ([cloud environment setup](../../docs/cloud-runs.md#cloud-environment-with-agents-core));
+   the default cloud environment blocks huggingface.co. Leave `AGENTS_MODEL_PATH`
+   unset. The 2026-09 runs fetched fastembed's Google Cloud Storage copy instead,
+   which answered `403 AccessDenied` on 2026-10-03.
 2. **Pick the components and the run directory**
    ```bash
    IDS=$(python evals/ablation/components.py --batch 3)     # or the explicit ids

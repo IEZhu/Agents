@@ -25,6 +25,7 @@ also applies to AI instructions, plans, and reports.
 | Understand the optional intent classifier | [Intent classifier](intent-classifier.md) | `src/engine/intent.py`, `src/engine/config.py` |
 | Work in this repository | [Session playbook](session-playbook.md) | Current repository and task constraints |
 | Run or add reusable model workflows | [Workflow catalog](../flows/README.md), [flow editor](shared-mcp-daemon.md#flow-editor) | `flows/*.md`, `src/flows.py`, `src/user_flows.py`, `src/server.py`, `src/daemon/workspaces.py`, `src/daemon/flows_ui.py`, `src/component_toggles.py`, `src/component_catalog.py`, `src/engine/config.py` (stdio target repository) |
+| Run Agents-Core in Claude Code cloud sessions | [Cloud environment with Agents-Core](cloud-runs.md#cloud-environment-with-agents-core) | `scripts/setup_cloud_env.sh`, `install.sh`, `scripts/init_repo.sh`, `tests/test_setup_cloud_env.py` |
 | Set up and use the cloud issue agent (`/agent` commands) | [Issue agent setup](cloud-runs.md#issue-agent), [issue agent flow](../flows/issue-agent.md) | `flows/issue-agent.md`, `flows/issue-plan.md`, `flows/issue-implementation.md`, `scripts/templates/issue-agent-bridge.yml`, `.github/workflows/issue-agent-bridge.yml`, `tests/test_issue_agent_bridge.py` |
 | Run tests | [Test guide](../tests/README.md) | `pyproject.toml`, `tests/conftest.py`, `scripts/run_tests.sh`, `tests/` |
 | Refresh documentation for people and AI | [Repeatable workflow](../flows/documentation-refresh.md) | The sources and checks listed in that workflow |
@@ -65,7 +66,8 @@ Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See
 - [Cloud sessions](cloud-runs.md): the September 2026 eval-sweep procedure (check
   account and service setup before reusing it), the [eval routine](cloud-runs.md#eval-routine)
   of the A/B eval flow, and the maintained setup and operations reference for the
-  cloud [issue agent](cloud-runs.md#issue-agent).
+  cloud [issue agent](cloud-runs.md#issue-agent) and for a
+  [cloud environment with Agents-Core](cloud-runs.md#cloud-environment-with-agents-core).
 
 ## Plans, research and recorded results
 

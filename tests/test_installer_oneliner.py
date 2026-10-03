@@ -156,3 +156,32 @@ def test_init_repo_documents_yes_flag():
     source = (ROOT / "scripts/init_repo.sh").read_text()
     assert "--yes|-y)" in source and "AGENTS_ASSUME_YES" in source
     assert source.count('if [ "$ASSUME_YES" = true ]; then REPLY=y') == 2
+
+
+ENV_EXAMPLE = ("# comment\nAGENTS_AUTO_UPDATE=1\nEMBEDDING_MODEL=default/model\nQUOTED=default\n"
+               "NEW_KEY=z\n# COMMENTED=1\n")
+CUSTOM_ENV = "export AGENTS_AUTO_UPDATE=0\n  EMBEDDING_MODEL = custom/model\n'QUOTED'=mine\n"
+
+
+@pytest.mark.parametrize("ending", ["\n", ""], ids=["terminated", "unterminated"])
+def test_env_merge_keeps_dotenv_assignment_forms(tmp_path, ending):
+    source = (ROOT / "scripts/init_repo.sh").read_text()
+    start = source.index("merge_missing_env_keys() {")
+    body = source[start:source.index("\n}\n", start) + 3]
+    env_file, example = tmp_path / ".env", tmp_path / "env.example"
+    env_file.write_text(CUSTOM_ENV.rstrip("\n") + ending)
+    example.write_text(ENV_EXAMPLE)
+    script = body + 'MISSING_KEYS=()\nmerge_missing_env_keys "$1" "$2"\necho "${MISSING_KEYS[*]}"\n'
+    result = subprocess.run([BASH, "-c", script, "bash", str(env_file), str(example)],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "NEW_KEY"
+    assert env_file.read_text() == CUSTOM_ENV + "NEW_KEY=z\n"
+
+
+def test_windows_env_merge_keeps_dotenv_assignment_forms(tmp_path):
+    env_file, example = tmp_path / ".env", tmp_path / "env.example"
+    env_file.write_text(CUSTOM_ENV)
+    example.write_text(ENV_EXAMPLE)
+    subprocess.run([sys.executable, str(ROOT / "scripts/_helpers/merge_env.py"), str(env_file), str(example)],
+                   capture_output=True, text=True, check=True)
+    assert env_file.read_text() == CUSTOM_ENV + "NEW_KEY=z\n"

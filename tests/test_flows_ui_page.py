@@ -316,7 +316,11 @@ def test_contents_default_to_hidden_on_narrow_screens_and_survive_missing_storag
 
 def test_the_contents_styles_hide_with_classes_and_reveal_on_hover():
     _, _, style = page_parts()
-    assert re.search(r"\.mdview\.toc-hidden \.md-edge:hover ~ \.md-toc[^{]*\{[^}]*transform: none", style)
+    hover = r"\.mdview\.toc-hidden:not\(\.toc-dismissed\) "
+    assert re.search(hover + r"\.md-edge:hover ~ \.md-toc[^{]*\{[^}]*transform: none", style)
+    assert re.search(hover + r"\.md-toc:hover[^{]*\{[^}]*transform: none", style)
+    assert not re.search(r"\.mdview\.toc-hidden \.md-(edge|toc):hover", style)  # every hover reveal yields to a dismissal
+    assert re.search(r"\.mdview\.toc-hidden \.md-toc:focus-within[^{]*\{[^}]*transform: none", style)  # focus does not
     assert re.search(r"\.mdview \{[^}]*flex: 1[^}]*overflow: hidden", style)
     assert re.search(r"\.md-toc, \.md \{[^}]*overflow-y: auto", style)
     assert re.search(r"@media \(max-width: 760px\) \{[^@]*\.mdview \{[^}]*minmax\(0, 35%\)", style)
@@ -361,6 +365,16 @@ def test_bare_urls_with_many_closing_parentheses_stay_linear():
 
 def test_hiding_the_contents_moves_focus_to_the_toolbar_button(ui):
     assert ui["hidden"]["focus_moved"] == 1
+
+
+def test_hiding_from_the_panel_waits_for_a_new_hover_to_reveal_it(ui):
+    assert ui["opened"]["dismissed"] is False and ui["hidden"]["dismissed"] is True
+    assert ui["dismissal"] == {
+        "over_panel": True, "over_document": False, "hidden_again": True,
+        "kept_open": {"toc_hidden": False, "dismissed": False},  # pinning ends a dismissal the pointer never ended
+        "toolbar_hidden": {"toc_hidden": True, "dismissed": False},  # the pointer is on the toolbar, not on the panel
+    }
+    assert ui["skill_dismissal"] == {"toc_hidden": True, "dismissed": True, "over_panel": True, "over_edge": False}
 
 
 def test_image_alt_text_with_many_unmatched_openers_stays_fast():

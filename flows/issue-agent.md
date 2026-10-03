@@ -11,7 +11,7 @@ the **target repository** where the command was written. When Agents-Core is
 also the target, one checkout serves both roles; otherwise use two checkouts.
 All edits, branches, commits and pull requests belong to the target. Read the
 target's `AGENTS.md`, `CLAUDE.md` and contribution rules before changing it.
-Agents-Core MCP is not available in the cloud: do not route. The flows this one
+Do not route through Agents-Core, even where the cloud environment connects it. The flows this one
 calls declare their persona in frontmatter (`issue-plan`: `system_architect`,
 `issue-implementation`: `software_engineer`, `pr-review`: `code_reviewer`).
 Read the flows this one calls and their personas from the Agents-Core default

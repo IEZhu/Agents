@@ -61,6 +61,14 @@ would overwrite one.
 
 For step-by-step prompts, or on Windows, use [After Cloning](#after-cloning).
 
+### Claude Code cloud sessions
+
+To have Agents-Core in [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web),
+create a cloud environment whose setup script runs
+[`scripts/setup_cloud_env.sh`](scripts/setup_cloud_env.sh) and whose network
+allows Hugging Face. The [cloud environment guide](docs/cloud-runs.md#cloud-environment-with-agents-core)
+lists the settings.
+
 ### After Cloning
 
 Use Python 3.11 or newer, as required by [pyproject.toml](pyproject.toml).
