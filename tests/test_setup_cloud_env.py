@@ -10,6 +10,7 @@ for the model download and indexing. The tests cover the script's own steps
 (checkout, .env seeding, git excludes, verification, failure handling) without
 installing dependencies or downloading a model.
 """
+import json
 import os
 from pathlib import Path
 import shutil
@@ -120,7 +121,7 @@ def clean_env(**overrides):
     """The caller's environment without git, XDG, client or script settings."""
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("GIT_", "AGENTS_", "STUB_", "FAKE_"))
-           and key not in ("XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR")}
+           and key not in ("XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "EMBEDDING_MODEL")}
     env.update(overrides)
     return env
 
@@ -230,6 +231,17 @@ def test_registration_for_another_checkout_fails(tmp_path, upstream):
     assert "Agents-Core is not registered for" in result.stderr
 
 
+def test_disabled_registration_fails(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    config = tmp_path / "home/.claude.json"
+    document = json.loads(config.read_text())
+    document["mcpServers"]["Agents-Core"]["disabled"] = True
+    config.write_text(json.dumps(document))
+    result = run_setup(tmp_path, upstream, {"STUB_SKIP_REGISTER": "1"})
+    assert result.returncode != 0
+    assert "Agents-Core is disabled in" in result.stderr
+
+
 def test_excludes_hide_only_memory_files(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     repo = tmp_path / "client"
@@ -309,6 +321,20 @@ def test_model_override_for_new_env(tmp_path, upstream):
     result = run_setup(tmp_path, upstream, {"AGENTS_EMBEDDING_MODEL": "intfloat/multilingual-e5-large"})
     assert result.returncode == 0, result.stderr
     assert env_values(tmp_path / "home/.agents-core")["EMBEDDING_MODEL"] == "intfloat/multilingual-e5-large"
+
+
+def test_exported_model_seeds_a_new_env(tmp_path, upstream):
+    result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": "intfloat/multilingual-e5-large"})
+    assert result.returncode == 0, result.stderr
+    assert env_values(tmp_path / "home/.agents-core")["EMBEDDING_MODEL"] == "intfloat/multilingual-e5-large"
+
+
+def test_exported_model_conflicting_with_env_fails(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": "intfloat/multilingual-e5-large"})
+    assert result.returncode != 0
+    assert f"sets {BALANCED}; make them match" in result.stderr
+    assert run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": BALANCED}).returncode == 0
 
 
 def test_configured_excludes_file_is_used(tmp_path, upstream):

@@ -31,8 +31,9 @@
 #   AGENTS_HOME             checkout directory      [~/.agents-core]
 #   AGENTS_REPO_URL         repository to clone     [https://github.com/IEZhu/Agents.git]
 #   AGENTS_BRANCH           branch to install       [main]
-#   AGENTS_EMBEDDING_MODEL  EMBEDDING_MODEL for a .env that has none
-#                           [sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2]
+#   AGENTS_EMBEDDING_MODEL  EMBEDDING_MODEL for a .env that has none [an exported
+#                           EMBEDDING_MODEL, else
+#                           sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2]
 #   AGENTS_SETUP_VERIFY_TIMEOUT  seconds to wait for each server answer in the
 #                           verification step [360]
 #
@@ -50,7 +51,7 @@ main() {
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
     local repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
     local branch="${AGENTS_BRANCH:-main}"
-    local model="${AGENTS_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}"
+    local model="${AGENTS_EMBEDDING_MODEL:-${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}}"
     # The registration holds absolute paths; resolve a relative or ~ value now.
     case "$home_dir" in "~" | "~/"*) home_dir="$HOME${home_dir#"~"}" ;; esac
     case "$home_dir" in /*) ;; *) home_dir="$PWD/$home_dir" ;; esac
@@ -82,6 +83,15 @@ main() {
         [ "$key" = AGENTS_AUTO_UPDATE ] && value=0
         grep -q "^$key=" "$env_file" || printf '%s=%s\n' "$key" "$value" >> "$env_file"
     done
+    # An exported EMBEDDING_MODEL overrides .env in the setup's processes but
+    # not necessarily in the sessions' server, so it must match (parsed as
+    # init_repo.sh does).
+    local persisted
+    persisted="$(grep '^EMBEDDING_MODEL=' "$env_file" | head -n 1 | cut -d= -f2- \
+        | sed "s/[[:space:]]*#.*//; s/^['\"]//; s/['\"]$//" | xargs)"
+    if [ -n "${EMBEDDING_MODEL:-}" ] && [ "$EMBEDDING_MODEL" != "$persisted" ]; then
+        fail "EMBEDDING_MODEL=$EMBEDDING_MODEL is exported, but $env_file sets $persisted; make them match"
+    fi
 
     # 3. Update, dependencies and client configuration. init_repo.sh detects
     #    Claude Code by its configuration directory, which may not exist yet in a
@@ -180,6 +190,8 @@ entry = json.loads(read_text(claude_json) or "{}").get("mcpServers", {}).get("Ag
 server = os.path.realpath(os.path.join(home, "src", "server.py"))
 if not entry or [os.path.realpath(arg) for arg in entry.get("args", [])] != [server]:
     sys.exit(f"Agents-Core is not registered for {home} in {claude_json}: {entry!r}")
+if entry.get("disabled"):
+    sys.exit(f"Agents-Core is disabled in {claude_json}; remove its \"disabled\" field")
 protocol = read_text(template).rstrip()
 instructions = read_text(claude_md)
 if (not protocol or f"{MARKER_BEGIN}\n\n{protocol}\n\n{MARKER_END}" not in instructions

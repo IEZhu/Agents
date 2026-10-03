@@ -221,13 +221,15 @@ installation is cached. Correct the cause, usually the network list, in the
 environment's settings; the next new session runs the script again.
 
 **Options.** The script reads `AGENTS_HOME`, `AGENTS_REPO_URL`, `AGENTS_BRANCH`,
-`AGENTS_EMBEDDING_MODEL` and `AGENTS_SETUP_VERIFY_TIMEOUT` from its environment. Set them on the `bash` side of the
-pipe, for example `... | AGENTS_BRANCH=my-branch bash`. To try a version of the
+`AGENTS_EMBEDDING_MODEL` and `AGENTS_SETUP_VERIFY_TIMEOUT` from its environment.
+Set them on the `bash` side of the pipe, for example `... | AGENTS_BRANCH=my-branch bash`. To try a version of the
 script that is not on `main` yet, change `main` in the URL as well.
 `AGENTS_SETUP_VERIFY_TIMEOUT` (default 360) is how many seconds the verification
 step waits for each answer from the server before it fails the setup.
-`AGENTS_EMBEDDING_MODEL` applies only when `.env` has no `EMBEDDING_MODEL`. The
-default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
+`AGENTS_EMBEDDING_MODEL` (or an exported `EMBEDDING_MODEL`) applies only when
+`.env` has no `EMBEDDING_MODEL`; an exported `EMBEDDING_MODEL` that differs from
+the one in `.env` fails the setup, because the indexes would not match the model
+a session's server loads. The default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
 the installer's choice for the session VM's 16 GB of RAM. Full
 (`intfloat/multilingual-e5-large`) is a larger download and indexes more slowly,
 so check that setup still finishes within the cache limit below.
