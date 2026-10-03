@@ -78,3 +78,28 @@ def test_custom_models_register_without_extra_pooling(monkeypatch):
 @pytest.mark.parametrize("model", sorted(embedding_prompts.CUSTOM_MODELS))
 def test_custom_models_have_prompts(model):
     assert embedding_prompts.templates(model) != embedding_prompts.PLAIN
+
+
+def test_exports_with_weight_files_load_from_a_plain_copy(monkeypatch, tmp_path):
+    import json
+
+    import huggingface_hub
+
+    calls = []
+
+    def fake_download(repo, local_dir, allow_patterns):
+        calls.append((repo, allow_patterns))
+        (tmp_path / "local").mkdir(exist_ok=True)
+        import os
+        os.makedirs(local_dir, exist_ok=True)
+        with open(os.path.join(local_dir, "tokenizer_config.json"), "w") as stream:
+            json.dump({"model_max_length": 1e30}, stream)
+        return local_dir
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
+    assert embedding_prompts.materialize("intfloat/multilingual-e5-large", str(tmp_path)) is None
+    target = embedding_prompts.materialize("google/embeddinggemma-300m", str(tmp_path))
+    assert calls == [("onnx-community/embeddinggemma-300m-ONNX",
+                      ["onnx/model.onnx", "onnx/model.onnx_data", "*.json", "tokenizer*"])]
+    with open(f"{target}/tokenizer_config.json") as stream:
+        assert json.load(stream)["model_max_length"] == embedding_prompts.MAX_LENGTH

@@ -8,7 +8,8 @@ the index fingerprint (`src/engine/fingerprint.py`), so changing one re-embeds t
 skill and implant stores and invalidates the router cache.
 
 Models fastembed does not ship are registered from their ONNX exports before the
-first load, from a plain-file copy (see `materialize`).
+first load. Exports with separate weight files load from a plain-file copy (see
+`materialize`).
 """
 
 TASK = "Given a request to an AI assistant, retrieve the guidance that helps answer it"
@@ -39,6 +40,16 @@ CUSTOM_MODELS: dict[str, dict] = {
 }
 
 
+# Exports whose weights sit in a separate .onnx_data file. ONNX Runtime 1.30 refuses
+# such weights when they resolve into another Hugging Face blob directory, so these
+# load from a plain-file copy, built-in fastembed models included.
+LOCAL_COPIES: dict[str, dict] = {
+    **{model: {"hf": spec["hf"], "files": spec["files"]} for model, spec in CUSTOM_MODELS.items()},
+    "google/embeddinggemma-300m": {"hf": "onnx-community/embeddinggemma-300m-ONNX", "files": ["onnx/model.onnx_data"]},
+    "Qwen/Qwen3-Embedding-0.6B": {"hf": "Qdrant/Qwen3-Embedding-0.6B-onnx", "files": ["onnx/model.onnx_data"]},
+}
+
+
 def templates(model: str) -> tuple[str, str]:
     """(query template, passage template) for `model`; plain text for unknown models.
 
@@ -61,14 +72,14 @@ def as_passage(model: str, text: str) -> str:
 
 
 def materialize(model: str, cache_dir: str) -> str | None:
-    """A plain-file copy of a CUSTOM_MODELS export, for fastembed's specific_model_path.
+    """A plain-file copy of a LOCAL_COPIES export, for fastembed's specific_model_path.
 
     The Hugging Face cache keeps each file as a symlink into its own blob directory,
     and ONNX Runtime refuses external weights outside the model file's directory
     ("External data path escapes model directory"). A local_dir download holds real
     files side by side. Returns None for other models.
     """
-    spec = CUSTOM_MODELS.get(model)
+    spec = LOCAL_COPIES.get(model)
     if spec is None:
         return None
     import os
