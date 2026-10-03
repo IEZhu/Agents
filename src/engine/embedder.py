@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _model = None
+# Embedding fingerprint of the files _model was loaded from (see model_fingerprint).
+_model_fingerprint = None
 
 
 def clear_model_cache(model_name: str) -> None:
@@ -46,7 +48,7 @@ def _get_model():
     cleared and one retry is attempted, so the server can self-heal without
     manual intervention.
     """
-    global _model
+    global _model, _model_fingerprint
     if _model is None:
         with _lock:
             if _model is None:
@@ -63,7 +65,7 @@ def _get_model():
                             if os.environ.get("AGENTS_MODEL_PATH"):
                                 options["specific_model_path"] = os.environ["AGENTS_MODEL_PATH"]
                                 options["local_files_only"] = True
-                            _model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR, **options)
+                            model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=FASTEMBED_CACHE_DIR, **options)
                         logger.info("Embedding model loaded")
                         break
                     except Exception:
@@ -75,14 +77,33 @@ def _get_model():
                             clear_model_cache(EMBEDDING_MODEL)
                         else:
                             raise
+                from src.engine.fingerprint import fingerprint
+                # Uncached and after the load, which may have downloaded the
+                # snapshot; set before the model is published.
+                _model_fingerprint = fingerprint.__wrapped__(EMBEDDING_MODEL)
+                _model = model
     return _model
 
 
 def reset_model():
     """Discard the cached model so the next call re-initializes it."""
-    global _model
+    global _model, _model_fingerprint
     with _lock:
         _model = None
+        _model_fingerprint = None
+
+
+def model_fingerprint() -> str:
+    """Embedding fingerprint of the loaded model, or of the model a load would use.
+
+    ``fingerprint()`` reads the model cache when first called, so in a process
+    that loaded its model earlier it can describe a snapshot another process
+    downloaded since. Indexes that label their vectors use this value instead.
+    """
+    if _model_fingerprint is not None:
+        return _model_fingerprint
+    from src.engine.fingerprint import fingerprint
+    return fingerprint(EMBEDDING_MODEL)
 
 
 def _embed_texts(texts: List[str]) -> np.ndarray:

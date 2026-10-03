@@ -560,10 +560,11 @@ class HistoryStore:
     def ensure_index(self, embed_texts=None):
         """Build / refresh the vector index when its content fingerprint changes.
 
-        The fingerprint is sha256(history.md) plus the embedding fingerprint
-        (``src.engine.fingerprint.fingerprint``: model, revision, index schema,
-        preprocessing, fastembed version), compared with ``.history_fingerprint``
-        in ``data_dir``; a missing index file also triggers a rebuild.
+        The fingerprint is sha256(history.md) plus the embedding fingerprint of
+        the loaded model (``src.engine.embedder.model_fingerprint``: model,
+        revision, index schema, preprocessing, fastembed version), compared with
+        ``.history_fingerprint`` in ``data_dir``; a missing index file also
+        triggers a rebuild.
 
         Thread-safe: serialized via ``_index_lock`` so concurrent
         ``read_history(query=...)`` calls don't race on rebuild.
@@ -583,12 +584,12 @@ class HistoryStore:
                     self._store.save()
                 return self._store
 
-            from src.engine.fingerprint import fingerprint
+            from src.engine.embedder import model_fingerprint
             from src.daemon.state import atomic_private
             with file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")):
                 # Content-based invalidation catches edits that preserve mtimes.
                 with open(self.history_path, "rb") as source:
-                    digest = hashlib.sha256(source.read()).hexdigest() + ":" + fingerprint()
+                    digest = hashlib.sha256(source.read()).hexdigest() + ":" + model_fingerprint()
                 marker = os.path.join(self.data_dir, ".history_fingerprint")
                 try:
                     with open(marker) as stream: saved = stream.read()

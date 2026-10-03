@@ -305,6 +305,14 @@ class TestSemanticStore:
 class TestIncrementalIndex:
     """After the first build, only new or edited entries are embedded (#157)."""
 
+    @pytest.fixture(autouse=True)
+    def unloaded_model(self, monkeypatch):
+        # Earlier tests may load the real model; these tests label the index
+        # with the fingerprint they set, as a process that has not loaded one.
+        import src.engine.embedder as embedder
+
+        monkeypatch.setattr(embedder, "_model_fingerprint", None)
+
     @pytest.fixture
     def embedded(self):
         return []
@@ -358,6 +366,32 @@ class TestIncrementalIndex:
         search()
 
         assert [len(batch) for batch in embedded] == [4]
+
+    def test_marker_names_the_model_that_embedded(self, tmp_path, writer, search, embedded, seeded, monkeypatch):
+        import src.engine.embedder as embedder
+        import src.engine.fingerprint as fingerprint_module
+
+        marker = tmp_path / "memory_data" / ".history_fingerprint"
+        loaded = marker.read_text().partition(":")[2]
+        # This process loaded its model earlier; another process has since
+        # downloaded a newer snapshot into the shared model cache.
+        monkeypatch.setattr(embedder, "_model_fingerprint", loaded)
+        monkeypatch.setattr(fingerprint_module, "fingerprint", lambda model=None: "newer-snapshot")
+        writer.append_entry("delta", "act", "out")
+
+        search()
+
+        assert [len(batch) for batch in embedded] == [1]
+        assert marker.read_text().endswith(":" + loaded)
+
+        # After a restart the newer snapshot is loaded: every entry is re-embedded.
+        monkeypatch.setattr(embedder, "_model_fingerprint", "newer-snapshot")
+        embedded.clear()
+
+        search()
+
+        assert [len(batch) for batch in embedded] == [4]
+        assert marker.read_text().endswith(":newer-snapshot")
 
     def test_interrupted_rebuild_does_not_vouch_for_saved_vectors(
         self, tmp_path, writer, search, embedded, seeded, monkeypatch
