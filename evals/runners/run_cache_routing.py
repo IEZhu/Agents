@@ -79,7 +79,8 @@ def cache_metrics(agents: list[str], languages: list[str], idx: np.ndarray, sim:
         for coverage in COVERAGES:
             entry = {"precision": None, "similarity": None, "coverage": None, "tied": 0}
             if rows:
-                target = max(1, round(coverage * len(rows)))
+                # At least the stated share: 50% of five queries is three, not two.
+                target = max(1, -(-round(coverage * 100) * len(rows) // 100))
                 cutoff = sim[ranked[target - 1]]
                 hits = [i for i in rows if sim[i] >= cutoff]
                 entry = {"precision": _share(match[i] for i in hits), "similarity": float(cutoff),
