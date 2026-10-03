@@ -50,6 +50,11 @@ Protocol 2 delivers separate persona, rules, skills, and implants blocks. A
 successful switch, restore, or refresh replaces all four blocks, including empty
 ones; it does not accumulate the previous role's instructions.
 
+The local web UI (`python -m src.daemon flows-ui`, tab *Agents*) lists every agent
+with its identity, routing fields, skills by tier, preferred implants and prompt
+body. The tab is read-only: agents cannot be switched off there, and their files
+are never changed. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
+
 ## Research & Analytics
 
 | Agent | Trigger | Role |

@@ -160,6 +160,41 @@ def test_catalog_lists_every_component_file(bundle_tree, monkeypatch):
     assert component_catalog.list_components("rules")[0]["id"] == "truth"
 
 
+def test_agent_content_is_normalized_and_both_modes_list_the_same_agents(tmp_path, monkeypatch):
+    monkeypatch.setattr(component_catalog, "AGENTS_DIR", str(tmp_path / "agents"))
+    agents = {
+        "full": {"identity": {"name": "full", "display_name": "Full", "role": "Plans", "tone": "Calm"},
+                 "routing": {"domain_keywords": ["alpha", 5, "beta"], "trigger_command": "/full",
+                             "aliases": ["/old", None]},
+                 "core_skills": ["skill-a.mdc", 3], "preferred_skills": ["skill-b"], "capable_skills": None,
+                 "preferred_implants": ["implant-c.mdc", {"id": "x"}]},
+        "loose": {"identity": {"name": "loose", "tone": 7},
+                  "routing": {"domain_keywords": "one", "trigger_command": ["/x"], "aliases": "/y"},
+                  "core_skills": "skill-a", "preferred_implants": "implant-c"},
+        "bare": {"identity": {"name": "bare"}},  # no routing at all
+        "odd": {"identity": {"name": "odd"}, "routing": ["not", "a mapping"]},
+        "renamed": {"identity": {"name": "other"}},  # skipped: the name differs from the directory
+        "flat": {"identity": "flat"},  # skipped: no identity mapping
+    }
+    for name, meta in agents.items():
+        write_mdc(tmp_path / "agents" / name / "system_prompt.mdc", meta, f"## {name}\n\nPrompt\n")
+    assert component_catalog.list_agents() == [
+        {"id": "bare", "display_name": "bare", "role": ""}, {"id": "full", "display_name": "Full", "role": "Plans"},
+        {"id": "loose", "display_name": "loose", "role": ""}, {"id": "odd", "display_name": "odd", "role": ""}]
+    listed = {agent["id"]: agent for agent in component_catalog.list_agents(with_content=True)}
+    assert list(listed) == ["bare", "full", "loose", "odd"]
+    assert listed["full"] == {
+        "id": "full", "display_name": "Full", "role": "Plans", "tone": "Calm", "trigger_command": "/full",
+        "domain_keywords": ["alpha", "beta"], "aliases": ["/old"],
+        "skills": {"core": ["skill-a"], "preferred": ["skill-b"], "capable": []}, "implants": ["implant-c"],
+        "body": "## full\n\nPrompt"}
+    for name in ("loose", "bare", "odd"):
+        assert listed[name] == {
+            "id": name, "display_name": name, "role": "", "tone": "", "trigger_command": "", "domain_keywords": [],
+            "aliases": [], "skills": {"core": [], "preferred": [], "capable": []}, "implants": [],
+            "body": f"## {name}\n\nPrompt"}
+
+
 def test_repository_flows_are_reachable_by_key_without_a_workspace(install, repo, toggle_dir):
     from src.flows import FlowCatalog, FlowError
     made = FlowLibrary(FlowCatalog(install), user_dir=toggle_dir, repo_root=repo)
