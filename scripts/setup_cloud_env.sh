@@ -81,7 +81,9 @@ main() {
     for key in EMBEDDING_MODEL AGENTS_AUTO_UPDATE; do
         value="$model"
         [ "$key" = AGENTS_AUTO_UPDATE ] && value=0
-        grep -q "^$key=" "$env_file" || printf '%s=%s\n' "$key" "$value" >> "$env_file"
+        # Any assignment python-dotenv accepts counts, including `export KEY=`.
+        grep -Eq "^[[:space:]]*(export[[:space:]]+)?$key[[:space:]]*=" "$env_file" \
+            || printf '%s=%s\n' "$key" "$value" >> "$env_file"
     done
 
     # 3. Update, dependencies and client configuration. init_repo.sh detects

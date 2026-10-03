@@ -334,6 +334,15 @@ def test_rerun_keeps_excludes_file_mode(tmp_path, upstream):
     assert ignore.stat().st_mode & 0o777 == 0o600
 
 
+def test_dotenv_assignment_forms_are_kept(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    env_file = tmp_path / "home/.agents-core/.env"
+    custom = "export EMBEDDING_MODEL=intfloat/multilingual-e5-large\n  AGENTS_AUTO_UPDATE = 0\n"
+    env_file.write_text(custom)
+    assert run_setup(tmp_path, upstream).returncode == 0
+    assert env_file.read_text() == custom
+
+
 def test_model_override_for_new_env(tmp_path, upstream):
     result = run_setup(tmp_path, upstream, {"AGENTS_EMBEDDING_MODEL": "intfloat/multilingual-e5-large"})
     assert result.returncode == 0, result.stderr
