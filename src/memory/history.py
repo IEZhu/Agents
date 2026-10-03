@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from src.file_lock import file_lock
 
+import contextlib
 import datetime as _dt
 import hashlib
 import json
@@ -535,6 +536,9 @@ class HistoryStore:
         FastEmbed-backed defaults are loaded lazily.
         """
         with self._index_lock:
+            if not os.path.exists(self.history_path):
+                self.ensure_index(embed_texts=embed_texts)  # drops a stale index
+                return []
             if embed_query is None:
                 from src.engine.embedder import embed_query as _eq
                 embed_query = _eq
@@ -600,11 +604,16 @@ class HistoryStore:
                     # Stored vectors stay valid only for the embedding
                     # configuration that produced them.
                     reuse = saved is not None and saved.partition(":")[2] == digest.partition(":")[2]
+                    if reuse:
+                        # Reuse the vectors this marker describes: another
+                        # process may have rewritten the store since it loaded.
+                        self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
                     if saved is not None:
                         # A rebuild that saves the store but dies before the
                         # new marker must not leave the old marker vouching
                         # for vectors from another configuration.
-                        os.remove(marker)
+                        with contextlib.suppress(FileNotFoundError):
+                            os.remove(marker)
                     self._rebuild(embed_texts=embed_texts, reuse_vectors=reuse)
                     atomic_private(marker, digest)
             return self._store

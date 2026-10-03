@@ -415,6 +415,42 @@ class TestIncrementalIndex:
         assert marker.read_text().endswith(":newer-snapshot")
         assert results[0]["intent"] == "alpha"
 
+    def test_reuse_reads_the_vectors_the_marker_describes(self, tmp_path, writer, embedded, seeded):
+        import numpy as np
+
+        fake = FakeEmbedder(["alpha", "beta", "gamma", "delta"])
+
+        def embed_texts(texts):
+            embedded.append(list(texts))
+            return fake.embed_texts(texts)
+
+        long_lived = HistoryStore(history_path=writer.history_path, data_dir=str(tmp_path / "memory_data"))
+        long_lived.ensure_index(embed_texts=embed_texts)
+        # Its copy no longer matches the store file the marker describes, as
+        # after another process rewrote that file.
+        memory = long_lived._store
+        ids, documents, metadatas = list(memory._ids), list(memory._documents), list(memory._metadatas)
+        vectors = memory.get_embeddings(ids)
+        memory.replace(ids=ids, embeddings=np.stack([vectors[i] for i in reversed(ids)]),
+                       documents=documents, metadatas=metadatas)
+        writer.append_entry("delta", "act", "out")
+
+        results = long_lived.search("alpha", limit=5, embed_query=fake.embed_query, embed_texts=embed_texts)
+
+        assert [len(batch) for batch in embedded] == [1]
+        assert results[0]["intent"] == "alpha"
+
+    def test_missing_history_returns_nothing_without_the_model(self, tmp_path, writer, embedded, seeded):
+        os.remove(writer.history_path)
+
+        def embed_query(text):
+            raise AssertionError("a missing history must not load the model")
+
+        store = HistoryStore(history_path=writer.history_path, data_dir=str(tmp_path / "memory_data"))
+
+        assert store.search("alpha", embed_query=embed_query, embed_texts=embed_query) == []
+        assert store._store.count() == 0
+
     def test_interrupted_rebuild_does_not_vouch_for_saved_vectors(
         self, tmp_path, writer, search, embedded, seeded, monkeypatch
     ):

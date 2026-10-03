@@ -89,13 +89,17 @@ def _loaded_fingerprint(model) -> str:
 
     fastembed picks the Hugging Face snapshot when the load starts, and another
     process can move the cache's refs/main before it ends, so the revision is
-    taken from the directory fastembed opened (``<cache dir>:<commit>``, the
-    form ``fingerprint()`` reads from refs). Other directories fall back to refs.
+    taken from the directory fastembed opened (``<cache dir>:<commit>``, which
+    equals what ``fingerprint()`` reads from refs when one cache directory
+    matches the model). Other directories fall back to refs.
     """
     from src.engine.fingerprint import compute_fingerprint
     revision = None
     model_dir = getattr(getattr(model, "model", None), "_model_dir", None)
-    if isinstance(model_dir, (str, os.PathLike)):
+    if model_dir is None:
+        logger.warning("fastembed exposes no model directory; the history index "
+                       "fingerprint falls back to the model cache refs")
+    elif isinstance(model_dir, (str, os.PathLike)):
         path = Path(model_dir)
         if path.parent.name == "snapshots" and path.parent.parent.name.startswith("models--"):
             revision = f"{path.parent.parent.name}:{path.name}"

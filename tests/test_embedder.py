@@ -116,6 +116,31 @@ def test_model_fingerprint_names_the_snapshot_that_was_loaded(model_cache, monke
     assert embedder.model_fingerprint() == newer
 
 
+def test_loaded_fingerprint_reads_the_opened_snapshot_not_refs(model_cache):
+    from src.engine.fingerprint import compute_fingerprint
+
+    _set_snapshot(model_cache, "refs-revision")
+    repo = model_cache.parent.parent
+    model = types.SimpleNamespace(model=types.SimpleNamespace(_model_dir=repo / "snapshots" / "opened-revision"))
+
+    label = embedder._loaded_fingerprint(model)
+
+    assert label == compute_fingerprint(embedder.EMBEDDING_MODEL, revision=f"{repo.name}:opened-revision")
+    assert label != compute_fingerprint(embedder.EMBEDDING_MODEL)
+
+
+def test_missing_model_directory_is_reported(model_cache, caplog):
+    from src.engine.fingerprint import compute_fingerprint
+
+    _set_snapshot(model_cache, "refs-revision")
+
+    with caplog.at_level("WARNING", logger=embedder.logger.name):
+        label = embedder._loaded_fingerprint(types.SimpleNamespace(model=types.SimpleNamespace()))
+
+    assert label == compute_fingerprint(embedder.EMBEDDING_MODEL)
+    assert "exposes no model directory" in caplog.text
+
+
 def test_model_fingerprint_falls_back_to_refs_for_other_directories(model_cache, monkeypatch):
     from src.engine.fingerprint import compute_fingerprint
 
