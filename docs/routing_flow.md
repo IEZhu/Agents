@@ -67,7 +67,7 @@ not establish support for a client and model; see the
 | `route_and_load(query, protocol_version=2, current_persona=...)` | Uses semantic cache and keyword validation; no sticky binding or sampling |
 | `get_agent_context(agent_name, query, protocol_version=2, current_persona=..., force_reload=False)` | Loads an explicit role; same-agent calls return `NO_CHANGE` before enrichment unless restoring |
 | `refresh_persona_context(query, current_persona=...)` | Rebuilds the same role's bundle; identical revision returns `NO_CHANGE` |
-| `log_interaction(..., persona=..., persona_action=...)` | Reads the descriptor leniently (never fails the turn over it: a partial, malformed or mismatching `persona`, an unknown key, or `persona_action` without `persona` is written marked `unverified` or `mismatch` with `warnings`; an unavailable workspace is the only request-level rejection), returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (a failed history write is logged once per path and errno and reported on the next result as `history_last_error`; Langfuse errors go to the server log; queued writes are drained on shutdown). The response asks the model not to retry an incomplete call; the persona line is not part of the dedupe hash, so a retry with the full descriptor still yields one entry. The advertised schema lists the 7 descriptor keys and uses plain types (no `anyOf`/`$ref`) so clients can render it |
+| `log_interaction(..., persona=..., persona_action=...)` | Reads the descriptor leniently (never fails the turn over it: a partial, malformed or mismatching `persona`, an unknown key, an unknown `persona_action`, or `persona_action` without `persona` is written with `attribution` `unverified` or `mismatch` and `warnings`; a complete matching descriptor is `client-reported`; an unavailable workspace is the only request-level rejection), returns the server's local `timestamp` (`YYYY.MM.DD HH:MM:SS`) at once with `history` and `langfuse` statuses `queued`, and records declared attribution in the background (a failed history write is logged once per path and errno and reported as `history_last_error` on later results until a write succeeds; Langfuse errors go to the server log; a full queue drops a write with a logged error, and shutdown drains queued writes for up to 10 seconds). The response asks the model not to retry an incomplete call; the persona line is not part of the dedupe hash, so a retry with the full descriptor still yields one entry. The advertised schema lists the 7 descriptor keys and uses plain types (no `anyOf`/`$ref`) so clients can render it |
 
 When the semantic cache has no decision, `route_and_load` loads `universal_agent`
 instead of returning `ROUTE_REQUIRED` for a standalone greeting,
@@ -148,7 +148,12 @@ Mandatory rules and core skills are distinct from extra retrieved components.
 Standard and deep tiers select relevant extras under the agent's declared skill
 constraints. Refresh reads current source content before calculating its revision.
 
-`RULES_ENABLED=0` disables the shared rules layer. The optional intent classifier
+`RULES_ENABLED=0` disables the shared rules layer. The web UI's installation-wide
+switches (`flows/.user/components.json`, read on every build) leave a switched-off
+rule, skill or implant out of persona bundles: its block, its `*_loaded` entry, its
+footer entry and therefore `bundle_revision`; with every rule off, `rules_block` is
+empty. A flow persona's exact component lists and the per-query path ignore the
+switches; see the [flow editor](shared-mcp-daemon.md#flow-editor). The optional intent classifier
 is off by default (`INTENT_CLASSIFIER_ENABLED=0`). When enabled, it can contribute
 the initial bundle tier. Per-query skill/implant budgets, persona-format
 suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
@@ -156,8 +161,8 @@ suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
 persists across later requests until a switch, restore, or refresh.
 
 The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
-bounded persistent routing cache. Every `SUCCESS` other than a restore or refresh
-stores the query and the loaded agent: routed loads, `get_agent_context` calls
+bounded persistent routing cache. Every `SUCCESS` other than a restore, a refresh
+or a flow's `persona_activation` stores the query and the loaded agent: routed loads, `get_agent_context` calls
 (including selections after `ROUTE_REQUIRED`), agent slash prompts and the meta
 route to `universal_agent`. `route_and_load` then reuses a stored decision without
 `ROUTE_REQUIRED` for a query within cosine distance `1 - ROUTER_SIMILARITY_THRESHOLD`
@@ -203,16 +208,23 @@ retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
 [memory and errors](shared-mcp-daemon.md#memory-and-errors).
 
 Repository workflows use the same workspace identity. `list_flows()`,
-`get_flow`, `save_flow` and `delete_flow` handle built-in and personal (`user:`)
-flows without a workspace; repository (`repo:`) flows and `run_flow(...)` require
-one over HTTP. Over stdio they use the resolved client root. Without a usable
-workspace, `run_flow` fails with `workspace_required`, and `get_flow`,
-`save_flow` or `delete_flow` on a `repo:` flow fail with
-`repo_scope_unavailable`; neither falls back to the installation. `run_flow`
-returns instructions bound to the caller's `repo_path`. The current model executes
-the flow with its own tools and active persona.
-Loading a flow does not route, replace a persona or complete the task. See the
-[workflow contract](../flows/README.md#through-agents-core-mcp).
+`get_flow`, `save_flow`, `delete_flow` and `set_flow_persona` handle built-in and
+personal (`user:`) flows without a workspace; repository (`repo:`) flows and
+`run_flow(...)` require one over HTTP. Over stdio they use the resolved client
+root. Without a usable workspace, `run_flow` fails with `workspace_required`,
+`workspace_unsafe` or `workspace_invalid`, and `get_flow`, `save_flow` or
+`delete_flow` on a `repo:` flow fail with `repo_scope_unavailable`; neither falls
+back to the installation. `run_flow` returns instructions bound to the caller's
+`repo_path`. When the flow names a persona (in its frontmatter or chosen with
+`set_flow_persona`), the result also carries `persona_activation`, a protocol 2
+response built from the flow's title and `request`: pass `current_persona` to
+`run_flow` and apply the activation as a switch before executing. It is compared
+with the current activation by `bundle_revision`, not by agent name, and never
+trains the routing cache; a later `refresh_persona_context` rebuilds the agent's
+default bundle. The current model then executes the flow with its own tools.
+Loading a flow does not route or complete the task. See the
+[workflow contract](../flows/README.md#through-agents-core-mcp) and
+[flow personas](../flows/README.md#choose-a-flows-agent-and-components).
 
 ## Startup and readiness
 
@@ -231,8 +243,9 @@ Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
 declares a persona, and the `ask` and per-agent prompts. Past the cap, persona tools return `ERROR` (for `run_flow`, in `persona_activation`) whose message starts with
 `warming_up` (the bundle was not applied; retry in a few seconds), `load_implants`
 and `read_history` return a `warming_up` text or status, and prompts embed the
-same error in their message. A failed initialization is stored and returned as an
-`ERROR` for every gated call instead of hanging; the stdio process then needs a
+same error in their message. A failed initialization is stored and reported by
+every gated call instead of hanging (`ERROR` from persona tools and prompts, an
+error text from `load_implants`, `status: "error"` from `read_history`); the stdio process then needs a
 restart once the cause is fixed. `list_agents`, `list_flows`,
 `log_interaction` and recency `read_history` never wait; `log_interaction`
 reports `langfuse: {"status": "skipped", "reason": "warming_up"}` while startup
@@ -327,7 +340,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

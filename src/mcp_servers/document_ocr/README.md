@@ -36,8 +36,11 @@ brew install poppler
 
 ## Python Dependencies
 
+The Agents-Core `.venv` already includes them (`requirements.txt`). A separate
+environment needs:
+
 ```bash
-pip install pdf2image Pillow anthropic
+pip install 'mcp==1.28.1' python-dotenv pdf2image Pillow anthropic
 ```
 
 ## Configuration

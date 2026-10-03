@@ -7,7 +7,9 @@ provider ([The same models, hosted](#the-same-models-hosted-openrouter)). This p
 covers `evals/scripts/compare_rules.py`, `evals/scripts/prompt_ab.py` and
 `evals/runners/run_mcp_vs_vanilla.py`. `compare_rules` and `prompt_ab` also accept
 `openrouter`; `run_mcp_vs_vanilla` does not. The persona dialogue runner drives the
-`codex`/`claude` CLIs and is not covered.
+`codex`/`claude` CLIs and is not covered. The `local` and `openrouter` providers use
+the `openai` SDK from the `evals` extra (`pip install -e '.[evals]'`);
+`requirements.txt` does not install it.
 
 Only Ollama has been verified. LM Studio, llama.cpp `llama-server` and
 `mlx_lm.server` expose the same endpoint and should work, but their switch for
@@ -197,7 +199,9 @@ arm difference comes from the answers, not from evaluator or routing noise.
   are the ones under test. The per-query prompt cache is cleared before every case. The
   builder expects `server._load_and_enrich` in the shape it has had since c5d89f7 (#105,
   2026-09-29): an arm at an earlier revision fails at its first case, so every arm must
-  be at c5d89f7 or later.
+  be at c5d89f7 or later. `implants` mode replaces the implant layer through
+  `enrichment.get_implant_retriever()`, which exists since 2c945d3 (#141,
+  2026-10-02), so its arms must be at 2c945d3 or later.
 - **Answer first, grade second, resumable.** Answers go to `answers.jsonl` and grades to
   `grades.jsonl` in `--out-dir`; a rerun skips what is already there.
 
@@ -215,8 +219,9 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
   reverse order, so its cached neighbours differ. Read an implant's "answers changed"
   against both floors.
 - **State.** `manifest.json` in `--out-dir` pins the mode, provider and OpenRouter
-  routing, model, grader, temperature, sample count, answer budget, embedding model,
-  request settings (reasoning effort, seed and seed scheme, grader temperature, local
+  routing, model, grader, temperature, sample count, answer budget, embedding model
+  (`EMBEDDING_MODEL` from your shell, else `microsoft/harrier-oss-v1-270m`;
+  `intfloat/multilingual-e5-large` before #178, 2026-10-04), request settings (reasoning effort, seed and seed scheme, grader temperature, local
   or SDK endpoint URL), the engine variables set in your shell that
   `src/engine/config.py` reads (plus `AGENTS_MODEL_PATH`/`AGENTS_MODEL_ARTIFACT`),
   dataset, agents file, each arm's commit and a hash of the harness code (`prompt_ab.py`,
@@ -235,8 +240,8 @@ python -m evals.scripts.local_ab -- prompt_ab implants --out-dir /abs/dir
 
 ### The same models, hosted (OpenRouter)
 
-A 31B model on a laptop answers about one case a minute, so an implants run takes
-hours. The `openrouter` provider runs the same A/B against hosted copies of the open
+In the 2026-09 local runs, a 31B model on the 36 GB laptop answered about one case a
+minute, so an implants run took hours. The `openrouter` provider runs the same A/B against hosted copies of the open
 weights, with parallel requests:
 
 ```bash
@@ -279,7 +284,7 @@ python -m evals.scripts.prompt_ab implants --provider openrouter --concurrency 8
 | Variable | Default | Meaning |
 |---|---|---|
 | `OPENROUTER_API_KEY` | none | required |
-| `OPENROUTER_PROVIDER` | none | endpoint slugs, comma-separated; `prompt_ab` and `compare_rules` require it |
+| `OPENROUTER_PROVIDER` | none | endpoint slugs, comma-separated; `prompt_ab`, `compare_rules` and `evals/ablation/hosted.py` require it |
 | `OPENROUTER_MODEL` | `google/gemma-4-31b-it` | model under test |
 | `OPENROUTER_JUDGE_MODEL` | = `OPENROUTER_MODEL` | grader / pairwise judge; set it or pass `--judge-model`, or the model grades itself. `JUDGE_MODEL` is ignored |
 | `OPENROUTER_TEMPERATURE` | `0` | answers only; `default` omits it |

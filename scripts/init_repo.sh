@@ -11,7 +11,7 @@
 #
 # Flags:
 #   --yes, -y      Accept defaults without prompting (also AGENTS_ASSUME_YES=1).
-#                  Picks the embedding model from installed RAM if none is
+#                  Writes the default embedding model if none is
 #                  configured, reuses an existing venv and refreshes its
 #                  dependencies (recreating it if its Python version is unknown
 #                  or older than 3.11), and allows the client instruction updates.

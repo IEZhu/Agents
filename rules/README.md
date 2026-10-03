@@ -25,25 +25,30 @@ removed, renamed or reprioritized.
 
 ## Loading
 
-- Every protocol 2 persona bundle includes all rules, whatever the agent or tier,
-  in `rules_block`, which follows `persona_block` and precedes the skill and
+- Every protocol 2 persona bundle includes all enabled rules, whatever the agent
+  or tier, in `rules_block`, which follows `persona_block` and precedes the skill and
   implant blocks. There is no semantic retrieval or index. The block states that a
   rule wins where persona, skill or implant text conflicts with it. The descriptor's
-  `rules_loaded` and the footer's `Rules` list the rule names. The footer's muted
-  `Agents-Core <version>` segment follows the labelled lists and is not a rule.
+  `rules_loaded` and the footer's `Rules` list the rule names. The footer's last
+  segment, `Agents-Core <version>` (a link to the web UI under the shared daemon),
+  follows the labelled lists and is not a rule. A flow persona that lists `rules`
+  gets exactly those rules, switched-off ones included; an empty list gives an
+  empty `rules_block` ([flow personas](../flows/README.md#choose-a-flows-agent-and-components)).
 - Rules are sorted by `priority` (ascending), then by `name`.
 - Bundle assembly re-reads the files for every bundle in strict mode. An invalid
-  rule, a duplicate `name` or an empty rule set makes every activation return
-  `ERROR`. The shared daemon runs the same check during warmup and does not become
+  rule, a duplicate `name` or an empty rule set makes every activation that uses
+  the default rules return `ERROR`; a flow's exact list validates only the rules it
+  names. The shared daemon runs the same check during warmup and does not become
   ready when it fails. The per-query enrichment path used by the evaluation harnesses
   skips an invalid file with a logged error and keeps the loaded set for the life
   of the process.
 - `RULES_ENABLED=0` in the environment or the installation `.env` disables the
   layer for diagnostics: bundles carry an empty `rules_block`, and the footer shows
   `—` for `Rules`. See [environment variables](../README.md#environment-variables).
-- The local web UI (`python -m src.daemon flows-ui`, tab *Rules*) can switch single
-  rules off for the whole installation. A switched-off rule leaves persona bundles
-  and the footer; its file is untouched, and switching every rule off gives an empty
+- With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`,
+  tab *Rules*) can switch single rules off for the whole installation. A switched-off
+  rule leaves persona bundles and the footer unless a flow persona names it; its
+  file is untouched, and switching every rule off gives an empty
   `rules_block` like `RULES_ENABLED=0`. The per-query path used by the evaluation
   harnesses ignores the switches. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 

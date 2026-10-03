@@ -38,7 +38,8 @@ The [schema](common/agent-schema.json) defines the fields:
 | `interaction_examples` | Optional examples reserved for future use; enrichment does not consume them |
 
 Use canonical component IDs such as `skill-tech-writing` and
-`implant-chain-of-verification`. Skills outside the three skill lists are excluded.
+`implant-chain-of-verification`. Skills outside the three skill lists are excluded,
+except in a flow persona's exact list.
 See [skills](../skills/README.md) and [implants](../implants/README.md) for loading
 budgets and authoring conventions. Universal directives belong in
 [`rules/rule-*.mdc`](../rules/README.md);
@@ -50,7 +51,8 @@ Protocol 2 delivers separate persona, rules, skills, and implants blocks. A
 successful switch, restore, or refresh replaces all four blocks, including empty
 ones; it does not accumulate the previous role's instructions.
 
-The local web UI (`python -m src.daemon flows-ui`, tab *Agents*) lists every agent
+With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`,
+tab *Agents*) lists every agent
 with its identity, routing fields, skills by tier, preferred implants and prompt
 body. The tab is read-only: agents cannot be switched off there, and their files
 are never changed. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).

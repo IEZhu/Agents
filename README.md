@@ -101,8 +101,9 @@ and `--skip-mcp`, but not `--yes`.
 The interactive script:
 
 - creates `.env` from `env.example` (or adds keys missing from an existing one),
-  creates `.venv/` and installs dependencies, selects and downloads an embedding
-  model, and builds the skill and implant indexes. When `.venv/` exists and you
+  creates `.venv/` and installs dependencies, writes the default embedding model
+  to `.env` when none is set and downloads it, and builds the skill and implant
+  indexes. When `.venv/` exists and you
   keep it (the default answer), dependencies are not reinstalled; answer `y` to
   recreate it, pass `--yes`, or run `.venv/bin/pip install -r requirements.txt`;
 - registers Agents-Core without asking as a standalone stdio server in each
@@ -141,9 +142,10 @@ pip install -r requirements.txt
 
 # Configure environment
 cp env.example .env
-# Edit .env for the model and any optional integrations
+# Edit .env for any optional integrations. To use a model other than the
+# default, set EMBEDDING_MODEL together with EMBEDDING_MODEL_GENERATION=2
 
-# Download the selected model and build the indexes
+# Download the model and build the indexes
 python -m src.reindex
 ```
 
@@ -187,7 +189,10 @@ to `EMBEDDING_MODEL` in `.env`, together with `EMBEDDING_MODEL_GENERATION`. When
 uses it as well. Any FastEmbed model stays selectable,
 `intfloat/multilingual-e5-large` included: edit `EMBEDDING_MODEL` and, with
 server sessions stopped, run
-`.venv/bin/python -m src.reindex`. The [shared macOS service](#shared-macos-service)
+`.venv/bin/python -m src.reindex`. An `.env` without
+`EMBEDDING_MODEL_GENERATION=2`, such as one copied by hand from `env.example`,
+needs that line too; otherwise the next start switches it to the default
+([model switch](#model-switch-on-update)). The [shared macOS service](#shared-macos-service)
 pins its model in its own configuration.
 
 #### Model switch on update
@@ -210,14 +215,15 @@ The shared service switches in its update transaction instead
 | Setting | Default | Purpose |
 |---|---|---|
 | `EMBEDDING_MODEL` | `microsoft/harrier-oss-v1-270m` when unset | Standalone embedding model |
-| `EMBEDDING_MODEL_GENERATION` | Written by setup and the model switch | Model generation the `.env` reached; an older one switches to the default model once ([model switch](#model-switch-on-update)) |
+| `EMBEDDING_MODEL_GENERATION` | Unset counts as `1`; setup and the model switch write `2` | Model generation the `.env` reached; an older one switches to the default model once ([model switch](#model-switch-on-update)) |
 | `EMBEDDING_PROMPTS` | `on` | Model-specific query and passage prompts ([embedding_prompts.py](src/engine/embedding_prompts.py)); `off` embeds text as given |
-| `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at 2.5–2.8 GB with the default); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
+| `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at about 2.8 GB with the default in the [recorded run](docs/embedding-models-eval-results.md)); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
-| `AGENTS_CLIENT_REPO_ROOT` | Unset: inferred from `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
-| `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows) |
+| `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
+| `WARMUP_WAIT_SECONDS` | `20` | Seconds (1–600) a retrieval tool waits for background startup (stores, embedding model, rules) before it answers `warming_up`; the MCP handshake never waits ([details](docs/routing_flow.md#startup-and-readiness)) |
 
 Routing thresholds and enrichment settings are defined in
 [src/engine/config.py](src/engine/config.py). Its environment overrides, such as
@@ -279,7 +285,9 @@ It is **safe by default**:
   warns while preparing, before the live checkout has the new manifests, and
   builds with the current environment, in which the activated code then also
   runs. For such an update, stop the server sessions and update manually:
-  `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`, then
+  `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
+  `.venv/bin/python -m src.model_migration .env` (applies a pending
+  [model switch](#model-switch-on-update) before the rebuild), then
   `.venv/bin/python -m src.reindex`. If it has already activated, stop the
   sessions and install the dependencies before restarting. Only with
   `AGENTS_AUTO_UPDATE_STAGING=0` is the new `requirements.txt` already in place
@@ -306,7 +314,7 @@ AGENTS_AUTO_UPDATE_REMOTE=origin
 AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
-AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds allowed for the staged index build
+AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds per index build (staged or in-place)
 AGENTS_AUTO_UPDATE_STAGING=1             # 0 = synchronous in-place update at an idle start
 # AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
@@ -329,12 +337,13 @@ The server exposes MCP tools that any compatible client can call:
 |------|---------|
 | `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
-| `refresh_persona_context(query, current_persona)` | Refresh skills/implants for the active role without reselecting it |
+| `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
-| `run_flow(flow, request="", repo_path=None)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools |
+| `run_flow(flow, request="", repo_path=None, current_persona?)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona |
 | `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
+| `set_flow_persona(flow, agent?, skills?, implants?, rules?, reset=False)` | Choose the agent and exact skills, implants and rules a flow runs with, without copying its text; stored in `flows/.user/personas/`. Without `agent` the flow runs without a persona; `reset=true` restores the flow's frontmatter ([details](flows/README.md#choose-a-flows-agent-and-components)) |
 | `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `persona` is the last `SUCCESS`/`NO_CHANGE` descriptor object copied verbatim with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`), `persona_action` is `keep`, `switch`, `refresh` or `restore` and only goes with `persona`; `files`/`tags` are JSON arrays. Malformed attribution is written as `unverified` |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | Repository summary bootstrap; returns `needs_summary` when sampling is unavailable (always over HTTP) or fails ([details](#-repository-memory)) |
@@ -367,6 +376,14 @@ its existing permissions and tools. `needs_execution` does not mean the work is
 complete. See the [workflow guide](flows/README.md#through-agents-core-mcp) for
 the response contract, target resolution, and authoring rules.
 
+Most built-in flows name a persona in their frontmatter: `pr-review` runs as
+`code_reviewer`, `documentation-refresh` as `tech_writer`. For such a flow,
+`run_flow` also returns `persona_activation`, a protocol 2 response: pass
+`current_persona` to `run_flow` and apply the activation as a switch before
+executing the flow. To choose another agent or exact skills, implants and rules
+for a flow, use `set_flow_persona` or the flow editor's **Persona** panel
+([details](flows/README.md#choose-a-flows-agent-and-components)).
+
 Besides the built-in flows, users keep personal (`user:`) and per-repository
 (`repo:`) flows in the installation's git-ignored `flows/.user`. Ask the model to
 save, change, restore or delete one; it uses `get_flow`, `save_flow` and
@@ -388,7 +405,8 @@ justified refresh rebuilds its context without reselecting it.
 
 The server returns separate persona, rules, skills and implants blocks, an
 activation descriptor and an exact footer (the four labelled component lists, then
-a muted `Agents-Core <version>` segment, with the web UI link under the daemon). Every successful switch, restore or
+a plain `Agents-Core <version>` segment; under the daemon the version links to the
+web UI). Every successful switch, restore or
 refresh replaces all four blocks, including changed or removed rules, while
 preserving higher-priority instructions, conversation facts, goals, permissions
 and tool results. This is logical replacement: MCP cannot physically delete old
@@ -450,21 +468,28 @@ Agents/
 │   ├── startup.py        # Installation leases and isolated stdio indexes
 │   ├── self_update.py    # Standalone staged updates
 │   ├── reindex.py        # Skill and implant index rebuild
+│   ├── model_migration.py # One-time switch to the default embedding model
+│   ├── version.py        # Agents-Core version shown in the persona footer
 │   ├── flows.py          # Built-in flow catalog and run_flow bundles
 │   ├── user_flows.py     # Personal and repository flows (flows/.user)
+│   ├── flow_persona.py   # A flow's agent and exact components
+│   ├── component_toggles.py # Installation-wide on/off switches for rules, skills and implants
+│   ├── component_catalog.py # Read-only agent and component listing for the web UI
 │   ├── client_paths.py   # Client configuration paths shared by installers and migration
 │   ├── file_lock.py      # Stable sidecar file locks
-│   ├── daemon/           # HTTP app, service control, workspaces, client migration, flow editor
+│   ├── daemon/           # HTTP app, service control, workspaces, client migration, web UI and its sign-in
 │   ├── mcp_servers/      # Optional document OCR server and the MCP server template
 │   ├── engine/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
 │   │   ├── persona_bundle.py # Fresh instruction blocks and bundle revision
+│   │   ├── readiness.py  # Background retrieval startup (warming_up)
 │   │   ├── skills.py     # Skill retrieval (vector search)
 │   │   ├── implants.py   # Implant retrieval (vector search)
 │   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
 │   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
+│   │   ├── embedding_prompts.py # Model prompts and extra model registrations
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
 │   │   ├── intent.py     # Optional task classification
@@ -472,7 +497,7 @@ Agents/
 │   │   ├── context.py    # Context retrieval (history formatting)
 │   │   └── language.py   # Language detection
 │   ├── memory/           # Repository summary, history, managed sections
-│   ├── schemas/protocol.py # Request, response, and persona schemas
+│   ├── schemas/          # protocol.py (request, response, persona), tool_args.py (MCP argument types)
 │   └── utils/
 │       ├── prompt_loader.py
 │       ├── debug_logger.py     # Optional JSON debug logging
@@ -498,9 +523,10 @@ Agents/
 | **Agents** | Specialized personas with unique system prompts |
 | **Skills** | Domain-specific knowledge chunks (retrieved via RAG) |
 | **Implants** | Cognitive patterns & reasoning strategies |
-| **Rules** | [Shared directives](rules/README.md) included in every loaded bundle when enabled |
+| **Rules** | [Shared directives](rules/README.md) included in every loaded bundle when enabled, unless a flow persona names an exact set |
 | **Router** | Semantic matching + caching for fast agent selection |
 | **Persona bundle** | Versioned role instructions, rules, skills, and implants retained by the client |
+| **Flows** | [Markdown workflows](flows/README.md) served to the caller's repository through `run_flow`, optionally with their own persona |
 | **Memory** | Per-project summary and action history |
 
 ---
@@ -692,7 +718,9 @@ capable_skills: []
 You are an expert in X...
 ```
 
-`identity.name` must match the directory name, or the agent fails to load.
+`identity.name` must match the directory name, or the agent fails to load. Use
+lowercase letters, digits and underscores (`^[a-z0-9][a-z0-9_]*$`): the activation
+descriptor accepts no other agent name.
 `trigger_command` and each optional `routing.aliases` entry become MCP slash
 prompts. See [Skill tiers](#skill-tiers) and the
 [field reference](agents/README.md#agent-source-and-metadata), including the
@@ -715,11 +743,11 @@ preferred_skills: [skill-dev-debugging, skill-dev-performance]
 capable_skills: [skill-dev-testing, skill-git-conventions]
 ```
 
-- `core_skills` are loaded unconditionally.
+- `core_skills` are always loaded, unless switched off for the installation in the web UI.
 - `preferred_skills` join the semantic pool with their distance multiplied by a boost factor (0.7), so they win close matches.
 - `capable_skills` join the same pool at their base distance.
 
-Skills outside the three lists are never loaded for that agent. Guidance that applies to every agent belongs in [`rules/`](rules/README.md), not in a skill.
+Skills outside the three lists are never loaded for that agent, except when a flow's persona lists exact skills ([details](flows/README.md#choose-a-flows-agent-and-components)). Guidance that applies to every agent belongs in [`rules/`](rules/README.md), not in a skill.
 
 ---
 
@@ -729,7 +757,7 @@ The server stores repository summaries and action history separately for each
 client project:
 
 - **`describe_repo`** — generates a compressed, LLM-consumable repo overview via MCP sampling and writes it into the managed *Repository Memory* section of `CLAUDE.md`. Without sampling, or when the sampling call fails, it writes nothing and returns `needs_summary` (the prompt plus `repo_hash`, `repo_path` and `workspace_id`), and the caller persists its own summary with `write_repo_summary`. The shared HTTP daemon never samples, so a needed refresh over HTTP always returns `needs_summary`. Idempotent: re-runs are no-ops unless the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`.
-- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; an unavailable workspace is the only request-level rejection (sinks stay best-effort: a full queue or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`) that the final answer shows as its first line (rule `answer-timestamp`); both writes happen in the background and are drained on shutdown.
+- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; an unavailable workspace is the only request-level rejection (sinks stay best-effort: a full queue or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing.
 
 Over stdio, the project is `AGENTS_CLIENT_REPO_ROOT` when set; otherwise the
@@ -771,7 +799,9 @@ for its rationale.
 
 `log_interaction` stores the supplied prompt and response by default; callers can
 provide curated `intent`, `action`, and `outcome` fields. This checkout ignores
-`history.md` and `history/`; check the client project's own ignore rules before
+`history.md` and `history/`. In a client project, check the ignore rules for
+`history.md`, `history/`, `data/memory/` and the hidden lock files
+(`.history.md.lock`, `.CLAUDE.md.lock`, `.agents-description.lock`) before
 committing its action log.
 
 ---
@@ -779,8 +809,10 @@ committing its action log.
 ## 📊 Observability
 
 Selected routing, loading, retrieval, and memory operations are instrumented with
-Langfuse. `log_interaction` records the answer and declared persona attribution;
-its history and Langfuse results are reported separately. Set real Langfuse keys
+Langfuse. `log_interaction` records the answer and declared persona attribution in
+the background: its response reports both sinks as `queued` (Langfuse `skipped`
+while retrieval warms up), a failed history write appears as `history_last_error`
+on later results, and Langfuse failures go only to the server log. Set real Langfuse keys
 in `.env` to enable it; leave them empty for local-only operation (see
 [Environment Variables](#environment-variables)). Set
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.

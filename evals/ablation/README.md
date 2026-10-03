@@ -43,8 +43,10 @@ these steps.
    environment that allows it
    ([cloud environment setup](../../docs/cloud-runs.md#cloud-environment-with-agents-core));
    the default cloud environment blocks huggingface.co. Leave `AGENTS_MODEL_PATH`
-   unset. The 2026-09 runs used `intfloat/multilingual-e5-large`; rebuild with
-   `EMBEDDING_MODEL` set to it to compare against them.
+   unset. The 2026-09 runs used `intfloat/multilingual-e5-large` without its query
+   and passage prefixes; rebuild with
+   `EMBEDDING_MODEL=intfloat/multilingual-e5-large EMBEDDING_PROMPTS=off` to compare
+   against them.
 2. **Pick the components and the run directory**
    ```bash
    IDS=$(python evals/ablation/components.py --batch 3)     # or the explicit ids
@@ -111,14 +113,23 @@ A case set written by hand replaces step 3 for its component: copy it to
 the same format and carries `"checked": true` with `checker_notes` saying who wrote
 and reviewed it. `evals/datasets/english_pivot_cases.json` is one, for
 `rule-english-pivot`: 19 Russian cases, 2 English requests with Russian
-instructions and 3 English controls.
+instructions and 3 English controls. That rule was not adopted and exists only on
+branch `feat/english-pivot-rule`, so build its contexts in a checkout of that branch
+([results](../../docs/english-pivot-eval-results.md)).
+`evals/datasets/embedding_ab_cases.json` (component `embed-model`) holds the same
+requests grouped by language, for `--arm` builds of two embedding models.
 
 ## Hosted models (OpenRouter)
 
 Steps 5 and 6 can run on a model served by OpenRouter instead of Claude Code
 agents, from the same `ctx/` and judge files, so one set of contexts compares
 several models. Build the contexts once (steps 2–4), copy the run directory per
-answer model, and run, with `OPENROUTER_API_KEY` set and the endpoints pinned:
+answer model, install the `openai` package, which `requirements.txt` leaves out
+(`pip install -q 'openai>=1.40'`, or the `evals` extra), and run, with
+`OPENROUTER_API_KEY` set and the endpoints pinned. First check that the pinned
+endpoints accept each step's settings:
+`python evals/ablation/hosted.py probe --model <model>`, with `--judge` for the
+judge settings.
 
 ```bash
 export OPENROUTER_PROVIDER=deepinfra/bf16,google-ai-studio OPENROUTER_REASONING=medium

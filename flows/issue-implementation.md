@@ -34,7 +34,7 @@ command authorizes this full cycle. It never merges.
 1. Fetch the default branch and create
    `claude/issue-<number>-<short-slug>` from its latest commit without tracking
    another branch (`git switch -c <branch> --no-track origin/<default>`). Routines
-   may push only to `claude/` branches.
+   push to `claude/`-prefixed branches by default.
 2. Commit as the owner configured in the routine prompt (for Agents repositories
    `Alexey Zhuchkov <alexey.zhuchkov@gmail.com>`), using
    `git -c user.name=... -c user.email=...` or the equivalent. Follow the target's
@@ -113,8 +113,9 @@ scope.
    retain the lock while work continues. Check `stop_requested` between waits
    and before another fix or push.
 5. After the cycle completes, record the final head and each bot's result in the
-   state summary. Report the PR link, implementation and review fixes, validation,
-   expected checks that were skipped, open threads and any unavailable bots.
+   state summary. Report the PR link, implementation and review fixes, findings
+   moved to the PR's Follow-ups, validation, expected checks that were skipped,
+   open threads and any unavailable bots.
    Leave the PR open and finish through the
    [issue agent's completion procedure](issue-agent.md#5-finish-every-run).
 

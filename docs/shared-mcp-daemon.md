@@ -271,7 +271,9 @@ with `Drain timed out; runtime resumed without killing active work` without
 applying its change. Retry after the work finishes. Two commands differ:
 `uninstall` has already disabled automatic updates, and `token rotate` rolls back
 by draining again and restarting the service; if that second drain also times
-out, run `recover`.
+out, run `recover`. `log_interaction` answers before its history and Langfuse
+writes, so the drain does not count those queued writes; the stopping service
+flushes them for up to 10 seconds before it exits.
 
 Commands that restart the service (`restart`, `update`, `recover`, or `stop`
 followed by `start`) do not require closing connected clients. Each client holds
@@ -301,8 +303,9 @@ The daemon serves a local settings page at `/ui` with five tabs.
   selected, and an existing repository flow is opened, saved, deleted and its
   history shown by key. *System* lists the read-only built-in flows. Creating a
   repository flow, or "Edit copy for a repository", asks which registered
-  workspace it belongs to. Saved versions, the comparison of a local copy with
-  its built-in flow and conflicts with edits made from chat work as before.
+  workspace it belongs to. Personal and repository flows keep saved versions,
+  compare a local copy with its built-in flow ("Show built-in") and detect
+  conflicts with edits made from chat.
   The **Persona** panel of an open flow (built-in ones included) chooses the
   agent and, per kind, either the agent's default or an exact list of skills,
   implants and rules; see [choosing a flow's
@@ -325,10 +328,11 @@ The daemon serves a local settings page at `/ui` with five tabs.
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
 pane scrolls on its own, and the detail pane scrolls separately when its content is
-taller). The header holds the version, the controls of the open item and the
-tabs. A flow's controls are *Rendered / Source*, "Contents", the history, "Delete"
-and "Save" (a built-in flow shows its "Edit copy" buttons instead of the last
-three); a rule, skill or implant has *Rendered / Source*, "Contents" and its
+taller). The header holds the version, the controls of the open item, the tabs
+and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
+the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
+"Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
+"Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its
 switch, and an agent the same without a switch. With nothing open the header
 shows none. Below 1250 px for a flow, or 900 px for the other tabs, the
 controls take a second header row; the item's title stays above the document.
@@ -337,7 +341,7 @@ it). Matching is case-insensitive and every whitespace-separated term must
 appear. Items whose name (ID, title, short name; an agent's ID and display name)
 matches are listed first, then items that match only in their text (description
 and body; flow content; an agent's role, routing keywords and prompt body), marked
-"in text" (on Flows, a repository heading is repeated for its text-only matches). While a query is active the box shows "N of M" for the visible
+"in text" (on Flows, a group heading, such as Personal or a repository, is repeated for its text-only matches). While a query is active the box shows "N of M" for the visible
 category, the query is kept per tab, and the open item stays open when the query
 hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
 `content` field to every flow, including repository flows, and
@@ -350,9 +354,9 @@ Markdown is shown rendered. A flow opens in a *Rendered* view with a
 that save, unsaved-change tracking and conflict detection keep using, so
 *Rendered* always shows the current unsaved text. New drafts, "Edit copy", a
 loaded history version and a save conflict open in *Source*. A rule, skill,
-implant or agent body opens rendered, with *Source* showing the raw text (an
-agent's without its frontmatter, whose fields the tab lists). A leading
-frontmatter block is a collapsed "Metadata" section. When a document has
+implant or agent body opens rendered, with *Source* showing its raw text; these
+bodies arrive without their frontmatter (the Agents tab lists an agent's fields).
+A flow's leading frontmatter block is a collapsed "Metadata" section. When a document has
 headings (levels 1-4), a table of contents appears on its left and an entry
 scrolls the document to its heading. "Hide contents" hides it at once, even with the pointer
 still over it; while hidden, hovering the left edge of the view shows it as an overlay, and the
@@ -430,8 +434,8 @@ HTTP never selects a project from cwd, environment variables, or client roots.
 `workspace_required` and `workspace_invalid` mean memory is unavailable: routing
 can continue, and logging must not be retried in a loop. `run_flow` also requires
 this header and never uses `repo_path` as a replacement for workspace identity.
-`list_flows`, `get_flow`, `save_flow` and `delete_flow` for built-in and personal
-(`user:`) flows work without it; `repo:` flows need it. See the
+`list_flows`, `get_flow`, `save_flow`, `delete_flow` and `set_flow_persona` for
+built-in and personal (`user:`) flows work without it; `repo:` flows need it. See the
 [flow guide](../flows/README.md) for loading workflows into the caller's repository.
 
 On both transports, memory tools also return
@@ -484,8 +488,9 @@ restored runtime. The controller journal remains until readiness completes; use
 `recover` after interruption. Do not delete journals manually.
 
 A manual `update` always drains and restarts a running service, even when there
-is nothing to apply. When it applies a commit, it also starts a stopped service
-for probation and leaves it running; `auto-update` leaves a stopped service alone.
+is nothing to apply. When it applies a commit or switches the embedding model, it
+also starts a stopped service for probation and leaves it running; `auto-update`
+leaves a stopped service alone.
 
 While the service runs, update the installation only with `update` or
 `auto-update`: `install.sh`, `git pull` or `scripts/init_repo.sh` in the checkout
@@ -509,8 +514,10 @@ Git credentials and SSH must work with the LaunchAgent's PATH and environment.
 `enable` installs a second LaunchAgent, `local.agents-core.<state-directory-name>.updater`,
 that runs `auto-update run` every `--interval` seconds (default 900, minimum
 60). A run fetches `AGENTS_AUTO_UPDATE_REMOTE` / `AGENTS_AUTO_UPDATE_BRANCH`
-(defaults `origin` / `main`) and stops there when the installation is up to date.
-Unlike stdio servers, the controller reads these variables from its own
+(defaults `origin` / `main`) and stops there when the installation is up to date
+and no [model switch](#embedding-model) is pending.
+Unlike stdio servers, the controller reads these variables,
+`AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` from its own
 environment, not from `.env`: the updater LaunchAgent does not set them, so
 scheduled runs normally use the defaults, and a manual `update` uses the values
 exported in its shell. A run skips a target without touching the service when
@@ -542,8 +549,10 @@ generation ([src/model_migration.py](../src/model_migration.py)) moves to
 2. After the drain, stop and file update, it saves `service.json` and the skill and
    implant indexes in `rollback/` under the private state directory, writes the new
    model into `service.json` and rebuilds the indexes with it, holding the
-   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 600 s; a
-   full harrier build took about 90 s and peaked near 2.8 GB).
+   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 600 s; in
+   the [2026-10-03 measurements](embedding-models-eval-results.md#results) a
+   harrier index build peaked at 2.8 GB). A file update that rolled back
+   (`MERGE_FAILED`, `REINDEX_FAILED`) leaves the switch pending for the next update.
 3. Probation starts the service on the new model. When it fails, the transaction
    restores the previous `service.json`, indexes and code and starts the service
    again; `recover` does the same after an interrupted switch.
@@ -553,7 +562,10 @@ updates enabled, the first scheduled run after the update that brought this code
 switches the model even without a new commit, once the service is idle. Without
 them, run `update` once more after the update that brought this code: the
 running controller is still the previous version during that update. A model
-chosen after the switch stays: reinstall with `install --model ...`.
+chosen after the switch stays. To choose one, run `uninstall`, then
+`install --model ...` (the model must already be cached) and `start`. `install`
+writes a new token, so rerun `migrate` for every client and workspace, and run
+`auto-update enable` again if you used it.
 
 ### Client rollback and uninstall
 

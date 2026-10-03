@@ -11,6 +11,8 @@ cloud session follows.
 The [Issue agent](#issue-agent) section is the maintained setup and operations
 reference for the cloud issue agent that runs
 [flows/issue-agent.md](../flows/issue-agent.md).
+The [Eval routine](#eval-routine) section defines the routine that the
+[A/B eval flow](../flows/ab-eval.md) creates and fires.
 [Changing a routine](#changing-a-routine) applies to every routine.
 [Cloud environment with Agents-Core](#cloud-environment-with-agents-core) sets up
 an environment whose sessions have the MCP server connected.
@@ -74,8 +76,8 @@ The explicit Workflow opt-in matters: a session only fans out through Workflow w
 prompt asks for it. The `ultracode` keyword opts the whole session into orchestration,
 so its paragraph confines it to the runbook's three fan-outs: agents that re-judge or
 edit cases and answers would change what the sweep measures. "Do not route" matters
-too, because the repository's CLAUDE.md tells every session to route through
-Agents-Core, which is not connected in the default cloud environment.
+too: the repository's CLAUDE.md tells every session to route through Agents-Core,
+and this measurement must not route even where the environment connects it.
 
 Routine and environment ids are account-specific and are not kept in this public
 repository. Find them with `RemoteTrigger` `list` (the routine used for the sweep is
@@ -254,17 +256,22 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
 1. Clones the repository into `~/.agents-core`, or lets `install.sh` fast-forward an
    existing checkout.
 2. Seeds `.env` with `EMBEDDING_MODEL` and `AGENTS_AUTO_UPDATE=0`, keeping keys that
-   are already set; the verification in step 6 fails if `.env` still enables
-   auto-update.
+   are already set. A `.env` that names no model also gets
+   `EMBEDDING_MODEL_GENERATION` from `src/model_migration.py`, so the
+   [model switch](../README.md#model-switch-on-update) keeps the seeded model. The
+   verification in step 6 fails if `.env` still enables auto-update.
 3. Runs `install.sh --skip-index`, which installs the dependencies, registers
    Agents-Core as a user-scope stdio server in `~/.claude.json` and writes the
    protocol 2 section to `~/.claude/CLAUDE.md`.
 4. Downloads the embedding model, then builds the indexes with
-   `python -m src.reindex`. The order matters: the index fingerprint includes the
-   model revision from the model cache, so indexes built before the download
-   would be rebuilt by the server on its first start.
-5. Writes a marked block to git's global excludes (`~/.config/git/ignore` unless
-   `core.excludesFile` names another file; a symlinked file stays a symlink) with
+   `python -m src.reindex`. For a model without a pinned copy, such as MiniLM-L12,
+   the order matters: its index fingerprint includes the model revision from the
+   model cache, so indexes built before the download would be rebuilt by the
+   server on its first start. The default model's fingerprint uses its pinned
+   export revision (`src/engine/embedding_prompts.py`).
+5. Writes a marked block to git's global excludes (`$XDG_CONFIG_HOME/git/ignore`,
+   by default `~/.config/git/ignore`, unless `core.excludesFile` names another
+   file; a symlinked file stays a symlink) with
    the files Agents-Core can leave in a client repository's root: `history.md`
    with its lock, rotation and monthly `history/YYYY-MM.md` archives, and the
    hash (`data/memory/.describe_hash`), locks and temporary files of
@@ -299,16 +306,17 @@ server, so the setup fails when they differ from it. Do not set them in the
 environment's **Environment variables** field either: sessions pass those to the
 server, and the setup cannot check them unless they also reach the setup script. The default is
 `microsoft/harrier-oss-v1-270m`, the installer's default, an about 1.1 GB download
-whose index build took about 90 seconds on 4 CPUs (not yet measured in a session
-VM), so check that setup still finishes within the cache limit below; set
+(its setup time is not yet measured in a session VM), so check that setup still
+finishes within the cache limit below; set
 `AGENTS_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 for a 241 MB model that indexes in seconds. A rerun moves an `.env` that names an
 older model to the default once ([model switch](../README.md#model-switch-on-update)).
 
 **Cache and updates.** The environment is cached only when setup finishes within
-about five minutes. On 2026-10-03 the setup script took 47 to 51 seconds in new
-sessions of an environment configured as above, and a full local run, including
-the 241 MB model download, took 66 to 76 seconds. The next session started from
+about five minutes. On 2026-10-03, with the earlier default
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, the setup script
+took 47 to 51 seconds in new sessions of an environment configured as above, and
+a full local run, including that model's 241 MB download, took 66 to 76 seconds. The next session started from
 the cache (`resume-cached` in `/tmp/environment-manager.out`) without running the
 script, about six seconds after it was created, with the server connected. The cache is rebuilt when the
 environment's setup-script field or allowed hosts change, not when the downloaded
@@ -317,14 +325,15 @@ after about seven days, or earlier when the field changes, for example by editin
 a comment line in it. The standalone auto-updater stays off, because each session starts
 from the snapshot and would fetch and rebuild indexes in every new VM.
 
-**In a session.** Verified on 2026-10-03 in new and cached sessions of such an
-environment: Claude Code listed Agents-Core as a connected user-scope server with
+**In a session.** Verified on 2026-10-03, with that model, in new and cached
+sessions of such an environment: Claude Code listed Agents-Core as a connected user-scope server with
 its 16 tools, `load_implants` returned implants, and the protocol section from
 `~/.claude/CLAUDE.md` was in the session's context. In a scratch repository
 without ignore rules, the global excludes hid every memory file and nothing else;
 `tests/test_setup_cloud_env.py` checks the same. The server
-behaves as in a local client, whichever repository the session works on, so a
-routine that runs in this environment can drop "do not route" from its prompt.
+behaves as in a local client, whichever repository the session works on. The
+ablation runbook and the issue agent flow still say not to route, even where the
+environment connects Agents-Core.
 What the server writes during a session, such as `history.md` and the routing
 cache, lives only as long as the session VM. The routing cache therefore starts
 empty in each session, and `route_and_load` returns `ROUTE_REQUIRED` with the
@@ -471,8 +480,8 @@ its tests exercise both that installed workflow and the reusable template.
    its login and numeric user ID before pinning `AGENT_OWNER` and
    `AGENT_OWNER_ID` in the routine prompt. For the GitHub.com `WonderMr` account,
    the verified numeric ID is `5370211`; other installations must verify their
-   own owner. The prompt says that Agents-Core MCP is unavailable (do not route;
-   before each flow it calls, load the persona that flow declares from the
+   own owner. The prompt says not to route through Agents-Core, even where the
+   environment connects it (before each flow it calls, load the persona that flow declares from the
    Agents-Core default branch, see
    [flows without MCP](../flows/README.md#without-agents-core-mcp)),
    explicitly allows multi-agent orchestration, ends with an `Ultracode`
@@ -551,14 +560,18 @@ delete or the collapse is refused, the job log shows a warning, the run itself
 is unaffected, and the comment stays visible.
 
 The cloud session reaches GitHub through its GitHub MCP tools (issues, labels,
-pull requests, reviews), acting as the owner's account; `gh` is not installed.
+pull requests, reviews), acting as the owner's account. `gh` is preinstalled in
+cloud sessions, but on 2026-10-03 the session's GitHub proxy refused GraphQL, so
+`gh pr view` and `gh repo view` failed while REST calls through
+`gh api repos/{owner}/{repo}/...` worked.
 Because the agent's comments appear under the owner's login, each one starts with
 an `<!-- issue-agent` marker and never with `/agent`. Its first visible line is
 the `**Claude issue agent**` header, so readers can tell it from the owner's own
 words; only a request addressed to a review bot omits it. Such comments cannot
 start a routine; only the exact completion marker
-invokes reaction cleanup. Routine runs count against the account's daily routine
-allowance.
+invokes reaction cleanup. Routine runs draw down the account's subscription usage,
+and API fires have hourly limits per routine and per account
+([routines](https://code.claude.com/docs/en/routines#usage-and-limits)).
 
 **Connector identity checks.** Cloud GitHub tools can omit an author's `type`.
 The cloud flow requires the referenced comment's exact pinned owner login and
