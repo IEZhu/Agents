@@ -428,3 +428,64 @@ def test_a_persona_save_cannot_cancel_a_navigation_that_is_still_loading():
     # The stale save answered while Beta loads: actions stay disabled, Alpha is not restored.
     assert steps["stale_save_answered"] == {"title": "Alpha", "save_disabled": True, "reset_disabled": True}
     assert steps["after_navigation"] == {"title": "Beta", "save_disabled": False, "reset_disabled": True}
+
+
+# --- Agents tab ----------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def agents():
+    return run("agents")
+
+
+def test_the_agents_tab_comes_right_after_flows():
+    html, _, _ = page_parts()
+    assert re.findall(r'<button data-tab="([a-z]+)"[^>]*>([A-Za-z]+)</button>', html) == [
+        ("flows", "Flows"), ("agents", "Agents"), ("rules", "Rules"), ("skills", "Skills"), ("implants", "Implants")]
+
+
+def test_the_agents_tab_lists_display_names_with_their_roles_in_id_order(agents):
+    listed = agents["list"]
+    assert listed["list"] == ["Agents (3)", "Alpha Agent", "Beta Agent", "Gamma Agent"]
+    assert listed["roles"] == ["Plans releases", "Draws screens", "gamma_agent"]  # the ID when the role is empty
+    assert listed["new_hidden"] is True
+
+
+def test_agents_are_found_by_a_routing_keyword_in_text_and_by_name(agents):
+    assert agents["keyword"] == {"list": ["Agents (3)", "Beta Agent [in text]"], "count": "1 of 3", "query": "wireframe"}
+    assert agents["rules_query"] == "" and agents["query_kept"] == agents["keyword"]
+    assert agents["by_name"] == {"list": ["Agents (3)", "Gamma Agent"], "count": "1 of 3", "query": "gamma_agent"}
+
+
+def test_an_agent_shows_its_facts_and_prompt_without_a_switch(agents):
+    alpha = agents["alpha"]
+    assert (alpha["title"], alpha["meta"], alpha["description"]) == ("Alpha Agent", "alpha_agent", "Plans releases")
+    assert alpha["facts"] == [["Tone", "Calm"], ["Trigger command", "/alpha"], ["Aliases", "/old_alpha, /legacy_alpha"],
+                              ["Routing keywords", "release"], ["Core skills", "skill-a"],
+                              ["Capable skills", "skill-b, skill-c"], ["Preferred implants", "implant-x"]]
+    assert alpha["tags"] == ["dt", "dd"]
+    assert alpha["hidden"] == {"toggle": True, "notice": True, "warning": True, "facts": False}
+    view = alpha["view"]
+    assert view["toc"] == ["md-toc-item md-l1:Identity", "md-toc-item md-l1:Protocol"] and not view["hidden"]
+    assert view["html"].startswith('<h2 id="md-identity">')  # no Metadata block: the body has no frontmatter
+    assert "&lt;script&gt;x&lt;/script&gt;" in view["html"] and "<script" not in view["html"]
+    assert alpha["source_hidden"] and alpha["body"] == "## Identity\n\nAlpha body <script>x</script>\n\n## Protocol\n\nSteps\n"
+    assert agents["alpha_source"] == {"view_hidden": True, "source_hidden": False}
+    assert agents["component_writes"] == []  # the hidden switch does nothing for an agent
+
+
+def test_rows_without_a_value_are_left_out(agents):
+    gamma = agents["gamma"]
+    assert gamma["facts"] == [["Tone", "Dry"], ["Trigger command", "/gamma"]]  # no Aliases, keywords or skills
+    assert gamma["description"] == "" and gamma["view"]["no_toc"]
+
+
+def test_another_tab_shows_its_switch_and_notice_again_and_hides_the_facts(agents):
+    skill = agents["skill"]
+    assert (skill["title"], skill["meta"]) == ("skill-a", "declared by alpha_agent (core)")
+    assert skill["hidden"] == {"toggle": False, "notice": False, "warning": False, "facts": True}
+
+
+def test_the_persona_picker_keeps_the_short_agent_listing(agents):
+    assert agents["agent_requests"] == ["/ui/api/agents?with_content=1", "/ui/api/agents?with_content=1", "/ui/api/agents"]
+    assert agents["persona_options"] == ["Alpha Agent (alpha_agent) = alpha_agent", "Beta Agent (beta_agent) = beta_agent",
+                                         "Gamma Agent (gamma_agent) = gamma_agent"]

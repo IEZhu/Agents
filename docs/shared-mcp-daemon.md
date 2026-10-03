@@ -289,7 +289,7 @@ A request sent during the stop window fails and can be retried. After
 .venv/bin/python -m src.daemon flows-ui --auto off  # require the one-use code and end every session (on restores the default)
 ```
 
-The daemon serves a local settings page at `/ui` with four tabs.
+The daemon serves a local settings page at `/ui` with five tabs.
 
 - **Flows** edit [personal and repository
   flows](../flows/README.md#personal-and-repository-flows). A User/System switch
@@ -308,6 +308,12 @@ The daemon serves a local settings page at `/ui` with four tabs.
   personal, stored in `flows/.user/personas/`, and never changes the flow's text;
   "Reset to flow default" restores the flow's frontmatter. Components switched
   off on the other tabs are marked "(off)" and still load when a flow names them.
+- **Agents** lists the same agents as the Persona panel: every
+  `agents/<name>/system_prompt.mdc` whose `identity.name` matches its directory,
+  by display name with the role below. An open agent shows its ID, role, tone,
+  trigger command, aliases when it has them, routing keywords, core, preferred and
+  capable skills, preferred implants and a read-only view of its prompt body. The
+  tab is read-only: agents have no switch, and their files are never changed.
 - **Rules**, **Skills** and **Implants** list every `rules/rule-*.mdc`,
   `skills/*.mdc` and `implants/*.mdc` with its description, a read-only view of its
   body (skills also show the agents that declare them and their tier, implants the
@@ -319,20 +325,24 @@ the list on the left scrolls (in the narrow layout, the list above the detail
 pane scrolls on its own, and the detail pane scrolls separately when its content is
 taller). Every tab has a search box above its list (`/` focuses it, `Esc` clears
 it). Matching is case-insensitive and every whitespace-separated term must
-appear. Items whose name (ID, title, short name) matches are listed first, then
-items that match only in their text (description and body; flow content), marked
+appear. Items whose name (ID, title, short name; an agent's ID and display name)
+matches are listed first, then items that match only in their text (description
+and body; flow content; an agent's role, routing keywords and prompt body), marked
 "in text" (on Flows, a repository heading is repeated for its text-only matches). While a query is active the box shows "N of M" for the visible
 category, the query is kept per tab, and the open item stays open when the query
 hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
-`content` field to every flow, including repository flows; without the parameter
-the response is unchanged.
+`content` field to every flow, including repository flows, and
+`GET /ui/api/agents?with_content=1` adds the fields the Agents tab shows and
+searches; without the parameter either response is unchanged (for agents, the
+`id`, `display_name` and `role` that the Persona panel uses).
 
 Markdown is shown rendered. A flow opens in a *Rendered* view with a
 *Rendered / Source* switch; editing happens in *Source*, which is the textarea
 that save, unsaved-change tracking and conflict detection keep using, so
 *Rendered* always shows the current unsaved text. New drafts, "Edit copy", a
-loaded history version and a save conflict open in *Source*. A rule, skill or
-implant body opens rendered, with *Source* showing the raw text. A leading
+loaded history version and a save conflict open in *Source*. A rule, skill,
+implant or agent body opens rendered, with *Source* showing the raw text (an
+agent's without its frontmatter, whose fields the tab lists). A leading
 frontmatter block is a collapsed "Metadata" section. When a document has
 headings (levels 1-4), a table of contents appears on its left and an entry
 scrolls the document to its heading. "Hide contents" hides it at once, even with the pointer

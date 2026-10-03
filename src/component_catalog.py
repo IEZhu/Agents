@@ -1,8 +1,11 @@
 """Read-only listing of agents, rules, skills and implants for the web UI.
 
-Every entry carries its ID, description, body and the current on/off state from
-``src.component_toggles``. Skills also list the agents that declare them (and in
-which tier), implants the agents that prefer them. Nothing here edits a file.
+Every rule, skill and implant entry carries its ID, description, body and the
+current on/off state from ``src.component_toggles``. Skills also list the agents
+that declare them (and in which tier), implants the agents that prefer them.
+Agents have no on/off state: an entry carries the agent's identity and, on
+request, its routing fields, skills by tier, preferred implants and prompt body.
+Nothing here edits a file.
 """
 from __future__ import annotations
 
@@ -85,15 +88,54 @@ def known_ids(kind: str) -> set[str]:
     return {item["id"] for item in list_components(kind)}
 
 
-def list_agents() -> list[dict]:
-    """Agents with a readable identity, sorted by name, for choosing a flow's persona."""
+def _text(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _strings(value) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _component_ids(value) -> list[str]:
+    return [item.removesuffix(".mdc") for item in _strings(value)]
+
+
+def _agent_content(meta: dict, identity: dict, body: str) -> dict:
+    """What the Agents tab shows; a value of the wrong type reads as empty."""
+    routing = meta.get("routing")
+    if not isinstance(routing, dict):
+        routing = {}
+    return {
+        "tone": _text(identity.get("tone")),
+        "trigger_command": _text(routing.get("trigger_command")),
+        "domain_keywords": _strings(routing.get("domain_keywords")),
+        "aliases": _strings(routing.get("aliases")),
+        "skills": {tier: _component_ids(meta.get(key)) for key, tier in _TIERS},
+        "implants": _component_ids(meta.get("preferred_implants")),
+        "body": body,
+    }
+
+
+def list_agents(with_content: bool = False) -> list[dict]:
+    """Agents with a readable identity, sorted by name.
+
+    Each entry has ``id``, ``display_name`` and ``role``, which the Persona picker
+    uses. ``with_content`` adds the tone, ``trigger_command``, ``domain_keywords``,
+    ``aliases``, ``skills`` by tier, preferred ``implants`` and the prompt ``body``
+    without frontmatter, for the Agents tab. Both modes list the same agents.
+    """
     agents = []
     for path in sorted(glob.glob(os.path.join(AGENTS_DIR, "*", "system_prompt.mdc"))):
         name = os.path.basename(os.path.dirname(path))
-        identity = _frontmatter(path)[0].get("identity")
-        if isinstance(identity, dict) and identity.get("name") == name:
-            agents.append({"id": name, "display_name": str(identity.get("display_name") or name),
-                           "role": str(identity.get("role") or "")})
+        meta, body = _frontmatter(path)
+        identity = meta.get("identity")
+        if not (isinstance(identity, dict) and identity.get("name") == name):
+            continue
+        agent = {"id": name, "display_name": str(identity.get("display_name") or name),
+                 "role": str(identity.get("role") or "")}
+        if with_content:
+            agent.update(_agent_content(meta, identity, body))
+        agents.append(agent)
     return agents
 
 
