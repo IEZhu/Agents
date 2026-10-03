@@ -153,6 +153,18 @@ def identical_other_arm(plan: dict, component: str, case_id: str, arm: str, text
     return other if plan.get(other, {}).get("ctx_sha256") == ctx_sha256(text) else None
 
 
+def record_failure(errors: list, component: str, case_id: str, error: str, arm: str | None) -> None:
+    """Record a case whose context could not be built.
+
+    A failed --arm rebuild also drops the case's "arms identical" record: the failure
+    says nothing about whether the arms still match, and the case is a build gap.
+    """
+    if arm:
+        errors[:] = [e for e in errors if not (e.get("component") == component and e.get("case") == case_id
+                                               and e.get("error") == IDENTICAL)]
+    errors.append({"component": component, "case": case_id, "error": error, **({"arm": arm} if arm else {})})
+
+
 def merge_build_meta(existing: dict, arm: str | None, meta: dict) -> dict:
     """build_meta.json content: the build's own meta, or one entry per arm for --arm builds.
 
@@ -311,7 +323,7 @@ async def main(run_dir: Path, only_arm: str | None = None) -> None:
                 built = {arm: await build(case["agent"], case["user_message"], component, arm)
                          for arm in ((only_arm,) if only_arm else ARMS)}
             except Exception as exc:  # one bad case must not stop the batch
-                errors.append({"component": component, "case": case["id"], "error": repr(exc), **arm_note})
+                record_failure(errors, component, case["id"], repr(exc), only_arm)
                 print(f"ERROR {component}/{case['id']}: {exc!r}", flush=True)
                 continue
             texts = {arm: f"# Operating context loaded for this conversation\n{prompt}\n\n{conversation_block(case)}"

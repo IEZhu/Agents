@@ -329,6 +329,14 @@ def test_an_arm_build_drops_the_entries_and_records_of_removed_cases():
     assert plan == {"t2": previous["t2"]} and kept == [errors[1]]
 
 
+def test_a_failed_arm_rebuild_is_a_build_gap_not_identical_arms():
+    errors = [{"component": "embed-x", "case": "c1", "arm": "with", "error": "arms identical", "ctx_sha256": "h"},
+              {"component": "embed-x", "case": "c2", "arm": "with", "error": "arms identical", "ctx_sha256": "h"}]
+    build_contexts.record_failure(errors, "embed-x", "c1", "RuntimeError('boom')", "without")
+    assert [(e["case"], e["error"]) for e in errors] == [("c2", "arms identical"), ("c1", "RuntimeError('boom')")]
+    assert errors[-1]["arm"] == "without"
+
+
 def _place(plan, errors, arm, text, other_built=True):
     """build_contexts.main's handling of one case of an --arm build, without the model."""
     written = build_contexts.place_arm(plan, errors, "embed-x", "c1", arm, text, other_built)

@@ -91,12 +91,15 @@ def test_pairs_left_out_upstream_are_reported_apart_from_identical_arms(tmp_path
     (run / "build_errors.json").write_text(json.dumps([
         {"component": "rule-x", "case": "r8", "error": "arms identical"},
         {"component": "rule-x", "case": "r7", "error": "other arm not built", "arm": "with"},
-        {"component": "rule-x", "case": "r7", "error": "boom", "arm": "without"}]))  # one case, two records
+        {"component": "rule-x", "case": "r7", "error": "boom", "arm": "without"},  # one case, two records
+        {"component": "rule-x", "case": "r6", "error": "arms identical"},
+        {"component": "rule-x", "case": "r6", "error": "boom", "arm": "with"}]))  # a failed rebuild is a gap
     result = compare.compare([run])
     summary = result["runs"][0]
-    assert (summary["missing"], summary["not_judged"], summary["not_built"], summary["identical"]) == (0, 1, 1, 1)
+    assert (summary["missing"], summary["not_judged"], summary["not_built"], summary["identical"]) == (0, 1, 2, 1)
     markdown = compare.to_markdown(result)
-    assert "| 0 | 1 | 1 | 1 |" in markdown and "Gaps:" in markdown
+    assert "| 0 | 1 | 2 | 1 |" in markdown and "Gaps:" in markdown
+    assert "| reasoning | +2 (1 / 0; 1) |" in markdown  # each run's cell carries its own case count
 
 
 def test_across_runs_scores_cases_and_keeps_controls_apart(tmp_path):

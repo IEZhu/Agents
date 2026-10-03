@@ -80,8 +80,8 @@ def load_run(run_dir: Path) -> dict:
         winners[(p["component"], p["case"])].append({"A": p["A"], "B": p["B"], "tie": "tie"}[verdict["winner"]])
     # Cases, not records: each --arm build can record its own error for one case.
     build_errors = _json_list(run_dir / "build_errors.json")
-    identical = {(e.get("component"), e.get("case")) for e in build_errors if e.get("error") == "arms identical"}
-    not_built = {(e.get("component"), e.get("case")) for e in build_errors} - identical
+    not_built = {(e.get("component"), e.get("case")) for e in build_errors if e.get("error") != "arms identical"}
+    identical = {(e.get("component"), e.get("case")) for e in build_errors} - not_built
     return {"name": run_dir.name, "groups": groups, "winners": dict(winners), "missing": missing,
             "not_judged": len(set(_json_list(run_dir / "judge_skipped.json"))),
             "not_built": len(not_built), "identical": len(identical)}
@@ -133,13 +133,13 @@ def to_markdown(result: dict) -> str:
     if any(run["missing"] or run["not_judged"] or run["not_built"] for run in result["runs"]):
         lines += ["", "Gaps: missing verdicts, pairs not judged and cases not built are left out of every "
                       "count and of the sign test, which then covers the judged cases only."]
-    lines += ["", "Net verdicts by group (robust with / without):", "",
+    lines += ["", "Net verdicts by group (robust with / without; judged cases):", "",
               "| Group | " + " | ".join(run["name"] for run in result["runs"]) + " |",
               "|---|" + "---|" * len(result["runs"])]
     for group in result["groups"]:
         cells = [run["groups"][group] for run in result["runs"]]
-        lines.append(f"| {group} ({cells[0]['cases']}) | " + " | ".join(
-            f"{c['net']:+d} ({c['robust_with']} / {c['robust_without']})" for c in cells) + " |")
+        lines.append(f"| {group} | " + " | ".join(
+            f"{c['net']:+d} ({c['robust_with']} / {c['robust_without']}; {c['cases']})" for c in cells) + " |")
     lines += ["", "| Across runs | cases | change better | worse | even | score | sign test p |",
               "|---|---:|---:|---:|---:|---:|---:|"]
     for name, s in result["across"].items():
