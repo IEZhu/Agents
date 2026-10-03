@@ -297,10 +297,13 @@ step waits for each answer from the server before it fails the setup.
 the setup's environment or in the registration's `env` override `.env` in the
 server, so the setup fails when they differ from it. Do not set them in the
 environment's **Environment variables** field either: sessions pass those to the
-server, and the setup cannot check them unless they also reach the setup script. The default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
-the installer's choice for the session VM's 16 GB of RAM. Full
-(`intfloat/multilingual-e5-large`) is a larger download and indexes more slowly,
-so check that setup still finishes within the cache limit below.
+server, and the setup cannot check them unless they also reach the setup script. The default is
+`microsoft/harrier-oss-v1-270m`, the installer's default, an about 1.1 GB download
+whose index build took about 90 seconds on 4 CPUs (not yet measured in a session
+VM), so check that setup still finishes within the cache limit below; set
+`AGENTS_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+for a 241 MB model that indexes in seconds. A rerun moves an `.env` that names an
+older model to the default once ([model switch](../README.md#model-switch-on-update)).
 
 **Cache and updates.** The environment is cached only when setup finishes within
 about five minutes. On 2026-10-03 the setup script took 47 to 51 seconds in new

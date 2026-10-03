@@ -46,6 +46,7 @@ def server_session(repo_root, activate):
         logging.getLogger(__name__).warning(
             "Auto-update disabled: shared installation locks are unavailable."
         )
+        _migrate_model(repo_root)
         yield
         return
 
@@ -77,6 +78,29 @@ def _activate(repo_root, session_fd):
     load_dotenv(os.path.join(repo_root, ".env"))
     from src.self_update import run_activation_safely
     run_activation_safely(session_fd)
+    # After activation: a prepared update was built for the model it recorded.
+    _migrate_model(repo_root)
+
+
+def _migrate_model(repo_root):
+    """Move .env to the current default embedding model once (src/model_migration.py).
+
+    Runs under the exclusive installation lease, so no running server shares
+    stores with a different model; without locks (Windows) at every start. A
+    failure keeps the configured model.
+    """
+    try:
+        from src.model_migration import migrate_env_file
+        switched = migrate_env_file(os.path.join(repo_root, ".env"))
+    except Exception:
+        logging.getLogger(__name__).warning("Embedding model migration failed; keeping the configured model",
+                                            exc_info=True)
+        return
+    if switched and "src.engine.config" in sys.modules:
+        # Activation imported the engine config with the previous model; the
+        # updater would also stage future updates for it. Start over with the new one.
+        from src.self_update import _reexec_updated_server
+        _reexec_updated_server()
 
 
 @contextmanager

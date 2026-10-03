@@ -257,6 +257,16 @@ echo   %GREEN%+%NC% All dependencies installed
 
 REM ============== Embedding Model Selection & Pre-indexing ==============
 
+REM An earlier install pinned the default of its time: move it to the current
+REM default once (src\model_migration.py); a model chosen after that stays.
+REM Runs with --skip-index too, so the server's next start re-embeds.
+if exist "%ENV_FILE%" (
+    pushd "%REPO_ROOT%"
+    "%VENV_PATH%\Scripts\python.exe" -m src.model_migration "%ENV_FILE%"
+    if errorlevel 1 echo   %YELLOW%WARNING:%NC% Embedding model migration failed, keeping the configured model
+    popd
+)
+
 if "%SKIP_INDEX%"=="true" (
     echo(
     echo   %GREEN%^>%NC% Skipping pre-indexing --skip-index
@@ -268,17 +278,13 @@ echo %CYAN%===============================%NC%
 echo %BLUE%  Embedding Model Selection and Pre-indexing%NC%
 echo %CYAN%===============================%NC%
 
-REM Check if model is already configured in .env (strip quotes, inline comments)
+REM Check if model is already configured in .env: every assignment form
+REM python-dotenv reads (export, quoted key), the last one wins.
 set "CURRENT_MODEL="
 if exist "%ENV_FILE%" (
-    for /f "tokens=1,* delims==" %%A in ('findstr /B /L "EMBEDDING_MODEL=" "%ENV_FILE%" 2^>nul') do set "CURRENT_MODEL=%%B"
-)
-REM Strip surrounding quotes and inline comments from CURRENT_MODEL
-if defined CURRENT_MODEL (
-    set "CURRENT_MODEL=!CURRENT_MODEL:"=!"
-    for /f "tokens=1 delims=#" %%X in ("!CURRENT_MODEL!") do set "CURRENT_MODEL=%%X"
-    REM Trim trailing spaces
-    for /l %%i in (1,1,5) do if "!CURRENT_MODEL:~-1!"==" " set "CURRENT_MODEL=!CURRENT_MODEL:~0,-1!"
+    pushd "%REPO_ROOT%"
+    for /f "delims=" %%M in ('""%VENV_PATH%\Scripts\python.exe" -m src.model_migration --print-model "%ENV_FILE%"" 2^>nul') do set "CURRENT_MODEL=%%M"
+    popd
 )
 
 if defined CURRENT_MODEL (
@@ -286,41 +292,25 @@ if defined CURRENT_MODEL (
     goto :model_selected
 )
 
-echo(
-echo   %CYAN%Select embedding model:%NC%
-echo(
-echo     %GREEN%1)%NC% Full     - intfloat/multilingual-e5-large                                    ~1.1 GB  1024d  multilingual
-echo                Best quality. For powerful machines (32+ GB RAM).
-echo(
-echo     %GREEN%2)%NC% Balanced - sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2       ~120 MB  384d   multilingual
-echo                Good quality, 9x lighter. For 16 GB machines. %GREEN%(Recommended)%NC%
-echo(
-echo     %GREEN%3)%NC% Light    - sentence-transformers/all-MiniLM-L6-v2                            ~22 MB   384d   English
-echo                Minimal footprint. English queries only.
-echo(
-
-set "MODEL_CHOICE=2"
-set /p "MODEL_CHOICE=  Choice [1/2/3] (default: 2): "
-
-if "!MODEL_CHOICE!"=="1" (
-    set "CURRENT_MODEL=intfloat/multilingual-e5-large"
-) else if "!MODEL_CHOICE!"=="3" (
-    set "CURRENT_MODEL=sentence-transformers/all-MiniLM-L6-v2"
-) else (
-    set "CURRENT_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-)
+REM One model for every machine: multilingual, ~1.1 GB download, ~0.9 GB loaded.
+set "CURRENT_MODEL=microsoft/harrier-oss-v1-270m"
 
 REM Write model to .env
 set "_TMPPY=%TEMP%\agents_set_model_%RANDOM%.py"
 (
-    echo import os
+    echo import os, sys
+    echo sys.path.insert(0, os.environ['REPO_ROOT']^)
+    echo from src.model_migration import GENERATION, GENERATION_KEY
     echo env_path = os.environ['ENV_FILE']
     echo new_model = os.environ['NEW_MODEL']
     echo lines = []
     echo if os.path.exists(env_path^):
     echo     with open(env_path, encoding='utf-8'^) as f:
-    echo         lines = [l for l in f.readlines(^) if not l.startswith('EMBEDDING_MODEL='^)]
+    echo         lines = [l for l in f.readlines(^) if not l.startswith(('EMBEDDING_MODEL=', GENERATION_KEY + '='^)^)]
+    echo if lines and not lines[-1].endswith('\n'^):
+    echo     lines[-1] += '\n'
     echo lines.append(f'EMBEDDING_MODEL={new_model}\n'^)
+    echo lines.append(f'{GENERATION_KEY}={GENERATION}\n'^)
     echo with open(env_path, 'w', encoding='utf-8'^) as f:
     echo     f.writelines(lines^)
 ) > "!_TMPPY!"

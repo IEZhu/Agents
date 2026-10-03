@@ -1,16 +1,18 @@
 # Shared MCP daemon operations
 
 A macOS LaunchAgent serves local MCP clients at `http://127.0.0.1:8765/mcp`.
-One Python process holds `intfloat/multilingual-e5-large`, the router, and shared
+One Python process holds the embedding model (`microsoft/harrier-oss-v1-270m` by
+default), the router, and shared
 indexes. Desktop Chat connects through `bridge/stdio.mjs` (Node 22+, no npm
 dependencies). MCP SDK 1.28.1 is pinned in `pyproject.toml`, `requirements.txt`,
 and `uv.lock`. The port above is the default; `install --port` can change it.
-Installation requires an existing e5-large snapshot under `FASTEMBED_CACHE_DIR`
-(default `~/.cache/fastembed`); `install` does not download the model.
-`scripts/init_repo.sh` caches it when you choose the Full model
-(`intfloat/multilingual-e5-large`). It asks only while `.env` has no
-`EMBEDDING_MODEL`, and `--yes` (used by `install.sh`) selects Full only with
-32 GB of RAM or more. `install` reads `FASTEMBED_CACHE_DIR` from the shell
+Installation requires the default model's plain-file copy under
+`FASTEMBED_CACHE_DIR` (default `~/.cache/fastembed`, then
+`local/microsoft--harrier-oss-v1-270m/<pinned revision>/` with its `.complete`
+marker); `install` does not download the model. `scripts/init_repo.sh` downloads
+it, since setup installs this one model on every machine. `install --model
+intfloat/multilingual-e5-large` pins a cached e5-large snapshot instead. See
+[Embedding model](#embedding-model) for the switch on update. `install` reads `FASTEMBED_CACHE_DIR` from the shell
 environment, not from `.env`, so export a custom cache directory before running
 it; the service then always uses the path recorded at installation.
 
@@ -208,7 +210,7 @@ and the [Claude Desktop MCP setup guide](https://modelcontextprotocol.io/docs/de
 
 After editing skills or implants in the installation, `restart` drains, stops
 and starts the service; its warmup rebuilds changed skill and implant indexes
-with the service's e5-large model before it reports ready. `clear-cache` clears only the
+with the service's pinned model before it reports ready. `clear-cache` clears only the
 process-local enriched-prompt cache (the HTTP counterpart of
 `clear_session_cache`), not the persistent routing cache in `router/` under the
 private state directory.
@@ -526,6 +528,33 @@ when skills or implants changed, and only one model is loaded at a time. The
 last outcome is in `auto-update.json` and the history in `auto-update.log`, both
 in the private state directory. `uninstall` also removes the updater.
 
+### Embedding model
+
+`service.json` pins the model by `model`, `model_path` and `model_artifact`,
+and records `model_generation`. A service installed before the current
+generation ([src/model_migration.py](../src/model_migration.py)) moves to
+`microsoft/harrier-oss-v1-270m` once, from e5-large or any other model, in an
+`update` transaction:
+
+1. While the service still serves, the controller downloads the pinned plain-file
+   copy (about 1.1 GB). A failed download changes nothing; the next `update` or
+   scheduled run retries it.
+2. After the drain, stop and file update, it saves `service.json` and the skill and
+   implant indexes in `rollback/` under the private state directory, writes the new
+   model into `service.json` and rebuilds the indexes with it, holding the
+   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 600 s; a
+   full harrier build took about 90 s and peaked near 2.8 GB).
+3. Probation starts the service on the new model. When it fails, the transaction
+   restores the previous `service.json`, indexes and code and starts the service
+   again; `recover` does the same after an interrupted switch.
+
+Histories re-embed and the router cache resets on first use. With automatic
+updates enabled, the first scheduled run after the update that brought this code
+switches the model even without a new commit, once the service is idle. Without
+them, run `update` once more after the update that brought this code: the
+running controller is still the previous version during that update. A model
+chosen after the switch stays: reinstall with `install --model ...`.
+
 ### Client rollback and uninstall
 
 `migrate` reports its private backup directory. To roll back client migration,
@@ -557,8 +586,8 @@ retains backups, the registry, and history.
 Test isolation and model selection are described in
 [tests/README.md](../tests/README.md#isolation-and-resource-use). Unless
 `EMBEDDING_MODEL` is set in the environment or the checkout's `.env`, tests use
-the engine default `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`,
-not the daemon's fixed e5-large model.
+the engine default `microsoft/harrier-oss-v1-270m` (about 1.1 GB on first use),
+which is also the service's default.
 
 Run the suite from a checkout with `tests/conftest.py` and its development dependencies:
 
@@ -575,7 +604,8 @@ alongside another embedding process. See [tests/README.md](../tests/README.md)
 for environment setup.
 
 Fast transport, controller, and configuration tests do not load the model. Smoke
-tests require the e5-large model at `~/.cache/fastembed`, use port `18765`, one
+tests require the default model's plain-file copy under `FASTEMBED_CACHE_DIR`
+(default `~/.cache/fastembed`), use port `18765`, one
 temporary daemon, and isolated projects. They can still rebuild derived indexes
 in the installation checkout, so run them in a dedicated checkout rather than a
 live installation. They cover 20 clients, memory, digest and identity checks,

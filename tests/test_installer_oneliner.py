@@ -124,32 +124,13 @@ def test_missing_git_fails_clearly(tmp_path, upstream):
     assert "git is required" in result.stderr
 
 
-@pytest.mark.parametrize("gb_kb,expected", [(64 * 1024 * 1024, "1"), (16 * 1024 * 1024, "2"),
-                                             (8 * 1024 * 1024, "3"), (16 * 1024 * 1024 - 400000, "2"), (32 * 1024 * 1024 - 800000, "1")])
-def test_ram_to_model_choice(tmp_path, gb_kb, expected):
-    source = (ROOT / "scripts/init_repo.sh").read_text()
-    start = source.index("detect_default_model_choice() {")
-    body = source[start:source.index("\n}\n", start) + 3]
-    meminfo = tmp_path / "meminfo"
-    meminfo.write_text(f"MemTotal:       {gb_kb} kB\n")
-    body = body.replace("/proc/meminfo", str(meminfo))
-    out = subprocess.run([BASH, "-c", body + "\ndetect_default_model_choice"],
-                         capture_output=True, text=True, check=True).stdout.strip()
-    assert out == expected
-
-
-def test_ram_to_model_choice_sysctl(tmp_path):
-    source = (ROOT / "scripts/init_repo.sh").read_text()
-    start = source.index("detect_default_model_choice() {")
-    body = source[start:source.index("\n}\n", start) + 3]
-    body = body.replace("/proc/meminfo", str(tmp_path / "missing-meminfo"))
-    sysctl = tmp_path / "sysctl"
-    sysctl.write_text("#!/bin/sh\nprintf '%s\\n' 68719476736\n")
-    sysctl.chmod(0o755)
-    out = subprocess.run([BASH, "-c", body + "\ndetect_default_model_choice"],
-                         capture_output=True, text=True, check=True,
-                         env=dict(os.environ, PATH=str(tmp_path))).stdout.strip()
-    assert out == "1"
+def test_init_repo_installs_one_embedding_model_without_asking():
+    for name in ("init_repo.sh", "init_repo.bat"):
+        source = (ROOT / "scripts" / name).read_text()
+        assert "detect_default_model_choice" not in source and "MODEL_CHOICE" not in source
+        assert "all-MiniLM-L6-v2" not in source and "multilingual-e5-large" not in source
+        assert source.count("microsoft/harrier-oss-v1-270m") == 1
+        assert "src.model_migration" in source  # an older .env moves to it on rerun
 
 
 def test_init_repo_documents_yes_flag():

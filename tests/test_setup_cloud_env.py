@@ -111,7 +111,7 @@ mcp.run()
 '''
 BEGIN = "# >>> Agents-Core repository memory (scripts/setup_cloud_env.sh) >>>"
 END = "# <<< Agents-Core repository memory <<<"
-BALANCED = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DEFAULT = "microsoft/harrier-oss-v1-270m"
 # Every file Agents-Core can leave in a client repository (src/memory/).
 MEMORY_FILES = ["history.md", ".history.md.lock", "history.md.rotating", "history/2026-10.md",
                 "history/2026-10.md.tmp", "data/memory/.describe_hash",
@@ -143,6 +143,7 @@ def upstream(tmp_path):
     (repo / "src").mkdir()
     shutil.copy(ROOT / "install.sh", repo / "install.sh")
     shutil.copy(ROOT / "src/client_paths.py", repo / "src/client_paths.py")
+    shutil.copy(ROOT / "src/model_migration.py", repo / "src/model_migration.py")
     for helper in ("scripts/_helpers/inject_claude_md.py", "scripts/templates/routing-protocol-core.md"):
         (repo / helper).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / helper, repo / helper)
@@ -186,7 +187,9 @@ def test_fresh_setup_seeds_env_and_verifies(tmp_path, upstream):
     assert result.returncode == 0, result.stderr
     checkout = tmp_path / "home/.agents-core"
     assert (checkout / "ran.txt").read_text().strip() == "init:--yes --skip-index"
-    assert env_values(checkout) == {"EMBEDDING_MODEL": BALANCED, "AGENTS_AUTO_UPDATE": "0"}
+    # The generation marks the seeded model as chosen, so model_migration keeps it.
+    assert env_values(checkout) == {"EMBEDDING_MODEL_GENERATION": "2", "EMBEDDING_MODEL": DEFAULT,
+                                    "AGENTS_AUTO_UPDATE": "0"}
     assert (tmp_path / "home/.claude").is_dir()
     recorded = calls(checkout)
     assert "dotenv_values" in recorded[0] and "embed_texts" in recorded[1]
@@ -246,7 +249,7 @@ def test_disabled_registration_fails(tmp_path, upstream):
 
 
 @pytest.mark.parametrize("override, passes", [
-    ({"EMBEDDING_MODEL": "other/model"}, False), ({"EMBEDDING_MODEL": BALANCED}, True),
+    ({"EMBEDDING_MODEL": "other/model"}, False), ({"EMBEDDING_MODEL": DEFAULT}, True),
     ({"AGENTS_AUTO_UPDATE": "1"}, False), ({"AGENTS_AUTO_UPDATE": "0"}, True),
 ], ids=["model-conflicting", "model-matching", "auto-update-on", "auto-update-off"])
 def test_registration_env_must_match_env_file(tmp_path, upstream, override, passes):
@@ -298,7 +301,7 @@ def test_rerun_keeps_edits_and_replaces_excludes_block(tmp_path, upstream):
     ignore.write_text("*.swp\n" + ignore.read_text() + "*.bak")
     checkout = tmp_path / "home/.agents-core"
     env_file = checkout / ".env"
-    env_file.write_text(env_file.read_text().replace(BALANCED, "intfloat/multilingual-e5-large"))
+    env_file.write_text(env_file.read_text().replace(DEFAULT, "intfloat/multilingual-e5-large"))
     result = run_setup(tmp_path, upstream, {"AGENTS_EMBEDDING_MODEL": "other/model"})
     assert result.returncode == 0, result.stderr
     assert env_values(checkout)["EMBEDDING_MODEL"] == "intfloat/multilingual-e5-large"
@@ -389,19 +392,28 @@ def test_exported_model_seeds_a_new_env(tmp_path, upstream):
     assert env_values(tmp_path / "home/.agents-core")["EMBEDDING_MODEL"] == "intfloat/multilingual-e5-large"
 
 
+def test_env_that_already_names_a_model_gets_no_generation(tmp_path, upstream):
+    # Left to init_repo.sh's model_migration, which moves it to the default once.
+    checkout = tmp_path / "home/.agents-core"
+    git("clone", "-q", str(upstream), str(checkout))
+    (checkout / ".env").write_text("EMBEDDING_MODEL=intfloat/multilingual-e5-large\n")
+    assert run_setup(tmp_path, upstream).returncode == 0
+    assert "EMBEDDING_MODEL_GENERATION" not in env_values(checkout)
+
+
 def test_exported_model_conflicting_with_env_fails(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": "intfloat/multilingual-e5-large"})
     assert result.returncode != 0
-    assert f"sets {BALANCED}; make them match" in result.stderr
-    assert run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": BALANCED}).returncode == 0
+    assert f"sets {DEFAULT}; make them match" in result.stderr
+    assert run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": DEFAULT}).returncode == 0
 
 
 def test_last_env_assignment_decides_the_model(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     env_file = tmp_path / "home/.agents-core/.env"
     env_file.write_text(env_file.read_text() + "EMBEDDING_MODEL=other/model\n")
-    result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": BALANCED})
+    result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": DEFAULT})
     assert result.returncode != 0
     assert "sets other/model; make them match" in result.stderr
 

@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # Set for a run, not on import: tests import this module, and the settings would
 # otherwise leak into every test that runs after them.
 RUN_ENV = {"LANGFUSE_TRACING_ENABLED": "false", "AGENTS_AUTO_UPDATE": "0",
-           "EMBEDDING_MODEL": "intfloat/multilingual-e5-large"}
+           "EMBEDDING_MODEL": "microsoft/harrier-oss-v1-270m"}
 
 
 PROMPT_SOURCES = ("agents", "skills", "implants", "rules", "src", "evals/ablation", "evals/runners")

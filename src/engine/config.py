@@ -279,7 +279,10 @@ def get_debug_log_dir() -> str:
 
 # --- Embedding / model config ------------------------------------------------
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+# The default lives in src/model_migration.py, which moves installed models to it once.
+from src.model_migration import DEFAULT_MODEL as DEFAULT_EMBEDDING_MODEL  # noqa: E402
+
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "").strip() or DEFAULT_EMBEDDING_MODEL
 
 # fastembed cache — persistent by default (macOS launchd wipes /tmp during long downloads).
 # A blank value (the uncommented `FASTEMBED_CACHE_DIR=` line from env.example)
@@ -358,6 +361,9 @@ KEYWORD_UNIQUENESS_RATIO = 2.0
 #   skills  0.39–0.63  → threshold 0.75 (comfortable margin)
 #   implants 0.52–0.72 → threshold 0.85 (implant descriptions are more
 #                         abstract, so distances run ~0.1 higher)
+# With the default harrier-oss-v1-270m (median top-1 skill distance 0.56–0.59)
+# and e5-large (0.19), almost every gold skill and implant passes both cutoffs,
+# so they rarely gate; measured in issue #160.
 SKILLS_RELEVANCE_THRESHOLD = _float_env("SKILLS_RELEVANCE_THRESHOLD", 0.75)
 IMPLANTS_RELEVANCE_THRESHOLD = _float_env("IMPLANTS_RELEVANCE_THRESHOLD", 0.85)
 MAX_PREFERRED_IMPLANTS = 5

@@ -32,8 +32,7 @@
 #   AGENTS_REPO_URL         repository to clone     [https://github.com/IEZhu/Agents.git]
 #   AGENTS_BRANCH           branch to install       [main]
 #   AGENTS_EMBEDDING_MODEL  EMBEDDING_MODEL for a .env that has none [an exported
-#                           EMBEDDING_MODEL, else
-#                           sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2]
+#                           EMBEDDING_MODEL, else microsoft/harrier-oss-v1-270m]
 #   AGENTS_SETUP_VERIFY_TIMEOUT  seconds to wait for each server answer in the
 #                           verification step [360]
 #
@@ -51,7 +50,7 @@ main() {
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
     local repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
     local branch="${AGENTS_BRANCH:-main}"
-    local model="${AGENTS_EMBEDDING_MODEL:-${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}}"
+    local model="${AGENTS_EMBEDDING_MODEL:-${EMBEDDING_MODEL:-microsoft/harrier-oss-v1-270m}}"
     # The registration holds absolute paths; resolve a relative or ~ value now.
     case "$home_dir" in "~" | "~/"*) home_dir="$HOME${home_dir#"~"}" ;; esac
     case "$home_dir" in /*) ;; *) home_dir="$PWD/$home_dir" ;; esac
@@ -77,7 +76,16 @@ main() {
     if [ -s "$env_file" ] && [ -n "$(tail -c 1 "$env_file")" ]; then
         echo >> "$env_file"
     fi
-    local key value
+    # A model seeded here is a choice: the generation marker keeps
+    # src/model_migration.py (run by init_repo.sh) from replacing it, while an
+    # older .env that already names a model moves to the current default once.
+    local key value generation
+    if ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?('EMBEDDING_MODEL'|EMBEDDING_MODEL)[[:space:]]*=" "$env_file"; then
+        generation="$(sed -n 's/^GENERATION = \([0-9][0-9]*\).*/\1/p' "$home_dir/src/model_migration.py" 2>/dev/null || true)"
+        if [ -n "$generation" ] && ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?('EMBEDDING_MODEL_GENERATION'|EMBEDDING_MODEL_GENERATION)[[:space:]]*=" "$env_file"; then
+            printf 'EMBEDDING_MODEL_GENERATION=%s\n' "$generation" >> "$env_file"
+        fi
+    fi
     for key in EMBEDDING_MODEL AGENTS_AUTO_UPDATE; do
         value="$model"
         [ "$key" = AGENTS_AUTO_UPDATE ] && value=0

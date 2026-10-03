@@ -14,7 +14,9 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx
+from src.daemon.control import pin_model
 from src.daemon.state import write_json, atomic_private
+from src.model_migration import DEFAULT_MODEL, GENERATION
 from src.daemon.workspaces import WorkspaceRegistry
 
 
@@ -23,12 +25,10 @@ async def smoke(port=18765, soak=False):
     with tempfile.TemporaryDirectory(prefix="agents-daemon-smoke-") as temporary:
         base = Path(temporary)
         state = base / "state"; state.mkdir(mode=0o700)
-        cache = Path.home() / ".cache/fastembed/models--qdrant--multilingual-e5-large-onnx"
-        revision = (cache / "refs/main").read_text().strip()
-        config = {"installation": str(root), "port": port, "model": "intfloat/multilingual-e5-large",
-                  "model_cache": str(cache.parent), "path": os.environ["PATH"],
-                  "model_path": str(cache / "snapshots" / revision),
-                  "model_artifact": cache.name + ":" + revision}
+        cache = Path(os.environ.get("FASTEMBED_CACHE_DIR", "").strip() or "~/.cache/fastembed").expanduser()
+        config = {"installation": str(root), "port": port, "model": DEFAULT_MODEL,
+                  "model_cache": str(cache), "path": os.environ["PATH"], "model_generation": GENERATION,
+                  **pin_model(DEFAULT_MODEL, cache)}
         write_json(state / "service.json", config)
         token = secrets.token_urlsafe(48)
         atomic_private(state / "token", token)
