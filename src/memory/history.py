@@ -535,14 +535,15 @@ class HistoryStore:
         FastEmbed-backed defaults are loaded lazily.
         """
         with self._index_lock:
-            store = self.ensure_index(embed_texts=embed_texts)
-            if store.count() == 0:
-                return []
             if embed_query is None:
                 from src.engine.embedder import embed_query as _eq
                 embed_query = _eq
-
+            # Embed the query first: loading the model fixes the fingerprint
+            # ensure_index checks, so stored and query vectors share a snapshot.
             vec = embed_query(query)
+            store = self.ensure_index(embed_texts=embed_texts)
+            if store.count() == 0:
+                return []
             result = store.query(vec, n_results=limit)
             out: List[Dict[str, Any]] = []
             for i, eid in enumerate(result.ids):

@@ -393,6 +393,28 @@ class TestIncrementalIndex:
         assert [len(batch) for batch in embedded] == [4]
         assert marker.read_text().endswith(":newer-snapshot")
 
+    def test_search_loads_the_model_before_checking_the_index(self, tmp_path, writer, embedded, seeded, monkeypatch):
+        import src.engine.embedder as embedder
+
+        marker = tmp_path / "memory_data" / ".history_fingerprint"
+        fake = FakeEmbedder(["alpha", "beta", "gamma", "delta"])
+
+        def embed_query(text):
+            # The first query loads a snapshot newer than the cached fingerprint.
+            monkeypatch.setattr(embedder, "_model_fingerprint", "newer-snapshot")
+            return fake.embed_query(text)
+
+        def embed_texts(texts):
+            embedded.append(list(texts))
+            return fake.embed_texts(texts)
+
+        store = HistoryStore(history_path=writer.history_path, data_dir=str(tmp_path / "memory_data"))
+        results = store.search("alpha", limit=5, embed_query=embed_query, embed_texts=embed_texts)
+
+        assert [len(batch) for batch in embedded] == [3]
+        assert marker.read_text().endswith(":newer-snapshot")
+        assert results[0]["intent"] == "alpha"
+
     def test_interrupted_rebuild_does_not_vouch_for_saved_vectors(
         self, tmp_path, writer, search, embedded, seeded, monkeypatch
     ):
