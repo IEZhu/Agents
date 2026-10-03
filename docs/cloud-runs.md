@@ -224,21 +224,23 @@ the installer's choice for the session VM's 16 GB of RAM. Full
 so check that setup still finishes within the cache limit below.
 
 **Cache and updates.** The environment is cached only when setup finishes within
-about five minutes. On 2026-10-03 the setup script took 51 seconds in a new
-session of an environment configured as above; a full local run, including the
-241 MB model download, took 76 seconds. The cache is rebuilt when the
+about five minutes. On 2026-10-03 the setup script took 47 to 51 seconds in new
+sessions of an environment configured as above, and a full local run, including
+the 241 MB model download, took 66 to 76 seconds. The next session started from
+the cache (`resume-cached` in `/tmp/environment-manager.out`) without running the
+script, about six seconds after it was created, with the server connected. The cache is rebuilt when the
 environment's setup-script field or allowed hosts change, not when the downloaded
 script changes: a commit to `main` reaches new sessions when the cache expires
 after about seven days, or earlier when the field changes, for example by editing
 a comment line in it. The standalone auto-updater stays off, because each session starts
 from the snapshot and would fetch and rebuild indexes in every new VM.
 
-**In a session.** Verified on 2026-10-03 in a new session of such an environment:
-Claude Code listed Agents-Core as a connected user-scope server with its 16 tools,
-and the protocol section from `~/.claude/CLAUDE.md` was in the session's context.
-That session worked on this repository, whose own `.gitignore` covers the memory
-files; `tests/test_setup_cloud_env.py` checks the global excludes against a
-repository without such rules. The server
+**In a session.** Verified on 2026-10-03 in new and cached sessions of such an
+environment: Claude Code listed Agents-Core as a connected user-scope server with
+its 16 tools, `load_implants` returned implants, and the protocol section from
+`~/.claude/CLAUDE.md` was in the session's context. In a scratch repository
+without ignore rules, the global excludes hid every memory file and nothing else;
+`tests/test_setup_cloud_env.py` checks the same. The server
 behaves as in a local client, whichever repository the session works on, so a
 routine that runs in this environment can drop "do not route" from its prompt.
 What the server writes during a session, such as `history.md` and the routing
