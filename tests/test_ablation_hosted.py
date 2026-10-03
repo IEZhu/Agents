@@ -130,6 +130,12 @@ def test_a_probe_sends_the_token_limit_of_the_step_it_checks(monkeypatch, capsys
     assert sent["max_tokens"] == expected
 
 
+@pytest.mark.parametrize("flag", ["--concurrency", "--attempts", "--max-tokens"])
+def test_counts_must_be_positive(tmp_path, flag):
+    with pytest.raises(SystemExit):
+        hosted.main(["answer", str(_run(tmp_path)), "--model", "m", flag, "0"])
+
+
 def test_judge_instructions_follow_the_cloud_judge():
     text = hosted.judge_instructions()
     js = (HARNESS / "workflows" / "judges.js").read_text(encoding="utf-8")

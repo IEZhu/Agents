@@ -246,14 +246,21 @@ def openrouter_chat(model: str, max_tokens: int, *, sample: bool, reasoning: str
     return chat, settings
 
 
+def _positive(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"{value} is not a positive count")
+    return value
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("step", choices=("probe", "answer", "judge"))
     parser.add_argument("run_dir", type=Path, nargs="?")
     parser.add_argument("--model", required=True)
-    parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument("--attempts", type=int, default=3)
-    parser.add_argument("--max-tokens", type=int,
+    parser.add_argument("--concurrency", type=_positive, default=4)
+    parser.add_argument("--attempts", type=_positive, default=3)
+    parser.add_argument("--max-tokens", type=_positive,
                         help=f"default {ANSWER_MAX_TOKENS} for answers and {JUDGE_MAX_TOKENS} for verdicts; "
                              "a probe uses the default of the step it checks")
     parser.add_argument("--reasoning", choices=REASONING, default="low",
