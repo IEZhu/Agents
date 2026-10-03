@@ -106,6 +106,30 @@ def test_parse_verdict_takes_the_first_object():
         hosted.parse_verdict("no verdict here", 2)
 
 
+def test_parse_verdict_skips_braces_and_objects_that_are_not_the_verdict():
+    reply = "Considering {A} and {B}, here is {\"note\": 1} and then " + json.dumps(VERDICT)
+    assert hosted.parse_verdict(reply, 2) == VERDICT
+    with pytest.raises(ValueError):
+        hosted.parse_verdict("Only {prose} and {\"note\": 1}", 2)
+
+
+@pytest.mark.parametrize("flags, expected", [([], hosted.ANSWER_MAX_TOKENS), (["--judge"], hosted.JUDGE_MAX_TOKENS),
+                                             (["--max-tokens", "300"], 300)])
+def test_a_probe_sends_the_token_limit_of_the_step_it_checks(monkeypatch, capsys, flags, expected):
+    sent = {}
+
+    def fake_openrouter_chat(model, max_tokens, *, sample, reasoning):
+        sent["max_tokens"] = max_tokens
+
+        async def chat(messages, seed_key):
+            return "ready"
+        return chat, {"model": model, "max_tokens": max_tokens}
+
+    monkeypatch.setattr(hosted, "openrouter_chat", fake_openrouter_chat)
+    assert hosted.main(["probe", "--model", "m", *flags]) == 0
+    assert sent["max_tokens"] == expected
+
+
 def test_judge_instructions_follow_the_cloud_judge():
     text = hosted.judge_instructions()
     js = (HARNESS / "workflows" / "judges.js").read_text(encoding="utf-8")

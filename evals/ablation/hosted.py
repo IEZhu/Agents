@@ -40,6 +40,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 HEADER = "# Operating context loaded for this conversation\n"
 REASONING = ("off", "low", "medium", "high")
+# Output token limits per step; a probe checks the endpoint with the limit of its step.
+ANSWER_MAX_TOKENS, JUDGE_MAX_TOKENS = 12000, 8000
 
 
 def _module(name: str):
@@ -91,13 +93,25 @@ def judge_instructions() -> str:
 
 
 def parse_verdict(text: str, rubric_size: int) -> dict:
-    """A verdict object aggregate.py accepts, with each rubric item judged once; else ValueError."""
+    """A verdict object aggregate.py accepts, with each rubric item judged once; else ValueError.
+
+    The verdict is the first JSON object in the reply that passes those checks: a
+    model may write a `{` in prose before it, or append a closing fence, notes or a
+    second object after it.
+    """
     body = re.sub(r"^```(?:json)?\s*", "", text.strip())
-    start = body.find("{")
-    if start < 0:
-        raise ValueError("no JSON object in the reply")
-    # The first object only: some models append a closing fence, notes or a second object.
-    verdict, _ = json.JSONDecoder().raw_decode(body[start:])
+    decoder = json.JSONDecoder()
+    error = ValueError("no JSON object in the reply")
+    for brace in re.finditer(r"\{", body):
+        try:
+            verdict, _ = decoder.raw_decode(body, brace.start())
+            return _checked_verdict(verdict, rubric_size)
+        except ValueError as exc:  # json.JSONDecodeError is a ValueError too
+            error = exc
+    raise error
+
+
+def _checked_verdict(verdict, rubric_size: int) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         probe = Path(tmp) / "verdict.json"
         probe.write_text(json.dumps(verdict))
@@ -239,13 +253,16 @@ def main(argv=None) -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--attempts", type=int, default=3)
-    parser.add_argument("--max-tokens", type=int, help="default 12000 for answers, 8000 for verdicts")
+    parser.add_argument("--max-tokens", type=int,
+                        help=f"default {ANSWER_MAX_TOKENS} for answers and {JUDGE_MAX_TOKENS} for verdicts; "
+                             "a probe uses the default of the step it checks")
     parser.add_argument("--reasoning", choices=REASONING, default="low",
                         help="judge reasoning effort (answers use OPENROUTER_REASONING)")
     parser.add_argument("--judge", action="store_true", help="probe: send the judge settings instead of the answer ones")
     args = parser.parse_args(argv)
     if args.step == "probe":
-        chat, settings = openrouter_chat(args.model, args.max_tokens or 4000, sample=not args.judge,
+        max_tokens = args.max_tokens or (JUDGE_MAX_TOKENS if args.judge else ANSWER_MAX_TOKENS)
+        chat, settings = openrouter_chat(args.model, max_tokens, sample=not args.judge,
                                          reasoning=args.reasoning if args.judge else None)
         try:
             text = asyncio.run(chat([{"role": "user", "content": "Reply with the single word: ready"}], "probe"))
@@ -258,11 +275,12 @@ def main(argv=None) -> int:
         parser.error(f"{args.step} needs RUN_DIR")
     run_dir = args.run_dir.resolve()
     if args.step == "answer":
-        chat, settings = openrouter_chat(args.model, args.max_tokens or 12000, sample=True, reasoning=None)
+        chat, settings = openrouter_chat(args.model, args.max_tokens or ANSWER_MAX_TOKENS, sample=True, reasoning=None)
         record_step(run_dir, "answer", settings, any((run_dir / "answers").glob("*.md")))
         failed = asyncio.run(answer_run(run_dir, chat, concurrency=args.concurrency, attempts=args.attempts))
     else:
-        chat, settings = openrouter_chat(args.model, args.max_tokens or 8000, sample=False, reasoning=args.reasoning)
+        chat, settings = openrouter_chat(args.model, args.max_tokens or JUDGE_MAX_TOKENS, sample=False,
+                                         reasoning=args.reasoning)
         record_step(run_dir, "judge", settings, any((run_dir / "judge").glob("*.verdict.json")))
         failed = asyncio.run(judge_run(run_dir, chat, concurrency=args.concurrency, attempts=args.attempts))
     return 1 if failed else 0
