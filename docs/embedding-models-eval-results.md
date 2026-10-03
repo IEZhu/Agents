@@ -79,9 +79,10 @@ Per run, net verdicts were +7 for Opus, −5 and −4 for Gemma, −4 and −3 f
 - Adding e5's own prefixes changes little.
 - Better retrieval did not translate into measurably better answers. No model's
   answers changed significantly. Gemma and Qwen lean slightly against the harrier
-  contexts and Opus slightly towards them. The retrieval labels are proxies, and
-  answers depend little on which preferred and capable skills are added. The
-  evidence does not support switching the production model for answer quality.
+  contexts and Opus slightly towards them. Two explanations fit, neither tested:
+  the retrieval labels are proxies, or answers depend little on which preferred
+  and capable skills are added. The evidence does not support switching the
+  production model for answer quality.
 - Qwen3-Embedding-0.6B-Q is no better than e5 on implants and needs about three
   times the memory.
 
