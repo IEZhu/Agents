@@ -50,6 +50,12 @@ def test_split_context_returns_the_system_prompt_and_turns():
                         {"role": "user", "content": "Почему список копится?"}]
 
 
+def test_split_context_returns_turns_as_the_context_holds_them():
+    case = {**CASE, "history": [{"role": "user", "content": "  Привет \n"}], "user_message": "\nПочему?  "}
+    _system, turns = hosted.split_context(_context("SYSTEM", case), case)
+    assert [t["content"] for t in turns] == ["Привет", "Почему?"]
+
+
 def test_split_context_refuses_a_context_of_another_case():
     with pytest.raises(ValueError):
         hosted.split_context(_context("prompt", CASE), {**CASE, "user_message": "Другой вопрос"})

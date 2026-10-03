@@ -66,12 +66,16 @@ def load_cases(run_dir: Path) -> dict:
 
 
 def split_context(text: str, case: dict) -> tuple[str, list[dict]]:
-    """The system prompt and chat turns that a ctx file was built from."""
+    """The system prompt and chat turns that a ctx file was built from.
+
+    Turns are stripped as conversation_block writes them, so hosted models get the
+    same text as the cloud agents that read the ctx file.
+    """
     tail = "\n\n" + build_contexts.conversation_block(case)
     if not text.startswith(HEADER) or not text.endswith(tail):
         raise ValueError("context does not match its case; rebuild it with build_contexts.py")
-    turns = [{"role": t["role"], "content": t["content"]} for t in case.get("history") or []]
-    return text[len(HEADER):-len(tail)], turns + [{"role": "user", "content": case["user_message"]}]
+    turns = [{"role": t["role"], "content": t["content"].strip()} for t in case.get("history") or []]
+    return text[len(HEADER):-len(tail)], turns + [{"role": "user", "content": case["user_message"].strip()}]
 
 
 def judge_instructions() -> str:
