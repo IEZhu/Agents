@@ -1,0 +1,38 @@
+[
+ {
+  "component": "embed-model",
+  "case": "ru-meeting-slots",
+  "error": "arms identical",
+  "arm": "with"
+ },
+ {
+  "component": "embed-model",
+  "case": "ru-urn-probability",
+  "error": "arms identical",
+  "arm": "with"
+ },
+ {
+  "component": "embed-model",
+  "case": "ru-pushkin-meter",
+  "error": "arms identical",
+  "arm": "with"
+ },
+ {
+  "component": "embed-model",
+  "case": "ru-petersburg-quatrain",
+  "error": "arms identical",
+  "arm": "with"
+ },
+ {
+  "component": "embed-model",
+  "case": "ru-refund-letter",
+  "error": "arms identical",
+  "arm": "with"
+ },
+ {
+  "component": "embed-model",
+  "case": "en-refund-letter",
+  "error": "arms identical",
+  "arm": "with"
+ }
+]

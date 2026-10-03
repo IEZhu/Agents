@@ -1,0 +1,21 @@
+{
+ "answer": {
+  "model": "google/gemma-4-31b-it",
+  "max_tokens": 12000,
+  "temperature": "0",
+  "routing": {
+   "require_parameters": true,
+   "order": [
+    "novita/bf16",
+    "deepinfra/bf16"
+   ],
+   "allow_fallbacks": false
+  },
+  "request_settings": {
+   "reasoning": "medium",
+   "seed": "7",
+   "seed_scheme": "identity-v1",
+   "grader_temperature": "0"
+  }
+ }
+}
