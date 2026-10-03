@@ -455,19 +455,21 @@ class TestIncrementalIndex:
         self, tmp_path, writer, search, embedded, seeded, monkeypatch
     ):
         import src.daemon.state as state_module
+        import src.engine.embedder as embedder
         import src.engine.fingerprint as fingerprint_module
 
         current = fingerprint_module.fingerprint()
-        monkeypatch.setattr(fingerprint_module, "fingerprint", lambda model=None: "other-model")
-        monkeypatch.setattr(state_module, "atomic_private", lambda *args: (_ for _ in ()).throw(OSError("crash")))
-        writer.append_entry("delta", "act", "out")
-        with pytest.raises(OSError):
-            search()
+        with monkeypatch.context() as crash:
+            crash.setattr(fingerprint_module, "fingerprint", lambda model=None: "other-model")
+            crash.setattr(state_module, "atomic_private", lambda *args: (_ for _ in ()).throw(OSError("crash")))
+            writer.append_entry("delta", "act", "out")
+            with pytest.raises(OSError):
+                search()
         assert not (tmp_path / "memory_data" / ".history_fingerprint").exists()
-        monkeypatch.undo()
         embedded.clear()
 
         assert fingerprint_module.fingerprint() == current
+        assert embedder._model_fingerprint is None  # class isolation still applies
         search()
 
         assert [len(batch) for batch in embedded] == [4]

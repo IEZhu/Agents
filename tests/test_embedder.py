@@ -162,11 +162,15 @@ def test_pinned_artifact_takes_precedence(model_cache, monkeypatch):
     from src.engine.fingerprint import compute_fingerprint
 
     _set_snapshot(model_cache, "only-revision")
+    unpinned = compute_fingerprint(embedder.EMBEDDING_MODEL)
     monkeypatch.setenv("AGENTS_MODEL_ARTIFACT", "pinned-artifact")
+    pinned = compute_fingerprint(embedder.EMBEDDING_MODEL)
+
     embedder._get_model()
 
-    assert embedder.model_fingerprint() == compute_fingerprint(embedder.EMBEDDING_MODEL, revision="other")
-    assert embedder.model_fingerprint() == compute_fingerprint(embedder.EMBEDDING_MODEL)
+    assert pinned != unpinned
+    assert embedder.model_fingerprint() == pinned
+    assert compute_fingerprint(embedder.EMBEDDING_MODEL, revision="other") == pinned
 
 
 def test_model_fingerprint_before_the_first_load(model_cache):
