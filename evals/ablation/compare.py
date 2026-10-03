@@ -15,7 +15,10 @@ a tie. A case's score sums its verdicts, and an exact two-sided sign test compar
 cases with a positive and a negative score, separately for controls; even cases
 drop out. Give runs of one answer model per call: the test assumes one model.
 Missing or malformed verdicts, including one that does not judge each of its case's
-rubric items once as aggregate.py requires, are counted and left out.
+rubric items once as aggregate.py requires, are counted and left out. So are pairs
+build_judges.py skipped (judge_skipped.json) and cases whose contexts were not built
+(build_errors.json); cases left out because both arms matched ("arms identical")
+are counted apart, as intended exclusions.
 """
 import argparse
 import importlib.util
@@ -49,6 +52,10 @@ def sign_test(positive: int, negative: int) -> float:
     return min(1.0, 2 * sum(comb(n, i) for i in range(k + 1)) / 2 ** n)
 
 
+def _json_list(path: Path) -> list:
+    return json.loads(path.read_text()) if path.exists() else []
+
+
 def load_run(run_dir: Path) -> dict:
     """Cases with their groups, and each verdict's winning arm per case."""
     groups = {}
@@ -71,7 +78,11 @@ def load_run(run_dir: Path) -> dict:
             missing += 1
             continue
         winners[(p["component"], p["case"])].append({"A": p["A"], "B": p["B"], "tie": "tie"}[verdict["winner"]])
-    return {"name": run_dir.name, "groups": groups, "winners": dict(winners), "missing": missing}
+    build_errors = _json_list(run_dir / "build_errors.json")
+    identical = sum(1 for error in build_errors if error.get("error") == "arms identical")
+    return {"name": run_dir.name, "groups": groups, "winners": dict(winners), "missing": missing,
+            "not_judged": len(_json_list(run_dir / "judge_skipped.json")),
+            "not_built": len(build_errors) - identical, "identical": identical}
 
 
 def run_summary(run: dict, group: str | None = None) -> dict:
@@ -103,17 +114,23 @@ def across_runs(runs: list[dict]) -> dict:
 def compare(run_dirs: list[Path]) -> dict:
     runs = [load_run(d) for d in run_dirs]
     groups = sorted({g for run in runs for g in run["groups"].values()}, key=lambda g: (g == CONTROL, g))
-    return {"runs": [{"name": run["name"], "missing": run["missing"], "all": run_summary(run),
+    return {"runs": [{"name": run["name"], "missing": run["missing"], "not_judged": run["not_judged"],
+                      "not_built": run["not_built"], "identical": run["identical"], "all": run_summary(run),
                       "groups": {g: run_summary(run, g) for g in groups}} for run in runs],
             "groups": groups, "across": across_runs(runs)}
 
 
 def to_markdown(result: dict) -> str:
-    lines = ["| Run | with | without | tie | net | robust with / without | missing |", "|---|---:|---:|---:|---:|---:|---:|"]
+    lines = ["| Run | with | without | tie | net | robust with / without | missing | not judged | not built | identical |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for run in result["runs"]:
         s = run["all"]
         lines.append(f"| {run['name']} | {s['with']} | {s['without']} | {s['tie']} | {s['net']:+d} | "
-                     f"{s['robust_with']} / {s['robust_without']} | {run['missing']} |")
+                     f"{s['robust_with']} / {s['robust_without']} | {run['missing']} | {run['not_judged']} | "
+                     f"{run['not_built']} | {run['identical']} |")
+    if any(run["missing"] or run["not_judged"] or run["not_built"] for run in result["runs"]):
+        lines += ["", "Gaps: missing verdicts, pairs not judged and cases not built are left out of every "
+                      "count and of the sign test, which then covers the judged cases only."]
     lines += ["", "Net verdicts by group (robust with / without):", "",
               "| Group | " + " | ".join(run["name"] for run in result["runs"]) + " |",
               "|---|" + "---|" * len(result["runs"])]

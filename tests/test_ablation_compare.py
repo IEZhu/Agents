@@ -85,6 +85,19 @@ def test_a_verdict_that_skips_a_rubric_item_counts_as_missing(tmp_path):
     assert summary["missing"] == 2 and summary["all"]["cases"] == 0  # both verdicts judge item 1 only
 
 
+def test_pairs_left_out_upstream_are_reported_apart_from_identical_arms(tmp_path):
+    run = _run(tmp_path, "r", {"r1": ("with", "with")})
+    (run / "judge_skipped.json").write_text(json.dumps(["rule-x/r9"]))
+    (run / "build_errors.json").write_text(json.dumps([
+        {"component": "rule-x", "case": "r8", "error": "arms identical"},
+        {"component": "rule-x", "case": "r7", "error": "other arm not built", "arm": "with"}]))
+    result = compare.compare([run])
+    summary = result["runs"][0]
+    assert (summary["missing"], summary["not_judged"], summary["not_built"], summary["identical"]) == (0, 1, 1, 1)
+    markdown = compare.to_markdown(result)
+    assert "| 0 | 1 | 1 | 1 |" in markdown and "Gaps:" in markdown
+
+
 def test_across_runs_scores_cases_and_keeps_controls_apart(tmp_path):
     first = _run(tmp_path, "one", {"r1": ("without", "without"), "r2": ("with", "tie"), "k1": ("with", "with")})
     second = _run(tmp_path, "two", {"r1": ("without", "tie"), "r2": ("with", "with"), "k1": ("without", "tie")})
