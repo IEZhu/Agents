@@ -44,7 +44,7 @@ claude.ai/code. Set these explicitly, because the defaults did not work:
 | model | `claude-opus-5-5` (or the model being evaluated) | the routine was first created without one and had to be updated; a routine without a model silently runs the default model (`Agents-issues` ran `claude-sonnet-5-5` until 2026-10-02, visible as `init: model=` in its run log) |
 | allowed tools | Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, **Agent, Workflow** | the runbook fans out through the Workflow tool; without Agent/Workflow the session cannot |
 | repository | this repository | the session clones it |
-| environment | the default cloud environment | see the egress note below |
+| environment | one that allows Hugging Face | see the egress note below |
 
 The routine's prompt as of 2026-10-02 (the sweep's batches ran an earlier version that
 checked out the sweep branch instead of `main`, and without the last paragraph):
@@ -81,9 +81,9 @@ repository. Find them with `RemoteTrigger` `list` (the routine used for the swee
 named "Agents-testing").
 
 **Egress.** Sessions in the default (Trusted) environment cannot reach
-huggingface.co. The runbook downloads the embedding model from fastembed's Google
-Cloud Storage mirror and points `AGENTS_MODEL_PATH` at it (step 1 of the runbook).
-That mirror answered `403 AccessDenied` on 2026-10-03, so run such evals in an
+huggingface.co. In 2026-09 the runbook downloaded the embedding model from
+fastembed's Google Cloud Storage mirror and pointed `AGENTS_MODEL_PATH` at it.
+That mirror answered `403 AccessDenied` on 2026-10-03, so the runbook now needs an
 environment that allows Hugging Face, as in
 [Cloud environment with Agents-Core](#cloud-environment-with-agents-core).
 
@@ -126,7 +126,7 @@ of 10 components with 2 cases each and for a re-test of about 5 components with 
 | Results of "remote" agents show a local `cwd`; no cloud usage | `isolation: "remote"` ran locally | use a routine |
 | Session clones but cannot push (403) | GitHub App not installed on the repository | install it for this repository |
 | Session cannot fan out | routine created without a model and without Agent/Workflow in allowed tools | set model and allowed tools explicitly |
-| Embedding model download fails | huggingface.co blocked | GCS mirror + `AGENTS_MODEL_PATH` (runbook step 1); the mirror answered 403 on 2026-10-03, so allow Hugging Face as in [Cloud environment with Agents-Core](#cloud-environment-with-agents-core) |
+| Embedding model download fails | huggingface.co blocked | in 2026-09, GCS mirror + `AGENTS_MODEL_PATH`; that mirror answered 403 on 2026-10-03, so allow Hugging Face as in [Cloud environment with Agents-Core](#cloud-environment-with-agents-core) |
 | (precaution) a session would try to route | CLAUDE.md asks every session to route; Agents-Core is not connected in the default cloud environment | "do not route" in the prompt, as above |
 | Some launches, and a `curl` inside a session, were denied by the auto-mode classifier | the classifier judged the command a bypass | not worked around in 2026-09: rephrase the request, or run that step yourself |
 | Cloud credit counter does not move | not established | check usage in the account settings before relying on included credits |

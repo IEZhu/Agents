@@ -244,6 +244,20 @@ def test_disabled_registration_fails(tmp_path, upstream):
     assert "Agents-Core is disabled in" in result.stderr
 
 
+@pytest.mark.parametrize("model, passes", [("other/model", False), (BALANCED, True)],
+                         ids=["conflicting", "matching"])
+def test_registration_env_model_must_match(tmp_path, upstream, model, passes):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    config = tmp_path / "home/.claude.json"
+    document = json.loads(config.read_text())
+    document["mcpServers"]["Agents-Core"]["env"] = {"EMBEDDING_MODEL": model}
+    config.write_text(json.dumps(document))
+    result = run_setup(tmp_path, upstream, {"STUB_SKIP_REGISTER": "1"})
+    assert (result.returncode == 0) is passes, result.stderr
+    if not passes:
+        assert "sets EMBEDDING_MODEL=other/model, but .env sets" in result.stderr
+
+
 def test_excludes_hide_only_memory_files(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     repo = tmp_path / "client"

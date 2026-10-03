@@ -35,19 +35,13 @@ available here and is not needed: do not route. Answer the user from these steps
    git fetch origin main && git checkout main && git merge --ff-only origin/main
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
-   The default cloud environment blocks huggingface.co, so fetch the embedding
-   model from fastembed's Google Cloud Storage copy and point the embedder at
-   it. That copy answered `403 AccessDenied` on 2026-10-03: in an environment
-   that allows Hugging Face
-   ([cloud environment setup](../../docs/cloud-runs.md#cloud-environment-with-agents-core)),
-   skip this download and leave `AGENTS_MODEL_PATH` unset, and fastembed fetches
-   the model itself. Otherwise export the variable in every shell that runs
-   `build_contexts.py`:
-   ```bash
-   mkdir -p /tmp/e5 && curl -sSfL https://storage.googleapis.com/qdrant-fastembed/fast-multilingual-e5-large.tar.gz | tar xz -C /tmp/e5
-   find /tmp/e5 -name '._*' -delete
-   export AGENTS_MODEL_PATH=/tmp/e5/fast-multilingual-e5-large
-   ```
+   The embedding model (`intfloat/multilingual-e5-large`, set by
+   `build_contexts.py`) downloads from Hugging Face on first use, so run the
+   batch in an environment that allows it
+   ([cloud environment setup](../../docs/cloud-runs.md#cloud-environment-with-agents-core));
+   the default cloud environment blocks huggingface.co. Leave `AGENTS_MODEL_PATH`
+   unset. The 2026-09 runs fetched fastembed's Google Cloud Storage copy instead,
+   which answered `403 AccessDenied` on 2026-10-03.
 2. **Pick the components and the run directory**
    ```bash
    IDS=$(python evals/ablation/components.py --batch 3)     # or the explicit ids

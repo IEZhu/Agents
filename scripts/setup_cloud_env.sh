@@ -199,6 +199,14 @@ if not entry or [os.path.realpath(arg) for arg in entry.get("args", [])] != [ser
     sys.exit(f"Agents-Core is not registered for {home} in {claude_json}: {entry!r}")
 if entry.get("disabled"):
     sys.exit(f"Agents-Core is disabled in {claude_json}; remove its \"disabled\" field")
+# The installer keeps a registration's env; a model set there would override
+# the one the indexes were built for.
+from dotenv import dotenv_values  # noqa: E402
+model = dotenv_values(os.path.join(home, ".env")).get("EMBEDDING_MODEL")
+registered = (entry.get("env") or {}).get("EMBEDDING_MODEL")
+if registered and registered != model:
+    sys.exit(f"the Agents-Core registration in {claude_json} sets EMBEDDING_MODEL={registered}, "
+             f"but .env sets {model}; make them match")
 protocol = read_text(template).rstrip()
 instructions = read_text(claude_md)
 if (not protocol or f"{MARKER_BEGIN}\n\n{protocol}\n\n{MARKER_END}" not in instructions
