@@ -11,13 +11,16 @@ Reports, overall and per language:
   * coverage and precision at the configured threshold: the share of queries whose
     nearest neighbour passes it (cache hits), and the share of hits with the right agent;
   * precision at fixed coverage (10/20/30/50%) with the similarity that gives it.
-    Similarity scales differ between models, so compare models at equal coverage and
-    pick a new model's threshold from these rows;
+    Queries tied with that similarity count as hits too, so the coverage reached can
+    exceed the target. Similarity scales differ between models, so compare models at
+    equal coverage and pick a new model's threshold from these rows;
   * cross-language neighbours: queries whose nearest neighbour is in another language.
 
 Texts come from the loader (inline `query` fields or a fetch); queries are embedded
-with `embed_query`, so the model's query prompt applies. Nothing is written to the
-data directory. Set EMBEDDING_MODEL to choose the model; the report names it.
+with `embed_query`, so the model's query prompt applies. The report counts each
+dataset's rows, drifted and failed fetches, and repeated queries, which are embedded
+once: a copy would be its own nearest neighbour. Nothing is written to the data
+directory. Set EMBEDDING_MODEL to choose the model; the report names it.
 
 Usage:
     python -m evals.runners.run_cache_routing
@@ -43,8 +46,15 @@ COVERAGES = (0.1, 0.2, 0.3, 0.5)
 
 
 def nearest(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Index and cosine similarity of each row's nearest other row."""
-    unit = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+    """Index and cosine similarity of each row's nearest other row.
+
+    A zero or non-finite vector has no direction and would make every similarity
+    NaN, so it is refused.
+    """
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    if not np.all(np.isfinite(norms) & (norms > 0)):
+        raise ValueError("every embedding needs a finite, non-zero norm")
+    unit = vectors / norms
     sims = unit @ unit.T
     np.fill_diagonal(sims, -np.inf)
     idx = sims.argmax(axis=1)
@@ -67,9 +77,14 @@ def cache_metrics(agents: list[str], languages: list[str], idx: np.ndarray, sim:
                "precision": _share(match[i] for i in hits), "at_coverage": {}}
         ranked = sorted(rows, key=lambda i: -sim[i])
         for coverage in COVERAGES:
-            top = ranked[:max(1, round(coverage * len(rows)))] if rows else []
-            out["at_coverage"][f"{coverage:.0%}"] = {
-                "precision": _share(match[i] for i in top), "similarity": float(sim[top[-1]]) if top else None}
+            entry = {"precision": None, "similarity": None, "coverage": None, "tied": 0}
+            if rows:
+                target = max(1, round(coverage * len(rows)))
+                cutoff = sim[ranked[target - 1]]
+                hits = [i for i in rows if sim[i] >= cutoff]
+                entry = {"precision": _share(match[i] for i in hits), "similarity": float(cutoff),
+                         "coverage": len(hits) / len(rows), "tied": len(hits) - target}
+            out["at_coverage"][f"{coverage:.0%}"] = entry
         return out
 
     every = list(range(len(agents)))
@@ -87,7 +102,8 @@ def _pct(value: float | None) -> str:
 
 def _cell(value: dict) -> str:
     similarity = "—" if value["similarity"] is None else f"{value['similarity']:.3f}"
-    return f"{_pct(value['precision'])} ({similarity})"
+    reached = f", {_pct(value['coverage'])} with ties" if value["tied"] else ""
+    return f"{_pct(value['precision'])} ({similarity}{reached})"
 
 
 def to_markdown(report: dict) -> str:
@@ -103,8 +119,37 @@ def to_markdown(report: dict) -> str:
         lines.append(f"| {name} | {block['queries']} | {_pct(block['nn_accuracy'])} | {_pct(block['coverage'])} | "
                      f"{_pct(block['precision'])} | " + " | ".join(cells) + " |")
     cross = report["sets"]["cross_language"]
-    lines += ["", f"Cross-language nearest neighbours: {cross['queries']}, with the right agent: {_pct(cross['nn_accuracy'])}."]
+    lines += ["", f"Cross-language nearest neighbours: {cross['queries']}, with the right agent: {_pct(cross['nn_accuracy'])}.",
+              "", "Loaded: " + "; ".join(
+                  f"{d['dataset']}: {d['total']} rows, {d['used']} used (drift {d['drift']}, "
+                  f"fetch errors {d['fetch_errors']})" for d in report["datasets"])
+              + f". Repeated queries left out: {report['repeated']}."]
     return "\n".join(lines)
+
+
+def _shown(path: Path) -> str:
+    return str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else str(path)
+
+
+def collect(paths: list[Path]) -> tuple[list, list[dict], int]:
+    """Labeled samples from each dataset once, per-dataset loader counts, and repeats left out."""
+    paths = [path.resolve() for path in paths]
+    if len(set(paths)) != len(paths):
+        raise SystemExit("each --dataset may be given only once")
+    samples, datasets, seen, repeated = [], [], set(), 0
+    for path in paths:
+        loaded, stats = load_samples(path)
+        usable = [s for s in iter_valid(loaded) if s.label.get("expected_agent")]
+        datasets.append({"dataset": _shown(path), "total": stats.total, "drift": stats.drift,
+                         "fetch_errors": stats.fetch_errors, "used": len(usable)})
+        for sample in usable:
+            key = " ".join(sample.query.split())
+            if key in seen:
+                repeated += 1
+                continue
+            seen.add(key)
+            samples.append(sample)
+    return samples, datasets, repeated
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,10 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="markdown report path")
     args = parser.parse_args(argv)
 
-    samples = []
-    for path in args.dataset or [ROUTING_JSONL]:
-        loaded, _stats = load_samples(path)
-        samples += [s for s in iter_valid(loaded) if s.label.get("expected_agent")]
+    samples, datasets, repeated = collect(args.dataset or [ROUTING_JSONL])
     if len(samples) < 2:
         raise SystemExit("need at least two labeled queries")
 
@@ -128,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     vectors = np.stack([embed_query(s.query) for s in samples])
     idx, sim = nearest(vectors)
     report = {"model": config.EMBEDDING_MODEL, "threshold": config.ROUTER_SIMILARITY_THRESHOLD,
-              "samples": len(samples),
+              "samples": len(samples), "datasets": datasets, "repeated": repeated,
               "sets": cache_metrics([s.label["expected_agent"] for s in samples],
                                     [s.label.get("language", "?") for s in samples], idx, sim,
                                     config.ROUTER_SIMILARITY_THRESHOLD)}
