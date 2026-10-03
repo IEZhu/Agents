@@ -59,6 +59,7 @@ esac
 """
 FAKE_SERVER = '''import json
 import os
+import time
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -67,6 +68,8 @@ mcp = FastMCP("Agents-Core")
 
 
 def answer():
+    if os.environ.get("FAKE_HANG"):
+        time.sleep(60)
     return json.dumps({"protocol_version": int(os.environ.get("FAKE_PROTOCOL_VERSION", "2")),
                        "status": os.environ.get("FAKE_ROUTE_STATUS", "ROUTE_REQUIRED"), "message": "fake"})
 
@@ -202,9 +205,10 @@ def test_fresh_setup_seeds_env_and_verifies(tmp_path, upstream):
     ({"FAKE_PROTOCOL_VERSION": "1"}, "route_and_load returned protocol 1"),
     ({"FAKE_ROUTE_STATUS": "ERROR"}, "route_and_load returned protocol 2, ERROR"),
     ({"FAKE_IMPLANTS": "Error loading implants: no model"}, "load_implants returned: Error loading implants"),
+    ({"FAKE_HANG": "1", "AGENTS_SETUP_VERIFY_TIMEOUT": "2"}, "Agents-Core server did not answer"),
 ], ids=["no-registration", "no-instructions", "truncated-instructions", "duplicate-instructions",
         "legacy-instructions", "old-route-schema", "old-context-schema", "protocol-1", "route-error",
-        "implants-error"])
+        "implants-error", "server-hangs"])
 def test_verification_failures_fail_setup(tmp_path, upstream, extra_env, message):
     result = run_setup(tmp_path, upstream, extra_env)
     assert result.returncode != 0
@@ -279,6 +283,26 @@ def test_failed_excludes_read_keeps_user_rules(tmp_path, upstream):
     result = run_setup(tmp_path, upstream, {"PATH": f"{fake_bin}:{os.environ['PATH']}"})
     assert result.returncode != 0
     assert ignore.read_text() == "*.swp\n"
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="as root, a regression would replace /dev/null")
+def test_dev_null_excludes_file_is_left_alone(tmp_path, upstream):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text("[core]\n\texcludesFile = /dev/null\n")
+    result = run_setup(tmp_path, upstream)
+    assert result.returncode == 0, result.stderr
+    assert "/dev/null is not a regular file" in result.stdout
+    assert Path("/dev/null").is_char_device()
+
+
+def test_rerun_keeps_excludes_file_mode(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    ignore = tmp_path / "home/.config/git/ignore"
+    ignore.chmod(0o600)
+    assert run_setup(tmp_path, upstream).returncode == 0
+    assert ignore.stat().st_mode & 0o777 == 0o600
 
 
 def test_model_override_for_new_env(tmp_path, upstream):

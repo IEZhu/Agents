@@ -204,7 +204,9 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
    the files Agents-Core can leave in a client repository's root: `history.md`
    with its lock, rotation and monthly `history/YYYY-MM.md` archives,
    `data/memory/`, and the locks and temporary files of `describe_repo`.
-   Patterns are anchored at the root, and each run replaces the block.
+   Patterns are anchored at the root, and each run replaces the block. When the
+   excludes path is not a regular file (for example `/dev/null`, which disables
+   global excludes), the step only prints a warning.
 6. Checks that `~/.claude/CLAUDE.md` holds exactly one routing section, as
    `inject_claude_md.py` writes it from the current template. It then starts the
    registered server over stdio and requires the protocol 2 parameters
@@ -218,10 +220,12 @@ Any failed step exits non-zero, so the session fails to start and no broken
 installation is cached. Correct the cause, usually the network list, in the
 environment's settings; the next new session runs the script again.
 
-**Options.** The script reads `AGENTS_HOME`, `AGENTS_REPO_URL`, `AGENTS_BRANCH` and
-`AGENTS_EMBEDDING_MODEL` from its environment. Set them on the `bash` side of the
+**Options.** The script reads `AGENTS_HOME`, `AGENTS_REPO_URL`, `AGENTS_BRANCH`,
+`AGENTS_EMBEDDING_MODEL` and `AGENTS_SETUP_VERIFY_TIMEOUT` from its environment. Set them on the `bash` side of the
 pipe, for example `... | AGENTS_BRANCH=my-branch bash`. To try a version of the
 script that is not on `main` yet, change `main` in the URL as well.
+`AGENTS_SETUP_VERIFY_TIMEOUT` (default 360) is how many seconds the verification
+step waits for each answer from the server before it fails the setup.
 `AGENTS_EMBEDDING_MODEL` applies only when `.env` has no `EMBEDDING_MODEL`. The
 default is Balanced (`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`),
 the installer's choice for the session VM's 16 GB of RAM. Full

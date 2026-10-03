@@ -33,6 +33,8 @@
 #   AGENTS_BRANCH           branch to install       [main]
 #   AGENTS_EMBEDDING_MODEL  EMBEDDING_MODEL for a .env that has none
 #                           [sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2]
+#   AGENTS_SETUP_VERIFY_TIMEOUT  seconds to wait for each server answer in the
+#                           verification step [360]
 #
 # The model downloads from Hugging Face, which the default Trusted network level
 # blocks: allow huggingface.co, *.huggingface.co, hf.co and *.hf.co.
@@ -114,21 +116,28 @@ from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
     begin="# >>> Agents-Core repository memory (scripts/setup_cloud_env.sh) >>>"
     end="# <<< Agents-Core repository memory <<<"
     mkdir -p "$(dirname "$excludes")"
-    touch "$excludes"
+    [ -e "$excludes" ] || : > "$excludes"
     # Replace the file a symlink points to (managed dotfiles keep their link),
-    # and only after the new content is complete.
+    # and only after the new content is complete; the copy keeps its mode.
+    # Anything but a regular file, such as /dev/null set to disable global
+    # excludes, is left alone.
     local target
     target="$(readlink -f -- "$excludes")"
-    {
-        awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$target"
-        printf '%s\n' "$begin" \
-            /history.md /.history.md.lock /history.md.rotating \
-            '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md' \
-            '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md.tmp' \
-            /data/memory/ /.agents-description.lock /.CLAUDE.md.lock '/.managed_section.*.tmp' \
-            "$end"
-    } > "$target.tmp"
-    mv "$target.tmp" "$target"
+    if [ -f "$target" ]; then
+        cp -p "$target" "$target.tmp"
+        {
+            awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$target"
+            printf '%s\n' "$begin" \
+                /history.md /.history.md.lock /history.md.rotating \
+                '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md' \
+                '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md.tmp' \
+                /data/memory/ /.agents-description.lock /.CLAUDE.md.lock '/.managed_section.*.tmp' \
+                "$end"
+        } > "$target.tmp"
+        mv "$target.tmp" "$target"
+    else
+        log "WARNING: git excludes file $excludes is not a regular file; repository-memory files are not excluded"
+    fi
 
     # 6. Verify what Claude Code reads (located as init_repo.sh does, through
     #    src/client_paths.py): the registration, and the routing section exactly
@@ -140,12 +149,14 @@ from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
     log "Verifying the Claude Code registration and the server"
     (cd "$home_dir" && "$python_bin" - "$home_dir") <<'PY'
 import asyncio
+from datetime import timedelta
 import json
 import os
 import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.shared.exceptions import McpError
 
 home = sys.argv[1]
 sys.path[:0] = [home, os.path.join(home, "scripts", "_helpers")]
@@ -177,12 +188,17 @@ if (not protocol or f"{MARKER_BEGIN}\n\n{protocol}\n\n{MARKER_END}" not in instr
     sys.exit(f"{claude_md} lacks exactly one current Agents-Core routing section from {template}")
 
 
+# The server waits up to WARMUP_WAIT_SECONDS for its model; every answer must
+# arrive within the timeout, so a server that stops answering fails the setup.
+timeout = timedelta(seconds=float(os.environ.get("AGENTS_SETUP_VERIFY_TIMEOUT", "360")))
+
+
 async def smoke():
     params = StdioServerParameters(
         command=entry["command"], args=entry["args"], cwd=home,
         env={**os.environ, **entry.get("env", {}), "WARMUP_WAIT_SECONDS": "300"})
     async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
+        async with ClientSession(read, write, read_timeout_seconds=timeout) as session:
             await session.initialize()
             tools = {tool.name: tool.inputSchema for tool in (await session.list_tools()).tools}
             missing = {"route_and_load", "get_agent_context", "log_interaction", "load_implants"} - set(tools)
@@ -209,7 +225,22 @@ async def smoke():
                   f"load_implants -> {'implants' if text else 'no match'}")
 
 
-asyncio.run(smoke())
+def mcp_error(error):
+    """The first McpError in *error*, which anyio may wrap in exception groups."""
+    if isinstance(error, McpError):
+        return error
+    for inner in getattr(error, "exceptions", ()):
+        if found := mcp_error(inner):
+            return found
+    return None
+
+
+try:
+    asyncio.run(smoke())
+except BaseException as error:
+    if not (found := mcp_error(error)):
+        raise
+    sys.exit(f"Agents-Core server did not answer: {found}")
 PY
 
     log "Ready: $(git -C "$home_dir" log -1 --format='%h %s'), EMBEDDING_MODEL=$(grep '^EMBEDDING_MODEL=' "$home_dir/.env" | cut -d= -f2-)"
