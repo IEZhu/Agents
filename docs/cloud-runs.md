@@ -82,9 +82,10 @@ named "Agents-testing").
 
 **Egress.** Sessions in the default (Trusted) environment cannot reach
 huggingface.co. The runbook downloads the embedding model from fastembed's Google
-Cloud Storage mirror and points
-`AGENTS_MODEL_PATH` at it (step 1 of the runbook). Any new eval that builds prompts
-needs the same.
+Cloud Storage mirror and points `AGENTS_MODEL_PATH` at it (step 1 of the runbook).
+That mirror answered `403 AccessDenied` on 2026-10-03, so run such evals in an
+environment that allows Hugging Face, as in
+[Cloud environment with Agents-Core](#cloud-environment-with-agents-core).
 
 ## Running a batch
 
@@ -202,14 +203,16 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
 5. Writes a marked block to git's global excludes (`~/.config/git/ignore` unless
    `core.excludesFile` names another file; a symlinked file stays a symlink) with
    the files Agents-Core can leave in a client repository's root: `history.md`
-   with its lock, rotation and monthly `history/YYYY-MM.md` archives,
-   `data/memory/`, and the locks and temporary files of `describe_repo`.
-   Patterns are anchored at the root, and each run replaces the block. When the
-   excludes path is not a regular file (for example `/dev/null`, which disables
-   global excludes), the step only prints a warning.
+   with its lock, rotation and monthly `history/YYYY-MM.md` archives, and the
+   hash (`data/memory/.describe_hash`), locks and temporary files of
+   `describe_repo`. Patterns are anchored at the root, and each run replaces the
+   block; unbalanced block markers fail the setup instead. When the excludes path
+   is not a regular file (for example `/dev/null`, which disables global
+   excludes), the step only prints a warning.
 6. Checks that `~/.claude/CLAUDE.md` holds exactly one routing section, as
    `inject_claude_md.py` writes it from the current template. It then starts the
-   registered server over stdio and requires the protocol 2 parameters
+   registered server over stdio, with the registration's `env` and `cwd`, and
+   requires the protocol 2 parameters
    (`protocol_version`, `current_persona`) in the `route_and_load` and
    `get_agent_context` schemas and a protocol 2 answer from `route_and_load`. It
    also calls `load_implants`, which embeds the query in the server process when

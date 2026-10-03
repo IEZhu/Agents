@@ -31,7 +31,8 @@ cat > "$root/.venv/bin/python" <<'EOF'
 #!/usr/bin/env bash
 printf 'python:%s\\n' "$(printf '%s' "$*" | tr '\\n' ' ')" >> "$(dirname "$0")/../../calls.txt"
 if [ "$1" = "-" ]; then exec "$REAL_PYTHON" "$@"; fi
-if [ "$1" = "-c" ] && [ -n "${STUB_FAIL_MODEL:-}" ]; then exit 1; fi
+case "$1 $2" in "-c "*dotenv_values*) exec "$REAL_PYTHON" "$@" ;; esac
+case "$1 $2" in "-c "*embed_texts*) [ -n "${STUB_FAIL_MODEL:-}" ] && exit 1 ;; esac
 if [ "$1 $2" = "-m src.reindex" ] && [ -n "${STUB_FAIL_REINDEX:-}" ]; then exit 1; fi
 exit 0
 EOF
@@ -113,7 +114,8 @@ END = "# <<< Agents-Core repository memory <<<"
 BALANCED = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # Every file Agents-Core can leave in a client repository (src/memory/).
 MEMORY_FILES = ["history.md", ".history.md.lock", "history.md.rotating", "history/2026-10.md",
-                "history/2026-10.md.tmp", "data/memory/.describe_hash", ".agents-description.lock",
+                "history/2026-10.md.tmp", "data/memory/.describe_hash",
+                "data/memory/.managed_section.abc123.tmp", ".agents-description.lock",
                 ".CLAUDE.md.lock", ".managed_section.abc123.tmp"]
 
 
@@ -187,8 +189,8 @@ def test_fresh_setup_seeds_env_and_verifies(tmp_path, upstream):
     assert env_values(checkout) == {"EMBEDDING_MODEL": BALANCED, "AGENTS_AUTO_UPDATE": "0"}
     assert (tmp_path / "home/.claude").is_dir()
     recorded = calls(checkout)
-    assert recorded[0].startswith("python:-c ") and "embed_texts" in recorded[0]
-    assert recorded[1:] == ["python:-m src.reindex", f"python:- {checkout}"]
+    assert "dotenv_values" in recorded[0] and "embed_texts" in recorded[1]
+    assert recorded[2:] == ["python:-m src.reindex", f"python:- {checkout}"]
     assert "Server OK: 4 tools, route_and_load -> ROUTE_REQUIRED, load_implants -> implants" in result.stdout
     assert "Agents-Core Persona Protocol" in (tmp_path / "home/.claude/CLAUDE.md").read_text()
     ignore = (tmp_path / "home/.config/git/ignore").read_text().splitlines()
@@ -206,7 +208,7 @@ def test_fresh_setup_seeds_env_and_verifies(tmp_path, upstream):
     ({"FAKE_PROTOCOL_VERSION": "1"}, "route_and_load returned protocol 1"),
     ({"FAKE_ROUTE_STATUS": "ERROR"}, "route_and_load returned protocol 2, ERROR"),
     ({"FAKE_IMPLANTS": "Error loading implants: no model"}, "load_implants returned: Error loading implants"),
-    ({"FAKE_HANG": "1", "AGENTS_SETUP_VERIFY_TIMEOUT": "2"}, "Agents-Core server did not answer"),
+    ({"FAKE_HANG": "1", "AGENTS_SETUP_VERIFY_TIMEOUT": "2"}, "Agents-Core server did not start or answer"),
 ], ids=["no-registration", "no-instructions", "truncated-instructions", "duplicate-instructions",
         "legacy-instructions", "old-route-schema", "old-context-schema", "protocol-1", "route-error",
         "implants-error", "server-hangs"])
@@ -245,7 +247,8 @@ def test_disabled_registration_fails(tmp_path, upstream):
 def test_excludes_hide_only_memory_files(tmp_path, upstream):
     assert run_setup(tmp_path, upstream).returncode == 0
     repo = tmp_path / "client"
-    for name in MEMORY_FILES + ["notes.md", "history/notes.md", "data/keep.json", "sub/history.md"]:
+    for name in MEMORY_FILES + ["notes.md", "history/notes.md", "data/keep.json", "data/memory/training.json",
+                                "sub/history.md"]:
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text("x")
     git("init", "-q", cwd=repo)
@@ -253,7 +256,7 @@ def test_excludes_hide_only_memory_files(tmp_path, upstream):
                             capture_output=True, text=True,
                             env=clean_env(HOME=str(tmp_path / "home"), GIT_CONFIG_NOSYSTEM="1")).stdout
     assert sorted(line[3:] for line in status.splitlines()) == [
-        "data/keep.json", "history/notes.md", "notes.md", "sub/history.md"]
+        "data/keep.json", "data/memory/training.json", "history/notes.md", "notes.md", "sub/history.md"]
 
 
 def test_rerun_keeps_edits_and_replaces_excludes_block(tmp_path, upstream):
@@ -337,6 +340,41 @@ def test_exported_model_conflicting_with_env_fails(tmp_path, upstream):
     assert run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": BALANCED}).returncode == 0
 
 
+def test_last_env_assignment_decides_the_model(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    env_file = tmp_path / "home/.agents-core/.env"
+    env_file.write_text(env_file.read_text() + "EMBEDDING_MODEL=other/model\n")
+    result = run_setup(tmp_path, upstream, {"EMBEDDING_MODEL": BALANCED})
+    assert result.returncode != 0
+    assert "sets other/model; make them match" in result.stderr
+
+
+@pytest.mark.parametrize("damage", [[BEGIN, "/user-rule"], ["/user-rule", END], [BEGIN, BEGIN, END]],
+                         ids=["unterminated", "orphan-end", "nested"])
+def test_unbalanced_markers_keep_user_rules(tmp_path, upstream, damage):
+    ignore = tmp_path / "home/.config/git/ignore"
+    ignore.parent.mkdir(parents=True)
+    content = "\n".join(["*.swp", *damage, "*.bak"]) + "\n"
+    ignore.write_text(content)
+    result = run_setup(tmp_path, upstream)
+    assert result.returncode != 0
+    assert "unbalanced Agents-Core markers" in result.stderr
+    assert ignore.read_text() == content
+    assert not ignore.with_name("ignore.tmp").exists()
+
+
+def test_registered_cwd_is_used(tmp_path, upstream):
+    assert run_setup(tmp_path, upstream).returncode == 0
+    config = tmp_path / "home/.claude.json"
+    document = json.loads(config.read_text())
+    document["mcpServers"]["Agents-Core"]["cwd"] = str(tmp_path / "missing")
+    config.write_text(json.dumps(document))
+    result = run_setup(tmp_path, upstream, {"STUB_SKIP_REGISTER": "1"})
+    assert result.returncode != 0
+    assert "Agents-Core server did not start or answer" in result.stderr
+    assert str(tmp_path / "missing") in result.stderr
+
+
 def test_configured_excludes_file_is_used(tmp_path, upstream):
     home = tmp_path / "home"
     home.mkdir()
@@ -352,7 +390,7 @@ def test_model_download_failure_fails_setup(tmp_path, upstream):
     assert result.returncode != 0
     assert "huggingface.co" in result.stderr
     recorded = calls(tmp_path / "home/.agents-core")
-    assert len(recorded) == 1 and recorded[0].startswith("python:-c ")
+    assert "embed_texts" in recorded[-1] and not any("src.reindex" in call for call in recorded)
 
 
 def test_index_failure_fails_setup(tmp_path, upstream):

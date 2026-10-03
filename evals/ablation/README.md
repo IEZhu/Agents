@@ -35,9 +35,14 @@ available here and is not needed: do not route. Answer the user from these steps
    git fetch origin main && git checkout main && git merge --ff-only origin/main
    python -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
    ```
-   Cloud egress blocks huggingface.co, so fetch the embedding model from
-   fastembed's Google Cloud Storage copy and point the embedder at it. Export
-   the variable in every shell that runs `build_contexts.py`:
+   The default cloud environment blocks huggingface.co, so fetch the embedding
+   model from fastembed's Google Cloud Storage copy and point the embedder at
+   it. That copy answered `403 AccessDenied` on 2026-10-03: in an environment
+   that allows Hugging Face
+   ([cloud environment setup](../../docs/cloud-runs.md#cloud-environment-with-agents-core)),
+   skip this download and leave `AGENTS_MODEL_PATH` unset, and fastembed fetches
+   the model itself. Otherwise export the variable in every shell that runs
+   `build_contexts.py`:
    ```bash
    mkdir -p /tmp/e5 && curl -sSfL https://storage.googleapis.com/qdrant-fastembed/fast-multilingual-e5-large.tar.gz | tar xz -C /tmp/e5
    find /tmp/e5 -name '._*' -delete

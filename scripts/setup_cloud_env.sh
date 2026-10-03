@@ -83,15 +83,6 @@ main() {
         [ "$key" = AGENTS_AUTO_UPDATE ] && value=0
         grep -q "^$key=" "$env_file" || printf '%s=%s\n' "$key" "$value" >> "$env_file"
     done
-    # An exported EMBEDDING_MODEL overrides .env in the setup's processes but
-    # not necessarily in the sessions' server, so it must match (parsed as
-    # init_repo.sh does).
-    local persisted
-    persisted="$(grep '^EMBEDDING_MODEL=' "$env_file" | head -n 1 | cut -d= -f2- \
-        | sed "s/[[:space:]]*#.*//; s/^['\"]//; s/['\"]$//" | xargs)"
-    if [ -n "${EMBEDDING_MODEL:-}" ] && [ "$EMBEDDING_MODEL" != "$persisted" ]; then
-        fail "EMBEDDING_MODEL=$EMBEDDING_MODEL is exported, but $env_file sets $persisted; make them match"
-    fi
 
     # 3. Update, dependencies and client configuration. init_repo.sh detects
     #    Claude Code by its configuration directory, which may not exist yet in a
@@ -103,6 +94,16 @@ main() {
 
     local python_bin="$home_dir/.venv/bin/python"
     [ -x "$python_bin" ] || fail "$python_bin was not created"
+
+    # An exported EMBEDDING_MODEL overrides .env in the setup's processes but
+    # not necessarily in the sessions' server, so it must match the value the
+    # server reads from .env (python-dotenv: the last assignment wins).
+    local persisted
+    persisted="$("$python_bin" -c 'import sys; from dotenv import dotenv_values
+print(dotenv_values(sys.argv[1]).get("EMBEDDING_MODEL") or "")' "$env_file")"
+    if [ -n "${EMBEDDING_MODEL:-}" ] && [ "$EMBEDDING_MODEL" != "$persisted" ]; then
+        fail "EMBEDDING_MODEL=$EMBEDDING_MODEL is exported, but $env_file sets $persisted; make them match"
+    fi
 
     # 4. Download the embedding model, then build the skill and implant indexes.
     #    The download comes first, in its own process: the index fingerprint
@@ -119,6 +120,7 @@ from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
     #    its git status: the history log with its lock, rotation and monthly
     #    archives (src/memory/history.py), and describe_repo's hash, locks and
     #    temporary files (src/memory/describer.py, src/memory/managed_section.py).
+    #    A stdio server keeps its history index in the installation, not here.
     #    The block between the markers is replaced on every run.
     local excludes begin end
     excludes="$(git config --global --path --get core.excludesFile || true)"
@@ -134,6 +136,10 @@ from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
     local target
     target="$(readlink -f -- "$excludes")"
     if [ -f "$target" ]; then
+        # Unbalanced markers would make the replacement drop the user's rules.
+        awk -v b="$begin" -v e="$end" '$0 == b {bad = bad || open; open = 1}
+            $0 == e {bad = bad || !open; open = 0} END {exit bad || open}' "$target" \
+            || fail "$target has unbalanced Agents-Core markers; fix or remove them"
         cp -p "$target" "$target.tmp"
         {
             awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$target"
@@ -141,7 +147,8 @@ from src.engine.embedder import embed_texts; embed_texts(["warmup"])') \
                 /history.md /.history.md.lock /history.md.rotating \
                 '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md' \
                 '/history/[0-9][0-9][0-9][0-9]-[0-9][0-9].md.tmp' \
-                /data/memory/ /.agents-description.lock /.CLAUDE.md.lock '/.managed_section.*.tmp' \
+                /data/memory/.describe_hash '/data/memory/.managed_section.*.tmp' \
+                /.agents-description.lock /.CLAUDE.md.lock '/.managed_section.*.tmp' \
                 "$end"
         } > "$target.tmp"
         mv "$target.tmp" "$target"
@@ -207,7 +214,7 @@ timeout = timedelta(seconds=float(os.environ.get("AGENTS_SETUP_VERIFY_TIMEOUT", 
 
 async def smoke():
     params = StdioServerParameters(
-        command=entry["command"], args=entry["args"], cwd=home,
+        command=entry["command"], args=entry["args"], cwd=entry.get("cwd") or home,
         env={**os.environ, **entry.get("env", {}), "WARMUP_WAIT_SECONDS": "300"})
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write, read_timeout_seconds=timeout) as session:
@@ -237,12 +244,12 @@ async def smoke():
                   f"load_implants -> {'implants' if text else 'no match'}")
 
 
-def mcp_error(error):
-    """The first McpError in *error*, which anyio may wrap in exception groups."""
-    if isinstance(error, McpError):
+def server_error(error):
+    """The first launch or protocol error in *error*, which anyio may wrap in groups."""
+    if isinstance(error, (McpError, OSError)):
         return error
     for inner in getattr(error, "exceptions", ()):
-        if found := mcp_error(inner):
+        if found := server_error(inner):
             return found
     return None
 
@@ -250,9 +257,9 @@ def mcp_error(error):
 try:
     asyncio.run(smoke())
 except BaseException as error:
-    if not (found := mcp_error(error)):
+    if not (found := server_error(error)):
         raise
-    sys.exit(f"Agents-Core server did not answer: {found}")
+    sys.exit(f"Agents-Core server did not start or answer: {found}")
 PY
 
     log "Ready: $(git -C "$home_dir" log -1 --format='%h %s'), EMBEDDING_MODEL=$(grep '^EMBEDDING_MODEL=' "$home_dir/.env" | cut -d= -f2-)"
