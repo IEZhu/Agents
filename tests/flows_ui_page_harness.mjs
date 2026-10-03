@@ -27,6 +27,7 @@ function element(id = "", tag = "") {
     replaceChildren() { self.children = []; self.scrollTop = 0; },  // a browser resets scrolling here
     setAttribute(name, value) { self.attrs[name] = String(value); if (name === "id" && !elements.has(value)) elements.set(value, self); },
     scrollIntoView() { self.scrolled += 1; },
+    contains: (node) => node === self || self.children.some((child) => child.nodeType !== 3 && child.contains(node)),
     removeAttribute() {}, querySelector: () => element(), querySelectorAll: () => [], showModal() {}, close() {},
     focus() { self.focused += 1; },
   };
@@ -284,6 +285,7 @@ if (isUi) {
     const root = byId(id), doc = findAll(root, hasClass("md"))[0];
     return {
       hidden: root.classes.has("hidden"), toc_hidden: root.classes.has("toc-hidden"), no_toc: root.classes.has("no-toc"),
+      dismissed: root.classes.has("toc-dismissed"),
       toc: findAll(root, hasClass("md-toc-item")).map((n) => n.className + ":" + n.textContent),
       hide_label: findAll(root, hasClass("md-toc-hide"))[0].textContent, html: doc.children.map(ser).join(""),
     };
@@ -308,6 +310,20 @@ if (isUi) {
   out.heading_scrolled = findAll(byId("e-view"), (n) => n.tag === "h2").map((n) => n.scrolled);
   fire(findAll(byId("e-view"), hasClass("md-toc-hide"))[0], "click");
   out.hidden = { ...snap("e-view"), stored: [...storage.entries()], focus_moved: byId("e-toc").focused };
+  // The panel's own button leaves the pointer on the panel: the hover reveal waits until it is over something else.
+  const part = (root, name) => findAll(root, hasClass(name))[0];
+  const dismissed = (root) => root.classes.has("toc-dismissed");
+  const pointerOver = (root, name) => { fire(root, "pointerover", { target: part(root, name) }); return dismissed(root); };
+  const eView = byId("e-view"), eHide = part(eView, "md-toc-hide");
+  out.dismissal = { over_panel: pointerOver(eView, "md-toc-hide") };
+  out.dismissal.over_document = pointerOver(eView, "md");
+  fire(eHide, "click");  // Keep open
+  fire(eHide, "click");  // Hide contents
+  out.dismissal.hidden_again = dismissed(eView);
+  fire(eHide, "click");  // Keep open from the keyboard: focus reveals the dismissed panel, the pointer cannot
+  out.dismissal.kept_open = { toc_hidden: eView.classes.has("toc-hidden"), dismissed: dismissed(eView) };
+  fire(byId("e-toc"), "click");
+  out.dismissal.toolbar_hidden = { toc_hidden: eView.classes.has("toc-hidden"), dismissed: dismissed(eView) };
   await open(1);
   out.plain = { ...snap("e-view"), toc_button_hidden: byId("e-toc").classes.has("hidden") };
   await open(0);
@@ -341,6 +357,11 @@ if (isUi) {
   await open(0);
   out.skill = { ...snap("c-view"), source_hidden: byId("c-source").classes.has("hidden"), body: byId("c-body").value.length > 0,
                 toc_button_hidden: byId("c-toc").classes.has("hidden") };
+  const cView = byId("c-view");
+  fire(part(cView, "md-toc-hide"), "click");
+  out.skill_dismissal = { toc_hidden: cView.classes.has("toc-hidden"), dismissed: dismissed(cView) };
+  out.skill_dismissal.over_panel = pointerOver(cView, "md-toc-hide");
+  out.skill_dismissal.over_edge = pointerOver(cView, "md-edge");
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
   console.log(JSON.stringify(out));
