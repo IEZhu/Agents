@@ -1,4 +1,5 @@
 from pathlib import Path
+import plistlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -152,3 +153,22 @@ def test_install_refuses_a_model_it_cannot_pin(tmp_path, monkeypatch):
     controller, _cache = _installable(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="cannot pin"):
         controller.install(model="sentence-transformers/all-MiniLM-L6-v2")
+
+
+@pytest.mark.parametrize("nonce", ["-dash-first", "_underscore-first", "plain"])
+def test_probation_nonce_reaches_serve_whatever_its_first_character(tmp_path, monkeypatch, nonce):
+    # secrets.token_urlsafe can start with "-"; as a separate argument argparse read it as an option (#183).
+    plist = tmp_path / "launchagent.plist"
+    monkeypatch.setattr(control.Controller, "plist", property(lambda self: plist))
+    controller = control.Controller(tmp_path / "state")
+    controller.config = {"python": "/venv/bin/python", "installation": str(tmp_path), "path": "/usr/bin"}
+    controller.write_plist(probation=nonce)
+    arguments = plistlib.loads(plist.read_bytes())["ProgramArguments"]
+    assert arguments[:3] == ["/venv/bin/python", "-m", "src.daemon"]
+    received = {}
+    monkeypatch.setattr("src.daemon.bootstrap.serve",
+                        lambda directory, probation: received.update(probation=probation))
+
+    control.main(arguments[3:])  # what launchd passes after `python -m src.daemon`
+
+    assert received == {"probation": nonce}
