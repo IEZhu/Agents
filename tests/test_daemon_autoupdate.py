@@ -105,6 +105,22 @@ def test_work_arriving_during_the_build_defers_the_restart_to_the_next_run(sched
     assert controller.stops == 1 and controller.builds == 1
 
 
+def test_stop_during_the_build_is_respected(scheduled, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = scheduled
+    build = update.prepare_reindex
+
+    def build_while_stopped(current, staging_dir):
+        built = build(current, staging_dir)
+        controller.running = False  # `stop` succeeds: the build does not hold the control lock
+        return built
+    monkeypatch.setattr(update, "prepare_reindex", build_while_stopped)
+
+    result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and result["reason"] == "service is stopped"
+    assert git(root, "rev-parse", "HEAD") == old and not controller.running and controller.probes == 0
+
+
 def test_stdio_reader_starting_during_the_build_defers_the_restart(scheduled, monkeypatch):
     from src.daemon import update
     controller, root, old, target = scheduled

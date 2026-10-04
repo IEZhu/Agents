@@ -226,6 +226,17 @@ def activate(controller, journal):
 # Builds that failed. Like a refused build (``INVALID_…``) and a rolled-back
 # update, they leave a pending model switch for the next run.
 PREPARE_FAILED = ("PREPARE_WORKTREE_FAILED", "PREPARE_REINDEX_FAILED", "PREPARE_STAGE_INCONSISTENT")
+# service.json settings a build used; a change during the build makes it stale.
+BUILD_CONFIG = ("installation", "python", "git", "path", "model", "model_cache", "model_artifact", "model_path")
+
+
+def load_service(controller):
+    """Under the control lock: refuse an unfinished transaction or a removed service."""
+    if (controller.directory / "transaction.json").exists():
+        raise RuntimeError("An unfinished transaction requires recover")
+    controller.config = read_json(controller.directory / "service.json")
+    if not controller.config:
+        raise RuntimeError("Service is not installed")
 
 
 def offline_update(controller, expected_target=None, precheck=None):
@@ -233,18 +244,17 @@ def offline_update(controller, expected_target=None, precheck=None):
 
     The update is built while the service still serves (`prepare`); the service
     stops only to activate it, so clients see a restart instead of minutes without
-    the server. The default model downloads under the control lock while the
-    service still serves (`switched_model_config`); a failed download changes nothing.
+    the server. The build runs without the control lock, so `stop`, `restart` and
+    `auto-update disable` work during a long build; afterwards the transaction takes
+    the lock again and rechecks the service. The default model downloads under the
+    control lock while the service still serves (`switched_model_config`); a failed
+    download changes nothing.
     """
     root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
-        if (controller.directory / "transaction.json").exists():
-            raise RuntimeError("An unfinished transaction requires recover")
         # Under the lock, so `uninstall` or another controller command cannot change
         # service.json while the model downloads; the service keeps serving meanwhile.
-        controller.config = read_json(controller.directory / "service.json")
-        if not controller.config:
-            raise RuntimeError("Service is not installed")
+        load_service(controller)
         from src.model_migration import service_switch_pending
         switched = None
         if service_switch_pending(controller.config):
@@ -254,21 +264,28 @@ def offline_update(controller, expected_target=None, precheck=None):
         # and `stop` also take, so either one that returned before this point wins.
         if precheck is not None and (refusal := precheck()):
             return refusal
-        # Stdlib config + updater only. Reindex is the sole model process this
-        # controller starts, and it inherits the leases it runs under.
-        os.environ["AGENTS_AUTO_UPDATE"] = "0"
-        os.environ.update(model_env(controller.config))
-        os.environ["PATH"] = controller.config["path"]
-        from src import self_update
-        prepared = prepare(controller, expected_target)
-        if prepared in PREPARE_FAILED or prepared.startswith("INVALID_"):
-            # Leave the switch pending: the next update tries both again.
-            switched = None
-        if prepared != self_update.PreparedStatus.PREPARED and not switched:
-            # Nothing to activate, or the build failed: the service never stopped.
-            return {"state": prepared}
-        if prepared == self_update.PreparedStatus.PREPARED and precheck is not None and (refusal := precheck()):
-            # Building takes minutes and work may have arrived; the next run activates it.
+    # Stdlib config + updater only. Reindex is the sole model process this
+    # controller starts, and it inherits the leases it runs under.
+    os.environ["AGENTS_AUTO_UPDATE"] = "0"
+    os.environ.update(model_env(controller.config))
+    os.environ["PATH"] = controller.config["path"]
+    from src import self_update
+    prepared = prepare(controller, expected_target)
+    if prepared in PREPARE_FAILED or prepared.startswith("INVALID_"):
+        # Leave the switch pending: the next update tries both again.
+        switched = None
+    if prepared != self_update.PreparedStatus.PREPARED and not switched:
+        # Nothing to activate, or the build failed: the service never stopped.
+        return {"state": prepared}
+    built = controller.config
+    with file_lock(controller.directory / "control.lock", blocking=False):
+        load_service(controller)
+        if any(controller.config.get(key) != built.get(key) for key in BUILD_CONFIG):
+            # The next run rebuilds for the new configuration.
+            return {"state": "deferred", "reason": "service configuration changed during the build"}
+        # Building takes minutes: work may have arrived, or `stop` or `disable` ran;
+        # a deferred run keeps the build, and the next one activates it.
+        if precheck is not None and (refusal := precheck()):
             return refusal
         prior = controller.status()
         journal = {"phase": "draining", "was_running": prior.get("state") in ("ready", "starting", "draining"),

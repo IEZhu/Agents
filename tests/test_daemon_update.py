@@ -85,6 +85,8 @@ def installation(tmp_path, monkeypatch):
         with pytest.raises(BlockingIOError):  # under the updater lease: no stdio server prepares meanwhile
             with file_lock(root / "data/.update.lock", blocking=False): pass
         assert self_update._subprocess_lock_fds()  # and the reindex child inherits that lease
+        # Without the control lock: stop, restart and disable work during a long build.
+        with file_lock(controller.directory / "control.lock", blocking=False): pass
         staged = Path(staging_dir) / "data"; staged.mkdir(parents=True, exist_ok=True)
         (staged / "skills_store.npz").write_text("new-index")
         (staged / "skills_store.json").write_text(json.dumps({"save_version": "new", "metadatas": []}))
@@ -253,6 +255,37 @@ def test_build_that_activation_would_refuse_fails_before_the_stop(installation, 
     assert not (root / "data/.prepared").exists()
 
 
+def test_service_reconfigured_during_the_build_defers_without_a_restart(installation, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = installation
+    build = update.prepare_reindex
+
+    def build_while_reconfigured(current, staging_dir):
+        write_json(controller.directory / "service.json", {**controller.config, "model": "chosen-meanwhile"})
+        return build(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", build_while_reconfigured)
+
+    result = offline_update(controller, expected_target=target, precheck=lambda: None)
+    assert result == {"state": "deferred", "reason": "service configuration changed during the build"}
+    assert controller.running and controller.stops == 0
+    assert git(root, "rev-parse", "HEAD") == old
+
+
+def test_service_uninstalled_during_the_build_is_left_alone(installation, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = installation
+    build = update.prepare_reindex
+
+    def build_while_uninstalled(current, staging_dir):
+        (controller.directory / "service.json").unlink()
+        return build(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", build_while_uninstalled)
+
+    with pytest.raises(RuntimeError, match="not installed"):
+        offline_update(controller)
+    assert controller.stops == 0 and git(root, "rev-parse", "HEAD") == old
+
+
 def test_build_for_an_older_target_is_rebuilt_for_the_new_one(installation):
     controller, root, old, target = installation
     busy = {"state": "deferred", "reason": "service is busy"}
@@ -305,18 +338,21 @@ def test_prepare_reindex_uses_the_service_interpreter_model_and_live_stores(tmp_
     # The worktree has no .env; the service reads the installation's under its own settings.
     (tmp_path / ".env").write_text("EMBEDDING_PROMPTS=off\nEMBEDDING_MODEL=from-env\n")
     monkeypatch.delenv("EMBEDDING_PROMPTS", raising=False)
+    from src.engine import config
+    monkeypatch.setattr(config, "AUTO_UPDATE_REINDEX_TIMEOUT", 4321)
     calls = []
 
     def run(args, cwd, timeout, *, env=None):
         # Unchanged sources keep the copied store: the reindex compares content hashes.
         assert (Path(cwd) / "data/.skills_hash").read_text() == "live-hash"
-        calls.append((args, cwd, env))
+        calls.append((args, cwd, env, timeout))
         return subprocess.CompletedProcess(args, 0, "", "")
     monkeypatch.setattr(self_update, "_run_command", run)
 
     assert update.prepare_reindex(controller, str(tmp_path / "stage")) is True
-    args, cwd, env = calls[0]
+    args, cwd, env, timeout = calls[0]
     assert args == [controller.config["python"], "-m", "src.reindex"] and cwd == str(tmp_path / "stage")
+    assert timeout == 4321  # AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT
     assert (env["EMBEDDING_MODEL"], env["AGENTS_MODEL_PATH"], env["PATH"], env["AGENTS_AUTO_UPDATE"]) == \
         ("test", "/unused", "/usr/bin:/bin", "0")
     assert env["EMBEDDING_PROMPTS"] == "off"

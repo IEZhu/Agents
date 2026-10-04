@@ -489,10 +489,19 @@ refused before anything is built. The reindex gets the installation's `.env`
 under the controller's own settings, as the service does. Every build passes
 activation's checks before the service stops, so a build that activation would
 refuse fails here. A failed build leaves the service and the live tree untouched,
-and the next run retries it. A build can take minutes, so a scheduled run checks
-again that the service is idle and that no stdio server holds the installation.
-If that changed meanwhile, it defers and keeps the build, and the next scheduled
-run uses that build without rebuilding; a manual `update` always builds anew.
+and the next run retries it.
+
+A build can take minutes: scheduled runs build at the updater LaunchAgent's
+`Background` priority (see [automatic updates](#automatic-updates-opt-in)). The
+controller does not hold the control lock while it builds, so `stop`, `restart`
+and `auto-update disable` keep working, and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`
+(default 3600 s) only stops a hung build. Afterwards the controller takes the
+control lock again. If the service configuration changed meanwhile, it defers,
+and the next run builds for the new configuration. A scheduled run then checks
+again that the service is ready and idle and that no stdio server holds the
+installation. If that changed, it defers and keeps the build, and the next
+scheduled run uses that build without rebuilding; a manual `update` always
+builds anew.
 
 Only then does the controller enter maintenance, wait up to 60 seconds for drain,
 stop the service, and acquire the exclusive installation lease and the updater
@@ -564,7 +573,11 @@ Downtime is the stop, the activation and the warmup; the build runs before the
 stop. The updater LaunchAgent runs as a `Background` process with low-priority
 I/O, and its reindex inherits that throttling. A skills index that rebuilds in
 about 30 seconds at normal priority took about six minutes in a scheduled run,
-which is why the build must not run while the service is down. The last outcome
+which is why the build must not run while the service is down. A model switch
+that rebuilt both indexes there came close to the former 600 s ceiling, so
+`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` now defaults to 3600 s: a build that hits
+the ceiling fails and is retried on every run, so a short ceiling on a slower
+machine means an update that never lands. The last outcome
 is in `auto-update.json` and the history in `auto-update.log`, both in the private
 state directory. `uninstall` also removes the updater.
 
@@ -582,7 +595,7 @@ generation ([src/model_migration.py](../src/model_migration.py)) moves to
 2. After the drain, stop and file update, it saves `service.json` and the skill and
    implant indexes in `rollback/` under the private state directory, writes the new
    model into `service.json` and rebuilds the indexes with it, holding the
-   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 600 s; in
+   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 3600 s; in
    the [2026-10-03 measurements](embedding-models-eval-results.md#results) a
    harrier index build peaked at 2.8 GB). Unlike a file update, this rebuild still
    runs while the service is down. A file update that failed to build or to
