@@ -673,6 +673,7 @@ function hideSide() {
   $("side").classList.add("hidden");
   $("panes").classList.remove("split");
   $("toggle-upstream").textContent = "Show built-in";
+  schedulePlacement();  // the label's width changes
 }
 
 async function save() {
@@ -832,6 +833,7 @@ $("toggle-upstream").addEventListener("click", () => {
   setEditorView("source");
   showSide("Current built-in flow", state.upstream.content);
   $("toggle-upstream").textContent = "Hide built-in";
+  schedulePlacement();
 });
 
 // --- Markdown view -----------------------------------------------------------------------
