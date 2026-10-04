@@ -1,6 +1,8 @@
 """Offline controller transaction surrounding the existing ff-only updater."""
 from contextlib import ExitStack
 from pathlib import Path
+import hashlib
+import json
 import os
 import secrets
 import shutil
@@ -113,6 +115,33 @@ def reindex(controller):
         raise RuntimeError("Reindex for " + config["model"] + " failed: " + (result.stderr or "")[-500:])
 
 
+# Settings that select or shape the embeddings (src/engine/fingerprint.py,
+# embedding_prompts.py, embedder.py). A build made under other values is stale:
+# the restarted service would re-embed its stores during warmup.
+EMBEDDING_INPUTS = ("EMBEDDING_", "AGENTS_MODEL_", "FASTEMBED_")
+# Records those settings in the staging worktree of a finished build.
+BUILD_INPUTS = ".embedding-inputs"
+STALE_BUILD = "INVALID_EMBEDDING_INPUTS"
+
+
+def reindex_env(config):
+    """The update reindex's environment: the installation's .env under this process's.
+
+    The worktree has no .env, so the installation's is passed under the process
+    environment, as the service loads it (for example EMBEDDING_PROMPTS).
+    """
+    from dotenv import dotenv_values
+    installed = {key: value for key, value in dotenv_values(Path(config["installation"]) / ".env").items()
+                 if value is not None}
+    return {**installed, **os.environ, **model_env(config), "PATH": config["path"], "AGENTS_AUTO_UPDATE": "0"}
+
+
+def embedding_inputs(config):
+    """A digest of the reindex settings that shape the embeddings; other settings stay out."""
+    shaping = {key: value for key, value in reindex_env(config).items() if key.startswith(EMBEDDING_INPUTS)}
+    return hashlib.sha256(json.dumps(shaping, sort_keys=True).encode()).hexdigest()
+
+
 def prepare_reindex(controller, staging_dir):
     """Build the target's stores inside *staging_dir* with the service's interpreter and model.
 
@@ -121,24 +150,18 @@ def prepare_reindex(controller, staging_dir):
     The live stores are copied in first: their content hashes let the reindex skip
     a store whose sources did not change, as the in-place reindex does.
     """
-    from dotenv import dotenv_values
     from src import self_update
     from src.engine.config import AUTO_UPDATE_REINDEX_TIMEOUT
     config = controller.config
-    root = Path(config["installation"])
-    live, staged = root / "data", Path(staging_dir) / "data"
+    live, staged = Path(config["installation"]) / "data", Path(staging_dir) / "data"
     staged.mkdir(parents=True, exist_ok=True)
     if not self_update._is_unredirected_path(str(staged)):
         raise RuntimeError("Staged data path is redirected: " + str(staged))
     for name in INDEX_FILES:
         if (live / name).is_file() and not (live / name).is_symlink():
             shutil.copyfile(live / name, staged / name)
-    # The worktree has no .env: pass the installation's, under the process
-    # environment, as the service loads it (for example EMBEDDING_PROMPTS).
-    installed = {key: value for key, value in dotenv_values(root / ".env").items() if value is not None}
-    env = {**installed, **os.environ, **model_env(config), "PATH": config["path"], "AGENTS_AUTO_UPDATE": "0"}
     result = self_update._run_command([config["python"], "-m", "src.reindex"], cwd=staging_dir,
-                                      timeout=AUTO_UPDATE_REINDEX_TIMEOUT, env=env)
+                                      timeout=AUTO_UPDATE_REINDEX_TIMEOUT, env=reindex_env(config))
     if result.returncode:
         raise RuntimeError("Prepared reindex for " + config["model"] + " failed: " + (result.stderr or "")[-500:])
     return True
@@ -180,6 +203,9 @@ def prepare(controller, expected_target=None):
         return self_update._validate_prepared(marker, str(root), AUTO_UPDATE_BRANCH, config["model"],
                                               AUTO_UPDATE_GIT_TIMEOUT)[0]
 
+    def recorded(marker):
+        return Path(self_update.STAGING_ROOT) / str(marker.get("target_sha")) / BUILD_INPUTS
+
     def check(old, target):
         # Auto-update checked one commit before preparing; build only that one.
         if expected_target and target != expected_target:
@@ -190,18 +216,24 @@ def prepare(controller, expected_target=None):
             raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
 
     with file_lock(root / "data/.update.lock", blocking=False) as updater_fd, self_update._inherit_lock(updater_fd):
+        inputs = embedding_inputs(config)
         marker = self_update._read_prepared_marker()
-        if expected_target and marker and marker.get("target_sha") == expected_target and refusal(marker) is None:
+        if expected_target and marker and marker.get("target_sha") == expected_target and refusal(marker) is None \
+                and recorded(marker).is_file() and recorded(marker).read_text() == inputs:
             return self_update.PreparedStatus.PREPARED
         status = self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
                                             reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
         if status != self_update.PreparedStatus.PREPARED:
             return status
-        refused = refusal(self_update._read_prepared_marker() or {})
+        marker = self_update._read_prepared_marker() or {}
+        # Activation would discard a refused build after the stop, on every run; a
+        # build whose embedding settings changed while it ran would be re-embedded
+        # by the restarted service.
+        refused = refusal(marker) or (STALE_BUILD if embedding_inputs(config) != inputs else None)
         if refused is not None:
-            # Activation would discard this build after the stop, on every run.
             self_update._discard_staging(str(root), AUTO_UPDATE_GIT_TIMEOUT)
             return refused
+        recorded(marker).write_text(inputs)
         return status
 
 

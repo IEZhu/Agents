@@ -255,6 +255,40 @@ def test_build_that_activation_would_refuse_fails_before_the_stop(installation, 
     assert not (root / "data/.prepared").exists()
 
 
+def test_embedding_settings_changed_during_the_build_discard_it_without_a_restart(installation, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = installation
+    build = update.prepare_reindex
+
+    def build_while_env_changes(current, staging_dir):
+        built = build(current, staging_dir)
+        (root / ".env").write_text("EMBEDDING_PROMPTS=off\n")  # the restarted service would re-embed
+        return built
+    monkeypatch.setattr(update, "prepare_reindex", build_while_env_changes)
+    monkeypatch.delenv("EMBEDDING_PROMPTS", raising=False)
+
+    assert offline_update(controller)["state"] == "INVALID_EMBEDDING_INPUTS"
+    assert controller.running and controller.stops == 0
+    assert not (root / "data/.prepared_update.json").exists() and not (root / "data/.prepared").exists()
+
+    monkeypatch.setattr(update, "prepare_reindex", build)  # the next run builds with the new settings
+    assert offline_update(controller)["state"] == "UPDATED"
+    assert controller.builds == 2 and git(root, "rev-parse", "HEAD") == target
+
+
+@pytest.mark.parametrize("line, rebuilt", [("EMBEDDING_PROMPTS=off", True), ("LANGFUSE_HOST=https://elsewhere", False)])
+def test_deferred_build_is_reused_only_under_the_same_embedding_settings(installation, monkeypatch, line, rebuilt):
+    controller, root, old, target = installation
+    monkeypatch.delenv("EMBEDDING_PROMPTS", raising=False)
+    busy = {"state": "deferred", "reason": "service is busy"}
+    checks = iter([None, busy])
+    assert offline_update(controller, expected_target=target, precheck=lambda: next(checks)) == busy
+
+    (root / ".env").write_text(line + "\n")
+    assert offline_update(controller, expected_target=target, precheck=lambda: None)["state"] == "UPDATED"
+    assert controller.builds == (2 if rebuilt else 1)
+
+
 def test_service_reconfigured_during_the_build_defers_without_a_restart(installation, monkeypatch):
     from src.daemon import update
     controller, root, old, target = installation

@@ -486,7 +486,11 @@ separate process with the service's interpreter and model. The reindex re-embeds
 only an index whose sources changed. While it re-embeds, a second model process
 runs next to the service. A target that moved or changes dependency manifests is
 refused before anything is built. The reindex gets the installation's `.env`
-under the controller's own settings, as the service does. Every build passes
+under the controller's own settings, as the service does. The build records
+the settings that shape the embeddings (`EMBEDDING_*`, `AGENTS_MODEL_*` and
+`FASTEMBED_*`). If they change while it builds or before a deferred build is
+activated, the build is discarded and made again, so the restarted service does
+not re-embed its indexes during warmup. Every build passes
 activation's checks before the service stops, so a build that activation would
 refuse fails here. A failed build leaves the service and the live tree untouched,
 and the next run retries it.
