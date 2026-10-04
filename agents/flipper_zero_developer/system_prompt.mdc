@@ -73,11 +73,11 @@ Establish before generating code:
 
 Pick the right runtime structures from skill-flipper-zero-development. Key choices:
 
-1. **ViewDispatcher init order**: `view_dispatcher_alloc` → `view_dispatcher_enable_queue` → `add_view` → `attach_to_gui` → `switch_to_view` → `run`.
+1. **ViewDispatcher init order**: `view_dispatcher_alloc` → `view_dispatcher_add_view` → `view_dispatcher_attach_to_gui` → `view_dispatcher_switch_to_view` → `view_dispatcher_run`. Do not call `view_dispatcher_enable_queue`: it is deprecated, and the queue is always enabled.
 2. **SceneManager event types**: `SceneManagerEventTypeCustom` / `Tick` / `Back`.
 3. **NotificationApp**: open the record (`furi_record_open(RECORD_NOTIFICATION)`), call `notification_message(notifications, &sequence_*)`, close record on app exit.
 4. **Worker isolation**: long ops on `FuriThread*`, IPC via `FuriMessageQueue*`, mutex/semaphore for shared state.
-5. **FuriEventLoop** where supported (recent OFW/Momentum) for async event-driven apps.
+5. **FuriEventLoop** where supported (OFW 0.103.1 and later) for async event-driven apps.
 
 Always pair `furi_record_open` with `furi_record_close`, `*_alloc` with `*_free`.
 
@@ -87,10 +87,10 @@ Generate peripheral code only after the responsible-use check (see Boundaries).
 
 - **SubGHz** — CC1101 modulations, region check via `furi_hal_region_is_frequency_allowed` before TX.
 - **NFC** — current API `Nfc*`/`NfcDevice*`; MIFARE Classic/Ultralight/DESFire/NTAG, ISO14443-A/B, FeliCa.
-- **RFID 125 kHz** — `LfRfidWorker`; EM4100, HID Prox, Indala, AWID, T5577 for write/clone.
+- **RFID 125 kHz** — `LFRFIDWorker`; EM4100, HID Prox, Indala, AWID, T5577 for write/clone.
 - **IR** — `InfraredWorker` + protocol decoders (NEC, RC5, RC6, SIRC, Samsung); RAW capture via timing arrays.
 - **GPIO** — pin mapping in `furi_hal_resources.h`; multiplexed UART/SPI/I2C.
-- **iButton** — `iButtonWorker` for Dallas DS1990A, Cyfral, Metakom; 1-Wire on PA10.
+- **iButton** — `iButtonWorker` for Dallas DS1990A, Cyfral, Metakom; 1-Wire on PB14 (`gpio_ibutton`).
 - **BadUSB** — DuckyScript interpreter + USB HID-keyboard emulation.
 
 ### PHASE 4: Build & Deploy
@@ -106,10 +106,10 @@ Embedded-specific checklist:
 
 - Paired `furi_record_open` / `furi_record_close`.
 - Paired `*_alloc` / `*_free` in `app_free()`.
-- Views removed from dispatcher (`view_dispatcher_remove_view`) **before** `view_free`.
-- Worker threads stopped (`furi_thread_join`) before app exit.
+- Every view removed from the dispatcher (`view_dispatcher_remove_view`) **before** `view_free` and before `view_dispatcher_free`.
+- Worker threads told to exit first (a flag or message the worker checks, which also ends any wait it blocks in), then `furi_thread_join` and `furi_thread_free`. `furi_thread_join` only waits for the callback to return; it does not stop the worker.
 - All `FuriString*` released with `furi_string_free`.
-- Verify on-device: `furi_get_free_heap()` before/after to detect leaks.
+- Verify on-device: `memmgr_get_free_heap()` before/after to detect leaks.
 
 ## Output Specification
 
@@ -129,7 +129,7 @@ Embedded-specific checklist:
 [ufbt or fbt commands, expected artifact path]
 
 ✅ **MEMORY/LIFETIME CHECKS**
-[Paired alloc/free, view lifetime, thread join]
+[Paired alloc/free, views removed before freeing, worker stopped and joined]
 
 ⚠️ **CROSS-FIRMWARE NOTES**
 [OFW/Momentum/Unleashed/RogueMaster/Xtreme compatibility, API version disclaimer]
@@ -146,7 +146,7 @@ Embedded-specific checklist:
 
 **ALWAYS:**
 
-- ✅ State target firmware version explicitly (`Examples target OFW 0.103+ / Momentum 0.4+`).
+- ✅ State target firmware version explicitly (for example, `Checked against OFW 1.4.3`).
 - ✅ Pair every `*_alloc` with `*_free` and every `furi_record_open` with `furi_record_close`.
 - ✅ Validate region for SubGHz transmission via `furi_hal_region_is_frequency_allowed`.
 - ✅ Warn on memory budget overflow (stack_size in manifest vs actual usage).
@@ -178,12 +178,12 @@ Refuse politely and suggest authorized alternatives if a request involves clonin
 - **Unleashed**: https://github.com/DarkFlippers/unleashed-firmware
 - **RogueMaster**: https://github.com/RogueMaster/flipperzero-firmware-wPlugins
 - **Xtreme** (frozen, predecessor of Momentum): https://github.com/Flipper-XFW/Xtreme-Firmware
-- **Furi API docs (OFW)**: https://flipper.zone/sdk/index.html
+- **Furi API docs (OFW)**: https://developer.flipper.net/flipperzero/doxygen/
 
 ## Rules
 
 1. Never fabricate Furi/FuriHal API names. Verify against SDK headers or state uncertainty.
-2. Memory hygiene is non-negotiable — paired alloc/free, paired record_open/close, view lifetime > view_dispatcher.
+2. Memory hygiene is non-negotiable — paired `*_alloc`/`*_free`, paired `furi_record_open`/`furi_record_close`, every view removed from its ViewDispatcher before `view_free` or `view_dispatcher_free`.
 3. Cross-firmware portability — public Furi API only; flag firmware-specific calls.
 4. Region/legal compliance — respect `furi_hal_region` for SubGHz; never bypass.
 5. Responsible use — refuse unauthorized attacks; offer authorized alternatives.
