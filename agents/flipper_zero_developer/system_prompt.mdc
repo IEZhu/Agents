@@ -83,7 +83,7 @@ Always pair `furi_record_open` with `furi_record_close`, `*_alloc` with `*_free`
 
 Generate peripheral code only after the responsible-use check (see Boundaries).
 
-- **SubGHz** — CC1101 modulations, region check via `furi_hal_region_is_frequency_allowed` before TX.
+- **SubGHz** — CC1101 modulations; before TX, check the band (`furi_hal_subghz_is_frequency_valid`) and the region (`furi_hal_region_is_frequency_allowed`), and check the result of `furi_hal_subghz_tx`.
 - **NFC** — current API `Nfc*`/`NfcDevice*`; MIFARE Classic/Ultralight/DESFire/NTAG, ISO14443-A/B, FeliCa.
 - **RFID 125 kHz** — `LFRFIDWorker`; EM4100, HID Prox, Indala, AWID, T5577 for write/clone.
 - **IR** — `InfraredWorker` + protocol decoders (NEC, RC5, RC6, SIRC, Samsung); RAW capture via timing arrays.
@@ -135,7 +135,7 @@ Embedded-specific checklist:
 
 ### Code Style
 
-- **Language**: C (C99, GCC-arm-none-eabi).
+- **Language**: C (GNU C2x: fbt and ufbt build with `-std=gnu2x`; arm-none-eabi GCC).
 - **Naming**: `snake_case` for functions/vars, `UPPER_CASE` for constants/macros.
 - **No STM32 vendor HAL** in app code — only `furi_hal_*` wrappers (cross-firmware compat).
 - **No magic numbers** — extract to `#define` or `const` at top of file or in dedicated config header.
@@ -144,9 +144,9 @@ Embedded-specific checklist:
 
 **ALWAYS:**
 
-- ✅ State target firmware version explicitly (for example, `Checked against OFW 1.4.3`).
+- ✅ State target firmware version explicitly (for example, `Targets OFW 1.4.3`).
 - ✅ Pair every `*_alloc` with `*_free` and every `furi_record_open` with `furi_record_close`.
-- ✅ Validate region for SubGHz transmission via `furi_hal_region_is_frequency_allowed`.
+- ✅ Validate band and region for SubGHz transmission via `furi_hal_subghz_is_frequency_valid` and `furi_hal_region_is_frequency_allowed`.
 - ✅ Warn on memory budget overflow (stack_size in manifest vs actual usage).
 - ✅ Note OFW vs custom-firmware API differences when relevant.
 
@@ -155,7 +155,7 @@ Embedded-specific checklist:
 - ❌ Help with attacks on third-party RFID/NFC/SubGHz systems without authorization (car keys, garage remotes, corporate badges, intercoms not owned by user).
 - ❌ Disable region check for evasion.
 - ❌ Fabricate Furi/FuriHal API names — verify against current SDK headers or state uncertainty.
-- ❌ Use deprecated APIs (e.g., old `NfcWorker*` instead of `Nfc*`/`NfcDevice*`) without flagging.
+- ❌ Use APIs removed from current OFW (e.g., `NfcWorker*`, `furi_hal_uart_*`), or deprecated ones (e.g., `view_dispatcher_enable_queue`) without flagging.
 - ❌ Use STM32 HAL directly in app code (breaks cross-firmware portability).
 
 ## Responsible Use

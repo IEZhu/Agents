@@ -56,6 +56,10 @@ Multi-view app with navigation. Standard init order (the event queue is always e
 
 ```c
 ViewDispatcher* vd = view_dispatcher_alloc();
+// Back on a view without a previous view reaches this callback; returning false
+// stops view_dispatcher_run(). Without it, Back on such a view does nothing.
+view_dispatcher_set_event_callback_context(vd, app);
+view_dispatcher_set_navigation_event_callback(vd, my_app_back_callback); // bool (*)(void* context)
 View* my_view = view_alloc(); // or a module's view, e.g. submenu_get_view(submenu)
 view_dispatcher_add_view(vd, ViewIdMain, my_view);
 Gui* gui = furi_record_open(RECORD_GUI);
@@ -96,19 +100,24 @@ App(
 ```
 
 ## 8. Hardware: NFC (HF 13.56 MHz)
-Modern API: `Nfc*`, `NfcDevice*`. Old `NfcWorker*` deprecated in OFW. Supports MIFARE Classic (with Mfkey32 / nested key recovery), MIFARE Ultralight, NTAG, MIFARE DESFire (limited), FeliCa, ISO14443-A/B. Pattern: open `Nfc`, configure poller for the protocol, run scan, parse, close.
+Modern API: `Nfc*`, `NfcDevice*`. The old `NfcWorker*` API was removed in OFW 0.94.1. Supports MIFARE Classic (with Mfkey32 / nested key recovery), MIFARE Ultralight, NTAG, MIFARE DESFire (limited), FeliCa, ISO14443-A/B. Pattern: open `Nfc`, configure poller for the protocol, run scan, parse, close.
 
 ## 9. Hardware: SubGHz
 CC1101 transceiver. Bands 300–348 / 387–464 / 779–928 MHz. Modulations 2-FSK, GFSK, OOK, MSK. RX via `subghz_worker_*`, TX via `furi_hal_subghz_*`. Protocol parsers in `lib/subghz/protocols/`.
 
 ```c
-// Always check region BEFORE TX
-if(!furi_hal_region_is_frequency_allowed(frequency)) {
-    FURI_LOG_E(TAG, "Frequency %lu not allowed in region", frequency);
+// Check the band and the region BEFORE TX: set_frequency_and_path crashes on a
+// frequency outside the radio's bands, which region "00" still allows.
+if(!furi_hal_subghz_is_frequency_valid(frequency) ||
+   !furi_hal_region_is_frequency_allowed(frequency)) {
+    FURI_LOG_E(TAG, "Frequency %lu not allowed", frequency);
     return;
 }
 furi_hal_subghz_set_frequency_and_path(frequency);
-furi_hal_subghz_tx();
+if(!furi_hal_subghz_tx()) { // false when the region forbids TX
+    FURI_LOG_E(TAG, "TX refused at %lu", frequency);
+    return;
+}
 ```
 
 Never bypass the region check — it is both a legal and a hardware safety guard.
@@ -148,7 +157,7 @@ furi_thread_free(worker);  // the thread must be stopped
 ```
 
 ## 16. Storage API
-`Storage*` via `furi_record_open(RECORD_STORAGE)`. Paths: `/ext/` (SD card), `/int/` (internal flash), `/ext/apps_data/<appid>/` (per-app data). File API: `storage_file_open`, `storage_file_read`, `storage_file_write`, `storage_file_close`. Structured files via `flipper_format_*`: text `Key: value` lines after a file type and version header (`flipper_format_write_header_cstr` / `flipper_format_read_header`).
+`Storage*` via `furi_record_open(RECORD_STORAGE)`. Paths: `/ext/` is the SD card; `APP_DATA_PATH("file")` (`/data/file`) resolves to `/ext/apps_data/<appid>/file`, and opening a file there creates the folder. `/int/` is redirected to a folder on the SD card, not internal flash. File API: `storage_file_open`, `storage_file_read`, `storage_file_write`, `storage_file_close`. Structured files via `flipper_format_*`: text `Key: value` lines after a file type and version header (`flipper_format_write_header_cstr` / `flipper_format_read_header`).
 
 ## 17. NotificationApp
 Preset sequences for LED / vibro / beeper: `&sequence_success`, `&sequence_error`, `&sequence_blink_blue_100`, `&sequence_single_vibro`. A custom sequence is a `NULL`-terminated `NotificationSequence` array of `NotificationMessage` pointers. `notification_message_block` sends a sequence and waits until it finishes.
@@ -195,7 +204,7 @@ Most FAPs port cleanly across forks if they use **only public Furi API**. Config
 - (e) Forgotten `furi_string_free` → slow leak.
 - (f) Stack overflow when actual usage > `stack_size` in manifest.
 - (g) STM32 HAL used directly → breaks Momentum / Unleashed / RogueMaster builds.
-- (h) Deprecated `NfcWorker*` instead of new `Nfc*` / `NfcDevice*` → won't compile against current OFW.
+- (h) Removed `NfcWorker*` instead of `Nfc*` / `NfcDevice*` → won't compile against current OFW.
 
 ## 22. Embedded Debugging
 - UART logs: `FURI_LOG_I(TAG, "...")` / `FURI_LOG_W` / `FURI_LOG_E` / `FURI_LOG_D`. View live with `ufbt cli` (`log` command on the device).
