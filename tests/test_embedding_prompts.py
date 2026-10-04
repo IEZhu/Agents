@@ -172,7 +172,11 @@ def test_linked_files_of_a_download_are_published_as_plain_files(monkeypatch, tm
         assert stream.read() == "weights"
 
 
-@pytest.mark.skipif(file_lock.fcntl is None, reason="reclaimed only under a lock that excludes other processes")
+OS_LOCK = pytest.mark.skipif(file_lock.fcntl is None and file_lock.msvcrt is None,
+                             reason="reclaimed only under a lock that excludes other processes")
+
+
+@OS_LOCK
 def test_a_staging_directory_left_by_a_killed_download_is_removed(monkeypatch, tmp_path):
     import huggingface_hub
 
@@ -189,7 +193,7 @@ def test_a_staging_directory_left_by_a_killed_download_is_removed(monkeypatch, t
     assert not os.path.exists(os.path.join(target, "onnx", "model.onnx_data"))  # nothing carried over
 
 
-def test_without_flock_a_download_does_not_touch_the_shared_staging_directory(monkeypatch, tmp_path):
+def test_without_an_os_lock_a_download_does_not_touch_the_shared_staging_directory(monkeypatch, tmp_path):
     import huggingface_hub
 
     model = "microsoft/harrier-oss-v1-270m"
@@ -199,6 +203,25 @@ def test_without_flock_a_download_does_not_touch_the_shared_staging_directory(mo
     other = os.path.join(os.path.dirname(target), f".partial-{revision}")
     os.makedirs(other)
     monkeypatch.setattr(file_lock, "fcntl", None)
+    monkeypatch.setattr(file_lock, "msvcrt", None)
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _hub([]))
+    assert embedding_prompts.materialize(model, str(tmp_path)) == target
+    assert _entries(os.path.dirname(target)) == [f".partial-{revision}", revision]
+
+
+@OS_LOCK
+def test_a_staging_directory_that_cannot_be_removed_gives_way_to_a_private_one(monkeypatch, tmp_path):
+    import shutil
+
+    import huggingface_hub
+
+    model = "microsoft/harrier-oss-v1-270m"
+    target = embedding_prompts.local_copy(model, str(tmp_path))
+    revision = os.path.basename(target)
+    stuck = os.path.join(os.path.dirname(target), f".partial-{revision}")
+    os.makedirs(stuck)
+    rmtree = shutil.rmtree  # on Windows a file still open keeps the directory
+    monkeypatch.setattr(shutil, "rmtree", lambda path, **kwargs: None if path == stuck else rmtree(path, **kwargs))
     monkeypatch.setattr(huggingface_hub, "snapshot_download", _hub([]))
     assert embedding_prompts.materialize(model, str(tmp_path)) == target
     assert _entries(os.path.dirname(target)) == [f".partial-{revision}", revision]

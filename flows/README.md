@@ -251,9 +251,13 @@ because a relative value is resolved against the server's working directory (the
 client's launch directory over stdio). The repository key is the
 normalized `origin` remote without credentials, for example
 `github.com-owner-project`, so clones of one remote share their flows; without a
-remote it is the folder name plus a path hash. `repo:` flows need the caller's
-workspace, like `run_flow`; without one, `get_flow`, `save_flow` and
-`delete_flow` return `repo_scope_unavailable` for them.
+remote it is the folder name plus a path hash. Each repository folder keeps the
+origin in `.repo.json` and this machine's clone path in `.repo.local.json`; a
+folder without an origin belongs to this machine only. The library root holds
+`.agents-library.json`, `.gitignore` and `.gitattributes`, which prepare it for
+sync between machines ([#173](https://github.com/IEZhu/Agents/issues/173)).
+`repo:` flows need the caller's workspace, like `run_flow`; without one,
+`get_flow`, `save_flow` and `delete_flow` return `repo_scope_unavailable` for them.
 
 Ask in chat, for example "save this as my flow", "save it only for this
 repository", "change pr-review for me" or "restore the previous version". The
@@ -300,10 +304,11 @@ otherwise find the archived file under `.history/common/<id>/` or
 `.history/repos/<repo-key>/<id>/` in the library. An update with an outdated
 `expected_revision` returns `flow_conflict` with the current revision instead of
 overwriting a change made from another chat or the editor.
-Writes are atomic. On macOS and Linux a file lock also serializes them across
-processes, so concurrent clients get `flow_conflict` instead of overwriting each
-other. On Windows the lock covers only one server process, so avoid editing the
-same flow from two clients at once.
+Writes are atomic, and a file lock (`flock` on macOS and Linux, `LockFileEx` on
+Windows) serializes them across processes, so concurrent clients get
+`flow_conflict` instead of overwriting each other. On a Windows file system
+without byte-range locks, such as some network shares, the lock covers only one
+server process, so avoid editing the same flow there from two clients at once.
 
 ## Author a flow
 

@@ -6,17 +6,22 @@ Layout (``AGENTS_USER_FLOWS_DIR`` overrides the root)::
       common/<id>.md                 user:<id>, visible in every repository
       common/<id>.meta.json          present only when <id> overrides builtin:<id>
       repos/<repo-key>/<id>.md       repo:<id>, visible only in that repository
-      repos/<repo-key>/.repo.json    origin and last path, for display
+      repos/<repo-key>/.repo.json    the group's normalized origin (null: the key
+                                     comes from this machine's path)
+      repos/<repo-key>/.repo.local.json  this machine's clone path; never shared
       personas/<scope dir>/<id>.json personal agent/component choice for any flow,
                                      builtin/ included (see src.flow_persona)
       .history/<scope dir>/<id>/<UTC timestamp>-<revision>[-deleted].md
+      .agents-library.json, .gitignore, .gitattributes
+                                     library marker and git settings (src.user_library)
 
 Git ignores every dot-directory in this repository, so nothing here can dirty a
 branch, and fast-forward updates of the installation leave it untouched.
 Writes are atomic (temporary file + rename) under one lock; every overwrite or
 deletion keeps the previous text in ``.history``. Updates carry the revision the
 editor started from, so concurrent edits from chat and the browser conflict
-instead of overwriting each other.
+instead of overwriting each other. After each write the paths it changed go to the
+listeners of ``src.user_library``, also when it failed part way.
 """
 from __future__ import annotations
 
@@ -27,12 +32,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import tempfile
 
-from src import flow_persona
+from src import flow_persona, user_library
 from src.file_lock import file_lock
 from src.flows import (FLOW_ID, MAX_FLOW_BYTES, Flow, FlowCatalog, FlowError,
                        flow_title, read_flow)
+from src.user_library import REPO_LOCAL, REPO_META, atomic_write as _atomic_write
 
 SCOPES = ("builtin", "user", "repo")
 _REFERENCE = re.compile(r"(?:(builtin|user|repo):)?(?:flows/)?([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.md)?")
@@ -96,22 +101,52 @@ def _validate_content(content: str) -> bytes:
     return raw
 
 
-def _atomic_write(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".tmp-", delete=False) as stream:
-        try:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        except BaseException:
-            stream.close()
-            os.unlink(stream.name)
-            raise
+def _write_if_changed(path: Path, data: bytes) -> bool:
+    """Write ``data`` unless the file already holds exactly it; True when it wrote."""
     try:
-        os.replace(stream.name, path)
-    except BaseException:
-        Path(stream.name).unlink(missing_ok=True)
-        raise
+        if path.read_bytes() == data:
+            return False
+    except OSError:
+        pass
+    _atomic_write(path, data)
+    return True
+
+
+def _remove(path: Path) -> bool:
+    """Delete ``path`` (a symlink itself, never its target); False when it was already gone."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _json_bytes(value) -> bytes:
+    return json.dumps(value, indent=2).encode() + b"\n"
+
+
+def _read_json_object(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def repo_group_meta(directory: Path) -> dict:
+    """``origin``, ``path`` and ``local`` of one ``repos/<repo-key>`` group.
+
+    ``.repo.json`` holds only the normalized origin, the same on every machine;
+    ``.repo.local.json`` holds this machine's clone path. A group without an
+    origin has a key made from that path, so it is ``local``: it means nothing on
+    another machine. A ``.repo.json`` written before the split also held ``path``,
+    which is still read.
+    """
+    shared = _read_json_object(directory / REPO_META)
+    machine = _read_json_object(directory / REPO_LOCAL)
+    origin = shared.get("origin") if isinstance(shared.get("origin"), str) else None
+    path = next((value for value in (machine.get("path"), shared.get("path")) if isinstance(value, str)), None)
+    return {"origin": origin, "path": path, "local": origin is None}
 
 
 class FlowLibrary:
@@ -140,12 +175,7 @@ class FlowLibrary:
     # --- locations -----------------------------------------------------------------
 
     def _stored_origin(self, key: str) -> str | None:
-        try:
-            with (self.user_dir / "repos" / key / ".repo.json").open(encoding="utf-8") as stream:
-                origin = json.load(stream).get("origin")
-        except (OSError, ValueError, AttributeError):
-            return None
-        return origin if isinstance(origin, str) else None
+        return repo_group_meta(self.user_dir / "repos" / key)["origin"]
 
     def repo(self) -> tuple[str, str | None]:
         if self.repo_root is None and self._key:
@@ -174,9 +204,12 @@ class FlowLibrary:
     def _history(self, scope: str, flow_id: str) -> Path:
         return self.user_dir / ".history" / self._relative(scope) / flow_id
 
+    def _persona_dir(self, scope: str) -> Path:
+        """``personas/<scope dir>``, relative to the library."""
+        return Path("personas") / (Path("builtin") if scope == "builtin" else self._relative(scope))
+
     def _persona_path(self, scope: str, flow_id: str) -> Path:
-        relative = Path("builtin") if scope == "builtin" else self._relative(scope)
-        directory = self.user_dir / "personas" / relative
+        directory = self.user_dir / self._persona_dir(scope)
         try:
             inside = directory.resolve().is_relative_to(self.user_dir.resolve())
         except (OSError, RuntimeError) as error:  # e.g. a symlink loop
@@ -329,7 +362,8 @@ class FlowLibrary:
     def repositories(self, *, with_content: bool = False) -> list[dict]:
         """Every repository key that holds flows, with a display label and its flows.
 
-        The label is the stored origin, else the last known path, else the key.
+        The label is the stored origin, else this machine's path, else the key.
+        ``local`` marks a group whose key comes from that path (see ``repo_group_meta``).
         """
         root = self.user_dir / "repos"
         groups = []
@@ -338,20 +372,15 @@ class FlowLibrary:
         for directory in sorted(root.iterdir()):
             if not directory.is_dir() or directory.is_symlink() or not _REPO_KEY.fullmatch(directory.name):
                 continue
-            try:
-                meta = json.loads((directory / ".repo.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                meta = {}
-            if not isinstance(meta, dict):
-                meta = {}
+            meta = repo_group_meta(directory)
             library = FlowLibrary(self.catalog, user_dir=self.user_dir, repo_key=directory.name)
             listing = library.list("repo", with_content=with_content)
             flows = [dict(entry, repo_key=directory.name) for entry in listing["flows"]]
             if not flows and not listing.get("issues"):
                 continue
-            label = meta.get("origin") or meta.get("path") or directory.name
+            label = meta["origin"] or meta["path"] or directory.name
             groups.append({"key": directory.name, "label": str(label),
-                           "origin": meta.get("origin"), "path": meta.get("path"),
+                           "origin": meta["origin"], "path": meta["path"], "local": meta["local"],
                            "flows": flows, "issues": listing.get("issues", [])})
         groups.sort(key=lambda group: group["label"].lower())
         return groups
@@ -410,6 +439,29 @@ class FlowLibrary:
         _atomic_write(self._history(scope, flow_id) / f"{version}.md", raw)
         return version
 
+    def _history_relative(self, scope: str, flow_id: str, version: str) -> str:
+        return (Path(".history") / self._relative(scope) / flow_id / f"{version}.md").as_posix()
+
+    def _write_repo_meta(self, directory: Path, relative: Path, changed: list[str]) -> None:
+        """Keep the origin alone in ``.repo.json`` and this machine's path in ``.repo.local.json``.
+
+        A save through a workspace records both. A save by repository key (the web
+        editor) only moves the ``path`` out of a ``.repo.json`` written before the split.
+        Each written file is added to ``changed`` as soon as it is written.
+        """
+        if self.repo_root is not None:
+            origin, path = self.repo()[1], str(self.repo_root)
+        elif "path" in _read_json_object(directory / REPO_META):
+            meta = repo_group_meta(directory)
+            origin, path = meta["origin"], meta["path"]
+        else:
+            return
+        # The local path first: once .repo.json loses `path`, only .repo.local.json has it.
+        if path is not None and _write_if_changed(directory / REPO_LOCAL, _json_bytes({"path": path})):
+            changed.append((relative / REPO_LOCAL).as_posix())
+        if _write_if_changed(directory / REPO_META, _json_bytes({"origin": origin})):
+            changed.append((relative / REPO_META).as_posix())
+
     def _current(self, scope: str, flow_id: str) -> tuple[Path, bytes | None]:
         path = self._directory(scope) / f"{flow_id}.md"
         if path.is_symlink():
@@ -441,28 +493,34 @@ class FlowLibrary:
         if override and not builtin:
             raise FlowError(f"flow_invalid: override=true needs an existing builtin:{flow_id}")
         directory = self._directory(scope)
+        relative = self._relative(scope)
         self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with file_lock(self.user_dir / ".lock"):
-            path, current = self._current(scope, flow_id)
-            self._check_revision(current, expected_revision)
-            if current != raw:
-                if current is not None:
-                    self._archive(scope, flow_id, current)
-                _atomic_write(path, raw)
-            # Update the override marker even when the text is unchanged.
-            meta_path = directory / f"{flow_id}.meta.json"
-            if override:
-                # Saving an override acknowledges the built-in text it was edited against.
-                meta = {"overrides": f"builtin:{flow_id}",
-                        "base_revision": self.catalog.load(flow_id).revision}
-                _atomic_write(meta_path, json.dumps(meta, indent=2).encode() + b"\n")
-            else:
-                # A plain save is not a copy of a built-in any more (e.g. the built-in was removed).
-                meta_path.unlink(missing_ok=True)
-            if scope == "repo" and self.repo_root is not None:
-                key, origin = self.repo()
-                _atomic_write(directory / ".repo.json", json.dumps(
-                    {"origin": origin, "path": str(self.repo_root)}, indent=2).encode() + b"\n")
+        changed = []
+        try:
+            with file_lock(self.user_dir / ".lock"):
+                path, current = self._current(scope, flow_id)
+                self._check_revision(current, expected_revision)
+                if current != raw:
+                    if current is not None:
+                        changed.append(self._history_relative(scope, flow_id, self._archive(scope, flow_id, current)))
+                    _atomic_write(path, raw)
+                    changed.append((relative / path.name).as_posix())
+                # Update the override marker even when the text is unchanged.
+                meta_path = directory / f"{flow_id}.meta.json"
+                if override:
+                    # Saving an override acknowledges the built-in text it was edited against.
+                    meta = {"overrides": f"builtin:{flow_id}",
+                            "base_revision": self.catalog.load(flow_id).revision}
+                    if _write_if_changed(meta_path, _json_bytes(meta)):
+                        changed.append((relative / meta_path.name).as_posix())
+                elif _remove(meta_path):
+                    # A plain save is not a copy of a built-in any more (e.g. the built-in was removed).
+                    changed.append((relative / meta_path.name).as_posix())
+                if scope == "repo":
+                    self._write_repo_meta(directory, relative, changed)
+                changed += user_library.ensure_root_files(self.user_dir)
+        finally:  # also after a partial failure: listeners learn what already changed
+            user_library.notify(self.user_dir, changed)
         if current == raw:
             return {"status": "unchanged", "flow": self._load(scope, flow_id).metadata()}
         return {"status": "created" if current is None else "saved",
@@ -477,15 +535,26 @@ class FlowLibrary:
         persona_path = self._persona_path(scope, flow_id)  # Validated before any change.
         if persona_path.is_dir() and not persona_path.is_symlink():
             raise FlowError(f"flow_invalid: {persona_path} is a directory; remove it, then delete the flow")
-        with file_lock(self.user_dir / ".lock"):
-            path, current = self._current(scope, flow_id)
-            if current is None:
-                raise FlowError("flow_not_found: use list_flows to discover available flows")
-            self._check_revision(current, expected_revision)
-            version = self._archive(scope, flow_id, current, deleted=True)
-            path.unlink()
-            (self._directory(scope) / f"{flow_id}.meta.json").unlink(missing_ok=True)
-            persona_path.unlink(missing_ok=True)
+        relative = self._relative(scope)
+        changed = []
+        try:
+            with file_lock(self.user_dir / ".lock"):
+                path, current = self._current(scope, flow_id)
+                if current is None:
+                    raise FlowError("flow_not_found: use list_flows to discover available flows")
+                self._check_revision(current, expected_revision)
+                version = self._archive(scope, flow_id, current, deleted=True)
+                changed.append(self._history_relative(scope, flow_id, version))
+                path.unlink()
+                changed.append((relative / path.name).as_posix())
+                meta_path = self._directory(scope) / f"{flow_id}.meta.json"
+                for removed, name in ((meta_path, (relative / meta_path.name).as_posix()),
+                                      (persona_path, (self._persona_dir(scope) / persona_path.name).as_posix())):
+                    if _remove(removed):
+                        changed.append(name)
+                changed += user_library.ensure_root_files(self.user_dir)
+        finally:
+            user_library.notify(self.user_dir, changed)
         return {"status": "deleted", "id": f"{scope}:{flow_id}", "version": version}
 
     def set_persona(self, name: str, persona, *, reset: bool = False) -> dict:
@@ -507,20 +576,27 @@ class FlowLibrary:
             spec = flow_persona.normalize(persona)
             flow_persona.check_known(spec)
         path = self._persona_path(scope, flow_id)
+        relative = (self._persona_dir(scope) / path.name).as_posix()
         self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with file_lock(self.user_dir / ".lock"):
-            # A delete may have finished meanwhile: never leave an orphan overlay
-            # that a recreated flow would inherit.
-            if not self._exists(scope, flow_id):
-                raise FlowError("flow_not_found: use list_flows to discover available flows")
-            if path.is_dir() and not path.is_symlink():
-                # Never delete unknown contents recursively.
-                raise FlowError(f"flow_invalid: {path} is a directory; remove it manually")
-            if reset:
-                path.unlink(missing_ok=True)  # Removes a symlink itself, never its target.
-            elif path.is_symlink():
-                raise FlowError("flow_invalid: persona overlays cannot be symlinks")
-            else:
-                _atomic_write(path, json.dumps({"persona": spec}, indent=2).encode() + b"\n")
+        changed = []
+        try:
+            with file_lock(self.user_dir / ".lock"):
+                # A delete may have finished meanwhile: never leave an orphan overlay
+                # that a recreated flow would inherit.
+                if not self._exists(scope, flow_id):
+                    raise FlowError("flow_not_found: use list_flows to discover available flows")
+                if path.is_dir() and not path.is_symlink():
+                    # Never delete unknown contents recursively.
+                    raise FlowError(f"flow_invalid: {path} is a directory; remove it manually")
+                if reset:
+                    if _remove(path):  # Removes a symlink itself, never its target.
+                        changed.append(relative)
+                elif path.is_symlink():
+                    raise FlowError("flow_invalid: persona overlays cannot be symlinks")
+                elif _write_if_changed(path, _json_bytes({"persona": spec})):
+                    changed.append(relative)
+                changed += user_library.ensure_root_files(self.user_dir)
+        finally:
+            user_library.notify(self.user_dir, changed)
         return {"status": "reset" if reset else "saved",
                 "flow": self._load(scope, flow_id).metadata()}

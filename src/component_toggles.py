@@ -9,18 +9,19 @@ Only disabled IDs are stored, so everything is enabled by default.
 A file that is not valid as a whole is ignored as a whole. Rules use their
 ``name``; skills and implants use the file name without ``.mdc``. The file is read
 fresh on every call, so a change made in the web UI reaches the next bundle that any
-process of the installation builds. Writes are atomic under one lock. A missing,
-unreadable or malformed file means "everything enabled": a switch must never turn
-an activation into an error.
+process of the installation builds. Writes are atomic under the library's lock, and
+a change goes to the listeners of ``src.user_library``. A missing, unreadable or
+malformed file means "everything enabled": a switch must never turn an activation
+into an error.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import tempfile
 from pathlib import Path
 
+from src import user_library
 from src.engine.config import FLOWS_DIR
 from src.file_lock import file_lock
 
@@ -78,27 +79,26 @@ def set_enabled(kind: str, component_id: str, enabled: bool) -> None:
     if not isinstance(component_id, str) or not _ID.fullmatch(component_id):
         raise ToggleError(f"invalid component ID: {component_id!r}")
     path = _path()
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with file_lock(path.parent / ".lock"):
-        state = _read()
-        if enabled:
-            state[kind].discard(component_id)
-        else:
-            state[kind].add(component_id)
-        payload = json.dumps(
-            {"disabled": {k: sorted(state[k]) for k in KINDS}}, indent=2,
-        ).encode("utf-8") + b"\n"
-        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".tmp-", delete=False) as stream:
+    root = path.parent
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    changed = []
+    try:
+        with file_lock(root / ".lock"):
+            state = _read()
+            if enabled:
+                state[kind].discard(component_id)
+            else:
+                state[kind].add(component_id)
+            payload = json.dumps(
+                {"disabled": {k: sorted(state[k]) for k in KINDS}}, indent=2,
+            ).encode("utf-8") + b"\n"
             try:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            except BaseException:
-                stream.close()
-                os.unlink(stream.name)
-                raise
-        try:
-            os.replace(stream.name, path)
-        except BaseException:
-            Path(stream.name).unlink(missing_ok=True)
-            raise
+                unchanged = path.read_bytes() == payload
+            except OSError:
+                unchanged = False
+            if not unchanged:
+                user_library.atomic_write(path, payload)
+                changed.append(path.name)
+            changed += user_library.ensure_root_files(root)
+    finally:
+        user_library.notify(root, changed)
