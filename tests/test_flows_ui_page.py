@@ -213,9 +213,9 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
               if any("var(--tint)" in value for value in rule.values())}
     assert tinted == {"#e-actions, #c-actions", "#e-actions::before, #c-actions::before",
                       "#e-actions::after, #c-actions::after", "#editor, #component"}
-    # Forced colors replace the tint; an outline keeps the shapes of the tab and the panels.
-    assert top["nav, main > section, #e-actions, #c-actions"] == {"outline": "1px solid transparent",
-                                                                   "outline-offset": "-1px"}
+    # Forced colors replace the tint and the bars; an outline keeps the shapes.
+    assert top["nav, main > section, #e-actions, #c-actions, .list-tabs button.active::after"] == {
+        "outline": "1px solid transparent", "outline-offset": "-1px"}
     # Where the list sits between the header and the pane, the tab is rounded all round and not joined.
     narrow = css["(max-width: 760px)"]
     assert narrow["header > *, #item-actions[data-pane]"] == {"margin": "4px 0"}  # also undoes --tab-start
@@ -226,14 +226,21 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
 
 def test_the_list_starts_as_far_below_the_search_field_as_the_field_starts_below_the_panel_top():
     top = css_rules(page_parts()[2])[""]
-    assert top[".search"]["padding"] == "11px 11px 0" and top["#items"]["padding"] == "11px"
+    assert top[".search"] == {"flex": "none", "position": "relative", "padding": "11px 11px 0"}
+    assert top["#items"]["padding"] == "11px"
     # The match count sits at the field's right end instead of reserving a row under it.
     assert {"position": "absolute", "top": "11px", "bottom": "0"}.items() <= top["#search-count"].items()
     assert top[".search input"]["padding-right"] == "6em"
     # User and System are tabs, not buttons: no frame, and a bar under the shown one.
-    assert {"border": "0", "background": "none"}.items() <= top[".list-tabs button"].items()
+    assert top[".search:has(#search-count:empty) input"] == {"padding-right": "8px"}  # room only while it shows
+    assert top["#search::-webkit-search-cancel-button"] == {"display": "none"}  # Esc clears instead
+    html, script, _ = page_parts()
+    assert re.search(r'<div class="search">\s*<input type="search" id="search"[^>]*>\s*<span id="search-count"', html)
+    # User and System are tabs, not buttons: no frame, and a bar under the shown one.
+    assert {"position": "relative", "border": "0", "background": "none"}.items() <= top[".list-tabs button"].items()
+    assert "margin-top" not in top[".list-tabs"] and top[".list-tabs"]["margin-bottom"] == "8px"
     assert top[".list-tabs button.active::after"]["background"] == "var(--accent)"
-    assert 'seg.className = "list-tabs"' in page_parts()[1]
+    assert 'seg.className = "list-tabs"' in script
 
 
 def test_every_corner_radius_is_a_token_and_no_two_tokens_share_a_value():

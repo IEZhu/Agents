@@ -98,15 +98,20 @@ button:disabled { opacity: .5; cursor: default; }
 main { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
   gap: var(--edge); padding: 0 var(--edge) var(--edge); flex: 1; min-height: 0; overflow: hidden; }
 main > section { overflow-y: auto; min-height: 0; padding: 10px; border-radius: var(--r-block); background: var(--panel); }
-/* Forced colors replace backgrounds; an outline, transparent otherwise, keeps the panels' and the tab's shape. */
-nav, main > section, #e-actions, #c-actions { outline: 1px solid transparent; outline-offset: -1px; }
+/* Forced colors replace backgrounds; an outline, transparent otherwise, keeps the shapes of the panels, the
+   item tab and the bar under the shown list tab. */
+nav, main > section, #e-actions, #c-actions, .list-tabs button.active::after {
+  outline: 1px solid transparent; outline-offset: -1px; }
 #editor, #component { background: var(--tint); }
 #signin { overflow-y: auto; padding: 16px var(--edge); }
 nav { background: var(--panel); border-radius: var(--r-list); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 /* The match count sits at the field's right end, so the list starts as far below the field as the
-   field starts below the panel's top, and showing the count moves nothing. */
+   field starts below the panel's top, and showing the count moves nothing. The field keeps room
+   for it only while it shows; Esc clears the query, so the native clear button is not drawn. */
 .search { flex: none; position: relative; padding: 11px 11px 0; }
 .search input { width: 100%; padding-right: 6em; }
+.search:has(#search-count:empty) input { padding-right: 8px; }
+#search::-webkit-search-cancel-button { display: none; }
 #search-count { position: absolute; top: 11px; bottom: 0; right: 20px; display: flex; align-items: center;
   white-space: nowrap; pointer-events: none; }
 #items { flex: 1; min-height: 0; overflow-y: auto; padding: 11px; }
@@ -138,7 +143,7 @@ textarea[readonly] { color: var(--muted); }
 .tabs button.active, .seg button.active { background: var(--chip); font-weight: 600; }
 /* The list's categories are tabs: a hairline under the strip, a rounded bar under the shown one. */
 .list-tabs { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
-.list-tabs button { position: relative; flex: 1; border: 0; border-radius: 0; background: none; padding: 6px 10px;
+.list-tabs button { position: relative; flex: 1; border: 0; border-radius: 0; background: none; padding: 0 10px 6px;
   color: var(--muted); }
 .list-tabs button:hover { color: var(--text); }
 .list-tabs button.active { color: var(--text); font-weight: 600; }
@@ -507,7 +512,12 @@ function renderList() {
       button.textContent = label;
       button.className = state.category === value ? "active" : "";
       button.setAttribute("aria-pressed", String(state.category === value));
-      button.addEventListener("click", () => { state.category = value; $("items").scrollTop = 0; renderList(); });
+      button.addEventListener("click", () => {
+        const focused = document.activeElement === button;
+        state.category = value; $("items").scrollTop = 0; renderList();
+        // The list is rebuilt: keyboard focus moves to the new tab instead of falling to the page.
+        if (focused) $("items").querySelector(".list-tabs .active").focus();
+      });
       seg.appendChild(button);
     }
     nav.appendChild(seg);
