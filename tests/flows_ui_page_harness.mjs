@@ -5,7 +5,8 @@
 // "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
 // "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
 // for "ui_panes" and "ui_signout", which pane and header controls show as items open and close, or,
-// for "place", where itemPlace puts groups of given widths.
+// for "place", where itemPlace puts groups of given widths, or, for "ui_place", where the open
+// item's group goes as the window is resized.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -181,6 +182,8 @@ async function personaRace(path, init) {
 }
 
 const docHandlers = {};
+const windowHandlers = {};
+let narrowNow = false;  // ui_place: the stylesheet's narrow layout applies
 const storage = new Map(scenario === "ui_narrow_stored" ? [["agents-ui-toc-hidden", "0"]] : []);
 const context = vm.createContext({
   document: {
@@ -188,7 +191,12 @@ const context = vm.createContext({
     createTextNode: (text) => ({ nodeType: 3, textContent: text }),
     addEventListener(type, handler) { (docHandlers[type] = docHandlers[type] || []).push(handler); },
   },
-  window: { addEventListener() {}, matchMedia: () => ({ matches: scenario.includes("narrow") }) },
+  window: {
+    addEventListener(type, handler) { (windowHandlers[type] = windowHandlers[type] || []).push(handler); },
+    matchMedia: () => ({ matches: scenario.includes("narrow") || narrowNow }),
+  },
+  // ui_place measures stub boxes; the page reads the header gap, the pane's corner and the joint.
+  getComputedStyle: () => ({ columnGap: "8px", borderTopLeftRadius: "22px", width: "13px" }),
   localStorage: {
     getItem: (key) => { if (scenario === "ui_nostorage") throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
     setItem: (key, value) => { if (scenario === "ui_nostorage") throw new Error("denied"); storage.set(key, value); },
@@ -343,6 +351,32 @@ if (scenario === "render") {
 
 if (isUi) {
   const out = {};
+  if (scenario === "ui_place") {
+    // A personal flow's group, 456 px wide, beside a version ending at 222 px and a pane whose
+    // straight top edge starts at 304 + 22 + 13 px; the section tabs move as the window narrows.
+    const layout = { tabsLeft: 806 };
+    const box = (rect) => () => ({ width: rect.right - rect.left, ...rect });
+    byId("version").getBoundingClientRect = box({ left: 12, right: 222 });
+    byId("e-actions").getBoundingClientRect = () => ({ width: 456 });
+    byId("editor").getBoundingClientRect = box({ left: 304, right: 1238 });
+    byId("tabs").getBoundingClientRect = () => ({ left: layout.tabsLeft });
+    byId("item-actions").getBoundingClientRect = () => ({});
+    const place = () => [byId("item-actions").dataset.place, byId("main").dataset.place];
+    const resize = async (tabsLeft, narrow = false) => {
+      layout.tabsLeft = tabsLeft; narrowNow = narrow;
+      for (const handler of windowHandlers.resize || []) handler({});
+      await sleep(0);
+      return place();
+    };
+    await open(0);
+    out.opened = place();  // 806 - 8 - 456 = 342 px: on the straight edge
+    out.inline = await resize(706);  // 242 px: past the corner, after the version
+    out.row = await resize(665);  // 201 px: not even after the version
+    out.stack = await resize(665, true);
+    out.back = await resize(806);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
   if (scenario === "ui_panes") {
     const steps = { start: panes() };
     await open(0);

@@ -168,11 +168,14 @@ def css_rules(style):
 def test_the_group_goes_where_it_fits_as_measured_not_by_breakpoints():
     assert run("place") == {"on_pane": "tab", "past_corner": "inline", "after_version": "inline",
                             "too_wide": "row", "narrow": "stack"}
+    # Opening a flow and resizing the window place the group again, on the group and on #main.
+    assert run("ui_place") == {"opened": ["tab", "tab"], "inline": ["inline", "inline"], "row": ["row", "row"],
+                               "stack": ["stack", "stack"], "back": ["tab", "tab"]}
     _, script, style = page_parts()
-    # Measured on the rendered page whenever a pane, its buttons or the window change.
-    assert re.search(r"function showPane\([\s\S]*?schedulePlacement\(\);\n\}", script)
+    # So do the buttons that change the group's width.
     assert re.search(r"view\.apply = \(\) => \{[\s\S]*?schedulePlacement\(\);", script)
-    assert 'window.addEventListener("resize", schedulePlacement)' in script
+    relabels = re.findall(r'\$\("toggle-upstream"\)\.textContent = "[^"]+";(\n\s*schedulePlacement\(\);)?', script)
+    assert relabels == ["\n  schedulePlacement();", "\n  schedulePlacement();"], relabels
     css = css_rules(style)
     assert not [selector for media, rules in css.items() if media for selector in rules if "item-actions" in selector]
 
@@ -184,6 +187,8 @@ def test_the_header_gives_each_place_its_layout():
     assert top["#history"] == {"width": "8em"}
     assert top["#tabs"] == {"flex-wrap": "wrap"}
     assert top["#e-actions, #c-actions"]["flex-wrap"] == "nowrap"  # measured on one line
+    # Labels never wrap, so the group cannot shrink below the width it needs while it is measured.
+    assert top["#item-actions button, #item-actions select"] == {"padding": "4px 6px", "white-space": "nowrap"}
     # In its own row a tab starts right of the pane's rounded corner and of its own joint: on the
     # pane's straight top edge.
     assert top[":root"]["--tab-start"] == "calc(var(--list-width) + var(--edge) + var(--r-block) + var(--r-joint))"

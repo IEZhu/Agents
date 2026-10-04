@@ -54,7 +54,9 @@ header h1 { font-size: 16px; line-height: 32px; margin-right: auto; white-space:
   background: radial-gradient(circle at 0 0, transparent calc(var(--r-joint) - .5px), var(--tint) var(--r-joint)); }
 #e-actions::after, #c-actions::after { left: 100%;
   background: radial-gradient(circle at 100% 0, transparent calc(var(--r-joint) - .5px), var(--tint) var(--r-joint)); }
-#item-actions button, #item-actions select { padding: 4px 6px; }
+/* Labels never wrap: the group cannot shrink below one line, so its measured width is the width it
+   needs, and in its own row whole buttons wrap. */
+#item-actions button, #item-actions select { padding: 4px 6px; white-space: nowrap; }
 #history { width: 8em; }
 #tabs { flex-wrap: wrap; }
 /* placeItemActions() measures where the group fits and sets data-place on #item-actions and #main:
