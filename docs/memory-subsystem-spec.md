@@ -212,7 +212,7 @@ Entry template:
 - `entry_id` (12-hex suffix in the heading) is the first 12 hex digits of `sha256(intent + "\x1f" + action + "\x1f" + outcome)`, computed over the stripped UTF-8 fields. Stable, deduplicated.
 - Dedup: scan the last 50 entries by id before append. Duplicates short-circuit.
 - Append-only. Past entries are never edited or deleted.
-- Writes take a stable sidecar lock next to the target: `.history.md.lock` for history appends and index rebuilds, `.CLAUDE.md.lock` for managed-section writes, and `.agents-description.lock` in the described `repo_path` for summary writes. On POSIX each is an `flock` on a lock file that persists in the client repository and serializes concurrent sessions across processes; on Windows the lock is in memory and serializes only threads within one process. History appends also hold a process-wide mutex and `fcntl.flock` on `history.md` itself.
+- Writes take a stable sidecar lock next to the target: `.history.md.lock` for history appends and index rebuilds, `.CLAUDE.md.lock` for managed-section writes, and `.agents-description.lock` in the described `repo_path` for summary writes. Each is an OS lock on a lock file that persists in the client repository and serializes concurrent sessions across processes: `flock` on POSIX, `LockFileEx` on Windows. On a Windows file system without byte-range locks, such as some network shares, the lock is in memory and serializes only threads within one process. History appends also hold a process-wide mutex and `fcntl.flock` on `history.md` itself.
 - Rotation: when `os.path.getsize > 512 KB` — move file to `history/YYYY-MM.md` (month from the last entry's timestamp), create a fresh `history.md` with a header pointing to the archive.
 - UTF-8, `\n` line endings.
 - `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
@@ -526,7 +526,7 @@ The implementation as of 2026-04-15 matched the spec, apart from the clarificati
 
 5. **`HistoryStore.search` accepts `embed_query` / `embed_texts` as arguments** (DI). By default they load `src.engine.embedder.*`; in tests a `FakeEmbedder` with deterministic vectors is injected, requiring no real model download.
 
-6. **fcntl wrapper** `_lock_exclusive` / `_unlock` in `history.py` — no-op on Windows so the module imports cross-platform. Stable sidecar lock files were added later for history, managed-section and summary writes (see 4.2); without `fcntl` they serialize only threads within one process.
+6. **fcntl wrapper** `_lock_exclusive` / `_unlock` in `history.py` — no-op on Windows so the module imports cross-platform. Stable sidecar lock files were added later for history, managed-section and summary writes (see 4.2); they exclude other processes on Windows too (`LockFileEx`).
 
 7. **Tag normalization:** hashtags without a `#` prefix are automatically prefixed (`"feature"` → `"#feature"`).
 

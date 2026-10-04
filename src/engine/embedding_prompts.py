@@ -122,10 +122,12 @@ def materialize(model: str, cache_dir: str) -> str | None:
     into a staging directory that is renamed into place only when complete, so a
     published copy never mixes revisions or writers, and a failed download leaves
     earlier copies as they were. A staging directory left by a killed download is
-    removed before the next one starts. Without flock (Windows) the lock does not
-    exclude other processes, so each download stages in a private directory, and
-    one left by a killed download stays. A published copy loads without the Hub
-    (offline, HF_HUB_OFFLINE). Returns None for other models.
+    removed before the next one starts; one that cannot be removed (a file still
+    open on Windows) stays, and the download stages in a private directory. Without
+    an OS lock (flock or LockFileEx) the lock does not exclude other processes, so
+    each download stages in a private directory, and one left by a killed download
+    stays. A published copy loads without the Hub (offline, HF_HUB_OFFLINE).
+    Returns None for other models.
     """
     target = local_copy(model, cache_dir)
     if target is None:
@@ -147,13 +149,16 @@ def materialize(model: str, cache_dir: str) -> str | None:
         if os.path.isfile(os.path.join(target, COMPLETE)):
             return target  # another process published it while this one waited
         if lease is None:
-            # Without flock the lock only serializes this process, so another
-            # process may be filling the shared staging directory: use a private one.
+            # Without an OS lock (flock or LockFileEx) the lock only serializes this process,
+            # so another process may be filling the shared staging directory: use a private one.
             staging = tempfile.mkdtemp(prefix=f".partial-{spec['revision']}-", dir=parent)
         else:
             staging = os.path.join(parent, f".partial-{spec['revision']}")
             shutil.rmtree(staging, ignore_errors=True)  # left by a download that was killed
-            os.makedirs(staging)
+            try:
+                os.makedirs(staging)
+            except FileExistsError:  # not fully removed, such as a file still open on Windows
+                staging = tempfile.mkdtemp(prefix=f".partial-{spec['revision']}-", dir=parent)
         _download(spec, staging, target, snapshot_download)
     return target
 

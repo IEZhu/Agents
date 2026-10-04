@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 _ROTATION_WARNED: set = set()
 
 
-# Cross-platform file lock — fcntl on POSIX, no-op shim on Windows where the
-# MCP server does not support concurrent stdio sessions anyway.
+# A lock on history.md itself — fcntl on POSIX, a no-op shim on Windows. Appends
+# also take the sidecar lock (src.file_lock), which excludes other processes on both.
 try:  # pragma: no cover - exercised via integration only
     import fcntl as _fcntl
 
