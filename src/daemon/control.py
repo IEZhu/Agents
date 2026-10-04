@@ -130,7 +130,8 @@ class Controller:
 
     def write_plist(self, probation=None):
         arguments = [self.config["python"], "-m", "src.daemon", "--state", str(self.directory), "serve"]
-        if probation: arguments += ["--probation", probation]
+        # One argument: a URL-safe nonce may start with "-", which argparse would read as an option.
+        if probation: arguments.append("--probation=" + probation)
         payload = {"Label": self.label, "ProgramArguments": arguments,
                    "WorkingDirectory": self.config["installation"],
                    "EnvironmentVariables": {"PATH": self.config["path"], "PYTHONUNBUFFERED": "1"},
