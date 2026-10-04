@@ -98,6 +98,7 @@ omitted). Re-check the figures against `sources`, then update `as_of`.
 | `skill-mcp-development` | MCP server development best practices |
 | `skill-blender-scripting` | Blender Python (bpy) scripting, manifold geometry, 3D printing |
 | `skill-roblox-development` | Roblox Luau patterns, DataStore, anti-exploit, performance |
+| `skill-flipper-zero-development` | Flipper Zero FAP and firmware development: Furi/FuriHal API, peripherals, ufbt/fbt builds, responsible use |
 | `skill-code-generation` | Code generation with tests, documentation, error handling and validation |
 | `skill-dev-api-design` | REST, GraphQL and gRPC API design: schemas, versioning, errors, pagination |
 | `skill-dev-performance` | Profiling, bottleneck identification, optimization patterns, benchmarking |
