@@ -140,14 +140,151 @@ def test_the_open_items_controls_sit_in_the_header_between_the_version_and_the_t
     assert "primary" in re.search(r'<button id="save"[^>]*>', html).group(0)
 
 
-def test_the_header_stays_one_row_when_wide_and_gives_the_controls_a_row_when_narrow():
+def css_rules(style):
+    """The stylesheet as {media condition, "" at the top level: {selector: {property: value}}}."""
+    text, rules, i = re.sub(r"/\*[\s\S]*?\*/", "", style), {}, 0
+
+    def add(media, body):
+        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", body):
+            rule = rules.setdefault(media, {}).setdefault(" ".join(selector.split()), {})
+            for declaration in declarations.split(";"):
+                if ":" in declaration:
+                    name, value = declaration.split(":", 1)
+                    rule[name.strip()] = " ".join(value.split())
+
+    while (at := text.find("@media", i)) >= 0:
+        add("", text[i:at])
+        start = text.index("{", at)
+        depth, end = 1, start + 1
+        while depth:
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            end += 1
+        add(" ".join(text[at + len("@media"):start].split()), text[start + 1:end - 1])
+        i = end
+    add("", text[i:])
+    return rules
+
+
+def test_the_group_goes_where_it_fits_as_measured_not_by_breakpoints():
+    assert run("place") == {"on_pane": "tab", "past_corner": "inline", "after_version": "inline",
+                            "too_wide": "row", "narrow": "stack"}
+    # Opening a flow and resizing the window place the group again, on the group and on #main.
+    assert run("ui_place") == {"opened": ["tab", "tab"], "inline": ["inline", "inline"], "row": ["row", "row"],
+                               "stack": ["stack", "stack"], "back": ["tab", "tab"]}
+    _, script, style = page_parts()
+    # So do the buttons that change the group's width.
+    assert re.search(r"view\.apply = \(\) => \{[\s\S]*?schedulePlacement\(\);", script)
+    relabels = re.findall(r'\$\("toggle-upstream"\)\.textContent = "[^"]+";(\n\s*schedulePlacement\(\);)?', script)
+    assert relabels == ["\n  schedulePlacement();", "\n  schedulePlacement();"], relabels
+    css = css_rules(style)
+    assert not [selector for media, rules in css.items() if media for selector in rules if "item-actions" in selector]
+
+
+def test_the_header_gives_each_place_its_layout():
+    css = css_rules(page_parts()[2])
+    top = css[""]
+    assert {"flex": "1 1 0", "min-width": "0", "justify-content": "flex-end"}.items() <= top["#item-actions"].items()
+    assert top["#history"] == {"width": "8em"}
+    assert top["#tabs"] == {"flex-wrap": "wrap"}
+    assert top["#e-actions, #c-actions"]["flex-wrap"] == "nowrap"  # measured on one line
+    # Labels never wrap, so the group cannot shrink below the width it needs while it is measured.
+    assert top["#item-actions button, #item-actions select"] == {"padding": "4px 6px", "white-space": "nowrap"}
+    # In its own row a tab starts right of the pane's rounded corner and of its own joint: on the
+    # pane's straight top edge.
+    assert top[":root"]["--tab-start"] == "calc(var(--list-width) + var(--edge) + var(--r-block) + var(--r-joint))"
+    place = '#item-actions[data-place="{}"]'.format
+    assert top[place("inline")] == {"justify-content": "flex-start", "margin-bottom": "4px"}
+    assert top[f'{place("row")}, {place("stack")}'] == {"order": "1", "flex-basis": "100%"}
+    assert top[place("row")] == {"margin-left": "var(--tab-start)"}
+    assert top[place("stack")] == {"margin": "4px 0"}
+    assert top[f'{place("row")} + #tabs, {place("stack")} + #tabs'] == {"border-left": "0", "padding-left": "0"}
+    assert top[f'{place("row")} > div, {place("stack")} > div'] == {"flex-wrap": "wrap"}
+    # After the version, or with the list between, the tab keeps the tint but is not joined.
+    assert top[f'{place("inline")} > div, {place("stack")} > div'] == {"padding-bottom": "8px",
+                                                                       "border-radius": "var(--r-tab)"}
+    joints = ", ".join(f"{place(name)} > div::{side}" for name in ("inline", "stack") for side in ("before", "after"))
+    assert top[f'{joints}, {place("row")} > div::after'] == {"display": "none"}
+    # In its own row the tab continues the pane's right edge.
+    assert top['#main[data-place="row"] > #editor, #main[data-place="row"] > #component'] == {
+        "border-top-right-radius": "0"}
+
+
+# The open item's group ends at the divider and is the tab of its pane (issue #186).
+def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
+    css = css_rules(page_parts()[2])
+    top = css[""]
+    assert top["#item-actions:not(.hidden) + #tabs"] == {"border-left": "1px solid var(--line)", "padding-left": "8px"}
+    tab = top["#e-actions, #c-actions"]
+    assert {"justify-content": "flex-end", "background": "var(--tint)",
+            "border-radius": "var(--r-tab) var(--r-tab) 0 0"}.items() <= tab.items()
+    # The tab's padding matches the other header items' margins: it reaches down to the pane where they
+    # leave the gap to the panels, and the header keeps its height when an item opens or closes.
+    assert tab["padding"] == "8px 8px var(--edge)" and top["header > *"]["margin"] == "8px 0 var(--edge)"
+    assert top["#item-actions"]["margin"] == "0" and top["main"]["padding"] == "0 var(--edge) var(--edge)"
+    # Only the tab, its joints and the open item's pane are tinted: the version, the section tabs,
+    # New flow, the list, the welcome pane and the sign-in screen keep the normal colors.
+    tinted = {selector for media in css.values() for selector, rule in media.items()
+              if any("var(--tint)" in value for value in rule.values())}
+    assert tinted == {"#e-actions, #c-actions", "#e-actions::before, #c-actions::before",
+                      "#e-actions::after, #c-actions::after", "#editor, #component"}
+    # Forced colors replace the tint and the bars; an outline keeps the shapes.
+    assert top["nav, main > section, #e-actions, #c-actions, .list-tabs button.active::after"] == {
+        "outline": "1px solid transparent", "outline-offset": "-1px"}
+    # In the narrow layout the list sits between the header and the pane, and wrapped header rows
+    # stay close; the "stack" place shapes the tab.
+    narrow = css["(max-width: 760px)"]
+    assert narrow["header > *"] == {"margin": "4px 0"}
+    assert narrow["main"]["padding-top"] == "8px"
+
+
+def test_the_list_starts_as_far_below_the_search_field_as_the_field_starts_below_the_panel_top():
+    top = css_rules(page_parts()[2])[""]
+    assert top[".search"] == {"flex": "none", "position": "relative", "padding": "11px 11px 0"}
+    assert top["#items"]["padding"] == "11px"
+    # The match count sits at the field's right end instead of reserving a row under it.
+    assert {"position": "absolute", "top": "11px", "bottom": "0"}.items() <= top["#search-count"].items()
+    assert top[".search input"]["padding-right"] == "6em"
+    # User and System are tabs, not buttons: no frame, and a bar under the shown one.
+    assert top[".search:has(#search-count:empty) input"] == {"padding-right": "8px"}  # room only while it shows
+    assert top["#search::-webkit-search-cancel-button"] == {"display": "none"}  # Esc clears instead
+    html, script, _ = page_parts()
+    assert re.search(r'<div class="search">\s*<input type="search" id="search"[^>]*>\s*<span id="search-count"', html)
+    # User and System are tabs, not buttons: no frame, and a bar under the shown one.
+    assert {"position": "relative", "border": "0", "background": "none"}.items() <= top[".list-tabs button"].items()
+    assert "margin-top" not in top[".list-tabs"] and top[".list-tabs"]["margin-bottom"] == "8px"
+    assert top[".list-tabs button.active::after"]["background"] == "var(--accent)"
+    assert 'seg.className = "list-tabs"' in script
+
+
+def test_every_corner_radius_is_a_token_and_no_two_tokens_share_a_value():
     _, _, style = page_parts()
-    assert re.search(r"#item-actions \{[^}]*flex: 1 1 0[^}]*min-width: 0", style)
-    assert re.search(r"#history \{[^}]*width: 10em", style)
-    assert re.search(r"#tabs \{[^}]*flex-wrap: wrap", style)
-    second_row = r"\{[^}]*order: 1[^}]*flex-basis: 100%"
-    assert re.search(r'@media \(max-width: 1249px\) \{\s*#item-actions\[data-pane="editor"\] ' + second_row, style)
-    assert re.search(r"@media \(max-width: 899px\) \{\s*#item-actions " + second_row, style)
+    tokens = dict(re.findall(r"--(r-[a-z-]+): ([^;]+);", re.search(r":root \{([^}]*)\}", style).group(1)))
+    assert len(tokens) >= 15
+    assert len(set(tokens.values())) == len(tokens), tokens
+    declarations = re.findall(r"(border(?:-[a-z]+)*-radius): ([^;}]+)", style)
+    assert len(declarations) >= 15
+    for name, value in declarations:
+        for token, other in re.findall(r"var\(--([a-z-]+)\)|(\S+)", value):
+            assert token in tokens or other == "0", (name, value)  # 0 only where the tab joins its pane
+
+
+def _contrast(first, second):
+    def luminance(color):
+        channels = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def test_text_on_the_tint_keeps_a_contrast_of_at_least_4_5_in_both_themes():
+    _, _, style = page_parts()
+    themes = re.findall(r":root \{([^}]*)\}", style)
+    assert len(themes) == 2  # light, and dark under prefers-color-scheme
+    for theme in themes:
+        colors = dict(re.findall(r"--([a-z-]+): (#[0-9a-f]{6})", theme))
+        for name in ("text", "muted"):
+            assert _contrast(colors[name], colors["tint"]) >= 4.5, (name, colors[name], colors["tint"])
 
 
 @pytest.fixture(scope="module")
