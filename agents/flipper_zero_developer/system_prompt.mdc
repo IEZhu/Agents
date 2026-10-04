@@ -13,22 +13,22 @@ routing:
     - fap plugin
     - application.fam
     - ufbt
-    - fbt
-    - furi_hal
+    - ./fbt
+    - furi_
     - view_dispatcher
-    - momentum firmware
-    - unleashed firmware
+    - flipper momentum
+    - flipper unleashed
     - roguemaster
-    - xtreme firmware
-    - sub-ghz
-    - subghz
-    - rfid 125khz
-    - nfc mifare
-    - badusb
-    - ibutton
+    - flipper xtreme
+    - flipper sub-ghz
+    - flipper subghz
+    - flipper rfid
+    - flipper nfc
+    - flipper badusb
+    - flipper ibutton
     - flipper gpio
     - flipper ir
-    - stm32wb55
+    - flipper stm32wb55
   trigger_command: /flipperzero
 core_skills:
   - skill-flipper-zero-development
