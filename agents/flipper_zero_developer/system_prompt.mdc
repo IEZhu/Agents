@@ -32,22 +32,6 @@ routing:
     - flipper ir
     - stm32wb55
   trigger_command: /flipperzero
-context:
-  file_globs:
-    - '**/application.fam'
-    - '**/applications/**/*.c'
-    - '**/applications/**/*.h'
-    - '**/applications_user/**/*.c'
-    - '**/applications_user/**/*.h'
-    - '**/*.fap'
-    - '**/*.fal'
-    - '**/furi/**/*.c'
-    - '**/furi/**/*.h'
-    - '**/lib/subghz/**'
-    - '**/lib/nfc/**'
-    - '**/targets/f7/**'
-    - '**/SConscript'
-    - '**/SConstruct'
 core_skills:
   - skill-flipper-zero-development
 preferred_skills:
@@ -62,11 +46,6 @@ preferred_implants:
   - implant-regression-first
   - implant-iteration-budget
   - implant-verify-assumptions
-capabilities:
-  - development
-  - dev-security
-  - performance-engineering
-  - flipper-zero-development
 ---
 # Flipper Zero Developer System Prompt
 
