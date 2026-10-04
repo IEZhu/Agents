@@ -119,8 +119,10 @@ def reindex(controller):
 # embedding_prompts.py, embedder.py). A build made under other values is stale:
 # the restarted service would re-embed its stores during warmup.
 EMBEDDING_INPUTS = ("EMBEDDING_", "AGENTS_MODEL_", "FASTEMBED_")
-# Records those settings in the staging worktree of a finished build.
-BUILD_INPUTS = ".embedding-inputs"
+# Records the settings a finished build used, in the controller's private state:
+# the staging worktree is a checkout of the target commit, which could plant a
+# symlink there.
+BUILD_RECORD = "prepared-build.json"
 STALE_BUILD = "INVALID_EMBEDDING_INPUTS"
 
 
@@ -142,15 +144,14 @@ def embedding_inputs(config):
     return hashlib.sha256(json.dumps(shaping, sort_keys=True).encode()).hexdigest()
 
 
-def build_inputs_file(target):
-    from src import self_update
-    return Path(self_update.STAGING_ROOT) / str(target) / BUILD_INPUTS
-
-
-def built_with_current_inputs(config, target):
+def built_with_current_inputs(controller, target):
     """Whether the prepared build of *target* recorded the embedding settings in effect now."""
-    recorded = build_inputs_file(target)
-    return recorded.is_file() and recorded.read_text() == embedding_inputs(config)
+    try:
+        record = read_json(controller.directory / BUILD_RECORD, {})
+    except ValueError:
+        return False  # a torn record only costs a rebuild
+    return bool(target) and isinstance(record, dict) and record.get("target") == target and \
+        record.get("embedding_inputs") == embedding_inputs(controller.config)
 
 
 def prepare_reindex(controller, staging_dir):
@@ -227,7 +228,7 @@ def prepare(controller, expected_target=None):
         inputs = embedding_inputs(config)
         marker = self_update._read_prepared_marker()
         if expected_target and marker and marker.get("target_sha") == expected_target and refusal(marker) is None \
-                and built_with_current_inputs(config, expected_target):
+                and built_with_current_inputs(controller, expected_target):
             return self_update.PreparedStatus.PREPARED
         status = self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
                                             reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
@@ -241,7 +242,7 @@ def prepare(controller, expected_target=None):
         if refused is not None:
             self_update._discard_staging(str(root), AUTO_UPDATE_GIT_TIMEOUT)
             return refused
-        build_inputs_file(marker.get("target_sha")).write_text(inputs)
+        write_json(controller.directory / BUILD_RECORD, {"target": marker.get("target_sha"), "embedding_inputs": inputs})
         return status
 
 
@@ -345,7 +346,7 @@ def offline_update(controller, expected_target=None, precheck=None):
                     if not target or (expected_target and target != expected_target):
                         # Only a process that ignores the shared service could replace the build.
                         raise TargetMoved("the prepared update changed after it was built")
-                    if not built_with_current_inputs(controller.config, target):
+                    if not built_with_current_inputs(controller, target):
                         # .env changed after the build: the restarted service would re-embed
                         # the stores. The next run builds again.
                         raise TargetMoved("the embedding settings changed after the update was built")

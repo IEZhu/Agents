@@ -298,6 +298,24 @@ def test_embedding_settings_changed_before_activation_keep_the_old_code(installa
     assert controller.builds == 2  # the next run builds for the new settings
 
 
+def test_target_commit_cannot_redirect_the_build_record_into_the_live_env(installation):
+    controller, root, old, target = installation
+    (root / ".env").write_text("SECRET=keep\n")
+    work = root.parent / "work"  # the target plants a symlink where a build record could be written
+    subprocess.run(["git", "clone", "--quiet", str(root.parent / "remote.git"), str(work)], check=True)
+    git(work, "config", "user.email", "test@example.invalid")
+    git(work, "config", "user.name", "Test")
+    for name in (".embedding-inputs", "prepared-build.json"):
+        (work / name).symlink_to("../../../.env")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "symlinks")
+    git(work, "push", "-q", "origin", "HEAD:main")
+
+    assert offline_update(controller)["state"] == "UPDATED"
+    assert (root / ".env").read_text() == "SECRET=keep\n"
+    assert (controller.directory / "prepared-build.json").is_file()
+
+
 @pytest.mark.parametrize("line, rebuilt", [("EMBEDDING_PROMPTS=off", True), ("LANGFUSE_HOST=https://elsewhere", False)])
 def test_deferred_build_is_reused_only_under_the_same_embedding_settings(installation, monkeypatch, line, rebuilt):
     controller, root, old, target = installation
