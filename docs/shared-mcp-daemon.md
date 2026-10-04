@@ -485,10 +485,14 @@ It copies the live skill and implant indexes there and runs the reindex in a
 separate process with the service's interpreter and model. The reindex re-embeds
 only an index whose sources changed. While it re-embeds, a second model process
 runs next to the service. A target that moved or changes dependency manifests is
-refused before anything is built. A failed build leaves the service and the live
-tree untouched, and the next run retries it. A build can take minutes, so a
-scheduled run checks again that the service is idle. If work arrived meanwhile,
-it defers and keeps the build, and the next run uses that build without rebuilding.
+refused before anything is built. The reindex gets the installation's `.env`
+under the controller's own settings, as the service does. Every build passes
+activation's checks before the service stops, so a build that activation would
+refuse fails here. A failed build leaves the service and the live tree untouched,
+and the next run retries it. A build can take minutes, so a scheduled run checks
+again that the service is idle and that no stdio server holds the installation.
+If that changed meanwhile, it defers and keeps the build, and the next scheduled
+run uses that build without rebuilding; a manual `update` always builds anew.
 
 Only then does the controller enter maintenance, wait up to 60 seconds for drain,
 stop the service, and acquire the exclusive installation lease and the updater
@@ -500,8 +504,10 @@ moved ahead of the stop, the reindex ran while the service was down: on
 2026-10-04 an update that added one skill kept it down for six minutes, and
 Claude Code, which stops reconnecting after about 17 seconds, had to be
 reconnected by hand. A failed fast-forward or move restores the previous code
-and indexes. Git and reindex subprocesses retain leases until they
-exit. While the service is installed, this installation's stdio servers do not
+and indexes. If the tree changed after the build was checked, activation discards
+the build and the service restarts on the previous code. A rollback or `recover`
+also discards the build, so a partly moved build is never activated later. Git
+and reindex subprocesses retain leases until they exit. While the service is installed, this installation's stdio servers do not
 self-update, and during maintenance or an unfinished transaction they exit at
 startup with `Shared service is in maintenance; use the controller to recover`.
 

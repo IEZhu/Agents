@@ -105,6 +105,22 @@ def test_work_arriving_during_the_build_defers_the_restart_to_the_next_run(sched
     assert controller.stops == 1 and controller.builds == 1
 
 
+def test_stdio_reader_starting_during_the_build_defers_the_restart(scheduled, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = scheduled
+    readers, build = [], update.prepare_reindex
+    monkeypatch.setattr(autoupdate, "other_readers", lambda current, daemon_pid: list(readers))
+
+    def build_while_a_reader_starts(current, staging_dir):
+        readers.append(4242)
+        return build(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", build_while_a_reader_starts)
+
+    result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and result["reason"] == "stdio readers hold the installation: [4242]"
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0 and controller.builds == 1
+
+
 @pytest.mark.parametrize("health", [{"inflight": 1}, {"io_pending": 1}, {"idle_seconds": 5}])
 def test_busy_service_defers_without_a_restart(scheduled, health):
     controller, root, old, _ = scheduled

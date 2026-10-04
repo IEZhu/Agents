@@ -59,6 +59,10 @@ def restore_files(controller, journal):
         target = root / "data" / name
         if (backup / name).exists(): atomic_private(target, (backup / name).read_bytes())
         else: target.unlink(missing_ok=True)
+    # A build that an interrupted activation partly moved out must not be activated again.
+    if journal.get("old_sha"):
+        from src import self_update
+        self_update._discard_staging(str(root), 30)
     # Router/history derivatives detect revision/content on next load.
     (root / "data/.update_in_progress.json").unlink(missing_ok=True)
     phase(controller, journal, "restored")
@@ -117,17 +121,22 @@ def prepare_reindex(controller, staging_dir):
     The live stores are copied in first: their content hashes let the reindex skip
     a store whose sources did not change, as the in-place reindex does.
     """
+    from dotenv import dotenv_values
     from src import self_update
     from src.engine.config import AUTO_UPDATE_REINDEX_TIMEOUT
     config = controller.config
-    live, staged = Path(config["installation"]) / "data", Path(staging_dir) / "data"
+    root = Path(config["installation"])
+    live, staged = root / "data", Path(staging_dir) / "data"
     staged.mkdir(parents=True, exist_ok=True)
     if not self_update._is_unredirected_path(str(staged)):
         raise RuntimeError("Staged data path is redirected: " + str(staged))
     for name in INDEX_FILES:
         if (live / name).is_file() and not (live / name).is_symlink():
             shutil.copyfile(live / name, staged / name)
-    env = {**os.environ, **model_env(config), "PATH": config["path"], "AGENTS_AUTO_UPDATE": "0"}
+    # The worktree has no .env: pass the installation's, under the process
+    # environment, as the service loads it (for example EMBEDDING_PROMPTS).
+    installed = {key: value for key, value in dotenv_values(root / ".env").items() if value is not None}
+    env = {**installed, **os.environ, **model_env(config), "PATH": config["path"], "AGENTS_AUTO_UPDATE": "0"}
     result = self_update._run_command([config["python"], "-m", "src.reindex"], cwd=staging_dir,
                                       timeout=AUTO_UPDATE_REINDEX_TIMEOUT, env=env)
     if result.returncode:
@@ -155,20 +164,21 @@ def prepare(controller, expected_target=None):
     """Build the update while the service serves: Phase B of the staged updater.
 
     The target and its stores land in a worktree under ``data/.prepared``; the live
-    tree stays untouched. The updater lease keeps a stdio server's background update
-    from replacing the staging meanwhile. A valid build that an earlier, deferred
-    run left for the same target is reused. Returns a ``PreparedStatus`` value.
+    tree stays untouched. The build holds the updater lease, so a stdio server's
+    background update cannot replace the staging while it builds. A valid build that
+    an earlier, deferred run left for the same target is reused. Every build passes
+    the activation gates before the service stops, so a build that activation would
+    refuse fails here instead. Returns a ``PreparedStatus`` value, or the
+    ``ActivationStatus`` of a refused build.
     """
     from src import self_update
     from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_GIT_TIMEOUT
     config = controller.config
     root = Path(config["installation"])
-    marker = self_update._read_prepared_marker()
-    if expected_target and marker and marker.get("target_sha") == expected_target:
-        invalid, _ = self_update._validate_prepared(marker, str(root), AUTO_UPDATE_BRANCH, config["model"],
-                                                    AUTO_UPDATE_GIT_TIMEOUT)
-        if invalid is None:
-            return self_update.PreparedStatus.PREPARED
+
+    def refusal(marker):
+        return self_update._validate_prepared(marker, str(root), AUTO_UPDATE_BRANCH, config["model"],
+                                              AUTO_UPDATE_GIT_TIMEOUT)[0]
 
     def check(old, target):
         # Auto-update checked one commit before preparing; build only that one.
@@ -180,8 +190,19 @@ def prepare(controller, expected_target=None):
             raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
 
     with file_lock(root / "data/.update.lock", blocking=False) as updater_fd, self_update._inherit_lock(updater_fd):
-        return self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
-                                          reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
+        marker = self_update._read_prepared_marker()
+        if expected_target and marker and marker.get("target_sha") == expected_target and refusal(marker) is None:
+            return self_update.PreparedStatus.PREPARED
+        status = self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
+                                            reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
+        if status != self_update.PreparedStatus.PREPARED:
+            return status
+        refused = refusal(self_update._read_prepared_marker() or {})
+        if refused is not None:
+            # Activation would discard this build after the stop, on every run.
+            self_update._discard_staging(str(root), AUTO_UPDATE_GIT_TIMEOUT)
+            return refused
+        return status
 
 
 def activate(controller, journal):
@@ -202,8 +223,8 @@ def activate(controller, journal):
     return self_update.UpdateStatus.UPDATED if result == status.ACTIVATED else result
 
 
-# Builds that failed before anything was activated; like a rolled-back update,
-# they leave a pending model switch for the next run.
+# Builds that failed. Like a refused build (``INVALID_…``) and a rolled-back
+# update, they leave a pending model switch for the next run.
 PREPARE_FAILED = ("PREPARE_WORKTREE_FAILED", "PREPARE_REINDEX_FAILED", "PREPARE_STAGE_INCONSISTENT")
 
 
@@ -240,7 +261,7 @@ def offline_update(controller, expected_target=None, precheck=None):
         os.environ["PATH"] = controller.config["path"]
         from src import self_update
         prepared = prepare(controller, expected_target)
-        if prepared in PREPARE_FAILED:
+        if prepared in PREPARE_FAILED or prepared.startswith("INVALID_"):
             # Leave the switch pending: the next update tries both again.
             switched = None
         if prepared != self_update.PreparedStatus.PREPARED and not switched:
@@ -263,9 +284,12 @@ def offline_update(controller, expected_target=None, precheck=None):
                 updater_fd = locks.enter_context(file_lock(root / "data/.update.lock", blocking=False))
                 result = prepared
                 if prepared == self_update.PreparedStatus.PREPARED:
+                    target = (self_update._read_prepared_marker() or {}).get("target_sha")
+                    if not target or (expected_target and target != expected_target):
+                        # Only a process that ignores the shared service could replace the build.
+                        raise TargetMoved("the prepared update changed after it was built")
                     old = subprocess.run([controller.config["git"], "rev-parse", "HEAD"], cwd=root, check=True,
                                          capture_output=True, text=True).stdout.strip()
-                    target = (self_update._read_prepared_marker() or {}).get("target_sha")
                     backup = private_dir(controller.directory / "rollback" / old)
                     backup_indexes(controller, backup)
                     journal.update(old_sha=old, target_sha=target, backup=str(backup))
