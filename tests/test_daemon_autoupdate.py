@@ -22,7 +22,7 @@ def scheduled(installation):  # noqa: F811
     controller.config.update(python="/usr/bin/python3", auto_update={"enabled": True, "idle_seconds": 120})
     write_json(controller.directory / "service.json", controller.config)
     controller.health = {"inflight": 0, "io_pending": 0, "idle_seconds": 600}
-    controller.calls, controller.stops = [], 0
+    controller.calls = []
     controller.loaded, controller.fail = set(), set()
 
     def launchctl(*args, check=True):
@@ -44,11 +44,6 @@ def scheduled(installation):  # noqa: F811
 
     controller.launchctl = launchctl
     controller.status = lambda: {**controller.health, "state": "ready" if controller.running else "stopped"}
-    stop = controller._stop
-    def counted_stop():
-        controller.stops += 1
-        stop()
-    controller._stop = counted_stop
     return controller, root, old, target
 
 
@@ -88,6 +83,26 @@ def test_idle_service_is_updated_through_the_transaction(scheduled):
     assert read_json(controller.directory / "auto-update.json")["state"] == "UPDATED"
     assert autoupdate.run(controller)["state"] == "up_to_date"
     assert controller.stops == 1
+
+
+def test_work_arriving_during_the_build_defers_the_restart_to_the_next_run(scheduled, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = scheduled
+    build = update.prepare_reindex
+
+    def busy_build(current, staging_dir):
+        controller.health.update(idle_seconds=5)  # a client calls while the update is built
+        return build(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", busy_build)
+
+    result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and result["reason"] == "service is busy"
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0 and controller.builds == 1
+
+    controller.health.update(idle_seconds=600)
+    assert autoupdate.run(controller)["state"] == "UPDATED"
+    assert git(root, "rev-parse", "HEAD") == target
+    assert controller.stops == 1 and controller.builds == 1
 
 
 @pytest.mark.parametrize("health", [{"inflight": 1}, {"io_pending": 1}, {"idle_seconds": 5}])

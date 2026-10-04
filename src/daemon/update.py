@@ -109,6 +109,32 @@ def reindex(controller):
         raise RuntimeError("Reindex for " + config["model"] + " failed: " + (result.stderr or "")[-500:])
 
 
+def prepare_reindex(controller, staging_dir):
+    """Build the target's stores inside *staging_dir* with the service's interpreter and model.
+
+    Runs while the service still serves. The worktree as working directory makes its
+    own code and ``data/`` the import root, as in ``self_update._run_reindex_at``.
+    The live stores are copied in first: their content hashes let the reindex skip
+    a store whose sources did not change, as the in-place reindex does.
+    """
+    from src import self_update
+    from src.engine.config import AUTO_UPDATE_REINDEX_TIMEOUT
+    config = controller.config
+    live, staged = Path(config["installation"]) / "data", Path(staging_dir) / "data"
+    staged.mkdir(parents=True, exist_ok=True)
+    if not self_update._is_unredirected_path(str(staged)):
+        raise RuntimeError("Staged data path is redirected: " + str(staged))
+    for name in INDEX_FILES:
+        if (live / name).is_file() and not (live / name).is_symlink():
+            shutil.copyfile(live / name, staged / name)
+    env = {**os.environ, **model_env(config), "PATH": config["path"], "AGENTS_AUTO_UPDATE": "0"}
+    result = self_update._run_command([config["python"], "-m", "src.reindex"], cwd=staging_dir,
+                                      timeout=AUTO_UPDATE_REINDEX_TIMEOUT, env=env)
+    if result.returncode:
+        raise RuntimeError("Prepared reindex for " + config["model"] + " failed: " + (result.stderr or "")[-500:])
+    return True
+
+
 def rollback(controller, journal):
     controller._stop()
     root = Path(controller.config["installation"])
@@ -121,19 +147,73 @@ def rollback(controller, journal):
     return {"state": "rolled_back", "health": ready}
 
 
-# File-updater outcomes that rolled the checkout back to its previous revision.
-ROLLED_BACK = ("MERGE_FAILED", "REINDEX_FAILED")
-
-
 class TargetMoved(RuntimeError):
     """The branch moved after auto-update checked it; nothing was applied."""
+
+
+def prepare(controller, expected_target=None):
+    """Build the update while the service serves: Phase B of the staged updater.
+
+    The target and its stores land in a worktree under ``data/.prepared``; the live
+    tree stays untouched. The updater lease keeps a stdio server's background update
+    from replacing the staging meanwhile. A valid build that an earlier, deferred
+    run left for the same target is reused. Returns a ``PreparedStatus`` value.
+    """
+    from src import self_update
+    from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_GIT_TIMEOUT
+    config = controller.config
+    root = Path(config["installation"])
+    marker = self_update._read_prepared_marker()
+    if expected_target and marker and marker.get("target_sha") == expected_target:
+        invalid, _ = self_update._validate_prepared(marker, str(root), AUTO_UPDATE_BRANCH, config["model"],
+                                                    AUTO_UPDATE_GIT_TIMEOUT)
+        if invalid is None:
+            return self_update.PreparedStatus.PREPARED
+
+    def check(old, target):
+        # Auto-update checked one commit before preparing; build only that one.
+        if expected_target and target != expected_target:
+            raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
+        changed = subprocess.run([config["git"], "diff", "--name-only", old, target, "--", *DEPENDENCIES],
+                                 cwd=root, capture_output=True, text=True, check=True)
+        if changed.stdout.strip():
+            raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
+
+    with file_lock(root / "data/.update.lock", blocking=False) as updater_fd, self_update._inherit_lock(updater_fd):
+        return self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
+                                          reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
+
+
+def activate(controller, journal):
+    """Phase A on the stopped service: fast-forward and move the prepared stores in.
+
+    A failed merge or move rolls the tree back inside activation; the stores then
+    come back from the journal's backup, so the old code restarts on its own indexes
+    instead of rebuilding them. Returns ``UPDATED`` for an activated update.
+    """
+    from src import self_update
+    status = self_update.ActivationStatus
+    result = self_update.activate_prepared_update(controller.config["installation"],
+                                                  embedding_model=controller.config["model"])
+    if result == status.ACTIVATE_ROLLBACK_FAILED:
+        raise RuntimeError("File updater rollback failed")
+    if result in (status.ACTIVATE_MERGE_FAILED, status.ACTIVATE_MOVE_FAILED):
+        restore_files(controller, journal)
+    return self_update.UpdateStatus.UPDATED if result == status.ACTIVATED else result
+
+
+# Builds that failed before anything was activated; like a rolled-back update,
+# they leave a pending model switch for the next run.
+PREPARE_FAILED = ("PREPARE_WORKTREE_FAILED", "PREPARE_REINDEX_FAILED", "PREPARE_STAGE_INCONSISTENT")
 
 
 def offline_update(controller, expected_target=None, precheck=None):
     """Update the installation; once per model generation also switch its embedding model.
 
-    The default model downloads under the control lock while the service still
-    serves (`switched_model_config`); a failed download changes nothing.
+    The update is built while the service still serves (`prepare`); the service
+    stops only to activate it, so clients see a restart instead of minutes without
+    the server. The default model downloads under the control lock while the
+    service still serves (`switched_model_config`); a failed download changes nothing.
     """
     root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
@@ -153,6 +233,22 @@ def offline_update(controller, expected_target=None, precheck=None):
         # and `stop` also take, so either one that returned before this point wins.
         if precheck is not None and (refusal := precheck()):
             return refusal
+        # Stdlib config + updater only. Reindex is the sole model process this
+        # controller starts, and it inherits the leases it runs under.
+        os.environ["AGENTS_AUTO_UPDATE"] = "0"
+        os.environ.update(model_env(controller.config))
+        os.environ["PATH"] = controller.config["path"]
+        from src import self_update
+        prepared = prepare(controller, expected_target)
+        if prepared in PREPARE_FAILED:
+            # Leave the switch pending: the next update tries both again.
+            switched = None
+        if prepared != self_update.PreparedStatus.PREPARED and not switched:
+            # Nothing to activate, or the build failed: the service never stopped.
+            return {"state": prepared}
+        if prepared == self_update.PreparedStatus.PREPARED and precheck is not None and (refusal := precheck()):
+            # Building takes minutes and work may have arrived; the next run activates it.
+            return refusal
         prior = controller.status()
         journal = {"phase": "draining", "was_running": prior.get("state") in ("ready", "starting", "draining"),
                    "autostart": controller.config["autostart"]}
@@ -165,35 +261,23 @@ def offline_update(controller, expected_target=None, precheck=None):
             with ExitStack() as locks:
                 session_fd = locks.enter_context(file_lock(root / "data/.sessions.lock", blocking=False))
                 updater_fd = locks.enter_context(file_lock(root / "data/.update.lock", blocking=False))
-                # Stdlib config + updater only. Reindex is the sole model process
-                # and inherits both leases until it and its descendants exit.
-                os.environ["AGENTS_AUTO_UPDATE"] = "0"
-                os.environ.update(model_env(controller.config))
-                os.environ["PATH"] = controller.config["path"]
-                from src import self_update
-                def validate(old, target):
-                    nonlocal mutated
-                    # Auto-update checked one commit before draining; apply only that one.
-                    if expected_target and target != expected_target:
-                        raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
-                    changed = subprocess.run([controller.config["git"], "diff", "--name-only", old, target, "--", *DEPENDENCIES],
-                                             cwd=root, capture_output=True, text=True, check=True)
-                    if changed.stdout.strip():
-                        raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
+                result = prepared
+                if prepared == self_update.PreparedStatus.PREPARED:
+                    old = subprocess.run([controller.config["git"], "rev-parse", "HEAD"], cwd=root, check=True,
+                                         capture_output=True, text=True).stdout.strip()
+                    target = (self_update._read_prepared_marker() or {}).get("target_sha")
                     backup = private_dir(controller.directory / "rollback" / old)
                     backup_indexes(controller, backup)
                     journal.update(old_sha=old, target_sha=target, backup=str(backup))
                     phase(controller, journal, "applying")
                     mutated = True
-                with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
-                    result = self_update.check_and_apply_update(repo_root=str(root), validate_target=validate)
-                if result == self_update.UpdateStatus.ROLLBACK_FAILED:
-                    raise RuntimeError("File updater rollback failed")
+                    with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
+                        result = activate(controller, journal)
+                    if result != self_update.UpdateStatus.UPDATED:
+                        # Leave the switch pending: the code and stores are the
+                        # previous ones, and the next update tries both again.
+                        switched = None
                 phase(controller, journal, "files_complete")
-                if switched and result in ROLLED_BACK:
-                    # Leave the switch pending: a failed file update restored the
-                    # previous code and stores, and the next update tries both again.
-                    switched = None
                 if switched:
                     mutated = True
                     with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):

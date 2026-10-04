@@ -28,6 +28,8 @@ class FakeController:
         self.fail_ready = 0
         self.fail_drain = False
         self.probes = 0
+        self.stops = 0
+        self.builds = 0
 
     def status(self): return {"state": "ready" if self.running else "stopped"}
     def _stop(self):
@@ -35,6 +37,7 @@ class FakeController:
             self.fail_drain = False
             raise TimeoutError("drain")
         self.running = False
+        self.stops += 1
     def _start(self, probation=None):
         assert probation
         # Probation must acquire a normal reader lease without deadlocking.
@@ -72,15 +75,22 @@ def installation(tmp_path, monkeypatch):
     directory = tmp_path / "state"; directory.mkdir()
     controller = FakeController(root, directory)
     write_json(directory / "service.json", controller.config)
-    for name, filename in [("STATE_FILE", ".last_update.json"), ("CHECK_STAMP", ".last_update_check")]:
+    for name, filename in [("STATE_FILE", ".last_update.json"), ("CHECK_STAMP", ".last_update_check"),
+                           ("PREPARED_MARKER", ".prepared_update.json"), ("STAGING_ROOT", ".prepared")]:
         monkeypatch.setattr(self_update, name, str(data / filename))
-    def reindex(root, timeout):
-        assert not controller.running
-        with pytest.raises(BlockingIOError):
-            with file_lock(Path(root) / "data/.sessions.lock", shared=True, blocking=False): pass
-        (Path(root) / "data/skills_store.npz").write_text("new-index")
+    from src.daemon import update
+
+    def prepare_reindex(current, staging_dir):
+        assert controller.running  # the service keeps serving while the update is built
+        with pytest.raises(BlockingIOError):  # under the updater lease: no stdio server prepares meanwhile
+            with file_lock(root / "data/.update.lock", blocking=False): pass
+        staged = Path(staging_dir) / "data"; staged.mkdir(parents=True, exist_ok=True)
+        (staged / "skills_store.npz").write_text("new-index")
+        (staged / "skills_store.json").write_text(json.dumps({"save_version": "new", "metadatas": []}))
+        for name in (".skills_hash", ".implants_hash"): (staged / name).write_text("new")
+        controller.builds += 1
         return True
-    monkeypatch.setattr(self_update, "_run_reindex", reindex)
+    monkeypatch.setattr(update, "prepare_reindex", prepare_reindex)
     # Changes to os.environ made by the controller should not escape this test.
     for key in ("AGENTS_AUTO_UPDATE", "EMBEDDING_MODEL", "FASTEMBED_CACHE_DIR", "AGENTS_MODEL_ARTIFACT", "AGENTS_MODEL_PATH", "PATH"):
         monkeypatch.setenv(key, __import__('os').environ.get(key, ""))
@@ -94,6 +104,115 @@ def test_update_probes_after_writer_lease_released(installation):
     assert git(root, "rev-parse", "HEAD") == target
     assert controller.probes == 1
     assert not (controller.directory / "transaction.json").exists()
+
+
+def test_update_is_built_while_serving_and_the_stop_only_activates_it(installation):
+    controller, root, old, target = installation
+    assert offline_update(controller)["state"] == "UPDATED"
+    assert controller.builds == 1 and controller.stops == 1
+    assert (root / "data/skills_store.npz").read_text() == "new-index"
+    assert (root / "data/.skills_hash").read_text() == "new"
+    assert not (root / "data/.prepared_update.json").exists()
+    assert not (root / "data/.prepared").exists()
+
+
+def test_nothing_to_apply_leaves_the_service_running(installation):
+    controller, root, old, target = installation
+    git(root, "merge", "--ff-only", target)
+    assert offline_update(controller)["state"] == "UP_TO_DATE"
+    assert controller.running and controller.stops == 0 and controller.probes == 0
+
+
+def test_failed_preparation_leaves_the_service_running(installation, monkeypatch):
+    from src.daemon import update
+    controller, root, old, target = installation
+    monkeypatch.setattr(update, "prepare_reindex", lambda current, staging_dir: False)
+    assert offline_update(controller)["state"] == "PREPARE_REINDEX_FAILED"
+    assert controller.running and controller.stops == 0
+    assert git(root, "rev-parse", "HEAD") == old
+    assert not (root / "data/.prepared_update.json").exists()
+    assert not (controller.directory / "maintenance.json").exists()
+
+
+def test_busy_after_preparation_defers_and_the_next_run_activates_it(installation):
+    controller, root, old, target = installation
+    busy = {"state": "deferred", "reason": "service is busy"}
+    checks = iter([None, busy])
+    assert offline_update(controller, expected_target=target, precheck=lambda: next(checks)) == busy
+    assert controller.running and controller.stops == 0 and controller.builds == 1
+    assert git(root, "rev-parse", "HEAD") == old
+
+    assert offline_update(controller, expected_target=target, precheck=lambda: None)["state"] == "UPDATED"
+    assert controller.builds == 1  # the deferred run's build is activated, not rebuilt
+    assert git(root, "rev-parse", "HEAD") == target
+    assert (root / "data/skills_store.npz").read_text() == "new-index"
+
+
+def test_moved_target_is_refused_before_the_service_stops(installation):
+    from src.daemon.update import TargetMoved
+    controller, root, old, target = installation
+    with pytest.raises(TargetMoved):
+        offline_update(controller, expected_target=old)
+    assert controller.running and controller.stops == 0 and controller.builds == 0
+    assert git(root, "rev-parse", "HEAD") == old
+    assert not (root / "data/.prepared_update.json").exists()
+
+
+def test_failed_activation_restores_code_and_indexes_and_restarts(installation, monkeypatch):
+    controller, root, old, target = installation
+
+    def torn_move(staging_dir, repo_root, stores):
+        (Path(repo_root) / "data/skills_store.npz").write_text("torn")
+        raise OSError("disk full")
+    monkeypatch.setattr(self_update, "_activate_staged_stores", torn_move)
+
+    assert offline_update(controller)["state"] == "ACTIVATE_MOVE_FAILED"
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert controller.running and controller.probes == 1
+    assert not (controller.directory / "transaction.json").exists()
+
+
+def test_prepare_reindex_uses_the_service_interpreter_model_and_live_stores(tmp_path, monkeypatch):
+    from src.daemon import update
+    controller = FakeController(tmp_path, tmp_path)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data/skills_store.npz").write_text("live-index")
+    (tmp_path / "data/.skills_hash").write_text("live-hash")
+    calls = []
+
+    def run(args, cwd, timeout, *, env=None):
+        # Unchanged sources keep the copied store: the reindex compares content hashes.
+        assert (Path(cwd) / "data/.skills_hash").read_text() == "live-hash"
+        calls.append((args, cwd, env))
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(self_update, "_run_command", run)
+
+    assert update.prepare_reindex(controller, str(tmp_path / "stage")) is True
+    args, cwd, env = calls[0]
+    assert args == [controller.config["python"], "-m", "src.reindex"] and cwd == str(tmp_path / "stage")
+    assert (env["EMBEDDING_MODEL"], env["AGENTS_MODEL_PATH"], env["PATH"], env["AGENTS_AUTO_UPDATE"]) == \
+        ("test", "/unused", "/usr/bin:/bin", "0")
+    assert (tmp_path / "stage/data/skills_store.npz").read_text() == "live-index"
+    assert not (tmp_path / "stage/data/implants_store.npz").exists()
+
+    monkeypatch.setattr(self_update, "_run_command",
+                        lambda args, cwd, timeout, *, env=None: subprocess.CompletedProcess(args, 1, "", "no model"))
+    with pytest.raises(RuntimeError, match="no model"):
+        update.prepare_reindex(controller, str(tmp_path / "stage"))
+
+
+def test_prepare_reindex_refuses_a_redirected_data_directory(tmp_path):
+    from src.daemon import update
+    controller = FakeController(tmp_path, tmp_path)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data/skills_store.npz").write_text("live-index")
+    elsewhere = tmp_path / "elsewhere"; elsewhere.mkdir()
+    (tmp_path / "stage").mkdir()
+    (tmp_path / "stage/data").symlink_to(elsewhere)  # a target commit may carry a `data` symlink
+    with pytest.raises(RuntimeError, match="redirected"):
+        update.prepare_reindex(controller, str(tmp_path / "stage"))
+    assert not any(elsewhere.iterdir())
 
 
 def test_failed_ready_restores_code_and_indexes(installation):
@@ -163,7 +282,7 @@ def test_dependency_changes_rejected_before_merge(installation):
     with pytest.raises(RuntimeError, match="Dependency manifests"):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == old
-    assert controller.running
+    assert controller.running and controller.stops == 0 and controller.builds == 0
 
 
 @pytest.fixture
@@ -274,17 +393,33 @@ def test_recover_restores_an_interrupted_model_switch(model_switch, monkeypatch)
     assert not (controller.directory / "transaction.json").exists()
 
 
-def test_rolled_back_file_update_leaves_the_model_switch_pending(model_switch, monkeypatch):
+def test_failed_file_update_leaves_the_model_switch_pending(model_switch, monkeypatch):
+    from src.daemon import update
     controller, root, old, target, downloads, rebuilt = model_switch
-    monkeypatch.setattr(self_update, "_run_reindex", lambda root, timeout: False)  # REINDEX_FAILED, rolled back
+    monkeypatch.setattr(update, "prepare_reindex", lambda current, staging_dir: False)
 
-    offline_update(controller)
+    assert offline_update(controller)["state"] == "PREPARE_REINDEX_FAILED"
 
     config = read_json(controller.directory / "service.json")
     assert config["model"] == "test" and "model_generation" not in config
     assert rebuilt == []
     assert git(root, "rev-parse", "HEAD") == old
+    assert controller.running and controller.stops == 0
     assert not (controller.directory / "transaction.json").exists()
+
+
+def test_failed_activation_leaves_the_model_switch_pending(model_switch, monkeypatch):
+    controller, root, old, target, downloads, rebuilt = model_switch
+
+    def failed_move(staging_dir, repo_root, stores):
+        raise OSError("disk full")
+    monkeypatch.setattr(self_update, "_activate_staged_stores", failed_move)
+
+    assert offline_update(controller)["state"] == "ACTIVATE_MOVE_FAILED"
+    assert read_json(controller.directory / "service.json")["model"] == "test"
+    assert rebuilt == []
+    assert git(root, "rev-parse", "HEAD") == old
+    assert controller.running and controller.probes == 1
 
 
 def test_update_refuses_a_service_uninstalled_meanwhile(model_switch):

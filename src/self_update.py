@@ -890,6 +890,8 @@ def prepare_update(
     reindex_timeout: int = AUTO_UPDATE_REINDEX_TIMEOUT,
     reindex_fn=None,
     staging_parent: Optional[str] = None,
+    embedding_model: Optional[str] = None,
+    validate_target=None,
 ) -> str:
     """Phase B: prepare a staged update WITHOUT mutating the live install.
 
@@ -897,8 +899,11 @@ def prepare_update(
     version's indexes in an isolated git worktree and writes the prepared marker
     (last) so the next start activates it. Never touches the live tree or stores.
     Pure of threading/locking. ``reindex_fn`` (``staging_dir -> bool``) is injected
-    in tests; defaults to spawning ``python -m src.reindex`` in the worktree.
-    Returns a :class:`PreparedStatus` value.
+    in tests and by the daemon; defaults to spawning ``python -m src.reindex`` in
+    the worktree. ``embedding_model`` is the model the marker records (default:
+    this process's). ``validate_target(old_sha, target_sha)`` runs before anything
+    is built and may raise to refuse the target. Returns a :class:`PreparedStatus`
+    value.
     """
     staging_parent = staging_parent or STAGING_ROOT
     reindex = reindex_fn or (lambda sd: _run_reindex_at(sd, reindex_timeout))
@@ -906,6 +911,9 @@ def prepare_update(
     status, old_sha, target_sha = _resolve_ff_target(repo_root, remote, branch, git_timeout)
     if target_sha is None:
         return status  # terminal: skip / up-to-date / pre-merge failure
+
+    if validate_target is not None:
+        validate_target(old_sha, target_sha)
 
     _warn_if_deps_changed(repo_root, old_sha, target_sha, git_timeout)
 
@@ -937,7 +945,7 @@ def prepare_update(
             target_sha=target_sha,
             base_sha=old_sha,
             branch=branch,
-            embedding_model=EMBEDDING_MODEL,
+            embedding_model=embedding_model or EMBEDDING_MODEL,
             staging_dir=staging_dir,
             stores=stores,
         )
