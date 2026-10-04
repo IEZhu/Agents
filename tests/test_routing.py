@@ -650,22 +650,25 @@ class TestKeywordBoosting:
         assert matches == []
 
     def test_match_keywords_flipper_zero(self):
-        """Flipper Zero domain keywords route to flipper_zero_developer."""
-        r = self._make_router_with_keywords({
-            "flipper_zero_developer": [
-                "flipper zero", "flipperzero", ".fap", "subghz",
-                "application.fam", "ufbt", "stm32wb55",
-            ],
-            "software_engineer": ["refactor", "debug", "implement"],
-            "security_expert": ["xss", "sql injection"],
-        })
-        # Multi-keyword Flipper query → top match
-        matches = r.match_keywords("How to write a SubGHz scanner FAP for Flipper Zero")
-        assert matches[0][0] == "flipper_zero_developer"
-        assert matches[0][1] >= 2  # subghz, flipper zero, .fap all hit
-        # Generic refactor query should NOT route to flipper_zero_developer
-        matches = r.match_keywords("Refactor the JSON parser")
-        assert all(m[0] != "flipper_zero_developer" for m in matches)
+        """The shipped Flipper Zero keywords match Flipper queries and stay out
+        of unrelated ones: keywords of 4+ characters match as substrings, and a
+        single hit can override a cached route."""
+        from src.utils.prompt_loader import get_agent_metadata
+
+        keywords = get_agent_metadata("flipper_zero_developer")["routing"]["domain_keywords"]
+        r = self._make_router_with_keywords({"flipper_zero_developer": keywords})
+        # "flipper zero", "subghz" and ".fap" hit
+        assert r.match_keywords("How to write a SubGHz scanner.fap for Flipper Zero") == [
+            ("flipper_zero_developer", 3)
+        ]
+        for query in (
+            "Refactor the JSON parser",
+            "I'm furious: my Docker build keeps failing",
+            "Render furigana above kanji in HTML",
+            "The Flipper app can't connect to my React Native simulator",
+            "A rogue process is eating CPU on the master node",
+        ):
+            assert r.match_keywords(query) == [], query
 
     def test_match_keywords_short_token_word_boundary(self):
         """Short tokens use word-boundary matching: 'ux' must not match inside 'auxiliary'."""

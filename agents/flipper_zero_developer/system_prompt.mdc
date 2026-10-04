@@ -9,18 +9,16 @@ routing:
     - flipper zero
     - flipperzero
     - flipper firmware
-    - flipper app
     - .fap
     - fap plugin
     - application.fam
     - ufbt
     - fbt
-    - furi
     - furi_hal
     - view_dispatcher
     - momentum firmware
     - unleashed firmware
-    - rogue master
+    - roguemaster
     - xtreme firmware
     - sub-ghz
     - subghz
