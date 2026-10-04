@@ -334,8 +334,13 @@ the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
 "Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
 "Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its
 switch, and an agent the same without a switch. With nothing open the header
-shows none. Below 1250 px for a flow, or 900 px for the other tabs, the
-controls take a second header row; the item's title stays above the document.
+shows none. The controls end at the divider before the tabs and form the tab of
+the open item's pane: the two share one tint and join like a folder and its tab,
+and the list and the item are rounded panels. Below 1250 px for a flow (1356 px
+for a built-in flow or a copy that overrides one), or 1024 px for the other tabs,
+the controls take a second header row, right-aligned; the item's title stays above
+the document. In the narrow layout, where the list sits between them, the tab and
+the pane keep the tint but are not joined.
 Every tab has a search box above its list (`/` focuses it, `Esc` clears
 it). Matching is case-insensitive and every whitespace-separated term must
 appear. Items whose name (ID, title, short name; an agent's ID and display name)
