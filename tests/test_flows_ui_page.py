@@ -165,34 +165,43 @@ def css_rules(style):
     return rules
 
 
-def test_the_header_stays_one_row_when_wide_and_gives_the_controls_a_row_when_narrow():
+def test_the_group_goes_where_it_fits_as_measured_not_by_breakpoints():
+    assert run("place") == {"on_pane": "tab", "past_corner": "inline", "after_version": "inline",
+                            "too_wide": "row", "narrow": "stack"}
+    _, script, style = page_parts()
+    # Measured on the rendered page whenever a pane, its buttons or the window change.
+    assert re.search(r"function showPane\([\s\S]*?schedulePlacement\(\);\n\}", script)
+    assert re.search(r"view\.apply = \(\) => \{[\s\S]*?schedulePlacement\(\);", script)
+    assert 'window.addEventListener("resize", schedulePlacement)' in script
+    css = css_rules(style)
+    assert not [selector for media, rules in css.items() if media for selector in rules if "item-actions" in selector]
+
+
+def test_the_header_gives_each_place_its_layout():
     css = css_rules(page_parts()[2])
     top = css[""]
     assert {"flex": "1 1 0", "min-width": "0", "justify-content": "flex-end"}.items() <= top["#item-actions"].items()
     assert top["#history"] == {"width": "8em"}
     assert top["#tabs"] == {"flex-wrap": "wrap"}
-    # A tab starts right of the pane's rounded corner and of its own joint: on the pane's straight top
-    # edge. In one row the version's width keeps it there, in its own row a margin.
+    assert top["#e-actions, #c-actions"]["flex-wrap"] == "nowrap"  # measured on one line
+    # In its own row a tab starts right of the pane's rounded corner and of its own joint: on the
+    # pane's straight top edge.
     assert top[":root"]["--tab-start"] == "calc(var(--list-width) + var(--edge) + var(--r-block) + var(--r-joint))"
-    assert css["(min-width: 1024px)"] == {"header h1": {"min-width": "calc(var(--tab-start) - 8px)"}}
-    own_row = {"order": "1", "flex-basis": "100%", "margin-left": "var(--tab-start)"}
-    no_divider = {"border-left": "0", "padding-left": "0"}
-    flows = css["(max-width: 1249px)"]
-    assert flows['#item-actions[data-pane="editor"]'] == own_row
-    assert flows['#item-actions[data-pane="editor"] + #tabs'] == no_divider
-    assert flows["#e-actions::after"] == {"display": "none"}  # the tab continues the pane's right edge
-    assert flows["#editor"] == {"border-top-right-radius": "0"}
-    others = css["(max-width: 1023px)"]
-    assert others["#item-actions"] == own_row
-    assert others["#item-actions:not(.hidden) + #tabs"] == no_divider
-    assert others["#c-actions::after"] == {"display": "none"}
-    assert others["#component"] == {"border-top-right-radius": "0"}
-    wide = ":has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden))"  # a built-in flow or a copy of one
-    builtin = css["(min-width: 761px) and (max-width: 1355px)"]
-    assert builtin[f'#item-actions[data-pane="editor"]{wide}'] == own_row
-    assert builtin[f'#item-actions[data-pane="editor"]{wide} + #tabs'] == no_divider
-    assert builtin[f"#e-actions{wide}::after"] == {"display": "none"}
-    assert builtin[f"body{wide} #editor"] == {"border-top-right-radius": "0"}
+    place = '#item-actions[data-place="{}"]'.format
+    assert top[place("inline")] == {"justify-content": "flex-start", "margin-bottom": "4px"}
+    assert top[f'{place("row")}, {place("stack")}'] == {"order": "1", "flex-basis": "100%"}
+    assert top[place("row")] == {"margin-left": "var(--tab-start)"}
+    assert top[place("stack")] == {"margin": "4px 0"}
+    assert top[f'{place("row")} + #tabs, {place("stack")} + #tabs'] == {"border-left": "0", "padding-left": "0"}
+    assert top[f'{place("row")} > div, {place("stack")} > div'] == {"flex-wrap": "wrap"}
+    # After the version, or with the list between, the tab keeps the tint but is not joined.
+    assert top[f'{place("inline")} > div, {place("stack")} > div'] == {"padding-bottom": "8px",
+                                                                       "border-radius": "var(--r-tab)"}
+    joints = ", ".join(f"{place(name)} > div::{side}" for name in ("inline", "stack") for side in ("before", "after"))
+    assert top[f'{joints}, {place("row")} > div::after'] == {"display": "none"}
+    # In its own row the tab continues the pane's right edge.
+    assert top['#main[data-place="row"] > #editor, #main[data-place="row"] > #component'] == {
+        "border-top-right-radius": "0"}
 
 
 # The open item's group ends at the divider and is the tab of its pane (issue #186).
@@ -216,12 +225,11 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     # Forced colors replace the tint and the bars; an outline keeps the shapes.
     assert top["nav, main > section, #e-actions, #c-actions, .list-tabs button.active::after"] == {
         "outline": "1px solid transparent", "outline-offset": "-1px"}
-    # Where the list sits between the header and the pane, the tab is rounded all round and not joined.
+    # In the narrow layout the list sits between the header and the pane, and wrapped header rows
+    # stay close; the "stack" place shapes the tab.
     narrow = css["(max-width: 760px)"]
-    assert narrow["header > *, #item-actions[data-pane]"] == {"margin": "4px 0"}  # also undoes --tab-start
-    assert narrow["#e-actions, #c-actions"] == {"padding-bottom": "8px", "border-radius": "var(--r-tab)"}
-    assert narrow["#e-actions::before, #c-actions::before"] == {"display": "none"}
-    assert narrow["#editor, #component"] == {"border-top-right-radius": "var(--r-block)"}
+    assert narrow["header > *"] == {"margin": "4px 0"}
+    assert narrow["main"]["padding-top"] == "8px"
 
 
 def test_the_list_starts_as_far_below_the_search_field_as_the_field_starts_below_the_panel_top():

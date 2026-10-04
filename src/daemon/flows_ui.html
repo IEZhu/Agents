@@ -44,7 +44,7 @@ header h1 { font-size: 16px; line-height: 32px; margin-right: auto; white-space:
    divider. The group is the tab of the item's pane: one tint, and it reaches down to the pane. */
 #item-actions { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; margin: 0; }
 #item-actions:not(.hidden) + #tabs { border-left: 1px solid var(--line); padding-left: 8px; }
-#e-actions, #c-actions { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end;
+#e-actions, #c-actions { position: relative; display: flex; flex-wrap: nowrap; justify-content: flex-end;
   gap: 3px; align-items: center; padding: 8px 8px var(--edge); background: var(--tint);
   border-radius: var(--r-tab) var(--r-tab) 0 0; }
 /* Concave joints round the corners where the tab meets the pane. */
@@ -57,36 +57,25 @@ header h1 { font-size: 16px; line-height: 32px; margin-right: auto; white-space:
 #item-actions button, #item-actions select { padding: 4px 6px; }
 #history { width: 8em; }
 #tabs { flex-wrap: wrap; }
-/* A tab never starts left of --tab-start, so it always lands on the pane's straight top edge;
-   a group that does not fit there wraps inside the tab. In one row the version's width keeps it
-   there. Below these widths the group takes its own header row, right-aligned, and the tab continues
-   the pane's right edge. Measured with SF Pro beside five tabs, the controls fit in one row from
-   1247 px for a personal flow, 1018 px for a rule, 1344 px for a built-in flow and 1349 px for a
-   copy that overrides one: a new control can push them past the breakpoint. */
-@media (min-width: 1024px) {
-  header h1 { min-width: calc(var(--tab-start) - 8px); }
-}
-@media (max-width: 1249px) {
-  #item-actions[data-pane="editor"] { order: 1; flex-basis: 100%; margin-left: var(--tab-start); }
-  #item-actions[data-pane="editor"] + #tabs { border-left: 0; padding-left: 0; }
-  #e-actions::after { display: none; }
-  #editor { border-top-right-radius: 0; }
-}
-@media (max-width: 1023px) {
-  #item-actions { order: 1; flex-basis: 100%; margin-left: var(--tab-start); }
-  #item-actions:not(.hidden) + #tabs { border-left: 0; padding-left: 0; }
-  #c-actions::after { display: none; }
-  #component { border-top-right-radius: 0; }
-}
-/* A built-in flow, or a copy that overrides one, has extra buttons: its group needs a wider header. */
-@media (min-width: 761px) and (max-width: 1355px) {
-  #item-actions[data-pane="editor"]:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden)) {
-    order: 1; flex-basis: 100%; margin-left: var(--tab-start); }
-  #item-actions[data-pane="editor"]:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden)) + #tabs {
-    border-left: 0; padding-left: 0; }
-  #e-actions:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden))::after { display: none; }
-  body:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden)) #editor { border-top-right-radius: 0; }
-}
+/* placeItemActions() measures where the group fits and sets data-place on #item-actions and #main:
+   "tab" (the default): at the divider, the tab of its pane, on the pane's straight top edge (right
+   of its rounded corner and of the tab's own joint);
+   "inline": after the version in the first row, tinted but not joined, when it fits only there;
+   "row": a header row of its own, right-aligned, where the tab continues the pane's right edge and
+   starts no further left than --tab-start (a group too wide for that wraps inside the tab);
+   "stack": the narrow layout, where the list sits between the header and the pane. */
+#item-actions[data-place="inline"] { justify-content: flex-start; margin-bottom: 4px; }
+#item-actions[data-place="row"], #item-actions[data-place="stack"] { order: 1; flex-basis: 100%; }
+#item-actions[data-place="row"] { margin-left: var(--tab-start); }
+#item-actions[data-place="stack"] { margin: 4px 0; }
+#item-actions[data-place="row"] + #tabs, #item-actions[data-place="stack"] + #tabs { border-left: 0; padding-left: 0; }
+#item-actions[data-place="row"] > div, #item-actions[data-place="stack"] > div { flex-wrap: wrap; }
+#item-actions[data-place="inline"] > div, #item-actions[data-place="stack"] > div {
+  padding-bottom: 8px; border-radius: var(--r-tab); }
+#item-actions[data-place="inline"] > div::before, #item-actions[data-place="inline"] > div::after,
+#item-actions[data-place="stack"] > div::before, #item-actions[data-place="stack"] > div::after,
+#item-actions[data-place="row"] > div::after { display: none; }
+#main[data-place="row"] > #editor, #main[data-place="row"] > #component { border-top-right-radius: 0; }
 .item-title { overflow-wrap: anywhere; }
 select, input, button, textarea { font: inherit; color: inherit; }
 select, input { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-field); padding: 5px 8px; }
@@ -219,13 +208,10 @@ details.persona summary { cursor: pointer; }
 dialog { border: 1px solid var(--line); border-radius: var(--r-dialog); background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
-/* The list sits between the header and the pane: the tab keeps the tint but is not joined. */
+/* The list sits between the header and the pane; the tab's "stack" place keeps the tint but is not joined. */
 @media (max-width: 760px) {
   main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); padding-top: 8px; }
-  header > *, #item-actions[data-pane] { margin: 4px 0; }
-  #e-actions, #c-actions { padding-bottom: 8px; border-radius: var(--r-tab); }
-  #e-actions::before, #c-actions::before { display: none; }
-  #editor, #component { border-top-right-radius: var(--r-block); }
+  header > * { margin: 4px 0; }
   .panes.split { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(12rem, 1fr)); }
   .mdview { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
   .mdview.no-toc, .mdview.toc-hidden { grid-template-rows: minmax(0, 1fr); }
@@ -609,7 +595,46 @@ function showPane(pane) {
   // Away from the title, the group still tells a screen reader which item it acts on.
   if (pane in PANES) group.setAttribute("aria-describedby", PANES[pane].title);
   group.classList.toggle("hidden", !(pane in PANES) || $("main").classList.contains("hidden"));
+  schedulePlacement();
 }
+
+// Where the open item's group goes (see data-place in the stylesheet): at the divider as the tab of
+// its pane when it lands on the pane's straight top edge; else after the version in the first row,
+// not joined, when it fits there; else in a header row of its own. Pure, so the tests can call it.
+function itemPlace({ narrow, groupWidth, groupEnd, versionEnd, straightStart }) {
+  if (narrow) return "stack";
+  if (groupEnd - groupWidth >= straightStart) return "tab";
+  if (groupEnd - groupWidth >= versionEnd) return "inline";
+  return "row";
+}
+
+// Measures the group in the one-row layout, where it ends at the divider, and places it. Widths come
+// from the rendered page, so other fonts and new buttons need no breakpoint.
+function placeItemActions() {
+  const holder = $("item-actions"), pane = $(holder.dataset.pane), info = PANES[holder.dataset.pane];
+  if (!info || holder.classList.contains("hidden") || typeof holder.getBoundingClientRect !== "function") return;
+  const group = $(info.actions);
+  holder.dataset.place = $("main").dataset.place = "tab";
+  const gap = parseFloat(getComputedStyle(holder.parentElement).columnGap) || 0;
+  const place = itemPlace({
+    narrow: window.matchMedia("(max-width: 760px)").matches,  // the stylesheet's narrow layout
+    groupWidth: group.getBoundingClientRect().width,
+    groupEnd: $("tabs").getBoundingClientRect().left - gap,
+    versionEnd: $("version").getBoundingClientRect().right + gap,
+    straightStart: pane.getBoundingClientRect().left + parseFloat(getComputedStyle(pane).borderTopLeftRadius)
+      + parseFloat(getComputedStyle(group, "::before").width),
+  });
+  holder.dataset.place = $("main").dataset.place = place;
+}
+
+// Runs once after the current changes: showing a pane is followed by its buttons' visibility.
+let placementPending = false;
+function schedulePlacement() {
+  if (placementPending) return;
+  placementPending = true;
+  Promise.resolve().then(() => { placementPending = false; placeItemActions(); });
+}
+window.addEventListener("resize", schedulePlacement);
 
 function showEditor() {
   const flow = state.draft || state.current;
@@ -1242,6 +1267,7 @@ function createMdView(id, section, button) {
     hide.textContent = state.tocHidden ? "Keep open" : "Hide contents";
     button.classList.toggle("hidden", !(has && view.shown));
     button.setAttribute("aria-pressed", String(has && !state.tocHidden));
+    schedulePlacement();  // "Contents" changes the group's width
   };
   view.show = (text) => {
     view.shown = true;

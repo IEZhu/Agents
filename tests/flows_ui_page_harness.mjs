@@ -4,7 +4,8 @@
 // "search" scenario, what the list shows after each step of the search sequence, or, for
 // "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
 // "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
-// for "ui_panes" and "ui_signout", which pane and header controls show as items open and close.
+// for "ui_panes" and "ui_signout", which pane and header controls show as items open and close, or,
+// for "place", where itemPlace puts groups of given widths.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -546,6 +547,16 @@ if (scenario === "persona_race") {
   await sleep(20);
   steps.after_navigation = panel();
   console.log(JSON.stringify(steps));
+  process.exit(0);
+}
+
+if (scenario === "place") {
+  // itemPlace for a group that ends at 800 px, a pane whose straight top edge starts at 339 px and a
+  // version that ends, with the gap, at 230 px.
+  const at = (groupWidth, narrow = false) =>
+    context.itemPlace({ narrow, groupWidth, groupEnd: 800, versionEnd: 230, straightStart: 339 });
+  console.log(JSON.stringify({ on_pane: at(461), past_corner: at(462), after_version: at(570),
+                               too_wide: at(571), narrow: at(100, true) }));
   process.exit(0);
 }
 
