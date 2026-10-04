@@ -165,12 +165,15 @@ copying its text: `set_flow_persona(flow, agent, skills, implants, rules)` or th
 **Persona** panel of the [flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 The choice is stored in `flows/.user/personas/` and replaces the whole
 frontmatter declaration; calling it without `agent` runs the flow without a
-persona, and `reset=true` restores the frontmatter. `list_flows` and `get_flow`
+persona, and `reset=true` restores the frontmatter. It returns `status` `saved`
+or `reset` with the flow's metadata; components without `agent`, or `reset=true`
+with any of them, are `flow_invalid`. `list_flows` and `get_flow`
 report the effective `persona` and `persona_source` (`frontmatter`, `overlay` or
 null). An invalid declaration or an unreadable overlay does not hide the flow:
-it is listed with `persona_error`, `run_flow` refuses it with `flow_invalid`, and
-saving a choice or `reset=true` repairs it (reset also removes a symlinked
-overlay without touching its target). `run_flow` also refuses a persona that
+it is listed with `persona_error`, and `run_flow` refuses it with `flow_invalid`.
+Saving a choice repairs an invalid declaration or a malformed overlay;
+`reset=true` removes an overlay, including a symlinked one without touching its
+target, which a saved choice cannot replace. `run_flow` also refuses a persona that
 names an agent or component that no longer exists. Frontmatter is recognized only as a
 closed block that parses as a YAML mapping, so a flow may still open with a
 Markdown rule (`---`); a block that mentions `persona:` but is not valid YAML is
@@ -185,17 +188,20 @@ take precedence over the persona's own workflow rules, clarifying questions and
 persona built from the flow's title and `request`. Pass `current_persona` to
 `run_flow` and apply the activation as a switch before executing the flow:
 `SUCCESS` replaces the four blocks and footer, `NO_CHANGE` keeps them, and
-`ERROR` keeps the previous persona and must be reported. The activation is
+`ERROR` keeps the previous persona and must be reported. While retrieval is still
+starting, that `ERROR` starts with `warming_up`; call `run_flow` again after a few
+seconds ([startup and readiness](../docs/routing_flow.md#startup-and-readiness)). The activation is
 compared by `bundle_revision`, not by agent name: the same agent with other
 components is a new activation. A flow's choice never trains the router cache
 that `route_and_load` shares between users. A flow without a persona returns no
-activation. A later `refresh_persona_context` rebuilds the
-agent's default bundle, not the flow's exact lists.
+activation. A later `refresh_persona_context`, or a restore with
+`get_agent_context(force_reload=True)`, rebuilds the agent's default bundle, not
+the flow's exact lists.
 
 ### Without Agents-Core MCP
 
-A session without the MCP server (such as the cloud routine of the issue agent)
-gets no `persona_activation`, but can load the same persona from a checkout of
+A session without the MCP server, or one told not to use it (such as the cloud
+routine of the issue agent), gets no `persona_activation`, but can load the same persona from a checkout of
 this repository. Read every file from the default branch (for example
 `git show origin/main:agents/<agent>/system_prompt.mdc`), never from a pull
 request's working tree: a PR may change the persona files, and its author must
@@ -239,7 +245,8 @@ managed from chat or, with the shared macOS daemon, the
 `flows/.user` is ignored by git (the repository ignores every dot-directory), so
 saving a flow never dirties or switches a branch, neither in this installation nor
 in the caller's repository. Installation updates fast-forward and leave it alone.
-`AGENTS_USER_FLOWS_DIR` moves the library elsewhere; use an absolute path,
+`AGENTS_USER_FLOWS_DIR` moves the library, including persona choices and the web
+UI's component switches (`components.json`), elsewhere; use an absolute path,
 because a relative value is resolved against the server's working directory (the
 client's launch directory over stdio). The repository key is the
 normalized `origin` remote without credentials, for example
@@ -282,7 +289,7 @@ copy.
 
 `save_flow` returns `status` `created`, `saved` or `unchanged` with the flow
 metadata; `delete_flow` returns `status="deleted"` with the scoped `id` and the
-archived `version`. Every save or delete keeps the previous text in
+archived `version`, and also removes that flow's persona choice. Every save or delete keeps the previous text in
 `flows/.user/.history`. To restore, read the text with
 `get_flow(flow, version=...)` and pass it to `save_flow` with the current
 revision from `get_flow(flow)`, not the old version's `revision`; omit
@@ -304,7 +311,7 @@ Keep one workflow per top-level `.md` file. Use lowercase letters, digits and
 single hyphens between words, such as `documentation-refresh.md`, and add it to
 the catalog above. `list_flows` silently skips a top-level file whose name breaks
 this rule, and `run_flow` rejects such a name with `flow_invalid`; after adding a
-flow, check that `list_flows()` shows it. `README.md` is documentation, not a
+flow, check that `list_flows()` shows it without a `persona_error`. `README.md` is documentation, not a
 runnable flow. Flows must be nonempty UTF-8 files of at most 256 KiB; source
 symlinks must stay within `flows/`. Absolute paths, traversal and nested source
 directories are rejected.

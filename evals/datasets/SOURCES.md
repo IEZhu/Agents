@@ -56,6 +56,17 @@ disk in the gitignored `evals/datasets/_unlabeled.jsonl`, and runs read them fro
   access granted on the dataset card.
 - **Card**: https://huggingface.co/datasets/lmsys/lmsys-chat-1m
 
+## Hand-written sets
+
+`evals/datasets/routing_ru.jsonl` holds Russian routing and retrieval labels written
+in-house, with each request inline in `query` and no source pointer. The loader reads
+inline texts without a fetch and checks `source_row_hash` only when a row has one;
+pass such a set to `run_retrieval` or `run_cache_routing` with `--dataset`
+(repeatable). The other files here (`no_fabrication.jsonl`, `persona_*.jsonl`,
+`implant_labels.jsonl`, and the ablation case sets `english_pivot_cases.json` and
+`embedding_ab_cases.json`) are also written in-house and hold no texts from the
+sources above.
+
 ## Storage policy
 
 - We commit only: derivative labels (our IP), source pointers (`source_idx`,

@@ -11,6 +11,11 @@ When the user requests this workflow, read this file and carry it through to a
 verified set of changes. Deliver current documentation and AI instructions on a
 separate branch, with a short validation report.
 
+The `tech_writer` persona contributes documentation judgment. Its own protocol
+does not override this flow: documentation follows the
+[language policy](#documentation-language), and commits follow
+[step 5](#5-complete-the-work).
+
 This workflow ships in the Agents-Core [model workflow catalog](README.md).
 When maintaining that source catalog, store reusable task instructions in
 `flows/` and update the index when adding or renaming them. Running a flow for
@@ -54,8 +59,9 @@ Use main as the base and codex/docs-routing-refresh as the branch.
 This instruction runs in the current AI session. No separate installation or
 command registration is required. If the file is in another working copy, give
 its absolute path and identify the target repository.
-Through Agents-Core MCP, call `run_flow(flow="documentation-refresh")`; use the
-returned `repo_path` as the target. The flow's source checkout supplies instructions
+Through Agents-Core MCP, call `run_flow(flow="documentation-refresh")` with
+`current_persona` and apply its `persona_activation` (`tech_writer`) as a switch
+first; use the returned `repo_path` as the target. The flow's source checkout supplies instructions
 and reference links, while all inspection, edits and validation use the target.
 
 ## 1. Establish the scope and starting state
@@ -101,16 +107,18 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 | What to check | Sources |
 |---|---|
 | Python version, dependencies, installation, client configuration paths | `install.sh`, `pyproject.toml`, `requirements.txt`, `uv.lock`, `scripts/init_repo.sh`, `scripts/init_repo.bat`, `scripts/_helpers/`, `src/client_paths.py`, `tests/test_installer_*.py`, `tests/test_inject_mcp.py` |
-| Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings and `src/client_paths.py` for `CLAUDE_CONFIG_DIR` and `CODEX_HOME` |
-| MCP tools, parameters, statuses, and slash prompts | `src/server.py`, `src/schemas/protocol.py` |
-| Protocol 2 and bundle assembly | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py` |
-| Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py` |
+| Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings, `src/client_paths.py` for `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, `src/model_migration.py` for the default embedding model and `EMBEDDING_MODEL_GENERATION`, `src/engine/embedding_prompts.py` for `EMBEDDING_PROMPTS`, and `src/user_flows.py` and `src/component_toggles.py` for `AGENTS_USER_FLOWS_DIR` |
+| MCP tools, parameters, statuses, and slash prompts | `src/server.py`, `src/schemas/protocol.py`, `src/schemas/tool_args.py`, `src/engine/readiness.py` (`warming_up`), `tests/test_readiness.py`, `tests/test_startup_handshake.py`, `tests/test_log_interaction_contract.py`, `tests/test_log_interaction_async.py` |
+| Protocol 2 and bundle assembly | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `src/version.py` (footer version), `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py`, `tests/test_version.py` |
+| Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py`, `src/component_toggles.py` (web UI switches), `tests/test_component_toggles.py` |
+| Embedding model, its prompts and the switch on update | `src/engine/embedder.py`, `src/engine/embedding_prompts.py`, `src/engine/fingerprint.py`, `src/model_migration.py`, `src/startup.py`, `tests/test_embedder.py`, `tests/test_embedding_prompts.py`, `tests/test_model_migration.py` |
 | Agent catalog and metadata | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json`, `scripts/validate_agents.py` |
 | Memory, history, and workspace isolation | `src/memory/`, `src/daemon/`, `tests/test_per_repo_memory.py`, `tests/test_daemon.py` |
 | Stdio client repository root | `src/engine/config.py` (`get_client_repo_root`), `src/daemon/workspaces.py` (`client_context`), `tests/test_config_client_root.py` |
-| Built-in, personal, and repository flows; flow editor | `flows/*.md`, `src/flows.py`, `src/user_flows.py`, `src/daemon/flows_ui.py`, `src/daemon/flows_ui.html`, `tests/test_flows.py`, `tests/test_user_flows.py`, `tests/test_server_flows.py` |
+| Built-in, personal, and repository flows; flow personas; flow editor | `flows/*.md`, `src/flows.py`, `src/user_flows.py`, `src/flow_persona.py`, `src/component_catalog.py`, `src/component_toggles.py`, `src/daemon/flows_ui.py`, `src/daemon/flows_ui.html`, `src/daemon/peer.py`, `scripts/dev/`, `tests/test_flows.py`, `tests/test_user_flows.py`, `tests/test_server_flows.py`, `tests/test_flows_ui_page.py`, `tests/test_daemon_peer.py`, `tests/test_thread_inventory.py` |
 | Cloud issue agent bridge | `scripts/templates/issue-agent-bridge.yml`, `.github/workflows/issue-agent-bridge.yml`, `tests/test_issue_agent_bridge.py` |
-| Updates and the Node stdio bridge | `src/self_update.py`, `src/daemon/autoupdate.py`, `src/daemon/update.py`, `bridge/`, `tests/test_self_update.py`, `tests/test_daemon_autoupdate.py`, `tests/test_daemon_update.py` |
+| Claude Code cloud environment | `scripts/setup_cloud_env.sh`, `tests/test_setup_cloud_env.py` |
+| Updates and the Node stdio bridge | `src/self_update.py`, `src/startup.py`, `src/model_migration.py`, `src/daemon/autoupdate.py`, `src/daemon/update.py`, `bridge/`, `tests/test_self_update.py`, `tests/test_startup.py`, `tests/test_model_migration.py`, `tests/test_daemon_autoupdate.py`, `tests/test_daemon_update.py` |
 | Generated instructions and Codex discovery | `scripts/install_instructions.py`, `scripts/templates/`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `tests/test_install_instructions.py`, `tests/test_installer_instructions.py`, `tests/test_codex_instructions.py`, `tests/test_protocol_migration.py` |
 | Validation commands | `pyproject.toml`, `requirements.txt`, `tests/conftest.py`, `scripts/run_tests.sh`, `.github/workflows/*.yml`, `tests/test_*.py` |
 
@@ -202,7 +210,7 @@ contributor guide or CI. These commands apply to Agents-Core:
 
 | Change | Check |
 |---|---|
-| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q` |
+| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_installer_profiles.py -q` |
 | Agent catalog or metadata | `.venv/bin/python scripts/validate_agents.py`; compare catalog rows with `identity` and `routing` metadata |
 | Protocol or bundle assembly documentation | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py -q` |
 | Another single area, such as installers, flows, the issue agent bridge, the Node bridge or updates | The focused checks in [Choose tests by change](../tests/README.md#choose-tests-by-change) |

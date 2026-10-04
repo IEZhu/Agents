@@ -1,8 +1,9 @@
 # Tests
 
 The suite covers routing, the persona protocol, prompt assembly, memory, daemon
-operations, installers and evaluation runners. Test discovery and default marker
-selection are configured in [pyproject.toml](../pyproject.toml).
+operations, installers and evaluation runners. The `slow` marker and its default
+exclusion are configured in [pyproject.toml](../pyproject.toml); pytest discovers
+`tests/test_*.py` by its defaults.
 
 ## Environment
 
@@ -68,21 +69,22 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Area | Starting points |
 |---|---|
 | Routing and intent | `test_routing.py`, `test_intent.py` |
-| Protocol 2 and fresh bundles | `test_persona_protocol.py`, `test_persona_bundle.py` |
-| Skills, implants and rules | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py` |
+| Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
+| Skills, implants and rules, and their on/off switches | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py`, `test_component_toggles.py` |
+| Embedding model, its prompts, batching and the one-time model switch | `test_embedder.py`, `test_embedding_prompts.py`, `test_model_migration.py` (no model is loaded); the service's switch is in `test_daemon_update.py` |
 | Installers: one-command install, version checks, client profiles, instructions and migration | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py` |
 | Agent frontmatter and metadata | `scripts/validate_agents.py` |
 | Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
-| Repository memory | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py` |
-| Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py` |
+| Repository memory and `log_interaction` | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py`, `test_log_interaction_async.py`, `test_log_interaction_contract.py` |
+| Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py`, `test_thread_inventory.py` (the `thread-close` helper) |
 | Cloud issue-agent dispatch, startup acknowledgement and its deletion, reactions and receipt collapse | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
-| Personal and repository flows, flow editor and its sign-in | `test_user_flows.py`, `test_daemon_peer.py` (loopback owner lookup per OS), `test_flows_ui_page.py` (page script in Node; skipped without `node`) |
+| Personal and repository flows, the `/ui` settings page and its sign-in | `test_user_flows.py`, `test_component_toggles.py` (switches and the Agents listing), `test_daemon_peer.py` (loopback owner lookup per OS), `test_flows_ui_page.py` (page script in Node through `flows_ui_page_harness.mjs`; skipped without `node`) |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
-| Updates and startup | `test_self_update.py`, `test_startup.py` |
+| Updates, startup and readiness | `test_self_update.py`, `test_startup.py`, `test_readiness.py`, `test_startup_handshake.py` (slow; a fake `fastembed`, no model), `test_langfuse_compat.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
 | Language detection | `test_language.py` |
-| Evaluation runners and providers (`evals/runners/`) | `test_persona_dialogue*.py`, `test_bench.py`, `test_local_provider.py`, `test_openrouter_provider.py` |
-| Evaluation scripts, statistics and telemetry | `test_ablation_harness.py`, `test_prompt_ab.py`, `test_local_ab.py`, `test_compare_rules.py`, `test_bench_significance.py`, `test_label_with_claude_alloc.py`, `test_telemetry.py` |
+| Evaluation runners and providers (`evals/runners/`) | `test_persona_dialogue*.py`, `test_bench.py`, `test_local_provider.py`, `test_openrouter_provider.py`, `test_eval_cache_routing.py`, `test_eval_retrieval.py` |
+| Evaluation scripts, statistics and telemetry | `test_ablation_harness.py`, `test_ablation_compare.py`, `test_ablation_hosted.py`, `test_prompt_ab.py`, `test_local_ab.py`, `test_compare_rules.py`, `test_bench_significance.py`, `test_label_with_claude_alloc.py`, `test_telemetry.py` |
 
 Patterns in this table name groups of files. See the directory for the full list.
 Do not treat an old test count or duration as an expected result; pytest reports
@@ -112,7 +114,9 @@ override precedence and errors without running dependency installation or
 editing real client settings.
 `test_daemon_peer.py` (standard library only) checks the flow editor's loopback
 owner lookup on a real connection from a child process: `GetExtendedTcpTable` and
-the process token on Windows, `/proc/net/tcp` on Linux, `lsof` on macOS.
+the process token on Windows, `/proc/net/tcp` on Linux, `lsof` on macOS. Because
+the hosted runner is elevated, a second step runs `scripts/dev/peer_check_probe.py`
+as a temporary standard (non-administrator) local user.
 
 To reproduce the workflow job locally in PowerShell with Python 3.11+ selected:
 
@@ -147,8 +151,9 @@ removes `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_CURSOR_MCP_CONFIG` and
 installer and migration tests and make them write the user's real client
 configuration. Tests that need one of these variables set it themselves.
 
-Tests that load retrievers may still initialize an embedding model during
-collection. A fresh worktree has no copied `.env` or `data/`, so it may need a
+Tests that build the skill or implant retriever, such as `test_data_isolation.py`,
+may still load an embedding model and re-embed the temporary stores, even when slow
+tests are excluded. A fresh worktree has no copied `.env` or `data/`, so it may need a
 cached model or a download even when slow tests are excluded: the engine default,
 `microsoft/harrier-oss-v1-270m`, is about 1.1 GB. To use a model that is already
 cached, export it, for example

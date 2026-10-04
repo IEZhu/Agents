@@ -205,7 +205,7 @@ Semantic retrieval embeds the query and role, then selects candidates below
 
 | Setting | Default | Alternative |
 |---|---|---|
-| `IMPLANT_INDEX_MODE` | `legacy`: description + body | `triggers`: description + triggers + When to Use |
+| `IMPLANT_INDEX_MODE` | `legacy`: description + body | `triggers`: description + triggers + When to Use (either text is truncated at 2048 tokens, or the model's lower limit) |
 | `IMPLANT_GATING` | `legacy`: absolute distance cutoff | `zscore`: candidates must stand out from the query's distance distribution |
 | `IMPLANT_NEED_GATE` | `off` | `intent`: require a positive implant budget; applies only to the per-query evaluation path, not to persona bundles |
 
@@ -305,4 +305,4 @@ not replace a protocol 2 persona descriptor or its footer.
 
 ## Switching implants off
 
-The local web UI (`python -m src.daemon flows-ui`, tab *Implants*) lists every implant and can switch it off for the whole installation without touching the file. A switched-off implant is skipped in persona bundles and by `load_implants`. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
+With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`, tab *Implants*) lists every implant and can switch it off for the whole installation without touching the file. A switched-off implant is skipped in persona bundles and by `load_implants`; a flow persona that names it still loads it. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
