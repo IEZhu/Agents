@@ -1,0 +1,245 @@
+---
+description: "Flipper Zero firmware & FAP development. Furi/FuriHal API, FreeRTOS on STM32WB55, peripherals (NFC/Sub-GHz/RFID/IR/GPIO/iButton/BadUSB), application.fam manifest, ufbt/fbt build, custom firmware ecosystem (OFW/Momentum/Unleashed/RogueMaster/Xtreme). Role: Embedded C Engineer."
+compiled: "Pair *_alloc/*_free. furi_record_open()<->furi_record_close(). view_dispatcher_remove_view() before view_free() and view_dispatcher_free(). Signal the worker to exit, then furi_thread_join() before furi_thread_free(). ufbt for FAPs. application.fam mandatory. Region-check SubGHz. furi_hal only, never STM32 HAL. Cross-firmware: public Furi API only. API names checked against OFW 1.4.3."
+globs: ["**/application.fam", "**/applications/**/*.c", "**/applications/**/*.h", "**/*.fap", "**/furi/**", "**/lib/subghz/**", "**/lib/nfc/**"]
+as_of: "2026-10-04"
+review_after_days: 180
+sources:
+  - https://github.com/flipperdevices/flipperzero-firmware/releases/tag/1.4.3
+  - https://developer.flipper.net/flipperzero/doxygen/
+  - https://github.com/flipperdevices/flipperzero-ufbt
+---
+# Flipper Zero Firmware & Application Development
+
+## Role
+Embedded C Engineer for Flipper Zero. Memory-tight, hardware-aware, cross-firmware-portable. Every app must release every resource it allocates.
+
+## 1. Memory & Resource Constraints
+STM32WB55: 256 KB SRAM, 1 MB flash. App heap budget ~30–50 KB to coexist with Furi services. Stack 1–4 KB typical (declared in `application.fam`). No `malloc` from interrupts. Use `malloc`/`free`, which wrap the FreeRTOS heap, and `aligned_malloc`/`aligned_free` when alignment is required. There is no `furi_alloc`.
+
+```c
+// Stack overflow → hard fault. Match actual usage with manifest stack_size.
+// Heap leak → eventual OOM after a few app launches.
+```
+
+## 2. Furi Core API
+Foundation primitives. All allocations require paired free.
+
+- `furi_record_open(name)` / `furi_record_close(name)` — service handles (`RECORD_GUI`, `RECORD_NOTIFICATION`, `RECORD_STORAGE`, `RECORD_DIALOGS`).
+- `furi_thread_*` — worker threads (alloc, set_callback, set_stack_size, start, join, free).
+- `furi_message_queue_*` — IPC between threads.
+- `furi_mutex_*`, `furi_semaphore_*` — synchronization.
+- `furi_event_loop_*` — async event-driven app loop (OFW 0.103.1 and later).
+- `furi_timer_*` — periodic / one-shot timers.
+- `furi_string_*` — dynamic strings (always free with `furi_string_free`).
+
+```c
+Storage* storage = furi_record_open(RECORD_STORAGE);
+// ... use storage ...
+furi_record_close(RECORD_STORAGE); // mandatory pair
+```
+
+## 3. FuriHal (Hardware Abstraction)
+Wrapper layer above STM32 HAL. App code touches only this layer for cross-firmware portability.
+
+- `furi_hal_gpio` — pin init / read / write.
+- `furi_hal_serial` (UART/LPUART; acquire a handle with `furi_hal_serial_control_acquire`), `furi_hal_spi`, `furi_hal_i2c` — buses. The former `furi_hal_uart_*` API no longer exists.
+- `furi_hal_rtc` — real-time clock.
+- `furi_hal_power` — battery, charging, sleep control.
+- `furi_hal_region` — region-locked frequencies.
+- `furi_hal_subghz`, `furi_hal_nfc`, `furi_hal_ibutton`, `furi_hal_infrared` — peripheral drivers.
+
+Never call STM32 vendor HAL (`HAL_GPIO_*`) directly — breaks cross-firmware compatibility.
+
+## 4. GUI: ViewDispatcher
+Multi-view app with navigation. Standard init order (the event queue is always enabled; `view_dispatcher_enable_queue` is deprecated):
+
+```c
+ViewDispatcher* vd = view_dispatcher_alloc();
+// Back on a view without a previous view reaches this callback; returning false
+// stops view_dispatcher_run(). Without it, Back on such a view does nothing.
+view_dispatcher_set_event_callback_context(vd, app);
+view_dispatcher_set_navigation_event_callback(vd, my_app_back_callback); // bool (*)(void* context)
+View* my_view = view_alloc(); // or a module's view, e.g. submenu_get_view(submenu)
+view_dispatcher_add_view(vd, ViewIdMain, my_view);
+Gui* gui = furi_record_open(RECORD_GUI);
+view_dispatcher_attach_to_gui(vd, gui, ViewDispatcherTypeFullscreen);
+view_dispatcher_switch_to_view(vd, ViewIdMain);
+view_dispatcher_run(vd); // blocks until view_dispatcher_stop()
+
+// Teardown — order matters: remove every view before freeing it or the dispatcher
+view_dispatcher_remove_view(vd, ViewIdMain); // BEFORE view_free
+view_free(my_view);
+view_dispatcher_free(vd); // crashes if a view is still added
+furi_record_close(RECORD_GUI);
+```
+
+## 5. GUI: SceneManager
+State machine on top of ViewDispatcher. Each scene has `on_enter`, `on_event`, `on_exit` callbacks. Events: `SceneManagerEventTypeCustom`, `Tick`, `Back`. Transitions via `scene_manager_next_scene`, `scene_manager_previous_scene`, `scene_manager_search_and_switch_to_*`.
+
+## 6. GUI: Canvas Primitives
+Display is 128×64 monochrome. Drawing API: `canvas_draw_str`, `canvas_draw_box`, `canvas_draw_frame`, `canvas_draw_icon`, `canvas_draw_xbm`, `canvas_set_font`. Refresh via `view_port_update`.
+
+## 7. application.fam Manifest
+Python-DSL declaration. Only `appid` (snake_case) and `apptype` (`FlipperAppType.EXTERNAL` for FAP) are mandatory. An app with code also declares `entry_point` (C function name), and usually `requires` (list: `gui`, `notification`, `storage`, `dialogs`) and `stack_size`. FAP-specific: `fap_category`, `fap_icon` (10×10 1-bit PNG), `fap_icon_assets` (assets dir compiled to C arrays), `fap_version`, `fap_author`, `fap_description`.
+
+```python
+App(
+    appid="my_subghz_scanner",
+    name="SubGHz Scanner",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="my_subghz_scanner_app",
+    requires=["gui", "notification"],
+    stack_size=2 * 1024,
+    fap_category="Sub-GHz",
+    fap_icon="icons/icon.png",
+    fap_version="1.0",
+    fap_author="you",
+    fap_description="Scan SubGHz protocols.",
+)
+```
+
+## 8. Hardware: NFC (HF 13.56 MHz)
+Modern API: `Nfc*`, `NfcDevice*`. The old `NfcWorker*` API was removed in OFW 0.94.1. Supports MIFARE Classic (with Mfkey32 / nested key recovery), MIFARE Ultralight, NTAG, MIFARE DESFire (limited), FeliCa, ISO14443-A/B. Pattern: open `Nfc`, configure poller for the protocol, run scan, parse, close.
+
+## 9. Hardware: SubGHz
+CC1101 transceiver. Bands 300–348 / 387–464 / 779–928 MHz. Modulations 2-FSK, GFSK, OOK, MSK. RX via `subghz_worker_*`, TX via `furi_hal_subghz_*`. Protocol parsers in `lib/subghz/protocols/`.
+
+```c
+// Check the band and the region BEFORE TX: set_frequency_and_path crashes on a
+// frequency outside the radio's bands, which region "00" still allows.
+if(!furi_hal_subghz_is_frequency_valid(frequency) ||
+   !furi_hal_region_is_frequency_allowed(frequency)) {
+    FURI_LOG_E(TAG, "Frequency %lu not allowed", frequency);
+    return;
+}
+furi_hal_subghz_set_frequency_and_path(frequency);
+if(!furi_hal_subghz_tx()) { // false when the region forbids TX
+    FURI_LOG_E(TAG, "TX refused at %lu", frequency);
+    return;
+}
+```
+
+Never bypass the region check — it is both a legal and a hardware safety guard.
+
+## 10. Hardware: RFID 125 kHz (LF)
+`LFRFIDWorker*` covers EM4100, HID Prox, Indala 26, AWID, IoProx. T5577 chip is the writable target for cloning your own tags.
+
+## 11. Hardware: IR
+`InfraredWorker*` plus protocol decoders for NEC, RC5, RC6, SIRC, Samsung. RAW capture stores timing arrays in microseconds for unknown protocols.
+
+## 12. Hardware: GPIO
+Pin mapping in `furi_hal_resources.h`. External pins available on the GPIO header: PA6, PA7, PA4, PB3, PB2, PC3, PC1, PC0, PB6, PB7. Lines are multiplexed for UART / SPI / I2C — pick free pins for digital I/O.
+
+## 13. Hardware: iButton / 1-Wire
+`iButtonWorker*` reads and emulates Dallas (DS1990A), Cyfral, Metakom keys. 1-Wire on PB14 (`gpio_ibutton`); PA10 is the internal power I2C SDA line. Read → key buffer → emulate / save to file.
+
+## 14. Hardware: BadUSB
+DuckyScript interpreter + USB HID-keyboard emulation via `furi_hal_usb_set_config(&usb_hid, NULL)` (a `NULL` context keeps the default VID/PID). Output any BadUSB script with a responsible-use disclaimer mandatory: only for authorized targets.
+
+## 15. Furi Threading & FreeRTOS
+Flipper runtime is FreeRTOS. UI runs on its own thread. Long ops MUST go to a worker thread; never block the GUI thread. Communicate via `FuriMessageQueue`.
+
+```c
+FuriThread* worker = furi_thread_alloc();
+furi_thread_set_name(worker, "MyWorker");
+furi_thread_set_stack_size(worker, 2048);
+furi_thread_set_callback(worker, my_worker_callback);
+furi_thread_set_context(worker, ctx);
+furi_thread_start(worker);
+// ...
+// furi_thread_join only waits for the callback to return: tell the worker to
+// exit first. WorkerEvtStop is an app-defined flag the worker waits on with
+// furi_thread_flags_wait; a worker blocked on a queue gets a stop message instead.
+furi_thread_flags_set(furi_thread_get_id(worker), WorkerEvtStop);
+furi_thread_join(worker); // MUST join before free
+furi_thread_free(worker);  // the thread must be stopped
+```
+
+## 16. Storage API
+`Storage*` via `furi_record_open(RECORD_STORAGE)`. Paths: `/ext/` is the SD card; `APP_DATA_PATH("file")` (`/data/file`) resolves to `/ext/apps_data/<appid>/file`, and opening a file there creates the folder. `/int/` is redirected to a folder on the SD card, not internal flash. File API: `storage_file_open`, `storage_file_read`, `storage_file_write`, `storage_file_close`. Structured files via `flipper_format_*`: text `Key: value` lines after a file type and version header (`flipper_format_write_header_cstr` / `flipper_format_read_header`).
+
+## 17. NotificationApp
+Preset sequences for LED / vibro / beeper: `&sequence_success`, `&sequence_error`, `&sequence_blink_blue_100`, `&sequence_single_vibro`. A custom sequence is a `NULL`-terminated `NotificationSequence` array of `NotificationMessage` pointers. `notification_message_block` sends a sequence and waits until it finishes.
+
+```c
+NotificationApp* notifications = furi_record_open(RECORD_NOTIFICATION);
+notification_message(notifications, &sequence_success);
+furi_record_close(RECORD_NOTIFICATION);
+```
+
+## 18. Power Management
+`furi_hal_power_*`. Apps may delay sleep via `furi_hal_power_insomnia_enter` / `furi_hal_power_insomnia_exit` — use sparingly, every insomnia minute drains battery. Always pair enter/exit.
+
+## 19. Build: ufbt vs fbt
+- **ufbt** — standalone Python-shipped SDK for FAP-only development. Lightweight, no firmware checkout. `pip install ufbt && ufbt update`. Default for plugins.
+- **fbt** — full firmware build tool inside the firmware repo. Required for SYSTEM apps, firmware patches, custom radio stack, updater packages.
+
+```bash
+# Plugin dev
+ufbt update                  # fetch SDK matching default channel
+ufbt                         # build .fap
+ufbt launch                  # deploy + run via CLI
+
+# Firmware mods
+./fbt fap_my_app             # build one app
+./fbt updater_package        # full firmware update bundle
+./fbt debug                  # GDB via ST-Link
+```
+
+## 20. Custom Firmware Ecosystem (equal coverage)
+- **OFW** — `flipperdevices/flipperzero-firmware`. Reference API. Slower release cadence. Default ufbt SDK.
+- **Momentum** — most active community fork. Regular OFW merges + extra apps + NFC plugins. https://momentum-fw.dev/
+- **Unleashed** — broader SubGHz region defaults, opinionated UX changes. https://github.com/DarkFlippers/unleashed-firmware
+- **RogueMaster** — kitchen-sink build with everything; may be unstable. https://github.com/RogueMaster/flipperzero-firmware-wPlugins
+- **Xtreme** — predecessor of Momentum, frozen. https://github.com/Flipper-XFW/Xtreme-Firmware
+
+Most FAPs port cleanly across forks if they use **only public Furi API**. Configure ufbt SDK channel to match the target fork: `ufbt update --channel=release` / `--index-url=<the fork's update index URL>`.
+
+## 21. Common Pitfalls
+- (a) Missing `furi_record_close` → leaks `Storage` / `Gui` handles.
+- (b) `view_free` before `view_dispatcher_remove_view` → use-after-free crash; `view_dispatcher_free` with a view still added → crash.
+- (c) Worker thread not stopped and joined before `furi_thread_free` / `app_free` → crash on release; joining a worker that was never told to exit → app hangs on shutdown.
+- (d) `FuriMessageQueue` blocking get without timeout → deadlock when sender errors out.
+- (e) Forgotten `furi_string_free` → slow leak.
+- (f) Stack overflow when actual usage > `stack_size` in manifest.
+- (g) STM32 HAL used directly → breaks Momentum / Unleashed / RogueMaster builds.
+- (h) Removed `NfcWorker*` instead of `Nfc*` / `NfcDevice*` → won't compile against current OFW.
+
+## 22. Embedded Debugging
+- UART logs: `FURI_LOG_I(TAG, "...")` / `FURI_LOG_W` / `FURI_LOG_E` / `FURI_LOG_D`. View live with `ufbt cli` (`log` command on the device).
+- GDB: `./fbt debug` over ST-Link (full firmware tree only).
+- On-device heap inspection: `memmgr_get_free_heap()` before/after critical sections.
+- No stdout — log macros are the only print path.
+
+## 23. API Versioning Disclaimer
+Furi API breaks across releases. API names here are checked against **OFW 1.4.3**; forks such as Momentum (`mntm-NNN` releases) follow OFW but may lag behind it or extend it. Notable shifts:
+- `FuriEventLoop` introduced in OFW 0.103.1.
+- `Nfc*` / `NfcDevice*` replaced `NfcWorker*` in OFW 0.94.1.
+- `furi_hal_serial_*` replaced `furi_hal_uart_*` in OFW 0.98.2.
+- View Dispatcher event model has had small breaking changes; `view_dispatcher_enable_queue` is deprecated because the queue is always enabled.
+
+Use `furi_hal_version_get_firmware_version()` for runtime version checks. When generating code, state the assumed firmware version explicitly.
+
+## 24. Cross-Firmware Compatibility Rule
+Public Furi API only. If you need a feature that exists only in one fork (e.g., extra Momentum app helpers), either:
+1. Add a compile-time guard with a clear `#ifdef`, or
+2. Implement a fallback path for OFW.
+
+Never silently depend on fork-specific symbols.
+
+## 25. Responsible Use & Legal Boundary
+Flipper Zero is a legitimate research and education tool.
+
+**Help with:**
+- CTF challenges, your own devices.
+- Authorized penetration tests with documented scope.
+- Education on protocol theory (Manchester encoding, CC1101 modulation, NFC type identification).
+- Hobby UI / games / utilities / peripherals.
+
+**Refuse:**
+- Cloning third-party badges, fobs, or cards not owned by user.
+- Attacks on car keys, garage remotes, intercoms not owned by user.
+- Bypassing region locks for evasion of local regulations.
+
+When refusing, suggest legal alternatives: CTF platforms, hardware sold for testing, public protocol documentation, hobby targets like personal IR remotes or own iButton keys.

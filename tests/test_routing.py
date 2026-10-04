@@ -649,6 +649,48 @@ class TestKeywordBoosting:
         matches = r.match_keywords("find the right model for the project")
         assert matches == []
 
+    def test_match_keywords_flipper_zero(self):
+        """The shipped Flipper Zero keywords match Flipper queries and stay out
+        of unrelated ones: keywords of 4+ characters match as substrings, and a
+        single hit can override a cached route."""
+        from src.utils.prompt_loader import get_agent_metadata
+
+        keywords = get_agent_metadata("flipper_zero_developer")["routing"]["domain_keywords"]
+        r = self._make_router_with_keywords({"flipper_zero_developer": keywords})
+        # "flipper zero", "flipper subghz" and ".fap" hit
+        assert r.match_keywords("How to write a SubGHz scanner.fap for Flipper Zero") == [
+            ("flipper_zero_developer", 3)
+        ]
+        for query in (
+            "My flipperzero app crashes on exit",
+            "Why does furi_record_open(RECORD_GUI) block forever?",
+            "ufbt launch fails with a missing SDK",
+            "./fbt fap_my_app fails to link",
+            "RogueMaster vs Momentum firmware for my Flipper",
+            "Emulate an iButton key on my Flipper",
+        ):
+            assert r.match_keywords(query), query
+        # Generic RF, NFC, USB and MCU terms count only next to "flipper".
+        for query in (
+            "Refactor the JSON parser",
+            "I'm furious: my Docker build keeps failing",
+            "Render furigana above kanji in HTML",
+            "The Flipper app can't connect to my React Native simulator",
+            "A rogue process is eating CPU on the master node",
+            "How do I change the title color of a UIButton in Swift?",
+            "Translate UI strings with fbt in a React app",
+            "My Sennheiser Momentum firmware update failed",
+            "Ruckus Unleashed firmware upgrade fails",
+            "Upgrade the firmware on an Extreme Networks switch",
+            "LoRa link budget for a sub-GHz 868 MHz sensor",
+            "STM32WL SubGHz_Phy example does not transmit",
+            "Read a 125kHz RFID tag with an RDM6300 on Arduino",
+            "android.nfc.tech.MifareClassic: NFC MIFARE auth fails",
+            "How do we defend laptops against BadUSB attacks?",
+            "Configure BLE on a Nucleo STM32WB55 board",
+        ):
+            assert r.match_keywords(query) == [], query
+
     def test_match_keywords_short_token_word_boundary(self):
         """Short tokens use word-boundary matching: 'ux' must not match inside 'auxiliary'."""
         r = self._make_router_with_keywords({

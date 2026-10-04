@@ -82,6 +82,7 @@ are never changed. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 | `prompt_engineer` | `/prompt` | Prompt Design & Optimization Specialist |
 | `roblox_studio_expert` | `/roblox` | Full-Cycle Roblox Game Development: Scripts, Level Design, Optimization, Monetization |
 | `blender_scripter` | `/blender` | Blender Python (bpy) Scripting Specialist — Procedural 3D-Printable Model Generation |
+| `flipper_zero_developer` | `/flipperzero` | Flipper Zero Firmware & Application Developer — C, FuriHal, FreeRTOS on STM32WB55, NFC/Sub-GHz/RFID/IR/GPIO/iButton/BadUSB |
 
 ## Infrastructure & Operations
 
