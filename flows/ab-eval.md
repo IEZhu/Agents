@@ -24,7 +24,7 @@ Agents-Core checkout.
 ## How to invoke
 
 ```text
-Run flows/ab-eval.md for rules/rule-english-pivot.mdc.
+Run flows/ab-eval.md for rules/rule-english-pivot.mdc on branch feat/english-pivot-rule.
 Run flows/ab-eval.md: embedding model microsoft/harrier-oss-v1-270m against intfloat/multilingual-e5-large.
 Run flows/ab-eval.md for branch feat/new-tutor-prompt against main, without retrieval metrics.
 ```
@@ -117,11 +117,17 @@ Skip the writing when the request names a case set; still check it.
 
 1. `RUNS=$(pwd)/evals/ablation/runs/<name>`, `RUN=$RUNS/base`;
    `mkdir -p $RUN/cases`; copy the case set to `$RUN/cases/<component>.json`, where
-   the component is the cut one or the experiment's name; write it to `$RUN/ids.txt`.
+   `<component>` is the set's own `component` field (the cut component or the
+   experiment's name; `build_contexts.py` refuses a file named otherwise); write it
+   to `$RUN/ids.txt`.
 2. Build, one heavy process at a time and after checking free memory:
    a component cut runs `python evals/ablation/build_contexts.py $RUN`; `--arm` builds
    run `--arm without` in the baseline worktree and `--arm with` in the candidate
-   worktree or with the candidate's settings, both on the same absolute `$RUN`.
+   worktree or with the candidate's settings exported
+   (`EMBEDDING_MODEL=<model> python evals/ablation/build_contexts.py $RUN --arm with`),
+   both on the same absolute `$RUN`. A model set only in a worktree's `.env` does not
+   apply: `build_contexts.py` pins `microsoft/harrier-oss-v1-270m` unless the
+   variable is exported.
 3. Check `build_errors.json`: only "arms identical" entries may remain, and the report
    counts them. `plan.json` must hold two contexts per other case.
 4. Make one run directory per answer run from `base`: `opus`, `gemma-r1`, `gemma-r2`,
@@ -160,9 +166,11 @@ Skip the writing when the request names a case set; still check it.
 
 ## 7. Retrieval and routing metrics (when they apply)
 
-Run these in each arm's worktree with its settings, one model loaded at a time.
-After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
-`python -m src.reindex`.
+Run these in each arm's worktree, one model loaded at a time, with the arm's
+settings exported for every command (`EMBEDDING_MODEL=<model> python -m ...`): the
+retrieval runners read only the environment, not the worktree's `.env`. After
+changing the model, rebuild that worktree's stores with
+`EMBEDDING_MODEL=<model> python -m src.reindex`.
 
 1. Language coverage: when the hypothesis concerns a language with fewer than about
    30 labeled queries in `evals/datasets/routing.jsonl`, first write
@@ -183,9 +191,10 @@ After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
    the `ROUTER_SIMILARITY_THRESHOLD` that keeps the baseline's precision. The router
    needs a similarity above its threshold, so set the threshold just below the
    cutoff similarity that the report gives for that coverage.
-4. An embedding model needs its query and passage prompts from its model card in
-   `src/engine/embedding_prompts.py` before any measurement; without them the comparison is
-   not fair to it.
+4. An embedding model needs its query and passage prompts from its model card
+   (`PROMPTS`) and, for a model fastembed does not ship, its ONNX export
+   (`CUSTOM_MODELS`) in `src/engine/embedding_prompts.py` before any measurement;
+   without the prompts the comparison is not fair to it.
 
 ## 8. Analyze
 
@@ -214,7 +223,7 @@ After changing `EMBEDDING_MODEL` in a worktree, rebuild its stores with
 2. Commit it on the change's branch when the change ships, otherwise on
    `eval/<name>`. Push and open a pull request; never merge it.
 3. Keep `eval/<name>` and the `claude/eval-<name>-*` branches until the owner decides;
-   offer the archive step from the [runbook](../evals/ablation/README.md).
+   offer the archive step of [After a run](../docs/cloud-runs.md#after-a-run).
 4. Report in the invocation language: the recommendation and its evidence, the
    `compare.py` tables per model, retrieval metrics when measured, OpenRouter spend
    (`usage_daily` now minus at step 1) and cloud runs used, links to the PR, branches

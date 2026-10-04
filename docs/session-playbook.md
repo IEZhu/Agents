@@ -1,7 +1,7 @@
 # Playbook for agent sessions on this repository
 
-Practices that held up in the 2026-09 sessions (the component ablation sweep and the
-review rounds that followed). [AGENTS.md](../AGENTS.md) is the contributor entry
+Practices that held up in the 2026-09 and 2026-10 sessions (the component ablation
+sweep, the A/B evals and the review rounds). [AGENTS.md](../AGENTS.md) is the contributor entry
 point; [CLAUDE.md](../CLAUDE.md) covers the routing protocol and the code layout.
 This page covers how to work. For documentation maintenance, execute
 [documentation-refresh.md](../flows/documentation-refresh.md). Related pages: [cloud-runs.md](cloud-runs.md)
@@ -45,6 +45,9 @@ for Langfuse analysis.
   those changes are indexed. For HTTP, run `.venv/bin/python -m src.daemon restart`
   ([service control](shared-mcp-daemon.md#service-control)); for stdio, reconnect
   the server. See [routing](routing_flow.md) for refresh semantics.
+- **Closing a thread.** Before `/clear` or an unrelated task, run
+  [flows/thread-close.md](../flows/thread-close.md) to verify the thread's results
+  and secure unsaved work.
 
 ## PR review loop
 
@@ -68,7 +71,12 @@ follow the flow's [quota rules](../flows/pr-review.md#quota-rate-limits-and-erro
 record the evidence and the next attempt time, pause that bot instead of
 re-requesting it on every push, and continue with the available bots. Use the
 flow's current-head review, validation, and merge conditions before finishing;
-commits that no bot reviewed need an independent review before a merge.
+changes that no bot reviewed need an independent review before a merge when they
+touch code, tests or configuration. Keep the branch current with the target before
+each review request and the final report; resolve conflicts keeping both sides'
+intent, and after a rebase push to the verified source remote with an explicit
+`--force-with-lease=refs/heads/<branch>:<last seen head>`, never relying on the
+default remote or upstream ([keep the branch current](../flows/pr-review.md#keep-the-branch-current-and-git-healthy)).
 
 **Merged PRs.** Unresolved threads on merged or closed PRs are still answered:
 `python scripts/dev/pr_threads.py --closed` lists them.
@@ -76,21 +84,28 @@ commits that no bot reviewed need an independent review before a merge.
 ## Evals
 
 - Routing, retrieval and tier regressions use the deterministic harness:
-  `./scripts/eval.sh run` scores `evals/datasets/routing.jsonl`. To compare with the
-  committed `evals/reports/baseline.md`, run `save`, then `diff <report>`; `baseline`
-  rewrites that file. The harness needs the `evals` extra, fetches query texts from
+  `./scripts/eval.sh run` scores `evals/datasets/routing.jsonl`. `save` writes a dated
+  report and `diff <report>` compares it with the committed
+  `evals/reports/baseline.md`; `baseline` rewrites that file. The committed baseline
+  (2026-05-04) predates the `microsoft/harrier-oss-v1-270m` default and does not
+  record its embedding model, so its retrieval rows also differ by model: to measure
+  a change, `save` a report on the base revision too and compare the two reports
+  with `diff -u <base report> <change report>`, because `./scripts/eval.sh diff`
+  always compares with the committed baseline. The harness needs the `evals` extra, fetches query texts from
   Hugging Face unless `evals/datasets/_unlabeled.jsonl` exists locally, and loads the
   embedding model, so run it alone. `./scripts/eval.sh help` lists the other
   commands. `bench` (MCP vs vanilla) and the `scripts/bench_*.sh` wrappers read API
   keys, endpoints and the judge from `.env`.
-- Run A/B evals against hosted models (OpenRouter), not local ones: local models on the
-  laptop are too slow, and hosted models are not deterministic even at temperature 0,
-  so compare across samples. `evals/LOCAL_MODELS.md` documents `prompt_ab`.
+- Run A/B evals with the [A/B eval flow](../flows/ab-eval.md), on hosted models
+  (OpenRouter) and Opus, not local ones: local models on the laptop are too slow, and
+  hosted models are not deterministic even at temperature 0, so compare across
+  samples. `evals/LOCAL_MODELS.md` documents `prompt_ab`.
 - Pairwise judges prefer the second answer (64% of decisive verdicts in 2026-09): judge
   every pair in both orders and count a win only when both orders agree.
-- Screen, then confirm. A single component losing on 2 cases is usually noise (the null
-  model predicted about 9 such losers out of 129); re-test flagged components on 6 fresh
-  cases before acting. Of 14 flagged components, 4 were confirmed.
+- Screen, then confirm. A single component losing on 2 cases is usually noise (in the
+  2026-09 sweep, the null model predicted about 9 such losers out of 129 components);
+  re-test flagged components on 6 fresh cases before acting. Of the sweep's 14
+  flagged components, 4 were confirmed.
 - Judges may use web search for facts that decide a verdict, because their knowledge
   cutoff can make a correct recent fact look wrong.
 - Long fan-out evals run in cloud sessions: [cloud-runs.md](cloud-runs.md).

@@ -53,7 +53,8 @@ compiled: "Dense one-liner used only when the skill is rendered at standard tier
 keywords:                       # Phrases that boost preferred/capable skills
   - keyword phrase one          # in `SkillRetriever.retrieve()`.
   - keyword phrase two          # The retrieval embedding uses
-                                # `description + keywords + body`, not `compiled`.
+                                # `description + keywords + body`, not `compiled`,
+                                # truncated at 2048 tokens (or the model's lower limit).
                                 # Matching: case-insensitive, non-word
                                 # look-around (no `\w` immediately before /
                                 # after the literal). Phrases containing
@@ -196,7 +197,9 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 ## Loading Methods (3-Tier Per-Agent Model)
 
 Every agent declares three skill lists in its frontmatter. Skills not present
-in any of the three are unavailable to that agent (explicit exclusion).
+in any of the three are unavailable to that agent (explicit exclusion). A flow
+persona's exact `skills` list replaces the three lists for that flow
+([flow personas](../flows/README.md#choose-a-flows-agent-and-components)).
 
 ### 1. `core_skills` â€” Mandatory
 
@@ -248,8 +251,8 @@ default). The bundle uses the tier budgets above, even when the intent classifie
 is enabled. Request
 `refresh_persona_context` when a continuing task needs a different skill selection.
 
-Universal rules are a separate layer: every bundle carries all of them, without
-semantic retrieval. See the [rules reference](../rules/README.md).
+Universal rules are a separate layer: every bundle carries all enabled rules (or a
+flow persona's exact list), without semantic retrieval. See the [rules reference](../rules/README.md).
 
 ## Creating a New Skill
 
@@ -319,4 +322,4 @@ semantic retrieval. See the [rules reference](../rules/README.md).
 
 ## Switching skills off
 
-The local web UI (`python -m src.daemon flows-ui`, tab *Skills*) lists every skill and can switch it off for the whole installation without touching the file. A switched-off skill is skipped in persona bundles, including when an agent lists it in `core_skills`. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
+With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`, tab *Skills*) lists every skill and can switch it off for the whole installation without touching the file. A switched-off skill is skipped in persona bundles, including when an agent lists it in `core_skills`; a flow persona that names it still loads it. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).

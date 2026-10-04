@@ -141,9 +141,11 @@ Keep reusable model task instructions in `flows/`; see the
 `list_flows()` discovers built-in, personal (`user:`) and repository (`repo:`)
 workflows; `run_flow(...)` returns their instructions bound to the caller's
 repository; a bare ID resolves `repo:`, then `user:`, then the built-in.
-`get_flow`/`save_flow`/`delete_flow` manage personal and repository flows, stored
-in the git-ignored `flows/.user` (`src/user_flows.py`; the daemon's `/ui` editor
-is `src/daemon/flows_ui.py`). Continue executing a `needs_execution` bundle
+`get_flow`/`save_flow`/`delete_flow` manage personal and repository flows and
+`set_flow_persona` chooses a flow's agent and components (`src/flow_persona.py`),
+stored in the git-ignored `flows/.user` (`src/user_flows.py`; the daemon's `/ui`
+editor is `src/daemon/flows_ui.py`). When `run_flow` returns `persona_activation`,
+apply it as a switch, then continue executing the `needs_execution` bundle
 against its `repo_path` with the current model's tools.
 The loader is in `src/flows.py`; installation source paths and target paths
 have different roles and must not be interchanged.
@@ -161,7 +163,9 @@ the markers so future protocol changes preserve them.
   shared response schemas live in `src/schemas/protocol.py`.
 - Agent metadata declares core, preferred and capable skills, plus preferred
   implants. General rules are versioned bundle content, governed by
-  `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`.
+  `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`,
+  and the web UI switches single rules, skills and implants off for the
+  installation (`src/component_toggles.py`).
 - `describe_repo()` bootstraps repository memory. When sampling is unavailable or
   fails, `write_repo_summary(...)` completes the managed summary. `read_history(...)`
   retrieves existing entries; `log_interaction(...)` records turn attribution.

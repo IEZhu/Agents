@@ -33,10 +33,12 @@ their recorded revision; they do not override the current implementation.
   When a user requests one for another repository, execute the returned bundle
   against its `repo_path`. Source files come from the MCP installation; target
   instructions, edits and checks belong to the caller. `needs_execution` requires
-  the current model to continue the work; it is not a completion result.
+  the current model to continue the work; it is not a completion result. Apply a
+  `persona_activation` that `run_flow` returns as a switch before executing.
   Personal (`user:`) and repository (`repo:`) flows live in the installation's
   git-ignored `flows/.user`; `get_flow`, `save_flow` and `delete_flow` manage
-  them without touching tracked flows or the caller's working tree.
+  them, and `set_flow_persona` stores a flow's agent and components there,
+  without touching tracked flows or the caller's working tree.
 - Write all repository documentation in English, including AI instructions,
   plans, and reports. Retain other languages only for necessary passages such as
   verbatim quotations, language-specific examples or test data, and original

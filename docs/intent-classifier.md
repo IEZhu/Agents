@@ -52,9 +52,10 @@ When the classifier is enabled, `enrichment.resolve_profile` and `infer_tier`
 call it at two sites: `build_persona_bundle`, after the persona file is read,
 each time a bundle is built; and the per-query evaluation path
 `server._load_and_enrich`. It is unit-testable with no vector store.
-[tests/conftest.py](../tests/conftest.py) now redirects derived stores and updater
-state into temporary storage before collection, so importing `enrichment` in the
-suite does not reindex the live stores. Model loading may still be necessary;
+[tests/conftest.py](../tests/conftest.py) redirects derived stores and updater
+state into temporary storage before collection, and `enrichment` builds its
+retrievers on first use, not at import, so tests that build them do not reindex
+the live stores. Model loading may still be necessary;
 see [the test guide](../tests/README.md#isolation-and-resource-use).
 
 ```python

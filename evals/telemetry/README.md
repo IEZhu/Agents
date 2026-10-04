@@ -7,8 +7,11 @@ skill and implant retrieval as `retrieve_skills` and `retrieve_implants` observa
 Each `log_interaction` sends one `agent_interaction` trace whose `response` generation
 holds the logged query and answer. `refresh_persona_context`, `list_agents`,
 `clear_session_cache` and the flow tools are not traced, so a protocol 2 refresh
-appears only through its retrieval observations. These scripts export that data and
-summarise it.
+appears only through its retrieval observations. While retrieval is still warming up
+after a server start, `log_interaction` records no trace (its result reads
+`langfuse: {status: "skipped", reason: "warming_up"}`), and the traced tools run
+untraced until Langfuse is first loaded; a full background queue can also drop a
+trace. These scripts export that data and summarise it.
 
 ## Procedure
 
@@ -125,6 +128,8 @@ was the same persona and rules text re-sent within one conversation.
    record the nearest router distance on ROUTE_REQUIRED.
 4. Recalibrate the skill and implant relevance cutoffs for e5-large, and decide what the
    capable tier is for (compete with a boost, or document it as never auto-loaded).
+   (e5-large was the production model then; `microsoft/harrier-oss-v1-270m` is the
+   default since #178, and with it the cutoffs still rarely gate, per issue #160.)
 5. Take harmful components out of the semantic index, not only out of preferred lists.
 6. Rank ablation re-tests by production exposure: `skill-content-structure` (current
    text), `implant-chain-of-verification`, `implant-iteration-budget`.

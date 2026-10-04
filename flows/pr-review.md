@@ -27,9 +27,10 @@ Run flows/pr-review.md for <PR or MR URL>.
 ```
 
 Through Agents-Core MCP, call
-`run_flow(flow="pr-review", request="Review <PR or MR URL>")`. Carry user
-constraints such as `no-merge` into `request` and use the returned `repo_path` as
-the target. Source links belong to the MCP installation; repository operations
+`run_flow(flow="pr-review", request="Review <PR or MR URL>")` with
+`current_persona`, and apply its `persona_activation` (`code_reviewer`) as a
+switch first. Carry user constraints such as `no-merge` into `request` and use
+the returned `repo_path` as the target. Source links belong to the MCP installation; repository operations
 and instructions belong to the target. Confirm the PR/MR matches that repository
 before making changes.
 
