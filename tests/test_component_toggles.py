@@ -7,7 +7,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from src import component_catalog, component_toggles
+from src import component_catalog, component_toggles, user_library
 from src.component_toggles import ToggleError
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
@@ -36,6 +36,33 @@ def test_store_round_trip_and_defaults(toggle_dir):
     assert component_toggles.disabled("rules") == frozenset()
     assert json.loads((toggle_dir / "components.json").read_text()) == {
         "disabled": {"rules": [], "skills": ["skill-core"], "implants": []}}
+    assert not list(toggle_dir.glob(".tmp-*"))
+
+
+def test_a_switch_reports_its_change_and_creates_the_root_files(toggle_dir):
+    seen = []
+    unsubscribe = user_library.subscribe(lambda root, paths: seen.append((root, paths)))
+    try:
+        component_toggles.set_enabled("rules", "truth", False)
+        component_toggles.set_enabled("rules", "truth", False)  # already off: nothing changes
+    finally:
+        unsubscribe()
+    assert seen == [(toggle_dir, ("components.json", user_library.MARKER, ".gitignore", ".gitattributes"))]
+    assert json.loads((toggle_dir / user_library.MARKER).read_text())["format"] == user_library.FORMAT
+
+
+def test_a_failed_switch_reports_nothing(toggle_dir):
+    (toggle_dir / "components.json").mkdir(parents=True)  # the state file cannot be replaced
+    seen = []
+    unsubscribe = user_library.subscribe(lambda root, paths: seen.append((root, paths)))
+    try:
+        with pytest.raises(OSError):
+            component_toggles.set_enabled("rules", "truth", False)
+        with pytest.raises(ToggleError):
+            component_toggles.set_enabled("agents", "x", False)
+    finally:
+        unsubscribe()
+    assert seen == []
     assert not list(toggle_dir.glob(".tmp-*"))
 
 

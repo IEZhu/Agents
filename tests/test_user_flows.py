@@ -11,6 +11,7 @@ import pytest_asyncio
 import yaml
 
 import src.server as server
+from src import user_library
 from src.component_catalog import list_agents
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
@@ -965,3 +966,152 @@ def test_agent_with_malformed_yaml_is_flow_invalid(install, tmp_path, known_comp
     library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
     with pytest.raises(FlowError, match="Invalid agent frontmatter"):
         library.set_persona("review", {"agent": "code_reviewer"})
+
+
+# --- preparation for sync between machines (#169) ------------------------------------------
+
+def _clone(path, origin=None):
+    path.mkdir()
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    if origin:
+        subprocess.run(["git", "-C", str(path), "remote", "add", "origin", origin], check=True)
+    return path
+
+
+@pytest.fixture
+def changes():
+    seen = []
+    unsubscribe = user_library.subscribe(lambda root, paths: seen.append((root, paths)))
+    yield seen
+    unsubscribe()
+
+
+def test_repo_meta_keeps_the_shared_origin_apart_from_the_machine_path(install, tmp_path):
+    origin = "git@github.com:Owner/Project.git"
+    groups = []
+    for name in ("a", "b"):  # two machines: different libraries and clone paths, one remote
+        clone = _clone(tmp_path / f"clone-{name}", origin)
+        library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / f"lib-{name}", repo_root=clone)
+        library.save("here", "# Here\n", scope="repo")
+        group = library.user_dir / "repos" / "github.com-owner-project"
+        groups.append(group)
+        assert json.loads((group / user_library.REPO_LOCAL).read_text()) == {"path": str(clone.resolve())}
+        [listed] = library.repositories()
+        assert (listed["label"], listed["origin"], listed["local"]) == (
+            "github.com/owner/project", "github.com/owner/project", False)
+    shared = [(group / user_library.REPO_META).read_bytes() for group in groups]
+    assert shared[0] == shared[1]
+    assert json.loads(shared[0]) == {"origin": "github.com/owner/project"}
+
+
+def test_repository_without_origin_is_machine_local(install, tmp_path):
+    clone = _clone(tmp_path / "plain")
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib", repo_root=clone)
+    library.save("here", "# Here\n", scope="repo")
+    [listed] = library.repositories()
+    assert listed["local"] is True and listed["origin"] is None
+    assert listed["label"] == listed["path"] == str(clone.resolve())
+    group = library.user_dir / "repos" / listed["key"]
+    assert json.loads((group / user_library.REPO_META).read_text()) == {"origin": None}
+
+
+def test_old_repo_meta_is_read_and_split_on_the_next_save(library, install):
+    library.save("here", "# Here\n", scope="repo")
+    key = library.repo()[0]
+    group = library.user_dir / "repos" / key
+    (group / user_library.REPO_LOCAL).unlink()
+    (group / user_library.REPO_META).write_text(
+        json.dumps({"origin": "github.com/owner/project", "path": "/old/clone"}), encoding="utf-8")
+    [listed] = library.repositories()
+    assert (listed["origin"], listed["path"], listed["local"]) == ("github.com/owner/project", "/old/clone", False)
+
+    by_key = FlowLibrary(FlowCatalog(install), user_dir=library.user_dir, repo_key=key)  # the web editor
+    by_key.save("repo:here", "# Here\n\nEdited.\n", expected_revision=revision("# Here\n"))
+    assert json.loads((group / user_library.REPO_META).read_text()) == {"origin": "github.com/owner/project"}
+    assert json.loads((group / user_library.REPO_LOCAL).read_text()) == {"path": "/old/clone"}
+
+    library.save("repo:here", "# Here\n\nAgain.\n", expected_revision=revision("# Here\n\nEdited.\n"))
+    assert json.loads((group / user_library.REPO_LOCAL).read_text()) == {"path": str(library.repo_root)}
+
+
+def test_library_root_files_are_created_once_and_kept(library):
+    library.save("mine", "# Mine\n")
+    root = library.user_dir
+    marker = json.loads((root / user_library.MARKER).read_text())
+    assert marker["format"] == user_library.FORMAT and marker["created_by"].startswith("Agents-Core ")
+    ignored = (root / ".gitignore").read_text().splitlines()
+    assert {".lock", ".tmp-*", "__pycache__/", "*.pyc", "**/.repo.local.json"} <= set(ignored)
+    assert (root / ".gitattributes").read_text().splitlines()[-1] == "* -text"
+    (root / ".gitignore").write_text("mine\n", encoding="utf-8")
+    library.save("mine", "# Mine\n\nMore.\n", expected_revision=revision("# Mine\n"))
+    assert (root / ".gitignore").read_text() == "mine\n"
+    listing = library.list()
+    assert "issues" not in listing and [f["id"] for f in listing["flows"] if f["source"] == "user"] == ["user:mine"]
+
+
+def test_writes_report_their_changed_paths(library, changes):
+    library.save("mine", "# Mine\n")
+    assert changes == [(library.user_dir, ("common/mine.md", user_library.MARKER, ".gitignore", ".gitattributes"))]
+    changes.clear()
+    library.save("mine", "# Mine\n", expected_revision=revision("# Mine\n"))  # unchanged: nothing to report
+    with pytest.raises(FlowError, match="flow_conflict"):
+        library.save("mine", "# Other\n", expected_revision=revision("# Stale\n"))
+    assert changes == []
+    library.save("mine", "# Mine v2\n", expected_revision=revision("# Mine\n"))
+    [(_root, paths)] = changes
+    assert paths[0].startswith(".history/common/mine/") and paths[1:] == ("common/mine.md",)
+    changes.clear()
+    library.save("here", "# Here\n", scope="repo")
+    assert changes[0][1] == ("repos/github.com-owner-project/here.md",
+                             "repos/github.com-owner-project/.repo.local.json",
+                             "repos/github.com-owner-project/.repo.json")
+
+
+def test_a_write_that_fails_part_way_reports_what_it_changed(library, changes):
+    library.save("mine", "# Mine\n")  # the root files exist from here on
+    changes.clear()
+    group = library.user_dir / "repos" / "github.com-owner-project"
+    (group / user_library.REPO_META).mkdir(parents=True)  # .repo.json cannot be written
+    with pytest.raises(OSError):
+        library.save("here", "# Here\n", scope="repo")
+    assert changes == [(library.user_dir, ("repos/github.com-owner-project/here.md",
+                                           "repos/github.com-owner-project/.repo.local.json"))]
+
+
+def test_failed_writes_report_nothing(install, tmp_path, changes, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    library.save("mine", "# Mine\n")
+    changes.clear()
+    with pytest.raises(FlowError, match="flow_conflict"):
+        library.delete("user:mine", expected_revision=revision("# Stale\n"))
+    library._persona_path("user", "mine").mkdir(parents=True)
+    with pytest.raises(FlowError, match="is a directory"):
+        library.set_persona("user:mine", {"agent": "code_reviewer"})
+    with pytest.raises(FlowError, match="flow_not_found"):
+        library.set_persona("user:missing", {"agent": "code_reviewer"})
+    assert changes == []
+
+
+def test_persona_and_delete_report_their_changed_paths(install, tmp_path, changes, known_components):
+    library = FlowLibrary(FlowCatalog(install), user_dir=tmp_path / "lib")
+    library.save("mine", "# Mine\n")
+    changes.clear()
+    library.set_persona("user:mine", {"agent": "code_reviewer"})
+    library.set_persona("user:mine", {"agent": "code_reviewer"})  # the same choice changes nothing
+    assert [paths for _root, paths in changes] == [("personas/common/mine.json",)]
+    changes.clear()
+    library.delete("user:mine", expected_revision=revision("# Mine\n"))
+    [(_root, paths)] = changes
+    assert paths[0].startswith(".history/common/mine/") and paths[0].endswith("-deleted.md")
+    assert paths[1:] == ("common/mine.md", "personas/common/mine.json")
+
+
+def test_a_failing_listener_never_fails_the_write(library, changes):
+    def broken(root, paths):
+        raise RuntimeError("listener bug")
+    unsubscribe = user_library.subscribe(broken)
+    try:
+        assert library.save("mine", "# Mine\n")["status"] == "created"
+    finally:
+        unsubscribe()
+    assert changes and changes[0][1][0] == "common/mine.md"

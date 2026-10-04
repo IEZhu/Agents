@@ -21,8 +21,11 @@ without dirtying or switching any git branch.
 | Repository key | Normalized `origin` without credentials, else folder name plus path hash | Clones of one remote share flows; secrets in remote URLs are never stored |
 | Built-in changes | A local copy saved with `override=true`, recorded in `<id>.meta.json` with the built-in revision it was based on | The tracked file stays untouched; the copy reports `upstream_changed` when the built-in moves on |
 | Name resolution | Bare IDs: `repo:` > `user:` > built-in; reusing a built-in ID requires `override=true` | Specific beats general, and a bare name never silently changes meaning |
-| Concurrency | `expected_revision` (SHA-256 of the file) on every update; atomic writes under one lock | Chat and editor edits conflict instead of overwriting each other |
+| Concurrency | `expected_revision` (SHA-256 of the file) on every update; atomic writes under one lock, `flock` on POSIX and `LockFileEx` on Windows | Chat and editor edits conflict instead of overwriting each other, also across processes |
 | History | Each overwritten or deleted text is kept in `.history/`; restore is read-then-save | Recovery without a database or git |
+| Machine-local data | A group's `.repo.json` keeps only its normalized origin; `.repo.local.json` keeps this machine's clone path; a group without an origin is machine-local | A library shared between machines must not carry one machine's paths, and a key made from a path means nothing on another machine |
+| Library files | `.agents-library.json` (format 1), `.gitignore` and `.gitattributes` (`* -text`) at the root, created by the first write and never overwritten | They mark the library and keep temporary files, machine-local files and line-ending conversion out of a repository that holds it |
+| Change notifications | Each write passes the paths it changed to the listeners in `src/user_library.py`, also when it fails part way | A sync runner can react to writes instead of polling, and misses no file that changed |
 | Publishing | None: no branches, commits or pushes | The flow lives in files; sharing through a repository is out of scope |
 | Editor | Served by the existing daemon at `/ui`; a browser of the daemon's OS user signs in by itself, others with a one-use code from `python -m src.daemon flows-ui` | One installation to run, nothing to type; the browser never holds the MCP bearer token |
 
@@ -58,5 +61,8 @@ metrics are therefore not implemented; `run_flow` still returns a
 - One library per installation. Several installations need
   `AGENTS_USER_FLOWS_DIR` pointed at one directory to share flows.
 - History is kept indefinitely; pruning is manual.
-- Possible next steps: a run ledger with outcomes, a line diff between a copy and
-  its built-in in the editor, and import/export of flows between machines.
+- Sync of the library between machines through a private git repository is
+  planned in #173; the machine-local split, library files and change
+  notifications above prepare it (#169).
+- Possible next steps: a run ledger with outcomes, and a line diff between a copy
+  and its built-in in the editor.
