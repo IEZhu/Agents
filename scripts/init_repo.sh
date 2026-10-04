@@ -11,12 +11,13 @@
 #
 # Flags:
 #   --yes, -y      Accept defaults without prompting (also AGENTS_ASSUME_YES=1).
-#                  Writes the default embedding model if none is
-#                  configured, reuses an existing venv and refreshes its
-#                  dependencies (recreating it if its Python version is unknown
-#                  or older than 3.11), and allows the client instruction updates.
+#                  Reuses an existing venv and refreshes its dependencies
+#                  (recreating it if its Python version is unknown or older
+#                  than 3.11), and allows the client instruction updates.
 #   --skip-env     Skip .env file creation (useful if already configured)
-#   --skip-index   Skip embedding model download and index pre-build
+#   --skip-index   Skip the embedding model setup (writing the default model
+#                  to .env when none is set, and its download) and the index
+#                  pre-build
 #   --skip-mcp     Skip MCP configuration and client instruction updates
 #   --help         Show this help message
 #

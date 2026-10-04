@@ -89,7 +89,9 @@ default remote or upstream ([keep the branch current](../flows/pr-review.md#keep
   `evals/reports/baseline.md`; `baseline` rewrites that file. The committed baseline
   (2026-05-04) predates the `microsoft/harrier-oss-v1-270m` default and does not
   record its embedding model, so its retrieval rows also differ by model: to measure
-  a change, `save` a report on the base revision too and compare the two. The harness needs the `evals` extra, fetches query texts from
+  a change, `save` a report on the base revision too and compare the two reports
+  with `diff -u <base report> <change report>`, because `./scripts/eval.sh diff`
+  always compares with the committed baseline. The harness needs the `evals` extra, fetches query texts from
   Hugging Face unless `evals/datasets/_unlabeled.jsonl` exists locally, and loads the
   embedding model, so run it alone. `./scripts/eval.sh help` lists the other
   commands. `bench` (MCP vs vanilla) and the `scripts/bench_*.sh` wrappers read API
