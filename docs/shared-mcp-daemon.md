@@ -488,9 +488,10 @@ runs next to the service. A target that moved or changes dependency manifests is
 refused before anything is built. The reindex gets the installation's `.env`
 under the controller's own settings, as the service does. The build records
 the settings that shape the embeddings (`EMBEDDING_*`, `AGENTS_MODEL_*` and
-`FASTEMBED_*`). If they change while it builds or before a deferred build is
-activated, the build is discarded and made again, so the restarted service does
-not re-embed its indexes during warmup. Every build passes
+`FASTEMBED_*`). If they change while it builds or at any point before
+activation, which checks them once more after the stop, the build is not
+activated and is made again, so the restarted service does not re-embed its
+indexes during warmup. Every build passes
 activation's checks before the service stops, so a build that activation would
 refuse fails here. A failed build leaves the service and the live tree untouched,
 and the next run retries it.

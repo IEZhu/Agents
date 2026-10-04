@@ -142,6 +142,17 @@ def embedding_inputs(config):
     return hashlib.sha256(json.dumps(shaping, sort_keys=True).encode()).hexdigest()
 
 
+def build_inputs_file(target):
+    from src import self_update
+    return Path(self_update.STAGING_ROOT) / str(target) / BUILD_INPUTS
+
+
+def built_with_current_inputs(config, target):
+    """Whether the prepared build of *target* recorded the embedding settings in effect now."""
+    recorded = build_inputs_file(target)
+    return recorded.is_file() and recorded.read_text() == embedding_inputs(config)
+
+
 def prepare_reindex(controller, staging_dir):
     """Build the target's stores inside *staging_dir* with the service's interpreter and model.
 
@@ -203,9 +214,6 @@ def prepare(controller, expected_target=None):
         return self_update._validate_prepared(marker, str(root), AUTO_UPDATE_BRANCH, config["model"],
                                               AUTO_UPDATE_GIT_TIMEOUT)[0]
 
-    def recorded(marker):
-        return Path(self_update.STAGING_ROOT) / str(marker.get("target_sha")) / BUILD_INPUTS
-
     def check(old, target):
         # Auto-update checked one commit before preparing; build only that one.
         if expected_target and target != expected_target:
@@ -219,7 +227,7 @@ def prepare(controller, expected_target=None):
         inputs = embedding_inputs(config)
         marker = self_update._read_prepared_marker()
         if expected_target and marker and marker.get("target_sha") == expected_target and refusal(marker) is None \
-                and recorded(marker).is_file() and recorded(marker).read_text() == inputs:
+                and built_with_current_inputs(config, expected_target):
             return self_update.PreparedStatus.PREPARED
         status = self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
                                             reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
@@ -233,7 +241,7 @@ def prepare(controller, expected_target=None):
         if refused is not None:
             self_update._discard_staging(str(root), AUTO_UPDATE_GIT_TIMEOUT)
             return refused
-        recorded(marker).write_text(inputs)
+        build_inputs_file(marker.get("target_sha")).write_text(inputs)
         return status
 
 
@@ -337,6 +345,10 @@ def offline_update(controller, expected_target=None, precheck=None):
                     if not target or (expected_target and target != expected_target):
                         # Only a process that ignores the shared service could replace the build.
                         raise TargetMoved("the prepared update changed after it was built")
+                    if not built_with_current_inputs(controller.config, target):
+                        # .env changed after the build: the restarted service would re-embed
+                        # the stores. The next run builds again.
+                        raise TargetMoved("the embedding settings changed after the update was built")
                     old = subprocess.run([controller.config["git"], "rev-parse", "HEAD"], cwd=root, check=True,
                                          capture_output=True, text=True).stdout.strip()
                     backup = private_dir(controller.directory / "rollback" / old)

@@ -276,6 +276,28 @@ def test_embedding_settings_changed_during_the_build_discard_it_without_a_restar
     assert controller.builds == 2 and git(root, "rev-parse", "HEAD") == target
 
 
+def test_embedding_settings_changed_before_activation_keep_the_old_code(installation, monkeypatch):
+    from src.daemon.update import TargetMoved
+    controller, root, old, target = installation
+    monkeypatch.delenv("EMBEDDING_PROMPTS", raising=False)
+    checks = []
+
+    def precheck():
+        checks.append(1)
+        if len(checks) == 2:  # after the build recorded its settings, before the stop
+            (root / ".env").write_text("EMBEDDING_PROMPTS=off\n")
+
+    with pytest.raises(TargetMoved, match="embedding settings"):
+        offline_update(controller, expected_target=target, precheck=precheck)
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert controller.running and controller.stops == 1 and controller.probes == 1
+    assert not (controller.directory / "transaction.json").exists()
+
+    assert offline_update(controller, expected_target=target, precheck=lambda: None)["state"] == "UPDATED"
+    assert controller.builds == 2  # the next run builds for the new settings
+
+
 @pytest.mark.parametrize("line, rebuilt", [("EMBEDDING_PROMPTS=off", True), ("LANGFUSE_HOST=https://elsewhere", False)])
 def test_deferred_build_is_reused_only_under_the_same_embedding_settings(installation, monkeypatch, line, rebuilt):
     controller, root, old, target = installation
