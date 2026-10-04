@@ -9,60 +9,111 @@
   --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
   --accent: #2f5bd3; --accent-text: #ffffff; --warn: #9a5b00; --warn-bg: #fff4e0;
   --danger: #b3261e; --ok: #1f7a3a; --code-bg: #fbfbf9; --chip: #efeee9;
+  /* The open item's tab and pane; text on it, muted text included, keeps 4.5:1. */
+  --tint: #eaeff7;
+  /* One radius per kind of element, no two alike. A nested element gets a smaller one than its
+     container, concentric where the padding allows (inner = outer - padding). */
+  --r-block: 22px; --r-list: 18px; --r-dialog: 16px; --r-tab: 14px; --r-joint: 13px; --r-text: 12px;
+  --r-toc: 11px; --r-persona: 10px; --r-notice: 9px; --r-code: 8px; --r-field: 7px; --r-button: 6px;
+  --r-item: 5px; --r-toc-item: 3px; --r-inline: 2px; --r-pill: 999px;
+  /* The space around and between the panels, the list's width, and where the tab may start: to the
+     right of the pane's rounded corner and of its own joint. */
+  --edge: 12px; --list-width: 280px;
+  --tab-start: calc(var(--list-width) + var(--edge) + var(--r-block) + var(--r-joint));
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #9d9c95; --line: #34332f;
     --accent: #7ea0ff; --accent-text: #0e1320; --warn: #f0b560; --warn-bg: #3a2b12;
     --danger: #ff8a80; --ok: #7fd49a; --code-bg: #1a1a18; --chip: #2b2a27;
+    --tint: #232a38;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
-header { flex: none; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px;
-  border-bottom: 1px solid var(--line); background: var(--panel); }
-header h1 { font-size: 16px; margin: 0 auto 0 0; white-space: nowrap; }
-/* The open item's controls fill the header between the version and the tabs. */
-#item-actions { flex: 1 1 0; min-width: 0; display: flex; align-items: center;
-  padding-right: 8px; border-right: 1px solid var(--line); }
-#e-actions, #c-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-#item-actions button, #item-actions select { padding: 4px 8px; }
-#history { width: 10em; }
+/* The header has no box: its controls sit on the page background, bottom-aligned, with the gap to
+   the panels below them. Each item's top margin matches the tab's top padding, so the header keeps
+   its height when an item opens or closes. */
+header { flex: none; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: flex-end;
+  padding: 4px var(--edge) 0; }
+header > * { margin: 8px 0 var(--edge); }
+header h1 { font-size: 16px; line-height: 32px; margin-right: auto; white-space: nowrap; }
+/* The open item's controls fill the header between the version and the tabs and end at the
+   divider. The group is the tab of the item's pane: one tint, and it reaches down to the pane. */
+#item-actions { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; margin: 0; }
+#item-actions:not(.hidden) + #tabs { border-left: 1px solid var(--line); padding-left: 8px; }
+#e-actions, #c-actions { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end;
+  gap: 3px; align-items: center; padding: 8px 8px var(--edge); background: var(--tint);
+  border-radius: var(--r-tab) var(--r-tab) 0 0; }
+/* Concave joints round the corners where the tab meets the pane. */
+#e-actions::before, #e-actions::after, #c-actions::before, #c-actions::after {
+  content: ""; position: absolute; bottom: 0; width: var(--r-joint); height: var(--r-joint); }
+#e-actions::before, #c-actions::before { right: 100%;
+  background: radial-gradient(circle at 0 0, transparent calc(var(--r-joint) - .5px), var(--tint) var(--r-joint)); }
+#e-actions::after, #c-actions::after { left: 100%;
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--r-joint) - .5px), var(--tint) var(--r-joint)); }
+#item-actions button, #item-actions select { padding: 4px 6px; }
+#history { width: 8em; }
 #tabs { flex-wrap: wrap; }
-/* Below these widths the group takes its own header row; above them a group that does not fit
-   wraps inside its cell. Measured with Arial metrics beside five tabs, a built-in flow's controls
-   fit from 1219 px and a rule's from 900 px: a new control can push them past the breakpoint. */
-@media (max-width: 1249px) {
-  #item-actions[data-pane="editor"] { order: 1; flex-basis: 100%; padding-right: 0; border-right: 0; }
+/* A tab never starts left of --tab-start, so it always lands on the pane's straight top edge;
+   a group that does not fit there wraps inside the tab. In one row the version's width keeps it
+   there. Below these widths the group takes its own header row, right-aligned, and the tab continues
+   the pane's right edge. Measured with SF Pro beside five tabs, the controls fit in one row from
+   1247 px for a personal flow, 1018 px for a rule, 1344 px for a built-in flow and 1349 px for a
+   copy that overrides one: a new control can push them past the breakpoint. */
+@media (min-width: 1024px) {
+  header h1 { min-width: calc(var(--tab-start) - 8px); }
 }
-@media (max-width: 899px) {
-  #item-actions { order: 1; flex-basis: 100%; padding-right: 0; border-right: 0; }
+@media (max-width: 1249px) {
+  #item-actions[data-pane="editor"] { order: 1; flex-basis: 100%; margin-left: var(--tab-start); }
+  #item-actions[data-pane="editor"] + #tabs { border-left: 0; padding-left: 0; }
+  #e-actions::after { display: none; }
+  #editor { border-top-right-radius: 0; }
+}
+@media (max-width: 1023px) {
+  #item-actions { order: 1; flex-basis: 100%; margin-left: var(--tab-start); }
+  #item-actions:not(.hidden) + #tabs { border-left: 0; padding-left: 0; }
+  #c-actions::after { display: none; }
+  #component { border-top-right-radius: 0; }
+}
+/* A built-in flow, or a copy that overrides one, has extra buttons: its group needs a wider header. */
+@media (min-width: 761px) and (max-width: 1355px) {
+  #item-actions[data-pane="editor"]:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden)) {
+    order: 1; flex-basis: 100%; margin-left: var(--tab-start); }
+  #item-actions[data-pane="editor"]:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden)) + #tabs {
+    border-left: 0; padding-left: 0; }
+  #e-actions:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden))::after { display: none; }
+  body:has(#copy-user:not(.hidden), #toggle-upstream:not(.hidden)) #editor { border-top-right-radius: 0; }
 }
 .item-title { overflow-wrap: anywhere; }
 select, input, button, textarea { font: inherit; color: inherit; }
-select, input { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
-button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+select, input { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-field); padding: 5px 8px; }
+button { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r-button); padding: 5px 10px; cursor: pointer; }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.danger { color: var(--danger); }
 button:disabled { opacity: .5; cursor: default; }
-main { display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
-  flex: 1; min-height: 0; overflow: hidden; }
-main > section { overflow-y: auto; min-height: 0; }
-#signin { overflow-y: auto; }
-nav { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.search { flex: none; padding: 12px 12px 0; display: flex; flex-direction: column; gap: 4px; }
+/* The list and the open item are rounded panels with a gap between and around them. */
+main { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  gap: var(--edge); padding: 0 var(--edge) var(--edge); flex: 1; min-height: 0; overflow: hidden; }
+main > section { overflow-y: auto; min-height: 0; padding: 10px; border-radius: var(--r-block); background: var(--panel); }
+/* Forced colors replace backgrounds; an outline, transparent otherwise, keeps the panels' and the tab's shape. */
+nav, main > section, #e-actions, #c-actions { outline: 1px solid transparent; outline-offset: -1px; }
+#editor, #component { background: var(--tint); }
+#signin { overflow-y: auto; padding: 16px var(--edge); }
+nav { background: var(--panel); border-radius: var(--r-list); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.search { flex: none; padding: 11px 11px 0; display: flex; flex-direction: column; gap: 4px; }
 .search input { width: 100%; }
 #search-count { min-height: 1.45em; }
-#items { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+#items { flex: 1; min-height: 0; overflow-y: auto; padding: 11px; }
 nav h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 4px 6px; }
 nav h2:first-child { margin-top: 0; }
-.item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px; }
+.item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: var(--r-item); }
 .item:hover { background: var(--chip); }
 .item.active { background: var(--chip); font-weight: 600; }
 .item small { display: block; color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--chip); color: var(--muted); margin-left: 4px; font-weight: 400; }
+.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: var(--r-pill); background: var(--chip); color: var(--muted); margin-left: 4px; font-weight: 400; }
 .chip.warn { background: var(--warn-bg); color: var(--warn); }
 .empty { color: var(--muted); padding: 4px 8px; }
 section { padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -74,9 +125,9 @@ section { padding: 16px; display: flex; flex-direction: column; gap: 10px; min-w
 .pane { display: flex; flex-direction: column; min-width: 0; }
 .pane label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 textarea { width: 100%; flex: 1; min-height: 12rem; resize: vertical; padding: 10px; border: 1px solid var(--line);
-  border-radius: 6px; background: var(--code-bg); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  border-radius: var(--r-text); background: var(--code-bg); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 textarea[readonly] { color: var(--muted); }
-.notice { padding: 8px 10px; border-radius: 6px; background: var(--warn-bg); color: var(--warn); }
+.notice { padding: 8px 10px; border-radius: var(--r-notice); background: var(--warn-bg); color: var(--warn); }
 .notice.ok { background: var(--chip); color: var(--ok); }
 .notice.error { color: var(--danger); }
 .hidden { display: none !important; }
@@ -97,11 +148,11 @@ textarea[readonly] { color: var(--muted); }
   gap: 16px; flex: 1; min-height: 12rem; overflow: hidden; }
 .mdview.no-toc, .mdview.toc-hidden { grid-template-columns: minmax(0, 1fr); }
 .md-toc, .md { min-height: 0; overflow-y: auto; }
-.md-toc { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 8px; }
+.md-toc { border: 1px solid var(--line); border-radius: var(--r-toc); background: var(--panel); padding: 8px; }
 .md-toc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .md-toc-head .grow { flex: 1; }
 .md-toc-head button { font-size: 12px; padding: 2px 8px; }
-.md-toc-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; border-radius: 4px; }
+.md-toc-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 3px 6px; border-radius: var(--r-toc-item); }
 .md-toc-item:hover { background: var(--chip); }
 .md-toc-item.md-l2 { padding-left: 16px; }
 .md-toc-item.md-l3 { padding-left: 26px; }
@@ -113,7 +164,7 @@ textarea[readonly] { color: var(--muted); }
 .mdview.toc-hidden:not(.toc-dismissed) .md-edge:hover ~ .md-toc, .mdview.toc-hidden:not(.toc-dismissed) .md-toc:hover,
 .mdview.toc-hidden .md-toc:focus-within { transform: none; }
 .mdview.no-toc .md-toc, .mdview.no-toc .md-edge { display: none; }
-.md { padding: 4px 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.md { padding: 10px 14px; line-height: 1.55; overflow-wrap: anywhere; background: var(--panel); border-radius: var(--r-text); }
 .md > :first-child { margin-top: 0; }
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.2em 0 .5em; line-height: 1.25; }
 .md h1 { font-size: 1.6em; border-bottom: 1px solid var(--line); padding-bottom: .25em; }
@@ -125,21 +176,26 @@ textarea[readonly] { color: var(--muted); }
 .md li > p { margin: 0; }
 .md li > ul, .md li > ol { margin: .2em 0 0; }
 .md li.md-task { list-style: none; margin-left: -1.4em; }
-.md code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--chip); padding: 1px 4px; border-radius: 4px; }
-.md pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto; }
+.md code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--chip); padding: 1px 4px; border-radius: var(--r-inline); }
+.md pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-code); padding: 10px; overflow-x: auto; }
 .md pre code { background: none; padding: 0; }
 .md blockquote { border-left: 3px solid var(--line); padding: 0 12px; color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--line); }
 .md a { color: var(--accent); }
-.md-table { overflow-x: auto; }
+/* The wrapper draws the table's outer border with rounded corners; the cells draw the inner lines. */
+.md-table { overflow-x: auto; width: fit-content; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-code); }
 .md table { border-collapse: collapse; }
 .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; }
+.md tr > :first-child { border-left: 0; }
+.md tr > :last-child { border-right: 0; }
+.md thead tr > * { border-top: 0; }
+.md table > :last-child > tr:last-child > * { border-bottom: 0; }
 .md th { background: var(--chip); text-align: left; }
 .md .md-center { text-align: center; }
 .md .md-right { text-align: right; }
 .md-meta { color: var(--muted); }
 .md-meta pre { margin: 6px 0 0; }
-details.persona { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel); }
+details.persona { border: 1px solid var(--line); border-radius: var(--r-persona); padding: 8px 10px; background: var(--panel); }
 details.persona summary { cursor: pointer; }
 .persona-bar { margin-top: 10px; }
 .persona-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
@@ -147,13 +203,16 @@ details.persona summary { cursor: pointer; }
 .persona-grid select[multiple] { width: 100%; min-height: 140px; }
 .persona-grid select[multiple]:disabled { opacity: .5; }
 @media (max-width: 760px) { .persona-grid { grid-template-columns: 1fr; } }
-dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
+dialog { border: 1px solid var(--line); border-radius: var(--r-dialog); background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
+/* The list sits between the header and the pane: the tab keeps the tint but is not joined. */
 @media (max-width: 760px) {
-  header { padding: 8px 12px; }
-  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); }
-  nav { border-right: 0; border-bottom: 1px solid var(--line); }
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); padding-top: 8px; }
+  header > *, #item-actions[data-pane] { margin: 4px 0; }
+  #e-actions, #c-actions { padding-bottom: 8px; border-radius: var(--r-tab); }
+  #e-actions::before, #c-actions::before { display: none; }
+  #editor, #component { border-top-right-radius: var(--r-block); }
   .panes.split { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(12rem, 1fr)); }
   .mdview { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
   .mdview.no-toc, .mdview.toc-hidden { grid-template-rows: minmax(0, 1fr); }
