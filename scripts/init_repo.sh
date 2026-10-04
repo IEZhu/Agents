@@ -13,11 +13,15 @@
 #   --yes, -y      Accept defaults without prompting (also AGENTS_ASSUME_YES=1).
 #                  Reuses an existing venv and refreshes its dependencies
 #                  (recreating it if its Python version is unknown or older
-#                  than 3.11), and allows the client instruction updates.
-#   --skip-env     Skip .env file creation (useful if already configured)
-#   --skip-index   Skip the embedding model setup (writing the default model
-#                  to .env when none is set, and its download) and the index
-#                  pre-build
+#                  than 3.11), and accepts the Claude instruction and
+#                  routing-reminder prompts (Codex instructions never ask).
+#   --skip-env     Skip creating .env from env.example, or adding missing keys
+#                  to an existing one (useful if already configured). The
+#                  embedding model steps can still write .env; see --skip-index.
+#   --skip-index   Skip the embedding model download, the index pre-build and
+#                  writing the default model to .env when none is set. The
+#                  one-time switch of an .env from an earlier model generation
+#                  to the default still runs.
 #   --skip-mcp     Skip MCP configuration and client instruction updates
 #   --help         Show this help message
 #
