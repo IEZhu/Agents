@@ -224,6 +224,18 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     assert narrow["#editor, #component"] == {"border-top-right-radius": "var(--r-block)"}
 
 
+def test_the_list_starts_as_far_below_the_search_field_as_the_field_starts_below_the_panel_top():
+    top = css_rules(page_parts()[2])[""]
+    assert top[".search"]["padding"] == "11px 11px 0" and top["#items"]["padding"] == "11px"
+    # The match count sits at the field's right end instead of reserving a row under it.
+    assert {"position": "absolute", "top": "11px", "bottom": "0"}.items() <= top["#search-count"].items()
+    assert top[".search input"]["padding-right"] == "6em"
+    # User and System are tabs, not buttons: no frame, and a bar under the shown one.
+    assert {"border": "0", "background": "none"}.items() <= top[".list-tabs button"].items()
+    assert top[".list-tabs button.active::after"]["background"] == "var(--accent)"
+    assert 'seg.className = "list-tabs"' in page_parts()[1]
+
+
 def test_every_corner_radius_is_a_token_and_no_two_tokens_share_a_value():
     _, _, style = page_parts()
     tokens = dict(re.findall(r"--(r-[a-z-]+): ([^;]+);", re.search(r":root \{([^}]*)\}", style).group(1)))
