@@ -6,7 +6,9 @@
 // "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
 // for "ui_panes" and "ui_signout", which pane and header controls show as items open and close, or,
 // for "place", where itemPlace puts groups of given widths, or, for "ui_place", where the open
-// item's group goes as the window is resized.
+// item's group goes as the window is resized, or, for the "sync_*" scenarios (library sync, #170),
+// what the header chip, the Sync page, its wizard and the editor's notice show and which
+// /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -426,9 +428,9 @@ if (scenario === "render") {
 if (isUi) {
   const out = {};
   if (scenario === "ui_place") {
-    // A personal flow's group, 456 px wide, beside a version (with the sync chip) ending at 222 px
-    // and a pane whose straight top edge starts at 304 + 22 + 13 px; the section tabs move as the
-    // window narrows.
+    // A personal flow's group, 456 px wide, beside a version (the sync chip sits under it) ending at
+    // 222 px and a pane whose straight top edge starts at 304 + 22 + 13 px; the section tabs move as
+    // the window narrows.
     const layout = { tabsLeft: 806 };
     const box = (rect) => () => ({ width: rect.right - rect.left, ...rect });
     byId("brand").getBoundingClientRect = box({ left: 12, right: 222 });

@@ -442,10 +442,10 @@ cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
 A chip next to the version says how [user library sync](user-sync.md) stands, in
 words: `Synced 2m ago`, `3 pending`, `Syncing…`, `Offline, retry 14:05`, `Paused`,
 `Needs attention` (a setup that has not started included), `2 conflicts` or
-`Sync off`. It is about 100 px wide and sits where the list's column leaves room
-before the open item's controls can start, so the header keeps its one row. A
-click opens the Sync page in place of the list and the item; a tab, or the chip
-again, returns to what was open, unsaved text included. The page reads the status
+`Sync off`. It sits under the version, in the height the version's line had, so it
+takes no width from the open item's controls and the header keeps its one row at
+1250 px. A click opens the Sync page in place of the list and the item; a tab, or
+the chip again, returns to what was open, unsaved text included. The page reads the status
 when it loads and every 30 seconds while the browser tab is visible.
 
 While sync is off, the page is a wizard:

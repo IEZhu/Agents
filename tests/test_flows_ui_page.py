@@ -906,7 +906,11 @@ def test_the_sync_page_keeps_the_header_budget_and_the_csp():
     assert header.index('id="version"') < header.index('id="sync-chip"') < header.index('id="item-actions"')
     assert re.search(r'<button id="sync-chip"[^>]*aria-controls="sync-page"', header)
     css = css_rules(style)[""]
-    assert css["#brand"]["margin-right"] == "auto" and css["#sync-chip"]["white-space"] == "nowrap"
+    # Under the version, in the 32 px its line had: no width taken from the item's controls, so a
+    # built-in flow's controls keep the first row at 1250 px (measured in Chromium, not committed).
+    assert {"flex-direction": "column", "height": "32px", "margin-right": "auto"}.items() <= css["#brand"].items()
+    assert css["header h1"]["line-height"] == "18px" and css["#sync-chip"]["line-height"] == "12px"
+    assert css["#sync-chip"]["white-space"] == "nowrap"
     assert css["#sync-page"]["overflow-y"] == "auto"  # it scrolls by itself, like the list
     # The browser never calls GitHub: every request goes through api() to the page's own origin.
     assert "fetch(" not in script.replace('fetch("/ui/api/session"', "").replace("await fetch(path, init)", "")

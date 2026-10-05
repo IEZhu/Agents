@@ -39,15 +39,16 @@ body { margin: 0; background: var(--bg); color: var(--text);
 header { flex: none; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: flex-end;
   padding: 4px var(--edge) 0; }
 header > * { margin: 8px 0 var(--edge); }
-/* The version and the sync chip stay together on the left. The chip, about 100 px wide, takes the
-   room the list's column leaves before the item's tab can start (about 110 px after the version at
-   1250 px), so the header keeps its one row; a wider text moves the tab, as placeItemActions measures. */
-#brand { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-right: auto; min-width: 0; }
-header h1 { font-size: 16px; line-height: 32px; margin: 0; white-space: nowrap; }
-/* The state is in the words; the colors only repeat it. */
-#sync-chip { font-size: 11px; line-height: 16px; padding: 2px 7px; white-space: nowrap; color: var(--muted);
-  background: var(--chip); border-color: transparent; border-radius: var(--r-pill); }
-#sync-chip:hover, #sync-chip[aria-pressed="true"] { border-color: var(--line); }
+/* The sync chip sits under the version, in the 32 px the version's line had to itself: at 1250 px a
+   built-in flow's controls fit beside the version with only a few pixels to spare, so a chip beside
+   it would push them to a second row. The block keeps its height with or without the chip. */
+#brand { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 0; height: 32px;
+  margin-right: auto; min-width: 0; }
+header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; }
+/* The state is in the words, about 100 px of them; the colors only repeat it. */
+#sync-chip { font-size: 11px; line-height: 12px; padding: 1px 6px; white-space: nowrap; color: var(--muted);
+  background: var(--chip); border: 0; border-radius: var(--r-pill); }
+#sync-chip:hover, #sync-chip[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--line); }
 #sync-chip[aria-pressed="true"] { font-weight: 600; }
 #sync-chip[data-tone="ok"] { color: var(--ok); }
 #sync-chip[data-tone="busy"] { color: var(--accent); }
@@ -248,7 +249,13 @@ details.persona summary { cursor: pointer; }
 .sync-field label { font-size: 12px; color: var(--muted); }
 .sync-choice { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .sync-choice legend { margin-bottom: 4px; padding: 0; font-weight: 600; }
-.sync-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+/* A switch stays beside its label, which wraps instead (long origins). */
+.sync-option { display: flex; align-items: center; gap: 6px 8px; min-width: 0; overflow-wrap: anywhere; }
+.sync-option input { flex: none; }
+/* Prose here wraps at words; .meta elsewhere breaks IDs and paths anywhere. */
+#sync-page .meta { word-break: normal; overflow-wrap: anywhere; }
+/* Headings take the focus when the page or a step opens; the ring shows for the keyboard only. */
+#sync-page [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 .sync-preview { display: flex; flex-direction: column; gap: 4px; }
 .sync-preview ul { margin: 0; padding-left: 1.4em; }
 .sync-preview li { overflow-wrap: anywhere; }
@@ -677,7 +684,7 @@ function showPane(pane) {
 // not joined, when it fits there; else in a header row of its own. Pure, so the tests can call it.
 function itemPlace({ narrow, groupWidth, groupEnd, versionEnd, straightStart }) {
   if (narrow) return "stack";
-  // A wide sync chip can reach past the pane's corner: the tab never covers it.
+  // The tab never covers the version or the sync chip under it, should they reach past the corner.
   if (groupEnd - groupWidth >= Math.max(straightStart, versionEnd)) return "tab";
   if (groupEnd - groupWidth >= versionEnd) return "inline";
   return "row";
@@ -695,7 +702,7 @@ function placeItemActions() {
     narrow: window.matchMedia("(max-width: 760px)").matches,  // the stylesheet's narrow layout
     groupWidth: group.getBoundingClientRect().width,
     groupEnd: $("tabs").getBoundingClientRect().left - gap,
-    versionEnd: $("brand").getBoundingClientRect().right + gap,  // the version and the sync chip
+    versionEnd: $("brand").getBoundingClientRect().right + gap,  // the version with the sync chip under it
     straightStart: pane.getBoundingClientRect().left + parseFloat(getComputedStyle(pane).borderTopLeftRadius)
       + parseFloat(getComputedStyle(group, "::before").width),
   });
