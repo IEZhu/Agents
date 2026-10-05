@@ -177,7 +177,8 @@ class Controller:
             self.config = config
             self.write_plist()
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
-        return {"state": "installed", "directory": str(self.directory), "port": port}
+        return {"state": "installed", "directory": str(self.directory), "port": port,
+                "scheduled_sync": stop_scheduled_sync(root)}
 
     def write_plist(self, probation=None):
         arguments = [self.config["python"], "-m", "src.daemon", "--state", str(self.directory), "serve"]
@@ -250,7 +251,20 @@ class Controller:
             marker = Path(self.config["installation"]) / "data/.shared-service.json"
             if read_json(marker, {}).get("directory") == str(self.directory): marker.unlink()
             (self.directory / "service.json").unlink()
-        return {"state": "uninstalled", "retained": "private backups, token, workspace registry and history indexes"}
+        return {"state": "uninstalled", "retained": "private backups, token, workspace registry and history indexes",
+                "user_sync": "the daemon no longer syncs the library; to keep syncing without it run "
+                             "`python -m src.user_sync schedule enable`"}
+
+
+def stop_scheduled_sync(installation=None):
+    """Remove the scheduled sync run (#168): the daemon runs the sync loop itself, and a job from
+    before the install would only compete with it for the sync lock. Never fails the caller."""
+    try:
+        from src.user_sync import schedule
+        options = {"installation": installation} if installation else {}
+        return "removed" if schedule.disable(**options).get("scheduled") is False else "unchanged"
+    except Exception as error:  # the sync lock still keeps the two from overlapping
+        return f"not removed: {error}"
 
 
 def main(argv=None):
