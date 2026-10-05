@@ -12,7 +12,11 @@ daemon thread ``delay`` seconds after the first change of a burst:
   ``delay`` after that change or at once if the cycle took longer;
 * ``is_ready()`` (sync is set up and the sync lock is free) is asked right before
   each run, and a false answer skips the run: sync is off, or another runner is
-  syncing.
+  syncing;
+* a skipped run, or one whose ``run_cycle()`` returns a mapping with ``status``
+  ``lock_held`` or ``pending``, is tried again ``retry_delay`` seconds later, at
+  most ``retries`` times after the last change, so a save that lands while a
+  scheduled run holds the lock still reaches the remote within seconds.
 
 The listener only arms a timer, so it never blocks the write, nor the MCP request
 behind the write. A failing run is logged, never raised into the writer. A process
@@ -21,6 +25,7 @@ clears a stale ``index.lock`` (#165).
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import functools
 import logging
 from pathlib import Path
@@ -31,6 +36,9 @@ from typing import Callable, Protocol
 from src import user_library
 
 DELAY = 10.0  # seconds from the first change of a burst to its run
+RETRY_DELAY = 3.0  # seconds before trying a run again that found sync busy
+RETRIES = 5  # tries again after the last change, then the next scheduled run takes over
+BUSY = frozenset({"lock_held", "pending"})  # `run_cycle()` statuses that leave the change for later
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +60,14 @@ class Trigger:
     """Runs a sync cycle after changes in one library, as the module describes; made by `start`."""
 
     def __init__(self, run_cycle: Callable[[], object], *, library_root: str | Path,
-                 is_ready: Callable[[], bool], delay: float = DELAY,
-                 timer: Callable[[float, Callable[[], None]], Timer] = daemon_timer,
+                 is_ready: Callable[[], bool], delay: float = DELAY, retry_delay: float = RETRY_DELAY,
+                 retries: int = RETRIES, timer: Callable[[float, Callable[[], None]], Timer] = daemon_timer,
                  clock: Callable[[], float] = time.monotonic):
-        if delay < 0:
-            raise ValueError("delay must not be negative")
+        if delay < 0 or retry_delay < 0 or retries < 0:
+            raise ValueError("delay, retry_delay and retries must not be negative")
         self.root = Path(library_root).expanduser().resolve()  # `user_library.notify` passes it resolved
         self._run_cycle, self._is_ready, self._delay = run_cycle, is_ready, delay
+        self._retry_delay, self._retries, self._attempts = retry_delay, retries, 0
         self._make_timer, self._clock = timer, clock
         self._guard = threading.Lock()
         self._pending: Timer | None = None  # the armed timer of the next run
@@ -72,7 +81,10 @@ class Trigger:
         if root != self.root:
             return
         with self._guard:
-            if self._stopped or self._pending is not None:
+            if self._stopped:
+                return
+            self._attempts = 0  # a new change gets all its tries
+            if self._pending is not None:
                 return  # the pending run includes this change; its wait is not extended
             if self._running:
                 if self._again_at is None:
@@ -101,10 +113,13 @@ class Trigger:
             if self._stopped or generation != self._generation or self._pending is None:
                 return
             self._pending, self._running = None, True
+        busy = False
         try:
             if self._is_ready():
-                self._run_cycle()
+                result = self._run_cycle()
+                busy = isinstance(result, Mapping) and result.get("status") in BUSY
             else:
+                busy = True
                 logger.debug("Sync is not ready; the run after a library change is skipped")
         except Exception:
             logger.exception("The sync run after a library change failed")
@@ -112,9 +127,17 @@ class Trigger:
             follow_up = None
             with self._guard:
                 self._running = False
-                due, self._again_at = self._again_at, None
-                if due is not None and not self._stopped:
-                    follow_up = self._arm(max(0.0, due - self._clock()))
+                waits = [] if self._again_at is None else [max(0.0, self._again_at - self._clock())]
+                self._again_at = None
+                if not busy:
+                    self._attempts = 0
+                elif self._attempts < self._retries:
+                    self._attempts += 1
+                    waits.append(self._retry_delay)
+                else:
+                    logger.debug("Sync stayed busy; the next scheduled run takes the change")
+                if waits and not self._stopped:
+                    follow_up = self._arm(min(waits))
             if follow_up is not None:
                 self._start(follow_up)
 
@@ -129,7 +152,8 @@ class Trigger:
 
 
 def start(run_cycle: Callable[[], object], *, library_root: str | Path, is_ready: Callable[[], bool],
-          delay: float = DELAY, timer: Callable[[float, Callable[[], None]], Timer] = daemon_timer,
+          delay: float = DELAY, retry_delay: float = RETRY_DELAY, retries: int = RETRIES,
+          timer: Callable[[float, Callable[[], None]], Timer] = daemon_timer,
           clock: Callable[[], float] = time.monotonic) -> Trigger:
     """Run ``run_cycle()`` after changes in the library at ``library_root``; ``stop()`` the result to end it.
 
@@ -138,6 +162,6 @@ def start(run_cycle: Callable[[], object], *, library_root: str | Path, is_ready
     replace both.
     """
     trigger = Trigger(run_cycle, library_root=library_root, is_ready=is_ready, delay=delay,
-                      timer=timer, clock=clock)
+                      retry_delay=retry_delay, retries=retries, timer=timer, clock=clock)
     trigger._unsubscribe = user_library.subscribe(trigger._changed)
     return trigger

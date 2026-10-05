@@ -147,13 +147,62 @@ def test_readiness_is_asked_right_before_the_run(start, library):
     ready, runs = [True], []
     trigger, timers, clock = start(lambda: runs.append(1), is_ready=lambda: ready[0])
     changed(library)
-    ready[0] = False  # sync was switched off, or another runner took the lock, during the wait
+    ready[0] = False  # another runner took the lock, or sync was switched off, during the wait
     timers.made[0].fire()
-    assert runs == []
-    changed(library)
+    retry, = timers.made[1:]
+    assert runs == [] and retry.wait == sync_trigger.RETRY_DELAY == 3.0
     ready[0] = True
-    timers.made[1].fire()
-    assert runs == [1]
+    retry.fire()
+    assert runs == [1] and len(timers.made) == 2
+
+
+def test_a_run_that_finds_sync_busy_is_tried_again_a_bounded_number_of_times(start, library):
+    ready, runs = [False], []
+    trigger, timers, clock = start(lambda: runs.append(1), is_ready=lambda: ready[0])
+    changed(library)
+    fired = 0
+    while fired < len(timers.made):  # each busy run arms the next try until the tries run out
+        timers.made[fired].fire()
+        fired += 1
+    assert fired == 1 + sync_trigger.RETRIES == 6 and runs == []
+    assert all(timer.wait == sync_trigger.RETRY_DELAY for timer in timers.made[1:])
+    changed(library)  # a new change gets all its tries again
+    ready[0] = True
+    timers.made[-1].fire()
+    assert runs == [1] and fired + 1 == len(timers.made)
+
+
+@pytest.mark.parametrize("status", ["lock_held", "pending"])
+def test_a_cycle_that_reports_sync_busy_is_tried_again(start, library, status):
+    results = [{"status": status}, {"status": "ok"}]
+    trigger, timers, clock = start(lambda: results.pop(0))
+    changed(library)
+    timers.made[0].fire()
+    retry, = timers.made[1:]
+    assert retry.wait == sync_trigger.RETRY_DELAY
+    retry.fire()
+    assert results == [] and len(timers.made) == 2  # done: no further try
+
+
+def test_a_busy_cycle_with_a_change_during_it_tries_again_at_the_sooner_time(start, library):
+    entered, release = threading.Event(), threading.Event()
+
+    def run_cycle():
+        entered.set()
+        assert release.wait(5)
+        return {"status": "lock_held"}
+
+    trigger, timers, clock = start(run_cycle)
+    changed(library)
+    cycle = threading.Thread(target=timers.made[0].fire)
+    cycle.start()
+    assert entered.wait(5)
+    changed(library)  # due 10 s later
+    clock.now += 1
+    release.set()
+    cycle.join(5)
+    follow_up, = timers.made[1:]
+    assert follow_up.wait == pytest.approx(sync_trigger.RETRY_DELAY)  # sooner than the 9 s left of the delay
 
 
 @pytest.mark.parametrize("failing", ["run_cycle", "is_ready"])
