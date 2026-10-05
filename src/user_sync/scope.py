@@ -57,6 +57,7 @@ SECRET_PATTERNS = (
     # placeholders such as password=<…> or password=${…}
     ("password", re.compile(rb"(?i)passw(?:or)?d[\"']?\s*=\s*[\"']?[^\s'\"<>$]")),
     ("password", re.compile(rb"(?i)[\"']passw(?:or)?d[\"']\s*:\s*[\"'][^\s'\"<>$]")),
+    ("password", re.compile(rb"(?i)--passw(?:or)?d[= ]+[\"']?[^\s'\"<>$-]")),
 )
 
 
@@ -180,10 +181,19 @@ def is_content(path: str) -> bool:
     return found is not None and not path.startswith((".history/", f"{SYNC_DIR}/")) and path not in LIBRARY_FILES
 
 
+_NAME_SURROGATE = 0x20000000  # Windows reparse tags of links (symlinks, junctions), not cloud placeholders
+
+
 def is_link(info: os.stat_result) -> bool:
-    """A symlink, or on Windows any reparse point such as an NTFS junction, which ``lstat`` does not flag."""
-    return stat.S_ISLNK(info.st_mode) or bool(
-        getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    """A symlink, or on Windows a name-surrogate reparse point such as an NTFS junction.
+
+    OneDrive and Dropbox placeholders are reparse points too, but not name surrogates: they are
+    ordinary files and directories here.
+    """
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    reparse = getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(reparse and getattr(info, "st_reparse_tag", 0) & _NAME_SURROGATE)
 
 
 def repo_group(path: str) -> str | None:
@@ -329,7 +339,12 @@ def walk(root: Path, unreadable: set[str] | None = None):
             if not prefix and entry.name == ".git":
                 continue
             try:
-                if entry.is_dir(follow_symlinks=False) and not is_link(entry.stat(follow_symlinks=False)):
+                info = entry.stat(follow_symlinks=False)
+                if is_link(info):
+                    if entry.is_dir(follow_symlinks=True) and unreadable is not None:
+                        unreadable.add(relative)  # a linked directory: its files are unknown, not deleted
+                        continue
+                elif entry.is_dir(follow_symlinks=False):
                     stack.append((relative + "/", entry.path))
                     continue
             except OSError:

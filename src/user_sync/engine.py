@@ -323,6 +323,8 @@ class _Plan:
     rewritten: bool = False
     held_groups: frozenset = frozenset()
     held_files: frozenset = frozenset()
+    scopes: Scopes = field(default_factory=Scopes)   # the merged exclusions
+    rules: Rules | None = None                       # scope rules of the target
     remote_sizes: dict = field(default_factory=dict)  # blob id -> size, for the preview
 
 
@@ -707,13 +709,15 @@ class Syncer:
     def _desired(self, snap: Snapshot, current: dict, unwritten=()) -> dict:
         """The tree to commit: the snapshot's files, with some paths kept at their committed version.
 
-        Kept are held and blocked files, files under directories that could not be read, paths sync
-        never handles (another tool put them there), and ``unwritten`` paths: versions from the remote
-        that this machine did not write yet (``held_remote``). Committing the working tree over them
-        would delete or replace other text without a conflict.
+        Kept are held and blocked files, files under directories that could not be read or are
+        links, paths sync never handles (another tool put them there), paths waiting for approval
+        here, and ``unwritten`` paths: versions from the remote that this machine did not write yet
+        (``held_remote``). Committing the working tree over them would delete or replace other text
+        without a conflict.
         """
         desired = dict(snap.files)
-        keep = set(snap.blocked) | set(unwritten)
+        keep = set(snap.blocked) | set(unwritten) | {
+            path for path, entry in snap.outside.items() if entry["reason"] == "pending"}
         for path, blob in current.items():
             if path in keep or snap.hides(path) or scope.groups(path) is None:
                 desired[path] = blob
@@ -1021,7 +1025,13 @@ class Syncer:
         def read(blob: str) -> bytes:
             if blob not in cache:
                 path = local_files.get(blob)
-                cache[blob] = (self.library / path).read_bytes() if path else self._read_blobs(git, [blob])[blob]
+                if path:
+                    data = (self.library / path).read_bytes()
+                    if scope.blob_id(data) != blob:  # changed since the snapshot, bypassing the lock
+                        raise _ChangedWhileReading(path)
+                    cache[blob] = data
+                else:
+                    cache[blob] = self._read_blobs(git, [blob])[blob]
             return cache[blob]
 
         local_files: dict[str, str] = {}
@@ -1033,7 +1043,8 @@ class Syncer:
         local_files.update({blob: path for path, blob in snap.files.items()})
         desired = self._desired(snap, current, state.get("held_remote", ()))
         plan = _Plan(head, remote_head, snap, current, desired, remote_tree, remote_other, base,
-                     target=desired, rewritten=rewritten, held_groups=held_groups, held_files=held_files)
+                     target=desired, rewritten=rewritten, held_groups=held_groups, held_files=held_files,
+                     scopes=effective, rules=Rules(effective, snap.portable, held_groups, held_files))
         if remote_head is None:
             plan.kind = "push" if desired and (desired != current or head is None) else "none"
             return plan
@@ -1048,15 +1059,18 @@ class Syncer:
                                 "review the preview and start sync")
         merged = merging.merge(base, desired, remote_tree, read, label=settings.label, now=self._clock(),
                                local_commit=head, remote_commit=remote_head)
+        self._drop_known_conflicts(merged, desired)
         # New archives and records; merged components.json and scopes.json replace existing files
         plan.generated = {path: value for path, value in merged.tree.items() if isinstance(value, bytes)
                           and path not in base and path not in desired and path not in remote_tree}
         rules = self._rules_for(merged.tree, read, held_groups, held_files)
         target = {path: value for path, value in merged.tree.items() if rules.reason(path) is None}
-        for path, blob in remote_tree.items():  # paths sync never handles keep the remote's version
-            if scope.groups(path) is None:
+        for path, blob in remote_tree.items():
+            # Paths sync never handles, and paths this machine holds for approval, keep the remote's
+            # version: dropping them would delete them from the remote and from every other machine.
+            if rules.reason(path) in ("never", "pending"):
                 target[path] = blob
-        plan.target, plan.conflicts = target, merged.conflicts
+        plan.target, plan.conflicts, plan.rules = target, merged.conflicts, rules
         if target == remote_tree and not plan.generated:
             plan.kind = "fast_forward"  # nothing of this machine's is missing on the remote
         else:
@@ -1110,11 +1124,56 @@ class Syncer:
             "hash": hashlib.sha256(identity.encode()).hexdigest(),
         }
 
-    def _mass_deletion(self, plan: _Plan) -> tuple[int, int]:
-        """``(deleted, total)`` of the owner's files that this machine's commit would delete."""
-        content = [path for path in plan.current if scope.is_content(path)]
-        deleted = [path for path in content if path not in plan.desired and path not in plan.snapshot.outside]
-        return len(deleted), len(content)
+    @staticmethod
+    def _drop_known_conflicts(merged: merging.MergeResult, desired: dict) -> None:
+        """Skip a conflict whose record is already in the library (a cycle that stopped half way
+        wrote it); its kept version is there too, so writing another pair would only duplicate it."""
+        known = {path.rsplit("-", 1)[-1] for path in desired if path.startswith(f"{CONFLICTS_DIR}/")}
+        for record in list(merged.conflicts):
+            if f"{record['id'].rsplit('-', 1)[-1]}.json" not in known:
+                continue
+            merged.conflicts.remove(record)
+            merged.tree.pop(f"{CONFLICTS_DIR}/{record['id']}.json", None)
+            version = record.get("local_version")
+            if version and version not in desired:
+                merged.tree.pop(version, None)
+
+    def _deletions(self, plan: _Plan) -> dict:
+        """The owner's files the cycle would delete from the remote and from this machine.
+
+        History, records and library files do not count; neither do paths an exclusion takes out
+        of the repository, which stay on every machine.
+        """
+        def excluded(path):
+            return plan.rules is not None and plan.rules.reason(path) == "excluded"
+        remote = [path for path in plan.remote_tree if scope.is_content(path)]
+        local = [path for path in plan.snapshot.files if scope.is_content(path)]
+        return {"remote": ([p for p in remote if p not in plan.target and not excluded(p)], len(remote)),
+                "local": ([p for p in local if p in plan.desired and p not in plan.target and not excluded(p)],
+                          len(local))}
+
+    @staticmethod
+    def _too_many(deleted: list, total: int) -> bool:
+        return len(deleted) >= MASS_DELETION_FILES and len(deleted) * 2 > total
+
+    def _update_settings(self, change) -> Settings:
+        """Read, change and save ``user-sync.json`` under a lock, so concurrent writers keep each other's changes."""
+        _private_dir(self.state_dir)
+        with file_lock(self.state_dir / "settings.lock"):
+            settings = self._require_settings()
+            change(settings)
+            settings.save(self.settings_path)
+            return settings
+
+    def _withdraw_approvals(self, scopes: Scopes) -> None:
+        """An exclusion withdraws an earlier approval: re-including later must ask again."""
+        settings = self.settings()
+        if settings and (set(settings.approved_groups) & scopes.exclude
+                         or set(settings.approved_files) & scopes.exclude_files):
+            def change(current):
+                current.approved_groups = [g for g in current.approved_groups if g not in scopes.exclude]
+                current.approved_files = [f for f in current.approved_files if f not in scopes.exclude_files]
+            self._update_settings(change)
 
     # --- writing ----------------------------------------------------------------------
 
@@ -1229,7 +1288,7 @@ class Syncer:
         copy and the record are written first; the file is replaced only after both exist.
         Returns True when files were written, so the caller reads the library again.
         """
-        remaining, wrote = [], False
+        remaining, wrote, failed = [], False, []
         snap, now = plan.snapshot, self._clock()
         for path in state.get("held_remote", []):
             committed = plan.current.get(path)
@@ -1264,9 +1323,10 @@ class Syncer:
             except OSError as error:
                 self._log(f"could not reconcile {path}: {error}")
                 remaining.append(path)
+                failed.append(path)
                 continue
             wrote = True
-        state["held_remote"] = remaining
+        state["held_remote"], state["reconcile_failed"] = remaining, failed
         return wrote
 
     # --- the cycle --------------------------------------------------------------------
@@ -1278,7 +1338,11 @@ class Syncer:
         return settings
 
     def preview(self) -> dict:
-        """What starting (or confirming) sync would upload and download; changes nothing."""
+        """What starting (or confirming) sync would upload and download.
+
+        Commits and uploads nothing; it only creates missing library files and restores a missing
+        ``scopes.json`` from the last commit, as every cycle does first.
+        """
         settings = self._require_settings()
         self._check_library(settings)
         with self._sync_lock_for(settings):
@@ -1386,10 +1450,14 @@ class Syncer:
                 plan = self._plan(git, settings, state, remote_head, joining=False)
             if confirm is not None and self._preview_of(plan)["hash"] != confirm:
                 raise SyncError("confirmation_needed", "the preview changed; review it again and confirm")
-            deleted, total = self._mass_deletion(plan)
-            if confirm is None and deleted >= MASS_DELETION_FILES and deleted * 2 > total:
-                raise SyncError("confirmation_needed", f"{deleted} of {total} library files were deleted "
-                                                       "here; review the preview and confirm")
+            deletions = self._deletions(plan)
+            if confirm is None:
+                for where, (deleted, total) in deletions.items():
+                    if self._too_many(deleted, total):
+                        place = "the remote" if where == "remote" else "this machine"
+                        raise SyncError("confirmation_needed", f"{len(deleted)} of {total} library files would "
+                                                               f"be deleted from {place}; review the preview and confirm")
+            self._withdraw_approvals(plan.scopes)
             outcome = {"received": [], "conflicts": plan.conflicts, "push": None, "integrated": plan.head,
                        "sent": changed_paths(plan.remote_tree if remote_head else plan.current, plan.target),
                        "new_groups": sorted(self._groups_in(plan.target) - self._groups_in(plan.remote_tree))}
@@ -1467,8 +1535,7 @@ class Syncer:
                      last_success=now, head=head, remote_head=self._rev(git, f"refs/remotes/origin/{settings.branch}"),
                      access="ok")
         if not settings.started:
-            settings.started = now
-            settings.save(self.settings_path)
+            self._update_settings(lambda current: setattr(current, "started", current.started or now))
         new_groups = state.pop("_new_groups", [])
         if result["pushed"] and new_groups:
             announced = state.setdefault("announced_groups", [])
@@ -1476,7 +1543,11 @@ class Syncer:
             for group in new_groups:
                 announced.append({"group": group, "origin": portable.get(group), "time": now})
             del announced[:-ANNOUNCED_LIMIT]
-        if state.get("blocked"):
+        if state.get("reconcile_failed"):
+            state.update(state="attention", reason="library_unreadable",
+                         message="could not keep the local text of " + ", ".join(state["reconcile_failed"])
+                                 + "; the other machine's version was not written there")
+        elif state.get("blocked"):
             state.update(state="attention", reason="secret",
                          message="files with possible credentials were not uploaded")
         elif state.get("pending_groups") or state.get("pending_files"):
@@ -1684,35 +1755,36 @@ class Syncer:
                 target = self._safe_target(SCOPES_PATH)
                 user_library.atomic_write(target, updated.dump())
         if settings and (approved_groups or approved_files):
-            settings.approved_groups = sorted(set(settings.approved_groups) | approved_groups)
-            settings.approved_files = sorted(set(settings.approved_files) | approved_files)
-            settings.save(self.settings_path)
+            def approve_here(current_settings):
+                current_settings.approved_groups = sorted(set(current_settings.approved_groups) | approved_groups)
+                current_settings.approved_files = sorted(set(current_settings.approved_files) | approved_files)
+            self._update_settings(approve_here)
+        if settings and (exclude or exclude_files):
+            self._withdraw_approvals(updated)
         if updated != current:
             user_library.notify(self.library, [SCOPES_PATH])
         return {"status": "saved", **self.scopes()}
 
     def configure(self, *, fetch_minutes: int | None = None, ask_new_repositories: bool | None = None) -> dict:
         """Change the fetch interval (1 to 60 minutes) or the "ask before uploading" setting."""
-        settings = self._require_settings()
-        if fetch_minutes is not None:
-            if isinstance(fetch_minutes, bool) or not isinstance(fetch_minutes, int) or not 1 <= fetch_minutes <= 60:
-                raise SyncError("invalid", "the fetch interval must be 1 to 60 minutes")
-            settings.fetch_minutes = fetch_minutes
-        if ask_new_repositories is not None:
-            settings.ask_new_repositories = bool(ask_new_repositories)
-        settings.save(self.settings_path)
+        if fetch_minutes is not None and (isinstance(fetch_minutes, bool) or not isinstance(fetch_minutes, int)
+                                          or not 1 <= fetch_minutes <= 60):
+            raise SyncError("invalid", "the fetch interval must be 1 to 60 minutes")
+
+        def change(settings):
+            if fetch_minutes is not None:
+                settings.fetch_minutes = fetch_minutes
+            if ask_new_repositories is not None:
+                settings.ask_new_repositories = bool(ask_new_repositories)
+        self._update_settings(change)
         return self.status()
 
     def pause(self) -> dict:
-        settings = self._require_settings()
-        settings.paused = True
-        settings.save(self.settings_path)
+        self._update_settings(lambda settings: setattr(settings, "paused", True))
         return self.status()
 
     def resume(self) -> dict:
-        settings = self._require_settings()
-        settings.paused = False
-        settings.save(self.settings_path)
+        self._update_settings(lambda settings: setattr(settings, "paused", False))
         return self.status()
 
     def disconnect(self) -> dict:

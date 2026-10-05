@@ -414,6 +414,7 @@ def test_machine_local_groups_never_sync(pair):
     (a.lib / ".history/repos/scratch-1a2b3c4d/deploy/20261005T000000000000Z-0123456789ab.md").write_text("old\n")
     a.run()
     assert not [path for path in remote_files(a.remote) if "scratch-1a2b3c4d" in path]
+    assert b"scratch-1a2b3c4d" not in remote_objects(a.remote) and b"old\n" not in remote_objects(a.remote)
 
 
 def test_excluding_a_group_deletes_nothing_elsewhere(pair):
@@ -464,7 +465,7 @@ def test_secret_scanner_blocks_a_file_until_its_content_is_allowed(pair):
     result = a.run()
     assert result["status"] == "attention" and result["reason"] == "secret"
     assert a.sync.status()["blocked"][0]["path"] == "common/creds.md"
-    assert "common/creds.md" not in remote_files(a.remote)
+    assert "common/creds.md" not in remote_files(a.remote) and TOKEN.encode() not in remote_objects(a.remote)
     asked = a.sync.change_scopes(allow_paths=["common/creds.md"])
     assert asked["status"] == "confirmation_needed"
     a.sync.change_scopes(allow_paths=["common/creds.md"], confirm=asked["hash"])
@@ -829,7 +830,11 @@ def test_a_mass_deletion_waits_for_confirmation(pair):
     preview = a.sync.preview()
     assert "common/flow-3.md" in preview["remove_from_remote"]
     assert a.run(confirm=preview["hash"])["status"] == "synced"
-    b.run()
+    result = b.run()  # the other machine asks too before it deletes most of its library
+    assert result["reason"] == "confirmation_needed" and (b.lib / "common" / "flow-3.md").exists()
+    preview = b.sync.preview()
+    assert "common/flow-3.md" in preview["delete_local"]
+    assert b.run(confirm=preview["hash"])["status"] == "synced"
     assert not (b.lib / "common" / "flow-3.md").exists()
 
 
@@ -1012,8 +1017,9 @@ def test_reconciling_never_overwrites_before_the_local_text_is_kept(pair, monkey
     history.mkdir(parents=True, exist_ok=True)
     history.chmod(0o500)
     try:
-        a.run()
+        result = a.run()
         assert a.text("common/shared.md") == "# Shared\n\nmanual edit on A\n"
+        assert result["reason"] == "library_unreadable" and "common/shared.md" in result["message"]
     finally:
         history.chmod(0o700)
     a.run()
@@ -1183,3 +1189,110 @@ def test_configure_validates_the_fetch_interval(pair):
         with pytest.raises(SyncError):
             a.sync.configure(fetch_minutes=wrong)
     assert a.sync.configure(ask_new_repositories=True)["ask_new_repositories"] is True
+
+
+
+def _include_elsewhere(owner: Machine, group: str) -> None:
+    asked = owner.sync.change_scopes(include=[group])
+    owner.sync.change_scopes(include=[group], confirm=asked["hash"])
+    owner.run()
+
+
+def test_a_group_included_again_elsewhere_is_never_deleted_from_the_remote(pair):
+    a, b = pair
+    group = "repos/github.com-me-tool"
+    _repo_group(a, "github.com-me-tool", "github.com/me/tool", text="# deploy\n\nshared v1\n")
+    a.run()
+    b.run()
+    a.sync.change_scopes(exclude=[group])
+    a.run()
+    b.run()
+    _repo_group(b, "github.com-me-tool", "github.com/me/tool", text="# deploy\n\nB edit while excluded\n")
+    _include_elsewhere(b, group)
+    assert a.run()["reason"] == "new_repository"  # A holds its own copy for approval
+    remote_text = remote_files(a.remote)["repos/github.com-me-tool/deploy.md"]
+    assert b"B edit while excluded" in remote_text  # and never deletes B's upload
+    b.run()
+    assert "B edit while excluded" in b.text("repos/github.com-me-tool/deploy.md")
+    assert "shared v1" in a.text("repos/github.com-me-tool/deploy.md")
+    asked = a.sync.change_scopes(approve=[group])
+    a.sync.change_scopes(approve=[group], confirm=asked["hash"])
+    a.run()
+    b.run()
+    assert "B edit while excluded" in a.text("repos/github.com-me-tool/deploy.md")
+    [record] = records(a)
+    assert "shared v1" in (a.lib / record["local_version"]).read_text()
+
+
+def test_an_exclusion_withdraws_an_earlier_approval(pair):
+    a, b = pair
+    group = "repos/github.com-me-notes"
+    a.sync.change_scopes(exclude=[group])
+    a.run()
+    b.run()
+    _repo_group(a, "github.com-me-notes", "github.com/me/notes", text="# deploy\n\nv1\n")
+    _include_elsewhere(b, group)
+    a.run()
+    asked = a.sync.change_scopes(approve=[group])
+    a.sync.change_scopes(approve=[group], confirm=asked["hash"])
+    assert a.run()["status"] == "synced"
+    b.sync.change_scopes(exclude=[group])
+    b.run()
+    a.run()
+    assert group not in a.sync.settings().approved_groups
+    _repo_group(a, "github.com-me-notes", "github.com/me/notes", text="# deploy\n\nA PRIVATE NOTES\n")
+    _include_elsewhere(b, group)
+    assert a.run()["reason"] == "new_repository"
+    assert b"A PRIVATE NOTES" not in remote_objects(a.remote)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs POSIX symlinks")
+def test_a_linked_directory_is_not_a_deletion(pair, tmp_path):
+    a, b = pair
+    moved = tmp_path / "moved-common"
+    shutil.move(str(a.lib / "common"), moved)
+    (a.lib / "common").symlink_to(moved, target_is_directory=True)
+    a.run()
+    b.run()
+    assert "common/shared.md" in remote_files(a.remote)
+    assert b.text("common/shared.md") == "# Shared\n\nfirst text\n"
+
+
+def test_a_cycle_that_stops_half_way_does_not_duplicate_its_conflict(pair, monkeypatch):
+    a, b = pair
+    a.save("user:shared", "# Shared\n\nA\n")
+    b.save("user:shared", "# Shared\n\nB\n")
+    a.run()
+    real_write = user_library.atomic_write
+
+    def killed_before_the_flow(path, data):
+        if Path(path).name == "shared.md":
+            raise RuntimeError("killed")
+        return real_write(path, data)
+
+    monkeypatch.setattr(user_library, "atomic_write", killed_before_the_flow)
+    with pytest.raises(RuntimeError):
+        b.run()
+    assert len(records(b)) == 1  # the record and the kept version were written first
+    monkeypatch.undo()
+    assert b.run()["status"] == "synced"
+    a.run()
+    assert len(records(b)) == len(records(a)) == 1
+    assert b.text("common/shared.md") == "# Shared\n\nA\n"
+
+
+def test_text_changed_between_reading_and_merging_is_never_uploaded(pair, monkeypatch):
+    a, b = pair
+    a.save("user:shared", "# Shared\n\nA edit\n")
+    a.run()
+    b.save("user:shared", "# Shared\n\nB edit\n")
+    real_merge = merging.merge
+
+    def merge_after_an_unlocked_edit(*args, **kwargs):
+        (b.lib / "common" / "shared.md").write_text(f"# Shared\n\n{TOKEN}\n")
+        return real_merge(*args, **kwargs)
+
+    monkeypatch.setattr(engine_module.merging, "merge", merge_after_an_unlocked_edit)
+    result = b.run()
+    assert result["status"] == "pending"
+    assert TOKEN.encode() not in remote_objects(b.remote)
