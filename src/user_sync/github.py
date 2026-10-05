@@ -629,11 +629,29 @@ class GitHubClient:
             if not _is_private(info):
                 continue
             checked += 1
-            reply = self._call("GET", f"{_repo_path(info.full_name)}/contents/{MARKER}",
-                               repo=info.full_name, allow=(404, 409))  # 404 or 409: no marker or empty
-            if reply.status == 200 and isinstance(reply.data, dict) and reply.data.get("type") == "file":
+            if self._has_marker(info.full_name):
                 found.append(info)
         return LibraryScan(tuple(found), checked, truncated)
+
+    def library_state(self, full_name: str, branch: str | None = None) -> str:
+        """What sync may use: ``empty`` (no branch yet), ``library`` or ``foreign``.
+
+        ``library`` means the marker sits at the root of ``branch`` (by default the default
+        branch), the probe ``libraries`` uses; the engine's ``check`` decides the same over git.
+        """
+        reply = self._call("GET", f"{_repo_path(full_name)}/branches?per_page=1", repo=full_name, allow=(409,))
+        if reply.status == 409 or reply.data == []:  # GitHub answers 409 for some empty repositories
+            return "empty"
+        if not isinstance(reply.data, list):
+            raise GitHubError("unexpected_response", "GitHub returned an unexpected list of branches")
+        return "library" if self._has_marker(full_name, branch) else "foreign"
+
+    def _has_marker(self, full_name: str, ref: str | None = None) -> bool:
+        target = f"{_repo_path(full_name)}/contents/{MARKER}"
+        if ref:
+            target += "?" + urllib.parse.urlencode({"ref": ref})
+        reply = self._call("GET", target, repo=full_name, allow=(404, 409))  # no marker, or an empty repository
+        return reply.status == 200 and isinstance(reply.data, dict) and reply.data.get("type") == "file"
 
     def repository(self, full_name: str) -> RepoInfo:
         """``owner/name``'s privacy, SSH URL and default branch."""

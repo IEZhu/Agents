@@ -65,6 +65,11 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("--trust-host-key", metavar="SHA256:…", help="confirm the host key fingerprint")
     setup.add_argument("--confirm-private", action="store_true", default=None,
                        help="confirm the repository is private when the host cannot be checked")
+    setup.add_argument("--confirm-owner", metavar="OWNER",
+                       help="with --github: use a repository of another owner (an organization or another user)")
+    setup.add_argument("--move-key", action="store_true",
+                       help="with --github: remove this machine's deploy key from the repository an "
+                            "earlier setup chose")
     command("check", "check access to the remote")
     command("preview", "show what starting or confirming sync would upload and download")
     start = command("start", "start sync after reviewing the preview")
@@ -117,7 +122,9 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         return syncer.setup_github(arguments.github, name=arguments.name, email=arguments.email,
                                    label=arguments.label, branch=arguments.branch,
                                    ask_new_repositories=arguments.ask_new_repositories,
-                                   trust_host_key=arguments.trust_host_key)
+                                   trust_host_key=arguments.trust_host_key,
+                                   confirm_private=arguments.confirm_private,
+                                   confirm_owner=arguments.confirm_owner, move_key=arguments.move_key)
     if name == "setup" and not arguments.remote:
         from src.user_sync import wizard
         return wizard.run(syncer, ask=console.ask, say=console.say, open_browser=console.open_browser,
@@ -298,6 +305,7 @@ def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, intera
     """``ask``, ``say``, ``open_browser``, ``sleep`` and ``interactive`` (a terminal on stdin) are for tests."""
     parser = _parser()
     arguments = parser.parse_args(argv)
+    wizard = arguments.command == "setup" and not (arguments.remote or arguments.github)
     if arguments.command == "setup":
         if arguments.remote or arguments.github:
             if not (arguments.name and arguments.email):
@@ -326,6 +334,11 @@ def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, intera
     else:
         status = result.get("state") or result.get("status") if isinstance(result, dict) else "ok"
         failed = status in ("attention", "error")
+        if wizard and status not in ("synced", "attention", "already_set_up"):
+            # offline, pending, lock_held…: the wizard's start did not finish, so sync is not running
+            failed = True
+            result = {**result, "message": f"sync did not start ({status}): "
+                                           f"{result.get('message') or 'run status for details'}"}
     if arguments.json:
         json.dump(result, sys.stdout, indent=2, ensure_ascii=False)
         print()

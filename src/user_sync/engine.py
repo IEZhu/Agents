@@ -173,17 +173,35 @@ def default_github_account(state_dir: Path) -> github_api.GitHubAccount:
 def hosted_repository(remote: Remote, host: str) -> str | None:
     """``owner/name`` when ``remote`` is a repository on the GitHub host ``host``, else None.
 
-    github.com includes ``ssh.github.com``, its SSH endpoint on port 443.
+    github.com includes ``ssh.github.com``, its SSH endpoint on port 443. A port in ``host``
+    (GitHub Enterprise Server on a custom HTTPS port) does not take part in the comparison.
     """
     if remote.kind == "file":
         return None
-    if host == github_api.DEFAULT_HOST:
+    hostname = host.rsplit(":", 1)[0] if ":" in host else host
+    if hostname == github_api.DEFAULT_HOST:
         found = remote.github
         return "/".join(found) if found else None
-    if remote.host != host:
+    if remote.host != hostname:
         return None
     parts = re.sub(r"[.]git$", "", remote.path.strip("/")).split("/")
     return "/".join(parts) if len(parts) == 2 and all(parts) else None
+
+
+def same_repository(first: str | None, second: str | None, *, allow_file: bool = False) -> bool:
+    """Whether two remote URLs name one repository: equal, or the same github.com repository on
+    port 22 and on ``ssh.github.com`` port 443 (GitHub's repository names ignore case)."""
+    if not first or not second:
+        return False
+    if first == second:
+        return True
+    try:
+        one, other = parse_remote(first, allow_file=allow_file), parse_remote(second, allow_file=allow_file)
+    except RemoteError:
+        return False
+    if one.github and other.github:
+        return [part.lower() for part in one.github] == [part.lower() for part in other.github]
+    return False
 
 
 def _now_iso(moment: datetime) -> str:
@@ -273,9 +291,11 @@ class Settings:
     ask_new_repositories: bool = False
     paused: bool = False
     started: str | None = None          # first successful upload or join
-    private_confirmed: bool = False     # the owner confirmed privacy where no check exists
+    private_confirmed: bool = False     # the owner confirmed privacy of this repository where no check exists
     approved_groups: list[str] = field(default_factory=list)
     approved_files: list[str] = field(default_factory=list)
+    github_repository: str | None = None  # ``owner/name`` that ``setup --github`` chose
+    deploy_key_id: int | None = None      # the deploy key ``setup --github`` added there, until sync starts
 
     @classmethod
     def load(cls, path: Path) -> "Settings | None":
@@ -912,23 +932,27 @@ class Syncer:
         existing = self.settings()
         label = label or (existing.label if existing else default_label())
         validate_identity(name, email, label)
-        if not _BRANCH.fullmatch(branch) or ".." in branch or branch.endswith((".", "/", ".lock")):
-            raise SyncError("invalid", f"invalid branch name {branch!r}")
+        self._check_branch(branch)
         try:
-            remote_info = parse_remote(remote, allow_file=self.allow_file_remote)
+            requested = parse_remote(remote, allow_file=self.allow_file_remote)
         except RemoteError as error:
             raise SyncError("unknown_remote", str(error)) from None
-        if existing and existing.started and (existing.remote != remote or existing.branch != branch):
-            raise SyncError("connected", f"sync already uses {existing.remote}; disconnect first")
-        result = {"status": "waiting_for_access", "remote": remote_info.display, "label": label}
+        self._refuse_another_repository(existing, remote, branch)
         _private_dir(self.state_dir)
-        if remote_info.kind == "ssh":
+        public_key = None
+        if requested.kind == "ssh":  # keeping a port 443 URL below keeps the kind
             try:
-                result["public_key"] = keys.ensure_key(self.state_dir, label)
+                public_key = keys.ensure_key(self.state_dir, label)
             except keys.SSHKeyError as error:
                 raise SyncError("ssh", str(error)) from None
         with file_lock(self.state_dir / "settings.lock"):  # keeps a concurrent pause or approval
-            settings = self.settings() or Settings(remote=remote, name=name, email=email, label=label)
+            current = self.settings()
+            remote = self._effective_remote(current.remote if current else None, remote)
+            settings = current or Settings(remote=remote, name=name, email=email, label=label)
+            if not same_repository(settings.remote, remote, allow_file=self.allow_file_remote):
+                # Another repository: a privacy confirmation and GitHub's record covered the old one.
+                settings.private_confirmed = False
+                settings.github_repository = settings.deploy_key_id = None
             settings.remote, settings.name, settings.email, settings.label, settings.branch = \
                 remote, name, email, label, branch
             settings.library = str(self.library)
@@ -937,6 +961,10 @@ class Syncer:
             if confirm_private is not None:
                 settings.private_confirmed = confirm_private
             settings.save(self.settings_path)
+        remote_info = parse_remote(remote, allow_file=self.allow_file_remote)
+        result = {"status": "waiting_for_access", "remote": remote_info.display, "label": label}
+        if public_key:
+            result["public_key"] = public_key
         self._write_support_files(settings)
         if remote_info.kind == "ssh":
             unconfirmed = self._trust_host(remote_info, trust_host_key)
@@ -946,7 +974,11 @@ class Syncer:
             git = self._repository(settings, create=True)
             known_remote = git.text("config", "--get", "agents-sync.remote", check=False)
             if known_remote != remote:
-                if known_remote or self._rev(git, f"refs/heads/{branch}"):
+                if known_remote:
+                    moved = not same_repository(known_remote, remote, allow_file=self.allow_file_remote)
+                else:
+                    moved = self._rev(git, f"refs/heads/{branch}") is not None
+                if moved:  # another repository starts a new history; the same one keeps it
                     self._forget_history(git)
                     self._save_state({})
                 git.run("config", "agents-sync.remote", remote)
@@ -954,6 +986,28 @@ class Syncer:
         result["message"] = ("add the public key to the repository as a deploy key with write access, "
                              "then run check" if remote_info.kind == "ssh" else "run check")
         return result
+
+    @staticmethod
+    def _check_branch(branch: str) -> None:
+        if not _BRANCH.fullmatch(branch) or ".." in branch or branch.endswith((".", "/", ".lock")):
+            raise SyncError("invalid", f"invalid branch name {branch!r}")
+
+    def _refuse_another_repository(self, existing: Settings | None, remote: str, branch: str) -> None:
+        """A started sync keeps its repository and branch; the same repository by another URL is fine."""
+        if existing and existing.started and (
+                not same_repository(existing.remote, remote, allow_file=self.allow_file_remote)
+                or existing.branch != branch):
+            raise SyncError("connected", f"sync already uses {existing.remote}; disconnect first")
+
+    def _effective_remote(self, current: str | None, requested: str) -> str:
+        """``requested``, except that a port 443 URL ``check`` chose stays when setup names the same
+        repository on port 22 again: the network that blocked port 22 still does."""
+        if current and current != requested and same_repository(current, requested,
+                                                                allow_file=self.allow_file_remote):
+            kept, asked = parse_remote(current), parse_remote(requested)
+            if kept.host == gitcmd.GITHUB_443_HOST and asked.kind == "ssh" and asked.host == "github.com":
+                return current
+        return requested
 
     def _trust_host(self, remote: Remote, confirmed: str | None) -> dict | None:
         """Write the host's keys to ``known_hosts``; a dict asks the owner to confirm a fingerprint.
@@ -1010,9 +1064,11 @@ class Syncer:
                     self._save_state(state)
                     raise failure from None
                 except SyncError as error:
+                    if error.reason == "unknown_remote" and not settings.started:
+                        error = self._withdraw_added_key(settings, error)
                     self._record_failure(state, error, setup=not settings.started)
                     self._save_state(state)
-                    raise
+                    raise error from None
                 state["access"] = "ok"
                 if not settings.started:
                     state.update(state="waiting_for_access", reason=None, message=None)
@@ -1039,7 +1095,11 @@ class Syncer:
         git = self._repository(trial, create=True)  # points origin at the port 443 URL
         try:
             found = self._inspect_remote(git, trial)
-        except GitError:
+        except GitError as failure:
+            if failure.kind not in ("network", "timeout"):
+                # Port 443 answered: its refusal (key, host key, repository) is the error to report.
+                self._keep_port_443(settings, git, url)
+                raise
             try:
                 self._repository(settings, create=True)  # back to the configured URL
             except GitError:
@@ -1147,26 +1207,27 @@ class Syncer:
     def default_visibility(self, remote: Remote) -> str:
         """GitHub's API for a repository on the connected account's host, else the anonymous check.
 
-        A token GitHub refuses (401) marks the account "reconnect needed", and the anonymous check
-        decides; any other API failure leaves privacy ``unknown``.
+        Only an answer of the API counts. When it cannot answer (a refused token, which marks the
+        account "reconnect needed"; an outage, a rate limit, a 403 or 404), the anonymous check
+        decides, and ``unknown`` comes only from there.
         """
         verdict = self._api_visibility(remote)
         return verdict if verdict is not None else self.anonymous_visibility(remote)
 
     def _api_visibility(self, remote: Remote) -> str | None:
-        """GitHub's answer, or None when the API cannot be asked: no account, no token, a 401."""
+        """GitHub's answer, or None when the API cannot answer for this remote."""
         try:
             account = self.github_account()
-            repository = hosted_repository(remote, account.host)
+            repository = self._github_repository(remote, account)
             status = account.status() if repository else None
             if not status or not status["connected"] or status["reconnect_needed"]:
                 return None
             info = account.client().repository(repository)
         except github_api.GitHubError as error:
-            if error.code in ("auth", "storage", "config"):
-                return None
-            self._log(f"GitHub could not tell whether {remote.display} is private: {error.code}")
-            return "unknown"
+            if error.code not in ("auth", "storage", "config"):
+                self._log(f"GitHub could not tell whether {remote.display} is private ({error.code}); "
+                          "the anonymous check decides")
+            return None
         return github_api.privacy(info)
 
     # --- GitHub -------------------------------------------------------------------------
@@ -1199,70 +1260,204 @@ class Syncer:
 
     def setup_github(self, repository: str, *, name: str, email: str, label: str | None = None,
                      branch: str = "main", ask_new_repositories: bool | None = None,
-                     trust_host_key: str | None = None) -> dict:
-        """``setup`` with ``owner/name`` of the connected GitHub account, then add this machine's deploy key.
+                     trust_host_key: str | None = None, confirm_private: bool | None = None,
+                     confirm_owner: str | None = None, move_key: bool = False) -> dict:
+        """``setup`` with ``owner/name`` of the connected GitHub account, and this machine's deploy key there.
 
-        The repository must exist and be private by GitHub's API; ``setup`` then runs with its SSH
-        URL, and this machine's public key becomes a deploy key with write access unless GitHub
-        already has it. ``steps`` reports what happened.
+        Before anything changes, here or on GitHub, the API must show a private repository that is
+        empty or holds a library on ``branch``, owned by the signed-in account unless
+        ``confirm_owner`` names its owner. This machine's key then becomes a deploy key with write
+        access (a read-only one is replaced). GitHub accepts a key on one repository only: when an
+        earlier setup that never started put it on another repository, ``move_key`` removes it
+        there. ``setup`` runs last, with the repository's SSH URL; ``steps`` reports what happened.
         """
+        self._check_git()
+        existing = self.settings()
+        label = label or (existing.label if existing else default_label())
+        validate_identity(name, email, label)
+        self._check_branch(branch)
+        account = self.github_account()
         client = self.github_client()
+        info = self._private_repository(client, repository, account)
+        self._confirm_owner(info, account, confirm_owner)
+        self._refuse_another_repository(existing, info.ssh_url, branch)
+        content = self._library_content(client, info.full_name, branch)
+        steps = [f"{info.full_name} is private and " + ("empty" if content == "empty" else "holds a library")]
+        _private_dir(self.state_dir)
         try:
-            info = client.require_private(repository)
-        except github_api.GitHubError as error:
-            if error.code != "not_found":
-                raise
-            suggested = repository.rsplit("/", 1)[-1] if isinstance(repository, str) else ""
-            raise SyncError("unknown_remote", f"{repository} does not exist, or this account cannot see it; "
-                                              "create a private repository for the library with: "
-                                              f"python -m src.user_sync github create {suggested}".rstrip()) from None
-        result = self.setup(remote=info.ssh_url, name=name, email=email, label=label, branch=branch,
-                            ask_new_repositories=ask_new_repositories, trust_host_key=trust_host_key)
-        steps = [f"{info.full_name} is private", f"sync is set up with {info.ssh_url} as {result['label']}"]
-        key = None
-        if result.get("public_key"):
-            key = self._ensure_deploy_key(client, info.full_name, result["public_key"], result["label"])
-            steps.append(key["message"])
-        if result["status"] == "host_key_unconfirmed":
-            message = result["message"]
-        else:
-            message = "run check, then preview and start"
-        return {**result, "repository": info.full_name, "deploy_key": key["deploy_key"] if key else None,
-                "steps": steps, "message": message}
+            public = keys.ensure_key(self.state_dir, label)
+        except keys.SSHKeyError as error:
+            raise SyncError("ssh", str(error)) from None
+        steps += self._move_key(client, info.full_name, public, move=move_key)
+        key = self._ensure_deploy_key(client, info.full_name, public, label)
+        added = key["id"] if key["deploy_key"] in ("added", "replaced") else None
+        try:
+            result = self.setup(remote=info.ssh_url, name=name, email=email, label=label, branch=branch,
+                                ask_new_repositories=ask_new_repositories, trust_host_key=trust_host_key,
+                                confirm_private=confirm_private)
+        except BaseException:
+            if added is not None:  # setup failed: no key stays behind for it
+                self._delete_key_quietly(client, info.full_name, added)
+            raise
+
+        def record(current: Settings) -> None:
+            current.github_repository = info.full_name
+            if added is not None:
+                current.deploy_key_id = added
+        self._update_settings(record)
+        steps += [f"sync is set up with {result['remote']} as {result['label']}", key["message"]]
+        message = result["message"] if result["status"] == "host_key_unconfirmed" else \
+            "run check, then preview and start"
+        return {**result, "repository": info.full_name, "deploy_key": key["deploy_key"], "steps": steps,
+                "message": message}
 
     def add_deploy_key(self) -> dict:
-        """Add this machine's public key to the GitHub repository again, unless GitHub still has it."""
+        """Add this machine's deploy key to the GitHub repository again, unless GitHub still has it.
+
+        As at setup, the repository must still be private, and empty or a library.
+        """
         settings = self._require_settings()
         account = self.github_account()
-        repository = hosted_repository(self._remote(settings), account.host)
+        repository = self._github_repository(self._remote(settings), account)
         public = keys.public_key(self.state_dir)
         if repository is None:
             raise SyncError("unknown_remote", f"the remote is not a repository on {account.host}; add the key "
                                               "as a deploy key with write access in the host's settings")
         if not public:
             raise SyncError("ssh", "this machine has no key yet; run setup")
-        return self._ensure_deploy_key(self.github_client(), repository, public, settings.label)
+        client = self.github_client()
+        info = self._private_repository(client, repository, account)
+        self._library_content(client, info.full_name, settings.branch)
+        return self._ensure_deploy_key(client, info.full_name, public, settings.label)
+
+    def _github_repository(self, remote: Remote, account: github_api.GitHubAccount) -> str | None:
+        """``owner/name`` of ``remote`` on the account's host: as ``setup --github`` recorded it, else from the URL."""
+        settings = self.settings()
+        if settings is not None and settings.github_repository and settings.remote == remote.url:
+            return settings.github_repository
+        return hosted_repository(remote, account.host)
+
+    @staticmethod
+    def _private_repository(client: github_api.GitHubClient, repository: str,
+                            account: github_api.GitHubAccount) -> github_api.RepoInfo:
+        try:
+            return client.require_private(repository)
+        except github_api.GitHubError as error:
+            if error.code != "not_found":
+                raise
+        suggested = repository.rsplit("/", 1)[-1] if isinstance(repository, str) else ""
+        raise SyncError("unknown_remote", f"{repository} does not exist on {account.host}, or this account cannot "
+                                          "see it; create a private repository for the library with: "
+                                          f"python -m src.user_sync github create {suggested}".rstrip())
+
+    @staticmethod
+    def _confirm_owner(info: github_api.RepoInfo, account: github_api.GitHubAccount, confirmed: str | None) -> None:
+        """A repository of another owner (an organization, another user) needs the owner's name confirmed:
+        everyone who can read it there can read the library."""
+        login = account.status().get("login") or ""
+        if info.owner.lower() == login.lower() or (confirmed or "").lower() == info.owner.lower():
+            return
+        raise SyncError("owner_unconfirmed", f"{info.full_name} belongs to {info.owner}, not to {login or 'you'}: "
+                                             "everyone who can read it there can read your library. Confirm with "
+                                             f"--confirm-owner {info.owner}",
+                        details={"owner": info.owner, "repository": info.full_name})
+
+    @staticmethod
+    def _library_content(client: github_api.GitHubClient, repository: str, branch: str) -> str:
+        """``empty`` or ``library``; a repository with other content is refused before any key is added."""
+        content = client.library_state(repository, branch)
+        if content == "foreign":
+            raise SyncError("unknown_remote", f"{repository} holds content that is not an Agents-Core library on "
+                                              f"{branch}; choose an empty repository or a library (python -m "
+                                              "src.user_sync github create NAME makes a new one)")
+        return content
+
+    def _move_key(self, client: github_api.GitHubClient, repository: str, public: str, *, move: bool) -> list[str]:
+        """Take this machine's key off the repository an earlier setup chose, when sync never started there."""
+        settings = self.settings()
+        if settings is None or settings.started:
+            return []
+        previous = settings.github_repository
+        if previous is None:
+            try:
+                previous = self._github_repository(self._remote(settings), self.github_account())
+            except (SyncError, github_api.GitHubError):
+                return []
+        if not previous or previous.lower() == repository.lower():
+            return []
+        try:
+            old = client.find_deploy_key(previous, public)
+        except github_api.GitHubError as error:
+            if error.code != "not_found":
+                raise
+            return []
+        if old is None:
+            return []
+        if not move:
+            raise SyncError("key_in_use", f"this machine's deploy key is still on {previous}, which an earlier setup "
+                                          "chose, and GitHub accepts a key on one repository only; remove it there "
+                                          "with --move-key, or in that repository's settings",
+                            details={"previous": previous, "repository": repository})
+        client.delete_deploy_key(previous, old.id)
+        self._log(f"removed this machine's deploy key from {previous}")
+        return [f"removed this machine's deploy key from {previous}"]
 
     def _ensure_deploy_key(self, client: github_api.GitHubClient, repository: str, public: str,
                            label: str) -> dict:
+        """This machine's key on ``repository`` with write access: found, added, or replacing a read-only one."""
         found = client.find_deploy_key(repository, public)
-        if found is not None:
-            access = "read-only: remove it on GitHub and add it again" if found.read_only else "with write access"
-            return {"status": "present", "deploy_key": "present", "repository": repository, "title": found.title,
-                    "read_only": found.read_only,
-                    "message": f"{repository} already has this machine's deploy key ({found.title}, {access})"}
-        added = client.add_deploy_key(repository, public, label)
-        self._log(f"added this machine's deploy key to {repository}")
-        return {"status": "added", "deploy_key": "added", "repository": repository, "title": added.title,
-                "read_only": added.read_only,
-                "message": f"added this machine's deploy key to {repository} ({added.title}, with write access)"}
+        if found is not None and not found.read_only:
+            return {"status": "present", "deploy_key": "present", "id": found.id, "repository": repository,
+                    "title": found.title, "read_only": False,
+                    "message": f"{repository} already has this machine's deploy key ({found.title}, with write access)"}
+        if found is not None:  # read-only: sync could never push with it
+            client.delete_deploy_key(repository, found.id)
+        try:
+            added = client.add_deploy_key(repository, public, label)
+        except github_api.GitHubError as error:
+            if error.code != "exists":
+                raise
+            raise SyncError("key_in_use", "GitHub already uses this machine's key elsewhere (as a deploy key of "
+                                          "another repository or as a user key); remove it there, then run "
+                                          "setup again", details={"repository": repository}) from None
+        verb = "replaced this machine's read-only deploy key on" if found else "added this machine's deploy key to"
+        self._log(f"{verb} {repository}")
+        return {"status": "replaced" if found else "added", "deploy_key": "replaced" if found else "added",
+                "id": added.id, "repository": repository, "title": added.title, "read_only": added.read_only,
+                "message": f"{verb} {repository} ({added.title}, with write access)"}
+
+    def _delete_key_quietly(self, client: github_api.GitHubClient, repository: str, key_id: int) -> None:
+        try:
+            client.delete_deploy_key(repository, key_id)
+        except github_api.GitHubError as error:
+            self._log(f"could not remove the deploy key {key_id} from {repository}: {error.code}")
+
+    def _withdraw_added_key(self, settings: Settings, error: SyncError) -> SyncError:
+        """``check`` refused what the repository holds: remove the deploy key ``setup --github`` added there."""
+        current = self.settings()
+        if current is None or not current.deploy_key_id or not current.github_repository:
+            return error
+        repository, key_id = current.github_repository, current.deploy_key_id
+        try:
+            self.github_client().delete_deploy_key(repository, key_id)
+        except (github_api.GitHubError, SyncError) as failure:
+            if getattr(failure, "code", None) != "not_found":  # not found: it is gone already
+                return SyncError(error.reason, f"{error.message}. The deploy key setup added to {repository} could "
+                                               f"not be removed ({failure.message}); remove it in the repository's "
+                                               "settings", state=error.state,
+                                 details={**error.details, "deploy_key": "kept", "repository": repository})
+        self._update_settings(lambda changed: setattr(changed, "deploy_key_id", None))
+        self._log(f"removed the deploy key setup added to {repository}: the repository is not a library")
+        return SyncError(error.reason, f"{error.message}. The deploy key setup added to {repository} was removed",
+                         state=error.state,
+                         details={**error.details, "deploy_key": "removed", "repository": repository})
 
     def _diagnose_key(self, settings: Settings, failure: SyncError) -> SyncError:
         """``failure`` with whether GitHub still has this machine's deploy key, when the API can tell."""
         public = keys.public_key(self.state_dir)
         try:
             account = self.github_account()
-            repository = hosted_repository(self._remote(settings), account.host)
+            repository = self._github_repository(self._remote(settings), account)
             status = account.status() if repository and public else None
             if not status or not status["connected"] or status["reconnect_needed"]:
                 return failure
@@ -1273,7 +1468,7 @@ class Syncer:
             return SyncError("auth", f"{failure.message}. GitHub has no deploy key of this machine on "
                                      f"{repository}; add it again with: python -m src.user_sync github add-key",
                              state=failure.state, details={"deploy_key": "missing", "repository": repository})
-        access = "read-only" if found.read_only else "with write access"
+        access = "read-only; add-key replaces it" if found.read_only else "with write access"
         return SyncError("auth", f"{failure.message}. This machine's deploy key is still on {repository} "
                                  f"({found.title}, {access})", state=failure.state,
                          details={"deploy_key": "present", "repository": repository, "read_only": found.read_only})
@@ -1668,7 +1863,7 @@ class Syncer:
                     plan = self._plan(git, settings, state, remote_head, joining=True)
                 plan.remote_sizes = self._blob_sizes(git, plan.remote_tree.values())
             except GitError as error:
-                raise self._git_failure(error) from None
+                raise self._git_failure(error, settings) from None
         return self._preview_of(plan)
 
     def start(self, confirm: str) -> dict:
@@ -1736,7 +1931,7 @@ class Syncer:
         except SyncError as error:
             return self._finish_failure(settings, state, error, result)
         except GitError as error:
-            return self._finish_failure(settings, state, self._git_failure(error), result)
+            return self._finish_failure(settings, state, self._git_failure(error, settings), result)
         except scope.ScopeError as error:
             return self._finish_failure(settings, state, SyncError("scopes_invalid", str(error)), result)
         except _ChangedWhileReading as error:
@@ -1810,9 +2005,9 @@ class Syncer:
 
     # --- recording outcomes -----------------------------------------------------------
 
-    def _git_failure(self, error: GitError) -> SyncError:
+    def _git_failure(self, error: GitError, settings: Settings | None = None) -> SyncError:
         if error.kind in ("network", "timeout"):
-            return SyncError("network", str(error), state="offline")
+            return SyncError("network", str(error) + self._port_443_hint(settings), state="offline")
         if error.kind == "auth":
             return SyncError("auth", "the remote refused this machine's key; check that it is a deploy "
                                      "key with write access", state="attention")
@@ -1821,6 +2016,17 @@ class Syncer:
         if error.kind == "not_found":
             return SyncError("unknown_remote", "the remote repository was not found")
         return SyncError("git_error", str(error))
+
+    def _port_443_hint(self, settings: Settings | None) -> str:
+        """Only ``check`` moves a github.com remote to port 443; an offline run on port 22 says so."""
+        try:
+            remote = self._remote(settings) if settings is not None else None
+        except SyncError:
+            return ""
+        if remote is not None and remote.kind == "ssh" and remote.host == "github.com" and remote.port in (None, 22):
+            return ("; if this network blocks SSH on port 22, run: python -m src.user_sync check "
+                    "(it moves sync to port 443)")
+        return ""
 
     def _record_failure(self, state: dict, error: SyncError, *, setup: bool = False) -> None:
         if error.state == "offline":

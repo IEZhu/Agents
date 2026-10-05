@@ -119,12 +119,34 @@ def deploy_key(state: Path, key_id: int = 7, read_only: bool = False) -> dict:
     return {"id": key_id, "title": "Agents-Core laptop", "key": material, "read_only": read_only}
 
 
-def script_repository(fake, keys_listed=(), *, private=True) -> None:
-    """GitHub knows ``octocat/agents-library``; its deploy keys list ``keys_listed`` once."""
+def script_repository(fake, keys_listed=(), *, private=True, library=False) -> None:
+    """GitHub knows ``octocat/agents-library``, empty or (``library``) holding the marker on main;
+    its deploy keys list ``keys_listed`` once, and an added key gets the id 11."""
     fake.reply("GET", f"/api/v3/repos/{REPOSITORY}", 200, repo(REPOSITORY, private=private), repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/branches", 200, [{"name": "main"}] if library else [],
+               repeat=True)
+    if library:
+        fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/contents/.agents-library.json", 200, {"type": "file"},
+                   repeat=True)
     fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, list(keys_listed))
     fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 201,
                {"id": 11, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+
+
+def key_requests(fake, repository: str = REPOSITORY) -> list[tuple[str, str]]:
+    prefix = f"/api/v3/repos/{repository}/keys"
+    return [(request.method, request.path[len(prefix):] or "/") for request in fake.requests
+            if request.path.startswith(prefix)]
+
+
+def push_foreign_content(tmp_path: Path, bare: Path) -> None:
+    """An unrelated project lands in the repository: it holds no library marker."""
+    work = tmp_path / "unrelated"
+    plain_git("init", "--quiet", "--initial-branch=main", str(work))
+    (work / "README.md").write_text("an unrelated project\n")
+    plain_git("-C", str(work), "add", "README.md")
+    plain_git("-C", str(work), "commit", "-q", "-m", "init")
+    plain_git("-C", str(work), "push", "-q", str(bare), "main")
 
 
 def posted_keys(fake) -> list:
@@ -163,11 +185,21 @@ def test_a_refused_token_marks_reconnect_needed_and_the_anonymous_check_decides(
     assert len(fake.requests) == asked  # a refused token is not used again until the owner signs in
 
 
-def test_other_api_failures_leave_privacy_unknown_and_other_hosts_use_the_anonymous_check(fake, tmp_path):
+@pytest.mark.parametrize("status, payload, headers", [
+    (502, None, {}), (403, {"message": "Resource not accessible"}, {}), (404, {"message": "Not Found"}, {}),
+    (429, {"message": "Too Many Requests"}, {"Retry-After": "60"}),
+])
+def test_an_api_that_cannot_answer_leaves_the_decision_to_the_anonymous_check(fake, tmp_path, status, payload,
+                                                                               headers):
     syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
     syncer.anonymous_visibility = lambda remote: "anonymous"
-    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}", 502, None)
-    assert syncer.default_visibility(parse_remote(SSH_URL)) == "unknown"
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}", status, payload, headers)
+    assert syncer.default_visibility(parse_remote(SSH_URL)) == "anonymous"
+
+
+def test_other_hosts_and_a_signed_out_machine_use_the_anonymous_check(fake, tmp_path):
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
+    syncer.anonymous_visibility = lambda remote: "anonymous"
     for url in ("git@gitlab.example.com:octocat/agents-library.git", "git@github.com:octocat/a/b.git"):
         assert syncer.default_visibility(parse_remote(url)) == "anonymous"
     signed_out = make_syncer(tmp_path / "other", make_account(fake, tmp_path / "other" / "state"))
@@ -194,7 +226,8 @@ def test_setup_github_adds_this_machines_deploy_key_once(fake, tmp_path):
     script_repository(fake)
     first = syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
     assert (first["status"], first["repository"], first["deploy_key"]) == ("waiting_for_access", REPOSITORY, "added")
-    assert first["steps"][0] == f"{REPOSITORY} is private" and "added this machine's deploy key" in first["steps"][-1]
+    assert first["steps"][0] == f"{REPOSITORY} is private and empty"
+    assert "added this machine's deploy key" in first["steps"][-1] and syncer.settings().deploy_key_id == 11
     [posted] = posted_keys(fake)
     assert posted.json == {"title": "Agents-Core laptop", "key": " ".join(first["public_key"].split()[:2]),
                            "read_only": False}
@@ -331,6 +364,8 @@ def test_the_wizard_falls_back_to_a_manual_ssh_url_and_confirms_host_key_and_pri
     assert "GitHub cannot be used" in text and "AGENTS_GITHUB_CLIENT_ID" in text
     assert "An answer is required." in text and "a commit email is required" in text
     assert "That is not one of the fingerprints above." in text and fingerprint in text
+    assert "an anonymous check over HTTPS gave no clear answer" in text
+    assert any("which only its owner and the people they invite can read" in prompt for prompt in ask.prompts)
     assert "agents-core-sync:laptop" in text  # the public key to add by hand
     assert result["status"] == "synced" and "common/hello.md" in remote_files(bare)
     assert syncer.settings().private_confirmed is True and ask.answers == []
@@ -464,3 +499,312 @@ def test_the_sync_status_shows_the_github_account_without_its_token(fake, tmp_pa
     status = syncer.status()
     assert status["github"]["connected"] is True and status["github"]["login"] == "octocat"
     assert TOKEN not in json.dumps(status)
+
+
+# --- the second review (#219) -------------------------------------------------------------------
+
+
+def test_a_repository_with_other_content_is_refused_before_any_key_or_setting(fake, tmp_path):
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}", 200, repo(REPOSITORY), repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/branches", 200, [{"name": "main"}])
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/contents/.agents-library.json", 404, {"message": "Not Found"})
+    with pytest.raises(SyncError) as foreign:
+        syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    assert foreign.value.reason == "unknown_remote" and "not an Agents-Core library" in foreign.value.message
+    assert key_requests(fake) == [] and syncer.settings() is None
+    marker = [request for request in fake.requests if request.path.endswith("/.agents-library.json")]
+    assert marker[0].query == {"ref": ["main"]}
+
+
+@needs_ssh_keygen
+@pytest.mark.parametrize("blocked", [False, True], ids=["port 22", "port 443"])
+def test_check_withdraws_the_key_setup_added_when_the_repository_holds_other_content(fake, tmp_path, bare, blocked):
+    transport = Transport(tmp_path, bare, refuse={"github.com": BLOCKED_22} if blocked else {})
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"), ssh_command=transport.command,
+                         visibility=lambda remote: "private")
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    push_foreign_content(tmp_path, bare)  # after the API check: someone used the repository meanwhile
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11", 204)
+    with pytest.raises(SyncError) as refused:
+        syncer.check()
+    assert refused.value.reason == "unknown_remote" and "was removed" in refused.value.message
+    assert refused.value.details == {"deploy_key": "removed", "repository": REPOSITORY}
+    assert ("DELETE", "/11") in key_requests(fake) and syncer.settings().deploy_key_id is None
+    assert syncer.settings().remote == (PORT_443_URL if blocked else SSH_URL)  # reached over 443: kept
+
+
+@needs_ssh_keygen
+def test_add_key_checks_privacy_and_content_before_adding(fake, tmp_path):
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    fake.replies.pop(("GET", f"/api/v3/repos/{REPOSITORY}/branches"))
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/branches", 200, [{"name": "main"}])
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/contents/.agents-library.json", 404, {"message": "Not Found"})
+    with pytest.raises(SyncError) as foreign:
+        syncer.add_deploy_key()
+    assert foreign.value.reason == "unknown_remote" and len(posted_keys(fake)) == 1
+    fake.replies.pop(("GET", f"/api/v3/repos/{REPOSITORY}"))
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}", 200, repo(REPOSITORY, private=False))
+    with pytest.raises(GitHubError) as public:
+        syncer.add_deploy_key()
+    assert public.value.code == "public_repo" and len(posted_keys(fake)) == 1
+
+
+@needs_ssh_keygen
+@pytest.mark.parametrize("message, reason", [
+    ("git@ssh.github.com: Permission denied (publickey).", "auth"),
+    ("Host key verification failed.", "host_key"),
+])
+def test_a_refusal_on_port_443_is_reported_and_keeps_the_443_url(fake, tmp_path, bare, message, reason):
+    transport = Transport(tmp_path, bare, refuse={"github.com": BLOCKED_22, "ssh.github.com": message})
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"), ssh_command=transport.command,
+                         visibility=lambda remote: "private")
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [])  # the key is gone on GitHub
+    with pytest.raises(SyncError) as error:
+        syncer.check()
+    assert error.value.reason == reason and error.value.state != "offline"
+    assert syncer.settings().remote == PORT_443_URL
+    if reason == "auth":  # the diagnosis runs, and the wizard offers to check again
+        assert error.value.details == {"deploy_key": "missing", "repository": REPOSITORY}
+        fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [])
+        ask = Script("q")
+        with pytest.raises(wizard.Cancelled):
+            wizard._check(syncer, ask=ask, say=lambda text: None)
+        assert ask.prompts == ["Press Enter to check again, or type q to stop: "]
+
+
+@needs_ssh_keygen
+def test_setup_again_keeps_the_port_443_url_and_the_history_of_the_same_repository(fake, tmp_path, bare):
+    transport = Transport(tmp_path, bare, refuse={"github.com": BLOCKED_22})
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"), ssh_command=transport.command,
+                         visibility=lambda remote: "private")
+    script_repository(fake)
+    save_flow(tmp_path)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    assert syncer.check()["port_443"] is True
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(tmp_path / "state", 11)])
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")  # before start
+    assert syncer.settings().remote == PORT_443_URL and syncer._state().get("access") == "ok"
+    assert syncer.start(syncer.preview()["hash"])["status"] == "synced"
+    git_dir = str(tmp_path / "library" / ".git")
+    head = plain_git("--git-dir", git_dir, "rev-parse", "refs/heads/main")
+    fake.replies.pop(("GET", f"/api/v3/repos/{REPOSITORY}/branches"))
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/branches", 200, [{"name": "main"}], repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/contents/.agents-library.json", 200, {"type": "file"}, repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(tmp_path / "state", 11)])
+    again = syncer.setup_github(REPOSITORY, name="New Name", email="owner@example.com", label="laptop")
+    assert again["deploy_key"] == "present" and "holds a library" in again["steps"][0]
+    syncer.setup(remote=SSH_URL, name="Newer Name", email="owner@example.com", label="laptop")
+    settings = syncer.settings()
+    assert (settings.remote, settings.name, settings.started is not None) == (PORT_443_URL, "Newer Name", True)
+    assert plain_git("--git-dir", git_dir, "rev-parse", "refs/heads/main") == head  # history kept
+    save_flow(tmp_path, "user:later", "# Later\n")
+    assert syncer.run()["status"] == "synced" and "common/later.md" in remote_files(bare)
+
+
+@needs_ssh_keygen
+def test_switching_repository_before_start_moves_the_key_only_when_asked(fake, tmp_path):
+    state = tmp_path / "state"
+    syncer = make_syncer(tmp_path, signed_in(fake, state))
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    other = "octocat/other-library"
+    fake.reply("GET", f"/api/v3/repos/{other}", 200, repo(other), repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{other}/branches", 200, [], repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(state, 11)])
+    with pytest.raises(SyncError) as in_use:
+        syncer.setup_github(other, name="Owner", email="owner@example.com", label="laptop")
+    assert in_use.value.reason == "key_in_use" and in_use.value.details["previous"] == REPOSITORY
+    assert syncer.settings().remote == SSH_URL and key_requests(fake, other) == []  # nothing moved
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(state, 11)])
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11", 204)
+    fake.reply("GET", f"/api/v3/repos/{other}/keys", 200, [])
+    fake.reply("POST", f"/api/v3/repos/{other}/keys", 201,
+               {"id": 21, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    moved = syncer.setup_github(other, name="Owner", email="owner@example.com", label="laptop", move_key=True)
+    assert f"removed this machine's deploy key from {REPOSITORY}" in moved["steps"]
+    assert ("DELETE", "/11") in key_requests(fake) and ("POST", "/") in key_requests(fake, other)
+    settings = syncer.settings()
+    assert (settings.remote, settings.github_repository, settings.deploy_key_id) == (
+        f"git@github.com:{other}.git", other, 21)
+
+
+@needs_ssh_keygen
+def test_a_read_only_deploy_key_is_replaced_with_a_write_key(fake, tmp_path):
+    state = tmp_path / "state"
+    syncer = make_syncer(tmp_path, signed_in(fake, state))
+    keys.ensure_key(state, "laptop")
+    script_repository(fake, [deploy_key(state, 7, read_only=True)])
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/7", 204)
+    result = syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    assert result["deploy_key"] == "replaced" and "read-only" in result["steps"][-1]
+    assert key_requests(fake) == [("GET", "/"), ("DELETE", "/7"), ("POST", "/")]
+    assert posted_keys(fake)[0].json["read_only"] is False and syncer.settings().deploy_key_id == 11
+
+
+def test_a_repository_of_another_owner_needs_the_owner_confirmed(fake, tmp_path):
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
+    team = "acme/library"
+    fake.reply("GET", f"/api/v3/repos/{team}", 200, repo(team), repeat=True)
+    with pytest.raises(SyncError) as unconfirmed:
+        syncer.setup_github(team, name="Owner", email="owner@example.com", label="laptop")
+    assert unconfirmed.value.reason == "owner_unconfirmed" and "--confirm-owner acme" in unconfirmed.value.message
+    assert unconfirmed.value.details == {"owner": "acme", "repository": team}
+    with pytest.raises(SyncError) as wrong:
+        syncer.setup_github(team, name="Owner", email="owner@example.com", label="laptop", confirm_owner="octocat")
+    assert wrong.value.reason == "owner_unconfirmed"
+    assert key_requests(fake, team) == [] and syncer.settings() is None
+
+
+@needs_ssh_keygen
+def test_a_confirmed_owner_is_accepted(fake, tmp_path):
+    syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
+    team = "acme/library"
+    fake.reply("GET", f"/api/v3/repos/{team}", 200, repo(team), repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{team}/branches", 200, [], repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{team}/keys", 200, [])
+    fake.reply("POST", f"/api/v3/repos/{team}/keys", 201,
+               {"id": 31, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    result = syncer.setup_github(team, name="Owner", email="owner@example.com", label="laptop", confirm_owner="ACME")
+    assert result["repository"] == team and result["deploy_key"] == "added"
+
+
+def test_the_wizard_defaults_to_a_found_library_and_asks_before_using_another_owners_repository(fake, tmp_path):
+    client = signed_in(fake, tmp_path / "state").client()
+    fake.reply("GET", "/api/v3/user/repos", 200, [repo(REPOSITORY)])
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/contents/.agents-library.json", 200, {"type": "file"})
+    ask = Script("")
+    assert wizard._choose_repository(client, "octocat", ask, lambda text: None) == (REPOSITORY, None)
+    assert ask.prompts == ["Choose a number [2]: "]
+    fake.reply("GET", "/api/v3/user/repos", 200, [])
+    fake.reply("GET", "/api/v3/repos/acme/library", 200, repo("acme/library"), repeat=True)
+    said = []
+    ask = Script("2", "acme/library", "", "2", "acme/library", "acme")
+    assert wizard._choose_repository(client, "octocat", ask, said.append) == ("acme/library", "acme")
+    assert ask.prompts[0] == "Choose a number [1]: " and ask.answers == []
+    assert any("belongs to acme, not to you" in line for line in said)
+
+
+def test_a_privacy_confirmation_covers_one_repository(tmp_path, bare):
+    other = tmp_path / "other.git"
+    plain_git("init", "--bare", "--quiet", "--initial-branch=main", str(other))
+    syncer = Syncer(tmp_path / "library", tmp_path / "state", allow_file_remote=True,
+                    visibility=lambda remote: "unknown")
+    save_flow(tmp_path)
+    syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop", confirm_private=True)
+    syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
+    assert syncer.settings().private_confirmed is True  # the same repository keeps it
+    syncer.setup(remote=str(other), name="Owner", email="owner@example.com", label="laptop")
+    assert syncer.settings().private_confirmed is False
+    assert syncer.start(syncer.preview()["hash"])["reason"] == "public_repo" and remote_files(other) == {}
+
+
+def test_the_recorded_repository_and_a_host_with_a_port_find_the_repository(fake, tmp_path):
+    remote = parse_remote("git@github.example.com:octocat/agents-library.git")
+    assert engine_module.hosted_repository(remote, "github.example.com:8443") == "octocat/agents-library"
+    state = tmp_path / "state"
+    account = GitHubAccount(state, "agents-core-sync-test", host="ghe.example.com", web_url=fake.url,
+                            api_url=fake.api, client_id="Iv1.test", store=MemoryStore())
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    account.complete_sign_in(TOKEN)
+    syncer = make_syncer(tmp_path, account)
+    syncer.anonymous_visibility = lambda remote: "anonymous"
+    ssh_url = "git@ssh.ghe.example.com:team/library.git"  # GHES with SSH on another host name
+    engine_module.Settings(remote=ssh_url, name="Owner", email="owner@example.com", label="laptop",
+                           github_repository="team/library").save(syncer.settings_path)
+    fake.reply("GET", "/api/v3/repos/team/library", 200, repo("team/library"))
+    assert syncer.default_visibility(parse_remote(ssh_url)) == "private"
+
+
+@needs_ssh_keygen
+def test_an_offline_run_on_port_22_names_the_check_that_moves_to_port_443(tmp_path, bare):
+    transport = Transport(tmp_path, bare, refuse={"github.com": BLOCKED_22})
+    syncer = make_syncer(tmp_path, None, ssh_command=transport.command, visibility=lambda remote: "private")
+    syncer.setup(remote=SSH_URL, name="Owner", email="owner@example.com", label="laptop")
+    settings = syncer.settings()
+    settings.started = "2026-10-05T11:00:00+00:00"
+    settings.save(syncer.settings_path)
+    result = syncer.run()
+    assert result["status"] == "offline" and "python -m src.user_sync check" in result["message"]
+
+
+def test_cli_passes_the_privacy_owner_and_key_choices_to_setup_github(monkeypatch, tmp_path):
+    seen = {}
+
+    def setup_github(self, repository, **options):
+        seen.update(options, repository=repository)
+        return {"status": "waiting_for_access"}
+
+    monkeypatch.setattr(engine_module.Syncer, "setup_github", setup_github)
+    assert run_cli(tmp_path, "setup", "--github", "acme/library", "--name", "O", "--email", "o@x.y",
+                   "--confirm-private", "--confirm-owner", "acme", "--move-key") == 0
+    assert (seen["repository"], seen["confirm_private"], seen["confirm_owner"], seen["move_key"]) == (
+        "acme/library", True, "acme", True)
+
+
+@pytest.mark.parametrize("returned, code", [
+    ({"status": "offline", "reason": "network", "message": "git push: connection timed out"}, 1),
+    ({"status": "lock_held", "message": "another sync of this library is running"}, 1),
+    ({"status": "synced", "sent": []}, 0),
+    ({"status": "already_set_up", "message": "sync is already set up; nothing changed"}, 0),
+])
+def test_cli_wizard_exits_with_1_when_its_start_did_not_finish(monkeypatch, tmp_path, capsys, returned, code):
+    monkeypatch.setattr(wizard, "run", lambda syncer, **options: dict(returned))
+    assert run_cli(tmp_path, "setup", "--json", interactive=True) == code
+    result = json.loads(capsys.readouterr().out)
+    if code:
+        assert result["message"].startswith(f"sync did not start ({returned['status']})")
+
+
+def test_cli_json_sends_the_sign_in_code_and_the_prompts_to_stderr(fake, tmp_path, cli_account, monkeypatch, capsys):
+    script_device_flow(fake)
+    assert run_cli(tmp_path, "github", "login", "--json", open_browser=lambda url: None,
+                   sleep=lambda seconds: None) == 0
+    out = capsys.readouterr()
+    assert json.loads(out.out)["login"] == "octocat"
+    assert "WDJB-MJHT" in out.err and "WDJB-MJHT" not in out.out
+    answers = iter(["m", "git@git.example.com:me/library.git"])
+
+    def scripted_input(prompt=""):
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None
+
+    monkeypatch.setattr("builtins.input", scripted_input)
+    assert run_cli(tmp_path / "wizard", "setup", "--json", interactive=True) == 1
+    out = capsys.readouterr()
+    assert json.loads(out.out)["status"] == "cancelled"
+    assert "Where is the library's repository?" in out.err and "SSH URL of the repository" in out.err
+    assert "Your name for commits" in out.err and "Where is" not in out.out
+
+
+@needs_ssh_keygen
+def test_the_wizard_never_takes_the_identity_from_the_users_git_configuration(tmp_path, bare, monkeypatch):
+    hostile = tmp_path / "hostile.gitconfig"
+    hostile.write_text("[user]\n\tname = Work Account\n\temail = work@corp.example\n")
+    home = tmp_path / "home"
+    home.mkdir()
+    shutil.copy(hostile, home / ".gitconfig")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(hostile))
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Work Author")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "author@corp.example")
+    monkeypatch.setenv("EMAIL", "env@corp.example")
+    transport = Transport(tmp_path, bare)
+    syncer = make_syncer(tmp_path, None, ssh_command=transport.command,
+                         scan_host_keys=lambda host, port: [HOST_KEY], visibility=lambda remote: "private")
+    save_flow(tmp_path)
+    ask = Script("m", "git@git.example.com:me/library.git", "Owner", "owner@example.com", "laptop",
+                 keys.fingerprint(HOST_KEY), "", "yes")
+    result = wizard.run(syncer, ask=ask, say=lambda text: None, open_browser=lambda url: None,
+                        sleep=lambda seconds: None)
+    assert result["status"] == "synced" and ask.answers == []
+    assert not [prompt for prompt in ask.prompts if "Work" in prompt or "corp" in prompt]  # no defaults from git
+    assert plain_git("--git-dir", str(bare), "log", "-1", "--format=%an <%ae>|%cn <%ce>", "main") == \
+        "Owner <owner@example.com>|Owner <owner@example.com>"

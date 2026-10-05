@@ -79,20 +79,31 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
   account) deletes it from this machine and prints the page where you revoke it on GitHub.
 - **Repository.** `github libraries` lists your private repositories that hold an Agents-Core
   library; `github create [NAME]` creates an empty private repository (default `agents-library`).
-  `setup --github OWNER/NAME` checks through the API that the repository exists and is private,
-  runs setup with its SSH URL and adds this machine's public key as a deploy key with write access
-  (titled `Agents-Core <label>`), unless GitHub already has it. A repository that does not exist
-  is refused with a hint to run `github create`.
+  Before anything changes here or on GitHub, `setup --github OWNER/NAME` checks through the API
+  that the repository exists, is private, is empty or holds a library on the sync branch, and
+  belongs to you; a repository of an organization or another user needs `--confirm-owner OWNER`,
+  because everyone who can read it there can read the library. It then adds this machine's public
+  key as a deploy key with write access (titled `Agents-Core <label>`; a read-only one is
+  replaced) and runs setup with the repository's SSH URL. GitHub accepts a key on one repository
+  only: when an earlier setup that never started put it on another repository, `--move-key`
+  removes it there. A repository that does not exist is refused with a hint to run
+  `github create`. `github add-key` checks privacy and content the same way.
 - **Privacy.** For a repository on the signed-in account's host, the check before the first upload
-  and the daily check ask GitHub's API: public and internal repositories are refused. When GitHub
-  refuses the token (it was revoked), the account shows "reconnect needed" in `github status`,
-  the anonymous check decides instead, and sync keeps running on the deploy key. Any other API
-  failure leaves privacy unknown, which only the first upload refuses without `--confirm-private`.
+  and the daily check ask GitHub's API: public and internal repositories are refused. When the API
+  cannot answer, the anonymous check decides: after a refused token (it was revoked; the account
+  then shows "reconnect needed" in `github status`, and sync keeps running on the deploy key), an
+  outage, a rate limit, a 403 or a 404. A privacy confirmation (`--confirm-private`) covers one
+  repository: setup for another one clears it.
 - **A refused key.** When `check` is refused on a repository of the signed-in account, its error
-  says whether GitHub still has this machine's deploy key; `github add-key` adds it again.
+  says whether GitHub still has this machine's deploy key; `github add-key` adds it again. When
+  `check` finds content that is not a library before sync started, it removes the deploy key
+  `setup --github` added there, and says so.
 - **Port 443.** When `check` cannot reach `git@github.com:…` on port 22 (some networks block it),
   it tries `ssh://git@ssh.github.com:443/OWNER/NAME.git`, GitHub's SSH service on port 443, and
-  keeps that as the remote when it works. Its host keys are written with github.com's at setup.
+  keeps that as the remote when it reaches GitHub there; a refusal on port 443 (a key or host key)
+  is then the error `check` reports. Setup for the same repository keeps the port 443 URL and the
+  sync history. Only `check` moves to port 443; an offline run on port 22 names it. The host keys
+  for port 443 are written with github.com's at setup.
 
 ## What syncs
 

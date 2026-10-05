@@ -42,13 +42,14 @@ def run(syncer: Syncer, *, ask: Ask = input, say: Say = print,
     existing = syncer.settings()
     if existing is not None and existing.started:
         say(f"Sync is already set up with {existing.remote}. See status, or disconnect first to set it up again.")
-        return syncer.status()
+        return {"status": "already_set_up", "remote": existing.remote,
+                "message": "sync is already set up; nothing changed"}
     say("Sync keeps your personal flow library the same on your machines through a private git repository.")
-    repository, remote = _where(syncer, ask, say, open_browser, sleep)
+    (repository, owner), remote = _where(syncer, ask, say, open_browser, sleep)
     name, email, label = _identity(ask, say, existing)
     if repository:
-        result = _with_host_key(lambda trust: syncer.setup_github(
-            repository, name=name, email=email, label=label, trust_host_key=trust), ask, say)
+        result = _with_host_key(lambda trust: _setup_github(syncer, repository, owner, name, email, label, trust,
+                                                            ask, say), ask, say)
         for step in result.get("steps", []):
             say(f"  - {step}")
     else:
@@ -66,7 +67,8 @@ def run(syncer: Syncer, *, ask: Ask = input, say: Say = print,
     for line in describe_preview(preview):
         say(line)
     if ask("Start sync with exactly this preview? Type yes to start: ").strip().lower() != "yes":
-        say(f"Sync was not started. Run the wizard again, or: python -m src.user_sync start --confirm {preview['hash']}")
+        say("Sync was not started. Run the wizard again, or: "
+            f"python -m src.user_sync start --confirm {preview['hash']}")
         return {"status": "attention", "reason": "confirmation_needed", "message": "sync was not started",
                 "hash": preview["hash"]}
     result = syncer.start(preview["hash"])
@@ -113,21 +115,40 @@ def _entry(item) -> str:
 # --- steps ----------------------------------------------------------------------------------
 
 
-def _where(syncer: Syncer, ask: Ask, say: Say, open_browser, sleep) -> tuple[str | None, str | None]:
-    """``(owner/name, None)`` for a repository on GitHub, ``(None, url)`` for another host."""
+def _where(syncer: Syncer, ask: Ask, say: Say, open_browser, sleep) -> tuple[tuple, str | None]:
+    """``((owner/name, confirmed owner), None)`` on GitHub, ``((None, None), url)`` on another host."""
     choice = _choice(ask, say, "Where is the library's repository? [g] GitHub, signing in with a code; "
                                "[m] another host, by its SSH URL. Choose [g]: ", ("g", "m"), "g")
     if choice == "g":
         try:
-            _sign_in(syncer.github_account(), say, open_browser, sleep)
-            return _choose_repository(syncer.github_client(), ask, say), None
+            account = syncer.github_account()
+            _sign_in(account, say, open_browser, sleep)
+            return _choose_repository(syncer.github_client(), account.status().get("login") or "", ask, say), None
         except github_api.GitHubError as error:
             say(f"GitHub cannot be used: {error.message}")
             if ask("Use an SSH URL instead? Type yes to continue: ").strip().lower() != "yes":
                 raise Cancelled from None
     url = _ask_until(ask, say, "SSH URL of the repository (git@host:owner/name.git): ",
                      lambda text: parse_remote(text, allow_file=syncer.allow_file_remote).url)
-    return None, url
+    return (None, None), url
+
+
+def _setup_github(syncer: Syncer, repository: str, owner: str | None, name: str, email: str, label: str,
+                  trust: str | None, ask: Ask, say: Say) -> dict:
+    """``setup_github``; when this machine's key is still on the repository an earlier setup chose,
+    offer to remove it there (GitHub accepts a key on one repository only)."""
+    try:
+        return syncer.setup_github(repository, name=name, email=email, label=label, trust_host_key=trust,
+                                   confirm_owner=owner)
+    except SyncError as error:
+        if error.reason != "key_in_use" or not error.details.get("previous"):
+            raise
+        previous = error.details["previous"]
+        say(f"This machine's deploy key is still on {previous}, which an earlier setup chose.")
+        if ask(f"Remove it from {previous} and use {repository}? Type yes to continue: ").strip().lower() != "yes":
+            raise Cancelled from None
+        return syncer.setup_github(repository, name=name, email=email, label=label, trust_host_key=trust,
+                                   confirm_owner=owner, move_key=True)
 
 
 def _sign_in(account: github_api.GitHubAccount, say: Say, open_browser, sleep) -> None:
@@ -150,20 +171,23 @@ def _sign_in(account: github_api.GitHubAccount, say: Say, open_browser, sleep) -
         say(f"Note: {status['warning']}")
 
 
-def _choose_repository(client: github_api.GitHubClient, ask: Ask, say: Say) -> str:
-    """A private repository for the library: a new one, a library found on the account, or one by name."""
+def _choose_repository(client: github_api.GitHubClient, login: str, ask: Ask,
+                       say: Say) -> tuple[str, str | None]:
+    """``(owner/name, confirmed owner)``: a new private repository, a library found on the account
+    (the default when there is one, since a second machine joins it), or another repository by name."""
     scan = client.libraries()
     libraries = list(scan.libraries)
     other = len(libraries) + 2
+    default = "2" if libraries else "1"
     say("Repository for the library:")
     say("  1. create a new private repository")
     for number, info in enumerate(libraries, 2):
         say(f"  {number}. {info.full_name} (holds a library)")
-    say(f"  {other}. another repository of yours, by OWNER/NAME")
+    say(f"  {other}. another private repository, by OWNER/NAME")
     if scan.truncated:
         say(f"  (only the {scan.checked} most recently pushed repositories were searched)")
     while True:
-        answer = ask("Choose a number [1]: ").strip() or "1"
+        answer = ask(f"Choose a number [{default}]: ").strip() or default
         if answer == "1":
             name = ask(f"Name of the new repository [{github_api.DEFAULT_REPO_NAME}]: ").strip() \
                 or github_api.DEFAULT_REPO_NAME
@@ -175,18 +199,20 @@ def _choose_repository(client: github_api.GitHubClient, ask: Ask, say: Say) -> s
                 say(error.message)
                 continue
             say(f"Created the private repository {info.full_name}.")
-            return info.full_name
+            return info.full_name, None
         if answer.isdigit() and 2 <= int(answer) < other:
-            return libraries[int(answer) - 2].full_name
+            return libraries[int(answer) - 2].full_name, None
         if answer == str(other):
-            chosen = _existing_private(client, ask("OWNER/NAME: ").strip(), say)
+            chosen = _existing_private(client, ask("OWNER/NAME: ").strip(), login, ask, say)
             if chosen:
                 return chosen
             continue
         say("Choose one of the numbers above.")
 
 
-def _existing_private(client: github_api.GitHubClient, full_name: str, say: Say) -> str | None:
+def _existing_private(client: github_api.GitHubClient, full_name: str, login: str, ask: Ask,
+                      say: Say) -> tuple[str, str | None] | None:
+    """A private repository by name; one of another owner only after the owner's name is typed."""
     try:
         info = client.repository(full_name)
     except github_api.GitHubError as error:
@@ -198,7 +224,13 @@ def _existing_private(client: github_api.GitHubClient, full_name: str, say: Say)
     if verdict != "private":
         say(f"{info.full_name} is {verdict}; sync uses only a private repository.")
         return None
-    return info.full_name
+    if info.owner.lower() == login.lower():
+        return info.full_name, None
+    say(f"{info.full_name} belongs to {info.owner}, not to you: everyone who can read it there can read your library.")
+    typed = ask(f"Type {info.owner} to use it anyway, or press Enter to choose again: ").strip()
+    if typed.lower() != info.owner.lower():
+        return None
+    return info.full_name, info.owner
 
 
 def _identity(ask: Ask, say: Say, existing) -> tuple[str, str, str]:
@@ -267,9 +299,10 @@ def _confirm_private(syncer: Syncer, ask: Ask, say: Say, name: str, email: str, 
         say(f"The repository is {verdict}; sync uses only a private repository. Make it private and run setup again.")
         return {"status": "attention", "reason": "public_repo", "message": f"the repository is {verdict}"}
     if verdict == "unknown" and not settings.private_confirmed:
-        say("Sync could not check that the repository is private: the host does not answer an anonymous "
-            "check over HTTPS.")
-        if ask("Is it private, so that only you can read it? Type yes to confirm: ").strip().lower() != "yes":
+        say("Sync could not verify that the repository is private: an anonymous check over HTTPS gave no "
+            "clear answer, and no GitHub account answered for it.")
+        if ask("Is it a private repository, which only its owner and the people they invite can read? "
+               "Type yes to confirm: ").strip().lower() != "yes":
             say("Sync was not started.")
             return {"status": "attention", "reason": "public_repo",
                     "message": "privacy was not confirmed; sync was not started"}
