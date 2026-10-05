@@ -172,7 +172,11 @@ def groups(path: str) -> tuple[str, ...] | None:
     if top == "common":
         return ("common",)
     if top == "repos":
-        return (f"repos/{parts[1]}",) if len(parts) > 2 and _REPO_KEY.fullmatch(parts[1]) else None
+        if len(parts) < 3 or not _REPO_KEY.fullmatch(parts[1]):
+            return None
+        if parts[2] == "history" and len(parts) > 3:  # the repository's shared history.md segments
+            return ("history", f"repos/{parts[1]}")
+        return (f"repos/{parts[1]}",)
     if top in ("personas", ".history"):
         kind = "personas" if top == "personas" else "history"
         if parts[1] == "repos":
@@ -186,7 +190,8 @@ def groups(path: str) -> tuple[str, ...] | None:
 def is_content(path: str) -> bool:
     """A path the owner edits (flows, personas, switches, other library files), not history or records."""
     found = groups(path)
-    return found is not None and not path.startswith((".history/", f"{SYNC_DIR}/")) and path not in LIBRARY_FILES
+    return found is not None and "history" not in found and not path.startswith(f"{SYNC_DIR}/") \
+        and path not in LIBRARY_FILES
 
 
 _NAME_SURROGATE = 0x20000000  # Windows reparse tags of links (symlinks, junctions), not cloud placeholders

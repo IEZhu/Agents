@@ -256,7 +256,8 @@ def validate_identity(name: str, email: str, label: str) -> None:
 
 def change_label(path: str) -> str | None:
     """How a commit message names a changed path; None for paths it leaves implied."""
-    if path.startswith((".history/", f"{CONFLICTS_DIR}/")) or path in scope.LIBRARY_FILES:
+    if path.startswith((".history/", f"{CONFLICTS_DIR}/")) or path in scope.LIBRARY_FILES \
+            or "history" in (scope.groups(path) or ()):
         return None
     if path == scope.COMPONENTS:
         return "components"

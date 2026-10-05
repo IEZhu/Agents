@@ -762,6 +762,7 @@ def test_ssh_command_quotes_paths_with_spaces(tmp_path):
     ("common/a.md", ("common",)), ("personas/builtin/a.json", ("personas",)),
     ("personas/repos/k/a.json", ("personas", "repos/k")), (".history/repos/k/a/v.md", ("history", "repos/k")),
     ("repos/k/a.md", ("repos/k",)), ("components.json", ("components",)), (".agents-library.json", ()),
+    ("repos/k/history/mac-a/2026-10.md", ("history", "repos/k")), ("repos/k/history.md", ("repos/k",)),
     (".agents-sync/scopes.json", ()), (".lock", None), ("common/.tmp-x", None), ("notes.txt", None),
     ("common/__pycache__/x.pyc", None), ("repos/k/.repo.local.json", None), ("common/con.md", None),
     ("common/a:b.md", None), ("common/.DS_Store", None),

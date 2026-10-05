@@ -52,7 +52,9 @@ history there: one root commit with the current files, so old commits never trav
 | `repos/<key>/**` for keys derived from an `origin`, with their personas and history | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
-Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`. Exclusions live
+Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
+shared history segments (`repos/<key>/history/**`) belong to both `history` and `repos/<key>`, and
+like `.history/**` they are neither named in commit messages nor counted by the mass-deletion guard. Exclusions live
 in the tracked `.agents-sync/scopes.json`, so every machine agrees. Excluding takes the files out
 of the repository but never deletes them from any machine. A missing `scopes.json` is restored
 from the last commit: losing it must not lift every exclusion. Including a group or file again,
