@@ -165,3 +165,21 @@ def start(run_cycle: Callable[[], object], *, library_root: str | Path, is_ready
                       retry_delay=retry_delay, retries=retries, timer=timer, clock=clock)
     trigger._unsubscribe = user_library.subscribe(trigger._changed)
     return trigger
+
+
+def start_for_stdio() -> Trigger:
+    """The trigger of a stdio MCP server: a write to the library syncs about ``DELAY`` seconds later.
+
+    It runs only while sync is set up, started and not paused, which ``is_ready`` reads afresh
+    each time, so a server that started before setup picks sync up without a restart. The daemon
+    runs its own loop (#167) and does not start this.
+    """
+    from src.user_sync.engine import Syncer
+
+    syncer = Syncer()
+
+    def ready() -> bool:
+        settings = syncer.settings()
+        return bool(settings and settings.started and not settings.paused)
+
+    return start(lambda: syncer.run(), library_root=syncer.library, is_ready=ready)

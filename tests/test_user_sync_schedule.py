@@ -722,3 +722,22 @@ def test_real_scheduler_round_trip(tmp_path, monkeypatch):
         disabled = schedule.disable(**options)
     assert not disabled["scheduled"] and not schedule.status(**options)["scheduled"]
     assert not schedule.disable(**options)["scheduled"]
+
+
+def test_the_command_line_schedules_runs_with_explicit_directories(tmp_path, monkeypatch, capsys):
+    from src.user_sync import engine
+    from src.user_sync.__main__ import main
+
+    calls = []
+    monkeypatch.setattr(schedule, "enable", lambda minutes, **kwargs: calls.append((minutes, kwargs)) or {"scheduled": True})
+    state, library = tmp_path / "state", tmp_path / "library"
+    assert main(["--state", str(state), "--library", str(library), "schedule", "enable", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "not_set_up"
+    state.mkdir()
+    settings = engine.Settings(remote="git@github.com:me/lib.git", name="Owner", email="owner@example.com",
+                               label="a", fetch_minutes=7)
+    settings.save(state / engine.SETTINGS_FILE)
+    assert main(["--state", str(state), "--library", str(library), "schedule", "enable", "--json"]) == 0
+    assert calls == [(7, {"state_dir": state.resolve(), "library": library.resolve()})]
+    assert main(["--state", str(state), "--library", str(library), "schedule", "enable", "--interval", "3"]) == 0
+    assert calls[-1][0] == 3

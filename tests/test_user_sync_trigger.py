@@ -323,3 +323,29 @@ def test_real_timers_run_cycles_in_daemon_threads_and_never_block_the_writer(lib
         assert all(thread.daemon and thread is not threading.current_thread() for thread in threads)
     finally:
         trigger.stop()
+
+
+def test_the_stdio_trigger_follows_the_sync_settings(tmp_path, monkeypatch):
+    from src.user_sync import engine
+    from src.user_sync.trigger import start_for_stdio
+
+    state = tmp_path / "state"
+    monkeypatch.setattr(engine, "default_state_dir", lambda: state)
+    monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "library"))
+    trigger = start_for_stdio()
+    try:
+        assert trigger.root == (tmp_path / "library").resolve()
+        assert trigger._is_ready() is False  # not set up
+        state.mkdir()
+        settings = engine.Settings(remote="git@github.com:me/lib.git", name="Owner",
+                                   email="owner@example.com", label="a")
+        settings.save(state / engine.SETTINGS_FILE)
+        assert trigger._is_ready() is False  # set up, not started
+        settings.started = "2026-10-05T12:00:00+00:00"
+        settings.save(state / engine.SETTINGS_FILE)
+        assert trigger._is_ready() is True
+        settings.paused = True
+        settings.save(state / engine.SETTINGS_FILE)
+        assert trigger._is_ready() is False
+    finally:
+        trigger.stop()
