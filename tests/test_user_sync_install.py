@@ -28,10 +28,10 @@ from src.user_sync.github import GitHubError
 from src.user_sync.wizard import Cancelled
 from tests.test_user_sync import plain_git, remote_files
 from tests.test_user_sync_github import (  # noqa: F401  (fake and no_real_secret_store are fixtures)
-    TOKEN, assert_secret_free, fake, no_real_secret_store)
+    TOKEN, assert_secret_free, fake, no_real_secret_store, repo)
 from tests.test_user_sync_github_setup import (  # noqa: F401  (bare is a fixture)
-    HOST_KEY, REFUSED_KEY, REPOSITORY, SSH_URL, Script, Transport, bare, make_account, needs_ssh_keygen,
-    posted_keys, script_repository)
+    HOST_KEY, REFUSED_KEY, REPOSITORY, SSH_URL, Script, Transport, bare, deploy_key, make_account,
+    needs_ssh_keygen, posted_keys, script_repository)
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL_LOAD_ENV = cli_module._load_env
@@ -332,11 +332,11 @@ def test_the_summary_says_how_to_turn_sync_and_background_sync_on(tmp_path, bare
     syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
     said.clear()
     installer.summary(syncer, say=said.append)
-    assert "set up but not started yet" in "\n".join(said) and "--from-env" not in "\n".join(said)
+    assert "but not started yet" in "\n".join(said) and "--from-env" not in "\n".join(said)
     syncer.start(syncer.preview()["hash"])
     said.clear()
     assert installer.summary(syncer, say=said.append) == {"status": "set_up", "background": None}
-    assert "only around its own saves" in said[0] and "schedule enable" in said[0]
+    assert "only in the cycle that follows each save" in said[0] and "schedule enable" in said[0]
     scheduler.minutes = 5
     said.clear()
     assert installer.summary(syncer, say=said.append)["background"] == "schedule"
@@ -753,3 +753,249 @@ def test_take_environment_and_forget_dotenv():
     environ.update({installer.TOKEN: "from-dotenv", installer.NAME: "From Dotenv", installer.EMAIL: ""})
     assert installer.forget_dotenv(values, environ) == [installer.NAME, installer.TOKEN]
     assert environ == {installer.REPO: "me/library", installer.ASSUME_YES: "1", "OTHER": "x"}
+
+
+# --- setups that stopped part way, keys on GitHub, the proxy, messages -------------------------
+
+OTHER = "octocat/other-library"
+
+
+def lock_held(confirm):
+    return {"status": "lock_held", "message": "another sync of this library is running"}
+
+
+@needs_ssh_keygen
+def test_a_mistyped_host_still_leaves_a_setup_the_corrected_run_may_replace(tmp_path, bare, scheduler):
+    """Setup saves the settings before it trusts the host: the marker is written all the same."""
+    def unreachable(host, port):
+        raise keys.SSHKeyError(f"ssh-keyscan found no key for {host}")
+    syncer = machine(tmp_path, scan_host_keys=unreachable)
+    save(syncer)
+    typo = {installer.REMOTE: "git@gti.example.com:me/agents-library.git", **IDENTITY}
+    result, _ = run_step(syncer, assume_yes=True, environ=typo)
+    assert (result["status"], result["reason"]) == ("attention", "host_key")
+    assert syncer.settings() is not None and installer.made_here(syncer, syncer.settings())
+    result, said = run_step(syncer, assume_yes=True, environ={installer.REMOTE: str(bare), **IDENTITY})
+    assert result["status"] == "synced", said
+    assert "Replacing the setup for" in said and syncer.settings().remote == str(bare)
+
+
+def test_a_refusal_says_to_move_the_git_only_when_there_is_one(tmp_path, bare):
+    syncer = machine(tmp_path)
+    syncer.state_dir.mkdir(parents=True)
+    engine_module.Settings(remote="git@git.example.com:me/library.git", name="Owner", email="owner@example.com",
+                           label="laptop").save(syncer.settings_path)  # the wizard's, stopped before .git
+    with pytest.raises(SyncError) as refused:
+        from_env(syncer, {installer.REMOTE: str(bare), **IDENTITY})
+    message = refused.value.message
+    assert refused.value.reason == "connected" and ".git" not in message
+    assert "-m src.user_sync disconnect" in message and "-m src.user_sync setup" in message
+
+
+def first_github_run(fake, tmp_path, bare, monkeypatch, transport=None):
+    """REPOSITORY from the environment with a token: the deploy key is added, then sync does not start."""
+    syncer = github_machine(fake, tmp_path, transport or Transport(tmp_path, bare))
+    save(syncer)
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    script_repository(fake)
+    real_start = syncer.start
+    monkeypatch.setattr(syncer, "start", lock_held)
+    result, _ = run_step(syncer, assume_yes=True, token=TOKEN, environ={installer.REPO: REPOSITORY, **IDENTITY})
+    assert (result["status"], result["reason"]) == ("attention", "lock_held") and len(posted_keys(fake)) == 1
+    monkeypatch.setattr(syncer, "start", real_start)
+    return syncer
+
+
+def script_other(fake, add_status=201):
+    fake.reply("GET", f"/api/v3/repos/{OTHER}", 200, repo(OTHER), repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{OTHER}/keys", 200, [])
+    if add_status == 201:
+        fake.reply("POST", f"/api/v3/repos/{OTHER}/keys", 201,
+                   {"id": 21, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    else:
+        fake.reply("POST", f"/api/v3/repos/{OTHER}/keys", 422,
+                   {"message": "Validation Failed", "errors": [{"message": "key is already in use"}]})
+
+
+@needs_ssh_keygen
+def test_replacing_an_env_github_setup_moves_this_machines_deploy_key(fake, tmp_path, bare, monkeypatch, scheduler):
+    """GitHub accepts a key on one repository only: the replaced setup's repository gives it up first."""
+    syncer = first_github_run(fake, tmp_path, bare, monkeypatch)
+    public = keys.public_key(syncer.state_dir)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(syncer.state_dir, key_id=7)])
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/7", 204, None)
+    script_other(fake)
+    result, said = run_step(syncer, assume_yes=True, environ={installer.REPO: OTHER, **IDENTITY})
+    assert result["status"] == "synced", said
+    assert f"Removed this machine's deploy key from {REPOSITORY}" in said
+    assert [(r.method, r.path) for r in fake.requests if r.method in ("DELETE", "POST") and "/keys" in r.path] == [
+        ("POST", f"/api/v3/repos/{REPOSITORY}/keys"), ("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/7"),
+        ("POST", f"/api/v3/repos/{OTHER}/keys")]
+    assert keys.public_key(syncer.state_dir) == public and syncer.settings().remote == f"git@github.com:{OTHER}.git"
+    assert not (syncer.state_dir / installer.MARKER).exists()  # started: nothing left to replace
+
+
+@needs_ssh_keygen
+def test_a_mistyped_new_repository_leaves_the_old_deploy_key_alone(fake, tmp_path, bare, monkeypatch, scheduler):
+    syncer = first_github_run(fake, tmp_path, bare, monkeypatch)
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})  # the token again
+    fake.reply("GET", "/api/v3/repos/octocat/agents-libary", 404, {"message": "Not Found"})
+    asked_before = len(fake.requests)
+    result, said = run_step(syncer, assume_yes=True, token=TOKEN,
+                            environ={installer.REPO: "octocat/agents-libary", **IDENTITY})
+    assert (result["status"], result["reason"]) == ("attention", "unknown_remote")
+    assert "AGENTS_GITHUB_TOKEN may lack the repo scope" in said
+    run_2 = [(r.method, r.path) for r in fake.requests[asked_before:]]
+    assert run_2 == [("GET", "/api/v3/user"), ("GET", "/api/v3/repos/octocat/agents-libary")]  # old key untouched
+    assert syncer.settings().remote == SSH_URL and installer.made_here(syncer, syncer.settings())
+
+
+@needs_ssh_keygen
+def test_a_key_github_still_refuses_names_the_old_repository_and_disconnect(fake, tmp_path, bare, monkeypatch,
+                                                                            scheduler):
+    syncer = first_github_run(fake, tmp_path, bare, monkeypatch)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [])  # not there any more, yet GitHub refuses it
+    script_other(fake, add_status=422)
+    result, said = run_step(syncer, assume_yes=True, environ={installer.REPO: OTHER, **IDENTITY})
+    assert (result["status"], result["reason"]) == ("attention", "key_in_use")
+    assert f"({REPOSITORY} had it last)" in said and "-m src.user_sync disconnect" in said
+    # The marker follows the settings, which name the new repository now: the next run may continue.
+    assert syncer.settings().remote == f"git@github.com:{OTHER}.git"
+    assert installer.made_here(syncer, syncer.settings())
+
+
+@needs_ssh_keygen
+def test_replacing_a_github_setup_without_the_api_makes_a_new_key(fake, tmp_path, bare, scheduler):
+    transport = Transport(tmp_path, bare, refuse={"github.com": REFUSED_KEY})
+    syncer = github_machine(fake, tmp_path, transport, visibility=lambda remote: "private")
+    save(syncer)
+    result, _ = run_step(syncer, assume_yes=True, environ={installer.REPO: REPOSITORY, **IDENTITY})
+    assert result["status"] == "waiting_for_access"
+    old_key = keys.public_key(syncer.state_dir)
+    result, said = run_step(syncer, assume_yes=True, environ={installer.REPO: OTHER, **IDENTITY})
+    new_key = keys.public_key(syncer.state_dir)
+    assert result["status"] == "waiting_for_access" and new_key and new_key != old_key and new_key in said
+    assert f"{REPOSITORY} may still hold the old one" in said
+    assert installer.made_here(syncer, syncer.settings())  # the marker follows the settings and the key
+    assert fake.requests == []  # no account: GitHub's API was never asked
+
+
+def test_a_refused_or_scopeless_token_names_the_variable_and_the_repo_scope(fake, tmp_path, bare):
+    syncer = github_machine(fake, tmp_path, Transport(tmp_path, bare))
+    fake.reply("GET", "/api/v3/user", 401, {"message": "Bad credentials"})
+    environ = {installer.REPO: REPOSITORY, **IDENTITY}
+    result, said = run_step(syncer, assume_yes=True, token=TOKEN, environ=environ)
+    assert result["reason"] == "auth" and "GitHub refused AGENTS_GITHUB_TOKEN: it is wrong" in said
+    assert "repo scope" in said and "reconnect" not in said
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})  # accepted, but it sees no private repository
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}", 404, {"message": "Not Found"})
+    result, said = run_step(syncer, assume_yes=True, token=TOKEN, environ=environ)
+    assert result["reason"] == "unknown_remote" and "AGENTS_GITHUB_TOKEN may lack the repo scope" in said
+    assert syncer.settings() is None
+    assert_secret_free(said)
+
+
+def test_setup_from_env_says_once_what_dotenv_set(tmp_path, bare, monkeypatch, capsys, scheduler):
+    root = tmp_path / "installation"
+    (root / ".env").write_text(f"{installer.REPO}={REPOSITORY}\n{installer.TOKEN}={TOKEN}\n")
+    monkeypatch.setattr(cli_module, "_load_env", REAL_LOAD_ENV)
+    for name in NAMES:  # load_dotenv writes os.environ: monkeypatch restores it
+        monkeypatch.setenv(name, "placeholder")
+        monkeypatch.delenv(name)
+    syncer = machine(tmp_path)
+    save(syncer)
+    monkeypatch.setattr(cli_module, "Syncer", lambda library, state: syncer)
+    for name, value in {installer.REMOTE: str(bare), **IDENTITY}.items():
+        monkeypatch.setenv(name, value)
+    assert cli(["installer", "--yes"], interactive=False) == 0
+    out = capsys.readouterr().out
+    assert out.count("Ignored in .env") == 1 and f"{installer.REPO}, {installer.TOKEN}" in out
+    assert "Sync started" in out and syncer.settings().remote == str(bare)
+    assert cli(["setup", "--from-env"]) == 0  # started: it reports the ignored values all the same
+    out = capsys.readouterr().out
+    assert out.count("Ignored in .env") == 1 and "nothing changed" in out
+    assert_secret_free(out)
+
+
+def pending_machine(tmp_path, remote, state=None, *, ours=False):
+    syncer = machine(tmp_path)
+    syncer.state_dir.mkdir(parents=True)
+    engine_module.Settings(remote=remote, name="Owner", email="owner@example.com",
+                           label="laptop").save(syncer.settings_path)
+    (syncer.state_dir / "id_ed25519.pub").write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPendingKey laptop\n")
+    if state is not None:
+        syncer.state_path.write_text(json.dumps(state))
+    if ours:
+        installer._mark(syncer)
+    return syncer
+
+
+@pytest.mark.parametrize("remote, state, ours, expected", [
+    ("git@git.example.com:me/library.git", None, True,
+     ["host key of git.example.com is not confirmed", "setup --from-env --trust-host-key SHA256:..."]),
+    ("git@git.example.com:me/library.git", None, False,
+     ["host key of git.example.com is not confirmed", "-m src.user_sync setup"]),
+    (None, {"state": "attention", "reason": "public_repo", "message": "could not confirm"}, True,
+     ["could not check that the repository is private", "setup --from-env --confirm-private"]),
+    (None, {"state": "offline", "reason": "network", "message": "Connection timed out"}, True,
+     ["could not be reached (Connection timed out)", "setup --from-env"]),
+    (None, {"state": "waiting_for_access", "reason": "auth", "access": "denied"}, True,
+     ["refuses this machine's key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPendingKey", "setup --from-env"]),
+    (None, {"state": "waiting_for_access", "access": "ok"}, True,
+     ["-m src.user_sync preview", "-m src.user_sync start --confirm HASH"]),
+    (None, None, False, ["To finish it", "-m src.user_sync setup"]),
+], ids=["host-key-env", "host-key-wizard", "privacy", "network", "deploy-key", "confirmation", "fresh"])
+def test_the_summary_of_a_pending_setup_names_the_next_step(tmp_path, bare, remote, state, ours, expected):
+    syncer = pending_machine(tmp_path, remote or str(bare), state, ours=ours)
+    said = []
+    assert installer.summary(syncer, say=said.append) == {"status": "pending"}
+    text = "\n".join(said)
+    assert "but not started yet" in text and all(piece in text for piece in expected), text
+    assert ("same AGENTS_USER_SYNC_* variables" in text) is (ours and "HASH" not in text)
+
+
+def test_commands_say_where_they_run_also_on_windows(monkeypatch):
+    root = str(installer.installation_root())
+    assert installer.command("src.user_sync", "status").startswith("cd ")
+    monkeypatch.setattr(installer, "_windows", lambda: True)
+    windows = installer.command("src.user_sync", "status")
+    assert windows.startswith(f"in {root}, run ") and windows.endswith(" -m src.user_sync status")
+    assert "&&" not in windows and "cd " not in windows  # cmd and PowerShell chain commands differently
+
+
+def test_loopback_calls_never_go_through_an_http_proxy(tmp_path):
+    """settings_page and the controller's requests carry the daemon's bearer token: never to a proxy."""
+    import socket
+    received = []
+    proxy = socket.socket()
+    proxy.bind(("127.0.0.1", 0))
+    proxy.listen(5)
+
+    def serve():
+        while True:
+            try:
+                connection, _ = proxy.accept()
+            except OSError:
+                return
+            received.append(connection.recv(65536))
+            connection.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            connection.close()
+    threading.Thread(target=serve, daemon=True).start()
+    directory = tmp_path / "service"
+    daemon = FakeDaemon(directory)
+    code = ("import sys\nfrom pathlib import Path\nfrom src.user_sync import installer\n"
+            "from src.daemon.control import Controller\n"
+            f"print(installer.settings_page(Path({str(directory)!r})))\n"
+            f"print(Controller(Path({str(directory)!r})).request('/health'))\n")
+    environment = {key: value for key, value in os.environ.items() if not key.lower().endswith("_proxy")}
+    address = f"http://127.0.0.1:{proxy.getsockname()[1]}"
+    environment.update(http_proxy=address, HTTP_PROXY=address, PYTHONPATH=str(ROOT))
+    try:
+        result = subprocess.run([sys.executable, "-c", code], env=environment, cwd=ROOT, capture_output=True,
+                                text=True, timeout=60, start_new_session=True)
+    finally:
+        daemon.close()
+        proxy.close()
+    port = daemon.server.server_address[1]
+    assert result.stdout.splitlines() == [f"http://127.0.0.1:{port}/ui#one-use", "{'state': 'ready'}"], result.stderr
+    assert received == []

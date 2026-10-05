@@ -76,17 +76,44 @@ def unix_section(source, *, children=False):
     return "".join(parts)
 
 
-def with_terminal(command, answer=b"", **options):
-    """Run ``command`` with a pseudo-terminal on stdin, typed ``answer`` already waiting in it."""
+def with_terminal(command, answer=b"", *, env, cwd, timeout=120):
+    """Run ``command`` in a new session, with a pseudo-terminal on stdin and the typed ``answer``
+    already waiting in it; the result as ``subprocess.run`` gives it, text decoded.
+
+    The new session has no controlling terminal of the developer's to prompt on. What the terminal
+    echoes is read while the command runs: on macOS a session leader cannot finish exiting while its
+    terminal holds output that nobody reads, and neither a timeout nor SIGKILL frees it.
+    """
     import pty
+    import select
+    import tempfile
+    import time
     controller, terminal = pty.openpty()
-    try:
-        if answer:
-            os.write(controller, answer)
-        return subprocess.run(command, stdin=terminal, capture_output=True, text=True, timeout=120, **options)
-    finally:
-        os.close(terminal)
-        os.close(controller)
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        try:
+            if answer:
+                os.write(controller, answer)
+            process = subprocess.Popen(command, stdin=terminal, stdout=out, stderr=err, env=env, cwd=cwd,
+                                       start_new_session=True)
+        finally:
+            os.close(terminal)
+        deadline = time.monotonic() + timeout
+        try:
+            while process.poll() is None:
+                if time.monotonic() > deadline:
+                    process.kill()
+                    raise AssertionError(f"{command} did not finish within {timeout} s")
+                if select.select([controller], [], [], 0.05)[0]:
+                    try:
+                        os.read(controller, 65536)
+                    except OSError:  # EIO: nothing holds the terminal any more (Linux)
+                        time.sleep(0.05)
+        finally:
+            os.close(controller)  # also lets a command stuck on its terminal finish exiting
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(command, process.returncode, out.read().decode("utf-8", "replace"),
+                                           err.read().decode("utf-8", "replace"))
 
 
 @pytest.fixture(params=["bash", "cmd"], ids=["unix", "windows"])
@@ -113,7 +140,8 @@ def sync_section(request, tmp_path):
     fake_bin.mkdir()
     for name in ("pip", "git", "python"):  # what a child of setup would see
         script = fake_bin / name
-        script.write_text(f'#!/bin/sh\necho "{name} ${{AGENTS_GITHUB_TOKEN:-none}}" >> "$CHILD_EVENTS"\n')
+        script.write_text(f'#!/bin/sh\necho "{name} ${{AGENTS_GITHUB_TOKEN:-none}} ${{sync_github_token:-none}}" '
+                          '>> "$CHILD_EVENTS"\n')
         script.chmod(0o755)
     env = dict(os.environ, REPO_ROOT=str(checkout), PYTHON_ABS=sys.executable, STUB_EVENTS=str(events),
                CHILD_EVENTS=str(children), PYTHONUTF8="1", RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="")
@@ -146,12 +174,13 @@ def sync_section(request, tmp_path):
         process_env = {**env, **(extra_env or {}), "STUB_EXIT": str(stub_exit)}
         if children_too:
             process_env["PATH"] = str(fake_bin) + os.pathsep + process_env["PATH"]
-        options = {"cwd": checkout, "env": process_env, "encoding": "utf-8", "errors": "replace"}
         command = command_for(children_too) + list(arguments)
         if terminal:
-            result = with_terminal(command, **options)
+            result = with_terminal(command, env=process_env, cwd=checkout)
         else:
-            result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, timeout=60, **options)
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
+                                    start_new_session=True, cwd=checkout, env=process_env, encoding="utf-8",
+                                    errors="replace")
         calls = [json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()] \
             if events.exists() else []
         seen = children.read_text(encoding="utf-8").splitlines() if children.exists() else []
@@ -193,17 +222,20 @@ def test_a_failing_step_never_fails_setup(sync_section):
     assert "FATAL" not in output and len(calls) == 2
 
 
-def test_only_the_step_sees_the_github_token(sync_section):
+@pytest.mark.parametrize("exported_copy", [False, True], ids=["plain", "caller-exports-the-copy-name"])
+def test_only_the_step_sees_the_github_token(sync_section, exported_copy):
     """Unix: the step's own command gets it as a prefix assignment; pip, git, the python helpers and
-    the summary never do. Windows: cmd cannot hide it from children, so nothing gets it."""
+    the summary never do, not even under the name of init_repo.sh's copy when the caller exported
+    that name. Windows: cmd cannot hide it from children, so nothing gets it."""
     run, kind, _ = sync_section
-    result, calls, seen = run("--yes", extra_env={"AGENTS_GITHUB_TOKEN": TOKEN}, children_too=kind == "bash")
+    extra = {"AGENTS_GITHUB_TOKEN": TOKEN, **({"sync_github_token": "the caller's own"} if exported_copy else {})}
+    result, calls, seen = run("--yes", extra_env=extra, children_too=kind == "bash")
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     tokens = {tuple(call["argv"]): call["token"] for call in calls}
     if kind == "bash":
         assert tokens == {("installer", "--yes"): TOKEN, ("installer", "--summary"): None}
-        assert sorted(seen) == ["git none", "pip none", "pip none", "python none"], seen
+        assert sorted(seen) == ["git none none", "pip none none", "pip none none", "python none none"], seen
     else:
         assert tokens == {("installer", "--yes"): None, ("installer", "--summary"): None}
         assert "AGENTS_GITHUB_TOKEN is not used here" in output and "setup --from-env" in output

@@ -300,6 +300,21 @@ AGENTS_GITHUB_TOKEN="$t" AGENTS_USER_SYNC_REPO=me/agents-library AGENTS_USER_SYN
 unset t
 ```
 
+In PowerShell on Windows, the token lives in the session's environment until you
+remove it:
+
+```powershell
+$secure = Read-Host -AsSecureString "GitHub token"
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:AGENTS_GITHUB_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+$env:AGENTS_USER_SYNC_REPO = "me/agents-library"
+$env:AGENTS_USER_SYNC_NAME = "My Name"
+$env:AGENTS_USER_SYNC_EMAIL = "me@example.com"
+.venv\Scripts\python.exe -m src.user_sync setup --from-env
+Remove-Item Env:AGENTS_GITHUB_TOKEN
+```
+
 The command takes the token out of its own environment before anything else, so
 none of its child processes (git, ssh, ssh-keygen) inherits it. When you give the
 token to the installers instead, `install.sh` passes it to `init_repo.sh` only,
@@ -317,7 +332,14 @@ or another host's key needs confirming, it says to run it again with
 `--confirm-private` or `--trust-host-key`. On a machine without the shared service
 it then turns background sync on (`schedule enable`, every 5 minutes). A second
 run with another repository replaces a setup that the variables made and that
-never started; once sync has started, they change nothing.
+never started, also one that stopped at a mistyped host; GitHub accepts a key on
+one repository only, so setup first removes this machine's deploy key from the
+old repository, or, without the API, gives this machine a new key and names the
+old repository to clean up. Once sync has started, the variables change nothing.
+A token GitHub refuses, or one that cannot see the repository, is reported with
+the variable's name and the `repo` scope it needs. The commands setup prints say
+where to run them: `cd <installation> && …` on macOS and Linux, `in <installation>,
+run …` on Windows, where cmd and PowerShell chain commands differently.
 
 GitHub sign-in in the wizard and on the Sync page is the OAuth device flow of the
 Agents-Core OAuth App, so `gh` is not needed. The app's client ID ships once the

@@ -25,8 +25,10 @@ main() {
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
           GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
     # A GitHub token for sync setup reaches init_repo.sh only, as a prefix assignment on its
-    # exec, never git or any other child: keep it in a variable that is not exported.
+    # exec, never git or any other child: keep it in a variable that is not exported (a local
+    # inherits the export attribute of a variable of the same name that the caller exported).
     local sync_github_token="${AGENTS_GITHUB_TOKEN:-}"
+    export -n sync_github_token
     unset AGENTS_GITHUB_TOKEN
 
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"

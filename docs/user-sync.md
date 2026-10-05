@@ -182,9 +182,14 @@ default, runs `schedule enable`. It asks nothing under `--yes` or `AGENTS_ASSUME
 (`install.sh` always passes `--yes`; on Windows `--yes` stops only this question), without a
 terminal (on Windows, a console that answers `GetConsoleMode`: `isatty` is true for NUL too), when
 sync is set up (it reports the state), when git 2.32 or newer or `ssh-keygen` is missing, or when
-the library has a `.git` that sync did not create, which it only reads. By itself the step writes
-nothing, and a failure never fails setup; a setup that did not start exits 1, so the installer
-warns. The daemon's `update` and `auto-update` do not run the installers.
+the library has a `.git` that sync did not create, which it only reads. By itself the step changes
+no settings, key or `.git`: it only holds the installation's session lease (`data/.sessions.lock`)
+while it runs and deletes a marker of setup from the environment that a disconnected setup left
+behind (see below). A failure never fails setup; a setup that did not start exits 1, so the
+installer warns. For a setup that has not started, the summary names where it stopped and the
+next step: confirming another host's key, confirming privacy, waiting for the network, adding the
+deploy key, or reviewing the preview and starting with its hash. The daemon's `update` and
+`auto-update` do not run the installers.
 
 ### Setup from the environment
 
@@ -217,8 +222,24 @@ AGENTS_GITHUB_TOKEN="$t" AGENTS_USER_SYNC_REPO=me/agents-library AGENTS_USER_SYN
 unset t
 ```
 
+In PowerShell, where the token lives in the session's environment until it is removed:
+
+```powershell
+$secure = Read-Host -AsSecureString "GitHub token"
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:AGENTS_GITHUB_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+$env:AGENTS_USER_SYNC_REPO = "me/agents-library"
+$env:AGENTS_USER_SYNC_NAME = "My Name"
+$env:AGENTS_USER_SYNC_EMAIL = "me@example.com"
+.venv\Scripts\python.exe -m src.user_sync setup --from-env
+Remove-Item Env:AGENTS_GITHUB_TOKEN
+```
+
 The token is checked with GitHub and kept in the secret store like a device-flow sign-in
-(`complete_sign_in`), and never printed. With it, or with an account connected earlier, setup adds
+(`complete_sign_in`), and never printed. A token GitHub refuses (wrong or expired), or one that
+cannot see the repository (a private repository needs the `repo` scope), is reported with the
+variable's name and that scope. With it, or with an account connected earlier, setup adds
 this machine's deploy key through the API; otherwise it prints the public key to add by hand and
 stops at `waiting_for_access`, and the installer's summary suggests running it again. Setup then
 checks access and privacy, prints the preview and starts sync, except that a join that keeps
@@ -226,14 +247,24 @@ conflicts stops at `confirmation_needed` with the `preview` and `start --confirm
 Where privacy cannot be checked, or another host's key needs confirming, it stops with the command
 to rerun with `--confirm-private` or `--trust-host-key`. On a machine without the daemon it then
 enables the scheduled run (`schedule enable`, every `fetch_minutes`, 5 by default) and says so.
-Every command it prints starts with `cd` to the installation, where `-m src…` works.
+`setup --from-env` and the step say once which of these variables `.env` set. The commands the
+step and setup print themselves say where to run them, since `-m src…` works only in the
+installation: `cd <installation> && …` on macOS and Linux, `in <installation>, run …` on Windows,
+where cmd and PowerShell chain commands differently. Commands quoted in the engine's own messages
+(`python -m src.user_sync …`) run there too.
 
 Running again with the same variables continues a setup that stopped. A setup that it made itself
 and that never started may be replaced by a run with another remote: `user-sync-from-env.json` in
 the sync state directory records its remote and this machine's public key, which `disconnect`
-deletes. Every other setup that has not started is refused, as is a library `.git` while sync has
-no settings here, even one left by an earlier sync; the message lists the ways out: finish it with
-the wizard, or `disconnect`, move the library's `.git` away and run again. Once sync has started it
+deletes. The marker is written whenever setup saved the settings, also when it stopped after that
+(a mistyped or unreachable host, a refused deploy key), and it follows the settings. GitHub accepts
+a key as the deploy key of one repository only: before the replacement on GitHub, this machine's
+deploy key is removed from the old repository through the API; without the API, or when that
+fails, this machine gets a new key pair, and setup names the old repository, which may still hold
+the old key. A key GitHub still refuses is reported with that repository and `disconnect`. Every
+other setup that has not started is refused, as is a library `.git` while sync has no settings
+here, even one left by an earlier sync; the message lists the ways out: finish it with the wizard,
+or `disconnect` (and move the library's `.git` away, when there is one) and run again. Once sync has started it
 changes nothing. The exit code is 1 when setup stopped, sync did not start (`offline`,
 `lock_held` and the like, reported as `attention` with that reason) or sync needs attention;
 waiting for the deploy key is not an error.
@@ -395,7 +426,8 @@ token storage and every API call against a fake GitHub on `127.0.0.1`, and
 and the wizard, with git going to a local bare repository through a fake SSH command.
 `tests/test_user_sync_install.py` covers the installers' step and setup from the environment: the
 question, the settings page on a fake daemon, background sync with a fake scheduler, the token
-kept from child processes, `.env` ignored, exit codes, reruns and replacing a setup. The real
+kept from child processes, `.env` ignored, exit codes, reruns, replacing a setup (a deploy key
+moved on a fake GitHub), the pending summary and loopback calls that skip an HTTP proxy. The real
 Keychain, Credential Manager and Secret Service are used only when `AGENTS_TEST_REAL_SECRET_STORE=1`.
 The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and
 macOS, and sets that variable on the Windows and macOS jobs.

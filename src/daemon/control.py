@@ -12,13 +12,15 @@ import subprocess
 import sys
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from src.file_lock import file_lock
 from src.model_migration import DEFAULT_MODEL, GENERATION
 from .state import state_dir, private_dir, read_json, write_json, atomic_private
 
 
+# The service is on loopback: no proxy from http_proxy ever sees a request or its bearer token.
+LOOPBACK = build_opener(ProxyHandler({}))
 # Models fastembed downloads into its Hugging Face cache, by cache directory.
 HF_CACHE_MODELS = {"intfloat/multilingual-e5-large": "models--qdrant--multilingual-e5-large-onnx"}
 
@@ -83,7 +85,7 @@ class Controller:
         request = Request(f"http://127.0.0.1:{self.config['port']}{path}", data=data, method=method,
                           headers=headers)
         try:
-            with urlopen(request, timeout=timeout) as response:
+            with LOOPBACK.open(request, timeout=timeout) as response:
                 value = json.load(response)
                 return (response.status, value) if status else value
         except HTTPError as error:

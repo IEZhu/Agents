@@ -40,8 +40,10 @@ def run_install(tmp_path, upstream, *args, extra_env=None, path=None):
     if path is not None:
         env["PATH"] = path
     (tmp_path / "home").mkdir(exist_ok=True)
-    return subprocess.run([BASH, str(ROOT / "install.sh"), *args], env=env,
-                          capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    # A new session has no controlling terminal: install.sh cannot prompt on /dev/tty, even when
+    # the test runs in a developer's terminal and a test leaves AGENTS_ASSUME_YES out.
+    return subprocess.run([BASH, str(ROOT / "install.sh"), *args], env=env, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, start_new_session=True, timeout=120)
 
 
 def test_fresh_clone_runs_init_with_yes(tmp_path, upstream):
@@ -155,7 +157,7 @@ def run_with_terminal(argv, env, typed: bytes, timeout=60):
     as a user's shell would: ``/dev/tty`` works, and ``typed`` waits in the terminal's input. A fresh,
     single-threaded Python forks it: forking this multi-threaded test process could deadlock."""
     result = subprocess.run([sys.executable, "-c", TERMINAL, json.dumps(argv), typed.decode(), str(timeout)],
-                            env=env, capture_output=True, text=True, timeout=timeout + 30)
+                            env=env, capture_output=True, text=True, timeout=timeout + 30, start_new_session=True)
     answer = json.loads(result.stdout)
     return answer["code"], answer["output"]
 
@@ -173,7 +175,8 @@ def library_git(checkout):
 
 
 TOKEN = "ghp_OneLinerToken0123456789abcdef"
-SYNC_VARIABLES = ("AGENTS_ASSUME_YES", "AGENTS_USER_SYNC_REPO", "AGENTS_USER_SYNC_REMOTE", "AGENTS_USER_SYNC_NAME",
+# Blanked so that the user's own never reach a test; AGENTS_ASSUME_YES stays, or install.sh would ask.
+SYNC_VARIABLES = ("AGENTS_USER_SYNC_REPO", "AGENTS_USER_SYNC_REMOTE", "AGENTS_USER_SYNC_NAME",
                   "AGENTS_USER_SYNC_EMAIL", "AGENTS_USER_SYNC_LABEL", "AGENTS_GITHUB_TOKEN")
 
 
@@ -212,7 +215,7 @@ def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_by
     git("commit", "-q", "-m", "more", cwd=sync_upstream)
     env = {key: value for key, value in os.environ.items()
            if key not in ("AGENTS_HOME", "GIT_DIR", "GIT_WORK_TREE", "PYTHONPATH")}
-    env.update(sync_env, HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(sync_upstream),
+    env.update(sync_env, AGENTS_ASSUME_YES="", HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(sync_upstream),
                AGENTS_USER_SYNC_REMOTE="git@git.example.com:me/library.git", AGENTS_USER_SYNC_NAME="Owner",
                AGENTS_USER_SYNC_EMAIL="owner@example.com", AGENTS_GITHUB_TOKEN=TOKEN)
     code, output = run_with_terminal([BASH, str(ROOT / "install.sh")], env, b"y\n")
@@ -225,26 +228,35 @@ def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_by
     assert not (tmp_path / "state").exists() and not (tmp_path / "service").exists()
 
 
-def test_install_sh_hands_the_github_token_to_init_repo_only_never_to_git(tmp_path, upstream):
+@pytest.mark.parametrize("exported_copy", [False, True], ids=["plain", "caller-exports-the-copy-name"])
+def test_install_sh_hands_the_github_token_to_init_repo_only_never_to_git(tmp_path, upstream, exported_copy):
+    """Also when the caller happens to export install.sh's own name for the copy: a local inherits
+    the export attribute, and without `export -n` its children would get the token under that name.
+    Dropped, they see the caller's own value, as before."""
     events = tmp_path / "git-events.txt"
     wrappers = tmp_path / "wrappers"
     wrappers.mkdir()
     wrapper = wrappers / "git"
-    wrapper.write_text(f'#!/bin/sh\necho "git ${{AGENTS_GITHUB_TOKEN:-none}}" >> "{events}"\n'
+    wrapper.write_text(f'#!/bin/sh\necho "git ${{AGENTS_GITHUB_TOKEN:-none}} ${{sync_github_token:-none}}" >> "{events}"\n'
                        f'exec {shutil.which("git")} "$@"\n')
     wrapper.chmod(0o755)
     stub = upstream / "scripts/init_repo.sh"
-    stub.write_text('#!/usr/bin/env bash\necho "init:$* token:${AGENTS_GITHUB_TOKEN:-none}" > "${0%/*}/../ran.txt"\n')
+    stub.write_text('#!/usr/bin/env bash\necho "init:$* token:${AGENTS_GITHUB_TOKEN:-none} '
+                    'copy:${sync_github_token:-none}" > "${0%/*}/../ran.txt"\n')
     git("add", "-A", cwd=upstream)
     git("commit", "-q", "-m", "stub", cwd=upstream)
     path = str(wrappers) + os.pathsep + os.environ["PATH"]
+    extra = {**{name: "" for name in SYNC_VARIABLES}, "AGENTS_GITHUB_TOKEN": TOKEN}
+    if exported_copy:
+        extra["sync_github_token"] = "the caller's own value"
+    copy = "the caller's own value" if exported_copy else "none"
     for attempt in ("clone", "update"):
-        result = run_install(tmp_path, upstream, path=path,
-                             extra_env={**{name: "" for name in SYNC_VARIABLES}, "AGENTS_GITHUB_TOKEN": TOKEN})
+        result = run_install(tmp_path, upstream, path=path, extra_env=extra)
         assert result.returncode == 0, result.stderr
-        assert (tmp_path / "home/.agents-core/ran.txt").read_text().strip() == f"init:--yes token:{TOKEN}"
+        ran = (tmp_path / "home/.agents-core/ran.txt").read_text().strip()
+        assert ran == f"init:--yes token:{TOKEN} copy:{copy}", ran
     lines = events.read_text().splitlines()
-    assert lines and set(lines) == {"git none"}
+    assert lines and set(lines) == {f"git none {copy}"}, lines
     assert TOKEN not in result.stdout + result.stderr
 
 

@@ -50,11 +50,12 @@ import shutil
 import subprocess
 import sys
 from typing import Callable, Iterable, Mapping, MutableMapping
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from src.user_sync import gitcmd, keys
 from src.user_sync.engine import (MANAGED_KEY, Settings, SyncError, Syncer, hosted_repository,
                                   installation_root, validate_identity)
+from src.user_sync.github import GitHubError
 from src.user_sync.gitcmd import Remote, RemoteError, parse_remote
 
 REPO = "AGENTS_USER_SYNC_REPO"
@@ -68,6 +69,8 @@ VARIABLES = (REPO, REMOTE, NAME, EMAIL, LABEL)
 PROMPT = "  Set up sync between your machines now? [y/N]: "
 MARKER = "user-sync-from-env.json"  # in the sync state directory: a setup that from_env made
 SYNC_PAGE = b"/ui/api/sync"  # the settings page's script calls it only where the Sync page exists
+# Loopback calls never go through a proxy from http_proxy: the daemon's bearer token stays here.
+_LOOPBACK = build_opener(ProxyHandler({}))
 _REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9._-]{1,100}")
 _STORES = {"macos-keychain": "the macOS Keychain", "secret-service": "the Secret Service",
            "windows-credential-manager": "the Windows Credential Manager",
@@ -137,17 +140,26 @@ def _python() -> str:
         return str(executable)
 
 
+def _windows() -> bool:
+    return os.name == "nt"
+
+
 def _quote(word: str) -> str:
-    if os.name == "nt":
+    if _windows():
         return f'"{word}"' if any(ch in word for ch in ' &()^%!;,=') else word
     return shlex.quote(word)
 
 
 def command(*arguments: str) -> str:
-    """``cd <installation> && <python> -m <arguments>``: ``-m src…`` works only in the installation."""
-    change = "cd /d" if os.name == "nt" else "cd"
+    """How to run ``<python> -m <arguments>``, which works only in the installation's root.
+
+    ``cd <root> && …`` on macOS and Linux; on Windows, where cmd and PowerShell differ in how
+    they chain commands, ``in <root>, run …``.
+    """
     words = " ".join(_quote(word) for word in (_python(), "-m", *arguments))
-    return f"{change} {_quote(str(installation_root()))} && {words}"
+    if _windows():
+        return f"in {installation_root()}, run {words}"
+    return f"cd {_quote(str(installation_root()))} && {words}"
 
 
 def daemon_directory() -> Path | None:
@@ -183,7 +195,7 @@ def settings_page(directory: Path) -> str | None:
         health = controller.request("/health", timeout=3)
         if not isinstance(health, dict) or health.get("state") != "ready":
             return None
-        with urlopen(Request(f"http://127.0.0.1:{port}/ui"), timeout=5) as response:
+        with _LOOPBACK.open(Request(f"http://127.0.0.1:{port}/ui"), timeout=5) as response:
             page = response.read(8 * 1024 * 1024)
         if SYNC_PAGE not in page:
             return None
@@ -262,8 +274,9 @@ def enable_background(syncer: Syncer, settings: Settings) -> dict:
 
 
 def _background_off(minutes: int) -> str:
-    return (f"Without background sync, this machine sends and receives changes only around its own saves "
-            f"and server starts. To sync every {minutes} minutes: " + command("src.user_sync", "schedule", "enable"))
+    return (f"Without background sync, this machine sends and receives changes only in the cycle that follows "
+            f"each save made through its stdio servers. To sync every {minutes} minutes: "
+            + command("src.user_sync", "schedule", "enable"))
 
 
 def _turn_background_on(syncer: Syncer, settings: Settings, say: Say) -> str | None:
@@ -410,7 +423,6 @@ def step(syncer: Syncer, *, assume_yes: bool, interactive: bool, ask: Ask, say: 
     and ``token`` the GitHub token; ``ignored`` names what ``.env`` set and does not count.
     """
     environ = {} if environ is None else environ
-    _ignored_note(ignored, say)
     settings = syncer.settings()
     if settings is None:
         _unmark(syncer)  # a marker without a setup is left from one that was disconnected
@@ -418,7 +430,9 @@ def step(syncer: Syncer, *, assume_yes: bool, interactive: bool, ask: Ask, say: 
     if requested(environ) and not started:
         variable = REPO if _value(environ, REPO) else REMOTE
         say(f"  Setting up sync between machines from {variable}; nothing is asked.")
-        return _guarded(say, lambda: from_env(syncer, say=say, environ=environ, token=token))
+        # from_env says what .env set and does not count
+        return _guarded(say, lambda: from_env(syncer, say=say, environ=environ, token=token, ignored=ignored))
+    _ignored_note(ignored, say)
     if token:
         say(f"  {TOKEN} was not used: " + ("sync is already set up." if requested(environ)
                                           else f"it counts only together with {REPO} or {REMOTE}."))
@@ -506,28 +520,76 @@ def summary(syncer: Syncer, *, say: Say) -> dict:
                 say(f"  Sync between machines is on. {_background_off(settings.fetch_minutes)}")
             say("")
             return {"status": "set_up", "background": found["by"]}
-        if settings is None:
-            problem = blocker(syncer)
-            if problem is not None:
-                say(f"  Sync between machines is off: {problem.message}.")
-                say("")
-                return {"status": "off", "reason": problem.reason}
-            say("  Sync between machines is off. To turn it on:")
-        else:
-            say("  Sync between machines is set up but not started yet. To finish it:")
-            if made_here(syncer, settings):
-                say(f"    {command('src.user_sync', 'setup', '--from-env')}")
-                say("      (again with the same AGENTS_USER_SYNC_* variables, once the deploy key is added)")
+        if settings is not None:
+            for line in pending_steps(syncer, settings):
+                say(line)
+            say("")
+            return {"status": "pending"}
+        problem = blocker(syncer)
+        if problem is not None:
+            say(f"  Sync between machines is off: {problem.message}.")
+            say("")
+            return {"status": "off", "reason": problem.reason}
+        say("  Sync between machines is off. To turn it on:")
         if daemon_directory() is not None:
             say(f"    {command('src.daemon', 'flows-ui')}   (the Sync page of the settings)")
         say(f"    {command('src.user_sync', 'setup')}   (step by step in a terminal)")
-        if settings is None:
-            say(f"  Without questions: set {REPO} or {REMOTE}, {NAME} and {EMAIL} in the environment of "
-                "that command with --from-env (docs/user-sync.md).")
+        say(f"  Without questions: set {REPO} or {REMOTE}, {NAME} and {EMAIL} in the environment of "
+            "that command with --from-env (docs/user-sync.md).")
         say("")
-        return {"status": "off" if settings is None else "set_up"}
+        return {"status": "off"}
     except Exception as error:  # a summary line is never worth a failed setup
         return {"status": "unknown", "message": _reason(error)}
+
+
+def pending_steps(syncer: Syncer, settings: Settings) -> list[str]:
+    """Where a setup that has not started stopped, and the next step for that reason.
+
+    Reads the settings, the state file and sync's ``known_hosts``; changes nothing.
+    """
+    state = _sync_state(syncer)
+    ours = made_here(syncer, settings)
+    where = _display(settings.remote, syncer.allow_file_remote)
+    wizard = command("src.user_sync", "setup")
+    again = command("src.user_sync", "setup", "--from-env") if ours else wizard
+    try:
+        remote = parse_remote(settings.remote, allow_file=syncer.allow_file_remote)
+    except RemoteError:
+        remote = None
+    lines = [f"  Sync between machines is set up for {where} but not started yet."]
+    if remote is not None and remote.kind == "ssh" and not keys.trusted_keys(syncer.known_hosts, remote.host,
+                                                                             remote.port):
+        if remote.host in ("github.com", gitcmd.GITHUB_443_HOST):
+            lines += ["  github.com's host keys, which setup reads from its API, could not be fetched. When "
+                      "github.com can be reached, run setup again:", f"    {again}"]
+        else:
+            confirm = command("src.user_sync", "setup", "--from-env", "--trust-host-key", "SHA256:...")
+            lines += [f"  The host key of {remote.host} is not confirmed yet. Compare the fingerprints setup "
+                      "shows with the ones the host publishes, then confirm the matching one:",
+                      f"    {confirm if ours else wizard}"]
+    elif state.get("reason") == "public_repo":
+        confirm = command("src.user_sync", "setup", "--from-env", "--confirm-private")
+        lines += [f"  Sync could not check that the repository is private ({state.get('message')}). Make it "
+                  "private, or confirm that only you can read it:", f"    {confirm if ours else wizard}"]
+    elif state.get("state") == "offline":
+        lines += [f"  The remote could not be reached ({state.get('message')}). When it can, run setup again:",
+                  f"    {again}"]
+    elif state.get("access") == "denied" or state.get("reason") == "auth":
+        public = keys.public_key(syncer.state_dir)
+        lines += [f"  The remote refuses this machine's key. Add it to {where} as a deploy key with write "
+                  "access, then run setup again:", *([f"    {public}"] if public else []), f"    {again}"]
+    elif state.get("access") == "ok":
+        lines += ["  Access works. Review the preview, then start sync with the hash it prints:",
+                  f"    {command('src.user_sync', 'preview')}",
+                  f"    {command('src.user_sync', 'start', '--confirm', 'HASH')}"]
+        ours = False  # nothing to run again with the variables
+    else:
+        lines += ["  To finish it:", f"    {again}"]
+    if ours:
+        lines.append("  Setup from the environment needs the same AGENTS_USER_SYNC_* variables again.")
+    if daemon_directory() is not None:
+        lines.append(f"  Or finish it on the Sync page of the settings: {command('src.daemon', 'flows-ui')}")
+    return lines
 
 
 # --- setup from the environment -----------------------------------------------------------
@@ -549,7 +611,15 @@ def _github_api(syncer: Syncer, token: str | None, say: Say) -> bool:
     """Sign in with ``token`` when there is one; True when the GitHub API can be used."""
     account = syncer.github_account()
     if token:
-        status = account.complete_sign_in(token)  # GitHub checks it first; nothing is kept if refused
+        try:
+            status = account.complete_sign_in(token)  # GitHub checks it first; nothing is kept if refused
+        except GitHubError as error:
+            if error.code not in ("auth", "forbidden"):
+                raise
+            detail = f" ({error.message})" if error.code == "forbidden" else ""
+            raise SyncError("auth", f"GitHub refused {TOKEN}{detail}: it is wrong or has expired. Give it a token "
+                                    "with the repo scope, which a private repository needs, and run setup "
+                                    "again") from None
         storage = _STORES.get(status.get("storage"), status.get("storage"))
         say(f"  Signed in to {status['host']} as {status['login']} with {TOKEN}; the token is kept in {storage}.")
         if status.get("warning"):
@@ -564,10 +634,70 @@ def _github_api(syncer: Syncer, token: str | None, say: Say) -> bool:
     return False
 
 
+def _old_repository(syncer: Syncer, existing: Settings, host: str) -> str | None:
+    """``owner/name`` of the replaced setup's repository when it is on the GitHub host, else None."""
+    try:
+        return hosted_repository(parse_remote(existing.remote, allow_file=syncer.allow_file_remote), host)
+    except RemoteError:
+        return None
+
+
+def _new_key(syncer: Syncer, old: str, say: Say) -> None:
+    """Delete this machine's key pair, so that setup makes a new one that GitHub does not know yet."""
+    private = keys.key_path(syncer.state_dir)
+    for path in (private, private.with_suffix(".pub")):
+        path.unlink(missing_ok=True)
+    say(f"  This machine gets a new key: GitHub accepts a key on one repository only, and {old} may still "
+        "hold the old one as a deploy key; remove it there (Settings > Deploy keys).")
+
+
+def _free_the_key(syncer: Syncer, old: str, new: str, api: bool, say: Say) -> None:
+    """Before a replaced setup's key goes to ``new``: take it off ``old``, or make a new key pair.
+
+    GitHub refuses a deploy key that another repository has. With the API, this machine's key is
+    removed from the old repository; without it, or when that fails, the key pair is replaced.
+    """
+    public = keys.public_key(syncer.state_dir)
+    if public is None or old.lower() == new.lower():
+        return
+    if api:
+        try:
+            client = syncer.github_client()
+            found = client.find_deploy_key(old, public)
+            if found is not None:
+                client.delete_deploy_key(old, found.id)
+                say(f"  Removed this machine's deploy key from {old}, so that {new} can have it.")
+            return
+        except (GitHubError, SyncError) as error:
+            say(f"  This machine's deploy key could not be removed from {old}: {_reason(error)}")
+    _new_key(syncer, old, say)
+
+
+def _with_scope_hint(error: SyncError, token: str | None) -> SyncError:
+    """``error``, saying that a token from the environment may lack the repo scope when GitHub showed
+    no such repository."""
+    if error.reason != "unknown_remote" or not token:
+        return error
+    return SyncError(error.reason, f"{error.message}. If it exists, {TOKEN} may lack the repo scope it needs "
+                                   "to see a private repository")
+
+
+def _require_private(syncer: Syncer, repository: str, token: str | None) -> None:
+    """Refuse a repository that GitHub does not show, or that is not private, as setup_github would."""
+    try:
+        syncer.github_client().require_private(repository)
+    except GitHubError as error:
+        if error.code != "not_found":
+            raise
+        raise _with_scope_hint(SyncError("unknown_remote", f"{repository} does not exist, or this account cannot "
+                                                           "see it"), token) from None
+
+
 def _clear_the_way(syncer: Syncer) -> str:
+    dot_git = syncer.library / ".git"
+    move = f", move {dot_git} away" if dot_git.exists() or dot_git.is_symlink() else ""
     return (f"finish it with the wizard ({command('src.user_sync', 'setup')}), or remove it "
-            f"({command('src.user_sync', 'disconnect')}), move {syncer.library / '.git'} away and run setup "
-            "from the environment again")
+            f"({command('src.user_sync', 'disconnect')}){move} and run setup from the environment again")
 
 
 def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = None, token: str | None = None,
@@ -576,11 +706,12 @@ def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = No
     """Set sync up from ``AGENTS_USER_SYNC_*`` without a question; see the module docstring.
 
     ``environ`` holds the variables as the process environment gave them, ``token`` the GitHub
-    token, both from ``take_environment``. Raises ``SyncError`` (and ``GitHubError``) when setup
-    cannot go on.
+    token, both from ``take_environment``; ``ignored`` names what ``.env`` set. Raises
+    ``SyncError`` (and ``GitHubError``) when setup cannot go on.
     """
     environ = {} if environ is None else environ
     ignored = list(ignored)
+    _ignored_note(ignored, say)
     existing = syncer.settings()
     if existing is None:
         _unmark(syncer)
@@ -615,7 +746,9 @@ def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = No
     host = syncer.github_account().host
     repository = repo or (hosted_repository(target, host) if target is not None else None)
     ours = existing is not None and made_here(syncer, existing)
-    if existing is not None and not _same_target(existing, repository, remote, host, syncer.allow_file_remote):
+    replacing = existing is not None and not _same_target(existing, repository, remote, host,
+                                                          syncer.allow_file_remote)
+    if replacing:
         if not ours:
             raise SyncError("connected", f"sync is set up for {_display(existing.remote, syncer.allow_file_remote)} "
                                          f"but not started, and not from the environment; {_clear_the_way(syncer)}")
@@ -632,22 +765,46 @@ def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = No
     options = {"name": name, "email": email, "label": label, "branch": branch, "trust_host_key": trust_host_key,
                "ask_new_repositories": ask_new_repositories}
     mark = existing is None or ours
-    if repository is not None and _github_api(syncer, token, say):
-        result = syncer.setup_github(repository, **options)
-        for line in result.get("steps", []):
-            say(f"  - {line}")
-        if confirm_private and result.get("status") != "host_key_unconfirmed":
-            # GitHub's API normally answers; this keeps an owner's confirmation for when it cannot.
-            syncer.setup(remote=syncer.settings().remote, confirm_private=True, **options)
-        manual = False
-    else:
-        if token and repository is None:
-            say(f"  {TOKEN} is used only for a repository on {host}; it was not stored.")
-        url = remote or f"git@{host.split(':')[0]}:{repository}.git"
-        result = syncer.setup(remote=url, confirm_private=confirm_private, **options)
-        manual = True
-    if mark:
-        _mark(syncer)
+    old = _old_repository(syncer, existing, host) if replacing else None
+    try:
+        api = repository is not None and _github_api(syncer, token, say)
+        if old is not None and repository is not None:
+            if api:  # the new repository first: a mistyped name must not cost the old one its key
+                _require_private(syncer, repository, token)
+            _free_the_key(syncer, old, repository, api, say)
+        if api:
+            try:
+                result = syncer.setup_github(repository, **options)
+            except GitHubError as error:
+                if error.code != "exists":
+                    raise
+                holder = f" ({old} had it last)" if old else ""
+                raise SyncError("key_in_use", f"GitHub refuses this machine's key for {repository}: another "
+                                              f"repository still has it as a deploy key{holder}. Remove it there "
+                                              f"(Settings > Deploy keys) and run setup again, or "
+                                              f"{_clear_the_way(syncer)}") from None
+            except SyncError as error:
+                raise _with_scope_hint(error, token) from None
+            for line in result.get("steps", []):
+                say(f"  - {line}")
+            if confirm_private and result.get("status") != "host_key_unconfirmed":
+                # GitHub's API normally answers; this keeps an owner's confirmation for when it cannot.
+                syncer.setup(remote=syncer.settings().remote, confirm_private=True, **options)
+            manual = False
+        else:
+            if token and repository is None:
+                say(f"  {TOKEN} is used only for a repository on {host}; it was not stored.")
+            url = remote or f"git@{host.split(':')[0]}:{repository}.git"
+            result = syncer.setup(remote=url, confirm_private=confirm_private, **options)
+            manual = True
+    finally:
+        # Setup saves the settings before it trusts the host, makes the repository and adds the key:
+        # whatever stopped it after that, the next run may still replace this setup.
+        if mark and syncer.settings() is not None:
+            try:
+                _mark(syncer)
+            except OSError:
+                pass
     where = repository or (target.display if target is not None else "the repository")
     if result.get("status") == "host_key_unconfirmed":
         say(f"  {result['host']} offers these host keys; compare them with the fingerprints the host publishes:")
