@@ -194,6 +194,26 @@ def _write_private(path: Path, data: bytes) -> None:
     os.replace(stream.name, path)
 
 
+_RETRY_DELAY = 0.05
+
+
+def _sharing_violation(error: OSError) -> bool:
+    """Windows refuses to replace or delete a file that another process holds open."""
+    return getattr(error, "winerror", None) in (5, 32)  # access denied, sharing violation
+
+
+def _retrying(action, *args):
+    """``action(*args)``; a Windows sharing violation is retried four times with a growing delay,
+    because a reader of the library holds a file open only for a moment."""
+    for attempt in range(5):
+        try:
+            return action(*args)
+        except OSError as error:
+            if attempt == 4 or not _sharing_violation(error):
+                raise
+            time.sleep(_RETRY_DELAY * 2 ** attempt)
+
+
 def _read_json(path: Path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -1215,8 +1235,11 @@ class Syncer:
         New archives and conflict records go first, including those the exclusions keep on this
         machine only; a failure stops before any other file changes. A held, blocked or outside
         file, or one that changed since the snapshot, stays as it is; its path goes to
-        ``held_remote`` and the next cycle reconciles it as a conflict. Paths sync never handles are
-        neither written nor deleted.
+        ``held_remote`` and the next cycle reconciles it as a conflict. A file this run could not
+        write or delete (Windows refuses while a reader holds it open; that is retried briefly
+        first) is held as well, and ``failed_writes`` keeps its local blob: this run already
+        settled its text, so the next cycle finishes it without a conflict. Paths sync never
+        handles are neither written nor deleted.
         """
         snap, old, new = plan.snapshot, plan.desired, plan.target
         for path, data in sorted(plan.generated.items()):
@@ -1227,6 +1250,7 @@ class Syncer:
         rules = self._rules_for(new, lambda blob: self._read_blobs(git, [blob])[blob],
                                 plan.held_groups, plan.held_files)
         held_remote = set(state.get("held_remote", []))
+        failed_writes = dict(state.get("failed_writes", {}))
         paths = [p for p in changed_paths(old, new) if p not in plan.generated and scope.groups(p) is not None]
         wanted = [new[p] for p in paths if isinstance(new.get(p), str)]
         sizes = self._blob_sizes(git, wanted)
@@ -1243,19 +1267,21 @@ class Syncer:
             if target is None or self._current_blob(target) != local:
                 held_remote.add(path)
                 continue
-            if after is None:
-                if rules.reason(path) is None and local is not None:
-                    target.unlink()
-                    deleted.append(path)
+            if after is None and (rules.reason(path) is not None or local is None):
                 continue
             try:
-                user_library.atomic_write(target, contents[after])
+                if after is None:
+                    _retrying(target.unlink)
+                else:
+                    _retrying(user_library.atomic_write, target, contents[after])
             except OSError as error:
-                self._log(f"could not write {path}: {error}")
+                self._log(f"could not {'delete' if after is None else 'write'} {path}: {error}")
                 held_remote.add(path)
+                failed_writes[path] = local
                 continue
-            written.append(path)
+            (deleted if after is None else written).append(path)
         state["held_remote"] = sorted(held_remote)
+        state["failed_writes"] = {p: blob for p, blob in failed_writes.items() if p in held_remote}
         return {"written": written, "deleted": deleted}
 
     def _safe_target(self, path: str) -> Path | None:
@@ -1299,10 +1325,13 @@ class Syncer:
 
         Once such a file can be committed, the committed version (the remote's) goes to the working
         tree and the local text is kept like any losing version, with a conflict record. The kept
-        copy and the record are written first; the file is replaced only after both exist.
+        copy and the record are written first; the file is replaced only after both exist. A file
+        that is still what an earlier run failed to write over (``failed_writes``) was settled by
+        that run: the committed version, or its absence, replaces it without a record.
         Returns True when files were written, so the caller reads the library again.
         """
         remaining, wrote, failed = [], False, []
+        failed_writes = dict(state.get("failed_writes", {}))
         snap, now = plan.snapshot, self._clock()
         for path in state.get("held_remote", []):
             committed = plan.current.get(path)
@@ -1310,21 +1339,25 @@ class Syncer:
                 remaining.append(path)
                 continue
             local = snap.files.get(path)
-            if committed is None or local == committed:
+            settled = path in failed_writes and failed_writes[path] == local
+            if local == committed or (committed is None and not settled):
                 continue  # nothing to reconcile: the local file or its absence simply wins or matches
             target = self._safe_target(path)
-            if target is None or self._blob_sizes(git, [committed]).get(committed, 0) > MAX_FILE_BYTES:
+            if target is None or (committed is not None
+                                  and self._blob_sizes(git, [committed]).get(committed, 0) > MAX_FILE_BYTES):
                 remaining.append(path)  # never written here; the committed version stays in the tree
                 continue
-            if local is None:
-                details, kept = {"deleted_on": "local"}, {}
-                record = merging.conflict_record(path, "deletion_undone", "remote", label=settings.label,
-                                                 now=now, local_blob=None, remote_blob=committed, **details)
-            else:
-                details, kept = merging.keep_local(path, target.read_bytes(), now)
-                record = merging.conflict_record(path, "both_changed", "remote", label=settings.label,
-                                                 now=now, local_blob=local, remote_blob=committed, **details)
-            kept.update([merging.record_file(record)])
+            kept = {}
+            if not settled:
+                if local is None:
+                    details, kept = {"deleted_on": "local"}, {}
+                    record = merging.conflict_record(path, "deletion_undone", "remote", label=settings.label,
+                                                     now=now, local_blob=None, remote_blob=committed, **details)
+                else:
+                    details, kept = merging.keep_local(path, target.read_bytes(), now)
+                    record = merging.conflict_record(path, "both_changed", "remote", label=settings.label,
+                                                     now=now, local_blob=local, remote_blob=committed, **details)
+                kept.update([merging.record_file(record)])
             try:
                 for name, data in kept.items():
                     destination = self._safe_target(name)
@@ -1336,7 +1369,11 @@ class Syncer:
                 if self._current_blob(target) != local:  # edited meanwhile without the lock: keep it held
                     remaining.append(path)
                     continue
-                user_library.atomic_write(target, self._read_blobs(git, [committed])[committed])
+                failed_writes[path] = local  # the local text is kept now; only the replacement is left
+                if committed is None:
+                    _retrying(target.unlink)
+                else:
+                    _retrying(user_library.atomic_write, target, self._read_blobs(git, [committed])[committed])
             except OSError as error:
                 self._log(f"could not reconcile {path}: {error}")
                 remaining.append(path)
@@ -1344,6 +1381,7 @@ class Syncer:
                 continue
             wrote = True
         state["held_remote"], state["reconcile_failed"] = remaining, failed
+        state["failed_writes"] = {p: blob for p, blob in failed_writes.items() if p in remaining}
         return wrote
 
     # --- the cycle --------------------------------------------------------------------

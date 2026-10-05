@@ -1281,6 +1281,97 @@ def test_a_cycle_that_stops_half_way_does_not_duplicate_its_conflict(pair, monke
     assert b.text("common/shared.md") == "# Shared\n\nA\n"
 
 
+def sharing_violation(path) -> PermissionError:
+    """What Windows raises when a file another process holds open is replaced or deleted."""
+    error = PermissionError(13, "The process cannot access the file", str(path))
+    error.winerror = 32
+    return error
+
+
+def held_open(monkeypatch, paths, times=None):
+    """Writes and deletions of ``paths`` fail as on Windows, ``times`` times or until undone."""
+    real_write, real_unlink, failures = user_library.atomic_write, Path.unlink, []
+
+    def fail(path) -> bool:
+        if Path(path) in paths and (times is None or len(failures) < times):
+            failures.append(path)
+            return True
+        return False
+
+    def write(path, data):
+        if fail(path):
+            raise sharing_violation(path)
+        return real_write(path, data)
+
+    def unlink(path, *args, **kwargs):
+        if fail(path):
+            raise sharing_violation(path)
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(engine_module, "_RETRY_DELAY", 0)
+    monkeypatch.setattr(user_library, "atomic_write", write)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    return failures
+
+
+def test_a_file_a_reader_holds_open_for_a_moment_is_written_on_a_retry(pair, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom B\n")
+    b.run()
+    failures = held_open(monkeypatch, {a.lib / "common" / "shared.md"}, times=2)
+    assert a.run()["status"] == "synced"
+    assert len(failures) == 2 and a.text("common/shared.md") == "# Shared\n\nfrom B\n"
+    assert records(a) == [] and a.sync._state()["held_remote"] == []
+
+
+def test_files_a_reader_keeps_open_are_written_next_cycle_without_conflicts(pair, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom B\n")
+    b.save("user:fresh", "# Fresh\n")
+    b.run()
+    held_open(monkeypatch, {a.lib / "common" / name for name in ("shared.md", "fresh.md")})
+    assert a.run()["status"] == "synced"
+    assert a.text("common/shared.md") == "# Shared\n\nfirst text\n"
+    assert not (a.lib / "common" / "fresh.md").exists()
+    monkeypatch.undo()
+    a.run()
+    assert a.text("common/shared.md") == "# Shared\n\nfrom B\n" and a.text("common/fresh.md") == "# Fresh\n"
+    assert records(a) == [] and a.sync._state()["failed_writes"] == {}
+    b.run()
+    assert b.text("common/shared.md") == "# Shared\n\nfrom B\n" and records(b) == []
+
+
+def test_a_deletion_a_reader_keeps_open_is_finished_next_cycle(pair, monkeypatch):
+    a, b = pair
+    a.save("user:gone", "# Gone\n")
+    a.run()
+    b.run()
+    b.flows.delete("user:gone", expected_revision=b.revision("user:gone"))
+    b.run()
+    held_open(monkeypatch, {a.lib / "common" / "gone.md"})
+    assert a.run()["status"] == "synced"
+    assert a.text("common/gone.md") == "# Gone\n"
+    monkeypatch.undo()
+    a.run()
+    assert not (a.lib / "common" / "gone.md").exists() and records(a) == []
+    assert "common/gone.md" not in remote_files(a.remote)
+
+
+def test_a_lost_version_whose_replacement_failed_is_kept_once(pair, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nB\n")
+    b.run()
+    a.save("user:shared", "# Shared\n\nA\n")
+    held_open(monkeypatch, {a.lib / "common" / "shared.md"})
+    a.run()
+    assert a.text("common/shared.md") == "# Shared\n\nA\n"
+    monkeypatch.undo()
+    a.run()
+    assert a.text("common/shared.md") == "# Shared\n\nB\n"
+    [record] = records(a)
+    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nA\n"
+
+
 def test_text_changed_between_reading_and_merging_is_never_uploaded(pair, monkeypatch):
     a, b = pair
     a.save("user:shared", "# Shared\n\nA edit\n")

@@ -89,7 +89,9 @@ never reaches the remote in any commit.
    build the commit. Writers wait only for these local steps, never for the network. A file whose
    bytes changed since sync read it, for example an edit that bypassed the lock, is never replaced:
    it stays, and the next cycle reconciles it as a conflict, again keeping the local text before
-   it writes the other version.
+   it writes the other version. Windows refuses to replace or delete a file another process holds
+   open; sync retries for a moment, and otherwise finishes that file in the next cycle without a
+   conflict, since its local text was already settled.
 3. `git push`, without any lock. A non-fast-forward rejection starts again, at most three times.
 
 One syncer runs per library: `.git/agents-sync.lock` is taken without waiting, and a second
