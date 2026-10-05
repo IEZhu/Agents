@@ -143,6 +143,11 @@ class FakeOS:
         return 0, self.tasks[name].decode("utf-16").encode(self.query_encoding), b""
 
 
+
+# systemd runs on Linux only; on a Windows host the temporary paths hold backslashes, which the
+# unit-file checks rightly refuse.
+posix_paths = pytest.mark.skipif(os.name == "nt", reason="systemd unit paths are POSIX paths")
+
 @pytest.fixture
 def host(tmp_path, monkeypatch):
     """An installation, an interpreter and sync directories in paths with spaces, a fake OS and a home of its own."""
@@ -349,6 +354,7 @@ def exec_argv(value):
     return [program, *(argument.replace("$$", "$") for argument in arguments)]
 
 
+@posix_paths
 def test_systemd_timer_runs_one_cycle_in_the_installation_root(host):
     report = on("linux", host)
     units = host.options["systemd_dir"]
@@ -392,6 +398,7 @@ def test_systemd_refuses_a_directory_the_unit_file_parser_would_change(host, tmp
     assert not host.options["systemd_dir"].exists()
 
 
+@posix_paths
 def test_systemd_enabled_twice_is_one_timer_and_disable_leaves_nothing(host):
     on("linux", host, "enable", 5)
     report = on("linux", host, "enable", 10)
@@ -406,6 +413,7 @@ def test_systemd_enabled_twice_is_one_timer_and_disable_leaves_nothing(host):
     assert host.fake.units == {} and host.fake.enabled == host.fake.active == set()
 
 
+@posix_paths
 def test_systemd_enable_that_fails_leaves_no_units(host):
     host.fake.fail.append(("systemctl", "enable"))
     with pytest.raises(RuntimeError, match="systemctl --user enable"):
@@ -414,6 +422,7 @@ def test_systemd_enable_that_fails_leaves_no_units(host):
     assert host.fake.units == {}
 
 
+@posix_paths
 def test_systemd_reenable_that_fails_restores_the_running_timer(host):
     on("linux", host, "enable", 5)
     timer = f"{host.name}.timer"
@@ -577,6 +586,7 @@ def test_linux_without_systemd_or_crontab_says_so(host):
     assert on("linux", host, "disable")["scheduled"] is False
 
 
+@posix_paths
 def test_linux_moves_between_cron_and_systemd_without_leaving_the_other_job(host):
     units = host.options["systemd_dir"]
     host.fake.bus = False
@@ -591,6 +601,7 @@ def test_linux_moves_between_cron_and_systemd_without_leaving_the_other_job(host
     assert host.fake.table is None and host.fake.active == set()
 
 
+@posix_paths
 def test_linux_tries_every_removal_and_reports_each_failure(host):
     host.fake.bus = False
     on("linux", host)
