@@ -6,6 +6,7 @@
     python -m src.user_sync resolve <conflict id> keep|mine|dismiss
     python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--allow-secret PATH] …
     python -m src.user_sync configure [--fetch-minutes N] [--[no-]ask-new-repositories]
+    python -m src.user_sync history export [--repo PATH] [--confirm HASH]
 
 Every command accepts ``--json`` for machine-readable output. The exit code is 0 unless sync
 needs attention, a command failed, or the arguments were wrong (2).
@@ -78,6 +79,13 @@ def _parser() -> argparse.ArgumentParser:
     command("pause", "pause sync on this machine")
     command("resume", "resume sync on this machine")
     command("disconnect", "stop syncing on this machine; files and .git stay")
+    history = commands.add_parser("history", help="share a repository's history.md with your other machines")
+    history_commands = history.add_subparsers(dest="history_command", required=True)
+    export = history_commands.add_parser(
+        "export", help="add the entries written before sync started to this machine's history in the library")
+    export.add_argument("--json", action="store_true", help="print JSON")
+    export.add_argument("--repo", metavar="PATH", help="the repository root (default: the current directory)")
+    export.add_argument("--confirm", metavar="HASH", help="the preview's hash")
     return parser
 
 
@@ -106,6 +114,10 @@ def _execute(syncer: Syncer, arguments) -> dict | list:
     if name == "configure":
         return syncer.configure(fetch_minutes=arguments.fetch_minutes,
                                 ask_new_repositories=arguments.ask_new_repositories)
+    if name == "history":
+        from src.user_sync import history
+        return history.backfill(arguments.repo or ".", state_dir=syncer.state_dir, library=arguments.library,
+                                confirm=arguments.confirm)
     if name == "scope":
         changes = dict(exclude=arguments.exclude, include=arguments.include,
                        exclude_files=arguments.exclude_file, include_files=arguments.include_file,
@@ -133,10 +145,15 @@ def _print(result, command: str) -> None:
     print(line)
     if result.get("message"):
         print(f"  {result['message']}")
-    for key in ("remote", "label", "last_success", "retry_at", "pending", "conflicts", "head"):
+    for key in ("remote", "repo", "label", "last_success", "retry_at", "pending", "conflicts", "head",
+                "entries", "present"):
         value = result.get(key)
         if value not in (None, [], 0, "") and not isinstance(value, list):
             print(f"  {key}: {value}")
+    for month in result.get("months", []):
+        print(f"    {month['month']}: {month['entries']} entries")
+    for reason, count in (result.get("skipped") or {}).items():
+        print(f"  {count} entries stay on this machine ({reason})")
     if result.get("public_key"):
         print(f"  public key: {result['public_key']}")
     for fingerprint in result.get("fingerprints", []):

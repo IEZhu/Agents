@@ -1,7 +1,7 @@
 # Agents-Core Memory Subsystem: `describe` + `history.md`
 
 > Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
-> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), the `write_repo_summary` fallback, persona attribution in `log_interaction` and sidecar locks. The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
+> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), the `write_repo_summary` fallback, persona attribution in `log_interaction`, sidecar locks and the history merged across machines through user library sync (#172). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
 
 > **Update 2026-04-15 (post-implementation):** The standalone `record_history` MCP tool was merged
 > into `log_interaction`. Now `log_interaction(...)` always appends to `history.md` (with optional
@@ -30,7 +30,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 | Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. `src/server.py` wraps the call in `_sample_with_agent`; since protocol 1 was removed (#101), `describe_repo` is its only caller and persona routing never samples. A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
 | `history.md` location | **Repo root; ignored in the Agents-Core checkout only** | The file stays next to the code as local per-repo memory. Agents-Core's own `.gitignore` excludes `history.md` and `history/`, but nothing adds these entries to a client project. By default the log stores raw prompts and responses, so add both entries to the client's ignore rules unless the team wants a versioned log. |
 | History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
-| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and refreshed when the SHA-256 of `history.md` plus the embedding configuration fingerprint differs from the stored `.history_fingerprint`, or the store file is missing. The fingerprint names the snapshot directory the process loaded the model from (`model_fingerprint()` in `src/engine/embedder.py`; `AGENTS_MODEL_ARTIFACT` takes precedence), not a snapshot another process downloaded later. A search checks the index, returns no results for a missing or empty history without loading the model, and checks the index again when the model it loaded has a different fingerprint than the one the index was checked against. When one cache directory matches the model, the fingerprint equals the one read from the cache refs, so existing markers stay valid. While the fingerprint is unchanged, the refresh reuses the stored vector of every entry whose id and document are unchanged and embeds only new or edited entries; a changed fingerprint, a missing marker or a missing store file re-embeds every entry. Reused vectors are read from the store file the marker describes, not from a copy another process may have replaced. Documents are embedded in batches of `EMBEDDING_BATCH_SIZE` (default 4), which bounds inference memory. The index is keyed by workspace and kept outside the client repository (see [service memory behavior](shared-mcp-daemon.md#memory-and-errors)). |
+| Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and refreshed when the SHA-256 of `history.md` plus the embedding configuration fingerprint differs from the stored `.history_fingerprint`, or the store file is missing. The fingerprint names the snapshot directory the process loaded the model from (`model_fingerprint()` in `src/engine/embedder.py`; `AGENTS_MODEL_ARTIFACT` takes precedence), not a snapshot another process downloaded later. A search checks the index, returns no results for a missing or empty history without loading the model, and checks the index again when the model it loaded has a different fingerprint than the one the index was checked against. When one cache directory matches the model, the fingerprint equals the one read from the cache refs, so existing markers stay valid. While the fingerprint is unchanged, the refresh reuses the stored vector of every entry whose id and document are unchanged and embeds only new or edited entries; a changed fingerprint, a missing marker or a missing store file re-embeds every entry. Reused vectors are read from the store file the marker describes, not from a copy another process may have replaced. Documents are embedded in batches of `EMBEDDING_BATCH_SIZE` (default 4), which bounds inference memory. The index is keyed by workspace and kept outside the client repository (see [service memory behavior](shared-mcp-daemon.md#memory-and-errors)). With user library sync, the index covers the history merged across machines and its hash covers every file of it, which are read under the shared history lock before any embedding. |
 
 ### Prior Art Comparison
 
@@ -94,16 +94,20 @@ log_interaction(..., intent, action, outcome, files?, tags?)
   ├─ format markdown entry
   ├─ sidecar lock + fcntl.flock (POSIX) + append to history.md
   ├─ maybe_rotate() if file > 512 KB → archive to history/YYYY-MM.md
+  ├─ with user library sync: after the locks are released, copy the entry to this
+  │    machine's segment in the library (src/user_sync/history.py)
   └─ return {status:"recorded", entry_id, path}
 
-read_history(limit=20, since?, query?)
+read_history(limit=20, since?, query?, machine?)
+  ├─ with user library sync for this repository: entries = history.md + history/*.md
+  │    + the other machines' segments, a union by entry hash (this machine's copy wins)
   ├─ if query:
-  │    ├─ HistoryStore.ensure_index()        # lazy: refresh when history.md content or the
-  │    │                                     # embedding fingerprint changes; embeds only new
-  │    │                                     # or edited entries unless the fingerprint changed
-  │    └─ semantic search via NumpyVectorStore + embedder
+  │    ├─ HistoryStore.ensure_index()        # lazy: refresh when the content of the history
+  │    │                                     # files or the embedding fingerprint changes; embeds
+  │    │                                     # only new or edited entries unless the fingerprint changed
+  │    └─ semantic search via NumpyVectorStore + embedder, filtered by machine
   └─ else:
-       └─ HistoryReader.read_recent()        # parse bottom-up, filter by since
+       └─ HistoryReader.read_recent()        # filter by machine and since, newest first
 ```
 
 ### 3.2 Module Layout
@@ -212,7 +216,8 @@ Entry template:
 - `entry_id` (12-hex suffix in the heading) is the first 12 hex digits of `sha256(intent + "\x1f" + action + "\x1f" + outcome)`, computed over the stripped UTF-8 fields. Stable, deduplicated.
 - Dedup: scan the last 50 entries by id before append. Duplicates short-circuit.
 - Append-only. Past entries are never edited or deleted.
-- Writes take a stable sidecar lock next to the target: `.history.md.lock` for history appends and index rebuilds, `.CLAUDE.md.lock` for managed-section writes, and `.agents-description.lock` in the described `repo_path` for summary writes. Each is an OS lock on a lock file that persists in the client repository and serializes concurrent sessions across processes: `flock` on POSIX, `LockFileEx` on Windows. On a Windows file system without byte-range locks, such as some network shares, the lock is in memory and serializes only threads within one process. History appends also hold a process-wide mutex and `fcntl.flock` on `history.md` itself.
+- Writes take a stable sidecar lock next to the target: `.history.md.lock` for history appends and index rebuilds, `.CLAUDE.md.lock` for managed-section writes, and `.agents-description.lock` in the described `repo_path` for summary writes. Each is an OS lock on a lock file that persists in the client repository and serializes concurrent sessions across processes: `flock` on POSIX, `LockFileEx` on Windows. On a Windows file system without byte-range locks, such as some network shares, the lock is in memory and serializes only threads within one process. History appends also hold a process-wide mutex and `fcntl.flock` on `history.md` itself. Readers take `.history.md.lock` shared, so they never see a rotation half way and never keep `history.md` open while rotation moves it (which fails on Windows).
+- With user library sync, an appended entry is also copied to `repos/<key>/history/<label>/<YYYY-MM>.md` in the library, with one more field line, `**Machine:** <label>`; the heading and hash stay the same. The parser ignores unknown fields and reads this one into the entry's `machine`. The copy takes the library lock only after the history lock is released. See [Repository history](user-sync.md#repository-history).
 - Rotation: when `os.path.getsize > 512 KB` — move file to `history/YYYY-MM.md` (month from the last entry's timestamp), create a fresh `history.md` with a header pointing to the archive.
 - UTF-8, `\n` line endings.
 - `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
@@ -301,18 +306,21 @@ async def read_history(
     limit: int = 20,
     since: str | None = None,
     query: str | None = None,
+    machine: str | None = None,
     ctx: Context | None = None,
 ) -> str:
     """Read recent entries (limit/since) or run a lazy semantic search (query).
-    limit is clamped to 1–500.
+    limit is clamped to 1–500. With user library sync, entries of the user's
+    other machines for this repository are merged in, one per entry hash;
+    machine keeps one machine label's entries, or `local` this machine's own.
 
     Returns JSON: {entries: [...], total, mode}.
     mode ∈ {"recency", "semantic"}.
     A missing or invalid workspace, or any failure, returns {status, error}.
 
-    Entry shape depends on mode:
-    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
-    - semantic: {id, distance, document, timestamp, intent, tags}.
+    Entry shape depends on mode (machine is null for this machine's entries):
+    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
+    - semantic: {id, distance, document, timestamp, intent, tags, machine}.
     """
 ```
 

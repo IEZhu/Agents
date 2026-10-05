@@ -901,6 +901,19 @@ def _workspace_report(client, root: Path) -> dict:
     return report
 
 
+def install_history_sync() -> None:
+    """Share each repository's history with the user's other machines through user library sync.
+
+    Called when a server starts, not on import, so tools that tests call
+    directly never reach this machine's sync settings or library.
+    """
+    try:
+        from src.user_sync import history as history_sync
+        history_sync.install()
+    except Exception:
+        logger.warning("History sync between machines is unavailable", exc_info=True)
+
+
 def _short_action(value: str) -> str:
     text = " ".join(str(value).split())
     return text if len(text) <= 64 else text[:64] + "…"
@@ -1231,6 +1244,7 @@ async def read_history(
     limit: int = 20,
     since: ta.opt_str("Optional ISO8601 prefix; only entries at or after it.") = None,
     query: ta.opt_str("Optional text to search the history for.") = None,
+    machine: ta.opt_str("Optional machine label, or `local` for this machine's own entries.") = None,
     ctx: Context | None = None,
 ) -> str:
     """Read recent history entries or run a lazy semantic search.
@@ -1242,15 +1256,19 @@ async def read_history(
       when the content of history.md or the embedding configuration changes),
       then returns semantically nearest entries with cosine distance.
 
+    With user library sync, entries of the user's other machines for this
+    repository are merged in, one per entry hash; ``machine`` keeps one
+    machine label's entries, or ``local`` this machine's own.
+
     Returns JSON:
       {entries: [...], total, mode, workspace: {root, source}, pid,
        history_last_error?}
       mode ∈ {"recency", "semantic"}. history_last_error ({code, errno, path,
       at}) is present only after a history write failed.
 
-    Entry shape depends on mode:
-    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata}.
-    - semantic: {id, distance, document, timestamp, intent, tags}.
+    Entry shape depends on mode (machine: null for this machine's entries):
+    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
+    - semantic: {id, distance, document, timestamp, intent, tags, machine}.
     """
     try:
         client = client_context(ctx)
@@ -1258,7 +1276,8 @@ async def read_history(
         workspace_report = _workspace_report(client, root)
         limit = max(1, min(limit, 500))
         query = (query or "").strip() or None
-        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query})
+        machine = (machine or "").strip() or None
+        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query, "machine": machine})
         loop = asyncio.get_running_loop()
 
         if query:
@@ -1269,14 +1288,14 @@ async def read_history(
 
             def search():
                 with _history_stores.acquire(client) as store:
-                    return store.search(query, limit=limit)
+                    return store.search(query, limit=limit, machine=machine)
             results = await loop.run_in_executor(None, search)
             payload = {"mode": "semantic", "total": len(results), "entries": results}
         else:
-            reader = HistoryReader(str(root / "history.md"))
+            reader = HistoryReader(str(root / "history.md"), str(root / "history"))
             entries = await loop.run_in_executor(
                 None,
-                lambda: reader.read_recent(limit=limit, since=since),
+                lambda: reader.read_recent(limit=limit, since=since, machine=machine),
             )
             payload = {
                 "mode": "recency",
@@ -1450,6 +1469,7 @@ if __name__ == "__main__":
     # embedding model and rules load in one daemon thread (src/engine/readiness.py).
     logger.info("Starting pid=%d cwd=%s", os.getpid(), os.getcwd())
     readiness.start()
+    install_history_sync()
     # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
     # prepare the next update — fetch + build the new version's indexes in an
     # isolated git worktree and write a marker — so the next idle start activates

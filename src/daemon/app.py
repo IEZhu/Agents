@@ -39,6 +39,7 @@ def load_runtime(port):
     server.mcp.settings.stateless_http = True
     server.mcp.settings.json_response = True
     server.mcp.remove_tool("clear_session_cache")
+    server.install_history_sync()
     return server.mcp, server
 
 

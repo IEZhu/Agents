@@ -8,6 +8,7 @@ on:
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
+      - src/memory/history.py
       - tests/test_user_sync*.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
@@ -19,6 +20,7 @@ on:
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
+      - src/memory/history.py
       - tests/test_user_sync*.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml

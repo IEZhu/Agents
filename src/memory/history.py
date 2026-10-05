@@ -16,6 +16,12 @@ Three classes:
   or edited entries while the fingerprint is unchanged. The embedder is
   imported lazily so ``HistoryWriter``/``HistoryReader`` users never pay the
   numpy cost.
+
+With the user library sync installed (``set_sync``; the MCP servers do it at
+startup), each appended entry is also offered to the sync, and reads merge this
+machine's journal (``history.md`` and ``history/*.md``) with the other
+machines' entries for the same repository (``src/user_sync/history.py``).
+This module never imports the sync itself.
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ import re
 import shutil
 import threading
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.memory import config as _memory_config
 from src.memory.config import (
@@ -76,11 +82,17 @@ _HEADER_RE = re.compile(
     re.MULTILINE,
 )
 _FIELD_RE = re.compile(r"^\*\*(?P<name>[A-Za-z]+):\*\*\s*(?P<value>.*)$")
+# Monthly archives that rotation writes into history/.
+_ARCHIVE_NAME = re.compile(r"[0-9]{4}-[0-9]{2}\.md")
 
 
 @dataclass
 class HistoryEntry:
-    """In-memory representation of a single history entry."""
+    """In-memory representation of a single history entry.
+
+    ``machine`` is the label of the machine that wrote it: None for this
+    machine's own entries, set for other machines' entries in a merged read.
+    """
     id: str
     timestamp: str
     intent: str
@@ -89,9 +101,176 @@ class HistoryEntry:
     files: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
     metadata: Optional[Dict[str, Any]] = None
+    machine: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+def _sidecar(history_path: str) -> str:
+    """The stable lock file of a history file (``.history.md.lock`` beside it)."""
+    return os.path.join(os.path.dirname(history_path), "." + os.path.basename(history_path) + ".lock")
+
+
+@contextlib.contextmanager
+def _reading(history_path: str):
+    """The history lock, shared. Readers take it so a rotation is never seen half way and,
+    on Windows, never fails on a file a reader holds open; a reader that may not open the
+    lock file (a read-only checkout) reads without it, as before."""
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(file_lock(_sidecar(history_path), shared=True))
+        except OSError:
+            pass
+        yield
+
+
+def _archive_names(archive_dir: str) -> List[str]:
+    try:
+        return sorted(name for name in os.listdir(archive_dir) if _ARCHIVE_NAME.fullmatch(name))
+    except OSError:
+        return []
+
+
+# --- Sync with the user's other machines (optional) -------------------------
+
+@dataclass(frozen=True)
+class MachineHistory:
+    """Other machines' history of one repository, as the user library sync finds it.
+
+    ``label`` names this machine; ``files`` holds ``(label, path)`` of the other
+    machines' history segments for the same repository.
+    """
+    label: str
+    files: Tuple[Tuple[str, str], ...] = ()
+
+
+_sync = None
+
+
+def set_sync(integration):
+    """Install the user library sync integration, or remove it with None; returns the previous one.
+
+    ``integration.exported(history_path, block)`` is called after each append,
+    once every history lock is released; ``integration.machines(history_path)``
+    returns a ``MachineHistory``, or None while the repository's history does
+    not take part in sync. Without an integration the history is this
+    machine's journal only. ``src.user_sync.history.install`` sets it.
+    """
+    global _sync
+    previous, _sync = _sync, integration
+    return previous
+
+
+def _machine_history(history_path: str) -> Optional[MachineHistory]:
+    integration = _sync
+    if integration is None:
+        return None
+    try:
+        return integration.machines(history_path)
+    except Exception:
+        logger.warning("could not list other machines' history for %s", history_path, exc_info=True)
+        return None
+
+
+def _exported(history_path: str, block: str) -> None:
+    """Offer an appended entry to the sync; its failure never fails the append."""
+    integration = _sync
+    if integration is None:
+        return
+    try:
+        integration.exported(history_path, block)
+    except Exception:
+        logger.warning("could not share a history entry of %s", history_path, exc_info=True)
+
+
+def entry_blocks(content: str) -> List[Tuple[HistoryEntry, str]]:
+    """Each entry of ``content`` with its block: the heading and its field lines.
+
+    Text between entries that is not a field (an archive's separator or
+    header) is left out, so a block holds exactly what the writer rendered.
+    """
+    out: List[Tuple[HistoryEntry, str]] = []
+    positions = [m.start() for m in _HEADER_RE.finditer(content)]
+    positions.append(len(content))
+    for start, end in zip(positions, positions[1:]):
+        lines = content[start:end].splitlines()
+        entry = HistoryReader._parse_block(content[start:end])
+        if entry is None:
+            continue
+        kept = [lines[0].rstrip()] + [line.rstrip() for line in lines[1:] if _FIELD_RE.match(line)]
+        out.append((entry, "\n".join(kept)))
+    return out
+
+
+def history_files(
+    history_path: str,
+    archive_dir: Optional[str] = None,
+    machines: Optional[MachineHistory] = None,
+) -> List[Tuple[Optional[str], str, str]]:
+    """``(machine, path, text)`` of every file of the merged history.
+
+    This machine's files come first, with machine None: the monthly archives,
+    a rotation an interruption left pending, then ``history.md``; they are read
+    under a shared history lock, so a concurrent rotation is never seen half
+    way. The caller must not hold that lock. Other machines' segments follow
+    in the order of ``machines.files``; they need no lock, because the sync
+    replaces whole files. Missing or unreadable segments are skipped.
+    """
+    archive_dir = archive_dir or os.path.join(os.path.dirname(history_path), "history")
+    pending = history_path + ".rotating"
+    out: List[Tuple[Optional[str], str, str]] = []
+    # A repository without any history gets no lock file from a read.
+    if os.path.exists(history_path) or os.path.exists(pending) or _archive_names(archive_dir):
+        with _reading(history_path):
+            names = _archive_names(archive_dir)  # again under the lock: rotation may have added one
+            for path in [os.path.join(archive_dir, name) for name in names] + [pending, history_path]:
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                        text = fh.read()
+                except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+                    continue
+                if text:
+                    out.append((None, path, text))
+    for label, path in (machines.files if machines else ()):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        if text:
+            out.append((label, path, text))
+    return out
+
+
+def merge_entries(files) -> List[HistoryEntry]:
+    """A union by entry id of ``(machine, path, text)`` files, oldest first.
+
+    This machine's copy (machine None) wins over another machine's; between
+    copies from the same side, the later one wins.
+    """
+    chosen: Dict[str, HistoryEntry] = {}
+    for machine, _path, text in files:
+        for entry in HistoryReader._parse(text):
+            entry.machine = machine
+            current = chosen.get(entry.id)
+            if current is None:
+                chosen[entry.id] = entry
+            elif (current.machine is None) != (entry.machine is None):
+                if entry.machine is None:
+                    chosen[entry.id] = entry
+            elif entry.timestamp > current.timestamp:
+                chosen[entry.id] = entry
+    return sorted(chosen.values(), key=lambda e: (e.timestamp, e.id))
+
+
+def _wanted_machine(machine: Optional[str], machines: Optional[MachineHistory]):
+    """``(filter on, wanted machine value)``: ``local`` and this machine's label mean None."""
+    machine = (machine or "").strip()
+    if not machine:
+        return False, None
+    own = machines.label if machines else None
+    return True, None if machine in ("local", own) else machine
 
 
 # --- Writer ------------------------------------------------------------------
@@ -147,8 +326,7 @@ class HistoryWriter:
         # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
         # attached to the same repo) cannot interleave and corrupt the file.
         rotated_to: Optional[str] = None
-        lock_path = os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")
-        with _WRITE_LOCK, file_lock(lock_path):
+        with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
             with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
                 try:
                     _lock_exclusive(fh)
@@ -188,6 +366,10 @@ class HistoryWriter:
                 if key not in _ROTATION_WARNED:
                     _ROTATION_WARNED.add(key)
                     logger.warning("history rotation failed for %s: %s", self.history_path, err)
+
+        # Outside every history lock: the sync takes the library lock, which a
+        # sync run holds for its local steps, and must never wait while holding ours.
+        _exported(self.history_path, block)
 
         result: Dict[str, Any] = {
             "status": "recorded",
@@ -420,24 +602,52 @@ class HistoryWriter:
 class HistoryReader:
     """Parses ``history.md`` and serves recency/since/tag queries."""
 
-    def __init__(self, history_path: Optional[str] = None):
+    def __init__(self, history_path: Optional[str] = None, archive_dir: Optional[str] = None):
         self.history_path = history_path or _memory_config.HISTORY_FILE
+        self.archive_dir = archive_dir or os.path.join(os.path.dirname(self.history_path), "history")
 
     def read_all(self) -> List[HistoryEntry]:
+        """The entries of ``history.md`` alone, in file order.
+
+        Reads under the shared history lock (``_reading``).
+        """
         if not os.path.exists(self.history_path):
             return []
-        with open(self.history_path, "r", encoding="utf-8") as fh:
-            content = fh.read()
+        with _reading(self.history_path):
+            return self._read_unlocked()
+
+    def _read_unlocked(self) -> List[HistoryEntry]:
+        """``read_all`` for a caller that already holds the history lock."""
+        try:
+            with open(self.history_path, "r", encoding="utf-8") as fh:
+                content = fh.read()
+        except FileNotFoundError:
+            return []
         return self._parse(content)
+
+    def read_merged(self, machines: MachineHistory) -> List[HistoryEntry]:
+        """This machine's journal with its archives, and the other machines' entries; see ``merge_entries``."""
+        return merge_entries(history_files(self.history_path, self.archive_dir, machines))
 
     def read_recent(
         self,
         limit: int = 20,
         since: Optional[str] = None,
+        machine: Optional[str] = None,
     ) -> List[HistoryEntry]:
-        """Newest-first list, optionally filtered by ``since`` (ISO timestamp prefix)."""
+        """Newest-first list, optionally filtered by ``since`` (ISO timestamp prefix).
+
+        With the user library sync set up for this repository, the list is the
+        merged history of every machine; otherwise ``history.md`` alone.
+        ``machine`` keeps only the entries of one machine label, or with
+        ``local`` (or this machine's label) only this machine's own entries.
+        """
         limit = max(1, limit) if limit > 0 else 20
-        entries = self.read_all()
+        machines = _machine_history(self.history_path)
+        entries = self.read_all() if machines is None else self.read_merged(machines)
+        active, wanted = _wanted_machine(machine, machines)
+        if active:
+            entries = [e for e in entries if e.machine == wanted]
         entries.sort(key=lambda e: e.timestamp, reverse=True)
         if since:
             entries = [e for e in entries if e.timestamp >= since]
@@ -497,6 +707,8 @@ class HistoryReader:
             files=files,
             tags=tags,
             metadata=metadata,
+            # Only a synced segment carries it; a merged read sets it from the file instead.
+            machine=fields.get("machine") or None,
         )
 
 
@@ -506,7 +718,9 @@ class HistoryStore:
     """Lazy semantic recall over history entries.
 
     Wrapping ``NumpyVectorStore`` so callers don't pay numpy/embedder import
-    costs unless they actually run a semantic query.
+    costs unless they actually run a semantic query. With the user library
+    sync set up for the repository, the index covers the merged history of
+    every machine (see ``HistoryReader.read_recent``).
     """
 
     def __init__(
@@ -514,10 +728,12 @@ class HistoryStore:
         history_path: Optional[str] = None,
         data_dir: Optional[str] = None,
         store_name: str = HISTORY_VECTOR_STORE_NAME,
+        archive_dir: Optional[str] = None,
     ):
         self.history_path = history_path or _memory_config.HISTORY_FILE
         self.data_dir = data_dir or _memory_config.MEMORY_DATA_DIR
         self.store_name = store_name
+        self.archive_dir = archive_dir or os.path.join(os.path.dirname(self.history_path), "history")
         self._store = None  # lazy
         self._index_lock = threading.RLock()
 
@@ -528,17 +744,20 @@ class HistoryStore:
         limit: int = 5,
         embed_query=None,
         embed_texts=None,
+        machine: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return top-``limit`` entries with semantic distance.
 
         ``embed_query`` / ``embed_texts`` are injectable so tests can swap in
         deterministic fakes; production callers leave them None and the
-        FastEmbed-backed defaults are loaded lazily.
+        FastEmbed-backed defaults are loaded lazily. ``machine`` filters as in
+        ``HistoryReader.read_recent``.
         """
         from src.engine.embedder import model_fingerprint
         with self._index_lock:
+            machines = _machine_history(self.history_path)
             checked = model_fingerprint()
-            store = self.ensure_index(embed_texts=embed_texts)
+            store = self._ensure(machines, embed_texts)
             if store.count() == 0:
                 return []
             if embed_query is None:
@@ -548,13 +767,16 @@ class HistoryStore:
             if model_fingerprint() != checked:
                 # Loading the model changed the fingerprint the index was
                 # checked against: check it again for the loaded snapshot.
-                store = self.ensure_index(embed_texts=embed_texts)
+                store = self._ensure(machines, embed_texts)
                 if store.count() == 0:
                     return []
-            result = store.query(vec, n_results=limit)
+            active, wanted = _wanted_machine(machine, machines)
+            result = store.query(vec, n_results=store.count() if active else limit)
             out: List[Dict[str, Any]] = []
             for i, eid in enumerate(result.ids):
                 meta = result.metadatas[i] or {}
+                if active and meta.get("machine") != wanted:
+                    continue
                 out.append({
                     "id": eid,
                     "distance": float(result.distances[i]),
@@ -562,7 +784,10 @@ class HistoryStore:
                     "timestamp": meta.get("timestamp", ""),
                     "intent": meta.get("intent", ""),
                     "tags": meta.get("tags", []),
+                    "machine": meta.get("machine"),
                 })
+                if len(out) >= limit:
+                    break
             return out
 
     def ensure_index(self, embed_texts=None):
@@ -572,7 +797,8 @@ class HistoryStore:
         the loaded model (``src.engine.embedder.model_fingerprint``: model,
         revision, index schema, preprocessing, fastembed version), compared with
         ``.history_fingerprint`` in ``data_dir``; a missing index file also
-        triggers a rebuild.
+        triggers a rebuild. For a merged history, the first part hashes every
+        file of it instead (``history_files``).
 
         Thread-safe: serialized via ``_index_lock`` so concurrent
         ``read_history(query=...)`` calls don't race on rebuild.
@@ -580,9 +806,16 @@ class HistoryStore:
         Returns the underlying ``NumpyVectorStore``.
         """
         with self._index_lock:
+            return self._ensure(_machine_history(self.history_path), embed_texts)
+
+    # ------------------------------------------------------------------ helpers
+    def _ensure(self, machines: Optional[MachineHistory], embed_texts=None):
+        with self._index_lock:
             from src.engine.vector_store import NumpyVectorStore  # heavy import — defer
             if self._store is None:
                 self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
+            if machines is not None:
+                return self._ensure_merged(machines, embed_texts)
 
             # If the history file was deleted/moved, clear the store so semantic
             # search doesn't return stale entries.
@@ -593,45 +826,82 @@ class HistoryStore:
                 return self._store
 
             from src.engine.embedder import model_fingerprint
-            from src.daemon.state import atomic_private
-            with file_lock(os.path.join(os.path.dirname(self.history_path), "." + os.path.basename(self.history_path) + ".lock")):
+            with file_lock(_sidecar(self.history_path)):
                 # Content-based invalidation catches edits that preserve mtimes.
                 with open(self.history_path, "rb") as source:
                     digest = hashlib.sha256(source.read()).hexdigest() + ":" + model_fingerprint()
-                marker = os.path.join(self.data_dir, ".history_fingerprint")
-                try:
-                    with open(marker) as stream: saved = stream.read()
-                except FileNotFoundError:
-                    saved = None
-                if saved != digest or not os.path.exists(os.path.join(self.data_dir, f"{self.store_name}.npz")):
-                    # Stored vectors stay valid only for the embedding
-                    # configuration that produced them.
-                    reuse = saved is not None and saved.partition(":")[2] == digest.partition(":")[2]
-                    if reuse:
-                        # Reuse the vectors this marker describes: another
-                        # process may have rewritten the store since it loaded.
-                        self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
-                    if saved is not None:
-                        # A rebuild that saves the store but dies before the
-                        # new marker must not leave the old marker vouching
-                        # for vectors from another configuration.
-                        with contextlib.suppress(FileNotFoundError):
-                            os.remove(marker)
-                    self._rebuild(embed_texts=embed_texts, reuse_vectors=reuse)
-                    atomic_private(marker, digest)
+                self._refresh(digest, embed_texts)
             return self._store
 
-    # ------------------------------------------------------------------ helpers
-    def _rebuild(self, embed_texts=None, reuse_vectors: bool = False) -> None:
+    def _ensure_merged(self, machines: MachineHistory, embed_texts=None):
+        """The index of the merged history; embeds only entries it has not embedded yet.
+
+        The files are read once, under a shared history lock that is released
+        before any embedding, so appends never wait for the model; the digest
+        and the entries come from the same reading.
+        """
+        files = history_files(self.history_path, self.archive_dir, machines)
+        if not files:
+            if self._store.count() > 0:
+                self._store.clear()
+                self._store.save()
+            # Content that comes back must be indexed again, not matched with an empty store.
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(os.path.join(self.data_dir, ".history_fingerprint"))
+            return self._store
+        from src.engine.embedder import model_fingerprint
+        digest = hashlib.sha256(b"merged history\0")
+        for machine, path, text in files:
+            digest.update(f"{machine or ''}\0{os.path.basename(path)}\0".encode("utf-8"))
+            digest.update(hashlib.sha256(text.encode("utf-8")).digest())
+        # Rebuilds of one index from several processes take turns, as under the history lock.
+        with file_lock(os.path.join(self.data_dir, f".{self.store_name}.lock")):
+            self._refresh(digest.hexdigest() + ":" + model_fingerprint(), embed_texts,
+                          load=lambda: merge_entries(files))
+        return self._store
+
+    def _refresh(self, digest: str, embed_texts=None, load=None) -> None:
+        """Rebuild the index unless ``.history_fingerprint`` already vouches for ``digest``.
+
+        ``load`` returns the entries to index (default: those of ``history.md``);
+        it runs only when a rebuild is needed.
+        """
+        from src.engine.vector_store import NumpyVectorStore
+        from src.daemon.state import atomic_private
+        marker = os.path.join(self.data_dir, ".history_fingerprint")
+        try:
+            with open(marker) as stream: saved = stream.read()
+        except FileNotFoundError:
+            saved = None
+        if saved != digest or not os.path.exists(os.path.join(self.data_dir, f"{self.store_name}.npz")):
+            # Stored vectors stay valid only for the embedding
+            # configuration that produced them.
+            reuse = saved is not None and saved.partition(":")[2] == digest.partition(":")[2]
+            if reuse:
+                # Reuse the vectors this marker describes: another
+                # process may have rewritten the store since it loaded.
+                self._store = NumpyVectorStore(name=self.store_name, data_dir=self.data_dir)
+            if saved is not None:
+                # A rebuild that saves the store but dies before the
+                # new marker must not leave the old marker vouching
+                # for vectors from another configuration.
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(marker)
+            self._rebuild(embed_texts=embed_texts, reuse_vectors=reuse, entries=load() if load else None)
+            atomic_private(marker, digest)
+
+    def _rebuild(self, embed_texts=None, reuse_vectors: bool = False,
+                 entries: Optional[List[HistoryEntry]] = None) -> None:
         """Replace the index with every current entry.
 
-        With *reuse_vectors*, an entry whose id and formatted document are
-        already stored keeps its vector, so only new or edited entries are
-        embedded; the caller passes it only when the stored vectors come from
-        the current embedding fingerprint.
+        ``entries`` defaults to those of ``history.md``; a merged history
+        passes its own, already one per id. With *reuse_vectors*, an entry
+        whose id and formatted document are already stored keeps its vector,
+        so only new or edited entries are embedded; the caller passes it only
+        when the stored vectors come from the current embedding fingerprint.
         """
-        reader = HistoryReader(self.history_path)
-        entries = reader.read_all()
+        if entries is None:  # the caller holds the history lock
+            entries = HistoryReader(self.history_path)._read_unlocked()
         if not entries:
             self._store.clear()
             self._store.save()
@@ -668,6 +938,7 @@ class HistoryStore:
                 "intent": e.intent,
                 "tags": e.tags,
                 "files": e.files,
+                "machine": e.machine,
             }
             for e in entries
         ]
@@ -698,4 +969,9 @@ __all__ = [
     "HistoryReader",
     "HistoryStore",
     "HistoryWriter",
+    "MachineHistory",
+    "entry_blocks",
+    "history_files",
+    "merge_entries",
+    "set_sync",
 ]

@@ -1,6 +1,7 @@
 # User library sync
 
-Status: the engine and its command line are implemented (#165). The daemon loop (#167), scheduled
+Status: the engine and its command line are implemented (#165), and so is the merge of each
+repository's history across machines (#172, [Repository history](#repository-history)). The daemon loop (#167), scheduled
 runs and the terminal wizard (#168), GitHub sign-in (#166), the web UI (#170) and installer
 integration (#171) are separate parts of the [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
@@ -29,6 +30,7 @@ python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-reposit
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]
+python -m src.user_sync history export [--repo PATH] [--confirm HASH]
 ```
 
 Each command takes `--json`. `--state DIR` and `--library DIR` before the command name the private
@@ -49,7 +51,7 @@ history there: one root commit with the current files, so old commits never trav
 | Synced by default | Never synced |
 |---|---|
 | `common/**` (personal flows), `personas/**`, `components.json`, `.history/**` | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
-| `repos/<key>/**` for keys derived from an `origin`, with their personas and history | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
+| `repos/<key>/**` for keys derived from an `origin`, with their personas, flow history and [repository history](#repository-history) | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
 Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
@@ -73,6 +75,52 @@ Files that sync never handles but finds in the remote (a `README.md` added in Gi
 directory a newer version syncs) stay in the repository as they are; they are neither written to
 nor deleted from the library. A `.repo.json` written before #169 that still holds a clone path is
 split first: the path moves to `.repo.local.json`.
+
+## Repository history
+
+Each repository's `history.md`, which `log_interaction` appends to, stays this machine's
+append-only journal: entries from other machines are never written into it. While sync is set up,
+started and not paused here, each new entry of a repository whose key comes from an `origin` is
+also appended to this machine's segment in the library:
+
+```
+repos/<key>/history/<label>/<YYYY-MM>.md     this machine's entries of that month (UTC)
+repos/<key>/history/<label>/<YYYY-MM>-2.md   the continuation once a part would pass 4 MiB
+```
+
+A segment holds the entry blocks of `history.md` with one more field line,
+`**Machine:** <label>`. The heading, and with it the entry's content hash, is the same on every
+machine. Only the machine with that label writes its files, so segments never conflict; keep
+machine labels unique (setup's default label has a random suffix). The append takes the library's
+`.lock` after the history lock is released, writes the part atomically, records the group's
+`.repo.json` when the repository has no flows yet, and notifies the sync triggers. A failure is
+logged and never fails `log_interaction`.
+
+Not exported: entries while `repos/<key>` or `history` is excluded, entries of a repository
+without an `origin`, entries the secret scanner would flag (one hit would keep the whole month's
+segment out of every commit), and an entry larger than a part. They stay in `history.md`. A
+repository whose group is new to the library is announced, or waits for `scope --approve
+repos/<key>` with `--ask-new-repositories`, as for its flows.
+
+`read_history` merges this machine's journal (`history.md`, `history/*.md`) with the segments of
+the other labels for the same key in the library: a union by entry hash, where this machine's copy
+wins, ordered by time. Each entry carries `machine` (null for this machine's entries, the label for
+the others), and `read_history(machine=…)` keeps one label's entries, or with `local` this
+machine's. The semantic index covers the merged entries and embeds only entries it has not
+embedded yet. Without sync set up on the machine, or for a repository without an `origin`,
+`read_history` reads `history.md` alone, as before. Segments already in the library are read also
+while sync is paused or the group is excluded.
+
+Entries written before sync started are not exported by themselves.
+`python -m src.user_sync history export [--repo PATH]` (default: the current directory) shows how
+many entries it would add per month and a hash; `--confirm HASH` adds exactly those, and the next
+sync uploads them. Entries already in a segment of the repository, from any machine, are skipped
+by hash, as are the entries the scanner flags. It needs a started, unpaused sync, an `origin`, and
+neither `repos/<key>` nor `history` excluded.
+
+Nothing is pruned: segments grow with use, one file per machine and month (4 MiB at most per part),
+and their earlier versions stay in the repository's git history, which counts toward the 200 MiB
+size warning. Every cycle reads and scans them like other library files.
 
 ## One cycle
 
@@ -189,5 +237,8 @@ in a private per-installation directory, never in the library:
 joining cases, every row of the conflict table, exclusions (checked against every object the remote
 holds, not only its last tree), the scanner, privacy, a hostile global git configuration, symlinks,
 concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
-seeded random edits on both machines. The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux,
-Windows and macOS.
+seeded random edits on both machines. `tests/test_user_sync_history.py` adds two clones of one
+project for the repository history: export conditions and exclusions, the merged and filtered
+`read_history`, segments that never conflict, the 4 MiB continuation, failures that never fail the
+writer, lock order, the backfill preview and the index (with a fake embedder). The
+[User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and macOS.
