@@ -7,9 +7,9 @@
     python -m src.user_sync start --confirm <preview hash>
     python -m src.user_sync resolve <conflict id> keep|mine|dismiss
     python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--allow-secret PATH] …
-    python -m src.user_sync configure [--fetch-minutes N] [--[no-]ask-new-repositories]
+    python -m src.user_sync configure [--fetch-minutes N] [--[no-]ask-new-repositories] [--name …] [--email …] [--label …]
     python -m src.user_sync schedule enable [--interval MINUTES] | disable | status
-    python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key
+    python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key | regenerate-key
 
 Every command accepts ``--json`` for machine-readable output; prompts and sign-in codes then go
 to stderr. The exit code is 0 unless sync needs attention, a command failed or was cancelled, or
@@ -90,10 +90,14 @@ def _parser() -> argparse.ArgumentParser:
                               ("--approve-file", "upload a held file on this machine")):
         scopes.add_argument(option, action="append", default=[], metavar="VALUE", help=help_text)
     scopes.add_argument("--confirm", metavar="HASH", help="confirm a change that uploads more")
-    configure = command("configure", "change the fetch interval or the ask-before-upload setting")
+    configure = command("configure", "change the fetch interval, the ask-before-upload setting, the commit "
+                                     "identity or this machine's label")
     configure.add_argument("--fetch-minutes", type=int, metavar="MINUTES", help="1-60")
     configure.add_argument("--ask-new-repositories", action=argparse.BooleanOptionalAction, default=None,
                            help="ask before uploading flows of a repository that is new to the library")
+    configure.add_argument("--name", help="commit author name")
+    configure.add_argument("--email", help="commit author email")
+    configure.add_argument("--label", help="this machine's label (lowercase letters, digits and dashes)")
     schedule = command("schedule", "run sync every few minutes without the daemon (OS scheduler)")
     schedule.add_argument("action", choices=("enable", "disable", "status"))
     schedule.add_argument("--interval", type=int, metavar="MINUTES",
@@ -108,7 +112,9 @@ def _parser() -> argparse.ArgumentParser:
                             ("logout", "forget the account on this machine (Forget account)"),
                             ("libraries", "list your private repositories that hold a library"),
                             ("create", "create a private repository for the library"),
-                            ("add-key", "add this machine's deploy key to the sync repository again")):
+                            ("add-key", "add this machine's deploy key to the sync repository again"),
+                            ("regenerate-key", "replace this machine's key; on GitHub the new deploy key is "
+                                               "added and the old one removed")):
         action = actions.add_parser(name, help=help_text)
         action.add_argument("--json", action="store_true", help="print JSON")
         if name == "create":
@@ -155,7 +161,8 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         return syncer.resolve(arguments.id, arguments.action)
     if name == "configure":
         return syncer.configure(fetch_minutes=arguments.fetch_minutes,
-                                ask_new_repositories=arguments.ask_new_repositories)
+                                ask_new_repositories=arguments.ask_new_repositories,
+                                name=arguments.name, email=arguments.email, label=arguments.label)
     if name == "schedule":
         from src.user_sync import schedule
         if arguments.action == "disable":
@@ -180,7 +187,9 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
 
 
 def _github(syncer: Syncer, action: str, arguments, console: SimpleNamespace) -> dict:
-    """``github login | status | logout | libraries | create [NAME] | add-key``."""
+    """``github login | status | logout | libraries | create [NAME] | add-key | regenerate-key``."""
+    if action == "regenerate-key":
+        return syncer.regenerate_key()
     account = syncer.github_account()
     if action == "status":
         status = account.status()

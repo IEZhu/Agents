@@ -20,7 +20,7 @@ from src.user_flows import FlowLibrary
 from src.user_sync import engine as engine_module, keys, wizard
 from src.user_sync.__main__ import main as cli
 from src.user_sync.engine import SyncError, Syncer
-from src.user_sync.github import GitHubAccount, GitHubError
+from src.user_sync.github import GitHubAccount, GitHubClient, GitHubError
 from src.user_sync.gitcmd import parse_remote
 from tests.test_user_sync import plain_git, remote_files
 from tests.test_user_sync_github import (  # noqa: F401  (fake and no_real_secret_store are fixtures)
@@ -862,3 +862,148 @@ def test_a_new_key_that_github_refuses_leaves_the_old_one(fake, tmp_path):
     with pytest.raises(SyncError) as reconnect:
         syncer.regenerate_key()
     assert reconnect.value.reason == "reconnect_needed"
+
+
+KEYS = f"/api/v3/repos/{REPOSITORY}/keys"
+NEW_KEY = {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False}
+
+
+def key_files(state: Path) -> list[str]:
+    return sorted(path.name for path in state.glob("id_ed25519*"))
+
+
+def set_up_on_github(fake, tmp_path):
+    state = tmp_path / "state"
+    account = signed_in(fake, state)
+    syncer = make_syncer(tmp_path, account)
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    return syncer, account, state
+
+
+@needs_ssh_keygen
+def test_a_new_key_for_a_github_repository_needs_the_account_signed_in(fake, tmp_path):
+    syncer, account, state = set_up_on_github(fake, tmp_path)
+    old = keys.public_key(state)
+    account.forget()  # Forget account: a key made now could not become a deploy key
+    asked = len(fake.requests)
+    with pytest.raises(SyncError) as refused:
+        syncer.regenerate_key()
+    assert refused.value.reason == "not_signed_in" and REPOSITORY in refused.value.message
+    assert keys.public_key(state) == old and len(fake.requests) == asked and key_files(state) == ["id_ed25519",
+                                                                                                    "id_ed25519.pub"]
+
+
+@needs_ssh_keygen
+def test_a_new_key_that_cannot_be_installed_is_taken_off_github_again(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+
+    def refuse(private, state_dir, public):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(engine_module.keys, "install_key", refuse)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("DELETE", f"{KEYS}/12", 204, None)
+    with pytest.raises(SyncError) as failed:
+        syncer.regenerate_key()
+    assert failed.value.reason == "ssh" and "could not be installed (Permission denied)" in failed.value.message
+    assert [request.path for request in fake.requests if request.method == "DELETE"] == [f"{KEYS}/12"]
+    assert keys.public_key(state) == old and keys.key_path(state).read_bytes() == old_private
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+    # When GitHub does not take it back, the error names the key left there.
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 13})
+    fake.reply("DELETE", f"{KEYS}/13", 502, None)
+    with pytest.raises(SyncError) as left:
+        syncer.regenerate_key()
+    assert f"the new deploy key 13 (Agents-Core laptop) could not be removed from {REPOSITORY}" in left.value.message
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+
+
+@needs_ssh_keygen
+def test_a_new_private_key_in_place_rolls_forward_and_is_never_discarded(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    real_replace = keys.os.replace
+
+    def replace(source, target):  # the public half cannot move: it is written from the public line
+        if str(source).endswith(".pub") and ".new-" in str(source):
+            raise OSError(5, "Input/output error")
+        return real_replace(source, target)
+    monkeypatch.setattr(keys.os, "replace", replace)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("GET", KEYS, 200, [deploy_key(state, key_id=11)])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    result = syncer.regenerate_key()
+    assert result["status"] == "replaced" and result["old_key_removed"] is True
+    assert keys.public_key(state) == result["public_key"] != old
+    assert keys.key_path(state).read_bytes() != old_private and key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+    # Even when the public half cannot be written at all, the new private key stays.
+    new_private = keys.key_path(state).read_bytes()
+
+    def no_space(path, data):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(keys, "write_private", no_space)
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 14})
+    with pytest.raises(SyncError) as half:
+        syncer.regenerate_key()
+    assert "the new key is in place and octocat/agents-library has it" in half.value.message
+    assert "No space left on device" in half.value.message
+    assert keys.key_path(state).read_bytes() not in (new_private, old_private)  # the newest key is kept
+    assert not [request for request in fake.requests if request.method == "DELETE" and request.path.endswith("/14")]
+
+
+@needs_ssh_keygen
+def test_github_hears_of_the_new_key_before_and_of_the_old_one_after_the_sync_lock(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    seen = []
+    real_add, real_find, real_install = GitHubClient.add_deploy_key, GitHubClient.find_deploy_key, keys.install_key
+
+    def add(self, *arguments):
+        seen.append(("add", syncer._lock_busy()))
+        return real_add(self, *arguments)
+
+    def find(self, *arguments):
+        seen.append(("find", syncer._lock_busy()))
+        return real_find(self, *arguments)
+
+    def install(*arguments):
+        seen.append(("install", syncer._lock_busy()))
+        return real_install(*arguments)
+    monkeypatch.setattr(GitHubClient, "add_deploy_key", add)
+    monkeypatch.setattr(GitHubClient, "find_deploy_key", find)
+    monkeypatch.setattr(engine_module.keys, "install_key", install)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("GET", KEYS, 200, [deploy_key(state, key_id=11)])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    syncer.regenerate_key()
+    assert seen == [("add", False), ("install", True), ("find", False)]
+
+
+@needs_ssh_keygen
+def test_cli_changes_the_identity_and_makes_a_new_key(fake, tmp_path, cli_account, capsys):
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    cli_account.complete_sign_in(TOKEN)
+    script_repository(fake)
+    assert run_cli(tmp_path, "setup", "--github", REPOSITORY, "--name", "Owner", "--email", "owner@example.com",
+                   "--label", "laptop") == 0
+    capsys.readouterr()
+    assert run_cli(tmp_path, "configure", "--name", "New Owner", "--label", "desk", "--json") == 0
+    configured = json.loads(capsys.readouterr().out)
+    assert configured["identity"] == {"name": "New Owner", "email": "owner@example.com"}
+    assert configured["label"] == "desk"
+    assert run_cli(tmp_path, "configure", "--email", "not an email", "--json") == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "identity"
+    old = keys.public_key(tmp_path / "state")
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("GET", KEYS, 200, [deploy_key(tmp_path / "state", key_id=11)])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    assert run_cli(tmp_path, "github", "regenerate-key", "--json") == 0
+    replaced = json.loads(capsys.readouterr().out)
+    assert replaced["status"] == "replaced" and replaced["old_key_removed"] is True
+    assert replaced["public_key"] == keys.public_key(tmp_path / "state") != old
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 13})
+    fake.reply("GET", KEYS, 200, [deploy_key(tmp_path / "state", key_id=12)])
+    fake.reply("DELETE", f"{KEYS}/12", 204, None)
+    assert run_cli(tmp_path, "github", "regenerate-key") == 0
+    out = capsys.readouterr().out
+    assert "github regenerate-key: replaced" in out and "public key: ssh-ed25519 " in out

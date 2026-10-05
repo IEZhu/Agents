@@ -1616,3 +1616,48 @@ def test_a_new_key_needs_an_ssh_remote(pair):
     with pytest.raises(SyncError) as refused:
         a.sync.regenerate_key()
     assert refused.value.reason == "invalid"
+
+
+def test_received_from_reads_real_trailers_only_newest_first_and_at_most_ten(pair, tmp_path, remote, monkeypatch):
+    a, _ = pair
+    clone = tmp_path / "by-hand"
+    plain_git("clone", "--quiet", str(remote), str(clone))
+    (clone / "common" / "shared.md").write_text("# Shared\n\nby hand\n")
+    plain_git("add", "common/shared.md", cwd=clone)
+    # In the body, not in the closing trailer block: not a machine; nor is a label sync would refuse.
+    plain_git("commit", "--quiet", "-m", "edit by hand\n\nAgents-Sync-Machine: in-the-body\n\nthe end", cwd=clone)
+    plain_git("commit", "--quiet", "--allow-empty", "-m", "odd\n\nAgents-Sync-Machine: Not A Label", cwd=clone)
+    for number in range(1, 13):
+        plain_git("commit", "--quiet", "--allow-empty", "-m", f"m{number}\n\nAgents-Sync-Machine: m{number:02d}",
+                  cwd=clone)
+    plain_git("commit", "--quiet", "--allow-empty", "-m", "again\n\nAgents-Sync-Machine: m12", cwd=clone)
+    plain_git("push", "--quiet", "origin", "main", cwd=clone)
+    held = []
+    original = Syncer._senders
+
+    def senders(self, *arguments):  # read before the library lock, which writers of flows wait for
+        try:
+            with file_lock(self.library / ".lock", blocking=False):
+                held.append(False)
+        except BlockingIOError:
+            held.append(True)
+        return original(self, *arguments)
+    monkeypatch.setattr(Syncer, "_senders", senders)
+    result = a.run()
+    assert result["received"] == ["common/shared.md"]
+    assert result["received_from"] == [f"m{number:02d}" for number in range(12, 2, -1)]
+    assert a.sync.status()["activity"][-1]["received_from"] == result["received_from"]
+    assert held == [False]
+
+
+def test_configure_refuses_an_identity_git_cannot_hold_before_saving_anything(pair):
+    a, _ = pair
+    settings_before = a.sync.settings_path.read_bytes()
+    gitconfig_before = a.sync.gitconfig.read_bytes()
+    for wrong in ({"email": "me\x01@example.com"}, {"name": "Me\x02"}, {"label": "Desk"},
+                  {"name": "New", "email": "new\x7f@example.com\x03"}):
+        with pytest.raises(SyncError) as refused:
+            a.sync.configure(**wrong)
+        assert refused.value.reason == "identity", wrong
+    assert a.sync.settings_path.read_bytes() == settings_before
+    assert a.sync.gitconfig.read_bytes() == gitconfig_before

@@ -94,9 +94,10 @@ _EMAIL = re.compile(r"[^@\s<>]+@[^@\s<>]+")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,99}")
 _CONFLICT_ID = re.compile(r"[0-9]{8}T[0-9]{12}Z-[0-9a-f]{10}")
 _VERSION_FILE = re.compile(r"[0-9]{8}T[0-9]{12}Z-[0-9a-f]{12}(?:-deleted)?\.md")
-_SENDER = re.compile(rf"^{TRAILER}: ([a-z0-9][a-z0-9-]{{0,31}})[ \t]*$", re.M)
-# The remote commits a cycle reads for the labels of the machines that made them.
+# The remote commits a cycle reads for the labels of the machines that made them, and how many
+# labels it reports.
 SENDER_COMMITS = 100
+SENDERS_SHOWN = 10
 _ZERO = "0" * 40
 
 
@@ -1961,6 +1962,9 @@ class Syncer:
         elif state.get("remote_head") and settings.started and confirm is None:
             raise SyncError("confirmation_needed", "the remote branch is gone; review the preview and "
                                                    "confirm to upload this library again")
+        integrated = self._rev(git, f"refs/heads/{settings.branch}")
+        # Who sent what may arrive, read before the library lock: writers wait for that lock.
+        senders = self._senders(git, integrated, remote_head) if remote_head and remote_head != integrated else []
         with self._library_lock():
             self._prepare_library(git, self._rev(git, f"refs/heads/{settings.branch}"))
             plan = self._plan(git, settings, state, remote_head, joining=confirm is not None)
@@ -1985,7 +1989,7 @@ class Syncer:
                 # unreferenced if anything below fails.
                 outcome["push"] = self._commit_target(git, settings, plan)
             if plan.kind in ("merge", "join", "fast_forward"):
-                outcome["received_from"] = self._senders(git, plan.head, remote_head)
+                outcome["received_from"] = senders
                 applied = self._apply(git, state, plan)
                 self._save_state(state)  # held_remote is on disk before the branch moves
                 self._set_head(git, settings, remote_head, plan.head)
@@ -2001,20 +2005,18 @@ class Syncer:
     def _senders(self, git: Git, integrated: str | None, remote_head: str) -> list[str]:
         """Labels from the ``Agents-Sync-Machine`` trailers of the remote commits being integrated.
 
-        Newest first, each once, from at most ``SENDER_COMMITS`` commits. The web editor names them
-        when a flow it shows was updated. Only a description: a failure leaves the list empty.
+        Real trailers only (git parses them), newest first, each once, at most ``SENDERS_SHOWN`` of
+        them from at most ``SENDER_COMMITS`` commits. The web editor names them when a flow it shows
+        was updated. Only a description: a failure leaves the list empty.
         """
         revisions = [remote_head] + ([f"^{integrated}"] if integrated else [])
         try:
-            log = git.text("log", "-z", f"--max-count={SENDER_COMMITS}", "--format=%B", *revisions, "--")
+            output = git.text("log", "-z", f"--max-count={SENDER_COMMITS}",
+                              f"--format=%(trailers:key={TRAILER},valueonly,separator=%x00)", *revisions, "--")
         except GitError:
             return []
-        labels: list[str] = []
-        for message in log.split("\0"):
-            for label in _SENDER.findall(message):
-                if label not in labels:
-                    labels.append(label)
-        return labels
+        labels = dict.fromkeys(value.strip() for value in output.split("\0") if _LABEL.fullmatch(value.strip()))
+        return list(labels)[:SENDERS_SHOWN]
 
     def _push(self, git: Git, settings: Settings, commit: str, integrated: str | None) -> bool:
         """True when pushed (the branch moves to ``commit``); False on a non-fast-forward rejection."""
@@ -2128,7 +2130,7 @@ class Syncer:
                          if not p.endswith((".md", ".json")) and change_label(p))
         entry = {"time": _now_iso(self._clock()), "result": outcome, "machine": settings.label,
                  "sent": flows(result["sent"]), "received": flows(result["received"]),
-                 "received_from": list(result.get("received_from") or ()) if result["received"] else [],
+                 "received_from": list(result.get("received_from") or ())[:SENDERS_SHOWN] if result["received"] else [],
                  "scripts": scripts, "conflicts": len(result["conflicts"])}
         if new_groups:
             entry["new_groups"] = new_groups
@@ -2341,6 +2343,11 @@ class Syncer:
                 wanted = (settings.name if name is None else name, settings.email if email is None else email,
                           settings.label if label is None else label)
                 validate_identity(*wanted)
+                try:  # the isolated gitconfig must take them, or nothing is saved
+                    gitcmd.config_value(wanted[0])
+                    gitcmd.config_value(wanted[1])
+                except ValueError as error:
+                    raise SyncError("identity", str(error)) from None
                 settings.name, settings.email, settings.label = wanted
             if fetch_minutes is not None:
                 settings.fetch_minutes = fetch_minutes
@@ -2355,11 +2362,14 @@ class Syncer:
     def regenerate_key(self) -> dict:
         """Replace this machine's SSH key, for one that leaked or that GitHub lost.
 
-        On a repository of the connected GitHub account the new key becomes a deploy key with write
-        access first; only then are the key files replaced and the old deploy key removed, so this
-        machine never depends on a key GitHub does not have. A failure to remove the old key is
-        reported, not raised. Elsewhere the new public key is returned to add by hand; until it is
-        added, the remote refuses this machine.
+        For a repository on the GitHub account's host the account must be signed in: the new public
+        key becomes a deploy key with write access first, then the key files are replaced, and only
+        after that, outside the sync lock, is the old deploy key looked up and removed (a failure
+        there is reported, not raised). For another host the new public key is returned to add by
+        hand; until it is added, the remote refuses this machine.
+
+        Until the new private key has moved into place nothing changed here, and a failure takes the
+        new deploy key off GitHub again. Once it has moved it is never discarded (``keys.install_key``).
         """
         settings = self._require_settings()
         remote = self._remote(settings)
@@ -2371,40 +2381,64 @@ class Syncer:
         client = None
         if repository:
             status = account.status()
-            if status["connected"] and status["reconnect_needed"]:
+            if not status["connected"]:
+                raise SyncError("not_signed_in", f"sign in to {account.host} first, so that the new key can become a "
+                                                 f"deploy key of {repository}")
+            if status["reconnect_needed"]:
                 raise SyncError("reconnect_needed", "reconnect the GitHub account first, so that the new key "
                                                     "can become a deploy key of the repository")
-            if status["connected"]:
-                client = account.client()
-        fresh = keys.key_path(self.state_dir).with_name(f"{keys.KEY_NAME}.new")
-        with self._sync_lock_for(settings, create=False):  # no cycle uses the key while it changes
+            client = account.client()
+        _private_dir(self.state_dir)
+        fresh = keys.key_path(self.state_dir).with_name(f"{keys.KEY_NAME}.new-{secrets.token_hex(4)}")
+        added = None
+
+        def undo(problem: str) -> str:
+            """Drop the new pair and its deploy key; returns ``problem`` with what is left to do."""
+            keys.discard_key(fresh)
+            if added is None:
+                return problem
             try:
-                public = keys.generate_key(fresh, settings.label)
-            except keys.SSHKeyError as error:
-                raise SyncError("ssh", str(error)) from None
-            try:
-                if client is not None:
-                    client.add_deploy_key(repository, public, settings.label)
-                keys.install_key(fresh, self.state_dir)
-            except BaseException:
-                keys.discard_key(fresh)
-                raise
-            self._log("replaced this machine's key")
-            if client is None:
-                return {"status": "replaced", "public_key": public, "deploy_key": "manual",
-                        "message": "add the new public key to the repository as a deploy key with write "
-                                   "access and remove the old one; until then the remote refuses this machine"}
-            removed, message = False, f"added the new key to {repository} and removed the old one"
-            try:
-                found = client.find_deploy_key(repository, old) if old else None
-                if found is not None:
-                    client.delete_deploy_key(repository, found.id)
-                    removed = True
-                else:
-                    message = f"added the new key to {repository}; GitHub had no deploy key of the old one"
-            except github_api.GitHubError as error:
-                message = (f"added the new key to {repository}, but the old deploy key could not be removed "
-                           f"({error.message}); remove it on GitHub")
+                client.delete_deploy_key(repository, added.id)
+            except github_api.GitHubError as failure:
+                return (f"{problem}; the new deploy key {added.id} ({added.title}) could not be removed from "
+                        f"{repository} ({failure.message}): remove it there")
+            return problem
+
+        try:
+            public = keys.generate_key(fresh, settings.label)
+            if client is not None:
+                added = client.add_deploy_key(repository, public, settings.label)
+            with self._sync_lock_for(settings, create=False):  # no cycle uses the key while it changes
+                keys.install_key(fresh, self.state_dir, public)
+        except keys.PublicKeyNotWritten as error:  # the new private key is in place: forward, never back
+            self._log(f"replaced this machine's key, but {error}")
+            where = f" and {repository} has it" if added is not None else ""
+            raise SyncError("ssh", f"the new key is in place{where}, but {error}; regenerate the key again") from None
+        except SyncError as error:
+            raise SyncError(error.reason, undo(error.message), state=error.state, details=error.details) from None
+        except keys.SSHKeyError as error:
+            raise SyncError("ssh", undo(str(error))) from None
+        except OSError as error:
+            raise SyncError("ssh", undo(f"the new key could not be installed ({error.strerror or error})")) from None
+        except BaseException:
+            undo("interrupted")
+            raise
+        self._log("replaced this machine's key")
+        if client is None:
+            return {"status": "replaced", "public_key": public, "deploy_key": "manual",
+                    "message": "add the new public key to the repository as a deploy key with write access and "
+                               "remove the old one; until then the remote refuses this machine"}
+        removed, message = False, f"added the new key to {repository} and removed the old one"
+        try:  # after the sync lock: GitHub's answers may take a while
+            found = client.find_deploy_key(repository, old) if old else None
+            if found is not None and found.id != added.id:
+                client.delete_deploy_key(repository, found.id)
+                removed = True
+            else:
+                message = f"added the new key to {repository}; GitHub had no deploy key of the old one"
+        except github_api.GitHubError as error:
+            message = (f"added the new key to {repository}, but the old deploy key could not be removed "
+                       f"({error.message}); remove it on GitHub")
         return {"status": "replaced", "public_key": public, "deploy_key": "added", "repository": repository,
                 "old_key_removed": removed, "message": message}
 

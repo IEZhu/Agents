@@ -27,18 +27,18 @@ python -m src.user_sync check      # access, and the remote is empty or an Agent
 python -m src.user_sync preview    # what would be uploaded and downloaded, and the conflicts
 python -m src.user_sync start --confirm <hash from preview>
 python -m src.user_sync run        # one cycle; --force ignores the retry delay
-python -m src.user_sync status
-python -m src.user_sync conflicts
-python -m src.user_sync pause      # resume continues
-python -m src.user_sync disconnect
-python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-repositories]
+python -m src.user_sync status | conflicts | pause | resume | disconnect
+python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-repositories] \
+    [--name "My Name"] [--email me@example.com] [--label laptop]
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]
-python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key
+python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key | regenerate-key
 ```
 
-Each command takes `--json`; prompts and the sign-in code then go to stderr. `--state DIR` and
+Each command takes `--json`; prompts and the sign-in code then go to stderr. `configure --name`,
+`--email` and `--label` change the commit identity and this machine's label without the network;
+a value that sync or git would refuse is refused before anything is saved (`identity`). `--state DIR` and
 `--library DIR` before the command name the private state directory and the library explicitly;
 scheduled runs pass both, so they never depend on the scheduler's environment. The command line reads the installation's `.env` like the MCP servers,
 and holds the installation's shared session lease while it runs, so an update never replaces the
@@ -120,10 +120,17 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
   says whether GitHub still has this machine's deploy key; `github add-key` adds it again. When
   `check` finds content that is not a library before sync started, it removes the deploy key
   `setup --github` added there, and says so.
-- **A new key.** Regenerate key on the Sync page (`Syncer.regenerate_key`) makes a new key pair.
-  On a repository of the signed-in account the new public key becomes a deploy key first, then
-  the key files are replaced and the old deploy key is removed; elsewhere the new public key is
-  shown to add by hand, and the remote refuses this machine until it is added.
+- **A new key.** `github regenerate-key`, or Regenerate key on the Sync page, makes a new key
+  pair. For a repository on the account's GitHub host the account must be signed in (otherwise
+  `not_signed_in`, or `reconnect_needed`): the new public key becomes a deploy key first, then the
+  key files are replaced under the sync lock, and after it the old deploy key is removed. When the
+  new key cannot be installed, its deploy key is taken off GitHub again (the error names one that
+  could not be); once the new private key is in place it is never rolled back. For another host
+  the new public key is shown to add by hand, and the remote refuses this machine until it is
+  added.
+- **Signed out.** Sync itself never needs the account: it runs on the deploy key. Without it, the
+  Sync page lists no machines, Disconnect cannot remove this machine's deploy key on GitHub (it
+  says so), and a new key for a GitHub repository is refused.
 - **Port 443.** When `check` cannot reach `git@github.com:…` on port 22 (some networks block it),
   it tries `ssh://git@ssh.github.com:443/OWNER/NAME.git`, GitHub's SSH service on port 443, and
   keeps that as the remote when it reaches GitHub there; a refusal on port 443 (a key or host key)

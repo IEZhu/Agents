@@ -33,6 +33,10 @@ class SSHKeyError(RuntimeError):
     """A key or host key could not be made, read or checked."""
 
 
+class PublicKeyNotWritten(SSHKeyError):
+    """A new private key is in place, but its public half could not be written next to it."""
+
+
 def key_path(state: Path) -> Path:
     return Path(state) / KEY_NAME
 
@@ -79,10 +83,48 @@ def generate_key(private: Path, label: str) -> str:
     return _read_public(private)
 
 
-def install_key(private: Path, state: Path) -> None:
-    """Make the pair at ``private`` this machine's key: the private file first, then the public one."""
-    os.replace(private, key_path(state))
-    os.replace(_public_of(private), _public_of(key_path(state)))
+def install_key(private: Path, state: Path, public: str) -> None:
+    """Make the pair at ``private`` (``public`` is its public line) this machine's key.
+
+    The private file moves first. An ``OSError`` from that move changed nothing, and the caller may
+    discard the pair. Once it has moved, the new key is this machine's and is never discarded: the
+    public file follows, and when moving it fails it is written from ``public``. Raises
+    ``PublicKeyNotWritten`` when even that fails.
+    """
+    target = key_path(state)
+    os.replace(private, target)
+    try:
+        os.replace(_public_of(private), _public_of(target))
+        return
+    except OSError:
+        pass
+    try:
+        write_private(_public_of(target), (public.strip() + "\n").encode("ascii"))
+    except OSError as error:
+        raise PublicKeyNotWritten(f"{_public_of(target).name} could not be written "
+                                  f"({error.strerror or error})") from None
+    try:  # only a leftover copy: no failure here may read as "nothing changed"
+        _public_of(private).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def write_private(path: Path, data: bytes) -> None:
+    """Replace ``path`` with ``data`` through a temporary file only this user can read."""
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".tmp-", delete=False) as stream:
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            stream.close()
+            os.unlink(stream.name)
+            raise
+    try:
+        os.replace(stream.name, path)
+    except BaseException:
+        Path(stream.name).unlink(missing_ok=True)
+        raise
 
 
 def discard_key(private: Path) -> None:
