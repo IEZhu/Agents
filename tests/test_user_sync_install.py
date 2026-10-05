@@ -1,24 +1,30 @@
 """The installers' sync step and setup from the environment (#171, src/user_sync/installer.py).
 
-The step runs in-process with scripted answers and stubs for the terminal wizard and the daemon's
-settings page. Setup from the environment runs against the fake GitHub of ``test_user_sync_github``
-and local bare repositories, reached through the fake SSH transport of
-``test_user_sync_github_setup``. Nothing reaches the real GitHub, a daemon, an OS secret store or a
-scheduler. ``test_installer_sync.py`` runs the installers' own sections around this step.
+The step runs in-process with scripted answers and stubs for the terminal wizard, the browser and
+the daemon's settings page; one test probes the page on a fake daemon on 127.0.0.1. Setup from the
+environment runs against the fake GitHub of ``test_user_sync_github`` and local bare repositories,
+reached through the fake SSH transport of ``test_user_sync_github_setup``. The scheduler is a fake,
+``.env`` is never read unless a test supplies one, and the command line's session lease lives in a
+temporary installation root. Nothing reaches the real GitHub, a daemon, an OS secret store or
+scheduler, or the user's library. ``test_installer_sync.py`` runs the installers' own sections.
 """
 from __future__ import annotations
 
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+import threading
 
 import pytest
 
 from src.user_flows import FlowLibrary
-from src.user_sync import engine as engine_module, installer
+from src.user_sync import __main__ as cli_module, engine as engine_module, installer, keys, schedule
 from src.user_sync.__main__ import main as cli
 from src.user_sync.engine import SyncError, Syncer
+from src.user_sync.github import GitHubError
 from src.user_sync.wizard import Cancelled
 from tests.test_user_sync import plain_git, remote_files
 from tests.test_user_sync_github import (  # noqa: F401  (fake and no_real_secret_store are fixtures)
@@ -27,21 +33,53 @@ from tests.test_user_sync_github_setup import (  # noqa: F401  (bare is a fixtur
     HOST_KEY, REFUSED_KEY, REPOSITORY, SSH_URL, Script, Transport, bare, make_account, needs_ssh_keygen,
     posted_keys, script_repository)
 
+ROOT = Path(__file__).resolve().parents[1]
+REAL_LOAD_ENV = cli_module._load_env
 REAL_DAEMON_DIRECTORY = installer.daemon_directory
-REAL_OPEN_SETTINGS = installer.open_settings
+REAL_SETTINGS_PAGE = installer.settings_page
 REAL_MISSING_TOOLS = installer.missing_tools
 IDENTITY = {installer.NAME: "Owner", installer.EMAIL: "owner@example.com", installer.LABEL: "laptop"}
-VARIABLES = (installer.REPO, installer.REMOTE, installer.NAME, installer.EMAIL, installer.LABEL, installer.TOKEN)
+NAMES = (*installer.VARIABLES, installer.TOKEN, installer.ASSUME_YES)
+
+
+class FakeSchedule:
+    """``schedule.status`` and ``schedule.enable`` without an OS scheduler; records each enable."""
+
+    def __init__(self):
+        self.minutes, self.enabled, self.failure = None, [], None
+
+    def status(self, **options):
+        return {"backend": "fake", "scheduled": self.minutes is not None, "interval_minutes": self.minutes}
+
+    def enable(self, interval_minutes=5, *, state_dir=None, library=None, **options):
+        if self.failure:
+            raise self.failure
+        self.enabled.append((interval_minutes, Path(state_dir), Path(library)))
+        self.minutes = interval_minutes
+        return {"backend": "fake", "scheduled": True, "interval_minutes": interval_minutes}
 
 
 @pytest.fixture(autouse=True)
-def isolated_step(monkeypatch):
-    """No daemon and no missing tool unless a test says so; the real settings page is never opened."""
+def isolated_step(monkeypatch, tmp_path):
+    """No daemon, settings page, missing tool, .env, real scheduler or lease in the checkout."""
     monkeypatch.setattr(installer, "daemon_directory", lambda: None)
-    monkeypatch.setattr(installer, "open_settings", lambda directory: pytest.fail("no settings page here"))
+    monkeypatch.setattr(installer, "settings_page", lambda directory: pytest.fail("no settings page here"))
     monkeypatch.setattr(installer, "missing_tools", lambda: [])
-    for name in VARIABLES:
+    monkeypatch.setattr(cli_module, "_load_env", lambda: None)
+    installation = tmp_path / "installation"
+    installation.mkdir()
+    monkeypatch.setattr(cli_module, "installation_root", lambda: installation)  # the session lease
+    for name in NAMES:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def scheduler(monkeypatch):
+    fake_schedule = FakeSchedule()
+    monkeypatch.setattr(schedule, "status", fake_schedule.status)
+    monkeypatch.setattr(schedule, "enable", fake_schedule.enable)
+    monkeypatch.setattr(schedule, "disable", lambda **options: pytest.fail("nothing disables the schedule"))
+    return fake_schedule
 
 
 def machine(tmp_path: Path, name: str = "machine", **options) -> Syncer:
@@ -70,10 +108,17 @@ def no_wizard() -> dict:
 
 
 def run_step(syncer: Syncer, *, assume_yes=False, interactive=True, ask=nothing_asked, run_wizard=no_wizard,
-             environ=None) -> tuple[dict, str]:
+             environ=None, token=None, open_browser=None) -> tuple[dict, str]:
     said = []
     result = installer.step(syncer, assume_yes=assume_yes, interactive=interactive, ask=ask, say=said.append,
-                            run_wizard=run_wizard, environ={} if environ is None else environ)
+                            run_wizard=run_wizard, environ={} if environ is None else environ, token=token,
+                            open_browser=open_browser or (lambda url: pytest.fail("no browser here")))
+    return result, "\n".join(said)
+
+
+def from_env(syncer: Syncer, environ: dict, **options) -> tuple[dict, str]:
+    said = []
+    result = installer.from_env(syncer, say=said.append, environ=environ, **options)
     return result, "\n".join(said)
 
 
@@ -87,6 +132,11 @@ def spy_children(monkeypatch) -> list:
         return current(argv, *args, **kwargs)
     monkeypatch.setattr(subprocess, "run", spy)
     return seen
+
+
+def run_cli(tmp_path, *arguments, **options):
+    base = ["--state", str(tmp_path / "state"), "--library", str(tmp_path / "library")]
+    return cli([*base, *arguments], **options)
 
 
 # --- the step: when it asks, and what yes does -----------------------------------------------
@@ -129,26 +179,27 @@ def test_yes_starts_the_terminal_wizard_where_no_daemon_is_installed(tmp_path, a
     assert runs == ["wizard"] and result == {"status": "cancelled"}
 
 
-def test_yes_opens_the_settings_page_where_the_daemon_is_installed(tmp_path, monkeypatch):
-    opened = []
+@pytest.mark.parametrize("opened", [True, False], ids=["browser", "no-browser"])
+def test_yes_opens_the_settings_page_when_the_daemon_serves_the_sync_page(tmp_path, monkeypatch, opened):
+    asked, browsed = [], []
     monkeypatch.setattr(installer, "daemon_directory", lambda: tmp_path / "service")
-    monkeypatch.setattr(installer, "open_settings",
-                        lambda directory: opened.append(directory) or "http://127.0.0.1:8765/ui/#code")
-    result, said = run_step(machine(tmp_path), ask=Script("y"))
-    assert opened == [tmp_path / "service"]
-    assert result == {"status": "off", "reason": "settings_page", "url": "http://127.0.0.1:8765/ui/#code"}
-    assert "Its Sync page sets sync up" in said and "-m src.daemon flows-ui" in said
+    monkeypatch.setattr(installer, "settings_page",
+                        lambda directory: asked.append(directory) or "http://127.0.0.1:8765/ui#code")
+    result, said = run_step(machine(tmp_path), ask=Script("y"),
+                            open_browser=lambda url: browsed.append(url) or opened)
+    assert asked == [tmp_path / "service"] and browsed == ["http://127.0.0.1:8765/ui#code"]
+    assert result == {"status": "off", "reason": "settings_page"} and "its Sync page sets sync up" in said
+    # The one-use link is printed only when no browser opened it.
+    assert ("http://127.0.0.1:8765/ui#code" in said) is (not opened)
 
 
-def test_a_settings_page_that_cannot_open_falls_back_to_the_terminal_wizard(tmp_path, monkeypatch):
-    def refused(directory):
-        raise RuntimeError("urllib.error.URLError: <urlopen error [Errno 61] Connection refused>")
+def test_a_settings_page_that_cannot_set_sync_up_means_the_wizard_without_an_error(tmp_path, monkeypatch):
     monkeypatch.setattr(installer, "daemon_directory", lambda: tmp_path / "service")
-    monkeypatch.setattr(installer, "open_settings", refused)
+    monkeypatch.setattr(installer, "settings_page", lambda directory: None)  # stopped, warming or older
     runs = []
     result, said = run_step(machine(tmp_path), ask=Script("y"),
                             run_wizard=lambda: runs.append("wizard") or {"status": "cancelled"})
-    assert runs == ["wizard"] and "Connection refused" in said and "in this terminal instead" in said
+    assert runs == ["wizard"] and said == "" and result["status"] == "cancelled"
 
 
 @pytest.mark.parametrize("failure, status", [
@@ -162,14 +213,43 @@ def test_a_wizard_that_fails_never_fails_the_installer(tmp_path, failure, status
     assert result["status"] == status and said
 
 
-def test_a_wizard_that_starts_sync_tells_how_it_keeps_running(tmp_path, bare):
+def started_by_wizard(syncer, bare):
+    def wizard():
+        syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
+        return syncer.start(syncer.preview()["hash"])
+    return wizard
+
+
+@pytest.mark.parametrize("answer, enabled", [("", True), ("y", True), ("n", False)])
+def test_after_the_wizard_started_sync_it_offers_background_sync_once(tmp_path, bare, scheduler, answer, enabled):
+    syncer = machine(tmp_path)
+    ask = Script("y", answer)
+    result, said = run_step(syncer, ask=ask, run_wizard=started_by_wizard(syncer, bare))
+    assert ask.prompts[1] == "  Also sync every 5 minutes in the background? [Y/n]: " and ask.answers == []
+    assert result["status"] == "synced" and result["background"] == ("schedule" if enabled else None)
+    if enabled:
+        assert scheduler.enabled == [(5, syncer.state_dir, syncer.library)] and "Background sync is on" in said
+    else:
+        assert scheduler.enabled == [] and "-m src.user_sync schedule enable" in said
+
+
+def test_where_the_daemon_or_a_schedule_syncs_the_wizard_asks_nothing_more(tmp_path, bare, scheduler, monkeypatch):
+    syncer = machine(tmp_path)
+    scheduler.minutes = 10
+    ask = Script("y")
+    result, said = run_step(syncer, ask=ask, run_wizard=started_by_wizard(syncer, bare))
+    assert result["background"] == "schedule" and "already runs every 10 minutes" in said and scheduler.enabled == []
+    assert len(ask.prompts) == 1
+
+
+def test_a_wizard_that_did_not_start_sync_is_attention(tmp_path, bare):
     syncer = machine(tmp_path)
 
     def wizard():
         syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
-        return syncer.start(syncer.preview()["hash"])
-    result, said = run_step(syncer, ask=Script("y"), run_wizard=wizard)
-    assert result["status"] == "synced" and "-m src.user_sync schedule enable" in said
+        return {"status": "offline", "reason": "network", "message": "github.com is unreachable"}
+    result, _ = run_step(syncer, ask=Script("y"), run_wizard=wizard)
+    assert (result["status"], result["reason"]) == ("attention", "network")
 
 
 # --- the step: what it leaves alone ---------------------------------------------------------
@@ -186,10 +266,12 @@ def test_sync_that_is_set_up_is_reported_without_a_question_and_left_alone(tmp_p
     syncer.start(syncer.preview()["hash"])
     before = files(tmp_path)
     for assume_yes in (False, True):
-        result, said = run_step(syncer, assume_yes=assume_yes,
+        result, said = run_step(syncer, assume_yes=assume_yes, token=TOKEN,
                                 environ={installer.REMOTE: "git@git.example.com:me/other.git", **IDENTITY})
         assert result["status"] == "set_up" and "Sync between machines is on" in said
         assert "change nothing once sync has started" in said and "-m src.user_sync status" in said
+        assert f"cd {ROOT}" in said or "cd /" in said  # commands say where they run
+        assert "AGENTS_GITHUB_TOKEN was not used: sync is already set up" in said
     assert files(tmp_path) == before
 
 
@@ -215,7 +297,7 @@ def test_a_git_left_from_an_earlier_sync_is_offered_to_the_wizard_but_never_set_
     assert result["reason"] == "declined"  # the owner may set it up again in the wizard
     before = files(tmp_path)
     result, said = run_step(syncer, assume_yes=True, environ={installer.REMOTE: str(bare), **IDENTITY})
-    assert result["reason"] == "existing_git" and "-m src.user_sync setup" in said
+    assert result["reason"] == "existing_git" and "move it away" in said and "-m src.user_sync setup" in said
     assert files(tmp_path) == before and syncer.settings() is None
 
 
@@ -227,17 +309,16 @@ def test_missing_tools_are_named_and_nothing_is_asked(tmp_path, monkeypatch):
     assert run_step(machine(tmp_path))[0]["reason"] == "ssh"
 
 
-def test_a_token_without_a_repository_to_sign_in_for_is_dropped_not_stored(tmp_path):
-    environ = {installer.TOKEN: TOKEN}
-    result, said = run_step(machine(tmp_path), assume_yes=True, environ=environ)
-    assert environ == {} and result["reason"] == "not_asked" and "it was not stored" in said
+def test_a_token_without_a_repository_to_sign_in_for_is_not_used(tmp_path):
+    result, said = run_step(machine(tmp_path), assume_yes=True, token=TOKEN)
+    assert result["reason"] == "not_asked" and "AGENTS_GITHUB_TOKEN was not used" in said
     assert_secret_free(said)
 
 
 # --- the summary ------------------------------------------------------------------------------
 
 
-def test_the_summary_says_how_to_turn_sync_on_unless_it_runs(tmp_path, bare, monkeypatch):
+def test_the_summary_says_how_to_turn_sync_and_background_sync_on(tmp_path, bare, monkeypatch, scheduler):
     syncer, said = machine(tmp_path), []
     installer.summary(syncer, say=said.append)
     text = "\n".join(said)
@@ -247,16 +328,26 @@ def test_the_summary_says_how_to_turn_sync_on_unless_it_runs(tmp_path, bare, mon
     said.clear()
     installer.summary(syncer, say=said.append)
     assert "-m src.daemon flows-ui" in "\n".join(said)
+    monkeypatch.setattr(installer, "daemon_directory", lambda: None)
     syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
     said.clear()
     installer.summary(syncer, say=said.append)
-    assert "set up but not started yet" in "\n".join(said)
+    assert "set up but not started yet" in "\n".join(said) and "--from-env" not in "\n".join(said)
     syncer.start(syncer.preview()["hash"])
     said.clear()
-    assert installer.summary(syncer, say=said.append) == {"status": "set_up"} and said == []
+    assert installer.summary(syncer, say=said.append) == {"status": "set_up", "background": None}
+    assert "only around its own saves" in said[0] and "schedule enable" in said[0]
+    scheduler.minutes = 5
+    said.clear()
+    assert installer.summary(syncer, say=said.append)["background"] == "schedule"
+    assert "in the background every 5 minutes" in said[0]
+    monkeypatch.setattr(installer, "daemon_directory", lambda: tmp_path / "service")
+    said.clear()
+    assert installer.summary(syncer, say=said.append)["background"] == "daemon"
+    assert "the daemon syncs in the background" in said[0]
 
 
-# --- this machine: tools, the library's .git, the daemon --------------------------------------
+# --- this machine: tools, the library's .git, the daemon, the terminal ----------------------
 
 
 @pytest.mark.parametrize("version, keygen, expected", [
@@ -300,71 +391,153 @@ def test_the_daemon_is_found_through_the_marker_install_writes_and_only_on_macos
     assert REAL_DAEMON_DIRECTORY() is None
 
 
-def test_open_settings_runs_flows_ui_for_the_daemons_state_and_reports_why_it_failed(tmp_path, monkeypatch):
-    calls = []
+class FakeDaemon:
+    """``/health``, ``/ui`` and ``/admin/ui/code`` of a daemon on 127.0.0.1, with its state directory."""
 
-    def answered(argv, **options):
-        calls.append(argv)
-        return subprocess.CompletedProcess(argv, 0, json.dumps({"url": "http://127.0.0.1:8765/ui/#c"}), "")
-    monkeypatch.setattr(installer.subprocess, "run", answered)
-    assert REAL_OPEN_SETTINGS(tmp_path / "service") == "http://127.0.0.1:8765/ui/#c"
-    assert calls[0][1:] == ["-m", "src.daemon", "--state", str(tmp_path / "service"), "flows-ui"]
+    def __init__(self, directory: Path):
+        self.health, self.page = {"state": "ready"}, b"<script>api('/ui/api/sync')</script>"
+        self.requests = []
+        daemon = self
 
-    def stopped(argv, **options):
-        return subprocess.CompletedProcess(argv, 1, "", "Traceback (most recent call last):\n"
-                                                        "urllib.error.URLError: <urlopen error Connection refused>\n")
-    monkeypatch.setattr(installer.subprocess, "run", stopped)
-    with pytest.raises(RuntimeError, match="Connection refused"):
-        REAL_OPEN_SETTINGS(tmp_path / "service")
+        class Handler(BaseHTTPRequestHandler):
+            def answer(self):
+                daemon.requests.append((self.command, self.path, self.headers.get("Authorization")))
+                port = daemon.server.server_address[1]
+                if self.path == "/ui":
+                    body, kind = daemon.page, "text/html"
+                elif self.headers.get("Authorization") != "Bearer secret-bearer":
+                    body, kind = b'{"error": "unauthorized"}', "application/json"
+                elif self.path == "/health":
+                    body, kind = json.dumps(daemon.health).encode(), "application/json"
+                else:
+                    body, kind = json.dumps({"url": f"http://127.0.0.1:{port}/ui#one-use"}).encode(), "application/json"
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST = answer
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "service.json").write_text(json.dumps({"port": self.server.server_address[1]}))
+        (directory / "token").write_text("secret-bearer\n")
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def test_the_settings_page_is_used_only_when_the_daemon_is_ready_and_serves_the_sync_page(tmp_path):
+    directory = tmp_path / "service"
+    daemon = FakeDaemon(directory)
+    try:
+        port = daemon.server.server_address[1]
+        assert REAL_SETTINGS_PAGE(directory) == f"http://127.0.0.1:{port}/ui#one-use"
+        assert ("POST", "/admin/ui/code", "Bearer secret-bearer") in daemon.requests
+        daemon.page = b"<script>api('/ui/api/flows')</script>"  # a page from before the Sync page
+        assert REAL_SETTINGS_PAGE(directory) is None
+        daemon.page, daemon.health = b"/ui/api/sync", {"state": "warming"}
+        assert REAL_SETTINGS_PAGE(directory) is None
+    finally:
+        daemon.close()
+    assert REAL_SETTINGS_PAGE(directory) is None  # nothing answers: no error, the wizard instead
+    assert REAL_SETTINGS_PAGE(tmp_path / "never-installed") is None
+
+
+def test_only_a_console_counts_as_a_terminal_also_when_stdin_is_nul_on_windows(tmp_path):
+    probe = [sys.executable, "-c", "from src.user_sync.__main__ import _terminal; print(_terminal())"]
+    environment = {**os.environ, "PYTHONPATH": str(ROOT)}
+    result = subprocess.run(probe, stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=ROOT,
+                            env=environment, timeout=60)
+    assert result.stdout.strip() == "False", result.stderr  # NUL on Windows, /dev/null elsewhere
+    if sys.platform != "win32":
+        import pty
+        controller, terminal = pty.openpty()
+        try:
+            result = subprocess.run(probe, stdin=terminal, capture_output=True, text=True, cwd=ROOT,
+                                    env=environment, timeout=60)
+        finally:
+            os.close(terminal)
+            os.close(controller)
+        assert result.stdout.strip() == "True", result.stderr
 
 
 # --- setup from the environment -----------------------------------------------------------------
 
 
+def github_machine(fake, tmp_path, transport, **options) -> Syncer:
+    options.setdefault("visibility", None)  # GitHub's API decides
+    return machine(tmp_path, github_account=make_account(fake, tmp_path / "machine" / "state"),
+                   ssh_command=transport.command, github_host_keys=lambda: [HOST_KEY], allow_file_remote=False,
+                   **options)
+
+
 @needs_ssh_keygen
-def test_env_setup_on_github_keeps_the_token_adds_the_deploy_key_and_starts(fake, tmp_path, bare, monkeypatch):
+def test_env_setup_on_github_keeps_the_token_adds_the_deploy_key_starts_and_schedules(
+        fake, tmp_path, bare, monkeypatch, scheduler, capsys):
     transport = Transport(tmp_path, bare)
-    account = make_account(fake, tmp_path / "machine" / "state")
-    syncer = machine(tmp_path, github_account=account, ssh_command=transport.command,
-                     github_host_keys=lambda: [HOST_KEY], allow_file_remote=False, visibility=None)
+    syncer = github_machine(fake, tmp_path, transport)
     save(syncer)
     fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
     script_repository(fake)
+    monkeypatch.setattr(cli_module, "Syncer", lambda library, state: syncer)
     for name, value in {installer.REPO: REPOSITORY, **IDENTITY, installer.TOKEN: TOKEN}.items():
         monkeypatch.setenv(name, value)
     children = spy_children(monkeypatch)
-    result, said = run_step(syncer, assume_yes=True, interactive=False, environ=os.environ)
-    assert result["status"] == "synced", said
-    assert installer.TOKEN not in os.environ  # read once, before any child process started
+    assert cli(["installer", "--yes"], interactive=False) == 0
+    out = capsys.readouterr().out
+    assert installer.TOKEN not in os.environ  # taken out before any child process started
+    account = syncer.github_account()
     assert account._store.token == TOKEN and account.status()["login"] == "octocat"
-    assert len(posted_keys(fake)) == 1 and syncer.settings().remote == SSH_URL
+    assert len(posted_keys(fake)) == 1 and syncer.settings().remote == SSH_URL and syncer.settings().started
     assert "common/hello.md" in remote_files(bare)
-    assert "Signed in to github.com as octocat" in said and "added this machine's deploy key" in said
-    assert "Sync started: sent" in said
+    assert "Signed in to github.com as octocat" in out and "added this machine's deploy key" in out
+    assert "Sync started: sent" in out and "Background sync is on: every 5 minutes" in out
+    assert scheduler.enabled == [(5, syncer.state_dir, syncer.library)]
+    assert not (syncer.state_dir / installer.MARKER).exists()  # started: nothing left to replace
     assert children  # ssh-keygen and git ran, none of them with the token in argv or environment
-    assert_secret_free(said, json.dumps(result), *(" ".join(argv) + json.dumps(env) for argv, env in children))
+    assert_secret_free(out, *(" ".join(argv) + json.dumps(env) for argv, env in children))
+
+
+def test_github_refusing_the_token_stores_nothing_and_never_fails_the_installer(fake, tmp_path, bare):
+    syncer = github_machine(fake, tmp_path, Transport(tmp_path, bare))
+    fake.reply("GET", "/api/v3/user", 401, {"message": "Bad credentials"})
+    result, said = run_step(syncer, assume_yes=True, token=TOKEN, environ={installer.REPO: REPOSITORY, **IDENTITY})
+    assert (result["status"], result["reason"]) == ("attention", "auth") and "Sync was not set up" in said
+    assert syncer.github_account()._store.token is None and not syncer.github_account().status()["connected"]
+    assert syncer.settings() is None and remote_files(bare) == {}
+    assert_secret_free(said, json.dumps(result))
 
 
 @needs_ssh_keygen
-def test_env_setup_on_github_without_a_token_prints_the_key_and_a_second_run_finishes(fake, tmp_path, bare):
+def test_env_setup_on_github_without_a_token_prints_the_key_and_a_second_run_finishes(fake, tmp_path, bare,
+                                                                                      scheduler):
     transport = Transport(tmp_path, bare, refuse={"github.com": REFUSED_KEY})
-    syncer = machine(tmp_path, github_account=make_account(fake, tmp_path / "machine" / "state"),
-                     ssh_command=transport.command, github_host_keys=lambda: [HOST_KEY], allow_file_remote=False)
+    syncer = github_machine(fake, tmp_path, transport, visibility=lambda remote: "private")
     save(syncer)
     environ = {installer.REPO: REPOSITORY, **IDENTITY}
-    result, said = run_step(syncer, assume_yes=True, interactive=False, environ=dict(environ))
+    result, said = run_step(syncer, assume_yes=True, interactive=False, environ=environ)
     public = syncer.status()["public_key"]
     assert (result["status"], result["public_key"]) == ("waiting_for_access", public)
     assert public in said and "deploy key with write access" in said and "setup --from-env" in said
     assert remote_files(bare) == {} and syncer.settings().started is None and fake.requests == []
+    lines = []
+    installer.summary(syncer, say=lines.append)
+    assert "-m src.user_sync setup --from-env" in "\n".join(lines)  # the next step
     transport.refuse({})  # the owner added the key on GitHub
-    result, said = run_step(syncer, assume_yes=True, interactive=False, environ=dict(environ))
+    result, said = run_step(syncer, assume_yes=True, interactive=False, environ=environ)
     assert result["status"] == "synced", said
     assert "common/hello.md" in remote_files(bare) and syncer.settings().remote == SSH_URL
     assert fake.requests == []  # no account: GitHub's API was never asked
 
 
-def test_env_setup_stops_a_join_with_conflicts_at_confirmation_needed(tmp_path, bare):
+def test_env_setup_stops_a_join_with_conflicts_at_confirmation_needed(tmp_path, bare, scheduler):
     first = machine(tmp_path, "first")
     save(first, text="# Hello from the first machine\n")
     first.setup(remote=str(bare), name="Owner", email="owner@example.com", label="first")
@@ -372,41 +545,111 @@ def test_env_setup_stops_a_join_with_conflicts_at_confirmation_needed(tmp_path, 
     pushed = remote_files(bare)
     second = machine(tmp_path, "second")
     save(second, text="# Hello from the second machine\n")
-    said = []
-    result = installer.from_env(second, say=said.append,
-                                environ={installer.REMOTE: str(bare), **IDENTITY, installer.LABEL: "second"})
-    text = "\n".join(said)
+    result, text = from_env(second, {installer.REMOTE: str(bare), **IDENTITY, installer.LABEL: "second"})
     assert (result["status"], result["reason"]) == ("attention", "confirmation_needed")
     assert f"start --confirm {result['hash']}" in text and "-m src.user_sync preview" in text
     assert "nothing was uploaded" in text and "user:hello" in text
-    assert remote_files(bare) == pushed and second.settings().started is None
+    assert remote_files(bare) == pushed and second.settings().started is None and scheduler.enabled == []
     assert second.start(result["hash"])["status"] == "synced"  # the owner confirms that preview
 
 
-def test_env_setup_on_another_host_uploads_and_a_second_run_changes_nothing(tmp_path, bare):
+def test_env_setup_on_another_host_uploads_schedules_and_a_second_run_changes_nothing(tmp_path, bare, scheduler):
     syncer = machine(tmp_path)
     save(syncer)
     environ = {installer.REMOTE: str(bare), **IDENTITY}
-    said = []
-    result = installer.from_env(syncer, say=said.append, environ=dict(environ), token=TOKEN)
-    text = "\n".join(said)
+    result, text = from_env(syncer, dict(environ), token=TOKEN)
     assert result["status"] == "synced" and "common/hello.md" in remote_files(bare)
     assert "used only for a repository on github.com; it was not stored" in text
-    assert "Sync started: sent" in text and "schedule enable" in text
+    assert "Sync started: sent" in text and len(scheduler.enabled) == 1
     assert_secret_free(text)
     before = files(tmp_path)
-    again = installer.from_env(syncer, say=said.append, environ=dict(environ))
-    assert again["status"] == "set_up" and files(tmp_path) == before
+    for again in (environ, {installer.REMOTE: str(bare)}):  # started: the identity is not even read
+        result, text = from_env(syncer, dict(again))
+        assert result["status"] == "set_up" and "nothing changed" in text
+    assert files(tmp_path) == before and len(scheduler.enabled) == 1
 
 
-def test_env_setup_never_replaces_a_setup_for_another_remote(tmp_path, bare):
+@pytest.mark.parametrize("failure", [
+    {"status": "lock_held", "message": "another sync of this library is running"},
+    {"status": "offline", "reason": "network", "message": "ssh: connect to host: Connection timed out"},
+], ids=["lock-held", "offline"])
+def test_a_start_that_did_not_start_sync_exits_non_zero(tmp_path, bare, monkeypatch, capsys, failure, scheduler):
+    syncer = machine(tmp_path)
+    save(syncer)
+    monkeypatch.setattr(syncer, "start", lambda confirm: dict(failure))
+    monkeypatch.setattr(cli_module, "Syncer", lambda library, state: syncer)
+    for name, value in {installer.REMOTE: str(bare), **IDENTITY}.items():
+        monkeypatch.setenv(name, value)
+    assert cli(["setup", "--from-env"]) == 1
+    reason = failure.get("reason") or failure["status"]
+    assert f"Sync did not start: {reason}: {failure['message']}" in capsys.readouterr().out
+    assert cli(["installer", "--yes"], interactive=False) == 1  # init_repo prints its warning
+    assert scheduler.enabled == [] and syncer.settings().started is None
+
+
+def test_env_setup_replaces_only_a_setup_it_made_that_never_started(tmp_path, bare, monkeypatch, scheduler):
+    second = tmp_path / "second.git"
+    plain_git("init", "--bare", "--quiet", "--initial-branch=main", str(second))
+    syncer = machine(tmp_path, visibility=lambda remote: "private" if "second" in remote.url else "unknown")
+    save(syncer)
+    with pytest.raises(SyncError) as unknown:  # the first remote's privacy cannot be checked: it stops
+        from_env(syncer, {installer.REMOTE: str(bare), **IDENTITY})
+    assert unknown.value.reason == "public_repo" and "--confirm-private" in unknown.value.message
+    assert syncer.settings().remote == str(bare) and installer.made_here(syncer, syncer.settings())
+    result, text = from_env(syncer, {installer.REMOTE: str(second), **IDENTITY})
+    assert result["status"] == "synced" and "Replacing the setup for" in text
+    assert syncer.settings().remote == str(second) and "common/hello.md" in remote_files(second)
+    assert remote_files(bare) == {}
+
+
+def test_env_setup_never_replaces_a_setup_it_did_not_make(tmp_path, bare):
     other = tmp_path / "other.git"
     plain_git("init", "--bare", "--quiet", "--initial-branch=main", str(other))
     syncer = machine(tmp_path)
-    syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
+    syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")  # the wizard's
     with pytest.raises(SyncError) as refused:
-        installer.from_env(syncer, say=lambda text: None, environ={installer.REMOTE: str(other), **IDENTITY})
+        from_env(syncer, {installer.REMOTE: str(other), **IDENTITY})
+    message = refused.value.message
     assert refused.value.reason == "connected" and syncer.settings().remote == str(bare)
+    assert "-m src.user_sync disconnect" in message and f"move {syncer.library / '.git'} away" in message
+    assert "-m src.user_sync setup" in message
+
+
+def test_env_setup_reruns_with_confirm_private(tmp_path, bare, scheduler):
+    syncer = machine(tmp_path, visibility=lambda remote: "unknown")
+    save(syncer)
+    environ = {installer.REMOTE: str(bare), **IDENTITY}
+    with pytest.raises(SyncError) as unknown:
+        from_env(syncer, environ)
+    assert "setup --from-env --confirm-private" in unknown.value.message and remote_files(bare) == {}
+    result, _ = from_env(syncer, environ, confirm_private=True)
+    assert result["status"] == "synced" and syncer.settings().private_confirmed is True
+
+
+@needs_ssh_keygen
+def test_env_setup_reruns_with_trust_host_key(tmp_path, bare, scheduler):
+    transport = Transport(tmp_path, bare)
+    syncer = machine(tmp_path, ssh_command=transport.command, scan_host_keys=lambda host, port: [HOST_KEY],
+                     allow_file_remote=False)
+    save(syncer)
+    environ = {installer.REMOTE: "git@git.example.com:me/library.git", **IDENTITY}
+    result, text = from_env(syncer, environ)
+    fingerprint = keys.fingerprint(HOST_KEY)
+    assert (result["status"], result["reason"], result["fingerprints"]) == ("attention", "host_key", [fingerprint])
+    assert fingerprint in text and "setup --from-env --trust-host-key" in text and remote_files(bare) == {}
+    result, text = from_env(syncer, environ, trust_host_key=fingerprint)
+    # The key is not on the host yet: the public key to add, then a third run finishes.
+    assert result["status"] in ("waiting_for_access", "synced"), text
+    if result["status"] == "waiting_for_access":
+        result, text = from_env(syncer, environ)
+    assert result["status"] == "synced" and "common/hello.md" in remote_files(bare)
+
+
+def test_the_command_line_passes_rerun_options_to_env_setup(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(installer, "from_env", lambda syncer, **options: seen.update(options) or {"status": "set_up"})
+    assert run_cli(tmp_path, "setup", "--from-env", "--trust-host-key", "SHA256:abc", "--confirm-private") == 0
+    assert (seen["trust_host_key"], seen["confirm_private"]) == ("SHA256:abc", True)
 
 
 @pytest.mark.parametrize("environ, reason", [
@@ -420,46 +663,93 @@ def test_env_setup_never_replaces_a_setup_for_another_remote(tmp_path, bare):
 ])
 def test_env_setup_checks_its_variables_before_it_changes_anything(tmp_path, environ, reason):
     with pytest.raises(SyncError) as refused:
-        installer.from_env(machine(tmp_path), say=lambda text: None, environ=environ)
+        from_env(machine(tmp_path), environ)
     assert refused.value.reason == reason and files(tmp_path) == {}
 
 
-# --- the command line ---------------------------------------------------------------------------
+# --- the command line: the token and .env ----------------------------------------------------------
+
+
+def test_every_command_takes_the_token_out_of_its_environment_and_the_summary_never_sees_it(
+        tmp_path, monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(installer, "summary", lambda syncer, **options: seen.append(
+        (os.environ.get(installer.TOKEN), options)) or {"status": "off"})
+    monkeypatch.setenv(installer.TOKEN, TOKEN)
+    assert run_cli(tmp_path, "installer", "--summary") == 0
+    assert seen == [(None, {"say": seen[0][1]["say"]})]  # neither in the environment nor as an argument
+    monkeypatch.setenv(installer.TOKEN, TOKEN)
+    assert run_cli(tmp_path, "status") == 0
+    assert installer.TOKEN not in os.environ
+    assert_secret_free(capsys.readouterr().out)
+
+
+def test_installer_honours_assume_yes_from_the_environment(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv(installer.ASSUME_YES, "1")
+    assert run_cli(tmp_path, "installer", ask=nothing_asked, interactive=True) == 0
+    assert "--yes never asks" in capsys.readouterr().out
+
+
+def test_dotenv_never_drives_setup(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "installation"
+    (root / ".env").write_text(f"{installer.REPO}={REPOSITORY}\n{installer.NAME}=Owner\n"
+                               f"{installer.EMAIL}=owner@example.com\n{installer.TOKEN}={TOKEN}\n")
+    monkeypatch.setattr(cli_module, "_load_env", REAL_LOAD_ENV)
+    for name in NAMES:  # load_dotenv writes os.environ: monkeypatch restores it
+        monkeypatch.setenv(name, "placeholder")
+        monkeypatch.delenv(name)
+    assert run_cli(tmp_path, "installer", "--yes", interactive=False) == 0
+    out = capsys.readouterr().out
+    assert f"Ignored in .env: {installer.REPO}, {installer.NAME}, {installer.EMAIL}, {installer.TOKEN}" in out
+    assert "Sync between machines is off (--yes never asks)" in out
+    assert not any(name in os.environ for name in NAMES) and not (tmp_path / "state").exists()
+    assert run_cli(tmp_path, "setup", "--from-env") == 1
+    out = capsys.readouterr().out
+    assert "not_requested" in out and ".env does not count" in out
+    assert_secret_free(out)
 
 
 def test_cli_installer_step_asks_only_with_a_terminal_and_without_yes(tmp_path, capsys):
-    base = ["--state", str(tmp_path / "state"), "--library", str(tmp_path / "library")]
-    assert cli([*base, "installer", "--yes"], ask=nothing_asked, interactive=True) == 0
+    assert run_cli(tmp_path, "installer", "--yes", ask=nothing_asked, interactive=True) == 0
     assert "--yes never asks" in capsys.readouterr().out
-    assert cli([*base, "installer"], ask=nothing_asked, interactive=False) == 0
+    assert run_cli(tmp_path, "installer", ask=nothing_asked, interactive=False) == 0
     assert "no terminal to ask in" in capsys.readouterr().out
     ask = Script("n")
-    assert cli([*base, "installer"], ask=ask, interactive=True) == 0
+    assert run_cli(tmp_path, "installer", ask=ask, interactive=True) == 0
     assert ask.prompts == [installer.PROMPT] and "Sync stays off" in capsys.readouterr().out
-    assert cli([*base, "installer", "--summary"]) == 0
+    assert run_cli(tmp_path, "installer", "--summary") == 0
     assert "To turn it on" in capsys.readouterr().out
-    assert files(tmp_path) == {}
+    assert not (tmp_path / "state").exists() and not (tmp_path / "library").exists()
+    assert (tmp_path / "installation" / "data" / ".sessions.lock").exists()  # the lease, not the checkout's
 
 
 def test_cli_installer_yes_starts_the_terminal_wizard(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(engine_module, "default_github_account", lambda state_dir: pytest.fail("no GitHub here"))
     ask = Script("y", "m")  # then the answers run out: the wizard stops before it changes anything
-    base = ["--state", str(tmp_path / "state"), "--library", str(tmp_path / "library")]
-    assert cli([*base, "installer"], ask=ask, interactive=True) == 0
+    assert run_cli(tmp_path, "installer", ask=ask, interactive=True) == 0
     assert ask.prompts[1].startswith("Where is the library's repository?")
     assert ask.prompts[2].startswith("SSH URL of the repository")
     assert "cancelled; nothing was uploaded" in capsys.readouterr().out
-    assert files(tmp_path) == {}
+    assert not (tmp_path / "state").exists() and not (tmp_path / "library").exists()
 
 
-def test_cli_setup_from_env_takes_the_token_out_of_the_environment(tmp_path, capsys, monkeypatch):
+def test_cli_setup_from_env_without_variables_and_with_identity_flags(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv(installer.TOKEN, TOKEN)
-    base = ["--state", str(tmp_path / "state"), "--library", str(tmp_path / "library")]
-    assert cli([*base, "setup", "--from-env"]) == 1
+    assert run_cli(tmp_path, "setup", "--from-env") == 1
     out = capsys.readouterr().out
     assert "setup: off (not_requested)" in out and installer.REPO in out
     assert installer.TOKEN not in os.environ
     assert_secret_free(out)
     with pytest.raises(SystemExit) as usage:
-        cli([*base, "setup", "--from-env", "--name", "Owner"])
+        run_cli(tmp_path, "setup", "--from-env", "--name", "Owner")
     assert usage.value.code == 2 and "--from-env reads the name" in capsys.readouterr().err
+
+
+def test_take_environment_and_forget_dotenv():
+    environ = {installer.REPO: "me/library", installer.TOKEN: TOKEN, installer.ASSUME_YES: "1", "OTHER": "x"}
+    values = installer.take_environment(environ)
+    assert values == {installer.REPO: "me/library", installer.TOKEN: TOKEN, installer.ASSUME_YES: "1"}
+    assert installer.TOKEN not in environ and installer.assume_yes(values)
+    environ.update({installer.TOKEN: "from-dotenv", installer.NAME: "From Dotenv", installer.EMAIL: ""})
+    assert installer.forget_dotenv(values, environ) == [installer.NAME, installer.TOKEN]
+    assert environ == {installer.REPO: "me/library", installer.ASSUME_YES: "1", "OTHER": "x"}

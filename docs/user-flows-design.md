@@ -61,8 +61,10 @@ metrics are therefore not implemented; `run_flow` still returns a
 - One library per installation. Several installations need
   `AGENTS_USER_FLOWS_DIR` pointed at one directory to share flows.
 - History is kept indefinitely; pruning is manual.
-- Sync of the library between machines through a private git repository:
-  the engine and command line are in [user-sync.md](user-sync.md) (#165); the
-  daemon loop, scheduled runs, GitHub sign-in and the web UI follow in #173.
+- Sync between machines ([user-sync.md](user-sync.md), #173): the engine and
+  command line, GitHub sign-in, the macOS daemon's loop, scheduled runs and the
+  stdio trigger, the web UI's Sync page, and the installers' step with setup from
+  `AGENTS_USER_SYNC_*`. Merging each repository's `history.md` across machines
+  (#172) is in PR #220.
 - Possible next steps: a run ledger with outcomes, and a line diff between a copy
   and its built-in in the editor.

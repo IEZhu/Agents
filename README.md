@@ -264,20 +264,23 @@ later keeps a group or a file out on every machine without deleting it anywhere.
 To set it up:
 
 - **During setup.** `init_repo.sh` and `init_repo.bat` ask once, at the end:
-  "Set up sync between your machines now? [y/N]". On macOS with the shared service
-  installed, yes opens its settings page (`flows-ui`), whose Sync page sets sync up;
-  elsewhere, or when the service does not answer, it starts the terminal wizard.
-  They do not ask under `--yes` (which `install.sh` always passes), without a
-  terminal, while git 2.32 or newer or `ssh-keygen` is missing, or when the
-  library holds a `.git` that sync did not create, which they leave alone. Updates
-  never ask: `install.sh` runs setup with `--yes`, and the service's `update` and
-  `auto-update` do not run it. Sync that is set up is only reported.
+  "Set up sync between your machines now? [y/N]". On macOS, when the shared
+  service answers and serves the Sync page, yes opens its settings page there;
+  otherwise it starts the terminal wizard. When the wizard has started sync on a
+  machine without the service, setup also asks "Also sync every 5 minutes in the
+  background? [Y/n]". Setup does not ask under `--yes` (which `install.sh` always
+  passes), without a terminal, while git 2.32 or newer or `ssh-keygen` is missing,
+  or when the library holds a `.git` that sync did not create, which it leaves
+  alone. Updates never ask: `install.sh` runs setup with `--yes`, and the
+  service's `update` and `auto-update` do not run it. Sync that is set up is only
+  reported, and the summary says whether background sync is on.
 - **Later**, from the installation root: `.venv/bin/python -m src.user_sync setup`
   (the terminal wizard), or the Sync page of `.venv/bin/python -m src.daemon flows-ui`
   with the shared service.
-- **Without questions**, for example on a new machine: set these variables in the
-  environment of `install.sh`, `init_repo.sh` or `init_repo.bat`, or of
-  `.venv/bin/python -m src.user_sync setup --from-env`.
+- **Without questions**, for example on a new machine: run
+  `.venv/bin/python -m src.user_sync setup --from-env` with these variables in its
+  environment. Setup reads them only there, never from `.env`. The installers honour
+  them too, but the separate command keeps the token to that one command.
 
 | Variable | Purpose |
 |---|---|
@@ -287,31 +290,48 @@ To set it up:
 | `AGENTS_USER_SYNC_LABEL` | This machine's label (default: the platform and a random suffix) |
 | `AGENTS_GITHUB_TOKEN` | Optional, for a GitHub repository: a token with the `repo` scope, which setup checks with GitHub, keeps in the OS secret store and uses to add this machine's deploy key |
 
-Without a token or an earlier `github login`, setup prints this machine's public
-key to add to the repository as a deploy key with write access; run it again
-afterwards. Setup then checks access and privacy, prints the preview and starts
-sync without waiting, except that joining a library with conflicts stops at
-"confirmation needed" with the commands to review the preview and to start with
-its hash. Once sync has started, the variables change nothing. Keep the token out
-of shell history and `.env`, for example:
+From the installation root, with the token typed without echo and set for this
+one command only:
 
 ```bash
-read -rs AGENTS_GITHUB_TOKEN && export AGENTS_GITHUB_TOKEN
-AGENTS_USER_SYNC_REPO=me/agents-library AGENTS_USER_SYNC_NAME="My Name" \
-    AGENTS_USER_SYNC_EMAIL=me@example.com ./scripts/init_repo.sh --yes
+read -rs t
+AGENTS_GITHUB_TOKEN="$t" AGENTS_USER_SYNC_REPO=me/agents-library AGENTS_USER_SYNC_NAME="My Name" \
+    AGENTS_USER_SYNC_EMAIL=me@example.com .venv/bin/python -m src.user_sync setup --from-env
+unset t
 ```
+
+The command takes the token out of its own environment before anything else, so
+none of its child processes (git, ssh, ssh-keygen) inherits it. When you give the
+token to the installers instead, `install.sh` passes it to `init_repo.sh` only,
+never to git, and `init_repo.sh` passes it to the sync step only. `init_repo.bat`
+clears it, because cmd cannot keep a variable from its children: on Windows, use
+the separate command. Never keep the token in `.env`.
+
+Without a token or an earlier `github login`, setup prints this machine's public
+key to add to the repository as a deploy key with write access; run it again
+afterwards, and the installer's summary says so. Setup then checks access and
+privacy, prints the preview and starts sync without waiting, except that joining
+a library with conflicts stops at "confirmation needed" with the commands to
+review the preview and to start with its hash. Where privacy cannot be checked,
+or another host's key needs confirming, it says to run it again with
+`--confirm-private` or `--trust-host-key`. On a machine without the shared service
+it then turns background sync on (`schedule enable`, every 5 minutes). A second
+run with another repository replaces a setup that the variables made and that
+never started; once sync has started, they change nothing.
 
 GitHub sign-in in the wizard and on the Sync page is the OAuth device flow of the
 Agents-Core OAuth App, so `gh` is not needed. The app's client ID ships once the
 app is registered; until then, set `AGENTS_GITHUB_CLIENT_ID` in `.env` to an OAuth
-App of your own with Device Flow enabled (see the table above), use
-`AGENTS_GITHUB_TOKEN`, or give an SSH URL and add the deploy key by hand.
+App of your own with Device Flow enabled (see [Environment Variables](#environment-variables)),
+use `AGENTS_GITHUB_TOKEN`, or give an SSH URL and add the deploy key by hand.
 
-With the shared service, the service syncs by itself; `install` says whether sync
-is set up. Without it, the stdio servers sync after each save, and
-`.venv/bin/python -m src.user_sync schedule enable` adds a run every few minutes.
-The [command reference](docs/user-sync.md#command-line) covers status, conflicts,
-pausing and the scope.
+Changes reach your other machines when each machine syncs. With the shared
+service, it syncs every few minutes and after each save; `install` says whether
+sync is set up. Without it, the scheduled run (`.venv/bin/python -m src.user_sync
+schedule enable`) syncs every 5 minutes; without that, a machine sends and
+receives changes only in the cycle that follows each save made through its stdio
+servers. The [command reference](docs/user-sync.md#command-line) covers status,
+conflicts, pausing and the scope.
 
 ### Updates
 

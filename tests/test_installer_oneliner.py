@@ -1,4 +1,5 @@
 """Exercise install.sh and init_repo.sh's --yes helpers against disposable directories."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -124,38 +125,39 @@ def test_missing_git_fails_clearly(tmp_path, upstream):
     assert "git is required" in result.stderr
 
 
+TERMINAL = r"""
+import json, os, pty, select, sys, time
+argv, typed, timeout = json.loads(sys.argv[1]), sys.argv[2].encode(), float(sys.argv[3])
+pid, controller = pty.fork()
+if pid == 0:  # the child: nothing but exec
+    os.execv(argv[0], argv)
+os.write(controller, typed)
+output, deadline = b"", time.monotonic() + timeout
+while time.monotonic() < deadline:
+    if select.select([controller], [], [], 0.1)[0]:
+        try:
+            chunk = os.read(controller, 65536)
+        except OSError:  # EIO: the child's side closed (Linux)
+            chunk = b""
+        output += chunk
+        if not chunk:
+            break
+else:
+    os.kill(pid, 9)
+os.close(controller)
+status = os.waitpid(pid, 0)[1]
+print(json.dumps({"code": os.waitstatus_to_exitcode(status), "output": output.decode(errors="replace")}))
+"""
+
+
 def run_with_terminal(argv, env, typed: bytes, timeout=60):
     """Run ``argv`` as the leader of a new session whose controlling terminal is a pseudo-terminal,
-    as a user's shell would: ``/dev/tty`` works, and ``typed`` waits in the terminal's input."""
-    import pty
-    import select
-    import time
-    pid, controller = pty.fork()
-    if pid == 0:  # the child: nothing but exec, so no lock of the parent's threads matters
-        try:
-            os.execve(argv[0], argv, env)
-        finally:
-            os._exit(127)
-    os.write(controller, typed)
-    output, deadline = b"", time.monotonic() + timeout
-    try:
-        while True:
-            ready, _, _ = select.select([controller], [], [], 0.1)
-            if ready:
-                try:
-                    chunk = os.read(controller, 65536)
-                except OSError:  # EIO: the child's side closed (Linux)
-                    chunk = b""
-                output += chunk
-                if not chunk:
-                    break
-            if time.monotonic() > deadline:
-                os.kill(pid, 9)
-                raise AssertionError("timed out: " + output.decode(errors="replace"))
-    finally:
-        os.close(controller)
-    _, status = os.waitpid(pid, 0)
-    return os.waitstatus_to_exitcode(status), output.decode(errors="replace")
+    as a user's shell would: ``/dev/tty`` works, and ``typed`` waits in the terminal's input. A fresh,
+    single-threaded Python forks it: forking this multi-threaded test process could deadlock."""
+    result = subprocess.run([sys.executable, "-c", TERMINAL, json.dumps(argv), typed.decode(), str(timeout)],
+                            env=env, capture_output=True, text=True, timeout=timeout + 30)
+    answer = json.loads(result.stdout)
+    return answer["code"], answer["output"]
 
 
 def library_git(checkout):
@@ -170,23 +172,80 @@ def library_git(checkout):
                     for path in sorted((library / ".git").rglob("*")) if path.is_file()}
 
 
-def test_an_update_from_a_terminal_still_runs_init_with_yes_and_leaves_the_library_git_alone(tmp_path, upstream):
-    """install.sh asks only its own confirmation; init_repo.sh then never asks (#171)."""
-    assert run_install(tmp_path, upstream).returncode == 0
+TOKEN = "ghp_OneLinerToken0123456789abcdef"
+SYNC_VARIABLES = ("AGENTS_ASSUME_YES", "AGENTS_USER_SYNC_REPO", "AGENTS_USER_SYNC_REMOTE", "AGENTS_USER_SYNC_NAME",
+                  "AGENTS_USER_SYNC_EMAIL", "AGENTS_USER_SYNC_LABEL", "AGENTS_GITHUB_TOKEN")
+
+
+@pytest.fixture
+def sync_upstream(tmp_path):
+    """A repository whose init_repo.sh records its arguments and whether it got the GitHub token,
+    then runs the real sync section of scripts/init_repo.sh with the real step (a copy of src)."""
+    from tests.test_installer_sync import unix_section
+    repo = tmp_path / "sync-upstream"
+    shutil.copytree(ROOT / "src", repo / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / "scripts").mkdir()
+    stub = repo / "scripts/init_repo.sh"
+    stub.write_text('#!/usr/bin/env bash\nhere="${0%/*}"\n'
+                    'echo "init:$* token:${AGENTS_GITHUB_TOKEN:-none}" > "$here/../ran.txt"\n'
+                    'REPO_ROOT="$(cd "$here/.." && pwd)"\nPYTHON_ABS="$TEST_PYTHON"\n'
+                    + unix_section((ROOT / "scripts/init_repo.sh").read_text(encoding="utf-8")))
+    stub.chmod(0o755)
+    git("init", "-q", "-b", "main", cwd=repo)
+    git("add", "-A", cwd=repo)
+    git("commit", "-q", "-m", "init", cwd=repo)
+    return repo
+
+
+def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_byte_for_byte(tmp_path, sync_upstream):
+    """install.sh asks only its own confirmation; init_repo.sh --yes runs the real sync step, whose
+    setup from the environment refuses the library's own .git and leaves it as it was (#171)."""
+    sync_env = {name: "" for name in SYNC_VARIABLES}
+    sync_env.update(TEST_PYTHON=sys.executable, XDG_STATE_HOME=str(tmp_path / "state"),
+                    AGENTS_SERVICE_DIR=str(tmp_path / "service"))
+    assert run_install(tmp_path, sync_upstream, extra_env=sync_env).returncode == 0
     checkout = tmp_path / "home/.agents-core"
     snapshot = library_git(checkout)
     before = snapshot()
-    (upstream / "new.txt").write_text("x")
-    git("add", "-A", cwd=upstream)
-    git("commit", "-q", "-m", "more", cwd=upstream)
+    (sync_upstream / "new.txt").write_text("x")
+    git("add", "-A", cwd=sync_upstream)
+    git("commit", "-q", "-m", "more", cwd=sync_upstream)
     env = {key: value for key, value in os.environ.items()
-           if key not in ("AGENTS_ASSUME_YES", "AGENTS_HOME", "GIT_DIR", "GIT_WORK_TREE")}
-    env.update(HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(upstream))
+           if key not in ("AGENTS_HOME", "GIT_DIR", "GIT_WORK_TREE", "PYTHONPATH")}
+    env.update(sync_env, HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(sync_upstream),
+               AGENTS_USER_SYNC_REMOTE="git@git.example.com:me/library.git", AGENTS_USER_SYNC_NAME="Owner",
+               AGENTS_USER_SYNC_EMAIL="owner@example.com", AGENTS_GITHUB_TOKEN=TOKEN)
     code, output = run_with_terminal([BASH, str(ROOT / "install.sh")], env, b"y\n")
     assert code == 0, output
     assert "Proceed with these defaults? [Y/n]" in output and (checkout / "new.txt").exists()
-    assert (checkout / "ran.txt").read_text().strip() == "init:--yes"
+    assert (checkout / "ran.txt").read_text().strip() == f"init:--yes token:{TOKEN}"
+    assert "Setting up sync between machines from AGENTS_USER_SYNC_REMOTE" in output
+    assert "Sync was not set up" in output and "REACHED THE END" in output
     assert snapshot() == before
+    assert not (tmp_path / "state").exists() and not (tmp_path / "service").exists()
+
+
+def test_install_sh_hands_the_github_token_to_init_repo_only_never_to_git(tmp_path, upstream):
+    events = tmp_path / "git-events.txt"
+    wrappers = tmp_path / "wrappers"
+    wrappers.mkdir()
+    wrapper = wrappers / "git"
+    wrapper.write_text(f'#!/bin/sh\necho "git ${{AGENTS_GITHUB_TOKEN:-none}}" >> "{events}"\n'
+                       f'exec {shutil.which("git")} "$@"\n')
+    wrapper.chmod(0o755)
+    stub = upstream / "scripts/init_repo.sh"
+    stub.write_text('#!/usr/bin/env bash\necho "init:$* token:${AGENTS_GITHUB_TOKEN:-none}" > "${0%/*}/../ran.txt"\n')
+    git("add", "-A", cwd=upstream)
+    git("commit", "-q", "-m", "stub", cwd=upstream)
+    path = str(wrappers) + os.pathsep + os.environ["PATH"]
+    for attempt in ("clone", "update"):
+        result = run_install(tmp_path, upstream, path=path,
+                             extra_env={**{name: "" for name in SYNC_VARIABLES}, "AGENTS_GITHUB_TOKEN": TOKEN})
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "home/.agents-core/ran.txt").read_text().strip() == f"init:--yes token:{TOKEN}"
+    lines = events.read_text().splitlines()
+    assert lines and set(lines) == {"git none"}
+    assert TOKEN not in result.stdout + result.stderr
 
 
 def test_init_repo_installs_one_embedding_model_without_asking():

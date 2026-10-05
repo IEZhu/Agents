@@ -72,7 +72,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
 | Skills, implants and rules, and their on/off switches | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py`, `test_component_toggles.py` |
 | Embedding model, its prompts, batching and the one-time model switch | `test_embedder.py`, `test_embedding_prompts.py`, `test_model_migration.py` (no model is loaded); the service's switch is in `test_daemon_update.py` |
-| Installers: one-command install, version checks, client profiles, instructions, migration and the sync step | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`, an update from a terminal; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py`, `test_installer_sync.py` (both installers' sync section around a stub; a pseudo-terminal on Unix, `cmd.exe` on Windows) |
+| Installers: one-command install, version checks, client profiles, instructions, migration and the sync step | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; an update from a terminal that runs the real sync step and leaves the library's `.git` byte for byte; the GitHub token reaching `init_repo.sh` and never git; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py`, `test_installer_sync.py` (both installers' sync section around a stub, the GitHub token only for the step; a pseudo-terminal on Unix, `cmd.exe` on Windows) |
 | Agent frontmatter and metadata | `scripts/validate_agents.py` |
 | Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
 | Repository memory and `log_interaction` | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py`, `test_log_interaction_async.py`, `test_log_interaction_contract.py` |
@@ -107,10 +107,13 @@ The same workflow runs Codex discovery and managed-instruction migration checks.
 and alternate client profiles, using native `cmd.exe` on Windows and Bash on Unix.
 It checks exact configuration targets, preserved inactive profiles, and paths with
 spaces without modifying the user's client files.
-`test_installer_sync.py` runs each installer's argument parsing, sync section and
-summary line around a stub of `python -m src.user_sync`: `--yes` and
-`AGENTS_ASSUME_YES` reach the step, which then never asks, and a failing step never
-fails setup. On Unix it also runs the real step in a pseudo-terminal.
+`test_installer_sync.py` runs each installer's token handling, argument parsing,
+sync section and summary line around a stub of `python -m src.user_sync`: `--yes`
+and `AGENTS_ASSUME_YES` reach the step, which then never asks; stdin from NUL is no
+console; the GitHub token reaches no child on Windows and only the step on Unix
+(fake `pip`, `git` and `python` report it); and a failing step never fails setup.
+On Unix it also runs the real step in a pseudo-terminal, in a copy of the
+installation.
 `test_installer_instructions.py` executes the actual template selection, skip guard
 and Codex instruction hook from each installer in temporary directories. Unix
 uses Bash; Windows uses native `cmd.exe`. These focused checks cover template

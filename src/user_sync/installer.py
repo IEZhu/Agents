@@ -10,22 +10,31 @@ itself it changes nothing: no settings, no key, nothing in the library's ``.git`
   set: ``from_env`` sets sync up without a question, also under ``--yes``.
 * git 2.32 or newer or ``ssh-keygen`` missing, or a ``.git`` in the library that sync did not
   create: it says why and asks nothing. That ``.git`` is only read, never changed.
-* ``--yes`` or no terminal: it asks nothing.
-* Otherwise it asks once. Yes opens the daemon's settings page (``python -m src.daemon flows-ui``),
-  whose Sync page sets sync up, on macOS when the daemon is installed; elsewhere, or when the page
-  cannot be opened, it starts the terminal wizard (``src.user_sync.wizard``).
+* ``--yes`` (or ``AGENTS_ASSUME_YES``) or no terminal: it asks nothing.
+* Otherwise it asks once. Yes opens the daemon's settings page, whose Sync page sets sync up, on
+  macOS when the daemon answers and serves that page (``settings_page``); otherwise it starts the
+  terminal wizard (``src.user_sync.wizard``). After the wizard started sync on a machine without the
+  daemon, it offers the scheduled run (``src.user_sync.schedule``), default yes.
+
+The variables count only as the command's process environment gives them, never from the
+installation's ``.env``: otherwise every update would continue a setup. The command line takes
+them before it reads ``.env`` (``take_environment``), and it takes ``AGENTS_GITHUB_TOKEN`` out of
+its own environment for every command, so that no child process it starts inherits the token
+(``forget_dotenv`` drops what ``.env`` added). Only the step and ``setup --from-env`` receive the
+token.
 
 ``from_env`` (also ``python -m src.user_sync setup --from-env``) takes the commit identity from
 ``AGENTS_USER_SYNC_NAME`` and ``AGENTS_USER_SYNC_EMAIL`` and the machine label from
-``AGENTS_USER_SYNC_LABEL``. ``AGENTS_GITHUB_TOKEN`` is removed from the process environment before
-anything runs (``take_token``), so no child process inherits it; for a repository on GitHub it is
-checked with GitHub and kept in the OS secret store through ``GitHubAccount.complete_sign_in``, and
-the deploy key is added through the API. Without a token or a connected account, the public key is
-printed to add by hand. Setup then checks access and privacy, shows the preview and starts sync,
-except that a join with conflicts stops at "confirmation needed" with the commands to review and
-confirm it. Run again with the same variables, it continues a setup that stopped, and it changes
-nothing once sync has started. It never touches a ``.git`` that the library holds while sync has no
-settings here, also one left from an earlier sync: it stops and points to the wizard.
+``AGENTS_USER_SYNC_LABEL``. For a repository on GitHub the token is checked with GitHub and kept in
+the OS secret store through ``GitHubAccount.complete_sign_in``, and the deploy key is added through
+the API; without a token or a connected account, the public key is printed to add by hand. Setup
+then checks access and privacy, shows the preview and starts sync, except that a join with
+conflicts stops at "confirmation needed" with the commands to review and confirm it. Once sync has
+started without the daemon, it enables the scheduled run. Run again with the same variables, it
+continues a setup that stopped, and it changes nothing once sync has started. A setup it made
+itself that never started may be replaced by a run with another remote (a marker in the sync state
+directory records it); every other setup, and a ``.git`` the library holds while sync has no
+settings here, stays as it is, with the steps that clear the way.
 
 Its own text is ASCII, since a Windows pipe may not encode anything else; names it repeats from the
 library or the remote may not be, so the command line replaces what its output cannot encode.
@@ -40,7 +49,8 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import Callable, MutableMapping
+from typing import Callable, Iterable, Mapping, MutableMapping
+from urllib.request import Request, urlopen
 
 from src.user_sync import gitcmd, keys
 from src.user_sync.engine import (MANAGED_KEY, Settings, SyncError, Syncer, hosted_repository,
@@ -53,7 +63,11 @@ NAME = "AGENTS_USER_SYNC_NAME"
 EMAIL = "AGENTS_USER_SYNC_EMAIL"
 LABEL = "AGENTS_USER_SYNC_LABEL"
 TOKEN = "AGENTS_GITHUB_TOKEN"
+ASSUME_YES = "AGENTS_ASSUME_YES"
+VARIABLES = (REPO, REMOTE, NAME, EMAIL, LABEL)
 PROMPT = "  Set up sync between your machines now? [y/N]: "
+MARKER = "user-sync-from-env.json"  # in the sync state directory: a setup that from_env made
+SYNC_PAGE = b"/ui/api/sync"  # the settings page's script calls it only where the Sync page exists
 _REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9._-]{1,100}")
 _STORES = {"macos-keychain": "the macOS Keychain", "secret-service": "the Secret Service",
            "windows-credential-manager": "the Windows Credential Manager",
@@ -61,41 +75,54 @@ _STORES = {"macos-keychain": "the macOS Keychain", "secret-service": "the Secret
 
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
-Environ = MutableMapping[str, str]
 
 
 # --- the environment ----------------------------------------------------------------------
 
 
-def _value(environ: Environ, name: str) -> str | None:
+def take_environment(environ: MutableMapping[str, str] | None = None) -> dict:
+    """The sync variables and ``AGENTS_ASSUME_YES`` as the process environment holds them.
+
+    Call it before ``.env`` is read. ``AGENTS_GITHUB_TOKEN`` is taken out of the environment, so
+    that no child process inherits it, and returned with the rest under its name.
+    """
+    environ = os.environ if environ is None else environ
+    values = {name: environ[name] for name in (*VARIABLES, ASSUME_YES) if isinstance(environ.get(name), str)}
+    token = environ.pop(TOKEN, None)
+    if isinstance(token, str):
+        values[TOKEN] = token
+    return values
+
+
+def forget_dotenv(values: Mapping[str, str], environ: MutableMapping[str, str] | None = None) -> list[str]:
+    """Remove the sync variables and the token that ``.env`` added after ``take_environment``.
+
+    Returns their names, to say that ``.env`` does not count for them.
+    """
+    environ = os.environ if environ is None else environ
+    ignored = []
+    for name in (*VARIABLES, TOKEN):
+        if name in environ and (name == TOKEN or name not in values):
+            if (environ.pop(name) or "").strip():
+                ignored.append(name)
+    return ignored
+
+
+def _value(environ: Mapping[str, str], name: str) -> str | None:
     value = environ.get(name)
     if not isinstance(value, str):
         return None
     return value.strip() or None
 
 
-def requested(environ: Environ | None = None) -> bool:
+def requested(environ: Mapping[str, str]) -> bool:
     """Whether the environment asks for setup: ``AGENTS_USER_SYNC_REPO`` or ``_REMOTE`` is set."""
-    environ = os.environ if environ is None else environ
     return bool(_value(environ, REPO) or _value(environ, REMOTE))
 
 
-def take_token(environ: Environ | None = None) -> str | None:
-    """``AGENTS_GITHUB_TOKEN``, removed from the environment so that no child process inherits it."""
-    environ = os.environ if environ is None else environ
-    value = environ.pop(TOKEN, None)
-    if not isinstance(value, str):
-        return None
-    return value.strip() or None
-
-
-def _token_in_dotenv() -> bool:
-    """Whether the installation's ``.env`` holds a GitHub token, which it should not keep."""
-    try:
-        from dotenv import dotenv_values
-        return bool((dotenv_values(installation_root() / ".env").get(TOKEN) or "").strip())
-    except Exception:  # no python-dotenv, or an unreadable file: nothing to warn about
-        return False
+def assume_yes(environ: Mapping[str, str]) -> bool:
+    """``AGENTS_ASSUME_YES`` as the installers read it: ``1``, ``true`` or ``yes``."""
+    return environ.get(ASSUME_YES) in ("1", "true", "yes")
 
 
 # --- this machine -------------------------------------------------------------------------
@@ -117,8 +144,10 @@ def _quote(word: str) -> str:
 
 
 def command(*arguments: str) -> str:
-    """``<python> -m <arguments>``, to run in the installation root."""
-    return " ".join(_quote(word) for word in (_python(), "-m", *arguments))
+    """``cd <installation> && <python> -m <arguments>``: ``-m src…`` works only in the installation."""
+    change = "cd /d" if os.name == "nt" else "cd"
+    words = " ".join(_quote(word) for word in (_python(), "-m", *arguments))
+    return f"{change} {_quote(str(installation_root()))} && {words}"
 
 
 def daemon_directory() -> Path | None:
@@ -136,6 +165,33 @@ def daemon_directory() -> Path | None:
     if isinstance(directory, str) and (Path(directory) / "service.json").is_file():
         return Path(directory)
     return None
+
+
+def settings_page(directory: Path) -> str | None:
+    """A one-use link to the daemon's settings page, or None unless that page can set sync up now.
+
+    The daemon must answer ``/health`` as ready, and the page it serves must be one with the Sync
+    page: its script calls ``/ui/api/sync``. The link is what ``python -m src.daemon flows-ui``
+    asks for. Never raises: anything else means the terminal wizard.
+    """
+    try:
+        from src.daemon.control import Controller
+        controller = Controller(directory)
+        port = controller.config.get("port")
+        if not isinstance(port, int):
+            return None
+        health = controller.request("/health", timeout=3)
+        if not isinstance(health, dict) or health.get("state") != "ready":
+            return None
+        with urlopen(Request(f"http://127.0.0.1:{port}/ui"), timeout=5) as response:
+            page = response.read(8 * 1024 * 1024)
+        if SYNC_PAGE not in page:
+            return None
+        answer = controller.request("/admin/ui/code", method="POST", timeout=5)
+        url = answer.get("url") if isinstance(answer, dict) else None
+        return url if isinstance(url, str) and url.startswith(f"http://127.0.0.1:{port}/") else None
+    except Exception:  # not running, not answering, an older page: the terminal wizard instead
+        return None
 
 
 def missing_tools() -> list[str]:
@@ -185,35 +241,88 @@ def blocker(syncer: Syncer) -> SyncError | None:
     return None
 
 
-def open_settings(directory: Path) -> str:
-    """Open the daemon's settings page in the browser (``python -m src.daemon flows-ui``); its URL.
-
-    Raises when the page cannot be opened, for example while the daemon is stopped.
-    """
-    result = subprocess.run([sys.executable, "-m", "src.daemon", "--state", str(directory), "flows-ui"],
-                            cwd=installation_root(), capture_output=True, text=True, timeout=60,
-                            stdin=subprocess.DEVNULL)
+def background() -> dict:
+    """How this machine syncs in the background: ``by`` is ``daemon``, ``schedule`` or None."""
+    if daemon_directory() is not None:
+        return {"by": "daemon"}
     try:
-        answer = json.loads(result.stdout)
-    except ValueError:
-        answer = None
-    answer = answer if isinstance(answer, dict) else {}
-    if result.returncode == 0 and isinstance(answer.get("url"), str):
-        return answer["url"]
-    lines = result.stderr.strip().splitlines()
-    raise RuntimeError(str(answer.get("error") or (lines[-1] if lines else f"exit code {result.returncode}")))
+        from src.user_sync import schedule
+        found = schedule.status()
+    except Exception as error:  # the scheduler could not be asked: say so, change nothing
+        return {"by": None, "error": _reason(error)}
+    if found.get("scheduled"):
+        return {"by": "schedule", "minutes": found.get("interval_minutes")}
+    return {"by": None}
+
+
+def enable_background(syncer: Syncer, settings: Settings) -> dict:
+    """Schedule ``run`` every ``fetch_minutes`` for this machine, as ``schedule enable`` does (#168)."""
+    from src.user_sync import schedule
+    return schedule.enable(settings.fetch_minutes, state_dir=syncer.state_dir, library=syncer.library)
+
+
+def _background_off(minutes: int) -> str:
+    return (f"Without background sync, this machine sends and receives changes only around its own saves "
+            f"and server starts. To sync every {minutes} minutes: " + command("src.user_sync", "schedule", "enable"))
+
+
+def _turn_background_on(syncer: Syncer, settings: Settings, say: Say) -> str | None:
+    """Enable the scheduled run and say so; the backend's name, or None when it failed."""
+    try:
+        enabled = enable_background(syncer, settings)
+    except Exception as error:  # sync works without it; the owner can turn it on later
+        say(f"  Background sync could not be scheduled ({_reason(error)}). "
+            + _background_off(settings.fetch_minutes))
+        return None
+    say(f"  Background sync is on: every {settings.fetch_minutes} minutes ({enabled.get('backend', 'scheduled')}). "
+        "To turn it off: " + command("src.user_sync", "schedule", "disable"))
+    return "schedule"
+
+
+# --- a setup that from_env made -------------------------------------------------------------
+
+
+def _marker(syncer: Syncer) -> Path:
+    return syncer.state_dir / MARKER
+
+
+def _mark(syncer: Syncer) -> None:
+    """Record that from_env made the current setup: its remote and this machine's public key."""
+    settings = syncer.settings()
+    if settings is None:
+        return
+    path = _marker(syncer)
+    path.write_text(json.dumps({"remote": settings.remote, "public_key": keys.public_key(syncer.state_dir)}) + "\n",
+                    encoding="utf-8")
+    if os.name == "posix":
+        path.chmod(0o600)
+
+
+def _unmark(syncer: Syncer) -> None:
+    try:
+        _marker(syncer).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def made_here(syncer: Syncer, settings: Settings) -> bool:
+    """Whether from_env made this setup: the marker names its remote and this machine's key.
+
+    ``disconnect`` deletes the key, so a marker it leaves behind never matches a later setup.
+    """
+    try:
+        data = json.loads(_marker(syncer).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (isinstance(data, dict) and data.get("remote") == settings.remote
+            and data.get("public_key") == keys.public_key(syncer.state_dir))
+
+
+# --- messages -------------------------------------------------------------------------------
 
 
 def _status_command() -> str:
     return command("src.daemon", "user-sync", "status") if daemon_directory() else command("src.user_sync", "status")
-
-
-def _running_note() -> str:
-    if daemon_directory():
-        return "The daemon syncs the library while it runs; check it with: " + command("src.daemon", "user-sync",
-                                                                                      "status")
-    return ("Agents-Core's stdio servers sync after each save. To sync every few minutes as well: "
-            + command("src.user_sync", "schedule", "enable"))
 
 
 def _reason(error: BaseException) -> str:
@@ -256,6 +365,13 @@ def describe(syncer: Syncer, settings: Settings) -> str:
             f"this machine is {settings.label}. Status: {_status_command()}")
 
 
+def _not_started(result: dict) -> dict:
+    """A result after which sync has not started, as ``attention`` with a reason: the exit code is 1."""
+    reason = result.get("reason") or result.get("status") or "not_started"
+    message = result.get("message") or f"sync did not start ({reason})"
+    return {**result, "status": "attention", "reason": reason, "message": message}
+
+
 # --- the installers' step -----------------------------------------------------------------
 
 
@@ -277,24 +393,35 @@ def _guarded(say: Say, action: Callable[[], dict]) -> dict:
         return {"status": "attention", "reason": reason, "message": message}
 
 
+def _ignored_note(ignored: Iterable[str], say: Say) -> None:
+    names = list(ignored)
+    if names:
+        say(f"  Ignored in .env: {', '.join(names)}. Sync setup reads them only from the environment of the "
+            "command that runs it; remove them from .env.")
+
+
 def step(syncer: Syncer, *, assume_yes: bool, interactive: bool, ask: Ask, say: Say,
-         run_wizard: Callable[[], dict], environ: Environ | None = None) -> dict:
-    """The installers' sync step; see the module docstring. Never raises."""
-    environ = os.environ if environ is None else environ
-    token = take_token(environ)
+         run_wizard: Callable[[], dict], open_browser: Callable[[str], object] | None = None,
+         environ: Mapping[str, str] | None = None, token: str | None = None,
+         ignored: Iterable[str] = ()) -> dict:
+    """The installers' sync step; see the module docstring. Never raises.
+
+    ``environ`` holds the sync variables as the process environment gave them (``take_environment``)
+    and ``token`` the GitHub token; ``ignored`` names what ``.env`` set and does not count.
+    """
+    environ = {} if environ is None else environ
+    _ignored_note(ignored, say)
     settings = syncer.settings()
+    if settings is None:
+        _unmark(syncer)  # a marker without a setup is left from one that was disconnected
     started = settings is not None and bool(settings.started)
     if requested(environ) and not started:
         variable = REPO if _value(environ, REPO) else REMOTE
         say(f"  Setting up sync between machines from {variable}; nothing is asked.")
-        return _guarded(say, lambda: from_env(syncer, say=say, token=token, environ=environ))
+        return _guarded(say, lambda: from_env(syncer, say=say, environ=environ, token=token))
     if token:
-        if requested(environ):  # and sync has started: there is nothing to sign in for
-            say(f"  {TOKEN} was not used: sync is already set up.")
-        else:
-            say(f"  {TOKEN} is used only together with {REPO} or {REMOTE}; it was not stored.")
-        if _token_in_dotenv():
-            say(f"  Remove {TOKEN} from .env: a token does not belong there.")
+        say(f"  {TOKEN} was not used: " + ("sync is already set up." if requested(environ)
+                                          else f"it counts only together with {REPO} or {REMOTE}."))
     if settings is not None:
         line = describe(syncer, settings)
         say(f"  {line}")
@@ -317,45 +444,86 @@ def step(syncer: Syncer, *, assume_yes: bool, interactive: bool, ask: Ask, say: 
         say("  Sync stays off; the summary below says how to turn it on later.")
         return {"status": "off", "reason": "declined"}
     daemon = daemon_directory()
-    if daemon is not None:
+    url = settings_page(daemon) if daemon is not None else None
+    if url is not None:
         try:
-            url = open_settings(daemon)
-        except Exception as error:  # the page needs the running daemon
-            say(f"  The settings page could not be opened ({_reason(error)}); it needs the running daemon. "
-                "Setting up sync in this terminal instead.")
+            opened = bool((open_browser or _open_browser)(url))
+        except Exception:  # no browser here: the link below is enough
+            opened = False
+        if opened:
+            say("  Opened the settings page in your browser; its Sync page sets sync up.")
         else:
-            say(f"  Opened the settings page in your browser: {url}")
-            say("  Its Sync page sets sync up. The link works once, for 2 minutes; to open the page again: "
-                + command("src.daemon", "flows-ui"))
-            return {"status": "off", "reason": "settings_page", "url": url}
-    result = _guarded(say, run_wizard)
+            say(f"  Open the settings page in a browser; its Sync page sets sync up: {url}")
+            say("  (a one-use link, valid for 2 minutes; " + command("src.daemon", "flows-ui") + " makes another)")
+        return {"status": "off", "reason": "settings_page"}
+    return _after_wizard(syncer, _guarded(say, run_wizard), ask=ask, say=say)
+
+
+def _open_browser(url: str) -> bool:
+    import webbrowser
+    return webbrowser.open(url)
+
+
+def _after_wizard(syncer: Syncer, result: dict, *, ask: Ask, say: Say) -> dict:
+    """Offer background sync once the wizard started sync; a setup that did not start is ``attention``."""
     settings = syncer.settings()
-    if settings is not None and settings.started:
-        say(f"  {_running_note()}")
-    return result
+    if settings is None or not settings.started:
+        if settings is not None and result.get("status") not in ("cancelled", "attention"):
+            return _not_started(result)
+        return result
+    found = background()
+    if found["by"] == "daemon":
+        say("  The daemon syncs in the background while it runs; status: "
+            + command("src.daemon", "user-sync", "status"))
+        return {**result, "background": "daemon"}
+    if found["by"] == "schedule":
+        say(f"  Background sync already runs every {found.get('minutes')} minutes.")
+        return {**result, "background": "schedule"}
+    try:
+        answer = ask(f"  Also sync every {settings.fetch_minutes} minutes in the background? [Y/n]: ")
+    except (EOFError, KeyboardInterrupt):
+        answer = "n"  # no answer at all changes nothing
+    if answer.strip().lower() in ("", "y", "yes"):
+        return {**result, "background": _turn_background_on(syncer, settings, say)}
+    say(f"  {_background_off(settings.fetch_minutes)}")
+    return {**result, "background": None}
 
 
 def summary(syncer: Syncer, *, say: Say) -> dict:
-    """The installer's final summary: how to turn sync on, unless it runs; then an empty line. Never raises."""
+    """The installer's final summary: sync's state, background sync and how to turn either on.
+
+    Ends with an empty line when it printed anything. Never raises.
+    """
     try:
         settings = syncer.settings()
         if settings is not None and settings.started:
-            return {"status": "set_up"}
+            found = background()
+            if found["by"] == "daemon":
+                say("  Sync between machines is on; the daemon syncs in the background while it runs.")
+            elif found["by"] == "schedule":
+                say(f"  Sync between machines is on, in the background every {found.get('minutes')} minutes.")
+            else:
+                say(f"  Sync between machines is on. {_background_off(settings.fetch_minutes)}")
+            say("")
+            return {"status": "set_up", "background": found["by"]}
         if settings is None:
             problem = blocker(syncer)
             if problem is not None:
                 say(f"  Sync between machines is off: {problem.message}.")
                 say("")
                 return {"status": "off", "reason": problem.reason}
-            say(f"  Sync between machines is off. To turn it on, in {installation_root()}:")
+            say("  Sync between machines is off. To turn it on:")
         else:
-            say(f"  Sync between machines is set up but not started yet. To finish it, in {installation_root()}:")
+            say("  Sync between machines is set up but not started yet. To finish it:")
+            if made_here(syncer, settings):
+                say(f"    {command('src.user_sync', 'setup', '--from-env')}")
+                say("      (again with the same AGENTS_USER_SYNC_* variables, once the deploy key is added)")
         if daemon_directory() is not None:
             say(f"    {command('src.daemon', 'flows-ui')}   (the Sync page of the settings)")
         say(f"    {command('src.user_sync', 'setup')}   (step by step in a terminal)")
         if settings is None:
-            say(f"  Without questions: set {REPO} or {REMOTE}, {NAME} and {EMAIL}, then run setup again "
-                "(docs/user-sync.md).")
+            say(f"  Without questions: set {REPO} or {REMOTE}, {NAME} and {EMAIL} in the environment of "
+                "that command with --from-env (docs/user-sync.md).")
         say("")
         return {"status": "off" if settings is None else "set_up"}
     except Exception as error:  # a summary line is never worth a failed setup
@@ -386,8 +554,6 @@ def _github_api(syncer: Syncer, token: str | None, say: Say) -> bool:
         say(f"  Signed in to {status['host']} as {status['login']} with {TOKEN}; the token is kept in {storage}.")
         if status.get("warning"):
             say(f"  Note: {status['warning']}")
-        if _token_in_dotenv():
-            say(f"  Remove {TOKEN} from .env: the token is in the secret store now.")
         return True
     status = account.status()
     if status["connected"] and not status["reconnect_needed"]:
@@ -398,19 +564,36 @@ def _github_api(syncer: Syncer, token: str | None, say: Say) -> bool:
     return False
 
 
-def from_env(syncer: Syncer, *, say: Say, token: str | None = None, environ: Environ | None = None,
-             branch: str = "main", trust_host_key: str | None = None, confirm_private: bool | None = None,
-             ask_new_repositories: bool | None = None) -> dict:
+def _clear_the_way(syncer: Syncer) -> str:
+    return (f"finish it with the wizard ({command('src.user_sync', 'setup')}), or remove it "
+            f"({command('src.user_sync', 'disconnect')}), move {syncer.library / '.git'} away and run setup "
+            "from the environment again")
+
+
+def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = None, token: str | None = None,
+             ignored: Iterable[str] = (), branch: str = "main", trust_host_key: str | None = None,
+             confirm_private: bool | None = None, ask_new_repositories: bool | None = None) -> dict:
     """Set sync up from ``AGENTS_USER_SYNC_*`` without a question; see the module docstring.
 
-    ``token`` is the ``AGENTS_GITHUB_TOKEN`` that the caller took out of the environment
-    (``take_token``). Raises ``SyncError`` (and ``GitHubError``) when setup cannot go on.
+    ``environ`` holds the variables as the process environment gave them, ``token`` the GitHub
+    token, both from ``take_environment``. Raises ``SyncError`` (and ``GitHubError``) when setup
+    cannot go on.
     """
-    environ = os.environ if environ is None else environ
+    environ = {} if environ is None else environ
+    ignored = list(ignored)
+    existing = syncer.settings()
+    if existing is None:
+        _unmark(syncer)
+    elif existing.started:
+        message = f"sync is already set up with {_display(existing.remote, syncer.allow_file_remote)}; nothing changed"
+        say(f"  {message[0].upper()}{message[1:]}.")
+        return {"status": "set_up", "message": message}
     repo, remote = _value(environ, REPO), _value(environ, REMOTE)
     if not (repo or remote):
-        raise SyncError("not_requested", f"set {REPO} (OWNER/NAME of a GitHub repository) or {REMOTE} "
-                                         "(an SSH URL)", state="off")
+        from_dotenv = [name for name in ignored if name in (REPO, REMOTE)]
+        raise SyncError("not_requested", f"set {REPO} (OWNER/NAME of a GitHub repository) or {REMOTE} (an SSH URL) "
+                                         "in the environment of this command"
+                        + (" (.env does not count)" if from_dotenv else ""), state="off")
     if repo and remote:
         raise SyncError("invalid", f"set {REPO} or {REMOTE}, not both")
     if repo and not _REPOSITORY.fullmatch(repo):
@@ -429,27 +612,26 @@ def from_env(syncer: Syncer, *, say: Say, token: str | None = None, environ: Env
         if target.kind == "https":  # no credentials reach git: a private repository needs this machine's key
             raise SyncError("unknown_remote", f"{REMOTE} must be an SSH URL, such as "
                                               "git@git.example.com:me/agents-library.git")
-    existing = syncer.settings()
-    if existing is not None and existing.started:
-        message = f"sync is already set up with {_display(existing.remote, syncer.allow_file_remote)}; nothing changed"
-        say(f"  {message[0].upper()}{message[1:]}.")
-        return {"status": "set_up", "message": message}
     host = syncer.github_account().host
     repository = repo or (hosted_repository(target, host) if target is not None else None)
+    ours = existing is not None and made_here(syncer, existing)
     if existing is not None and not _same_target(existing, repository, remote, host, syncer.allow_file_remote):
-        raise SyncError("connected", f"sync is set up for {_display(existing.remote, syncer.allow_file_remote)} "
-                                     f"but not started; finish that setup ({command('src.user_sync', 'setup')}) "
-                                     f"or remove it ({command('src.user_sync', 'disconnect')}) first")
+        if not ours:
+            raise SyncError("connected", f"sync is set up for {_display(existing.remote, syncer.allow_file_remote)} "
+                                         f"but not started, and not from the environment; {_clear_the_way(syncer)}")
+        say(f"  Replacing the setup for {_display(existing.remote, syncer.allow_file_remote)}, which setup from "
+            "the environment made and which never started.")
     problem = blocker(syncer)
     if problem is not None:
         raise problem
     dot_git = syncer.library / ".git"
     if existing is None and (dot_git.exists() or dot_git.is_symlink()):
         raise SyncError("existing_git", f"{dot_git} is left from an earlier sync, and setup without questions never "
-                                        f"touches an existing .git; set sync up again with "
-                                        f"{command('src.user_sync', 'setup')}, or move the .git away")
+                                        f"touches an existing .git; move it away and run setup from the environment "
+                                        f"again, or set sync up with the wizard ({command('src.user_sync', 'setup')})")
     options = {"name": name, "email": email, "label": label, "branch": branch, "trust_host_key": trust_host_key,
                "ask_new_repositories": ask_new_repositories}
+    mark = existing is None or ours
     if repository is not None and _github_api(syncer, token, say):
         result = syncer.setup_github(repository, **options)
         for line in result.get("steps", []):
@@ -464,6 +646,8 @@ def from_env(syncer: Syncer, *, say: Say, token: str | None = None, environ: Env
         url = remote or f"git@{host.split(':')[0]}:{repository}.git"
         result = syncer.setup(remote=url, confirm_private=confirm_private, **options)
         manual = True
+    if mark:
+        _mark(syncer)
     where = repository or (target.display if target is not None else "the repository")
     if result.get("status") == "host_key_unconfirmed":
         say(f"  {result['host']} offers these host keys; compare them with the fingerprints the host publishes:")
@@ -473,10 +657,11 @@ def from_env(syncer: Syncer, *, say: Say, token: str | None = None, environ: Env
             + command("src.user_sync", "setup", "--from-env", "--trust-host-key", "SHA256:..."))
         return {"status": "attention", "reason": "host_key", "fingerprints": result["fingerprints"],
                 "message": "confirm the host key, then run setup again"}
-    return _check_and_start(syncer, say, where=where, manual=manual, public_key=result.get("public_key"))
+    return _check_and_start(syncer, say, where=where, manual=manual, mark=mark, public_key=result.get("public_key"))
 
 
-def _check_and_start(syncer: Syncer, say: Say, *, where: str, manual: bool, public_key: str | None) -> dict:
+def _check_and_start(syncer: Syncer, say: Say, *, where: str, manual: bool, mark: bool,
+                     public_key: str | None) -> dict:
     try:
         checked = syncer.check()
     except SyncError as error:
@@ -485,10 +670,12 @@ def _check_and_start(syncer: Syncer, say: Say, *, where: str, manual: bool, publ
             raise
         say(f"  Add this machine's public key to {where} as a deploy key with write access:")
         say(f"    {public}")
-        say("  Then run setup again with the same variables set, or: "
+        say("  Then run setup from the environment again, with the same variables set: "
             + command("src.user_sync", "setup", "--from-env"))
         return {"status": "waiting_for_access", "reason": "auth", "public_key": public,
                 "message": "add this machine's public key as a deploy key with write access, then run setup again"}
+    if mark:
+        _mark(syncer)  # the check may have moved the remote to port 443
     if checked.get("message"):
         say(f"  {checked['message']}")
     verdict = syncer.privacy()
@@ -512,11 +699,20 @@ def _check_and_start(syncer: Syncer, say: Say, *, where: str, manual: bool, publ
                 "message": "joining keeps conflicts; review the preview and start sync with its hash"}
     result = syncer.start(preview["hash"])
     settings = syncer.settings()
-    if settings is not None and settings.started:
-        say(f"  Sync started: sent {len(result.get('sent', []))} and received {len(result.get('received', []))} files.")
-        if result.get("status") == "attention":
-            say(f"  It needs attention: {result.get('reason')}: {result.get('message')}")
-        say(f"  {_running_note()}")
-    else:
-        say(f"  Sync did not start: {result.get('reason')}: {result.get('message')}")
-    return result
+    if settings is None or not settings.started:
+        failed = _not_started(result)
+        say(f"  Sync did not start: {failed['reason']}: {failed['message']}")
+        return failed
+    _unmark(syncer)
+    say(f"  Sync started: sent {len(result.get('sent', []))} and received {len(result.get('received', []))} files.")
+    if result.get("status") == "attention":
+        say(f"  It needs attention: {result.get('reason')}: {result.get('message')}")
+    found = background()
+    if found["by"] == "daemon":
+        say("  The daemon syncs in the background while it runs; status: "
+            + command("src.daemon", "user-sync", "status"))
+        return {**result, "background": "daemon"}
+    if found["by"] == "schedule":
+        say(f"  Background sync already runs every {found.get('minutes')} minutes.")
+        return {**result, "background": "schedule"}
+    return {**result, "background": _turn_background_on(syncer, settings, say)}

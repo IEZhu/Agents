@@ -265,21 +265,23 @@ class Controller:
 
 
 def sync_note(directory):
-    """What ``install`` says about user library sync (#171): whether it is set up, and how to set it up.
+    """What ``install`` says about user library sync (#171): set up, pending or off, and what to do.
 
-    The service keeps sync's settings in ``<directory>/user-sync``, where the engine also put them
-    when sync was set up before the service was installed.
+    ``directory`` is the service's state directory, the one ``install --state`` chose: the service
+    and the engine keep sync's settings in its ``user-sync``.
     """
     try:
         settings = read_json(Path(directory) / "user-sync" / "user-sync.json")
     except (OSError, ValueError):
         settings = None
-    if isinstance(settings, dict):
+    finish = ("run `python -m src.daemon start`, then `python -m src.daemon flows-ui` and open its Sync page, "
+              "or `python -m src.user_sync setup` in a terminal")
+    if isinstance(settings, dict) and settings.get("started"):
         return ("set up: the service runs the sync loop once it starts; "
                 "`python -m src.daemon user-sync status` shows its state")
-    return ("off: to sync personal flows between machines, run `python -m src.daemon start`, then "
-            "`python -m src.daemon flows-ui` and open its Sync page, or `python -m src.user_sync setup` "
-            "in a terminal")
+    if isinstance(settings, dict):
+        return "pending: sync is set up but has not started; to finish it, " + finish
+    return "off: to sync personal flows between machines, " + finish
 
 
 def stop_scheduled_sync(installation=None):

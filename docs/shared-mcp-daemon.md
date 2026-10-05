@@ -99,14 +99,16 @@ command holds the lock. Do not rerun setup while the service runs (see
 
 ### Sync at installation
 
-`install` reports `user_sync`: `set up`, or `off` with how to set
-[user library sync](#user-library-sync) up: the Sync page of `flows-ui` once the
-service runs, or `python -m src.user_sync setup` in a terminal. When setup asks
-whether to set up sync and the service is installed, yes opens that page through
-`flows-ui`; when the service does not answer, setup starts the terminal wizard
-instead. The wizard, and setup from the `AGENTS_USER_SYNC_*` variables
-([installers](user-sync.md#installers)), keep sync's settings in the service's
-state directory (`<directory>/user-sync`), where its loop finds them.
+`install` reports `user_sync`: `set up`, `pending` (set up but not started) or
+`off`, with how to finish or set up [user library sync](#user-library-sync): the
+[Sync page](#sync-page) of `flows-ui` once the service runs, or
+`python -m src.user_sync setup` in a terminal. When setup asks whether to set up
+sync and the service is installed, yes opens that page only when the service
+answers `/health` as ready and its page has the Sync page; otherwise setup starts
+the terminal wizard, without a connection error. The wizard, and setup from the
+`AGENTS_USER_SYNC_*` variables ([installers](user-sync.md#installers)), keep
+sync's settings in the service's state directory (`<directory>/user-sync`, the
+directory `install --state` chose), where its loop finds them.
 
 ### Alternate client configurations
 

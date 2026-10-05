@@ -19,6 +19,12 @@ REM   --skip-mcp     Skip MCP configuration and client instruction updates
 REM   --help         Show this help message
 
 setlocal enabledelayedexpansion
+REM cmd cannot keep a variable from its children, so a GitHub token for sync setup
+REM (AGENTS_GITHUB_TOKEN) is cleared before any of them runs and never passed on. On
+REM Windows only a separate `python -m src.user_sync setup --from-env` reads it.
+set "_SYNC_TOKEN_GIVEN=false"
+if defined AGENTS_GITHUB_TOKEN set "_SYNC_TOKEN_GIVEN=true"
+set "AGENTS_GITHUB_TOKEN="
 chcp 65001 >nul 2>&1
 
 REM Where users should report unexpected script failures (see :fatal_exit at end).
@@ -631,9 +637,9 @@ REM ============== Sync Between Machines ==============
 REM The personal library (flows\.user) can sync between the user's machines through a
 REM private git repository (docs\user-sync.md). The step is src\user_sync\installer.py,
 REM as in init_repo.sh: with a terminal and without --yes it asks once; --yes never
-REM asks; AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE set sync up without a
-REM question. It never touches an existing flows\.user\.git by itself, and a failure
-REM here never fails setup.
+REM asks; AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE in the environment (never
+REM from .env) set sync up without a question, without the GitHub token here. It never
+REM touches an existing flows\.user\.git by itself, and a failure here never fails setup.
 
 echo(
 echo %CYAN%===============================%NC%
@@ -641,6 +647,7 @@ echo %BLUE%  Sync Between Machines%NC%
 echo %CYAN%===============================%NC%
 set "_SYNC_FLAG="
 if "!ASSUME_YES!"=="true" set "_SYNC_FLAG=--yes"
+if "!_SYNC_TOKEN_GIVEN!"=="true" echo   AGENTS_GITHUB_TOKEN is not used here: on Windows only a separate `python -m src.user_sync setup --from-env` reads it. See docs\user-sync.md
 pushd "%REPO_ROOT%"
 "%PYTHON_ABS%" -m src.user_sync installer !_SYNC_FLAG!
 if errorlevel 1 echo   %YELLOW%WARNING:%NC% The sync step did not finish; setup continues. See docs\user-sync.md
@@ -695,7 +702,8 @@ echo      and you finalize the write with %CYAN%write_repo_summary(...)%NC%.
 echo      History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol).
 echo(
 
-REM How to turn sync between machines on, unless it runs (src\user_sync\installer.py).
+REM Sync between machines: its state, background sync and how to turn either on
+REM (src\user_sync\installer.py).
 pushd "%REPO_ROOT%"
 "%PYTHON_ABS%" -m src.user_sync installer --summary 2>nul
 popd

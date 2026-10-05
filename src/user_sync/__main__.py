@@ -17,7 +17,10 @@ Every command accepts ``--json`` for machine-readable output; prompts and sign-i
 to stderr. The exit code is 0 unless sync needs attention, a command failed or was cancelled, or
 the arguments were wrong (2).
 
-``installer`` and ``setup --from-env`` are described in ``src.user_sync.installer``.
+``installer`` and ``setup --from-env`` are described in ``src.user_sync.installer``. Their variables
+(``AGENTS_USER_SYNC_*``) count only from the process environment, never from ``.env``, and every
+command takes ``AGENTS_GITHUB_TOKEN`` out of its own environment before anything else, so no child
+process inherits it; only those two receive it.
 
 ``--state DIR`` and ``--library DIR`` (before the command) name the private state directory and
 the library explicitly; scheduled runs pass both, so they never depend on the scheduler's
@@ -29,6 +32,7 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack, contextmanager
 import json
+import os
 import subprocess
 import sys
 import time
@@ -143,17 +147,22 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         return syncer.run(force=arguments.force, confirm=arguments.confirm)
     if name == "setup" and arguments.from_env:
         from src.user_sync import installer
-        return installer.from_env(syncer, say=console.say, token=installer.take_token(), branch=arguments.branch,
-                                  trust_host_key=arguments.trust_host_key, confirm_private=arguments.confirm_private,
+        return installer.from_env(syncer, say=console.say, environ=arguments.environment,
+                                  token=arguments.environment.get(installer.TOKEN), ignored=arguments.ignored,
+                                  branch=arguments.branch, trust_host_key=arguments.trust_host_key,
+                                  confirm_private=arguments.confirm_private,
                                   ask_new_repositories=arguments.ask_new_repositories)
     if name == "installer":
         from src.user_sync import installer, wizard
-        if arguments.summary:
+        if arguments.summary:  # no token here: the summary only reads
             return installer.summary(syncer, say=console.say)
-        return installer.step(syncer, assume_yes=arguments.yes, interactive=console.interactive, ask=console.ask,
-                              say=console.say, run_wizard=lambda: wizard.run(
-                                  syncer, ask=console.ask, say=console.say, open_browser=console.open_browser,
-                                  sleep=console.sleep))
+        return installer.step(syncer, assume_yes=arguments.yes or installer.assume_yes(arguments.environment),
+                              interactive=console.interactive, ask=console.ask, say=console.say,
+                              open_browser=console.open_browser, environ=arguments.environment,
+                              token=arguments.environment.get(installer.TOKEN), ignored=arguments.ignored,
+                              run_wizard=lambda: wizard.run(syncer, ask=console.ask, say=console.say,
+                                                            open_browser=console.open_browser,
+                                                            sleep=console.sleep))
     if name == "setup" and arguments.github:
         return syncer.setup_github(arguments.github, name=arguments.name, email=arguments.email,
                                    label=arguments.label, branch=arguments.branch,
@@ -357,6 +366,27 @@ def _console(json_output: bool, ask=None, say=None, open_browser=None, sleep=Non
                            interactive=interactive)
 
 
+def _terminal() -> bool:
+    """Whether someone can answer at stdin. On Windows ``isatty`` is true for NUL as well, so the
+    handle must also be a console that answers ``GetConsoleMode``."""
+    stream = sys.stdin
+    try:
+        if stream is None or not stream.isatty():
+            return False
+        if os.name != "nt":
+            return True
+        import ctypes
+        from ctypes import wintypes
+        import msvcrt
+        get_mode = ctypes.WinDLL("kernel32", use_last_error=True).GetConsoleMode
+        get_mode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        get_mode.restype = wintypes.BOOL
+        mode = wintypes.DWORD()
+        return bool(get_mode(msvcrt.get_osfhandle(stream.fileno()), ctypes.byref(mode)))
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def _tolerant_output() -> None:
     """Replace characters the output cannot encode, such as a flow name in a Windows pipe's code page,
     instead of failing half way through a setup."""
@@ -369,9 +399,13 @@ def _tolerant_output() -> None:
 
 def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, interactive=None) -> int:
     """``ask``, ``say``, ``open_browser``, ``sleep`` and ``interactive`` (a terminal on stdin) are for tests."""
+    from src.user_sync import installer
+    # First of all: the token leaves this process's environment, so that no child process inherits
+    # it, and the sync variables are read as the process environment gives them, before .env.
+    environment = installer.take_environment()
     parser = _parser()
     arguments = parser.parse_args(argv)
-    terminal = bool(sys.stdin and sys.stdin.isatty()) if interactive is None else interactive
+    terminal = _terminal() if interactive is None else interactive
     from_env = arguments.command == "setup" and arguments.from_env
     wizard = arguments.command == "setup" and not (arguments.remote or arguments.github or from_env)
     # These narrate as they go; the result is printed only for a failure they did not report.
@@ -391,6 +425,8 @@ def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, intera
     if narrated:
         _tolerant_output()
     _load_env()
+    arguments.environment = environment
+    arguments.ignored = installer.forget_dotenv(environment)  # what .env set does not count
     from src.flows import FlowError
     from src.user_sync.gitcmd import GitError, RemoteError
     from src.user_sync.keys import SSHKeyError

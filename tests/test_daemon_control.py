@@ -200,9 +200,12 @@ def test_install_says_whether_sync_is_set_up_and_how_to_set_it_up(tmp_path, monk
     note = controller.install()["user_sync"]
     assert note.startswith("off:") and "python -m src.daemon flows-ui" in note and "Sync page" in note
     assert "python -m src.user_sync setup" in note
-    settings = controller.directory / "user-sync" / "user-sync.json"
+    settings = controller.directory / "user-sync" / "user-sync.json"  # install --state chose the directory
     settings.parent.mkdir()
-    settings.write_text('{"remote": "git@github.com:me/agents-library.git"}')
+    settings.write_text('{"remote": "git@github.com:me/agents-library.git", "started": null}')
+    pending = control.sync_note(controller.directory)
+    assert pending.startswith("pending:") and "flows-ui" in pending and "python -m src.user_sync setup" in pending
+    settings.write_text('{"remote": "git@github.com:me/agents-library.git", "started": "2026-10-05T10:00:00+00:00"}')
     assert control.sync_note(controller.directory).startswith("set up:")
     settings.write_text("{torn")
     assert control.sync_note(controller.directory).startswith("off:")
