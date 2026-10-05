@@ -167,6 +167,47 @@ A stdio MCP server runs one cycle about ten seconds after a write to the library
 persona or a switch) while sync is set up, started and not paused, and no other runner holds the
 sync lock; a run that finds it busy is tried again a few seconds later. The command never blocks the request that saved.
 
+## Installers
+
+`scripts/init_repo.sh` and `scripts/init_repo.bat` run `python -m src.user_sync installer`
+(`src/user_sync/installer.py`) after the client configuration, and `installer --summary` in their
+summary, which says how to turn sync on while it is off. With a terminal and without `--yes`, the
+step asks once: "Set up sync between your machines now? [y/N]". Yes opens the settings page
+(`python -m src.daemon flows-ui`), whose Sync page sets sync up, on macOS when the daemon is
+installed; elsewhere, or when the page cannot be opened, it starts [the wizard](#the-wizard). It
+asks nothing under `--yes` or `AGENTS_ASSUME_YES=1` (`install.sh` always passes `--yes`; on
+Windows `--yes` stops only this question), without a terminal, when sync is set up (it reports
+the state), when git 2.32 or newer or `ssh-keygen` is missing, or when the library has a `.git`
+that sync did not create, which it only reads. By itself the step writes nothing, and a failure
+never fails setup. The daemon's `update` and `auto-update` do not run the installers.
+
+### Setup from the environment
+
+`python -m src.user_sync setup --from-env`, which the step runs whenever one of the first two
+variables is set, also under `--yes`, sets sync up without a question:
+
+| Variable | Meaning |
+|---|---|
+| `AGENTS_USER_SYNC_REPO` | `OWNER/NAME` of a private repository on the GitHub host (`AGENTS_GITHUB_HOST`) |
+| `AGENTS_USER_SYNC_REMOTE` | instead, an SSH URL; one on the GitHub host is handled as `OWNER/NAME` |
+| `AGENTS_USER_SYNC_NAME`, `AGENTS_USER_SYNC_EMAIL` | the commit identity, required |
+| `AGENTS_USER_SYNC_LABEL` | this machine's label, optional |
+| `AGENTS_GITHUB_TOKEN` | optional, for a repository on the GitHub host: a token with the `repo` scope |
+
+The token is taken out of the process environment before anything runs, so no child process
+inherits it; it is checked with GitHub and kept in the secret store like a device-flow sign-in
+(`complete_sign_in`), and never printed. With it, or with an account connected earlier, setup adds
+this machine's deploy key through the API; otherwise it prints the public key to add by hand and
+stops at `waiting_for_access`. Setup then checks access and privacy, prints the preview and starts
+sync, except that a join that keeps conflicts stops at `confirmation_needed` with the `preview` and
+`start --confirm <hash>` commands. Where privacy cannot be checked, or another host's key needs
+confirming, it stops with the command to rerun with `--confirm-private` or `--trust-host-key`.
+Running again with the same variables continues a setup that stopped. Once sync has started it
+changes nothing, and it refuses a setup for another remote that has not started yet, and a library
+`.git` while sync has no settings here, even one left by an earlier sync (the wizard takes that
+one over). The exit code is 1 when setup stopped or sync needs attention; waiting for the deploy
+key is not an error.
+
 ## What syncs
 
 | Synced by default | Never synced |
