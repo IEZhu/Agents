@@ -13,8 +13,9 @@
 #   --yes, -y      Accept defaults without prompting (also AGENTS_ASSUME_YES=1).
 #                  Reuses an existing venv and refreshes its dependencies
 #                  (recreating it if its Python version is unknown or older
-#                  than 3.11), and accepts the Claude instruction and
-#                  routing-reminder prompts (Codex instructions never ask).
+#                  than 3.11), accepts the Claude instruction and
+#                  routing-reminder prompts (Codex instructions never ask),
+#                  and does not ask about sync between machines.
 #   --skip-env     Skip creating .env from env.example, or adding missing keys
 #                  to an existing one (useful if already configured). The
 #                  embedding model steps can still write .env; see --skip-index.
@@ -853,6 +854,20 @@ else
     fi
 fi
 
+# ============== Sync Between Machines ==============
+# The personal library (flows/.user) can sync between the user's machines through a
+# private git repository (docs/user-sync.md). The step is src/user_sync/installer.py:
+# with a terminal and without --yes it asks once; --yes (install.sh, updates) never
+# asks; AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE set sync up without a
+# question. It never touches an existing flows/.user/.git by itself, and a failure
+# here never fails setup.
+
+print_header "🔄 Sync Between Machines"
+SYNC_FLAG=""
+if [ "$ASSUME_YES" = true ]; then SYNC_FLAG="--yes"; fi
+(cd "$REPO_ROOT" && "$PYTHON_ABS" -m src.user_sync installer $SYNC_FLAG) \
+    || print_warn "The sync step did not finish; setup continues (docs/user-sync.md)"
+
 # ============== Final Summary ==============
 
 print_header "✅ Initialization Complete!"
@@ -926,6 +941,9 @@ echo -e "     If MCP sampling is unavailable it returns ${CYAN}status=\"needs_su
 echo -e "     and you finalize the write with ${CYAN}write_repo_summary(...)${NC}."
 echo "     History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol)."
 echo ""
+
+# How to turn sync between machines on, unless it runs (src/user_sync/installer.py).
+(cd "$REPO_ROOT" && "$PYTHON_ABS" -m src.user_sync installer --summary 2>/dev/null) || true
 
 # ============== LLM Instructions Block ==============
 # Printed only as a fallback — when the routing section could not be injected

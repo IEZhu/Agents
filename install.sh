@@ -13,6 +13,8 @@
 #   AGENTS_REPO_URL   repository URL (default: https://github.com/IEZhu/Agents.git)
 #   AGENTS_BRANCH     branch to install (default: main)
 #   AGENTS_ASSUME_YES=1  skip the confirmation (also the behavior without a TTY)
+#   AGENTS_USER_SYNC_*   set up sync between machines without questions; init_repo.sh
+#                        never asks about it under --yes (README, "Sync between machines")
 
 # All logic lives in main(), called on the last line, so a truncated download
 # never runs a partial script.

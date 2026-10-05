@@ -124,6 +124,71 @@ def test_missing_git_fails_clearly(tmp_path, upstream):
     assert "git is required" in result.stderr
 
 
+def run_with_terminal(argv, env, typed: bytes, timeout=60):
+    """Run ``argv`` as the leader of a new session whose controlling terminal is a pseudo-terminal,
+    as a user's shell would: ``/dev/tty`` works, and ``typed`` waits in the terminal's input."""
+    import pty
+    import select
+    import time
+    pid, controller = pty.fork()
+    if pid == 0:  # the child: nothing but exec, so no lock of the parent's threads matters
+        try:
+            os.execve(argv[0], argv, env)
+        finally:
+            os._exit(127)
+    os.write(controller, typed)
+    output, deadline = b"", time.monotonic() + timeout
+    try:
+        while True:
+            ready, _, _ = select.select([controller], [], [], 0.1)
+            if ready:
+                try:
+                    chunk = os.read(controller, 65536)
+                except OSError:  # EIO: the child's side closed (Linux)
+                    chunk = b""
+                output += chunk
+                if not chunk:
+                    break
+            if time.monotonic() > deadline:
+                os.kill(pid, 9)
+                raise AssertionError("timed out: " + output.decode(errors="replace"))
+    finally:
+        os.close(controller)
+    _, status = os.waitpid(pid, 0)
+    return os.waitstatus_to_exitcode(status), output.decode(errors="replace")
+
+
+def library_git(checkout):
+    """A personal library with its own .git, as sync (#173) or the user leaves it; its files' bytes."""
+    library = checkout / "flows/.user"
+    library.mkdir(parents=True)
+    git("init", "-q", "-b", "main", cwd=library)
+    (library / "notes.md").write_text("mine")
+    git("add", "-A", cwd=library)
+    git("commit", "-q", "-m", "library", cwd=library)
+    return lambda: {str(path.relative_to(library)): path.read_bytes()
+                    for path in sorted((library / ".git").rglob("*")) if path.is_file()}
+
+
+def test_an_update_from_a_terminal_still_runs_init_with_yes_and_leaves_the_library_git_alone(tmp_path, upstream):
+    """install.sh asks only its own confirmation; init_repo.sh then never asks (#171)."""
+    assert run_install(tmp_path, upstream).returncode == 0
+    checkout = tmp_path / "home/.agents-core"
+    snapshot = library_git(checkout)
+    before = snapshot()
+    (upstream / "new.txt").write_text("x")
+    git("add", "-A", cwd=upstream)
+    git("commit", "-q", "-m", "more", cwd=upstream)
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("AGENTS_ASSUME_YES", "AGENTS_HOME", "GIT_DIR", "GIT_WORK_TREE")}
+    env.update(HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(upstream))
+    code, output = run_with_terminal([BASH, str(ROOT / "install.sh")], env, b"y\n")
+    assert code == 0, output
+    assert "Proceed with these defaults? [Y/n]" in output and (checkout / "new.txt").exists()
+    assert (checkout / "ran.txt").read_text().strip() == "init:--yes"
+    assert snapshot() == before
+
+
 def test_init_repo_installs_one_embedding_model_without_asking():
     for name in ("init_repo.sh", "init_repo.bat"):
         source = (ROOT / "scripts" / name).read_text()

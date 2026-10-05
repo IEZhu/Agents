@@ -186,7 +186,7 @@ class Controller:
             self.write_plist()
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
         return {"state": "installed", "directory": str(self.directory), "port": port,
-                "scheduled_sync": stop_scheduled_sync(root)}
+                "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
 
     def write_plist(self, probation=None):
         arguments = [self.config["python"], "-m", "src.daemon", "--state", str(self.directory), "serve"]
@@ -262,6 +262,24 @@ class Controller:
         return {"state": "uninstalled", "retained": "private backups, token, workspace registry and history indexes",
                 "user_sync": "the daemon no longer syncs the library; to keep syncing without it run "
                              "`python -m src.user_sync schedule enable`"}
+
+
+def sync_note(directory):
+    """What ``install`` says about user library sync (#171): whether it is set up, and how to set it up.
+
+    The service keeps sync's settings in ``<directory>/user-sync``, where the engine also put them
+    when sync was set up before the service was installed.
+    """
+    try:
+        settings = read_json(Path(directory) / "user-sync" / "user-sync.json")
+    except (OSError, ValueError):
+        settings = None
+    if isinstance(settings, dict):
+        return ("set up: the service runs the sync loop once it starts; "
+                "`python -m src.daemon user-sync status` shows its state")
+    return ("off: to sync personal flows between machines, run `python -m src.daemon start`, then "
+            "`python -m src.daemon flows-ui` and open its Sync page, or `python -m src.user_sync setup` "
+            "in a terminal")
 
 
 def stop_scheduled_sync(installation=None):
