@@ -123,11 +123,19 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
 - **A new key.** `github regenerate-key`, or Regenerate key on the Sync page, makes a new key
   pair. For a repository on the account's GitHub host the account must be signed in (otherwise
   `not_signed_in`, or `reconnect_needed`): the new public key becomes a deploy key first, then the
-  key files are replaced under the sync lock, and after it the old deploy key is removed. When the
-  new key cannot be installed, its deploy key is taken off GitHub again (the error names one that
-  could not be); once the new private key is in place it is never rolled back. For another host
-  the new public key is shown to add by hand, and the remote refuses this machine until it is
-  added.
+  key files are replaced under the sync lock, and after it the old deploy keys are removed: the one
+  with the old public key and the one recorded as this machine's. When the new key cannot be
+  installed, its deploy key is taken off GitHub again (the error names one that could not be),
+  then the new pair is dropped; once the new private key is in place it is never rolled back, not
+  even by an interrupt (Ctrl-C), which leaves the old deploy key on GitHub, listed under Machines
+  on the Sync page with Remove. When its public key file cannot be written, the old public file is
+  removed, so that ssh derives the public key from the new private key, and the error says so. For
+  another host the new public key is shown to add by hand, and the remote refuses this machine
+  until it is added.
+- **This machine's deploy key** is recorded in the settings (`deploy_key_id`) whenever sync adds
+  it or finds it on GitHub, so a new key and Disconnect on the Sync page remove it, and the Sync
+  page marks it, also when its public key file is gone. Setup derives a missing public key file
+  from the private key instead of making a new key.
 - **Signed out.** Sync itself never needs the account: it runs on the deploy key. Without it, the
   Sync page lists no machines, Disconnect cannot remove this machine's deploy key on GitHub (it
   says so), and a new key for a GitHub repository is refused.
