@@ -72,6 +72,9 @@ ANNOUNCED_LIMIT = 50
 SIZE_WARNING = 200 * 1024 * 1024
 STALE_GIT_LOCK_SECONDS = 10
 TRAILER = "Agents-Sync-Machine"
+# A commit that deletes at least this many files and more than half of the library waits for
+# the owner's confirmation: a broken script or a wrong ``rm`` must not empty every machine.
+MASS_DELETION_FILES = 10
 
 _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 _EMAIL = re.compile(r"[^@\s<>]+@[^@\s<>]+")
@@ -574,9 +577,9 @@ class Syncer:
         delete or replace another machine's text without a conflict.
         """
         desired = dict(snap.files)
-        keep = set(snap.blocked) | set(snap.held) | set(unwritten)
+        keep = set(snap.blocked) | set(unwritten)
         for path, blob in current.items():
-            if path in keep:
+            if path in keep or snap.hides(path):
                 desired[path] = blob
         return desired
 
@@ -1008,7 +1011,7 @@ class Syncer:
         for path in changed_paths(old, new):
             before, after = old.get(path), new.get(path)
             local = snap.local_blob(path)
-            if path in snap.held or local != before or (after is not None and after not in contents):
+            if snap.hides(path) or local != before or (after is not None and after not in contents):
                 held_remote.add(path)
                 continue
             target = self._safe_target(path)
@@ -1077,7 +1080,7 @@ class Syncer:
         snap, now = plan.snapshot, self._clock()
         for path in state.get("held_remote", []):
             committed = plan.current.get(path)
-            if path in snap.held or path in snap.blocked or path in snap.outside:
+            if snap.hides(path) or path in snap.blocked or path in snap.outside:
                 remaining.append(path)
                 continue
             local = snap.files.get(path)
@@ -1198,6 +1201,9 @@ class Syncer:
         except _ChangedWhileReading as error:
             return self._finish_failure(settings, state, SyncError(
                 "busy", f"{error} changed while sync read it; sync will retry", state="pending"), result)
+        except OSError as error:
+            return self._finish_failure(settings, state, SyncError(
+                "library_unreadable", f"the library could not be read or written: {error}"), result)
         return self._finish_success(git, settings, state, result)
 
     def _cycle(self, git: Git, settings: Settings, state: dict, *, confirm: str | None) -> dict:
@@ -1215,6 +1221,11 @@ class Syncer:
                 plan = self._plan(git, settings, state, remote_head, joining=False)
             if confirm is not None and self._preview_of(plan)["hash"] != confirm:
                 raise SyncError("confirmation_needed", "the preview changed; review it again and confirm")
+            deleted = [path for path in plan.current if path not in plan.desired
+                       and path not in plan.snapshot.outside and scope.groups(path) is not None]
+            if confirm is None and len(deleted) >= MASS_DELETION_FILES and len(deleted) * 2 > len(plan.current):
+                raise SyncError("confirmation_needed", f"{len(deleted)} of {len(plan.current)} library files "
+                                                       "were deleted here; review the preview and confirm")
             local_head = self._commit_local(git, settings, plan)
             sent = changed_paths(plan.remote_tree if remote_head else plan.current, plan.desired)
             outcome = {"sent": sent, "received": [], "conflicts": [], "push": None,

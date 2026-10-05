@@ -242,11 +242,16 @@ class Snapshot:
     outside: dict[str, dict] = field(default_factory=dict)     # path -> {blob, reason}
     sizes: dict[str, int] = field(default_factory=dict)
     portable: dict[str, str] = field(default_factory=dict)     # "repos/<key>" -> origin
+    unreadable: set[str] = field(default_factory=set)           # directories that could not be listed
+
+    def hides(self, path: str) -> bool:
+        """True when ``path`` may exist although the snapshot could not see it."""
+        return path in self.held or any(path.startswith(f"{directory}/") for directory in self.unreadable)
 
     def state(self) -> tuple:
         """Everything a concurrent write could change; equal states mean an unchanged tree."""
         return (self.files, {p: v["blob"] for p, v in self.blocked.items()},
-                {p: v["blob"] for p, v in self.outside.items()}, self.held)
+                {p: v["blob"] for p, v in self.outside.items()}, self.held, self.unreadable)
 
     def local_blob(self, path: str) -> str | None:
         """The blob this machine holds at ``path`` in any category but ``held``."""
@@ -278,17 +283,26 @@ def read_portable(root: Path) -> dict[str, str]:
     return portable
 
 
-def walk(root: Path):
+def walk(root: Path, unreadable: set[str] | None = None):
     """``(relative POSIX path, os.DirEntry)`` of every file and symlink below ``root`` except ``.git``.
 
-    Directory symlinks are reported, never followed.
+    Directory symlinks are reported, never followed. Directories that cannot be listed go to
+    ``unreadable``: their files are unknown, not deleted.
     """
     stack = [("", root)]
     while stack:
         prefix, directory = stack.pop()
         try:
             entries = list(os.scandir(directory))
+        except FileNotFoundError:
+            if not prefix:
+                return  # no library yet
+            continue
         except OSError:
+            if not prefix:
+                raise  # an unreadable library is not an empty one
+            if unreadable is not None:
+                unreadable.add(prefix.rstrip("/"))
             continue
         for entry in entries:
             relative = f"{prefix}{entry.name}"
@@ -299,6 +313,8 @@ def walk(root: Path):
                     stack.append((relative + "/", entry.path))
                     continue
             except OSError:
+                if unreadable is not None:
+                    unreadable.add(relative)
                 continue
             yield relative, entry
 
@@ -307,13 +323,16 @@ def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozen
     """Read every library file once: classify it, check its size and scan what may be committed."""
     result = Snapshot(portable=read_portable(root))
     rules = Rules(scopes, result.portable, held_groups)
-    for relative, entry in walk(root):
+    for relative, entry in walk(root, result.unreadable):
         reason = rules.reason(relative)
         if reason == "never":
             continue
         try:
             info = entry.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            continue  # deleted while listing
         except OSError:
+            result.held[relative] = {"reason": "unreadable", "size": 0}
             continue
         if not stat.S_ISREG(info.st_mode):
             result.held[relative] = {"reason": "not_regular", "size": 0}
@@ -324,7 +343,10 @@ def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozen
         try:
             with open(entry.path, "rb") as stream:
                 data = stream.read(MAX_FILE_BYTES + 1)
-        except OSError:
+        except FileNotFoundError:
+            continue
+        except OSError:  # locked by another program, permissions: unknown content, not a deletion
+            result.held[relative] = {"reason": "unreadable", "size": info.st_size}
             continue
         if len(data) > MAX_FILE_BYTES:  # grew while reading
             result.held[relative] = {"reason": "size", "size": len(data)}

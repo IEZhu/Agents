@@ -798,3 +798,37 @@ def test_commit_messages_name_the_changed_flows():
            "personas/builtin/pr-review.json": "2", "components.json": "1",
            ".history/common/a/x.md": "1"}
     assert engine_module.describe(old, new) == "update user:a, add user:b, components, persona builtin:pr-review"
+
+
+def test_a_mass_deletion_waits_for_confirmation(pair):
+    a, b = pair
+    for index in range(12):
+        a.save(f"user:flow-{index}", f"# Flow {index}\n")
+    a.run()
+    b.run()
+    for path in (a.lib / "common").glob("*.md"):
+        path.unlink()
+    result = a.run()
+    assert result["status"] == "attention" and result["reason"] == "confirmation_needed"
+    assert "common/flow-3.md" in remote_files(a.remote)
+    preview = a.sync.preview()
+    assert "common/flow-3.md" in preview["remove_from_remote"]
+    assert a.run(confirm=preview["hash"])["status"] == "synced"
+    b.run()
+    assert not (b.lib / "common" / "flow-3.md").exists()
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions")
+def test_an_unreadable_directory_is_not_a_deletion(pair):
+    a, b = pair
+    a.save("user:second", "# Second\n")
+    a.run()
+    b.run()
+    common = b.lib / "common"
+    common.chmod(0)
+    try:
+        result = b.run()  # common/ cannot be listed now
+    finally:
+        common.chmod(0o700)
+    assert result["status"] in ("synced", "attention")
+    assert {"common/shared.md", "common/second.md"} <= set(remote_files(a.remote))
