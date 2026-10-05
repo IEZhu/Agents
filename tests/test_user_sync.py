@@ -519,6 +519,16 @@ def test_hostile_global_git_config_changes_nothing(machine, remote, tmp_path, mo
     assert author == "Owner <owner@example.com>|Owner <owner@example.com>"
 
 
+def test_git_and_ssh_never_inherit_secrets(monkeypatch):
+    secrets = ("AGENTS_GITHUB_TOKEN", "GH_TOKEN", "LANGFUSE_SECRET_KEY", "OPENAI_API_KEY",
+               "DB_PASSWORD", "GCM_CREDENTIAL_STORE")
+    for name in secrets:
+        monkeypatch.setenv(name, "secret value")
+    environment = gitcmd.clean_environment()
+    assert not set(secrets) & set(environment)
+    assert environment["PATH"] == os.environ["PATH"] and environment["LC_ALL"] == "C"
+
+
 def test_a_symlink_in_the_remote_is_not_created(pair, tmp_path):
     a, b = pair
     clone = tmp_path / "symlink"

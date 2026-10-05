@@ -150,11 +150,16 @@ class GitError(RuntimeError):
         super().__init__(f"git {command}: {detail}")
 
 
+_SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|CREDENTIAL", re.IGNORECASE)
+
+
 def clean_environment() -> dict[str, str]:
-    """The process environment without anything that steers git or ssh."""
+    """The process environment without anything that steers git or ssh, and without secrets
+    such as ``AGENTS_GITHUB_TOKEN`` or API keys, which neither needs."""
     dropped = ("SSH_AUTH_SOCK", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "DISPLAY")
     environment = {key: value for key, value in os.environ.items()
-                   if not key.upper().startswith("GIT_") and key not in dropped}
+                   if not key.upper().startswith("GIT_") and key not in dropped
+                   and not _SECRET_NAME.search(key)}
     environment.update(LC_ALL="C", LANGUAGE="C")  # error messages are classified in English
     return environment
 

@@ -147,7 +147,8 @@ normal save (or, for a deletion, a normal delete, which keeps the text in the fl
   `attention: secret`.
 - Git runs with sync's own configuration on every call (`GIT_CONFIG_GLOBAL`,
   `GIT_CONFIG_NOSYSTEM=1`, explicit `--git-dir` and `--work-tree`, hooks off, no signing, no line
-  ending conversion, no credential helper) and inherited `GIT_*` variables are dropped. SSH uses
+  ending conversion, no credential helper). Inherited `GIT_*` variables are dropped, and so are
+  variables named like secrets (tokens such as `AGENTS_GITHUB_TOKEN`, passwords, API keys). SSH uses
   this machine's key only, sync's own `known_hosts` with strict checking, an empty `ssh_config`
   and no agent. The minimum git version is 2.32 (`GIT_CONFIG_GLOBAL`).
 - The key is ed25519 with the comment `agents-core-sync:<label>`; the label defaults to the
