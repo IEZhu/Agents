@@ -160,8 +160,9 @@ normal save (or, for a deletion, a normal delete, which keeps the text in the fl
 and other items), `syncing`, `offline` (with `retry_at`), `paused`, or `attention` with a reason:
 `auth`, `host_key`, `public_repo`, `unknown_remote`, `secret`, `identity`, `format_newer`,
 `git_too_old`, `confirmation_needed`, `new_repository` (flows waiting for approval on this
-machine), `scopes_invalid`, `foreign_git`, `library_mismatch`, `library_unreadable`, `git_error`
-or `stale`. It also reports the conflict count, the last success, the activity of the
+machine), `scopes_invalid`, `foreign_git`, `library_mismatch`, `library_unreadable`, `git_error`,
+`internal` (an unexpected error; the traceback is in `user-sync.log`, and the next cycle tries
+again) or `stale`. It also reports the conflict count, the last success, the activity of the
 last 20 cycles (sent and received flows, changed non-Markdown files listed separately) and newly
 uploaded repository groups. `stale` turns true 24 hours after the last success, and the state turns
 to `attention` after 72 hours.

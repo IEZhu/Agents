@@ -55,6 +55,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
 from src import user_library
 from src.file_lock import file_lock
@@ -266,10 +267,18 @@ class Settings:
         _write_private(path, json.dumps(asdict(self), indent=2).encode() + b"\n")
 
 
+_GIT_CRUD = set(".,:;<>\"\\'")  # git refuses a name made only of these and whitespace
+
+
+def _control(text: str) -> bool:
+    return any(ord(ch) < 32 or ord(ch) == 127 for ch in text)
+
+
 def validate_identity(name: str, email: str, label: str) -> None:
-    if not isinstance(name, str) or not name.strip() or any(ord(ch) < 32 for ch in name):
-        raise SyncError("identity", "a commit name is required")
-    if not isinstance(email, str) or not _EMAIL.fullmatch(email):
+    if not isinstance(name, str) or _control(name) or "<" in name or ">" in name \
+            or all(ch in _GIT_CRUD or ch.isspace() for ch in name):
+        raise SyncError("identity", "a commit name with letters or digits is required")
+    if not isinstance(email, str) or not _EMAIL.fullmatch(email) or _control(email):
         raise SyncError("identity", "a commit email is required")
     if not isinstance(label, str) or not _LABEL.fullmatch(label):
         raise SyncError("identity", "the machine label must be 1-32 lowercase letters, digits or dashes")
@@ -1274,7 +1283,7 @@ class Syncer:
             if after is None and (rules.reason(path) is not None or local is None):
                 continue
             try:
-                _retrying(self._replace, target, local, None if after is None else contents[after])
+                _retrying(self._replace, path, local, None if after is None else contents[after])
             except _Changed:  # edited without the lock while a write was retried
                 held_remote.add(path)
                 continue
@@ -1324,14 +1333,15 @@ class Syncer:
         except FileNotFoundError:
             return None
 
-    @classmethod
-    def _replace(cls, target: Path, expected: str | None, data: bytes | None) -> None:
-        """Write ``data`` over ``target``, or delete it for ``None``, while it still holds ``expected``.
+    def _replace(self, path: str, expected: str | None, data: bytes | None) -> None:
+        """Write ``data`` over ``path``, or delete it for ``None``, while it still holds ``expected``.
 
-        Each attempt checks again, so an edit made between retries is never overwritten.
+        Each attempt checks the whole path and the file again, so a directory swapped for a link
+        or an edit made between retries is never written through or over.
         """
-        if cls._current_blob(target) != expected:
-            raise _Changed(target)
+        target = self._safe_target(path)
+        if target is None or self._current_blob(target) != expected:
+            raise _Changed(path)
         if data is None:
             target.unlink()
         else:
@@ -1388,7 +1398,7 @@ class Syncer:
                     continue
                 failed_writes[path] = local  # the local text is kept now; only the replacement is left
                 data = None if committed is None else self._read_blobs(git, [committed])[committed]
-                _retrying(self._replace, target, local, data)
+                _retrying(self._replace, path, local, data)
             except _Changed:  # edited without the lock while the replacement was retried
                 remaining.append(path)
                 continue
@@ -1506,6 +1516,11 @@ class Syncer:
         except OSError as error:
             return self._finish_failure(settings, state, SyncError(
                 "library_unreadable", f"the library could not be read or written: {error}"), result)
+        except Exception as error:  # a defect: the status shows it, and the caller still sees it
+            self._log(f"unexpected error:\n{traceback.format_exc()}")
+            self._finish_failure(settings, state, SyncError(
+                "internal", f"unexpected {type(error).__name__}: {error}"), result)
+            raise
         return self._finish_success(git, settings, state, result)
 
     def _cycle(self, git: Git, settings: Settings, state: dict, *, confirm: str | None) -> dict:
@@ -1871,7 +1886,8 @@ class Syncer:
     def disconnect(self) -> dict:
         """Stop syncing here. Library files and ``.git`` stay; this machine's key is deleted."""
         settings = self._require_settings()
-        with self._sync_lock_for(settings, create=False):
+        # The settings lock keeps a concurrent pause or approval from saving the settings back.
+        with self._sync_lock_for(settings, create=False), file_lock(self.state_dir / "settings.lock"):
             for name in (SETTINGS_FILE, STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
                 (self.state_dir / name).unlink(missing_ok=True)
         self._log("disconnected")

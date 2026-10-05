@@ -728,6 +728,45 @@ def test_disconnect_keeps_the_files_and_git_directory(pair):
     assert (a.lib / ".git").is_dir() and (a.lib / "common/shared.md").exists()
 
 
+def test_a_settings_change_racing_disconnect_never_brings_the_settings_back(pair):
+    a, _ = pair
+    done = threading.Event()
+    with file_lock(a.state / "settings.lock"):  # a pause or approval between its read and its save
+        threading.Thread(target=lambda: (a.sync.disconnect(), done.set()), daemon=True).start()
+        assert not done.wait(0.3) and a.sync.settings_path.exists()
+    assert done.wait(5) and not a.sync.settings_path.exists()
+    with pytest.raises(SyncError) as error:
+        a.sync.pause()
+    assert error.value.reason == "not_set_up" and not a.sync.settings_path.exists()
+
+
+@pytest.mark.parametrize("name, email", [
+    ("Owner", "own\x01er@example.com"), ("Own\x7fer", "owner@example.com"), (",", "owner@example.com"),
+    (" . ", "owner@example.com"), ("Owner <evil@example.com>", "owner@example.com"),
+])
+def test_an_identity_git_would_refuse_or_rewrite_is_refused(name, email):
+    with pytest.raises(SyncError) as error:
+        engine_module.validate_identity(name, email, "laptop")
+    assert error.value.reason == "identity"
+
+
+def test_an_unexpected_error_in_a_cycle_shows_in_the_status(pair, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom B\n")
+    b.run()
+
+    def broken_merge(*args, **kwargs):
+        raise ValueError("a defect")
+
+    monkeypatch.setattr(engine_module.merging, "merge", broken_merge)
+    with pytest.raises(ValueError):
+        a.run()
+    status = a.sync.status()
+    assert status["state"] == "attention" and status["reason"] == "internal"
+    monkeypatch.undo()
+    assert a.run()["status"] == "synced" and a.text("common/shared.md") == "# Shared\n\nfrom B\n"
+
+
 def test_cli_reports_status_and_refuses_a_bad_remote(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(engine_module, "default_state_dir", lambda: tmp_path / "state")
     monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "library"))
@@ -1356,6 +1395,30 @@ def test_an_edit_made_while_a_write_is_retried_is_never_overwritten(pair, monkey
     assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
     [record] = records(a)
     assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nmanual edit on A\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs a privilege on Windows")
+def test_a_directory_swapped_for_a_link_between_retries_is_never_written_through(pair, tmp_path, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom B\n")
+    b.run()
+    target, outside, real_write, failures = a.lib / "common" / "shared.md", tmp_path / "outside", \
+        user_library.atomic_write, []
+
+    def swapped_while_held_open(path, data):
+        if Path(path) == target and not failures:
+            failures.append(path)
+            outside.mkdir()
+            shutil.copy(target, outside / "shared.md")  # the same bytes: only the path check can stop it
+            (a.lib / "common").rename(tmp_path / "moved-common")
+            (a.lib / "common").symlink_to(outside, target_is_directory=True)
+            raise sharing_violation(path)
+        return real_write(path, data)
+
+    monkeypatch.setattr(engine_module, "_RETRY_DELAY", 0)
+    monkeypatch.setattr(user_library, "atomic_write", swapped_while_held_open)
+    a.run()
+    assert failures and (outside / "shared.md").read_text() == "# Shared\n\nfirst text\n"
 
 
 def test_files_a_reader_keeps_open_are_written_next_cycle_without_conflicts(pair, monkeypatch):
