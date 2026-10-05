@@ -150,7 +150,7 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         return installer.from_env(syncer, say=console.say, environ=arguments.environment,
                                   token=arguments.environment.get(installer.TOKEN), ignored=arguments.ignored,
                                   branch=arguments.branch, trust_host_key=arguments.trust_host_key,
-                                  confirm_private=arguments.confirm_private,
+                                  confirm_private=arguments.confirm_private, confirm_owner=arguments.confirm_owner,
                                   ask_new_repositories=arguments.ask_new_repositories)
     if name == "installer":
         from src.user_sync import installer, wizard

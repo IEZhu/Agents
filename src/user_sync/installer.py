@@ -305,8 +305,8 @@ def _mark(syncer: Syncer) -> None:
     if settings is None:
         return
     path = _marker(syncer)
-    path.write_text(json.dumps({"remote": settings.remote, "public_key": keys.public_key(syncer.state_dir)}) + "\n",
-                    encoding="utf-8")
+    path.write_text(json.dumps({"remote": settings.remote, "public_key": keys.current_public(syncer.state_dir)})
+                    + "\n", encoding="utf-8")
     if os.name == "posix":
         path.chmod(0o600)
 
@@ -328,7 +328,7 @@ def made_here(syncer: Syncer, settings: Settings) -> bool:
     except (OSError, ValueError):
         return False
     return (isinstance(data, dict) and data.get("remote") == settings.remote
-            and data.get("public_key") == keys.public_key(syncer.state_dir))
+            and data.get("public_key") == keys.current_public(syncer.state_dir))
 
 
 # --- messages -------------------------------------------------------------------------------
@@ -575,7 +575,7 @@ def pending_steps(syncer: Syncer, settings: Settings) -> list[str]:
         lines += [f"  The remote could not be reached ({state.get('message')}). When it can, run setup again:",
                   f"    {again}"]
     elif state.get("access") == "denied" or state.get("reason") == "auth":
-        public = keys.public_key(syncer.state_dir)
+        public = keys.current_public(syncer.state_dir)
         lines += [f"  The remote refuses this machine's key. Add it to {where} as a deploy key with write "
                   "access, then run setup again:", *([f"    {public}"] if public else []), f"    {again}"]
     elif state.get("access") == "ok":
@@ -643,21 +643,34 @@ def _old_repository(syncer: Syncer, existing: Settings, host: str) -> str | None
 
 
 def _new_key(syncer: Syncer, old: str, say: Say) -> None:
-    """Delete this machine's key pair, so that setup makes a new one that GitHub does not know yet."""
-    private = keys.key_path(syncer.state_dir)
-    for path in (private, private.with_suffix(".pub")):
-        path.unlink(missing_ok=True)
+    """Delete this machine's key pair, so that setup makes a new one that GitHub does not know yet.
+
+    The recorded ``deploy_key_id`` stays: it still names the old key on ``old``, which the
+    settings describe until setup moves them to the new repository and clears it.
+    """
+    keys.discard_key(keys.key_path(syncer.state_dir))
     say(f"  This machine gets a new key: GitHub accepts a key on one repository only, and {old} may still "
         "hold the old one as a deploy key; remove it there (Settings > Deploy keys).")
+
+
+def _forget_deploy_key(syncer: Syncer) -> None:
+    """The deploy key the settings record is gone: they must not keep its id (``Settings.deploy_key_id``)."""
+    def forget(settings: Settings) -> None:
+        settings.deploy_key_id, settings.deploy_key_added = None, False
+    try:
+        syncer._update_settings(forget)  # the engine's locked read, change and save of user-sync.json
+    except (SyncError, OSError):
+        pass  # not set up any more: nothing records it
 
 
 def _free_the_key(syncer: Syncer, old: str, new: str, api: bool, say: Say) -> None:
     """Before a replaced setup's key goes to ``new``: take it off ``old``, or make a new key pair.
 
     GitHub refuses a deploy key that another repository has. With the API, this machine's key is
-    removed from the old repository; without it, or when that fails, the key pair is replaced.
+    removed from the old repository, and the settings forget its id; without it, or when that
+    fails, the key pair is replaced. An old repository GitHub does not show holds nothing to move.
     """
-    public = keys.public_key(syncer.state_dir)
+    public = keys.current_public(syncer.state_dir)
     if public is None or old.lower() == new.lower():
         return
     if api:
@@ -666,9 +679,14 @@ def _free_the_key(syncer: Syncer, old: str, new: str, api: bool, say: Say) -> No
             found = client.find_deploy_key(old, public)
             if found is not None:
                 client.delete_deploy_key(old, found.id)
+                _forget_deploy_key(syncer)
                 say(f"  Removed this machine's deploy key from {old}, so that {new} can have it.")
             return
-        except (GitHubError, SyncError) as error:
+        except GitHubError as error:
+            if error.code == "not_found":
+                return
+            say(f"  This machine's deploy key could not be removed from {old}: {_reason(error)}")
+        except SyncError as error:
             say(f"  This machine's deploy key could not be removed from {old}: {_reason(error)}")
     _new_key(syncer, old, say)
 
@@ -682,15 +700,31 @@ def _with_scope_hint(error: SyncError, token: str | None) -> SyncError:
                                    "to see a private repository")
 
 
-def _require_private(syncer: Syncer, repository: str, token: str | None) -> None:
-    """Refuse a repository that GitHub does not show, or that is not private, as setup_github would."""
-    try:
-        syncer.github_client().require_private(repository)
-    except GitHubError as error:
-        if error.code != "not_found":
-            raise
-        raise _with_scope_hint(SyncError("unknown_remote", f"{repository} does not exist, or this account cannot "
-                                                           "see it"), token) from None
+def _check_new_repository(syncer: Syncer, repository: str, *, branch: str, confirm_owner: str | None) -> None:
+    """What ``setup_github`` checks before it changes anything (private, its owner, empty or a library),
+    run before this machine's key leaves the old repository: a mistyped or unusable new repository
+    must not cost the old one its key."""
+    account, client = syncer.github_account(), syncer.github_client()
+    info = Syncer._private_repository(client, repository, account)
+    Syncer._confirm_owner(info, account, confirm_owner)
+    Syncer._library_content(client, info.full_name, branch)
+
+
+def _setup_refused(syncer: Syncer, error: SyncError, *, repository: str, old: str | None,
+                   token: str | None) -> SyncError:
+    """``setup_github``'s refusal with what to do next from setup without questions."""
+    if error.reason == "key_in_use":
+        holder = f" ({old} had it last)" if old else ""
+        return SyncError("key_in_use", f"GitHub refuses this machine's key for {repository}: another repository "
+                                       f"still has it as a deploy key{holder}. Remove it there (Settings > Deploy "
+                                       f"keys) and run setup again, or {_clear_the_way(syncer)}",
+                         details=error.details)
+    if error.reason == "owner_unconfirmed":
+        owner = error.details.get("owner") or repository.split("/", 1)[0]
+        return SyncError(error.reason, f"{error.message}; with the same variables set: "
+                                       + command("src.user_sync", "setup", "--from-env", "--confirm-owner", owner),
+                         details=error.details)
+    return _with_scope_hint(error, token)
 
 
 def _clear_the_way(syncer: Syncer) -> str:
@@ -702,7 +736,8 @@ def _clear_the_way(syncer: Syncer) -> str:
 
 def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = None, token: str | None = None,
              ignored: Iterable[str] = (), branch: str = "main", trust_host_key: str | None = None,
-             confirm_private: bool | None = None, ask_new_repositories: bool | None = None) -> dict:
+             confirm_private: bool | None = None, ask_new_repositories: bool | None = None,
+             confirm_owner: str | None = None) -> dict:
     """Set sync up from ``AGENTS_USER_SYNC_*`` without a question; see the module docstring.
 
     ``environ`` holds the variables as the process environment gave them, ``token`` the GitHub
@@ -769,27 +804,25 @@ def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = No
     try:
         api = repository is not None and _github_api(syncer, token, say)
         if old is not None and repository is not None:
-            if api:  # the new repository first: a mistyped name must not cost the old one its key
-                _require_private(syncer, repository, token)
+            if api:
+                try:
+                    _check_new_repository(syncer, repository, branch=branch, confirm_owner=confirm_owner)
+                except SyncError as error:
+                    raise _setup_refused(syncer, error, repository=repository, old=old, token=token) from None
             _free_the_key(syncer, old, repository, api, say)
         if api:
             try:
-                result = syncer.setup_github(repository, **options)
-            except GitHubError as error:
+                result = syncer.setup_github(repository, confirm_private=confirm_private, confirm_owner=confirm_owner,
+                                             **options)
+            except GitHubError as error:  # the engine reports a key in use itself; an older one did not
                 if error.code != "exists":
                     raise
-                holder = f" ({old} had it last)" if old else ""
-                raise SyncError("key_in_use", f"GitHub refuses this machine's key for {repository}: another "
-                                              f"repository still has it as a deploy key{holder}. Remove it there "
-                                              f"(Settings > Deploy keys) and run setup again, or "
-                                              f"{_clear_the_way(syncer)}") from None
+                raise _setup_refused(syncer, SyncError("key_in_use", error.message), repository=repository,
+                                     old=old, token=token) from None
             except SyncError as error:
-                raise _with_scope_hint(error, token) from None
+                raise _setup_refused(syncer, error, repository=repository, old=old, token=token) from None
             for line in result.get("steps", []):
                 say(f"  - {line}")
-            if confirm_private and result.get("status") != "host_key_unconfirmed":
-                # GitHub's API normally answers; this keeps an owner's confirmation for when it cannot.
-                syncer.setup(remote=syncer.settings().remote, confirm_private=True, **options)
             manual = False
         else:
             if token and repository is None:
@@ -822,7 +855,7 @@ def _check_and_start(syncer: Syncer, say: Say, *, where: str, manual: bool, mark
     try:
         checked = syncer.check()
     except SyncError as error:
-        public = public_key or keys.public_key(syncer.state_dir)
+        public = public_key or keys.current_public(syncer.state_dir)
         if not (manual and error.reason == "auth" and public):
             raise
         say(f"  Add this machine's public key to {where} as a deploy key with write access:")

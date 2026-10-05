@@ -328,8 +328,9 @@ afterwards, and the installer's summary says so. Setup then checks access and
 privacy, prints the preview and starts sync without waiting, except that joining
 a library with conflicts stops at "confirmation needed" with the commands to
 review the preview and to start with its hash. Where privacy cannot be checked,
-or another host's key needs confirming, it says to run it again with
-`--confirm-private` or `--trust-host-key`. On a machine without the shared service
+another host's key needs confirming, or the repository belongs to another owner,
+it says to run it again with `--confirm-private`, `--trust-host-key` or
+`--confirm-owner OWNER`. On a machine without the shared service
 it then turns background sync on (`schedule enable`, every 5 minutes). A second
 run with another repository replaces a setup that the variables made and that
 never started, also one that stopped at a mistyped host; GitHub accepts a key on

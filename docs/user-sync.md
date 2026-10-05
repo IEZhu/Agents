@@ -244,8 +244,9 @@ this machine's deploy key through the API; otherwise it prints the public key to
 stops at `waiting_for_access`, and the installer's summary suggests running it again. Setup then
 checks access and privacy, prints the preview and starts sync, except that a join that keeps
 conflicts stops at `confirmation_needed` with the `preview` and `start --confirm <hash>` commands.
-Where privacy cannot be checked, or another host's key needs confirming, it stops with the command
-to rerun with `--confirm-private` or `--trust-host-key`. On a machine without the daemon it then
+Where privacy cannot be checked, another host's key needs confirming, or the repository belongs to
+another owner, it stops with the command to rerun with `--confirm-private`, `--trust-host-key` or
+`--confirm-owner OWNER`. On a machine without the daemon it then
 enables the scheduled run (`schedule enable`, every `fetch_minutes`, 5 by default) and says so.
 `setup --from-env` and the step say once which of these variables `.env` set. The commands the
 step and setup print themselves say where to run them, since `-m src…` works only in the
@@ -258,10 +259,11 @@ and that never started may be replaced by a run with another remote: `user-sync-
 the sync state directory records its remote and this machine's public key, which `disconnect`
 deletes. The marker is written whenever setup saved the settings, also when it stopped after that
 (a mistyped or unreachable host, a refused deploy key), and it follows the settings. GitHub accepts
-a key as the deploy key of one repository only: before the replacement on GitHub, this machine's
-deploy key is removed from the old repository through the API; without the API, or when that
-fails, this machine gets a new key pair, and setup names the old repository, which may still hold
-the old key. A key GitHub still refuses is reported with that repository and `disconnect`. Every
+a key as the deploy key of one repository only: once the new repository has passed the checks of
+`setup --github` (private, its owner, empty or a library), this machine's deploy key is removed
+from the old repository through the API and the settings forget its id (`deploy_key_id`); without
+the API, or when that fails, this machine gets a new key pair, and setup names the old repository,
+which may still hold the old key. A key GitHub still refuses is reported with that repository and `disconnect`. Every
 other setup that has not started is refused, as is a library `.git` while sync has no settings
 here, even one left by an earlier sync; the message lists the ways out: finish it with the wizard,
 or `disconnect` (and move the library's `.git` away, when there is one) and run again. Once sync has started it

@@ -648,8 +648,9 @@ def test_env_setup_reruns_with_trust_host_key(tmp_path, bare, scheduler):
 def test_the_command_line_passes_rerun_options_to_env_setup(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(installer, "from_env", lambda syncer, **options: seen.update(options) or {"status": "set_up"})
-    assert run_cli(tmp_path, "setup", "--from-env", "--trust-host-key", "SHA256:abc", "--confirm-private") == 0
-    assert (seen["trust_host_key"], seen["confirm_private"]) == ("SHA256:abc", True)
+    assert run_cli(tmp_path, "setup", "--from-env", "--trust-host-key", "SHA256:abc", "--confirm-private",
+                   "--confirm-owner", "acme") == 0
+    assert (seen["trust_host_key"], seen["confirm_private"], seen["confirm_owner"]) == ("SHA256:abc", True, "acme")
 
 
 @pytest.mark.parametrize("environ, reason", [
@@ -807,7 +808,9 @@ def first_github_run(fake, tmp_path, bare, monkeypatch, transport=None):
 
 
 def script_other(fake, add_status=201):
+    """GitHub knows OTHER, private and empty, without deploy keys; adding one answers ``add_status``."""
     fake.reply("GET", f"/api/v3/repos/{OTHER}", 200, repo(OTHER), repeat=True)
+    fake.reply("GET", f"/api/v3/repos/{OTHER}/branches", 200, [], repeat=True)
     fake.reply("GET", f"/api/v3/repos/{OTHER}/keys", 200, [])
     if add_status == 201:
         fake.reply("POST", f"/api/v3/repos/{OTHER}/keys", 201,
@@ -824,6 +827,7 @@ def test_replacing_an_env_github_setup_moves_this_machines_deploy_key(fake, tmp_
     public = keys.public_key(syncer.state_dir)
     fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(syncer.state_dir, key_id=7)])
     fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/7", 204, None)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [])  # what setup_github's own look then finds
     script_other(fake)
     result, said = run_step(syncer, assume_yes=True, environ={installer.REPO: OTHER, **IDENTITY})
     assert result["status"] == "synced", said
@@ -831,8 +835,26 @@ def test_replacing_an_env_github_setup_moves_this_machines_deploy_key(fake, tmp_
     assert [(r.method, r.path) for r in fake.requests if r.method in ("DELETE", "POST") and "/keys" in r.path] == [
         ("POST", f"/api/v3/repos/{REPOSITORY}/keys"), ("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/7"),
         ("POST", f"/api/v3/repos/{OTHER}/keys")]
-    assert keys.public_key(syncer.state_dir) == public and syncer.settings().remote == f"git@github.com:{OTHER}.git"
+    settings = syncer.settings()
+    assert keys.public_key(syncer.state_dir) == public and settings.remote == f"git@github.com:{OTHER}.git"
+    assert (settings.github_repository, settings.deploy_key_id, settings.deploy_key_added) == (OTHER, 21, True)
     assert not (syncer.state_dir / installer.MARKER).exists()  # started: nothing left to replace
+
+
+@needs_ssh_keygen
+def test_a_key_removed_from_the_old_repository_leaves_no_record_of_it(fake, tmp_path, bare, monkeypatch, scheduler):
+    """The key left the old repository, then the new one refused it: the settings keep no id of a gone key."""
+    syncer = first_github_run(fake, tmp_path, bare, monkeypatch)
+    assert (syncer.settings().deploy_key_id, syncer.settings().deploy_key_added) == (11, True)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(syncer.state_dir, key_id=11)])
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11", 204, None)
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [])
+    script_other(fake, add_status=422)
+    result, said = run_step(syncer, assume_yes=True, environ={installer.REPO: OTHER, **IDENTITY})
+    assert (result["status"], result["reason"]) == ("attention", "key_in_use")
+    settings = syncer.settings()
+    assert settings.remote == SSH_URL and (settings.deploy_key_id, settings.deploy_key_added) == (None, False)
+    assert installer.made_here(syncer, settings)
 
 
 @needs_ssh_keygen
@@ -854,14 +876,14 @@ def test_a_mistyped_new_repository_leaves_the_old_deploy_key_alone(fake, tmp_pat
 def test_a_key_github_still_refuses_names_the_old_repository_and_disconnect(fake, tmp_path, bare, monkeypatch,
                                                                             scheduler):
     syncer = first_github_run(fake, tmp_path, bare, monkeypatch)
-    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [])  # not there any more, yet GitHub refuses it
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [], repeat=True)  # gone, yet GitHub refuses it
     script_other(fake, add_status=422)
     result, said = run_step(syncer, assume_yes=True, environ={installer.REPO: OTHER, **IDENTITY})
     assert (result["status"], result["reason"]) == ("attention", "key_in_use")
     assert f"({REPOSITORY} had it last)" in said and "-m src.user_sync disconnect" in said
-    # The marker follows the settings, which name the new repository now: the next run may continue.
-    assert syncer.settings().remote == f"git@github.com:{OTHER}.git"
-    assert installer.made_here(syncer, syncer.settings())
+    # setup_github adds the key before it saves anything: the settings and the marker still name the
+    # first repository, so the next run replaces that setup again.
+    assert syncer.settings().remote == SSH_URL and installer.made_here(syncer, syncer.settings())
 
 
 @needs_ssh_keygen
@@ -999,3 +1021,13 @@ def test_loopback_calls_never_go_through_an_http_proxy(tmp_path):
     port = daemon.server.server_address[1]
     assert result.stdout.splitlines() == [f"http://127.0.0.1:{port}/ui#one-use", "{'state': 'ready'}"], result.stderr
     assert received == []
+
+
+def test_a_repository_of_another_owner_needs_the_owner_confirmed_from_the_environment_too(fake, tmp_path, bare):
+    syncer = github_machine(fake, tmp_path, Transport(tmp_path, bare))
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    fake.reply("GET", "/api/v3/repos/acme/library", 200, repo("acme/library"), repeat=True)
+    result, said = run_step(syncer, assume_yes=True, token=TOKEN, environ={installer.REPO: "acme/library", **IDENTITY})
+    assert (result["status"], result["reason"]) == ("attention", "owner_unconfirmed")
+    assert "-m src.user_sync setup --from-env --confirm-owner acme" in said
+    assert syncer.settings() is None and not posted_keys(fake)
