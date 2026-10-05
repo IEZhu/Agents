@@ -134,8 +134,9 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
   until it is added.
 - **This machine's deploy key** is recorded in the settings (`deploy_key_id`) whenever sync adds
   it or finds it on GitHub, so a new key and Disconnect on the Sync page remove it, and the Sync
-  page marks it, also when its public key file is gone. Setup derives a missing public key file
-  from the private key instead of making a new key.
+  page marks it, also when its public key file is gone. `check` withdraws it from a repository
+  that holds other content only when `setup --github` added it (`deploy_key_added`), never one it
+  found. Setup derives a missing public key file from the private key instead of making a new key.
 - **Signed out.** Sync itself never needs the account: it runs on the deploy key. Without it, the
   Sync page lists no machines, Disconnect cannot remove this machine's deploy key on GitHub (it
   says so), and a new key for a GitHub repository is refused.

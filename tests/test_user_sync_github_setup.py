@@ -538,6 +538,25 @@ def test_check_withdraws_the_key_setup_added_when_the_repository_holds_other_con
 
 
 @needs_ssh_keygen
+def test_check_keeps_a_deploy_key_that_setup_found_rather_than_added(fake, tmp_path, bare):
+    transport = Transport(tmp_path, bare)
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    keys.ensure_key(state, "laptop")  # the owner added this machine's key on GitHub before setup
+    syncer = make_syncer(tmp_path, signed_in(fake, state), ssh_command=transport.command,
+                         visibility=lambda remote: "private")
+    script_repository(fake, keys_listed=[deploy_key(state, 7)])
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    settings = syncer.settings()
+    assert settings.deploy_key_id == 7 and settings.deploy_key_added is False
+    push_foreign_content(tmp_path, bare)
+    with pytest.raises(SyncError) as refused:
+        syncer.check()
+    assert refused.value.reason == "unknown_remote" and "removed" not in refused.value.message
+    assert ("DELETE", "/7") not in key_requests(fake) and syncer.settings().deploy_key_id == 7
+
+
+@needs_ssh_keygen
 def test_add_key_checks_privacy_and_content_before_adding(fake, tmp_path):
     syncer = make_syncer(tmp_path, signed_in(fake, tmp_path / "state"))
     script_repository(fake)
