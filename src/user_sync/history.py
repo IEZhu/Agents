@@ -4,9 +4,13 @@ Every checkout keeps its own append-only ``history.md`` (``src.memory.history``)
 machines is ever written into it. A repository's entries are shared only after the owner has seen
 them: ``python -m src.user_sync history export`` lists every entry not shared yet, and
 ``--confirm`` records the repository's key as approved on this machine (``history_repositories``
-in the settings) and exports them. From then on its new entries follow by themselves, until
-``history revoke``. Approval is per machine; another machine's approval never shares this one's
-entries. Shared entries live in this machine's segments of the library::
+in the settings) and exports exactly the entries it listed. Approval covers the repository's future
+entries on this machine and the past entries the owner saw. A checkout that joins an approved key
+later (another clone, or a checkout whose origin changed) brings a past nobody reviewed: its entries
+from before it was first seen wait as unreviewed until a preview lists them and a confirmation
+releases them. ``history revoke`` stops sharing a key; what was shared stays. Approval is per
+machine; another machine's approval never shares this one's entries. Shared entries live in this
+machine's segments of the library::
 
     repos/<key>/history/<label>/<YYYY-MM>.md     this machine's entries of that month (UTC)
     repos/<key>/history/<label>/<YYYY-MM>-2.md   the continuation once a part would pass 4 MiB
@@ -22,28 +26,32 @@ hit would keep the whole month's segment out of every commit.
 
 Exporting is a reconcile, never fire-and-forget: for each approved repository and each of its
 checkouts this machine has seen (a registry in the sync state directory, never in the library),
-the journal entries missing from this machine's segment are appended, from a per-checkout
-watermark (the newest entry handled, with a small overlap) and deduplicated by entry id. It runs in
+the journal entries missing from this machine's segment are appended, deduplicated by entry id. It
+does not depend on the clock: ``history.md`` is read whole every time, and a per-checkout watermark
+(the newest entry handled, never later than now) only skips archive months before it. It runs in
 one worker thread per process after appends, when a server starts, on resume and right after
 approval. It takes the library's ``.lock`` without waiting: a held lock is retried with backoff
-for about 30 seconds and then left to the next run, so ``log_interaction`` never waits for sync.
-The last failure is kept in the state and shown by ``status`` as ``history_error``.
+for about 30 seconds (a few seconds in total from the command line) and then left to the next run,
+so ``log_interaction`` never waits for sync. The last failure is kept in the state and shown by
+``status`` as ``history_error``.
 
 ``read_history`` merges this checkout's journal with the segments of the same key
 (``src.memory.history``): other machines', and this machine's own entries from its other checkouts.
 Parts whose header or group names another ``origin`` are skipped and reported as ``other_origin``.
 
-Writes append to the current part (``O_APPEND`` and ``fsync``) under the library's ``.lock``, never
-while a history lock is held. Reading a segment needs no lock: a part only ever grows by whole
-blocks while the lock is held, and a block a crash cut short is removed before the next append.
-Nothing is pruned: segments grow by one file per machine and month.
+Writes append to the current part under the library's ``.lock`` (one write and one ``fsync`` per
+part and run), never while a history lock is held; a new part is written whole. A crash or a full
+disk can leave the last block of a part cut short. Such a block counts as missing here, so it is
+removed and appended again whole by the next run, and readers on other machines ignore a last block
+without its ``**Machine:**`` line meanwhile. Reading a segment needs no lock. Nothing is pruned:
+segments grow by one file per machine and month.
 """
 from __future__ import annotations
 
 from collections import Counter, OrderedDict
 from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -67,8 +75,8 @@ logger = logging.getLogger(__name__)
 SEGMENTS = "history"              # repos/<key>/history/<label>/
 PART_BYTES = 4 * 1024 * 1024      # a part that would pass this continues in the next one
 FORMAT = 1
-LOCK_WAIT_SECONDS = 30.0          # how long a run retries a held library lock before leaving the work
-OVERLAP = timedelta(minutes=10)   # entries this much older than the watermark are checked again
+LOCK_WAIT_SECONDS = 30.0          # how long a background run retries a held library lock
+CLI_WAIT_SECONDS = 5.0            # what a command waits in total before leaving the rest to a later run
 WORKSPACE_SECONDS = 30.0          # how long a checkout's origin and top level are remembered
 INTENT_CHARACTERS = 80
 _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")   # what the engine accepts as a machine label
@@ -101,9 +109,9 @@ class _Machine:
         return _approved(self.settings)
 
 
-def _approved(settings: Settings) -> frozenset[str]:
+def _approved(settings: Settings | None) -> frozenset[str]:
     """The keys whose history this machine shares; anything malformed counts as none."""
-    value = settings.history_repositories
+    value = settings.history_repositories if settings is not None else None
     return frozenset(key for key in value if isinstance(key, str)) if isinstance(value, list) else frozenset()
 
 
@@ -144,6 +152,19 @@ def _record_error(machine: _Machine, reason: str, message: str, key: str | None)
         _change_state(machine.state_dir, change)
     except OSError:
         logger.warning("could not record a history sync failure: %s: %s", reason, message)
+
+
+def _clear_error(state: dict, key: str) -> None:
+    """Forget the failure recorded for ``key``: status must not show it once nothing is exported."""
+    if isinstance(state.get("error"), dict) and state["error"].get("key") == key:
+        state["error"] = None
+
+
+def _clear_key(state: dict, key: str) -> None:
+    """Forget the failure and the other origin recorded for a revoked ``key``."""
+    _clear_error(state, key)
+    if isinstance(state.get("other_origin"), dict):
+        state["other_origin"].pop(key, None)
 
 
 # --- a checkout ---------------------------------------------------------------------------------
@@ -195,12 +216,30 @@ def _shared(workspace: _Workspace) -> bool:
     return workspace.top and bool(workspace.origin) and scope.is_group(f"repos/{workspace.key}")
 
 
-def _register(machine: _Machine, workspace: _Workspace) -> dict:
-    """Remember a checkout in the registry; returns its record (key, origin, watermark)."""
+def _journal_ids(root: str) -> set[str]:
+    reader = journal.HistoryReader(os.path.join(root, "history.md"), os.path.join(root, "history"))
+    return {entry.id for entry in reader.journal_entries()}
+
+
+def _register(machine: _Machine, workspace: _Workspace, fresh=frozenset()) -> dict:
+    """Remember a checkout in the registry; returns its record (key, origin, watermark, unreviewed).
+
+    A checkout that joins an approved key (first seen, or its origin changed) keeps its existing
+    entries as ``unreviewed``: approval covered what the owner saw, not this checkout's past.
+    ``fresh`` are ids this process appended through sync in that checkout: new turns, not past.
+    """
+    current = _roots(machine).get(workspace.root)
+    joins = current is None or current.get("key") != workspace.key or current.get("origin") != workspace.origin
+    unreviewed = sorted(_journal_ids(workspace.root) - set(fresh)) \
+        if joins and workspace.key in machine.approved else []
+
     def change(state):
         record = state.setdefault("roots", {}).setdefault(workspace.root, {})
         if record.get("key") != workspace.key or record.get("origin") != workspace.origin:
+            record.clear()
             record.update(key=workspace.key, origin=workspace.origin, watermark=None)
+            if unreviewed:
+                record["unreviewed"] = unreviewed
     return _change_state(machine.state_dir, change)["roots"][workspace.root]
 
 
@@ -312,7 +351,7 @@ def _stored_origin(repo: _Repository) -> tuple[bool, str | None]:
 
 
 class _Recent(OrderedDict):
-    """A small least-recently-used map: a long-running server keeps only the parts it touches often."""
+    """A small least-recently-used map: a long-running server keeps only what it touches often."""
 
     def __init__(self, limit: int):
         super().__init__()
@@ -331,21 +370,24 @@ class _Recent(OrderedDict):
             self.popitem(last=False)
 
 
-_HEADERS: _Recent = _Recent(1024)   # path -> ((size, mtime_ns), origin named in the header)
-_KNOWN: _Recent = _Recent(128)      # path -> ((size, mtime_ns), entry ids)
+_HEADERS: _Recent = _Recent(1024)    # path -> (stat key, origin named in the header)
+_KNOWN: _Recent = _Recent(128)       # path -> (stat key, ids of the part's complete blocks)
+_VERDICTS: _Recent = _Recent(16384)  # (label, origin, id) -> why the entry stays here, or None
 _CACHE_GUARD = threading.Lock()
+_MISSING = object()
 
 
-def _stat_key(path: Path) -> tuple[int, int] | None:
+def _stat_key(path: Path) -> tuple[int, int, int] | None:
+    """Inode, size and mtime: a file replaced by another of the same size and time still differs."""
     try:
         info = os.stat(path)
     except OSError:
         return None
-    return info.st_size, info.st_mtime_ns
+    return info.st_ino, info.st_size, info.st_mtime_ns
 
 
 def _header_origin(path: Path) -> str | None:
-    """The ``repo:`` line of a part's header, read once per size and mtime."""
+    """The ``repo:`` line of a part's header, read once per inode, size and mtime."""
     key = _stat_key(path)
     if key is None:
         return None
@@ -371,17 +413,33 @@ def _header_origin(path: Path) -> str | None:
     return origin
 
 
+def _block_end(label: str) -> bytes:
+    """How every complete block of ``label`` ends: its machine line and a blank line."""
+    return f"\n{_MACHINE_LINE} {label}\n\n".encode("utf-8")
+
+
 def _known_ids(path: Path) -> frozenset[str]:
-    """Entry ids of a part, parsed once per size and mtime."""
-    key = _stat_key(path)
-    if key is None:
+    """Ids of a part's complete blocks, read once per inode, size and mtime.
+
+    Only blocks up to the last ``\\n**Machine:** <label>\\n\\n`` count: a block a crash or a full
+    disk cut short, or one that lost its final blank line, is missing, so the next run removes it
+    and appends the entry again whole.
+    """
+    try:
+        with open(path, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            key = (info.st_ino, info.st_size, info.st_mtime_ns)
+            with _CACHE_GUARD:
+                cached = _KNOWN.get(str(path))
+                if cached is not None and cached[0] == key:
+                    return cached[1]
+            data = stream.read()
+    except OSError:
         return frozenset()
-    with _CACHE_GUARD:
-        cached = _KNOWN.get(str(path))
-        if cached is not None and cached[0] == key:
-            return cached[1]
-    parsed = journal.parsed_file(str(path))
-    ids = frozenset(entry.id for entry in parsed[1]) if parsed else frozenset()
+    end = _block_end(path.parent.name)
+    cut = data.rfind(end)
+    data = data[:cut + len(end)] if cut >= 0 else b""
+    ids = frozenset(entry.id for entry in journal.HistoryReader._parse(data.decode("utf-8", "replace")))
     with _CACHE_GUARD:
         _KNOWN[str(path)] = (key, ids)
     return ids
@@ -423,6 +481,23 @@ def _segments(repo: _Repository, scopes: scope.Scopes | None = None, *, own: boo
     return found, sorted(set(foreign))
 
 
+def _shared_ids(repo: _Repository, scopes: scope.Scopes | None = None) -> set[str]:
+    """Ids this machine has shared for the key: those in its own segments."""
+    ids: set[str] = set()
+    for _, path in _segments(repo, scopes, others=False)[0]:
+        ids |= _known_ids(path)
+    return ids
+
+
+def _other_origins(repo: _Repository, scopes: scope.Scopes | None) -> list[str]:
+    """Other origins named by the key's parts (any label) or by its group's ``.repo.json``."""
+    found = set(_segments(repo, scopes)[1])
+    usable, stored = _stored_origin(repo)
+    if usable and stored and stored != repo.origin:
+        found.add(stored)
+    return sorted(found)
+
+
 def _note_other_origin(machine: _Machine, repo: _Repository, found: list[str]) -> None:
     def change(state):
         records = state.setdefault("other_origin", {})
@@ -455,31 +530,50 @@ def _header(label: str, month: str, origin: str) -> str:
 
 
 def _item(entry, body: str, label: str, origin: str) -> tuple[_Item | None, str | None]:
-    """``(item, None)``, or ``(None, reason)`` for an entry that stays on this machine."""
+    """``(item, None)``, or ``(None, reason)`` for an entry that stays on this machine.
+
+    The verdict is remembered per id, so counting waiting entries scans each entry once.
+    """
     month = entry.timestamp[:7]
+    reason = None
+    item = None
     if not _MONTH.fullmatch(month):
-        return None, "invalid"
-    lines = [line for line in body.split("\n") if not line.startswith(_MACHINE_LINE)]
-    text = "\n" + "\n".join(lines + [f"{_MACHINE_LINE} {label}"]) + "\n\n"
-    alone = (_header(label, month, origin) + text).encode("utf-8")  # the part it would start
-    if scope.scan(alone):
-        return None, "secret"
-    if len(alone) > PART_BYTES:
-        return None, "too_large"  # it could never sync in one part
-    return _Item(entry.id, month, entry.timestamp, entry.intent, text), None
+        reason = "invalid"
+    else:
+        lines = [line for line in body.split("\n") if not line.startswith(_MACHINE_LINE)]
+        text = "\n" + "\n".join(lines + [f"{_MACHINE_LINE} {label}"]) + "\n\n"
+        alone = (_header(label, month, origin) + text).encode("utf-8")  # the part it would start
+        if scope.scan(alone):
+            reason = "secret"
+        elif len(alone) > PART_BYTES:
+            reason = "too_large"  # it could never sync in one part
+        else:
+            item = _Item(entry.id, month, entry.timestamp, entry.intent, text)
+    with _CACHE_GUARD:
+        _VERDICTS[(label, origin, entry.id)] = reason
+    return item, reason
 
 
-def _journal(root: str, since: str | None = None) -> dict[str, tuple]:
-    """``id -> (entry, block)`` of a checkout's journal from ``since`` on; a later copy of an id wins."""
+def _journal(root: str, since_month: str | None = None) -> dict[str, tuple]:
+    """``id -> (entry, block)`` of a checkout's journal; a later copy of an id wins.
+
+    ``history.md`` and a pending rotation are read whole; ``since_month`` only skips archives of
+    earlier months. No entry is skipped for its time, so a wrong clock never hides one.
+    """
     found: dict[str, tuple] = {}
     blocks = journal.journal_blocks(os.path.join(root, "history.md"), os.path.join(root, "history"),
-                                    since_month=since[:7] if since else None)
+                                    since_month=since_month)
     for entry, body in blocks:
-        if since and entry.timestamp < since:
-            continue
         if entry.id not in found or entry.timestamp > found[entry.id][0].timestamp:
             found[entry.id] = (entry, body)
     return found
+
+
+def _archive_month(watermark) -> str | None:
+    """The first archive month a run reads: that of the watermark, but never later than now."""
+    if not isinstance(watermark, str) or not _MONTH.fullmatch(watermark[:7]):
+        return None
+    return min(watermark, _now())[:7]
 
 
 # --- writing ------------------------------------------------------------------------------------
@@ -506,12 +600,11 @@ def _acquire(stack: ExitStack, path: Path, wait: float) -> None:
 
 
 def _repair(path: Path, label: str) -> bool:
-    """Cut a block a crash left half written at the end of a part, so it is appended again whole.
+    """Cut a block a crash left half written at the end of a part; True when it cut something.
 
     A part is created whole (header and first block), so only appended blocks can be cut short.
-    Returns True when it cut something.
     """
-    end = f"\n{_MACHINE_LINE} {label}\n\n".encode("utf-8")
+    end = _block_end(label)
     with open(path, "rb") as stream:
         size = stream.seek(0, os.SEEK_END)
         stream.seek(max(0, size - len(end)))
@@ -526,24 +619,25 @@ def _repair(path: Path, label: str) -> bool:
     return True
 
 
-def _append(path: Path, data: bytes, *, header: bytes | None, label: str) -> bool:
-    """Append ``data`` to a part and fsync it; a new part (``header`` given) is written whole.
+def _write_all(descriptor: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        view = view[os.write(descriptor, view):]
 
-    Returns True when a block cut short by a crash was removed first.
-    """
-    if header is not None:
-        user_library.atomic_write(path, header + data)
-        return False
-    repaired = _repair(path, label)
+
+def _create(path: Path, data: bytes) -> None:
+    """Write a new part whole (header and blocks): it never exists half written."""
+    user_library.atomic_write(path, data)
+
+
+def _append(path: Path, data: bytes) -> None:
+    """Append ``data`` to an existing part with one write and one fsync."""
     descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
     try:
-        view = memoryview(data)
-        while view:
-            view = view[os.write(descriptor, view):]
+        _write_all(descriptor, data)
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    return repaired
 
 
 def _write(repo: _Repository, items: list[_Item], *, wait: float) -> dict:
@@ -551,14 +645,15 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float) -> dict:
 
     Returns ``{"status", "written": [ids], "present": [ids], "held": [ids]}``: ``present`` were
     already in the month's parts, ``held`` belong to a month whose part is excluded one by one and
-    stay on this machine. A failure part way returns what was written before it with ``status:
-    failed``; nothing is ever written twice, because ids already in the parts are skipped under
-    the lock.
+    stay on this machine. Each part gets one write and one fsync. A failure part way returns what
+    was written before it with ``status: failed``; nothing is ever written twice, because ids
+    already in the parts are skipped under the lock. The settings are read again under the lock:
+    a revoke or a pause that came while this run waited for it wins.
     """
     library, label = repo.library, repo.label
+    empty = {"written": [], "present": [], "held": []}
     if not (library / ".git").is_dir():  # moved or gone: never recreate it
-        return {"status": "failed", "reason": "no_library", "message": f"{library} is not a synced library",
-                "written": [], "present": [], "held": []}
+        return {"status": "failed", "reason": "no_library", "message": f"{library} is not a synced library", **empty}
     changed: list[str] = []
     written: list[str] = []
     present: list[str] = []
@@ -566,19 +661,23 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float) -> dict:
     try:
         with ExitStack() as stack:
             _acquire(stack, library / ".lock", wait)
+            settings = Settings.load(repo.machine.state_dir / SETTINGS_FILE)
+            if repo.key not in _approved(settings):
+                return {"status": "skipped", "reason": "not_approved", **empty}
+            if settings.paused or not settings.started:
+                return {"status": "skipped", "reason": "paused" if settings.paused else "not_started", **empty}
             scopes = _scopes(library)
             if _excluded(repo, scopes):
-                return {"status": "skipped", "reason": "excluded", "written": [], "present": [], "held": []}
+                return {"status": "skipped", "reason": "excluded", **empty}
             usable, stored = _stored_origin(repo)
             if not usable:
-                return {"status": "failed", "reason": "unsafe_path", "message": f"{repo.group}/{REPO_META}",
-                        "written": [], "present": [], "held": []}
+                return {"status": "failed", "reason": "unsafe_path", "message": f"{repo.group}/{REPO_META}", **empty}
             if stored and stored != repo.origin:
-                return {"status": "skipped", "reason": "other_origin", "found": [stored], "written": [], "present": [], "held": []}
+                return {"status": "skipped", "reason": "other_origin", "found": [stored], **empty}
             relative = repo.relative(label)
             directory = _directory(library, relative, create=True)
             if directory is None:
-                return {"status": "failed", "reason": "unsafe_path", "message": relative, "written": [], "present": [], "held": []}
+                return {"status": "failed", "reason": "unsafe_path", "message": relative, **empty}
             if stored != repo.origin:
                 # The format of src.user_flows, so two machines write the same bytes.
                 user_library.atomic_write(library / repo.group / REPO_META,
@@ -592,7 +691,11 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float) -> dict:
                 for _, _, path in parts:
                     if _header_origin(path) != repo.origin:
                         return {"status": "skipped", "reason": "other_origin",
-                                "found": [_header_origin(path) or "unknown"], "written": written, "present": present, "held": held}
+                                "found": [_header_origin(path) or "unknown"],
+                                "written": written, "present": present, "held": held}
+                if parts and _repair(parts[-1][2], label):
+                    with _CACHE_GUARD:
+                        _KNOWN.pop(str(parts[-1][2]), None)
                 known = set().union(*(_known_ids(path) for _, _, path in parts))
                 names = {f"{relative}/{path.name}" for _, _, path in parts}
                 number = parts[-1][1] if parts else 1
@@ -600,45 +703,60 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float) -> dict:
                     present += [item.id for item in month_items if item.id in known]
                     held += [item.id for item in month_items if item.id not in known]
                     continue
+                header = _header(label, month, repo.origin).encode("utf-8")
                 path = directory / _part_name(month, number)
                 exists = bool(parts)
-                size = path.stat().st_size if exists else 0
+                size = path.stat().st_size if exists else len(header)
                 count = len(_known_ids(path)) if exists else 0
-                header = _header(label, month, repo.origin).encode("utf-8")
-                for item in month_items:
+                batch: list[bytes] = []
+                batch_ids: list[str] = []
+
+                def flush():
+                    if not batch:
+                        return
+                    data = b"".join(batch)
+                    previous = _KNOWN.get(str(path)) if exists else None
+                    if exists:
+                        _append(path, data)
+                    else:
+                        _create(path, header + data)
+                    if f"{relative}/{path.name}" not in changed:
+                        changed.append(f"{relative}/{path.name}")
+                    written.extend(batch_ids)
+                    with _CACHE_GUARD:  # the part's ids, without parsing it again
+                        if previous is not None or not exists:
+                            ids = (previous[1] if previous is not None else frozenset()) | set(batch_ids)
+                            _KNOWN[str(path)] = (_stat_key(path), frozenset(ids))
+                        else:
+                            _KNOWN.pop(str(path), None)
+                    batch.clear()
+                    batch_ids.clear()
+
+                for index, item in enumerate(month_items):
                     if item.id in known:
                         present.append(item.id)
                         continue
                     data = item.text.encode("utf-8")
                     if count and size + len(data) > PART_BYTES:
+                        flush()
                         number += 1
                         path = directory / _part_name(month, number)
                         if f"{relative}/{path.name}" in scopes.exclude_files:
-                            held += [later.id for later in month_items[month_items.index(item):]
-                                     if later.id not in known]
+                            held += [later.id for later in month_items[index:] if later.id not in known]
                             break
-                        exists, size, count = False, 0, 0
-                    created = not exists
-                    repaired = _append(path, data, header=None if exists else header, label=label)
-                    if f"{relative}/{path.name}" not in changed:
-                        changed.append(f"{relative}/{path.name}")
-                    size = path.stat().st_size
-                    exists, count = True, count + 1
+                        exists, size, count = False, len(header), 0
+                    batch.append(data)
+                    batch_ids.append(item.id)
+                    size, count = size + len(data), count + 1
                     known.add(item.id)
-                    written.append(item.id)
-                    with _CACHE_GUARD:  # the part's ids, without parsing it again
-                        previous = _KNOWN.get(str(path))
-                        if created:
-                            _KNOWN[str(path)] = (_stat_key(path), frozenset({item.id}))
-                        elif previous is not None and not repaired:
-                            _KNOWN[str(path)] = (_stat_key(path), previous[1] | {item.id})
-                        else:
-                            _KNOWN.pop(str(path), None)  # parsed again on next use
+                flush()
             changed += user_library.ensure_root_files(library)
     except _Busy as error:
-        return {"status": "failed", "reason": "library_busy", "message": str(error), "written": written, "present": present, "held": held}
+        return {"status": "failed", "reason": "library_busy", "message": str(error),
+                "written": written, "present": present, "held": held}
     except scope.ScopeError as error:
-        return {"status": "failed", "reason": "scopes_invalid", "message": str(error), "written": written, "present": present, "held": held}
+        return {"status": "failed", "reason": "scopes_invalid", "message": str(error),
+                "written": written, "present": present, "held": held}
     except OSError as error:
         return {"status": "failed", "reason": "write_failed", "message": f"{type(error).__name__}: {error}",
                 "written": written, "present": present, "held": held}
@@ -650,16 +768,29 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float) -> dict:
 # --- the reconcile ------------------------------------------------------------------------------
 
 
-def _waiting(repo: _Repository, roots: list[str]) -> int:
-    """Entries of the key's checkouts that this machine has not shared yet (before secret checks)."""
-    shared = set()
-    for _, path in _segments(repo, others=False)[0]:
-        shared |= _known_ids(path)
-    ids = set()
-    for root in roots:
-        reader = journal.HistoryReader(os.path.join(root, "history.md"), os.path.join(root, "history"))
-        ids |= {entry.id for entry in reader.journal_entries()}
-    return len(ids - shared)
+def _waiting(repo: _Repository, roots: dict[str, dict], approved: bool) -> int:
+    """Entries of the key's checkouts that wait for the owner here and could be shared.
+
+    Not approved: every entry not shared yet. Approved: the unreviewed entries of checkouts that
+    joined after the approval. Entries the scanner keeps on this machine never count, so the count
+    can always be cleared by approving.
+    """
+    shared = _shared_ids(repo)
+    candidates: dict[str, str] = {}   # id -> root
+    for root, record in roots.items():
+        ids = _journal_ids(root) if not approved else set(record.get("unreviewed") or ())
+        for entry_id in ids - shared:
+            candidates.setdefault(entry_id, root)
+    with _CACHE_GUARD:
+        unknown = {entry_id for entry_id in candidates
+                   if _VERDICTS.get((repo.label, repo.origin, entry_id), _MISSING) is _MISSING}
+    for root in {candidates[entry_id] for entry_id in unknown}:
+        for entry_id, (entry, body) in _journal(root).items():
+            if entry_id in unknown:
+                _item(entry, body, repo.label, repo.origin)
+    with _CACHE_GUARD:
+        return sum(1 for entry_id in candidates
+                   if _VERDICTS.get((repo.label, repo.origin, entry_id), "unknown") is None)
 
 
 def _set_waiting(machine: _Machine, repo: _Repository, count: int) -> None:
@@ -673,17 +804,17 @@ def _set_waiting(machine: _Machine, repo: _Repository, count: int) -> None:
 
 
 def reconcile(root, *, state_dir=None, library=None, full: bool = False,
-              wait: float | None = None) -> dict:
+              wait: float | None = None, fresh=frozenset()) -> dict:
     """Share the checkout's journal entries that this machine's segment lacks.
 
-    Registers the checkout, counts its waiting entries while its repository is not approved, and
-    for an approved one appends the entries from its watermark on (all of them with ``full``).
+    Registers the checkout, counts its waiting entries, and for an approved repository appends
+    every reviewed entry missing from this machine's segment (all archives with ``full``).
     Never raises: a failure is recorded as ``history_error`` and left to the next run. ``wait``
-    defaults to ``LOCK_WAIT_SECONDS``.
+    defaults to ``LOCK_WAIT_SECONDS``; ``fresh`` see ``_register``.
     """
     try:
         return _reconcile(root, state_dir=state_dir, library=library, full=full,
-                          wait=LOCK_WAIT_SECONDS if wait is None else wait)
+                          wait=LOCK_WAIT_SECONDS if wait is None else wait, fresh=fresh)
     except Exception as error:  # noqa: BLE001 - the caller is a worker or a command; record, never raise
         machine = None
         try:
@@ -697,7 +828,7 @@ def reconcile(root, *, state_dir=None, library=None, full: bool = False,
         return {"status": "failed", "reason": "reconcile_failed", "message": f"{type(error).__name__}: {error}"}
 
 
-def _reconcile(root, *, state_dir, library, full: bool, wait: float) -> dict:
+def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> dict:
     machine = _machine(state_dir, library)
     if machine is None:
         return {"status": "skipped", "reason": "not_set_up"}
@@ -709,61 +840,55 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float) -> dict:
     if not _shared(workspace):
         return {"status": "skipped", "reason": "no_origin"}
     repo = _Repository(machine, workspace.key, workspace.origin)
-    record = _register(machine, workspace)
-    if repo.key not in machine.approved:
-        roots = [path for path, value in _roots(machine).items() if value.get("key") == repo.key]
-        count = _waiting(repo, roots or [workspace.root])
-        _set_waiting(machine, repo, count)
-        return {"status": "waiting", "key": repo.key, "entries": count}
-    _set_waiting(machine, repo, 0)
+    record = _register(machine, workspace, fresh)
+    approved = repo.key in machine.approved
+    try:
+        scopes = _scopes(repo.library)
+    except scope.ScopeError as error:
+        if approved:
+            _record_error(machine, "scopes_invalid", str(error), repo.key)
+        return {"status": "failed", "reason": "scopes_invalid"}
+    others = _other_origins(repo, scopes)
+    _note_other_origin(machine, repo, others)   # whether approved or not
+    roots = {path: value for path, value in _roots(machine).items() if value.get("key") == repo.key}
+    _set_waiting(machine, repo, _waiting(repo, roots or {workspace.root: record}, approved))
+    if not approved:
+        _change_state(machine.state_dir, lambda state: _clear_error(state, repo.key))
+        return {"status": "waiting", "key": repo.key}
     if not machine.settings.started:
         return {"status": "skipped", "reason": "not_started"}
     if machine.settings.paused:
         return {"status": "skipped", "reason": "paused"}
-    try:
-        scopes = _scopes(repo.library)
-    except scope.ScopeError as error:
-        _record_error(machine, "scopes_invalid", str(error), repo.key)
-        return {"status": "failed", "reason": "scopes_invalid"}
     if _excluded(repo, scopes):
         return {"status": "skipped", "reason": "excluded"}
-    watermark = None if full else record.get("watermark")
-    since = None
-    if isinstance(watermark, str) and watermark:
-        try:
-            since = (datetime.fromisoformat(watermark) - OVERLAP).isoformat(timespec="seconds")
-        except ValueError:
-            since = None
-    entries = sorted(_journal(workspace.root, since).values(), key=lambda pair: (pair[0].timestamp, pair[0].id))
-    segments, foreign = _segments(repo, scopes)
-    _note_other_origin(machine, repo, foreign)
-    known = set()
-    for label, path in segments:
-        if label == repo.label:
-            known |= _known_ids(path)
+    since_month = None if full else _archive_month(record.get("watermark"))
+    entries = sorted(_journal(workspace.root, since_month).values(), key=lambda pair: (pair[0].timestamp, pair[0].id))
+    known = _shared_ids(repo, scopes)
+    unreviewed = set(record.get("unreviewed") or ())
     items, skipped = [], Counter()
     for entry, body in entries:
         if entry.id in known:
+            continue
+        if entry.id in unreviewed:
+            skipped["unreviewed"] += 1   # waits for the owner's review: history export lists it
             continue
         item, reason = _item(entry, body, repo.label, repo.origin)
         if item is None:
             skipped[reason] += 1
         else:
             items.append(item)
-    outcome = _write(repo, items, wait=wait) if items else \
-        {"status": "unchanged", "written": [], "present": [], "held": []}
+    outcome = _write(repo, items, wait=wait) if items else {"status": "unchanged", "written": [], "present": [], "held": []}
     if outcome["status"] == "skipped" and outcome.get("reason") == "other_origin":
-        _note_other_origin(machine, repo, outcome.get("found", []))
-    # The watermark moves past every entry handled; the first one left (failed or held) stops it.
+        _note_other_origin(machine, repo, sorted(set(others) | set(outcome.get("found", []))))
+    # The watermark (which archive months a run skips) moves past every entry handled; the first
+    # one left (failed or held) stops it.
     pending = {item.id for item in items} - set(outcome["written"]) - set(outcome["present"])
-    handled = {entry.id for entry, _ in entries} - pending
-    stop = next((entry.timestamp for entry, _ in entries if entry.id not in handled), None)
+    stop = next((entry.timestamp for entry, _ in entries if entry.id in pending), None)
     reached = [entry.timestamp for entry, _ in entries if stop is None or entry.timestamp < stop]
     failed = outcome["status"] == "failed"
 
     def change(state):
-        roots = state.setdefault("roots", {})
-        current = roots.setdefault(workspace.root, {"key": repo.key, "origin": repo.origin})
+        current = state.setdefault("roots", {}).setdefault(workspace.root, {"key": repo.key, "origin": repo.origin})
         if reached and outcome["status"] != "skipped":
             current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
         if failed:
@@ -776,8 +901,12 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float) -> dict:
 
 
 def reconcile_all(*, state_dir=None, library=None, keys=None, full: bool = False,
-                  wait: float | None = None) -> list[dict]:
-    """``reconcile`` every registered checkout (of ``keys`` only, when given); forget removed ones."""
+                  wait: float | None = None, deadline: float | None = None) -> list[dict]:
+    """``reconcile`` every registered checkout (of ``keys`` only, when given); forget removed ones.
+
+    With ``deadline`` (``time.monotonic``), lock waits share it, and checkouts it does not reach
+    are left to the next run (``status: left``).
+    """
     machine = _machine(state_dir, library)
     if machine is None:
         return []
@@ -788,34 +917,57 @@ def reconcile_all(*, state_dir=None, library=None, keys=None, full: bool = False
         if not os.path.isdir(root):
             _change_state(machine.state_dir, lambda state, root=root: state.get("roots", {}).pop(root, None))
             continue
+        budget = wait
+        if deadline is not None:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                results.append({"root": root, "status": "left", "reason": "deadline", "key": record.get("key")})
+                continue
         results.append({"root": root, **reconcile(root, state_dir=state_dir, library=library,
-                                                  full=full, wait=wait)})
+                                                  full=full, wait=budget)})
     return results
+
+
+def _summary(results: list[dict]) -> dict:
+    """What a command's catch-up did, for its output."""
+    shared = sum(len(result.get("written", [])) for result in results)
+    left = [result for result in results if result.get("status") == "left"
+            or result.get("reason") == "library_busy"]
+    message = f"{shared} entries shared from {len(results)} checkouts"
+    if left:
+        message += (f"; {len(left)} checkouts left to the next run (the library was busy): a server "
+                    "with sync, its next start or another resume catches them up")
+    return {"checkouts": len(results), "shared": shared, "left": len(left), "message": message}
 
 
 # --- one worker per process ---------------------------------------------------------------------
 
 
-_EVERY = object()
-
-
 class _Exporter:
-    """Reconciles dirty checkouts in one daemon thread; requests for the same checkout coalesce."""
+    """Reconciles dirty checkouts in one daemon thread; requests for the same checkout coalesce.
+
+    A catch-up of every checkout and single checkouts are kept apart, so a checkout marked while a
+    catch-up waits is never lost: after the catch-up, those it did not cover run as well.
+    """
 
     def __init__(self):
         self._condition = threading.Condition()
-        self._pending: dict[tuple, object] = {}   # (state_dir, library) -> set of roots, or _EVERY
+        # (state_dir, library) -> {"every": bool, "roots": {root: ids appended there through sync}}
+        self._pending: dict[tuple, dict] = {}
         self._busy = 0
         self._thread: threading.Thread | None = None
         self.installed = False
 
-    def mark(self, state_dir, library, root=None) -> None:
+    def mark(self, state_dir, library, root=None, fresh: str | None = None) -> None:
         key = (str(state_dir) if state_dir else None, str(library) if library else None)
         with self._condition:
+            pending = self._pending.setdefault(key, {"every": False, "roots": {}})
             if root is None:
-                self._pending[key] = _EVERY
-            elif self._pending.get(key) is not _EVERY:
-                self._pending.setdefault(key, set()).add(str(root))
+                pending["every"] = True
+            else:
+                ids = pending["roots"].setdefault(str(root), set())
+                if fresh:
+                    ids.add(fresh)
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._run, name="history-sync", daemon=True)
                 self._thread.start()
@@ -826,16 +978,17 @@ class _Exporter:
             with self._condition:
                 while not self._pending:
                     self._condition.wait()
-                key, roots = next(iter(self._pending.items()))
+                key, pending = next(iter(self._pending.items()))
                 del self._pending[key]
                 self._busy += 1
             state_dir, library = key
             try:
-                if roots is _EVERY:
-                    reconcile_all(state_dir=state_dir, library=library)
-                else:
-                    for root in sorted(roots):
-                        reconcile(root, state_dir=state_dir, library=library)
+                done = set()
+                if pending["every"]:
+                    done = {result["root"] for result in reconcile_all(state_dir=state_dir, library=library)}
+                for root, fresh in sorted(pending["roots"].items()):
+                    if str(Path(root).resolve()) not in done:
+                        reconcile(root, state_dir=state_dir, library=library, fresh=frozenset(fresh))
             except Exception:  # noqa: BLE001 - the worker must survive; reconcile records its own failures
                 logger.warning("sharing history between machines failed", exc_info=True)
             finally:
@@ -863,12 +1016,14 @@ def drain(timeout: float) -> bool:
     return _EXPORTER.drain(timeout)
 
 
-def request_catch_up(state_dir=None, library=None) -> None:
-    """Catch up every registered checkout: in this process's worker when a server installed it, else now."""
+def request_catch_up(state_dir=None, library=None) -> dict:
+    """Catch up every registered checkout: in this process's worker when a server installed it,
+    else now within ``CLI_WAIT_SECONDS`` in total. Returns what it did, for the command's output."""
     if _EXPORTER.installed:
         _EXPORTER.mark(state_dir, library)
-    else:
-        reconcile_all(state_dir=state_dir, library=library)
+        return {"queued": True, "message": "the history catch-up runs in this server's worker"}
+    return _summary(reconcile_all(state_dir=state_dir, library=library,
+                                  deadline=time.monotonic() + CLI_WAIT_SECONDS))
 
 
 # --- reading ------------------------------------------------------------------------------------
@@ -908,8 +1063,8 @@ class Integration:
     def __init__(self, *, state_dir=None, library=None):
         self.state_dir, self.library = state_dir, library
 
-    def appended(self, history_path: str) -> None:
-        _EXPORTER.mark(self.state_dir, self.library, Path(history_path).parent)
+    def appended(self, history_path: str, entry_id: str | None = None) -> None:
+        _EXPORTER.mark(self.state_dir, self.library, Path(history_path).parent, fresh=entry_id)
 
     def machines(self, history_path: str) -> journal.MachineHistory | None:
         root = Path(history_path).parent
@@ -934,18 +1089,24 @@ def install(*, state_dir=None, library=None) -> Integration:
 
 
 def status(state_dir) -> dict:
-    """What ``status`` shows about history: waiting repositories, the last failure, other origins."""
+    """What ``status`` shows about history: waiting repositories, the last failure, other origins.
+
+    A failure of a repository that is not approved here (any more) is not shown.
+    """
     state = _read_state(Path(state_dir))
     settings = Settings.load(Path(state_dir) / SETTINGS_FILE)
     waiting = state.get("waiting") if isinstance(state.get("waiting"), dict) else {}
     other = state.get("other_origin") if isinstance(state.get("other_origin"), dict) else {}
-    approved = sorted(_approved(settings)) if settings else []
+    approved = sorted(_approved(settings))
+    error = state.get("error") if isinstance(state.get("error"), dict) else None
+    if error is not None and error.get("key") is not None and error.get("key") not in approved:
+        error = None
     return {
-        "history_repositories": sorted(approved),
+        "history_repositories": approved,
         "history_waiting": [{"key": key, "origin": value.get("origin"), "entries": value.get("entries", 0)}
                             for key, value in sorted(waiting.items()) if isinstance(value, dict)
-                            and value.get("entries") and key not in approved],
-        "history_error": state.get("error") or None,
+                            and value.get("entries")],
+        "history_error": error,
         "history_other_origin": [{"key": key, **value} for key, value in sorted(other.items())
                                  if isinstance(value, dict)],
     }
@@ -972,7 +1133,12 @@ def _cut(text: str) -> str:
 
 
 def _plan(machine: _Machine, keys=(), paths=()) -> dict:
-    """The repositories whose entries this machine has not shared yet, with every such entry."""
+    """The entries that wait for the owner on this machine, by repository.
+
+    For a repository not approved here: every entry not shared yet. For an approved one: the
+    unreviewed entries of checkouts that joined after the approval. Each repository lists its
+    checkouts, which the confirmation covers too.
+    """
     for path in paths:
         workspace = _workspace(path)
         if not workspace.top:
@@ -980,9 +1146,10 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
         if not _shared(workspace):
             raise SyncError("no_origin", f"{path} has no origin remote: its history stays on this machine")
         _register(machine, workspace)
+    registry = _roots(machine)
     roots: dict[str, list[str]] = {}
     origins: dict[str, str] = {}
-    for root, record in sorted(_roots(machine).items()):
+    for root, record in sorted(registry.items()):
         key = record.get("key")
         if not isinstance(key, str) or not os.path.isdir(root) or (keys and key not in keys):
             continue
@@ -995,7 +1162,10 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
     repositories, notes = [], []
     for key in sorted(roots):
         repo = _Repository(machine, key, origins[key])
-        if key in machine.approved:
+        approved = key in machine.approved
+        review = set().union(*(set(registry[root].get("unreviewed") or ()) for root in roots[key])) \
+            if approved else None
+        if approved and not review:
             notes.append({"key": key, "origin": repo.origin, "reason": "approved"})
             continue
         if _excluded(repo, scopes):
@@ -1019,7 +1189,7 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
                     entries[entry_id] = pair
         items, skipped = [], Counter()
         for entry, body in sorted(entries.values(), key=lambda pair: (pair[0].timestamp, pair[0].id)):
-            if entry.id in known:
+            if entry.id in known or (review is not None and entry.id not in review):
                 continue
             item, reason = _item(entry, body, repo.label, repo.origin)
             if item is None:
@@ -1028,7 +1198,7 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
                 items.append(item)
         if items or skipped:
             repositories.append({"key": key, "origin": repo.origin, "roots": roots[key], "items": items,
-                                 "skipped": dict(sorted(skipped.items()))})
+                                 "approved": approved, "skipped": dict(sorted(skipped.items()))})
     if keys:
         for key in keys:
             if key not in roots:
@@ -1036,29 +1206,37 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
     return {"repositories": repositories, "notes": notes}
 
 
+def _covered(repositories: list[dict], cutoff: str) -> dict:
+    """What a confirmation approves: per key, its checkouts and the entry ids up to ``cutoff``."""
+    covered = {}
+    for repo in repositories:
+        ids = sorted(item.id for item in repo["items"] if item.timestamp[:19] <= cutoff)
+        if ids:
+            covered[repo["key"]] = {"checkouts": sorted(repo["roots"]), "ids": ids}
+    return covered
+
+
 def _digest(repositories: list[dict], cutoff: str) -> str:
-    """The keys and entry ids up to ``cutoff``: what a confirmation approves."""
-    covered = {repo["key"]: sorted(item.id for item in repo["items"] if item.timestamp[:19] <= cutoff)
-               for repo in repositories}
-    covered = {key: ids for key, ids in covered.items() if ids}
-    return hashlib.sha256(json.dumps(covered, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(_covered(repositories, cutoff), sort_keys=True).encode()).hexdigest()
 
 
 def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | None = None,
            wait: float | None = None) -> dict:
     """``history export``: the preview, or with ``confirm`` the approval and the export.
 
-    The preview lists every entry of each repository this machine has not shared yet. The
-    token it prints covers the keys and the entry ids up to its newest entry; entries written
-    after the preview do not change it, because an approved repository's new entries follow by
-    themselves anyway. With a matching token the keys are recorded as approved on this machine
-    and their entries are exported right away.
+    The preview lists every entry that waits for the owner on this machine. The token it prints
+    covers each repository's checkouts and its entry ids up to the newest listed entry; entries
+    written after the preview in those checkouts do not change it, because an approved
+    repository's new entries follow by themselves anyway, while another checkout or an older entry
+    does. With a matching token the keys are approved on this machine, the listed entries are
+    released and the export runs, waiting at most ``wait`` seconds (``CLI_WAIT_SECONDS``) in total
+    for the library; what it does not reach follows in a later run.
     """
     machine = _require(state_dir, library)
     keys = tuple(dict.fromkeys(keys or ()))
     plan = _plan(machine, keys, paths)
     repositories = plan["repositories"]
-    shown = [{"key": repo["key"], "origin": repo["origin"], "roots": repo["roots"],
+    shown = [{"key": repo["key"], "origin": repo["origin"], "roots": repo["roots"], "approved": repo["approved"],
               "count": len(repo["items"]), "skipped": repo["skipped"],
               "entries": [{"timestamp": item.timestamp, "intent": _cut(item.intent), "id": item.id}
                           for item in repo["items"]]} for repo in repositories]
@@ -1076,22 +1254,27 @@ def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | No
                    f"{total} entries of {len(shown)} repositories would be shared from this machine; "
                    "review them and confirm")
         return {"status": "confirmation_needed", **result, "hash": token, "message": message}
-    approved = sorted(repo["key"] for repo in repositories
-                      if any(item.timestamp[:19] <= _iso(match["cutoff"]) for item in repo["items"]))
+    covered = _covered(repositories, _iso(match["cutoff"]))
     engine.Syncer(machine.library, machine.state_dir)._update_settings(
-        lambda settings: setattr(settings, "history_repositories", sorted(_approved(settings) | set(approved))))
-    results = reconcile_all(state_dir=machine.state_dir, library=machine.library, keys=set(approved),
-                            full=True, wait=wait)
-    exported = sum(len(item.get("written", [])) for item in results)
-    failed = [item for item in results if item.get("status") == "failed"]
+        lambda settings: setattr(settings, "history_repositories", sorted(_approved(settings) | set(covered))))
+
+    def release(state):  # the owner saw these checkouts' past entries
+        for value in covered.values():
+            for root in value["checkouts"]:
+                state.get("roots", {}).get(root, {}).pop("unreviewed", None)
+    _change_state(machine.state_dir, release)
+    results = reconcile_all(state_dir=machine.state_dir, library=machine.library, keys=set(covered), full=True,
+                            deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))
+    summary = _summary(results)
+    failed = [item for item in results if item.get("status") == "failed" and item.get("reason") != "library_busy"]
     waiting_run = [item.get("reason") for item in results if item.get("status") == "skipped"]
-    message = f"approved {', '.join(approved)}; {exported} entries added to this machine's history in the library"
+    message = f"approved {', '.join(sorted(covered))}; {summary['message']}"
     if failed:
         message += f"; {len(failed)} checkouts failed ({failed[0].get('reason')}) and are retried later"
     elif waiting_run:
         message += f"; the rest follows once sync runs ({waiting_run[0]})"
-    return {"status": "exported" if not failed else "attention", "approved": approved, "exported": exported,
-            "results": results, "message": message}
+    return {"status": "exported" if not failed else "attention", "approved": sorted(covered),
+            "exported": summary["shared"], "left": summary["left"], "results": results, "message": message}
 
 
 def _iso(compact: str) -> str:
@@ -1105,5 +1288,12 @@ def revoke(key: str, *, state_dir=None, library=None) -> dict:
         return {"status": "unchanged", "key": key, "message": f"{key} is not shared from this machine"}
     engine.Syncer(machine.library, machine.state_dir)._update_settings(
         lambda settings: setattr(settings, "history_repositories", sorted(_approved(settings) - {key})))
+    _change_state(machine.state_dir, lambda state: _clear_key(state, key))
+    roots = {root: record for root, record in _roots(machine).items()
+             if record.get("key") == key and os.path.isdir(root)}
+    origin = next((record.get("origin") for record in roots.values() if record.get("origin")), None)
+    if roots and origin:  # everything not shared waits for a new approval now
+        repo = _Repository(_machine(machine.state_dir, machine.library), key, origin)
+        _set_waiting(machine, repo, _waiting(repo, roots, approved=False))
     return {"status": "revoked", "key": key,
             "message": "nothing more of it is shared from this machine; entries already shared stay in the library"}

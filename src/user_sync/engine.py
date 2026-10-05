@@ -1578,6 +1578,30 @@ class Syncer:
             state["held"] = [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())]
         return outcome
 
+    def _pending_message(self, state: dict) -> str:
+        """What waits for ``scope --approve`` here: a group holding only shared history is named so."""
+        groups = state.get("pending_groups", [])
+        if groups and not state.get("pending_files") and all(self._history_only(group) for group in groups):
+            return ("the shared history of " + ", ".join(groups) + " waits for your approval on this "
+                    "machine before it uploads (scope --approve " + groups[0] + ")")
+        return "flows wait for your approval on this machine before they upload"
+
+    def _history_only(self, group: str) -> bool:
+        """True when a repository group holds nothing but its history segments and metadata."""
+        if (self.library / "personas" / group).exists() or (self.library / ".history" / group).exists():
+            return False
+        directory = self.library / group
+        for current, folders, names in os.walk(directory, followlinks=False):
+            relative = Path(current).relative_to(directory).parts
+            if relative[:1] == ("history",):
+                folders.clear()
+                continue
+            if not relative and "history" in folders:
+                folders.remove("history")
+            if any(name not in (REPO_META, REPO_LOCAL) for name in names) or (relative and names):
+                return False
+        return True
+
     def _push(self, git: Git, settings: Settings, commit: str, integrated: str | None) -> bool:
         """True when pushed (the branch moves to ``commit``); False on a non-fast-forward rejection."""
         result = git.run("push", "--porcelain", "origin", f"{commit}:refs/heads/{settings.branch}",
@@ -1651,8 +1675,7 @@ class Syncer:
             state.update(state="attention", reason="secret",
                          message="files with possible credentials were not uploaded")
         elif state.get("pending_groups") or state.get("pending_files"):
-            state.update(state="attention", reason="new_repository",
-                         message="flows wait for your approval on this machine before they upload")
+            state.update(state="attention", reason="new_repository", message=self._pending_message(state))
         state["size"] = self._repository_size(git)
         self._remember(state, result, outcome="ok", settings=settings,
                        new_groups=new_groups if result["pushed"] else [])
@@ -1893,12 +1916,16 @@ class Syncer:
 
     def resume(self) -> dict:
         self._update_settings(lambda settings: setattr(settings, "paused", False))
+        catch_up = None
         try:  # entries of approved repositories written while paused follow now
             from src.user_sync import history
-            history.request_catch_up(self.state_dir, self.library)
+            catch_up = history.request_catch_up(self.state_dir, self.library)
         except Exception:  # noqa: BLE001 - resuming never fails on history; the next run catches up
             self._log("history catch-up after resume failed")
-        return self.status()
+        result = self.status()
+        if catch_up:
+            result["history_catch_up"] = catch_up
+        return result
 
     def disconnect(self) -> dict:
         """Stop syncing here. Library files and ``.git`` stay; this machine's key is deleted."""

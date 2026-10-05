@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import errno
 import json
-import logging
+import os
 from pathlib import Path
 import threading
 import time
@@ -361,22 +362,19 @@ def test_catch_up_after_a_failed_export(shared, clock, monkeypatch):
 def test_a_failure_between_parts_then_a_rerun_leaves_no_duplicates(shared, clock, monkeypatch):
     a, _ = shared
     monkeypatch.setattr(history_sync, "PART_BYTES", 900)
-    append = history_sync._append
-    calls = []
+    create = history_sync._create
 
-    def fail_on_a_new_part(path, data, *, header, label):
-        calls.append(header is not None)
-        if header is not None and len(calls) > 1:
-            raise OSError(28, "no space")
-        return append(path, data, header=header, label=label)
+    def no_space_for_a_new_part(path, data):
+        raise OSError(28, "no space")
 
     a.machine.sync.pause()
     for number in range(4):
         a.log(f"entry {number}", "z" * 250)
-    monkeypatch.setattr(history_sync, "_append", fail_on_a_new_part)
-    a.machine.sync.resume()
+    monkeypatch.setattr(history_sync, "_create", no_space_for_a_new_part)
+    a.machine.sync.resume()  # the current part takes what fits, the next part fails
     assert a.status()["history_error"]["reason"] == "write_failed"
-    monkeypatch.setattr(history_sync, "_append", append)
+    assert 0 < len(a.exported()) < 5
+    monkeypatch.setattr(history_sync, "_create", create)
     history_sync.request_catch_up(a.machine.state, a.machine.lib)
     exported = a.exported()
     assert sorted(exported) == sorted(set(exported))
@@ -561,7 +559,7 @@ def test_parts_of_another_origin_are_skipped_and_reported(shared, clock):
     a.log("not exported while the group names another origin")
     assert "not exported while the group names another origin" not in a.exported()
     assert [e.machine for e in a.read()] == [None] * len(a.read())
-    assert a.status()["history_other_origin"][0]["found"] == ["github.com/other/x"]
+    assert a.status()["history_other_origin"][0]["found"] == ["github.com/other/project", "github.com/other/x"]
     a.export()  # nothing to approve: the key is approved
     history_sync.revoke(KEY, state_dir=a.machine.state, library=a.machine.lib)
     a.log("waiting again")
@@ -809,6 +807,7 @@ def test_log_interaction_never_waits_for_the_library_lock(tmp_path, shared, cloc
     a, _ = shared
     plain = Box(tmp_path, "plain", a.machine.remote, origin=None, machine=a.machine)
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
+    monkeypatch.setattr(server, "_history_sync_drain_deadline", None)
     monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
     held, release = threading.Event(), threading.Event()
 
@@ -882,3 +881,441 @@ def test_servers_install_the_integration_and_catch_up_at_startup(tmp_path, monke
         assert history_sync.drain(10) and calls  # the startup catch-up ran in the worker
     finally:
         journal.set_sync(None)
+
+
+# --- the second review round ---------------------------------------------------------------------
+
+
+def _hold_library_lock(box: Box):
+    """Hold the library's lock in another thread, as a sync cycle does; returns (release, thread)."""
+    held, release = threading.Event(), threading.Event()
+
+    def run():
+        with file_lock(box.machine.lib / ".lock"):
+            held.set()
+            release.wait(60)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(5)
+    return release, thread
+
+
+def _wait_busy(timeout: float = 5) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if history_sync._EXPORTER._busy:
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def _tear_after_the_heading(monkeypatch):
+    """The next append writes 60 bytes (a heading and the start of its intent), then the disk is full."""
+    real = history_sync._write_all
+    torn = []
+
+    def write_all(descriptor, data):
+        if not torn:
+            torn.append(bytes(data[:60]))
+            os.write(descriptor, bytes(data[:60]))
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(descriptor, data)
+
+    monkeypatch.setattr(history_sync, "_write_all", write_all)
+    return real
+
+
+def test_an_entry_torn_after_its_heading_is_written_again_whole(shared, clock, monkeypatch):
+    a, _ = shared
+    part = a.machine.lib / SEGMENTS / "machine-a" / "2026-10.md"
+    real = _tear_after_the_heading(monkeypatch)
+    torn = a.log("the answer that hit a full disk", "a long outcome " * 5)
+    assert f"| {torn['entry_id']}\n" in part.read_text(encoding="utf-8")  # its heading reached the part
+    assert a.status()["history_error"]["reason"] == "write_failed"
+    monkeypatch.setattr(history_sync, "_write_all", real)  # space is back
+    history_sync.install(state_dir=a.machine.state, library=a.machine.lib)  # and a server starts
+    assert history_sync.drain(60)
+    copies = [entry for entry, _ in journal.entry_blocks(part.read_text(encoding="utf-8"))
+              if entry.id == torn["entry_id"]]
+    assert len(copies) == 1 and copies[0].outcome.startswith("a long outcome")
+    assert copies[0].machine == "machine-a" and a.status()["history_error"] is None
+
+
+def test_a_torn_entry_is_not_lost_to_later_turns(shared, clock, monkeypatch):
+    a, _ = shared
+    real = _tear_after_the_heading(monkeypatch)
+    torn = a.log("the answer that hit a full disk", "a long outcome " * 5)
+    monkeypatch.setattr(history_sync, "_write_all", real)
+    clock.tick(minutes=30)  # the next turn comes half an hour later
+    a.log("a later turn")
+    blocks = journal.entry_blocks(a.segments()["machine-a/2026-10.md"])
+    assert [entry.intent for entry, _ in blocks][-2:] == ["the answer that hit a full disk", "a later turn"]
+    assert [entry.outcome for entry, _ in blocks if entry.id == torn["entry_id"]] == [" ".join(["a long outcome"] * 5)]
+
+
+def test_a_part_that_lost_its_final_blank_line_keeps_its_last_entry(shared, clock):
+    a, _ = shared
+    a.log("complete entry")
+    part = a.machine.lib / SEGMENTS / "machine-a" / "2026-10.md"
+    part.write_bytes(part.read_bytes()[:-1])  # an editor trimmed the trailing blank line
+    a.log("next entry")
+    assert a.exported()[-2:] == ["complete entry", "next entry"]
+    assert a.exported().count("complete entry") == 1
+
+
+def test_readers_elsewhere_skip_a_block_cut_short(shared, clock, monkeypatch):
+    a, b = shared
+    real = _tear_after_the_heading(monkeypatch)
+    torn = a.log("torn on a")
+    monkeypatch.setattr(history_sync, "_write_all", real)
+    a.sync()
+    b.sync()  # the part reaches b with its cut block, before a writes the entry again
+    assert torn["entry_id"] not in {entry.id for entry in b.read(limit=50)}
+    assert [e.intent for e in b.read(limit=50) if e.machine == "machine-a"] == ["approval on a"]
+    a.log("next on a")
+    a.sync()
+    b.sync()
+    entries = {entry.id: entry for entry in b.read(limit=50)}
+    assert entries[torn["entry_id"]].intent == "torn on a" and entries[torn["entry_id"]].machine == "machine-a"
+
+
+def test_a_turn_logged_with_a_clock_far_ahead_stops_nothing(shared, clock):
+    a, _ = shared
+    clock.now = datetime(2030, 1, 1, 0, 0, tzinfo=timezone.utc)  # a wrong clock for one turn
+    a.log("written while the clock was wrong")
+    clock.now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)  # corrected
+    for number in range(3):
+        a.log(f"after the correction {number}")
+    history_sync.install(state_dir=a.machine.state, library=a.machine.lib)  # even after a restart
+    assert history_sync.drain(60)
+    exported = a.exported()
+    assert "written while the clock was wrong" in exported
+    assert {f"after the correction {number}" for number in range(3)} <= set(exported)
+
+
+def test_an_entry_logged_after_the_clock_stepped_back_is_shared(shared, clock):
+    a, _ = shared
+    clock.now = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+    a.log("noon")
+    clock.now = datetime(2026, 10, 5, 11, 0, tzinfo=timezone.utc)  # the clock steps back an hour
+    a.log("stepped back an hour")
+    assert {"noon", "stepped back an hour"} <= set(a.exported())
+
+
+def test_a_checkout_added_at_confirm_changes_the_preview(tmp_path, two, clock):
+    a, _ = two
+    clock.now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
+    a.log("previewed at ten")
+    other = Box(tmp_path, "a2", a.machine.remote, machine=a.machine)
+    clock.now = datetime(2026, 10, 5, 11, 0, tzinfo=timezone.utc)
+    other.writer.append_entry("written at eleven in a clone, never previewed", "a", "o")  # no sync here
+    clock.now = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+    preview = a.export()
+    done = a.export(confirm=preview["hash"], paths=[str(other.repo)])
+    assert done["status"] == "confirmation_needed" and done["message"].startswith("the preview changed")
+    assert a.segments() == {}
+
+
+def test_a_clone_first_seen_after_approval_keeps_its_past_until_reviewed(tmp_path, shared, clock):
+    a, _ = shared
+    clone = Box(tmp_path, "a3", a.machine.remote, machine=a.machine)
+    clock.now = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    clone.writer.append_entry("old private work in a second clone", "a", "o")  # before sync knew it
+    clock.now = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+    clone.read()  # the first read_history there registers it
+    assert history_sync.drain(60)
+    clone.log("a new turn in the clone")  # new turns follow the approval
+    assert "old private work in a second clone" not in a.exported()
+    assert "a new turn in the clone" in a.exported()
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 1}]
+    history_sync.request_catch_up(a.machine.state, a.machine.lib)  # a catch-up does not release it
+    assert "old private work in a second clone" not in a.exported()
+    preview = a.export()
+    assert [entry["intent"] for repo in preview["repositories"] for entry in repo["entries"]] == \
+        ["old private work in a second clone"]
+    assert preview["repositories"][0]["approved"] is True
+    assert a.export(confirm=preview["hash"])["status"] == "exported"
+    assert "old private work in a second clone" in a.exported()
+    assert a.status()["history_waiting"] == []
+
+
+def test_a_previewed_checkout_of_an_approved_key_waits_for_the_confirmation(tmp_path, shared, clock):
+    a, _ = shared
+    clone = Box(tmp_path, "a5", a.machine.remote, machine=a.machine)
+    clock.now = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    clone.writer.append_entry("old work in a clone, only previewed", "a", "o")
+    clock.now = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+    preview = a.export(paths=[str(clone.repo)])
+    assert preview["status"] == "confirmation_needed"
+    history_sync.request_catch_up(a.machine.state, a.machine.lib)  # e.g. the next server start
+    assert "old work in a clone, only previewed" not in a.exported()
+
+
+def test_a_checkout_whose_origin_changes_to_an_approved_key_keeps_its_past_until_reviewed(tmp_path, shared, clock):
+    a, _ = shared
+    moved = Box(tmp_path, "a-moved", a.machine.remote, origin="git@github.com:me/elsewhere.git", machine=a.machine)
+    moved.log("work in another repository")
+    plain_git("-C", str(moved.repo), "remote", "set-url", "origin", ORIGIN)
+    history_sync._WORKSPACES.clear()  # forget the origin remembered a moment ago
+    moved.log("first turn after the origin changed")
+    assert "work in another repository" not in a.exported()
+    assert "first turn after the origin changed" in a.exported()
+    preview = a.export(keys=[KEY])
+    assert [entry["intent"] for repo in preview["repositories"] for entry in repo["entries"]] == \
+        ["work in another repository"]
+
+
+def test_a_newer_entry_in_another_repository_is_not_approved_with_a_preview(tmp_path, two, clock):
+    a, _ = two
+    clock.now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
+    a.log("previewed in the project")
+    preview = a.export()
+    other = Box(tmp_path, "a-other", a.machine.remote, origin="git@github.com:me/other.git", machine=a.machine)
+    clock.now = datetime(2026, 10, 5, 11, 0, tzinfo=timezone.utc)
+    other.log("newer, in another repository")
+    assert a.export(confirm=preview["hash"])["approved"] == [KEY]
+    assert not (a.machine.lib / "repos" / "github.com-me-other").exists()
+
+
+def test_an_older_entry_in_another_repository_changes_the_preview(tmp_path, two, clock):
+    a, _ = two
+    clock.now = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
+    a.log("previewed in the project")
+    preview = a.export()
+    other = Box(tmp_path, "a-other", a.machine.remote, origin="git@github.com:me/other.git", machine=a.machine)
+    clock.now = datetime(2026, 10, 5, 9, 0, tzinfo=timezone.utc)
+    other.log("older, in another repository")
+    assert a.export(confirm=preview["hash"])["status"] == "confirmation_needed"
+
+
+def test_a_revoke_while_a_run_waits_for_the_library_wins(shared, clock):
+    a, _ = shared
+    release, thread = _hold_library_lock(a)
+    try:
+        a.log("logged right before revoking", settle=False)
+        assert _wait_busy()
+        history_sync.revoke(KEY, state_dir=a.machine.state, library=a.machine.lib)
+    finally:
+        release.set()
+        thread.join(5)
+    assert history_sync.drain(60)
+    assert "logged right before revoking" not in a.exported()
+
+
+def test_a_checkout_marked_while_a_catch_up_waits_is_not_lost(tmp_path, shared, clock):
+    a, _ = shared
+    history_sync._EXPORTER.installed = True  # as in a server process
+    release, thread = _hold_library_lock(a)
+    try:
+        a.log("keeps the worker busy", settle=False)
+        assert _wait_busy()
+        history_sync.request_catch_up(a.machine.state, a.machine.lib)  # e.g. resume: every checkout
+        clone = Box(tmp_path, "a6", a.machine.remote, machine=a.machine)
+        clone.log("first turn in a new clone", settle=False)
+    finally:
+        release.set()
+        thread.join(5)
+    assert history_sync.drain(60)
+    assert "first turn in a new clone" in a.exported()
+
+
+def test_entries_that_stay_local_are_not_counted_as_waiting(two, clock):
+    a, _ = two
+    a.log("connect to the database", "used password=hunter2 for it")
+    assert a.status()["history_waiting"] == []
+    preview = a.export()
+    assert preview["status"] == "up_to_date" and preview["repositories"][0]["skipped"] == {"secret": 1}
+    a.log("an ordinary entry")
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 1}]
+
+
+def test_one_write_per_part_and_run(two, clock, monkeypatch):
+    a, _ = two
+    for number in range(40):
+        a.writer.append_entry(f"entry {number}", "a", "o" * 300)  # before sync: nothing marked
+    a.log("the turn that registers this checkout")
+    calls = []
+    for name in ("_create", "_append"):
+        real = getattr(history_sync, name)
+        monkeypatch.setattr(history_sync, name,
+                            lambda path, data, real=real, name=name: calls.append((name, path.name)) or real(path, data))
+    a.approve()
+    assert calls == [("_create", "2026-10.md")]  # 41 entries, one new part, one write
+    calls.clear()
+    a.machine.sync.pause()
+    for number in range(5):
+        a.log(f"while paused {number}")
+    a.machine.sync.resume()
+    assert calls == [("_append", "2026-10.md")]  # five entries, one append (and one fsync)
+    assert a.exported()[-5:] == [f"while paused {number}" for number in range(5)]
+
+
+def test_commands_wait_only_briefly_for_a_busy_library(shared, clock, monkeypatch, capsys):
+    a, _ = shared
+    monkeypatch.setattr(history_sync, "CLI_WAIT_SECONDS", 0.5)
+    a.machine.sync.pause()
+    a.log("while paused")
+    release, thread = _hold_library_lock(a)
+    try:
+        started = time.monotonic()
+        assert run_cli(a, "resume") == 0
+        assert time.monotonic() - started < 10
+        assert "left to the next run" in capsys.readouterr().out
+        assert "while paused" not in a.exported()
+    finally:
+        release.set()
+        thread.join(5)
+    history_sync.request_catch_up(a.machine.state, a.machine.lib)
+    assert a.exported()[-1] == "while paused"
+
+
+def test_status_forgets_a_revoked_keys_failure_and_reports_other_origins_before_approval(shared, clock, monkeypatch):
+    a, _ = shared
+
+    def denied(path, data):
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(history_sync, "_append", denied)
+    a.log("fails")
+    stranger = a.machine.lib / SEGMENTS / "machine-z" / "2026-10.md"
+    stranger.parent.mkdir(parents=True)
+    stranger.write_text("---\nrepo: github.com/other/project\n---\n", encoding="utf-8")
+    a.log("fails again")
+    status = a.status()
+    assert status["history_error"]["key"] == KEY and status["history_other_origin"][0]["key"] == KEY
+    history_sync.revoke(KEY, state_dir=a.machine.state, library=a.machine.lib)
+    status = a.status()
+    assert status["history_error"] is None and status["history_other_origin"] == []
+    assert status["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 2}]
+    a.log("not approved any more")  # an other origin is reported whether approved or not
+    assert a.status()["history_other_origin"] == [{"key": KEY, "origin": NORMALIZED,
+                                                  "found": ["github.com/other/project"]}]
+
+
+def test_caches_tell_a_replaced_part_by_its_inode(shared, clock):
+    a, _ = shared
+    part = a.machine.lib / SEGMENTS / "machine-a" / "2026-10.md"
+    old_id = journal.entry_blocks(part.read_text(encoding="utf-8"))[0][0].id
+    assert history_sync._known_ids(part) == {old_id}
+    assert [entry.id for entry in journal.parsed_file(str(part))[1]] == [old_id]
+    info = part.stat()
+    replacement = part.with_name(".tmp-replacement")
+    replacement.write_bytes(part.read_bytes().replace(old_id.encode(), b"ffffffffffff"))
+    os.utime(replacement, ns=(info.st_atime_ns, info.st_mtime_ns))
+    os.replace(replacement, part)  # same size and mtime, another file
+    now = part.stat()
+    assert (now.st_size, now.st_mtime_ns) == (info.st_size, info.st_mtime_ns) and now.st_ino != info.st_ino
+    assert history_sync._known_ids(part) == {"ffffffffffff"}
+    assert [entry.id for entry in journal.parsed_file(str(part))[1]] == ["ffffffffffff"]
+
+
+def test_a_group_holding_only_shared_history_is_named_so_while_it_waits(tmp_path, remote, clock):
+    a = Box(tmp_path, "a", remote)
+    a.machine.save("user:shared", "# Shared\n")
+    a.machine.connect(ask_new_repositories=True)
+    a.log("first")
+    a.approve()
+    result = a.sync()
+    assert result["reason"] == "new_repository"
+    assert result["message"].startswith(f"the shared history of repos/{KEY} waits for your approval")
+    assert f"repos/{KEY}" in a.status()["pending_groups"]
+
+
+def test_the_exit_drain_waits_for_sync_once(shared, clock, monkeypatch):
+    pytest.importorskip("mcp")
+    import src.server as server
+
+    a, _ = shared
+    monkeypatch.setattr(server, "_history_sync_drain_deadline", None)
+    monkeypatch.setattr(server, "_drain_abandoned", False)
+    release, thread = _hold_library_lock(a)
+    try:
+        a.log("pending at exit", settle=False)
+        assert _wait_busy()
+        started = time.monotonic()
+        server.drain_pending_logs(10)  # the server's finally
+        server.drain_pending_logs(10)  # and atexit
+        assert time.monotonic() - started < server.HISTORY_SYNC_DRAIN_SECONDS + 1
+    finally:
+        release.set()
+        thread.join(5)
+
+
+class _View:
+    """A fixed sync integration for reads."""
+
+    def __init__(self, machines):
+        self.view = machines
+
+    def appended(self, history_path, entry_id=None):
+        pass
+
+    def machines(self, history_path):
+        return self.view
+
+
+def _block(timestamp: str, entry_id: str, label: str | None = None) -> str:
+    lines = ["", f"## {timestamp} | {entry_id}", "**Intent:** x", "**Action:** a", "**Outcome:** o"]
+    if label:
+        lines.append(f"**Machine:** {label}")
+    return "\n".join(lines) + "\n\n"
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_bounded_recency_reads_equal_a_full_merge(tmp_path, seed):
+    """Random journals, archives and segments: the newest-month-first read returns what a full merge does."""
+    import random
+
+    rng = random.Random(seed)
+    stamps = set()
+    while len(stamps) < 120:
+        stamps.add(f"2026-{rng.randint(1, 6):02d}-{rng.randint(1, 28):02d}T{rng.randint(0, 23):02d}:"
+                   f"{rng.randint(0, 59):02d}:{rng.randint(0, 59):02d}+00:00")
+    pool = [(stamp, f"{number:012x}") for number, stamp in enumerate(sorted(stamps))]
+    root = tmp_path / "repo"
+    (root / "history").mkdir(parents=True)
+    mine = sorted(rng.sample(pool, rng.randint(3, 50)))
+    cut = rng.randint(0, len(mine))
+    archived, live = mine[:cut], mine[cut:]
+    archives, index = {}, 0
+    while index < len(archived):  # rotation: consecutive slices named after their last entry's month
+        size = rng.randint(1, 8)
+        chunk = archived[index:index + size]
+        index += size
+        archives.setdefault(chunk[-1][0][:7], []).extend(chunk)
+    for name, chunk in archives.items():
+        (root / "history" / f"{name}.md").write_text("".join(_block(t, i) for t, i in chunk), encoding="utf-8")
+    (root / "history.md").write_text("---\nrepo: x\n---\n" + "".join(_block(t, i) for t, i in live),
+                                     encoding="utf-8")
+    files = []
+    owners = {"me": set(rng.sample(mine, rng.randint(0, len(mine)))) | set(rng.sample(pool, 10)),
+              "other-a": set(rng.sample(pool, 25)), "other-b": set(rng.sample(pool, 25))}
+    for label, chosen in owners.items():
+        by_month = {}
+        for stamp, entry_id in sorted(chosen):
+            by_month.setdefault(stamp[:7], []).append((stamp, entry_id))
+        directory = tmp_path / "lib" / label
+        directory.mkdir(parents=True)
+        for month, chunk in by_month.items():
+            path = directory / f"{month}.md"
+            path.write_text("---\nrepo: o\n---\n" + "".join(_block(t, i, label) for t, i in chunk), encoding="utf-8")
+            files.append((label, str(path)))
+    view = journal.MachineHistory(label="me", files=tuple(files))
+    previous = journal.set_sync(_View(view))
+    try:
+        reader = HistoryReader(str(root / "history.md"))
+        full = reader.read_merged(view)
+        for _ in range(10):
+            limit = rng.randint(1, 40)
+            since = rng.choice([None, f"2026-{rng.randint(1, 6):02d}-{rng.randint(1, 28):02d}T00:00:00"])
+            machine = rng.choice([None, "local", "me", "other-a", "nobody"])
+            keep = journal._machine_filter(machine, view)
+            expected = sorted((e for e in full if keep is None or keep(e)), key=lambda e: e.timestamp, reverse=True)
+            if since:
+                expected = [e for e in expected if e.timestamp >= since]
+            got = reader.read_recent(limit=limit, since=since, machine=machine)
+            assert [(e.id, e.timestamp, e.machine) for e in got] == \
+                [(e.id, e.timestamp, e.machine) for e in expected[:limit]], (seed, limit, since, machine)
+    finally:
+        journal.set_sync(previous)

@@ -170,6 +170,8 @@ def _print(result, command: str) -> None:
         count = len(result["repositories"])
         print(f"  total: {result.get('entries', 0)} entries in {count} "
               f"{'repository' if count == 1 else 'repositories'}")
+    if result.get("history_catch_up", {}).get("message"):  # resume
+        print(f"  history: {result['history_catch_up']['message']}")
     for repo in result.get("history_waiting", []):  # status
         print(f"  history waiting for approval: {repo['origin']} ({repo['key']}), {repo['entries']} entries")
     if result.get("history_error"):

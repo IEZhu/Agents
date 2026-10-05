@@ -93,8 +93,10 @@ _ARCHIVE_NAME = re.compile(r"[0-9]{4}-[0-9]{2}\.md")
 class HistoryEntry:
     """In-memory representation of a single history entry.
 
-    ``machine`` is the label of the machine that wrote it: None for this
-    machine's own entries, set for other machines' entries in a merged read.
+    ``machine`` tells where a merged read found it: None for this checkout's
+    own journal, this machine's label for an entry it wrote in another
+    checkout of the repository, another machine's label for that machine's
+    entries. A block parsed alone takes it from its ``**Machine:**`` line.
     """
     id: str
     timestamp: str
@@ -168,7 +170,7 @@ class _ParsedFiles:
             return None
         if not stat.S_ISREG(info.st_mode):
             return None
-        key = (info.st_size, info.st_mtime_ns)
+        key = (info.st_ino, info.st_size, info.st_mtime_ns)  # a replaced file differs even at equal size and time
         with self._lock:
             cached = self._items.get(path)
             if cached is not None and cached[0] == key:
@@ -184,7 +186,7 @@ class _ParsedFiles:
             if previous is not None:
                 self._bytes -= previous[3]
             if len(data) == info.st_size:  # unchanged while it was read: safe to keep
-                self._items[path] = ((info.st_size, info.st_mtime_ns), digest, entries, len(data))
+                self._items[path] = ((info.st_ino, info.st_size, info.st_mtime_ns), digest, entries, len(data))
                 self._bytes += len(data)
                 while self._items and (len(self._items) > self._max_files or self._bytes > self._max_bytes):
                     _, dropped = self._items.popitem(last=False)
@@ -220,7 +222,7 @@ _sync = None
 def set_sync(integration):
     """Install the user library sync integration, or remove it with None; returns the previous one.
 
-    ``integration.appended(history_path)`` is called after each append, once
+    ``integration.appended(history_path, entry_id)`` is called after each append, once
     every history lock is released, and must return at once;
     ``integration.machines(history_path)`` returns a ``MachineHistory``, or None
     while the repository's history does not take part in sync. Without an
@@ -243,13 +245,13 @@ def _machine_history(history_path: str) -> Optional[MachineHistory]:
         return None
 
 
-def _appended(history_path: str) -> None:
+def _appended(history_path: str, entry_id: str) -> None:
     """Tell the sync that an entry was appended; its failure never fails the append."""
     integration = _sync
     if integration is None:
         return
     try:
-        integration.appended(history_path)
+        integration.appended(history_path, entry_id)
     except Exception:
         logger.warning("could not schedule sharing the history of %s", history_path, exc_info=True)
 
@@ -477,7 +479,7 @@ class HistoryWriter:
 
         # Outside every history lock, and it only schedules the work: sharing the
         # entry waits for the library lock in the sync's own worker, never here.
-        _appended(self.history_path)
+        _appended(self.history_path, entry_id)
 
         result: Dict[str, Any] = {
             "status": "recorded",
@@ -748,13 +750,20 @@ class HistoryReader:
 
     @staticmethod
     def _older_file(machine: Optional[str], path: str):
-        """``(sha256, entries)`` of an archive or segment; an unreadable segment is skipped, an archive is not."""
+        """``(sha256, entries)`` of an archive or segment; an unreadable segment is skipped, an archive is not.
+
+        A segment's last block without its ``**Machine:**`` line was cut short by a crash or a full
+        disk on the machine that writes it; it is left out until that machine writes it again whole.
+        """
         if machine is None:
             return parsed_file(path)
         try:
-            return parsed_file(path)
+            parsed = parsed_file(path)
         except OSError:
             return None
+        if parsed is not None and parsed[1] and parsed[1][-1].machine is None:
+            return parsed[0], parsed[1][:-1]
+        return parsed
 
     def merged_files(self, machines: MachineHistory) -> List[Tuple[Optional[str], str, str, Tuple[HistoryEntry, ...]]]:
         """``(machine, path, sha256, entries)`` of every file of the merged history.

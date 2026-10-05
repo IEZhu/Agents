@@ -203,6 +203,9 @@ langfuse = _LazyLangfuse()
 # is full, new writes are dropped with an error in the server log.
 LOG_DRAIN_TIMEOUT_SECONDS = 10.0
 HISTORY_SYNC_DRAIN_SECONDS = 2.0
+# One deadline for every exit drain (the server's finally and atexit both drain):
+# the history sync worker gets HISTORY_SYNC_DRAIN_SECONDS in total, not per call.
+_history_sync_drain_deadline: Optional[float] = None
 LOG_QUEUE_MAX = 256
 
 
@@ -270,7 +273,10 @@ def drain_pending_logs(timeout: float = LOG_DRAIN_TIMEOUT_SECONDS) -> bool:
     sync = sys.modules.get("src.user_sync.history")
     if sync is not None:
         # Briefly: what is left is caught up by the next run of a process with sync.
-        sync.drain(max(0.0, min(HISTORY_SYNC_DRAIN_SECONDS, deadline - time.monotonic())))
+        global _history_sync_drain_deadline
+        if _history_sync_drain_deadline is None:
+            _history_sync_drain_deadline = time.monotonic() + HISTORY_SYNC_DRAIN_SECONDS
+        sync.drain(max(0.0, min(_history_sync_drain_deadline, deadline) - time.monotonic()))
     if not done:
         logger.warning("Log writes still pending after %.0fs drain; abandoning them", timeout)
         # Later exit hooks must not wait for the same stuck sink again.
