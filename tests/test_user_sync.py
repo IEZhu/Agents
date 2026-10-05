@@ -46,6 +46,14 @@ def remote_files(remote: Path, branch: str = "main") -> dict[str, bytes]:
             for path in listing.splitlines()}
 
 
+def remote_objects(remote: Path) -> bytes:
+    """Every object the remote holds, reachable or not: what was pushed, in any commit."""
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    return subprocess.run(["git", "--git-dir", str(remote), "cat-file", "--batch-all-objects", "--batch"],
+                          capture_output=True, env=environment, check=True).stdout
+
+
 @contextmanager
 def library_env(root: Path):
     """``component_toggles`` finds the library through AGENTS_USER_FLOWS_DIR."""
@@ -387,12 +395,16 @@ def test_component_switches_merge_without_conflicts(pair, first, second, expecte
 # --- scope ------------------------------------------------------------------------------------
 
 
-def _repo_group(m: Machine, key: str, origin: str | None, flow: str = "deploy") -> None:
+def _repo_group(m: Machine, key: str, origin: str | None, flow: str = "deploy", text: str | None = None) -> None:
     group = m.lib / "repos" / key
     group.mkdir(parents=True, exist_ok=True)
     (group / ".repo.json").write_text(json.dumps({"origin": origin}) + "\n")
     library = FlowLibrary(user_dir=m.lib, repo_key=key)
-    library.save(f"repo:{flow}", f"# {flow} for {key}\n")
+    try:
+        revision = library.get(f"repo:{flow}")["flow"]["revision"]
+    except Exception:
+        revision = None
+    library.save(f"repo:{flow}", text or f"# {flow} for {key}\n", expected_revision=revision)
 
 
 def test_machine_local_groups_never_sync(pair):
@@ -764,6 +776,9 @@ def test_scope_groups(path, expected):
     ("glpat-abcdefghijklmnopqrst", "gitlab_token"), ("xoxb-1234567890-abc", "slack_token"),
     ("sk-ant-api03-abcdefghijklmnopqrstuv", "api_key"), ("github_pat_" + "a" * 30, "github_pat"),
     ("tokens start with ghp_ and passwords are secret", None), ("password = <your password>", None),
+    ('password="hunter2"', "password"), ("password = 'hunter2'", "password"),
+    ('DB_PASSWORD="s3cr3t"', "password"), ("export PGPASSWORD=s3cr3t", "password"),
+    ('{"password": "x1"}', "password"), ("password=${PASS}", None), ("password: required", None),
 ])
 def test_secret_patterns(text, hit):
     assert scope.scan(text.encode()) == hit
@@ -890,3 +905,272 @@ def test_random_edits_on_two_machines_converge_without_losing_text(machine, seed
     assert _library_files(a) == _library_files(b)
     kept = set(_library_files(a).values())
     assert {text for text in written if text not in kept} == set()  # every text: current, in .history or a record
+
+
+
+# --- review findings ------------------------------------------------------------------------
+
+
+def test_content_excluded_elsewhere_never_reaches_the_remote_when_joining(machine):
+    a, b = machine("a"), machine("b")
+    a.save("user:hello", "# Hello\n")
+    a.connect()
+    a.sync.change_scopes(exclude=["repos/github.com-corp-work"])
+    a.run()
+    _repo_group(b, "github.com-corp-work", "github.com/corp/work", text="# deploy\n\nCORP SECRET TEXT\n")
+    b.save("user:mine", "# Mine\n")
+    b.sync.setup(remote=str(b.remote), name="Owner", email="owner@example.com", label="b")
+    preview = b.sync.preview()
+    assert not [e for e in preview["upload"] if "corp-work" in e["path"]]
+    assert b.sync.start(preview["hash"])["status"] == "synced"
+    assert b"CORP SECRET TEXT" not in remote_objects(b.remote)
+    assert "CORP SECRET TEXT" in b.text("repos/github.com-corp-work/deploy.md")
+    assert "common/mine.md" in remote_files(b.remote)
+
+
+def test_an_edit_in_a_group_excluded_meanwhile_stays_on_this_machine(pair):
+    a, b = pair
+    _repo_group(a, "github.com-corp-work", "github.com/corp/work")
+    a.run()
+    b.run()
+    a.sync.change_scopes(exclude=["repos/github.com-corp-work"])
+    a.run()
+    _repo_group(b, "github.com-corp-work", "github.com/corp/work", text="# deploy\n\nB SECRET EDIT\n")
+    assert b.run()["status"] == "synced"
+    assert b"B SECRET EDIT" not in remote_objects(b.remote)
+    assert records(b) == []
+    assert "B SECRET EDIT" in b.text("repos/github.com-corp-work/deploy.md")
+
+
+def test_a_conflict_keeps_the_local_text_when_history_is_excluded(pair):
+    a, b = pair
+    a.sync.change_scopes(exclude=["history"])
+    a.run()
+    b.run()
+    a.save("user:shared", "# Shared\n\nA\n")
+    b.save("user:shared", "# Shared\n\nB\n")
+    a.run()
+    b.run()
+    assert b.text("common/shared.md") == "# Shared\n\nA\n"
+    [record] = records(b)
+    assert (b.lib / record["local_version"]).read_text() == "# Shared\n\nB\n"  # kept on this machine only
+    b.sync.resolve(record["id"], "mine")
+    assert b.text("common/shared.md") == "# Shared\n\nB\n"
+
+
+def test_losing_the_scopes_file_keeps_every_exclusion(pair):
+    a, b = pair
+    a.sync.change_scopes(exclude=["repos/github.com-corp-work"])
+    a.run()
+    b.run()
+    shutil.rmtree(b.lib / ".agents-sync")
+    _repo_group(b, "github.com-corp-work", "github.com/corp/work", text="# deploy\n\nB CORP COPY\n")
+    b.run()
+    a.run()
+    assert "repos/github.com-corp-work" in json.loads(b.text(".agents-sync/scopes.json"))["exclude"]
+    assert "repos/github.com-corp-work" in json.loads(a.text(".agents-sync/scopes.json"))["exclude"]
+    assert b"B CORP COPY" not in remote_objects(b.remote)
+
+
+def test_including_on_one_machine_waits_for_approval_on_the_other(pair):
+    a, b = pair
+    a.sync.change_scopes(exclude=["repos/github.com-corp-work"])
+    a.run()
+    b.run()
+    _repo_group(a, "github.com-corp-work", "github.com/corp/work", text="# deploy\n\nA CORP TEXT\n")
+    a.run()
+    asked = b.sync.change_scopes(include=["repos/github.com-corp-work"])
+    assert asked["status"] == "confirmation_needed" and asked["upload"] == []  # B has no copy of the group
+    b.sync.change_scopes(include=["repos/github.com-corp-work"], confirm=asked["hash"])
+    b.run()
+    result = a.run()
+    assert result["reason"] == "new_repository"
+    assert a.sync.status()["pending_groups"] == ["repos/github.com-corp-work"]
+    assert b"A CORP TEXT" not in remote_objects(a.remote)
+    asked = a.sync.change_scopes(approve=["repos/github.com-corp-work"])
+    assert "repos/github.com-corp-work/deploy.md" in asked["upload"]
+    a.sync.change_scopes(approve=["repos/github.com-corp-work"], confirm=asked["hash"])
+    assert a.run()["status"] == "synced"
+    assert b"A CORP TEXT" in remote_files(a.remote)["repos/github.com-corp-work/deploy.md"]
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions")
+def test_reconciling_never_overwrites_before_the_local_text_is_kept(pair, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom B\n")
+    b.run()
+    real_apply = a.sync._apply
+
+    def apply_after_a_manual_edit(*args, **kwargs):
+        (a.lib / "common" / "shared.md").write_text("# Shared\n\nmanual edit on A\n")
+        return real_apply(*args, **kwargs)
+
+    monkeypatch.setattr(a.sync, "_apply", apply_after_a_manual_edit)
+    a.run()
+    monkeypatch.undo()
+    history = a.lib / ".history" / "common" / "shared"
+    history.mkdir(parents=True, exist_ok=True)
+    history.chmod(0o500)
+    try:
+        a.run()
+        assert a.text("common/shared.md") == "# Shared\n\nmanual edit on A\n"
+    finally:
+        history.chmod(0o700)
+    a.run()
+    [record] = records(a)
+    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nmanual edit on A\n"
+    assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
+
+
+def test_resolving_a_deletion_with_mine_deletes_through_the_flow_library(pair):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nedited on B\n")
+    set_overlay(b, "code_reviewer")
+    b.run()
+    a.flows.delete("user:shared", expected_revision=a.revision("user:shared"))
+    a.run()
+    [record] = records(a)
+    assert (record["kind"], record["deleted_on"]) == ("deletion_undone", "local")
+    a.sync.resolve(record["id"], "mine")
+    assert not (a.lib / "common/shared.md").exists()
+    assert not (a.lib / "personas/common/shared.json").exists()
+    a.run()
+    b.run()
+    assert not (b.lib / "common/shared.md").exists() and not (b.lib / "personas/common/shared.json").exists()
+    kept = [p.read_text() for p in (b.lib / ".history/common/shared").glob("*-deleted.md")]
+    assert "# Shared\n\nedited on B\n" in kept
+
+
+def test_the_mass_deletion_guard_ignores_history(pair):
+    a, b = pair
+    for index in range(12):
+        for round_ in range(3):
+            a.save(f"user:flow-{index}", f"# Flow {index}\n\nround {round_}\n")
+    a.run()
+    b.run()
+    for path in (a.lib / "common").glob("*.md"):
+        path.unlink()
+    assert a.run()["reason"] == "confirmation_needed"
+    assert "common/flow-3.md" in remote_files(a.remote)
+
+
+def test_moving_to_another_remote_starts_a_new_history(pair, tmp_path):
+    a, _ = pair
+    _repo_group(a, "github.com-corp-work", "github.com/corp/work", text="# deploy\n\nOLD CORP TEXT\n")
+    a.run()
+    a.sync.change_scopes(exclude=["repos/github.com-corp-work"])
+    a.run()
+    a.sync.disconnect()
+    fresh = tmp_path / "fresh.git"
+    plain_git("init", "--bare", "--quiet", "--initial-branch=main", str(fresh))
+    a.sync.setup(remote=str(fresh), name="Owner", email="owner@example.com", label="a")
+    a.sync.check()
+    assert a.sync.start(a.sync.preview()["hash"])["status"] == "synced"
+    assert b"OLD CORP TEXT" not in remote_objects(fresh)
+    assert plain_git("--git-dir", str(fresh), "rev-list", "--count", "main") == "1"
+    assert "common/shared.md" in remote_files(fresh)
+
+
+def test_a_remote_reset_to_an_earlier_commit_needs_confirmation(pair):
+    a, b = pair
+    earlier = plain_git("--git-dir", str(a.remote), "rev-parse", "main")
+    a.save("user:leaked", "# Leaked\n")
+    a.run()
+    plain_git("--git-dir", str(a.remote), "update-ref", "refs/heads/main", earlier)
+    result = a.run()
+    assert result["status"] == "attention" and result["reason"] == "confirmation_needed"
+    assert "common/leaked.md" not in remote_files(a.remote)
+    preview = a.sync.preview()
+    assert "common/leaked.md" in [entry["path"] for entry in preview["upload"]]
+
+
+def test_a_rewritten_remote_never_deletes_local_files(pair, tmp_path):
+    a, b = pair
+    a.save("user:one", "# One\n")
+    a.run()
+    clone = tmp_path / "rewrite"
+    plain_git("init", "--quiet", "--initial-branch=main", str(clone))
+    (clone / ".agents-library.json").write_text('{"format": 1}\n')
+    (clone / "common").mkdir()
+    (clone / "common" / "shared.md").write_text("# Shared\n\nfirst text\n")
+    plain_git("add", ".", cwd=clone)
+    plain_git("commit", "--quiet", "-m", "without one.md", cwd=clone)
+    plain_git("push", "--quiet", "--force", str(a.remote), "main:main", cwd=clone)
+    preview = a.sync.preview()
+    assert preview["delete_local"] == [] and "common/one.md" in [e["path"] for e in preview["upload"]]
+    assert a.run(confirm=preview["hash"])["status"] == "synced"
+    assert a.text("common/one.md") == "# One\n"
+
+
+def test_files_sync_does_not_handle_stay_on_the_remote(pair, tmp_path):
+    a, b = pair
+    clone = tmp_path / "web-ui"
+    plain_git("clone", "--quiet", str(a.remote), str(clone))
+    (clone / "README.md").write_text("# My library\n")
+    (clone / "skills").mkdir()
+    (clone / "skills" / "x.md").write_text("x\n")
+    plain_git("add", ".", cwd=clone)
+    plain_git("commit", "--quiet", "-m", "web ui", cwd=clone)
+    plain_git("push", "--quiet", "origin", "main", cwd=clone)
+    b.run()
+    assert not (b.lib / "README.md").exists() and not (b.lib / "skills").exists()
+    b.save("user:after", "# After\n")
+    b.run()
+    a.run()
+    files = remote_files(a.remote)
+    assert {"README.md", "skills/x.md", "common/after.md"} <= set(files)
+
+
+def test_resolve_mine_refuses_a_record_that_points_elsewhere(pair):
+    a, _ = pair
+    conflicts = a.lib / ".agents-sync" / "conflicts"
+    conflicts.mkdir(parents=True, exist_ok=True)
+    cases = [{"path": "common/shared.md", "kind": "both_changed", "local_version": ".agents-sync/scopes.json"},
+             {"path": ".agents-sync/scopes.json", "kind": "both_changed", "local_content": "{}"},
+             {"path": "common/shared.md", "kind": "both_changed",
+              "local_version": ".history/common/other/20261005T000000000000Z-0123456789ab.md"}]
+    for index, record in enumerate(cases):
+        record_id = f"20261005T00000000000{index}Z-0123456789"
+        (conflicts / f"{record_id}.json").write_text(json.dumps({"id": record_id, **record}))
+        with pytest.raises(SyncError):
+            a.sync.resolve(record_id, "mine")
+    assert a.text("common/shared.md") == "# Shared\n\nfirst text\n"
+
+
+def test_a_repo_file_from_before_the_split_loses_its_path_before_upload(pair):
+    a, _ = pair
+    group = a.lib / "repos" / "github.com-me-old"
+    group.mkdir(parents=True)
+    (group / ".repo.json").write_text(json.dumps({"origin": "github.com/me/old", "path": "/Users/me/private/old"}))
+    (group / "x.md").write_text("# x\n")
+    a.run()
+    assert b"/Users/me/private/old" not in remote_objects(a.remote)
+    assert json.loads((group / ".repo.local.json").read_text())["path"] == "/Users/me/private/old"
+    assert json.loads((group / ".repo.json").read_text()) == {"origin": "github.com/me/old"}
+
+
+def test_a_run_on_another_library_is_refused(pair, tmp_path):
+    a, _ = pair
+    other = Syncer(tmp_path / "elsewhere", a.state, allow_file_remote=True, visibility=lambda r: "private")
+    assert other.run()["reason"] == "library_mismatch"
+
+
+def test_cli_reports_errors_without_tracebacks_and_takes_explicit_directories(pair, tmp_path, capsys):
+    a, _ = pair
+    assert cli(["--state", str(a.state), "--library", str(a.lib), "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["state"] == "synced"
+    (a.lib / ".agents-sync").mkdir(exist_ok=True)
+    (a.lib / ".agents-sync" / "scopes.json").write_text("{broken")
+    assert cli(["--state", str(a.state), "--library", str(a.lib), "scope", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "scopes_invalid"
+
+
+def test_the_macos_state_directory_follows_an_installed_daemon(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_module.sys, "platform", "darwin")
+    monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
+    monkeypatch.setattr(engine_module, "installation_root", lambda: tmp_path)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / ".shared-service.json").write_text(json.dumps({"directory": str(tmp_path / "service")}))
+    assert engine_module.default_state_dir() == tmp_path / "service" / "user-sync"
+    monkeypatch.setenv("AGENTS_SERVICE_DIR", str(tmp_path / "env-service"))
+    assert engine_module.default_state_dir() == (tmp_path / "env-service").resolve() / "user-sync"

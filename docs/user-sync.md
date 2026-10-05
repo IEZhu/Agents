@@ -27,10 +27,18 @@ python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-fil
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]
 ```
 
-Each command takes `--json`. Hosts other than github.com print their host key fingerprints at
-setup; confirm one with `--trust-host-key SHA256:…` after comparing it with the host's published
-fingerprint. Where privacy cannot be checked over HTTPS, `--confirm-private` records the owner's
-confirmation.
+Each command takes `--json`. `--state DIR` and `--library DIR` before the command name the private
+state directory and the library explicitly; scheduled runs pass both, so they never depend on the
+scheduler's environment. The command line reads the installation's `.env` like the MCP servers,
+and holds the installation's shared session lease while it runs, so an update never replaces the
+code under it. Setup records the library; a run on another library stops with
+`library_mismatch`.
+
+Hosts other than github.com print their host key fingerprints at setup; confirm one with
+`--trust-host-key SHA256:…` after comparing it with the host's published fingerprint. github.com's
+keys are refreshed from its API on every setup. Where privacy cannot be checked over HTTPS,
+`--confirm-private` records the owner's confirmation. Setting up another remote starts a new
+history there: one root commit with the current files, so old commits never travel to it.
 
 ## What syncs
 
@@ -42,20 +50,35 @@ confirmation.
 
 Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`. Exclusions live
 in the tracked `.agents-sync/scopes.json`, so every machine agrees. Excluding takes the files out
-of the repository but never deletes them from any machine. Including a group or file again, and
-allowing a file the secret scanner flagged, needs the hash the command prints first. A repository
-group that is new to the library is uploaded and announced in the activity; with
+of the repository but never deletes them from any machine. A missing `scopes.json` is restored
+from the last commit: losing it must not lift every exclusion. Including a group or file again,
+and allowing a file the secret scanner flagged, needs the hash the command prints first, which
+covers the list of files it would upload. When another machine includes a group or file again,
+this machine's own copies wait for `scope --approve <group>` (or `--approve-file`) here. A
+repository group that is new to the library is uploaded and announced in the activity; with
 `--ask-new-repositories` it waits for `scope --approve repos/<key>` instead.
+
+Files that sync never handles but finds in the remote (a `README.md` added in GitHub's web UI, a
+directory a newer version syncs) stay in the repository as they are; they are neither written to
+nor deleted from the library. A `.repo.json` written before #169 that still holds a clone path is
+split first: the path moves to `.repo.local.json`.
 
 ## One cycle
 
+History is linear and holds only what was meant to sync. The local branch points at the last
+remote commit this machine integrated. A cycle builds one commit on top of the remote head whose
+tree is the three-way merge of that integrated tree, the working tree and the remote tree, filtered
+by the merged exclusions; nothing is committed on its own first, so text another machine excluded
+never reaches the remote in any commit.
+
 1. `git fetch`, without any lock.
 2. Under the library's `.lock`, which every writer of personal flows and component switches takes:
-   read the working tree once (scope rules, size limit, secret scanner), commit what changed,
-   integrate the remote commit (nothing, a fast-forward or a merge by the policy below) and write
-   the result to the working tree. Writers wait only for these local steps, never for the
-   network. A file whose bytes changed since sync read it, for example an edit that bypassed the
-   lock, is never replaced: it stays, and the next cycle reconciles it as a conflict.
+   read the working tree once (scope rules, size limit, secret scanner), merge by the policy below,
+   write new history versions and conflict records first and the merged files after them, and
+   build the commit. Writers wait only for these local steps, never for the network. A file whose
+   bytes changed since sync read it, for example an edit that bypassed the lock, is never replaced:
+   it stays, and the next cycle reconciles it as a conflict, again keeping the local text before
+   it writes the other version.
 3. `git push`, without any lock. A non-fast-forward rejection starts again, at most three times.
 
 One syncer runs per library: `.git/agents-sync.lock` is taken without waiting, and a second
@@ -84,8 +107,10 @@ other one is kept.
 | Joining a library that has its own flows | matching paths as "changed on two machines", the rest merged | as above; preview required |
 
 Records are `.agents-sync/conflicts/<id>.json`, one per conflict, so records from two machines
-never collide; they sync like other files. `resolve <id> mine` restores the kept local version
-with a normal save, `keep` and `dismiss` delete the record.
+never collide; they sync like other files. When `history` is excluded, the kept local version
+stays on the machine that lost it. `resolve <id> mine` restores the kept local version with a
+normal save (or, for a deletion, a normal delete, which keeps the text in the flow's history);
+`keep` and `dismiss` delete the record.
 
 ## Joining and safety
 
@@ -95,10 +120,12 @@ with a normal save, `keep` and `dismiss` delete the record.
 | Foreign content (no `.agents-library.json`) | refused |
 | Empty local library | the library is downloaded |
 | Local flows and no common history | merged by the policy above, after the owner confirms the preview |
-| Remote history rewritten | as the previous row, with a warning |
+| Remote history rewritten, or reset to an earlier commit | as the previous row: every file from either side survives, after the owner confirms the preview |
 
 - The remote must be empty or hold `.agents-library.json`; a newer `format` stops with
   `format_newer`.
+- A commit that would delete at least 10 of the owner's files (flows, personas, switches; history
+  and records do not count) and more than half of them waits for the owner's confirmation.
 - A public remote is refused before the first upload and checked again daily: an anonymous
   `git ls-remote` over HTTPS with an empty configuration, because a credential helper would make a
   private repository look public. GitHub's API check arrives with #166.
@@ -118,8 +145,9 @@ with a normal save, `keep` and `dismiss` delete the record.
 `status` reports `off`, `waiting_for_access`, `synced`, `pending` (with a count of changed flows
 and other items), `syncing`, `offline` (with `retry_at`), `paused`, or `attention` with a reason:
 `auth`, `host_key`, `public_repo`, `unknown_remote`, `secret`, `identity`, `format_newer`,
-`git_too_old`, `confirmation_needed`, `new_repository`, `scopes_invalid`, `foreign_git`,
-`git_error` or `stale`. It also reports the conflict count, the last success, the activity of the
+`git_too_old`, `confirmation_needed`, `new_repository` (flows waiting for approval on this
+machine), `scopes_invalid`, `foreign_git`, `library_mismatch`, `library_unreadable`, `git_error`
+or `stale`. It also reports the conflict count, the last success, the activity of the
 last 20 cycles (sent and received flows, changed non-Markdown files listed separately) and newly
 uploaded repository groups. `stale` turns true 24 hours after the last success, and the state turns
 to `attention` after 72 hours.
@@ -131,7 +159,8 @@ the isolated `gitconfig`, an empty hooks directory and `user-sync.log` (1 MiB, t
 in a private per-installation directory, never in the library:
 
 - macOS: `~/Library/Application Support/Agents-Core/<id>/user-sync`, inside the daemon's state
-  directory;
+  directory (`AGENTS_SERVICE_DIR`, or the directory an installed daemon recorded in
+  `data/.shared-service.json`);
 - Windows: `%LOCALAPPDATA%\Agents-Core\<id>\user-sync`;
 - Linux and others: `$XDG_STATE_HOME/agents-core/<id>/user-sync` (default `~/.local/state`).
 
@@ -141,7 +170,8 @@ in a private per-installation directory, never in the library:
 ## Tests
 
 `tests/test_user_sync.py` runs two libraries as two machines against a local bare repository: the
-joining cases, every row of the conflict table, exclusions, the scanner, privacy, a hostile global
-git configuration, symlinks, concurrent saves, push races, offline retries, refused keys and stale
-git locks. The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux,
+joining cases, every row of the conflict table, exclusions (checked against every object the remote
+holds, not only its last tree), the scanner, privacy, a hostile global git configuration, symlinks,
+concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
+seeded random edits on both machines. The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux,
 Windows and macOS.

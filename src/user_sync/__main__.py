@@ -8,19 +8,28 @@
 
 Every command accepts ``--json`` for machine-readable output. The exit code is 0 unless sync
 needs attention, a command failed, or the arguments were wrong (2).
+
+``--state DIR`` and ``--library DIR`` (before the command) name the private state directory and
+the library explicitly; scheduled runs pass both, so they never depend on the scheduler's
+environment. The installation's ``.env`` is read first, as the MCP servers read it. While a command
+runs it holds the installation's shared session lease, so an update never replaces the code under it.
 """
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import sys
 
-from src.user_sync.engine import SyncError, Syncer
+from src.file_lock import file_lock
+from src.user_sync.engine import SyncError, Syncer, installation_root
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src.user_sync",
                                      description="Sync the personal flow library between machines.")
+    parser.add_argument("--state", metavar="DIR", help="private state directory (default: per installation)")
+    parser.add_argument("--library", metavar="DIR", help="the library (default: flows/.user or AGENTS_USER_FLOWS_DIR)")
     commands = parser.add_subparsers(dest="command", required=True)
 
     def command(name, help_text):
@@ -57,7 +66,8 @@ def _parser() -> argparse.ArgumentParser:
                               ("--include", "sync a group again"), ("--exclude-file", "stop syncing a file"),
                               ("--include-file", "sync a file again"),
                               ("--allow-secret", "upload this file although the scanner flagged it"),
-                              ("--approve", "upload a new repository group (repos/<key>)")):
+                              ("--approve", "upload a held group on this machine (repos/<key>, history…)"),
+                              ("--approve-file", "upload a held file on this machine")):
         scopes.add_argument(option, action="append", default=[], metavar="VALUE", help=help_text)
     scopes.add_argument("--confirm", metavar="HASH", help="confirm a change that uploads more")
     command("pause", "pause sync on this machine")
@@ -91,7 +101,8 @@ def _execute(syncer: Syncer, arguments) -> dict | list:
     if name == "scope":
         changes = dict(exclude=arguments.exclude, include=arguments.include,
                        exclude_files=arguments.exclude_file, include_files=arguments.include_file,
-                       allow_paths=arguments.allow_secret, approve=arguments.approve)
+                       allow_paths=arguments.allow_secret, approve=arguments.approve,
+                       approve_files=arguments.approve_file)
         if any(changes.values()):
             return syncer.change_scopes(**changes, confirm=arguments.confirm)
         return syncer.scopes()
@@ -122,8 +133,8 @@ def _print(result, command: str) -> None:
         print(f"  public key: {result['public_key']}")
     for fingerprint in result.get("fingerprints", []):
         print(f"  host key: {fingerprint}")
-    for key in ("upload", "download", "remove_from_remote", "conflicts", "blocked", "held", "pending_groups",
-                "sent", "received"):
+    for key in ("upload", "download", "remove_from_remote", "delete_local", "conflicts", "blocked", "held",
+                "pending_groups", "pending_files", "sent", "received"):
         items = result.get(key)
         if isinstance(items, list) and items:
             print(f"  {key}:")
@@ -136,13 +147,51 @@ def _print(result, command: str) -> None:
         print(f"  confirm with: --confirm {result['hash']}")
 
 
+def _load_env() -> None:
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(installation_root() / ".env", override=False)
+
+
+@contextmanager
+def _session_lease():
+    """The shared lease stdio servers hold; an update activates only when nobody holds it."""
+    try:
+        with file_lock(installation_root() / "data" / ".sessions.lock", shared=True, blocking=False):
+            yield
+    except BlockingIOError:
+        raise SyncError("busy", "an update of Agents-Core is being installed; try again shortly",
+                        state="busy") from None
+
+
+def _failure(error: Exception) -> dict:
+    """Every expected failure as a reason, never a traceback."""
+    from src.flows import FlowError
+    from src.user_sync.gitcmd import GitError, RemoteError
+    from src.user_sync.keys import SSHKeyError
+    from src.user_sync.scope import ScopeError
+    if isinstance(error, SyncError):
+        return {"status": error.state, "reason": error.reason, "message": error.message}
+    reason = {ScopeError: "scopes_invalid", SSHKeyError: "ssh", GitError: "git_error",
+              RemoteError: "unknown_remote", FlowError: "invalid"}.get(type(error), "library_unreadable")
+    return {"status": "attention", "reason": reason, "message": str(error)}
+
+
 def main(argv=None) -> int:
     arguments = _parser().parse_args(argv)
+    _load_env()
+    from src.flows import FlowError
+    from src.user_sync.gitcmd import GitError, RemoteError
+    from src.user_sync.keys import SSHKeyError
+    from src.user_sync.scope import ScopeError
     try:
-        result = _execute(Syncer(), arguments)
-    except SyncError as error:
-        result = {"status": error.state, "reason": error.reason, "message": error.message}
-        failed = True
+        with _session_lease():
+            result = _execute(Syncer(arguments.library, arguments.state), arguments)
+    except (SyncError, ScopeError, SSHKeyError, GitError, RemoteError, FlowError, OSError) as error:
+        result = _failure(error)
+        failed = result["status"] != "busy"
     else:
         status = result.get("state") or result.get("status") if isinstance(result, dict) else "ok"
         failed = status in ("attention", "error")

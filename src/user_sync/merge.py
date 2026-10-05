@@ -214,6 +214,10 @@ class Merger:
         b = self.base.get(path)
         l = self.local.get(path) if local is self._UNSET else local
         r = self.remote.get(path) if remote is self._UNSET else remote
+        if path == SCOPES_PATH:
+            # Losing the file must not lift every exclusion on every machine: a missing side
+            # counts as unchanged.
+            l, r = (b if l is None else l), (b if r is None else r)
         if l == r:
             self._put(path, l)
         elif l == b:

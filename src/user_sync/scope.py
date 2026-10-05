@@ -53,7 +53,10 @@ SECRET_PATTERNS = (
     ("aws_access_key", re.compile(rb"\bAKIA[0-9A-Z]{16}\b")),
     ("slack_token", re.compile(rb"\bxox[a-z]-[A-Za-z0-9-]{10,}")),
     ("api_key", re.compile(rb"\bsk-[A-Za-z0-9_-]{20,}")),
-    ("password", re.compile(rb"(?i)\bpassword\s*=\s*[^\s'\"<>]")),
+    # password=x, PASSWORD="x", DB_PASSWORD='x', export PGPASSWORD=x, "password": "x"; not
+    # placeholders such as password=<…> or password=${…}
+    ("password", re.compile(rb"(?i)passw(?:or)?d[\"']?\s*=\s*[\"']?[^\s'\"<>$]")),
+    ("password", re.compile(rb"(?i)[\"']passw(?:or)?d[\"']\s*:\s*[\"'][^\s'\"<>$]")),
 )
 
 
@@ -171,6 +174,18 @@ def groups(path: str) -> tuple[str, ...] | None:
     return None
 
 
+def is_content(path: str) -> bool:
+    """A path the owner edits (flows, personas, switches, other library files), not history or records."""
+    found = groups(path)
+    return found is not None and not path.startswith((".history/", f"{SYNC_DIR}/")) and path not in LIBRARY_FILES
+
+
+def is_link(info: os.stat_result) -> bool:
+    """A symlink, or on Windows any reparse point such as an NTFS junction, which ``lstat`` does not flag."""
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
 def repo_group(path: str) -> str | None:
     """``repos/<key>`` when ``path`` holds per-repository data."""
     found = groups(path) or ()
@@ -191,11 +206,17 @@ def portable_origin(meta: bytes | None) -> str | None:
 
 @dataclass
 class Rules:
-    """Decides membership given the exclusions and which repository groups are portable."""
+    """Decides membership given the exclusions and which repository groups are portable.
+
+    ``held_groups`` and ``held_files`` wait for this machine's approval: repository groups that
+    are new to the library when the owner asked to be asked, and groups or files another machine
+    included again while this one still has its own copies of them.
+    """
 
     scopes: Scopes
     portable: dict[str, str]                 # "repos/<key>" -> origin
-    held_groups: frozenset[str] = frozenset()  # new groups waiting for the owner's approval
+    held_groups: frozenset[str] = frozenset()
+    held_files: frozenset[str] = frozenset()
 
     def reason(self, path: str) -> str | None:
         """None when ``path`` syncs, else why not: never, excluded, local or pending."""
@@ -205,11 +226,10 @@ class Rules:
         if path in self.scopes.exclude_files or any(group in self.scopes.exclude for group in found):
             return "excluded"
         group = next((g for g in found if g.startswith("repos/")), None)
-        if group is not None:
-            if group not in self.portable:
-                return "local"
-            if group in self.held_groups:
-                return "pending"
+        if group is not None and group not in self.portable:
+            return "local"
+        if path in self.held_files or any(g in self.held_groups for g in found):
+            return "pending"
         return None
 
     def syncs(self, path: str) -> bool:
@@ -309,7 +329,7 @@ def walk(root: Path, unreadable: set[str] | None = None):
             if not prefix and entry.name == ".git":
                 continue
             try:
-                if entry.is_dir(follow_symlinks=False):
+                if entry.is_dir(follow_symlinks=False) and not is_link(entry.stat(follow_symlinks=False)):
                     stack.append((relative + "/", entry.path))
                     continue
             except OSError:
@@ -319,10 +339,11 @@ def walk(root: Path, unreadable: set[str] | None = None):
             yield relative, entry
 
 
-def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozenset()) -> Snapshot:
+def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozenset(),
+             held_files: frozenset[str] = frozenset()) -> Snapshot:
     """Read every library file once: classify it, check its size and scan what may be committed."""
     result = Snapshot(portable=read_portable(root))
-    rules = Rules(scopes, result.portable, held_groups)
+    rules = Rules(scopes, result.portable, held_groups, held_files)
     for relative, entry in walk(root, result.unreadable):
         reason = rules.reason(relative)
         if reason == "never":
@@ -334,7 +355,7 @@ def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozen
         except OSError:
             result.held[relative] = {"reason": "unreadable", "size": 0}
             continue
-        if not stat.S_ISREG(info.st_mode):
+        if not stat.S_ISREG(info.st_mode) or is_link(info):
             result.held[relative] = {"reason": "not_regular", "size": 0}
             continue
         if info.st_size > MAX_FILE_BYTES:
