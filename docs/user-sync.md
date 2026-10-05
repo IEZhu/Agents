@@ -286,10 +286,11 @@ joining cases, every row of the conflict table, exclusions (checked against ever
 holds, not only its last tree), the scanner, privacy, a hostile global git configuration, symlinks,
 concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
 seeded random edits on both machines. `tests/test_user_sync_history.py` adds clones of one project
-for the repository history: nothing shared before approval, the preview, waiting counts and
-revocation; the catch-up after a pause, a failed export or a failure between parts; exclusions on
+for the repository history: nothing shared before approval, the preview (also limited to one
+repository), waiting counts and revocation; the catch-up at a server's start, after a pause, a
+failed export, a lock held past the wait or a failure between parts; coalesced runs; exclusions on
 both machines, subfolder workspaces, other origins, the merged and filtered `read_history` (also
 across two checkouts on one machine), bounded reads, segments that never conflict, the 4 MiB
-continuation, a block cut short by a crash, `log_interaction` and readers while the library lock or
+continuation, appends in place, a block cut short by a crash, `log_interaction` and readers while the library lock or
 an index rebuild is held (with a fake embedder). The
 [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and macOS.

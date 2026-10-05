@@ -673,15 +673,17 @@ def _set_waiting(machine: _Machine, repo: _Repository, count: int) -> None:
 
 
 def reconcile(root, *, state_dir=None, library=None, full: bool = False,
-              wait: float = LOCK_WAIT_SECONDS) -> dict:
+              wait: float | None = None) -> dict:
     """Share the checkout's journal entries that this machine's segment lacks.
 
     Registers the checkout, counts its waiting entries while its repository is not approved, and
     for an approved one appends the entries from its watermark on (all of them with ``full``).
-    Never raises: a failure is recorded as ``history_error`` and left to the next run.
+    Never raises: a failure is recorded as ``history_error`` and left to the next run. ``wait``
+    defaults to ``LOCK_WAIT_SECONDS``.
     """
     try:
-        return _reconcile(root, state_dir=state_dir, library=library, full=full, wait=wait)
+        return _reconcile(root, state_dir=state_dir, library=library, full=full,
+                          wait=LOCK_WAIT_SECONDS if wait is None else wait)
     except Exception as error:  # noqa: BLE001 - the caller is a worker or a command; record, never raise
         machine = None
         try:
@@ -774,7 +776,7 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float) -> dict:
 
 
 def reconcile_all(*, state_dir=None, library=None, keys=None, full: bool = False,
-                  wait: float = LOCK_WAIT_SECONDS) -> list[dict]:
+                  wait: float | None = None) -> list[dict]:
     """``reconcile`` every registered checkout (of ``keys`` only, when given); forget removed ones."""
     machine = _machine(state_dir, library)
     if machine is None:
@@ -1043,7 +1045,7 @@ def _digest(repositories: list[dict], cutoff: str) -> str:
 
 
 def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | None = None,
-           wait: float = LOCK_WAIT_SECONDS) -> dict:
+           wait: float | None = None) -> dict:
     """``history export``: the preview, or with ``confirm`` the approval and the export.
 
     The preview lists every entry of each repository this machine has not shared yet. The

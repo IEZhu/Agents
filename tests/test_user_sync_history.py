@@ -273,6 +273,27 @@ def test_nothing_is_shared_before_approval_and_status_counts_the_waiting_entries
     assert "still not shared" not in a.exported()
 
 
+def test_the_preview_and_the_approval_can_be_limited_to_one_repository(tmp_path, two, clock, capsys):
+    a, _ = two
+    other = Box(tmp_path, "a-other", a.machine.remote, origin="git@github.com:me/other.git", machine=a.machine)
+    a.log("in the project")
+    other.log("in the other repository")
+    assert run_cli(a, "history", "export", "--json") == 0
+    assert [repo["key"] for repo in json.loads(capsys.readouterr().out)["repositories"]] == \
+        ["github.com-me-other", KEY]
+    assert run_cli(a, "history", "export", "--repo", KEY, "--json") == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert [repo["key"] for repo in preview["repositories"]] == [KEY]
+    assert run_cli(a, "history", "export", "--repo", KEY, "--confirm", preview["hash"], "--json") == 0
+    assert json.loads(capsys.readouterr().out)["approved"] == [KEY]
+    status = a.status()
+    assert status["history_repositories"] == [KEY]
+    assert status["history_waiting"] == [{"key": "github.com-me-other", "origin": "github.com/me/other",
+                                          "entries": 1}]
+    assert a.exported() == ["in the project"]
+    assert not (a.machine.lib / "repos" / "github.com-me-other").exists()
+
+
 def test_a_preview_stays_valid_for_entries_written_after_it(two, clock):
     a, _ = two
     a.log("previewed")
@@ -299,6 +320,15 @@ def test_an_older_entry_that_was_not_previewed_changes_the_preview(tmp_path, two
 
 
 # --- when entries are shared ------------------------------------------------------------------
+
+
+def test_a_server_start_catches_up_entries_written_without_sync(shared, clock):
+    a, _ = shared
+    a.writer.append_entry("written by a process without sync", "a", "o")  # no integration installed
+    assert "written by a process without sync" not in a.exported()
+    history_sync.install(state_dir=a.machine.state, library=a.machine.lib)  # as a server starting
+    assert history_sync.drain(60)
+    assert a.exported()[-1] == "written by a process without sync"
 
 
 def test_catch_up_after_pause_and_resume(shared, clock):
@@ -469,6 +499,16 @@ def test_parts_and_months_sync_and_merge_without_conflicts(shared, clock, monkey
     assert a.machine.sync.conflicts() == [] and b.machine.sync.conflicts() == []
 
 
+def test_appends_extend_the_part_in_place(shared, clock):
+    a, _ = shared
+    part = a.machine.lib / SEGMENTS / "machine-a" / "2026-10.md"
+    before, data = part.stat(), part.read_bytes()
+    a.log("appended")
+    after = part.stat()
+    assert after.st_ino == before.st_ino and after.st_size > before.st_size  # not rewritten
+    assert part.read_bytes().startswith(data)
+
+
 def test_a_block_cut_short_by_a_crash_is_written_again_whole(shared, clock):
     a, _ = shared
     a.log("complete")
@@ -521,6 +561,14 @@ def test_parts_of_another_origin_are_skipped_and_reported(shared, clock):
     a.log("not exported while the group names another origin")
     assert "not exported while the group names another origin" not in a.exported()
     assert [e.machine for e in a.read()] == [None] * len(a.read())
+    assert a.status()["history_other_origin"][0]["found"] == ["github.com/other/x"]
+    a.export()  # nothing to approve: the key is approved
+    history_sync.revoke(KEY, state_dir=a.machine.state, library=a.machine.lib)
+    a.log("waiting again")
+    preview = a.export()
+    assert preview["status"] == "up_to_date" and preview["repositories"] == []
+    assert {"key": KEY, "origin": NORMALIZED, "reason": "other_origin", "found": "github.com/other/x"} \
+        in preview["notes"]
 
 
 def test_a_library_that_is_gone_is_never_recreated(shared, clock, tmp_path):
@@ -562,6 +610,16 @@ def test_recency_reads_stop_once_the_limit_is_filled(two, clock, monkeypatch):
     assert "2026-01.md" not in parsed and "2026-02.md" not in parsed
     everything = a.read(limit=50, machine="machine-b")
     assert len(everything) == 7 and "2026-01.md" in parsed
+    opened = []
+    real_open = open
+
+    def recording_open(file, *args, **kwargs):
+        opened.append(Path(file).name)
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(journal, "open", recording_open, raising=False)
+    assert a.read(limit=50, machine="machine-b") == everything
+    assert not [name for name in opened if name.startswith("2026-0")]  # unchanged parts come from the cache
 
 
 def test_readers_wait_for_a_writer_or_rotation_in_progress(shared, clock):
@@ -613,6 +671,45 @@ def test_an_append_never_waits_for_a_held_library_lock(shared, clock):
         holder.join(5)
     assert history_sync.drain(60)
     assert a.exported()[-1] == "while the library is locked"
+
+
+def test_a_lock_held_past_the_wait_is_left_to_the_next_run(shared, clock, monkeypatch):
+    a, _ = shared
+    monkeypatch.setattr(history_sync, "LOCK_WAIT_SECONDS", 0.3)
+    with file_lock(a.machine.lib / ".lock"):  # a sync run that does not end soon
+        a.log("while the library stays locked")
+        error = a.status()["history_error"]
+        assert error["reason"] == "library_busy" and error["key"] == KEY
+        assert "while the library stays locked" not in a.exported()
+    a.log("after the lock was released")
+    assert a.exported()[-2:] == ["while the library stays locked", "after the lock was released"]
+    assert a.status()["history_error"] is None
+
+
+def test_appends_of_one_checkout_coalesce_in_the_worker(shared, clock, monkeypatch):
+    a, _ = shared
+    runs = []
+    real = history_sync.reconcile
+    monkeypatch.setattr(history_sync, "reconcile", lambda root, **options: runs.append(root) or real(root, **options))
+    held, release = threading.Event(), threading.Event()
+
+    def sync_run():
+        with file_lock(a.machine.lib / ".lock"):
+            held.set()
+            release.wait(30)
+
+    holder = threading.Thread(target=sync_run)
+    holder.start()
+    held.wait(5)
+    try:
+        for number in range(5):
+            a.log(f"turn {number}", settle=False)
+    finally:
+        release.set()
+        holder.join(5)
+    assert history_sync.drain(60)
+    assert len(runs) <= 2  # the first run, and one for everything marked while it waited
+    assert a.exported()[-5:] == [f"turn {number}" for number in range(5)]
 
 
 def _numpy_available() -> bool:
