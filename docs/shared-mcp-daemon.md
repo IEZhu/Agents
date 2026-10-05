@@ -247,10 +247,13 @@ responds; otherwise it reports `not_installed`, `starting`, or `stopped` from lo
 configuration and launchd. A live response includes PID, boot ID, request
 counts (`inflight` for work, `streams` for open client notification streams),
 `idle_seconds` since the last request finished, and pending job counts
-(`io_pending` for running or queued I/O jobs, `inference_pending` for model work).
+(`io_pending` for running or queued I/O jobs, user sync's engine calls included,
+`inference_pending` for model work), and the `user_sync` summary
+(see [User library sync](#user-library-sync)).
 When the service does not respond, `status` also reports `supervised` (launchd
-has the job loaded), `maintenance` and `transaction`; a `transaction` that remains
-while no controller command is running requires `recover`. `/health` requires a
+has the job loaded), `maintenance` and `transaction`, and reads the `user_sync`
+summary with the sync engine; a `transaction` that remains while no controller
+command is running requires `recover`. `/health` requires a
 bearer token and, besides the MCP SDK `version`, returns `agents_core_version`
 (the Agents-Core version shown in the footer, see
 [routing reference](routing_flow.md)). Readiness means the model and indexes have warmed successfully.
@@ -264,7 +267,8 @@ running job and does not replay a mutation.
 `stop`, `restart`, `uninstall`, `restore-clients`, `update`, `recover`, and
 `token rotate` first drain the service: new requests get 503, and the command
 waits up to 60 seconds for `inflight` (work), `io_pending` (running or queued I/O
-jobs) and `streams` (open notification streams) all to reach zero. If any stays
+jobs, including user sync's last cycle, at most 10 seconds after the last
+request) and `streams` (open notification streams) all to reach zero. If any stays
 above zero, including a stream that fails to close, the drain times out: the
 controller resumes the service without killing active work, and the command fails
 with `Drain timed out; runtime resumed without killing active work` without
@@ -432,6 +436,91 @@ header shows `Agents-Core <version>` once. The persona footer links the version 
 the bare `http://127.0.0.1:<port>/ui` address, which never carries a code. A copied valid
 cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
 `/ui` and useful only on the loopback port.
+
+## User library sync
+
+When [user library sync](user-sync.md) is set up and started, the daemon runs its
+cycles (`src/daemon/sync_loop.py`). Its task starts with the service and does
+nothing by itself until the service is ready, so it never competes with the model
+warmup. Triggers:
+
+- **A change in this process.** A save in the flow editor (flows, personas,
+  component switches) or through an MCP tool (`save_flow`, `delete_flow`,
+  `set_flow_persona`) schedules a cycle 10 seconds later. Later changes do not
+  move it; a change during a cycle schedules one more.
+- **A scan every 30 seconds** finds writes by stdio servers and manual edits. It
+  compares the names, sizes and modification times below the library (`.git`
+  aside) with those recorded when the library was last seen in sync; only when
+  they differ does it ask the engine's status, which reads every file and applies
+  the scope rules. A change that needs sending starts a cycle at once.
+- **A fetch every `fetch_minutes`** (the setting in `user-sync.json`, 1 to 60,
+  default 5), and one right after the service becomes ready. After a network
+  failure the next cycle waits for the engine's `retry_at` (1, 2, 5, 10, then
+  every 30 minutes); "Sync now" does not.
+- **Sync now:** `user-sync run` or `POST /admin/user-sync/run`.
+
+Nothing runs by itself while sync is off, waiting for access (set up but not
+started) or paused, or while `maintenance.json` or `transaction.json` shows an
+update transaction; a held cycle runs when the transaction ends. Cycles, `run`,
+`setup`, `check`, `preview`, `start` and `disconnect` run one at a time, so the
+service's own operations do not collide. Engine calls run in their own threads
+and count in `io_pending`: automatic updates and a drain wait for them.
+
+On drain (`stop`, `restart`, `update`, a logout), once the requests admitted
+before the drain have ended, the task commits and pushes what is left in one last
+cycle: changes heard or found that no cycle sent yet. It has 10 seconds, and
+`io_pending` holds the drain until then. A cycle still running after that is
+abandoned: it stops counting, the task ends, and the stopping process ends it.
+The engine's sync lock and its stale-lock cleanup make that harmless; the next
+start syncs what was left. This last cycle also runs during an update
+transaction, which stops the service next. After `/admin/resume` the loop
+continues, and a later drain flushes again.
+
+Use the commands below while the daemon runs. The engine's own command line
+(`python -m src.user_sync`), which also lists and resolves conflicts and changes
+the scope, keeps working next to it: the engine's lock lets one runner sync at a
+time, and the other reports `lock_held`. The scan picks up the files it changes.
+
+```bash
+.venv/bin/python -m src.daemon user-sync status
+.venv/bin/python -m src.daemon user-sync setup --remote git@github.com:me/agents-library.git \
+    --name "My Name" --email me@example.com [--label laptop] [--ask-new-repositories]
+.venv/bin/python -m src.daemon user-sync check
+.venv/bin/python -m src.daemon user-sync preview
+.venv/bin/python -m src.daemon user-sync start --confirm <hash from preview>
+.venv/bin/python -m src.daemon user-sync run [--confirm <hash>]   # Sync now
+.venv/bin/python -m src.daemon user-sync pause | resume | disconnect
+```
+
+Each command calls the service and prints its JSON answer with `"via": "service"`.
+When nothing listens on the service's port, or the service is not installed, it
+runs the same engine operation in the command's own process (`"via": "direct"`)
+on the service's library (`AGENTS_USER_FLOWS_DIR` from the environment or `.env`)
+and its state directory. A service that answers slowly or with an error is not
+bypassed, so an operation it may still finish never runs twice. The exit code is 1
+when the answer is an error or the state needs attention. `setup` also takes
+`--branch`, `--trust-host-key SHA256:…` and `--confirm-private`, as in
+[the engine's command line](user-sync.md#command-line).
+
+The service's endpoints need the bearer token like every `/admin` path:
+
+| Endpoint | Body (JSON) | Answer |
+|---|---|---|
+| `GET /admin/user-sync/status` | — | the engine's status and `loop`: `state`, `active`, `syncing`, `next_fetch_seconds`, `last_cycle` |
+| `POST /admin/user-sync/run` | optional `confirm` | one cycle that ignores the retry delay |
+| `POST /admin/user-sync/setup` | `remote`, `name`, `email`; optional `label`, `branch`, `ask_new_repositories`, `trust_host_key`, `confirm_private` | the engine's setup result, with the public key to add as a deploy key |
+| `POST /admin/user-sync/check`, `preview` | — | the engine's results |
+| `POST /admin/user-sync/start` | `confirm`: the preview's hash | the first upload or join |
+| `POST /admin/user-sync/pause`, `resume`, `disconnect` | — | the engine's results |
+
+An engine refusal answers 409 with `status`, `reason` and `message` (for example
+`lock_held` from `check` while another runner holds the library); an invalid
+body 400, a body over 64 KiB 413, a wrong method 405, an unexpected failure 500
+without a traceback, and a draining service 503 for everything except `status`,
+`pause` and `resume`. `/health` and the controller's `status` include
+`user_sync`: `state` (`syncing` while a cycle runs), `reason`, `last_success`,
+`conflicts` and `pending`, never the key, the remote, the identity or a path.
+When the service does not answer, `status` reads that summary with the engine.
 
 ## Memory and errors
 

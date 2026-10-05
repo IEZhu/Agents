@@ -72,15 +72,24 @@ class Controller:
     def launchctl(self, *args, check=True):
         return subprocess.run(["/bin/launchctl", *args], capture_output=True, text=True, check=check)
 
-    def request(self, path="/health", *, method="GET"):
+    def request(self, path="/health", *, method="GET", body=None, timeout=3, status=False):
+        """The service's JSON answer; with ``status``, ``(HTTP status, JSON)``."""
         token = (self.directory / "token").read_text().strip()
-        request = Request(f"http://127.0.0.1:{self.config['port']}{path}", method=method,
-                          headers={"Authorization": "Bearer " + token})
+        headers = {"Authorization": "Bearer " + token}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode()
+            headers["Content-Type"] = "application/json"
+        request = Request(f"http://127.0.0.1:{self.config['port']}{path}", data=data, method=method,
+                          headers=headers)
         try:
-            with urlopen(request, timeout=3) as response: return json.load(response)
+            with urlopen(request, timeout=timeout) as response:
+                value = json.load(response)
+                return (response.status, value) if status else value
         except HTTPError as error:
-            try: return json.load(error)
+            try: value = json.load(error)
             except (ValueError, OSError): raise RuntimeError(f"Service HTTP {error.code}") from None
+            return (error.code, value) if status else value
 
     def status(self):
         if not self.config: return {"state": "not_installed"}
@@ -91,6 +100,48 @@ class Controller:
                     "supervised": result.returncode == 0,
                     "maintenance": (self.directory / "maintenance.json").exists(),
                     "transaction": (self.directory / "transaction.json").exists()}
+
+    def user_sync(self, command, arguments=None):
+        """A user-sync command through the service, or through the engine here when it is down.
+
+        Returns ``(failed, result)``; ``result["via"]`` says which ran it. Only a refused
+        connection (nothing listens: the service is stopped) falls back; a slow or failing service
+        does not, so an operation it may still finish never runs twice. The engine's sync lock
+        keeps a direct run from overlapping the service's loop: one of them reports ``lock_held``.
+        """
+        from .sync_loop import LONG_REQUEST_TIMEOUT, REQUEST_TIMEOUTS, direct
+        arguments = arguments or {}
+        if self.config.get("port") and (self.directory / "token").is_file():
+            method = "GET" if command == "status" else "POST"
+            try:
+                code, result = self.request("/admin/user-sync/" + command, method=method,
+                                            body=None if method == "GET" else arguments, status=True,
+                                            timeout=REQUEST_TIMEOUTS.get(command, LONG_REQUEST_TIMEOUT))
+            except (OSError, RuntimeError, ValueError) as error:
+                reason = error.reason if isinstance(error, URLError) else error
+                if isinstance(reason, TimeoutError):
+                    return True, {"status": "error", "reason": "timeout", "via": "service",
+                                  "message": "the service did not answer in time; the operation may still finish there"}
+                if not isinstance(reason, ConnectionRefusedError):
+                    return True, {"status": "error", "reason": "service_unreachable",
+                                  "message": f"{type(reason).__name__}: {reason}", "via": "service"}
+            else:
+                return self._sync_failed(code, result), {**result, "via": "service"}
+        code, result = direct(self.directory, self.config.get("installation") or Path(__file__).resolve().parents[2],
+                              command, arguments)
+        return self._sync_failed(code, result), {**result, "via": "direct"}
+
+    @staticmethod
+    def _sync_failed(code, result):
+        return code >= 400 or result.get("status") in ("attention", "error")
+
+    def sync_summary(self):
+        """The short sync status when the service does not answer; never raises."""
+        try:
+            from .sync_loop import direct_summary
+            return direct_summary(self.directory, self.config.get("installation") or Path(__file__).resolve().parents[2])
+        except Exception as error:
+            return {"state": "unknown", "reason": type(error).__name__}
 
     def wait_ready(self, timeout=120):
         deadline = time.monotonic() + timeout
@@ -234,6 +285,30 @@ def main(argv=None):
     auto.add_argument("action", choices=["enable", "disable", "status", "run"])
     auto.add_argument("--interval", type=int, help="seconds between checks (default 900)")
     auto.add_argument("--idle-seconds", type=int, help="apply only after this long without requests (default 120)")
+    sync = commands.add_parser("user-sync", help="sync the personal flow library through the service; "
+                                                 "uses the engine directly when the service is down")
+    sync_commands = sync.add_subparsers(dest="sync_command", required=True)
+    for name, text in (("status", "show the sync state and the service's loop"),
+                       ("check", "check access to the remote"),
+                       ("preview", "show what starting or confirming sync would upload and download"),
+                       ("pause", "pause sync on this machine"), ("resume", "resume sync on this machine"),
+                       ("disconnect", "stop syncing on this machine; files and .git stay")):
+        sync_commands.add_parser(name, help=text)
+    sync_run = sync_commands.add_parser("run", help="sync now, also during the retry delay after a network error")
+    sync_run.add_argument("--confirm", metavar="HASH", help="confirm a previewed join or rewritten remote")
+    sync_start = sync_commands.add_parser("start", help="start sync after reviewing the preview")
+    sync_start.add_argument("--confirm", metavar="HASH", required=True, help="the preview's hash")
+    sync_setup = sync_commands.add_parser("setup", help="configure the remote, identity and this machine's key")
+    sync_setup.add_argument("--remote", required=True, help="git@host:owner/repo, ssh://… or https://…")
+    sync_setup.add_argument("--name", required=True, help="commit author name")
+    sync_setup.add_argument("--email", required=True, help="commit author email")
+    sync_setup.add_argument("--label", help="this machine's label (default: platform and a random suffix)")
+    sync_setup.add_argument("--branch", default="main")
+    sync_setup.add_argument("--ask-new-repositories", action="store_true", default=None,
+                            help="ask before uploading flows of a repository that is new to the library")
+    sync_setup.add_argument("--trust-host-key", metavar="SHA256:…", help="confirm the host key fingerprint")
+    sync_setup.add_argument("--confirm-private", action="store_true", default=None,
+                            help="confirm the repository is private when the host cannot be checked")
     args = parser.parse_args(argv)
     overrides = []
     if args.command in ("audit", "migrate"):
@@ -251,6 +326,7 @@ def main(argv=None):
             if any(client not in clients for client, _ in overrides):
                 parser.error("Each --client-config target must be selected by --clients")
     controller = Controller(args.state)
+    exit_code = 0
     if args.command == "serve":
         from .bootstrap import serve
         serve(controller.directory, args.probation)
@@ -323,5 +399,23 @@ def main(argv=None):
     elif args.command == "token":
         from .rotation import rotate_token
         result = rotate_token(controller)
+    elif args.command == "user-sync":
+        failed, result = controller.user_sync(args.sync_command, _sync_arguments(args))
+        exit_code = 1 if failed else 0
     else: result = getattr(controller, args.command)()
+    if args.command == "status" and "user_sync" not in result:
+        result["user_sync"] = controller.sync_summary()  # the service does not answer
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return exit_code
+
+
+def _sync_arguments(args):
+    """The JSON arguments of a user-sync command, as /admin/user-sync takes them."""
+    if args.sync_command == "setup":
+        values = {"remote": args.remote, "name": args.name, "email": args.email, "label": args.label,
+                  "branch": args.branch, "ask_new_repositories": args.ask_new_repositories,
+                  "trust_host_key": args.trust_host_key, "confirm_private": args.confirm_private}
+        return {key: value for key, value in values.items() if value is not None}
+    if args.sync_command in ("run", "start") and args.confirm is not None:
+        return {"confirm": args.confirm}
+    return {}
