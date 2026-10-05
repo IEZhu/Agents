@@ -1,5 +1,8 @@
 """User library sync in the macOS daemon (#167): the sync task and ``/admin/user-sync/*``.
 
+The web UI's Sync page (#170, ``sync_ui.py``) reaches the same task through ``perform``,
+``offload`` and ``status_view``.
+
 The engine (``src.user_sync``) syncs the personal flow library through one private git
 repository. In the daemon one task drives it:
 
@@ -12,7 +15,7 @@ repository. In the daemon one task drives it:
   seen in sync. The engine's scope rules decide what counts as a change.
 * Every ``fetch_minutes`` (a setting, 1 to 60, default 5) a cycle fetches. After a network
   failure the next cycle waits for the engine's ``retry_at``.
-* "Sync now" (``/admin/user-sync/run``) runs a forced cycle.
+* "Sync now" (``/admin/user-sync/run`` or the Sync page) runs a forced cycle.
 
 Nothing automatic runs before the service is ready, while sync is off, waiting for access or
 paused, or while an update transaction (``maintenance.json`` or ``transaction.json``) runs; the
@@ -75,6 +78,7 @@ UNSYNCED = ("pending", "attention")
 # hangs: each git network call may take 60 s, and a push is tried three times.
 REQUEST_TIMEOUTS = {"status": 30, "pause": 30, "resume": 30}
 LONG_REQUEST_TIMEOUT = 900
+DRAINING = {"error": "draining", "message": "the service is stopping; try again when it is back"}
 
 
 class Abandoned(Exception):
@@ -83,6 +87,10 @@ class Abandoned(Exception):
 
 class Draining(Exception):
     """The service drains; the operation did not start."""
+
+
+class Unavailable(Exception):
+    """The sync task is not running, so a queued operation would never start."""
 
 
 # --- commands, shared with the controller ----------------------------------------------------
@@ -134,16 +142,24 @@ def failure(error: BaseException) -> tuple[int, dict]:
     """``(HTTP status, JSON)`` for an engine failure; never a traceback."""
     try:
         from src.user_sync.engine import SyncError
-        from src.user_sync.gitcmd import GitError
+        from src.user_sync.github import GitHubError
+        from src.user_sync.gitcmd import GitError, RemoteError
         from src.user_sync.keys import SSHKeyError
+        from src.user_sync.scope import ScopeError
     except Exception:  # the engine itself cannot load; report the original error
-        SyncError = GitError = SSHKeyError = ()
+        SyncError = GitHubError = GitError = RemoteError = SSHKeyError = ScopeError = ()
     if isinstance(error, SyncError):
-        return 409, {"status": error.state, "reason": error.reason, "message": error.message}
+        return 409, {**error.details, "status": error.state, "reason": error.reason, "message": error.message}
+    if isinstance(error, GitHubError):  # messages never hold the token or a device code
+        return 409, {"status": "attention", "reason": error.code, "message": error.message}
     if isinstance(error, GitError):
         return 409, {"status": "attention", "reason": "git_error", "message": str(error)}
     if isinstance(error, SSHKeyError):
         return 409, {"status": "attention", "reason": "ssh_key", "message": str(error)}
+    if isinstance(error, ScopeError):
+        return 409, {"status": "attention", "reason": "scopes_invalid", "message": str(error)}
+    if isinstance(error, RemoteError):
+        return 400, {"status": "attention", "reason": "unknown_remote", "message": str(error)}
     logger.error("User sync operation failed", exc_info=error)
     # An OSError's text names the file, and a file of the private state may be the key.
     detail = error.strerror if isinstance(error, OSError) and error.strerror else str(error)
@@ -285,7 +301,7 @@ def _seen(future) -> None:
 
 
 class UserSync:
-    """The daemon's sync task and the operations behind ``/admin/user-sync/*``.
+    """The daemon's sync task and the operations behind ``/admin/user-sync/*`` and the Sync page.
 
     Everything except the engine calls runs on the service's event loop, so the scheduling state
     needs no lock. ``syncer`` replaces the engine in tests; by default the engine syncs the
@@ -438,29 +454,56 @@ class UserSync:
             call = operation(command, arguments)
         except ValueError as error:
             return reply({"error": "invalid_request", "message": str(error)}, 400)
-        draining = {"error": "draining", "message": "the service is stopping; try again when it is back"}
         try:
             if command == "status":
-                status = await self._engine(self._status_work)
-                self.last_status = status
-                return reply({**status, "loop": self.loop_info()})
-            if command in QUEUED:
-                if self.service.state == "draining":
-                    return reply(draining, 503)
-                if self.task is None or self.task.done():
-                    return reply({"error": "unavailable", "message": "the sync task is not running"}, 503)
-                # A client that goes away does not cancel a submitted operation.
-                outcome = await asyncio.shield(self.submit(command, call))
-            else:  # pause and resume only write the settings: they never wait for a cycle
-                outcome = await self._engine(self._job_work, call, False)
-                self._note_job(command, outcome)
-                self.wake()
+                return reply(await self.status_view())
+            # pause and resume only write the settings: they never wait for a cycle
+            outcome = await self.perform(command, call, queued=command in QUEUED)
+        except Unavailable:
+            return reply({"error": "unavailable", "message": "the sync task is not running"}, 503)
         except (Abandoned, Draining):
-            return reply(draining, 503)
+            return reply(DRAINING, 503)
         except Exception as error:
             code, value = failure(error)
             return reply(value, code)
         return reply(outcome["result"], outcome["code"])
+
+    # --- operations for front ends: the admin endpoints and the web UI (sync_ui) ----------
+
+    async def status_view(self) -> dict:
+        """The engine's status with the loop's (``loop``), as ``/admin/user-sync/status`` answers it."""
+        status = await self._engine(self._status_work)
+        self.last_status = status
+        return {**status, "loop": self.loop_info()}
+
+    async def perform(self, command: str, call, *, queued: bool) -> dict:
+        """``call(syncer)`` for a front end; returns ``{"code", "result", ...}``.
+
+        ``queued`` operations (anything that runs git or reaches the remote) wait for the task and
+        run one at a time with the cycles; a client that goes away does not cancel one. The others
+        (settings, scopes, conflicts) run at once in their own thread, also while a cycle runs.
+        Either way the task learns the settings they leave. Raises ``Draining`` while the service
+        drains, ``Unavailable`` without a running task, ``Abandoned`` after the drain deadline.
+        """
+        if queued:
+            if self.service.state == "draining":
+                raise Draining()
+            if self.task is None or self.task.done():
+                raise Unavailable()
+            return await asyncio.shield(self.submit(command, call))
+        outcome = await self._engine(self._job_work, call, False)
+        self._note_job(command, outcome)
+        self.wake()
+        return outcome
+
+    async def offload(self, function, *args):
+        """``function(*args)`` in its own thread, counted in io_pending, outside the queue: reads
+        and GitHub API calls that never touch the library's repository."""
+        return await self._engine(function, *args)
+
+    def engine(self):
+        """The engine the task uses; call it in a thread (``offload``), it may create the engine."""
+        return self._engine_syncer()
 
     def submit(self, command: str, call):
         """Queue an operation for the task; the future resolves to ``{"code", "result", ...}``."""
@@ -876,6 +919,7 @@ class UserSync:
         entry = {"time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "trigger": trigger,
                  "status": result.get("status"), "reason": result.get("reason"),
                  "sent": len(result.get("sent") or ()), "received": len(result.get("received") or ()),
+                 "received_from": list(result.get("received_from") or ()),
                  "conflicts": len(result.get("conflicts") or ()), "pushed": bool(result.get("pushed"))}
         previous = self.last_cycle or {}
         if (previous.get("status"), previous.get("reason")) != (entry["status"], entry["reason"]) \

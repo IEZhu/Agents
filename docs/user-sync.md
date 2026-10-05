@@ -1,10 +1,9 @@
 # User library sync
 
 Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
-runs, the stdio trigger and the terminal wizard (#168), and the sync loop of the macOS daemon (#167)
-are implemented. The web UI
-(#170) and installer integration (#171) are separate parts of the
-[epic #173](https://github.com/IEZhu/Agents/issues/173).
+runs, the stdio trigger and the terminal wizard (#168), the sync loop of the macOS daemon (#167)
+and the status, Sync page and wizard of the web UI (#170) are implemented. Installer integration
+(#171) is a separate part of the [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
 Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
 machines through one private git repository with one branch, which is never force-pushed. The
@@ -65,6 +64,22 @@ downloads, conflicts, files the secret scanner held back and repository groups w
 origins. Sync starts only after you type `yes`. Without a terminal, `setup` prints its usage and
 exits with code 2.
 
+### The web UI
+
+Where the macOS daemon runs, the settings page (`python -m src.daemon flows-ui`) shows the state
+of sync in its header (`Synced 2m ago`, `3 pending`, `Offline, retry 14:05`, `Needs attention`,
+`2 conflicts`, `Sync off` and so on) and opens the Sync page from there; see
+[Sync page](shared-mcp-daemon.md#sync-page). While sync is off, the page walks through the same
+steps as the terminal wizard: GitHub sign-in with the code shown on the page (or an SSH URL), the
+repository, the identity and label, what syncs (everything on by default) and the preview, whose
+hash Start sync sends. The browser never calls GitHub and never receives the token or the device
+code; the daemon does the work, and operations that run git go through its sync task. Once sync
+runs, the page shows the status with Sync now, Pause and Resume, the machines (the repository's
+deploy keys on GitHub), conflicts with Open, Keep current, Use mine and Dismiss, what syncs with
+the approvals waiting here, the GitHub account or the manual SSH key, the identity, the activity
+of the last 20 cycles and Disconnect. A flow open in the editor that a cycle updates says from
+which machine and offers Reload; unsaved text stays.
+
 ## GitHub
 
 Setup does not need the `gh` CLI: Agents-Core signs in to the GitHub API itself
@@ -105,12 +120,17 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
   says whether GitHub still has this machine's deploy key; `github add-key` adds it again. When
   `check` finds content that is not a library before sync started, it removes the deploy key
   `setup --github` added there, and says so.
+- **A new key.** Regenerate key on the Sync page (`Syncer.regenerate_key`) makes a new key pair.
+  On a repository of the signed-in account the new public key becomes a deploy key first, then
+  the key files are replaced and the old deploy key is removed; elsewhere the new public key is
+  shown to add by hand, and the remote refuses this machine until it is added.
 - **Port 443.** When `check` cannot reach `git@github.com:…` on port 22 (some networks block it),
   it tries `ssh://git@ssh.github.com:443/OWNER/NAME.git`, GitHub's SSH service on port 443, and
   keeps that as the remote when it reaches GitHub there; a refusal on port 443 (a key or host key)
   is then the error `check` reports. Setup for the same repository keeps the port 443 URL and the
   sync history. Only `check` moves to port 443; an offline run on port 22 names it. The host keys
   for port 443 are written with github.com's at setup.
+
 ## Running without the daemon
 
 ```bash
@@ -252,8 +272,10 @@ and other items), `syncing`, `offline` (with `retry_at`), `paused`, or `attentio
 machine), `scopes_invalid`, `foreign_git`, `library_mismatch`, `library_unreadable`, `git_error`,
 `internal` (an unexpected error; the traceback is in `user-sync.log`, and the next cycle tries
 again) or `stale`. It also reports the conflict count, the last success, the activity of the
-last 20 cycles (sent and received flows, changed non-Markdown files listed separately) and newly
-uploaded repository groups. `stale` turns true 24 hours after the last success, and the state turns
+last 20 cycles (sent and received flows, the labels of the machines whose commits a cycle
+received, from their `Agents-Sync-Machine` trailers, as `received_from`, and changed non-Markdown
+files listed separately) and newly uploaded repository groups. `stale` turns true 24 hours after
+the last success, and the state turns
 to `attention` after 72 hours.
 
 ## Private files
@@ -282,7 +304,7 @@ holds, not only its last tree), the scanner, privacy, a hostile global git confi
 concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
 seeded random edits on both machines. `tests/test_user_sync_github.py` covers the device flow,
 token storage and every API call against a fake GitHub on `127.0.0.1`, and
-`tests/test_user_sync_github_setup.py` the privacy check, `setup --github`, `add-key`, port 443
+`tests/test_user_sync_github_setup.py` the privacy check, `setup --github`, `add-key`, a new key, port 443
 and the wizard, with git going to a local bare repository through a fake SSH command. The real
 Keychain, Credential Manager and Secret Service are used only when `AGENTS_TEST_REAL_SECRET_STORE=1`.
 The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and
