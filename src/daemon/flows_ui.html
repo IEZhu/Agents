@@ -371,7 +371,7 @@ const state = { tab: "flows", category: "user", flows: [], repos: [], current: n
   loadedTab: null,  // the tab whose list is on screen; null while a tab loads
   signedOut: false };
 // Library sync (#170): the last status, the Sync page, its wizard and the GitHub sign-in in progress.
-const sync = { status: null, gen: 0, timer: null, shown: false, parts: null, controls: [], busy: false,
+const sync = { status: null, gen: 0, freshPending: 0, timer: null, shown: false, parts: null, controls: [], busy: false,
   wizard: null, device: null, deviceTimer: null, onConnected: null, seen: null, notice: null,
   scopes: null, scopesLoading: false, scopeHost: null, scopeConfirm: null, machines: null, review: null,
   compare: null, keyMissing: false, revokeUrl: null, unavailable: false, pausing: false };
@@ -1702,11 +1702,12 @@ function clockTime(iso) {
   return isNaN(moment.getTime()) ? "" : pad2(moment.getHours()) + ":" + pad2(moment.getMinutes());
 }
 
-// "2026-10-05 14:05" in local time; "never" without a time.
-function dateTime(iso) {
+// "2026-10-05 14:05" in local time, "2026-10-05 14:05:09" with `seconds`; "never" without a time.
+function dateTime(iso, seconds) {
   const moment = new Date(iso || "");
   if (isNaN(moment.getTime())) return "never";
-  return moment.getFullYear() + "-" + pad2(moment.getMonth() + 1) + "-" + pad2(moment.getDate()) + " " + clockTime(iso);
+  return moment.getFullYear() + "-" + pad2(moment.getMonth() + 1) + "-" + pad2(moment.getDate()) + " " + clockTime(iso)
+    + (seconds ? ":" + pad2(moment.getSeconds()) : "");
 }
 
 function ago(iso, now) {
@@ -1759,16 +1760,21 @@ function scheduleSyncPoll() {
 }
 
 // Reads the status; a refresh that a newer one overtook is dropped. Polls take the status the daemon
-// read within its last scan; `fresh` (opening the Sync page, after its own actions) reads it now.
+// keeps (read or confirmed by a scan within a scan interval); `fresh` (opening the Sync page, after its
+// own actions) reads it now, and no poll replaces a fresh read that is still pending: that read
+// answers and schedules the next poll.
 async function refreshSync(fresh) {
-  if (state.signedOut) return;
+  if (state.signedOut || (!fresh && sync.freshPending)) return;
   const gen = ++sync.gen;
+  if (fresh) sync.freshPending = gen;
   let status = null, failed = false;
   try {
     status = await api("/ui/api/sync" + (fresh ? "?fresh=1" : ""));
   } catch (error) {
     if (error.signedOut) return;
     failed = true;
+  } finally {
+    if (sync.freshPending === gen) sync.freshPending = 0;
   }
   if (gen !== sync.gen) return;
   if (status) applySyncStatus(status);
@@ -1916,9 +1922,10 @@ function node(tag, parent, text, className) {
 }
 
 // The page's controls wait while one of its requests runs. A waiting control stays focusable and
-// focused: it is marked aria-disabled and its handler ignores the input. `dataset.off` disables one
-// for good (a switch for a group that never syncs, Start before privacy is confirmed); `dataset.free`
-// never waits (Pause and Resume).
+// focused: it is marked aria-disabled and takes no input (a text field is read-only, so nothing typed
+// meanwhile is lost to a rebuild or sent half-changed; a switch or a choice goes back). `dataset.off`
+// disables one for good (a switch for a group that never syncs, Start before privacy is confirmed);
+// `dataset.free` never waits (Pause and Resume).
 function control(element) {
   sync.controls.push(element);
   if (sync.controls.length > 400) sync.controls = sync.controls.filter((item) => item.isConnected !== false);
@@ -1928,8 +1935,10 @@ function control(element) {
 
 function markControl(element) {
   element.disabled = element.dataset.off === "1";
-  if (sync.busy && !element.dataset.free) element.setAttribute("aria-disabled", "true");
+  const waiting = sync.busy && !element.dataset.free;
+  if (waiting) element.setAttribute("aria-disabled", "true");
   else element.removeAttribute("aria-disabled");
+  if (element.type === "text" || element.type === "email") element.readOnly = waiting;
 }
 
 function setControls() {
@@ -1980,6 +1989,7 @@ function checkbox(parent, label, checked, onChange, off) {
   return control(box);
 }
 
+// The radios of a group share `parent`, which keeps them and the value picked last.
 function radio(parent, name, value, label, checked, onPick) {
   const row = node("label", parent, null, "sync-option");
   const input = node("input", row);
@@ -1988,7 +1998,18 @@ function radio(parent, name, value, label, checked, onPick) {
   input.value = value;
   input.checked = !!checked;
   row.appendChild(document.createTextNode(label));
-  input.addEventListener("change", () => { if (input.checked) onPick(value); });
+  const group = parent.radios || (parent.radios = []);
+  group.push(input);
+  if (checked) parent.picked = value;
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    if (sync.busy) {  // a waiting page takes no input: the earlier choice comes back
+      for (const other of group) other.checked = other.value === parent.picked;
+      return;
+    }
+    parent.picked = value;
+    onPick(value);
+  });
   return control(input);
 }
 
@@ -2142,8 +2163,10 @@ function rerenderSync() {
 const WIZARD_STEPS = [["connect", "Connect"], ["repository", "Repository"], ["identity", "Identity"],
   ["scope", "What syncs"], ["preview", "Preview"]];
 
+// Whether sync is set up comes from its settings (`set_up`, read with every answer), never from
+// `state`: a poll's status may be a scan old.
 function newWizard(status) {
-  const identity = status.identity || {}, setUp = status.state !== "off";
+  const identity = status.identity || {}, setUp = !!status.set_up;
   return { step: setUp ? "access" : "connect", mode: setUp ? (status.github_repository ? "github" : "ssh") : null,
     repository: status.github_repository || "", remote: setUp ? status.repository || "" : "",
     libraries: null, choice: null, newName: "agents-library", other: "",
@@ -2311,9 +2334,12 @@ function wizardAccess(card, wizard) {
     return;
   }
   if (!setup && status.host_key_unconfirmed) {
-    // A setup that stopped at the host's fingerprints, then a reload: ask the host again.
-    node("p", card, "The host key of " + (status.repository || "the repository's host") + " is not confirmed yet.");
-    action(node("div", card, null, "bar"), "Show the host keys", () => setUpAgain(), "primary");
+    // A setup that stopped before the host's keys were trusted, then a reload: ask the host again. On
+    // GitHub nothing waits for the owner: setup again stores GitHub's keys and adds the deploy key.
+    const github = !!status.github_repository;
+    node("p", card, github ? "Setup with " + status.github_repository + " stopped before GitHub's host keys were stored."
+      : "The host key of " + (status.repository || "the repository's host") + " is not confirmed yet.");
+    action(node("div", card, null, "bar"), github ? "Set up again" : "Show the host keys", () => setUpAgain(), "primary");
     if (!wizard.askedAgain) {
       wizard.askedAgain = true;
       Promise.resolve().then(() => setUpAgain());
@@ -2784,7 +2810,11 @@ function renderMachinesPart() {
     if (machine.created_at) node("span", item, "added " + dateTime(machine.created_at), "meta");
     if (!machine.this) action(item, "Remove", () => removeMachine(machine), "danger", { name: "Remove " + machine.label });
   }
-  if (!ours.length) node("p", host, "GitHub lists no machine of this library.", "meta");
+  const elsewhere = others.find((key) => key.this);
+  if (!ours.length) {
+    node("p", host, elsewhere ? "This machine's key is on GitHub as " + elsewhere.title + ", a title Agents-Core did not give it; it is listed under Other deploy keys."
+      : "GitHub lists no machine of this library.", "meta");
+  }
   node("p", host, "Each machine is a deploy key that Agents-Core added to " + machines.repository + ". Removing one stops that machine from syncing; its files stay there.", "meta");
   if (!others.length) return;
   // Keys that sync did not add (a CI system's, a person's): shown, never removed from here.
@@ -2793,7 +2823,7 @@ function renderMachinesPart() {
   const foreign = node("ul", host, null, "sync-list");
   for (const key of others) {
     const item = node("li", foreign);
-    node("span", item, key.title + (key.read_only ? ", read-only" : ""), "sync-grow");
+    node("span", item, key.title + (key.this ? " (this machine)" : "") + (key.read_only ? ", read-only" : ""), "sync-grow");
     if (key.created_at) node("span", item, "added " + dateTime(key.created_at), "meta");
   }
 }
@@ -2853,7 +2883,8 @@ function renderConflictsPart() {
     const text = node("div", item, null, "sync-grow");
     node("div", text, conflictText(record));
     node("small", text, "Recorded " + dateTime(record.time) + (record.machine ? " by " + record.machine : ""), "meta");
-    const bar = node("div", item, null, "bar"), what = conflictSubject(record);
+    // Two records of one file differ in their time, so the names say it.
+    const bar = node("div", item, null, "bar"), what = conflictSubject(record) + ", recorded " + dateTime(record.time, true);
     action(bar, "Open", () => openConflict(record), "", { name: "Open the conflict on " + what });
     action(bar, "Keep current", () => resolveConflict(record, "keep"), "", { name: "Keep the current version of " + what });
     action(bar, "Use mine", () => resolveConflict(record, "mine"), "", { name: "Use my version of " + what });

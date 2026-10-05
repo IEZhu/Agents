@@ -83,7 +83,8 @@ async function fetchStub(path, init = {}) {
   }
   if (!signedIn) return respond(401, { error: "session_required" });
   if (isSync && path.startsWith("/ui/api/sync")) {
-    const method = init.method || "GET", hold = syncHolds[method + " " + path.split("?")[0]];
+    const method = init.method || "GET";
+    const hold = syncHolds[method + " " + path] || syncHolds[method + " " + path.split("?")[0]];
     const answer = syncAnswer(method, path, init.body ? JSON.parse(init.body) : null);
     if (hold) await hold.promise;  // the scenario decides when this request answers
     return respond(...answer);
@@ -198,12 +199,13 @@ async function personaRace(path, init) {
 
 // --- library sync: a scripted /ui/api/sync -------------------------------------------------
 // `syncState` answers GET /ui/api/sync; `syncReplies["METHOD /path"]` queues other answers (the
-// last one repeats); `syncCalls` records [method, path with query, body] of every sync request.
+// last one repeats); `syncCalls` records [method, path with query, body] of every sync request. A
+// request answers what `syncState` held when it was sent, also when a hold makes it answer later.
 const syncCalls = [];
 const syncReplies = {};
 const PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaFakeKeyForTests agents-core-sync:mac-1a2b";
-const SYNC_OFF = { state: "off", reason: null, message: "sync is not set up", conflicts: 0, started: null, github: null,
-                   conflict_list: [], suggested_label: "mac-1a2b", repository: null, github_repository: null,
+const SYNC_OFF = { state: "off", reason: null, message: "sync is not set up", conflicts: 0, set_up: false, started: null,
+                   github: null, conflict_list: [], suggested_label: "mac-1a2b", repository: null, github_repository: null,
                    loop: { syncing: false, next_fetch_seconds: null } };
 let syncState = { ...SYNC_OFF };
 function syncAnswer(method, path, body) {
@@ -230,7 +232,7 @@ const PERSONA_CONFLICT = { id: "20261005T120100000000Z-bbbbbbbbbb", path: "perso
 const OLD_ENTRY = { time: "2026-10-05T09:00:00+00:00", result: "ok", machine: "mac-1a2b", sent: ["user:old"], received: [],
                     received_from: [], scripts: [], conflicts: 0 };
 const started = () => ({
-  state: "synced", reason: null, message: null, started: "2026-10-01T10:00:00+00:00", last_success: minutesAgo(2),
+  state: "synced", reason: null, message: null, set_up: true, started: "2026-10-01T10:00:00+00:00", last_success: minutesAgo(2),
   last_attempt: minutesAgo(2), retry_at: null, remote: "github.com/octocat/agents-library",
   repository: "octocat/agents-library", github_repository: "octocat/agents-library", ssh: true, branch: "main",
   label: "mac-1a2b", identity: { name: "Owner", email: "owner@example.com" }, pending: 0, stale: false,
@@ -242,12 +244,19 @@ const started = () => ({
   github: { connected: true, login: "octocat", host: "github.com", reconnect_needed: false, warning: null },
   loop: { state: "running", active: true, syncing: false, held: null, next_fetch_seconds: 240, last_cycle: null },
 });
-if (["sync_dashboard", "sync_notice", "sync_more"].includes(scenario)) syncState = started();
+if (["sync_dashboard", "sync_notice", "sync_more", "sync_round2"].includes(scenario)) syncState = started();
 // Set up over SSH, stopped at the host's fingerprints, then the page was reloaded.
-if (scenario === "sync_hostkey") {
-  syncState = { ...SYNC_OFF, state: "waiting_for_access", started: null, suggested_label: undefined,
+if (scenario === "sync_hostkey" || scenario === "sync_busy_radio") {
+  syncState = { ...SYNC_OFF, state: "waiting_for_access", set_up: true, started: null, suggested_label: undefined,
                 repository: "git.example.com/me/library", ssh: true, host_key_unconfirmed: true, label: "laptop",
                 identity: { name: "Owner", email: "owner@example.com" }, public_key: PUBLIC_KEY };
+}
+// Set up on GitHub, stopped before GitHub's host keys were stored, then the page was reloaded.
+if (scenario === "sync_hostkey_github") {
+  syncState = { ...SYNC_OFF, state: "waiting_for_access", set_up: true, started: null, suggested_label: undefined,
+                repository: "octocat/agents-library", github_repository: "octocat/agents-library", ssh: true,
+                host_key_unconfirmed: true, label: "laptop", identity: { name: "Owner", email: "owner@example.com" },
+                public_key: PUBLIC_KEY, github: { connected: true, login: "octocat", host: "github.com" } };
 }
 
 const docHandlers = {};
@@ -960,7 +969,9 @@ if (isSync) {
   }
 
   if (scenario === "sync_more") {
-    syncState = { ...started(), fetch_minutes: 3 };  // set from the command line, not in the list
+    // Set from the command line, not in the list; a second record of one file, seconds later.
+    const twin = { ...FLOW_CONFLICT, id: "20261005T120007000000Z-cccccccccc", time: "2026-10-05T12:00:07+00:00" };
+    syncState = { ...started(), fetch_minutes: 3, conflict_list: [FLOW_CONFLICT, PERSONA_CONFLICT, twin] };
     reply("GET /ui/api/sync/machines", [200, { available: true, label: "mac-1a2b", repository: "octocat/agents-library",
       machines: [{ id: 1, title: "Agents-Core mac-1a2b", label: "mac-1a2b", this: true, managed: true },
                  { id: 2, title: "Agents-Core linux-9f9f", label: "linux-9f9f", this: false, managed: true },
@@ -1019,6 +1030,83 @@ if (isSync) {
     const focusedBefore = byId("tabs").children[0].focused;
     fire(byId("sync-chip"), "click");
     out.tab_focused = byId("tabs").children[0].focused - focusedBefore;
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (scenario === "sync_round2") {
+    const part = (key) => byId("sync-body").children.find((card) => card.attrs["aria-labelledby"] === "sync-part-" + key);
+    // The wizard's first step comes from the settings (`set_up`), never from a status a scan old.
+    const step = (status) => { const made = context.newWizard(status); return [made.step, made.mode]; };
+    out.wizard_from = {
+      stale_synced: step({ ...SYNC_OFF, state: "synced", set_up: false }),
+      stale_off: step({ ...SYNC_OFF, state: "off", set_up: true, repository: "git.example.com/me/library" }),
+      github: step({ ...SYNC_OFF, state: "off", set_up: true, github_repository: "octocat/agents-library" }),
+    };
+    // A fresh read is pending (opening the page): the 30 s poll neither replaces nor overtakes it.
+    const fresh = hold("GET /ui/api/sync?fresh=1");
+    reply("GET /ui/api/sync/machines", [200, { available: true, label: "mac-1a2b", repository: "octocat/agents-library",
+      machines: [{ id: 5, title: "laptop key", label: "laptop key", read_only: false, this: true, managed: false },
+                 { id: 6, title: "CI deploy", label: "CI deploy", read_only: true, this: false, managed: false }] }]);
+    reply("GET /ui/api/sync/scopes", [200, { groups: [{ group: "common", syncs: true }], ask_new_repositories: false }]);
+    const reads = statusReads();
+    out.before = chip().text;
+    syncState = { ...started(), conflicts: 0, conflict_list: [] };  // what the fresh read answers, once released
+    await openPage();
+    syncState = { ...started(), state: "paused" };  // what a poll would answer meanwhile
+    out.poll_timers = pendingTimers(30000).length;
+    await fireTimers(30000);
+    out.while_fresh = { reads: statusReads() - reads, chip: chip().text };
+    fresh.release();
+    await sleep(40);
+    out.after_fresh = { chip: chip().text, timers: pendingTimers(30000).length };
+    // This machine's key under a title sync did not give it.
+    out.machines = textOf(part("machines"));
+    out.remove_buttons = buttonsNamed("Remove", part("machines")).length;
+    // A request runs: text fields are read-only until it answers.
+    const running = hold("POST /ui/api/sync/run");
+    reply("POST /ui/api/sync/run", [200, { status: "synced", sent: [], received: [], conflicts: [], pushed: false }]);
+    await click("Sync now", 0, part("status"));
+    const name = field("sync-id-name");
+    out.busy_field = { read_only: name.readOnly, aria: name.attrs["aria-disabled"] ?? null };
+    running.release();
+    await sleep(40);
+    out.idle_field = { read_only: field("sync-id-name").readOnly, aria: field("sync-id-name").attrs["aria-disabled"] ?? null };
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (scenario === "sync_busy_radio") {
+    reply("POST /ui/api/sync/setup",
+          [200, { status: "host_key_unconfirmed", host: "git.example.com", label: "laptop",
+                  fingerprints: ["SHA256:aaaa", "SHA256:bbbb"], message: "compare a fingerprint" }],
+          [200, { status: "waiting_for_access", label: "laptop", public_key: PUBLIC_KEY, remote: "git.example.com/me/library" }]);
+    await openPage();
+    await sleep(30);
+    await choose("SHA256:aaaa");
+    const trusting = hold("POST /ui/api/sync/setup");
+    await click("Trust this key");
+    await choose("SHA256:bbbb");  // while the request runs: the choice goes back
+    out.while_busy = findAll(root(), (n) => n.type === "radio").map((n) => [n.value, n.checked]);
+    trusting.release();
+    await sleep(30);
+    out.sent = calls().filter(([, path]) => path === "/ui/api/sync/setup").map(([, , body]) => body);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (scenario === "sync_hostkey_github") {
+    const setting = hold("POST /ui/api/sync/setup");
+    reply("POST /ui/api/sync/setup", [200, { status: "waiting_for_access", label: "laptop", public_key: PUBLIC_KEY,
+      repository: "octocat/agents-library", deploy_key: "added",
+      steps: ["added this machine's deploy key to octocat/agents-library (Agents-Core laptop, with write access)"] }]);
+    await openPage();
+    await sleep(30);
+    out.stopped = { ...snapshot(), text: textOf(root()) };
+    setting.release();
+    await sleep(30);
+    out.again = { ...snapshot(), text: textOf(root()) };
+    out.calls = calls();
     console.log(JSON.stringify(out));
     process.exit(0);
   }

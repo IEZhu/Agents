@@ -953,8 +953,10 @@ def test_a_failed_poll_says_the_status_is_unavailable(more):
 
 def test_list_buttons_have_names_of_their_own_and_foreign_keys_stay(more):
     names = more["names"]
-    assert len(names) == len(set(names))
-    assert {"Remove linux-9f9f", "Open the conflict on user:doc", "Use my version of user:doc (persona)",
+    assert len(names) == len(set(names))  # two records of one file differ in their time
+    assert {"Remove linux-9f9f", "Open the conflict on user:doc, recorded 2026-10-05 12:00:00",
+            "Open the conflict on user:doc, recorded 2026-10-05 12:00:07",
+            "Use my version of user:doc (persona), recorded 2026-10-05 12:01:00",
             "Approve repos/def", "Copy the public key"} <= set(names)
     assert more["remove_buttons"] == ["Remove linux-9f9f"]  # neither this machine nor a key sync did not add
     assert "Other deploy keys" in more["machines"] and "CI deploy, read-only" in more["machines"]
@@ -983,6 +985,49 @@ def test_a_reload_at_the_host_key_step_shows_the_fingerprints_again():
     assert result["calls"] == [["POST", "/ui/api/sync/setup", {"again": True}],
                                ["POST", "/ui/api/sync/setup", {"again": True, "trust_host_key": "SHA256:bbbb"}]]
     assert result["trusted"]["key"].startswith("ssh-ed25519 ") and "Check access" in result["trusted"]["buttons"]
+
+
+@pytest.fixture(scope="module")
+def round2():
+    return run_sync("sync_round2")
+
+
+def test_the_wizard_starts_from_the_settings_not_from_a_status_a_scan_old(round2):
+    assert round2["wizard_from"] == {"stale_synced": ["connect", None], "stale_off": ["access", "ssh"],
+                                     "github": ["access", "github"]}
+
+
+def test_a_poll_never_replaces_a_fresh_read_that_is_still_pending(round2):
+    assert round2["before"] == "2 conflicts" and round2["poll_timers"] == 1
+    assert round2["while_fresh"] == {"reads": 1, "chip": "2 conflicts"}  # the fresh read only; no poll was sent
+    assert round2["after_fresh"] == {"chip": "Synced 2m ago", "timers": 1}  # its answer, then the next poll
+
+
+def test_this_machine_is_marked_under_a_title_sync_did_not_give_it(round2):
+    machines = round2["machines"]
+    assert "laptop key (this machine)" in machines and "GitHub lists no machine" not in machines
+    assert "This machine's key is on GitHub as laptop key, a title Agents-Core did not give it" in machines
+    assert round2["remove_buttons"] == 0
+
+
+def test_text_fields_take_no_typing_while_a_request_runs(round2):
+    assert round2["busy_field"] == {"read_only": True, "aria": "true"}
+    assert round2["idle_field"] == {"read_only": False, "aria": None}
+
+
+def test_a_choice_made_while_a_request_runs_goes_back():
+    result = run_sync("sync_busy_radio")
+    assert result["while_busy"] == [["SHA256:aaaa", True], ["SHA256:bbbb", False]]
+    assert result["sent"][-1] == {"again": True, "trust_host_key": "SHA256:aaaa"}
+
+
+def test_a_github_setup_that_stopped_before_its_host_keys_is_set_up_again():
+    result = run_sync("sync_hostkey_github")
+    assert result["stopped"]["buttons"] == ["Set up again"]  # nothing to confirm on GitHub
+    assert "stopped before GitHub's host keys were stored" in result["stopped"]["text"]
+    assert result["calls"] == [["POST", "/ui/api/sync/setup", {"again": True}]]
+    assert "added this machine's deploy key to octocat/agents-library" in result["again"]["text"]
+    assert result["again"]["buttons"] == ["Start over", "Check access"]
 
 
 def test_a_flow_that_sync_deleted_while_open_says_so():

@@ -8,12 +8,12 @@ served on another loopback port, can start one. These requests do not count in `
 service idle, so an open page never holds back an automatic update.
 
 Engine operations that run git, reach the remote or read this machine's key while a new one may
-replace it (check, preview, setup, start, run, a new key, adding the key on GitHub again and
-disconnect) go through the daemon's sync task (``UserSync.perform(queued=True)``), one at a time
-with its cycles. Settings, scopes and conflicts change at once, as pause and resume do, and the
-task learns the settings they leave. GitHub API calls that never touch the repository (sign-in, the
-libraries of the account, a new repository, machines, Forget account) run in their own threads,
-counted in ``io_pending``.
+replace it (check, preview, setup, start, run, a new key, adding the key on GitHub again, the
+machines and their removal, and disconnect) go through the daemon's sync task
+(``UserSync.perform(queued=True)``), one at a time with its cycles. Settings, scopes and conflicts
+change at once, as pause and resume do, and the task learns the settings they leave. GitHub API
+calls that never touch the repository or the key (sign-in, the libraries of the account, a new
+repository, Forget account) run in their own threads, counted in ``io_pending``.
 
 No answer carries the GitHub token, this machine's private key or a sign-in's device code: the
 device code stays here between the start of a sign-in and its polls, and only
@@ -50,11 +50,12 @@ CONFLICTS_LISTED = 50    # conflict records the status lists; `conflict_total` c
 # with another title are not machines of this library, and the page never removes them.
 DEPLOY_KEY_TITLE = "Agents-Core "
 CONFLICT_FIELDS = ("id", "path", "flow", "repo_key", "kind", "kept", "machine", "time", "deleted_on")
+DEVICE = f"{PREFIX}/github/device"  # a GitHub sign-in: its start (POST) and polls (GET)
 
 # path -> {method: handler}
 ROUTES = {
     PREFIX: {"GET": "status"},
-    f"{PREFIX}/github/device": {"POST": "device_start", "GET": "device_poll"},
+    DEVICE: {"POST": "device_start", "GET": "device_poll"},
     f"{PREFIX}/github/libraries": {"GET": "libraries"},
     f"{PREFIX}/github/create": {"POST": "create_repository"},
     f"{PREFIX}/github/add-key": {"POST": "add_key"},
@@ -73,9 +74,10 @@ ROUTES = {
     f"{PREFIX}/key/regenerate": {"POST": "regenerate_key"},
     f"{PREFIX}/disconnect": {"POST": "disconnect"},
 }
-# What the page asks by itself, on a timer or to fill a view: it keeps the service idle.
+# What the page asks by itself, on a timer or to fill a view: it keeps the service idle. A sign-in's
+# polls are activity while one is in progress (``SyncUI.passive``).
 PASSIVE = frozenset({("GET", PREFIX), ("GET", f"{PREFIX}/scopes"), ("GET", f"{PREFIX}/machines"),
-                     ("GET", f"{PREFIX}/conflict"), ("GET", f"{PREFIX}/github/device")})
+                     ("GET", f"{PREFIX}/conflict"), ("GET", DEVICE)})
 
 _KINDS = {
     "text": ("a string", lambda value: isinstance(value, str) and len(value) <= 4096),
@@ -166,7 +168,8 @@ def _read_library(library: Path, relative) -> tuple[str | None, bool]:
 
     ``(None, False)`` for anything else: a path sync never handles (``.git`` among them), a link on
     the way, a file that is missing, too large, or that another one replaced between the checks and
-    the read (it is opened without following a link, and must be the file the checks saw).
+    the read (it is opened without following a link or waiting for a writer, and must be the file
+    the checks saw).
     """
     if not isinstance(relative, str) or not scope.portable_name(relative) or scope.groups(relative) is None:
         return None, False
@@ -181,7 +184,8 @@ def _read_library(library: Path, relative) -> tuple[str | None, bool]:
             return None, False
     if info is None or not stat.S_ISREG(info.st_mode) or info.st_size > TEXT_LIMIT:
         return None, False
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    # O_NONBLOCK: a FIFO put in the file's place after the checks must not hold the thread.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
     try:
         descriptor = os.open(current, flags)
     except OSError:
@@ -250,13 +254,15 @@ def _remote_of(syncer, settings):
 
 
 def _extras(syncer) -> dict:
-    """What the page needs beyond the engine's status: whether sync started, the conflicts, the
-    repository as ``owner/name`` (GitHub) or ``host/path`` (never with credentials) and whether the
-    host's key still waits for the owner's confirmation."""
+    """What the page needs beyond the engine's status, read on every request: whether sync is set up
+    and started (the page chooses between the wizard and its steps by these, never by a status that
+    may be a scan old), the conflicts, the repository as ``owner/name`` (GitHub) or ``host/path``
+    (never with credentials) and whether the host's key still waits for the owner's confirmation."""
     settings = syncer.settings()
     account = syncer.github_account()
     records = syncer.conflicts()
-    extras = {"started": settings.started if settings else None, "github": _github(account),
+    extras = {"set_up": settings is not None, "started": settings.started if settings else None,
+              "github": _github(account),
               "conflict_list": [_summary(record) for record in records[:CONFLICTS_LISTED]],
               "conflict_total": len(records), "repository": None, "github_repository": None, "ssh": False,
               "host_key_unconfirmed": False}
@@ -294,9 +300,19 @@ def _material(line) -> tuple[str, str] | None:
         return None
 
 
+def _this_machine(syncer, settings):
+    """``is_this(key)`` for a listed deploy key: the key of this machine, or the deploy key recorded as
+    this machine's (``deploy_key_id``), which also finds it when its public key file is gone."""
+    mine = _material(keys.current_public(syncer.state_dir))
+    recorded = getattr(settings, "deploy_key_id", None)
+    return lambda key: (mine is not None and _material(key.key) == mine) or (recorded is not None
+                                                                            and key.id == recorded)
+
+
 def _machines(syncer) -> dict:
     """The repository's deploy keys on GitHub. ``managed`` marks the machines of this library: keys
-    with the title sync gives them; the others are listed for information only."""
+    with the title sync gives them; the others are listed for information only. ``this`` marks this
+    machine's key under any title. Queued: a new key may be replacing the files it reads."""
     settings = syncer.settings()
     if settings is None:
         return {"available": False, "label": None, "machines": [], "message": "Sync is not set up."}
@@ -308,14 +324,13 @@ def _machines(syncer) -> dict:
     if client is None:
         return {**base, "repository": repository,
                 "message": f"Sign in to GitHub to see the machines that sync with {repository}."}
-    mine = _material(keys.public_key(syncer.state_dir))
+    is_this = _this_machine(syncer, settings)
     machines = []
     for key in client.deploy_keys(repository):
         managed = key.title.startswith(DEPLOY_KEY_TITLE)
         machines.append({"id": key.id, "title": key.title, "managed": managed,
                          "label": key.title[len(DEPLOY_KEY_TITLE):] if managed else key.title,
-                         "read_only": key.read_only, "created_at": key.created_at,
-                         "this": mine is not None and _material(key.key) == mine})
+                         "read_only": key.read_only, "created_at": key.created_at, "this": is_this(key)})
     return {**base, "available": True, "repository": repository, "machines": machines}
 
 
@@ -333,20 +348,21 @@ def _remove_machine(syncer, key_id: int) -> dict:
     if not key.title.startswith(DEPLOY_KEY_TITLE):
         raise SyncError("not_a_machine", f"{key.title} is not a machine of this library; remove it in the "
                                          "repository's settings if it should go")
-    mine = _material(keys.public_key(syncer.state_dir))
-    if mine is not None and _material(key.key) == mine:
+    if _this_machine(syncer, settings)(key):
         raise SyncError("this_machine", "this is this machine's key; disconnect to stop syncing here")
     client.delete_deploy_key(repository, key_id)
     return {"status": "removed", "id": key_id, "title": key.title}
 
 
 def _disconnect(syncer) -> dict:
-    """Disconnect here, then remove this machine's deploy key on GitHub when the account can.
+    """Disconnect here, then remove this machine's deploy key on GitHub when the account can: the
+    deploy key with this machine's key, else the one recorded as this machine's (``deploy_key_id``).
 
     The key and the repository are read first; a disconnect that fails leaves GitHub as it was.
     """
     settings = syncer.settings()
-    public = keys.public_key(syncer.state_dir)
+    public = keys.current_public(syncer.state_dir)
+    recorded = getattr(settings, "deploy_key_id", None)
     try:
         found = _connected_repository(syncer, settings) if settings is not None else None
         problem = None
@@ -361,10 +377,12 @@ def _disconnect(syncer) -> dict:
     elif found is not None and found[1] is None:
         note["deploy_key_message"] = (f"Sign in to GitHub to remove this machine's deploy key from {found[0]}, "
                                       "or remove it in the repository's settings.")
-    elif found is not None and public:
+    elif found is not None and (public or recorded is not None):
         repository, client = found
         try:
-            key = client.find_deploy_key(repository, public)
+            key = client.find_deploy_key(repository, public) if public else None
+            if key is None and recorded is not None:
+                key = next((item for item in client.deploy_keys(repository) if item.id == recorded), None)
             if key is None:
                 note = {"deploy_key": "missing", "deploy_key_message": f"{repository} had no deploy key of this machine."}
             else:
@@ -378,12 +396,30 @@ def _disconnect(syncer) -> dict:
 
 
 def _setup_again(syncer, trust_host_key):
-    """Setup with what sync keeps, for a setup that stopped at the host's fingerprints."""
+    """Setup with what sync keeps, for a setup that stopped at the host's fingerprints or before
+    GitHub's host keys were stored. On a repository of the signed-in GitHub account this machine's
+    deploy key follows, as ``setup_github`` adds it."""
     settings = syncer.settings()
     if settings is None:
         raise SyncError("not_set_up", "sync is not set up", state="off")
-    return syncer.setup(remote=settings.remote, name=settings.name, email=settings.email, label=settings.label,
-                        branch=settings.branch, trust_host_key=trust_host_key)
+    result = syncer.setup(remote=settings.remote, name=settings.name, email=settings.email, label=settings.label,
+                          branch=settings.branch, trust_host_key=trust_host_key)
+    if result.get("status") == "host_key_unconfirmed" or not result.get("public_key"):
+        return result
+    repository, deploy_key = None, None
+    try:
+        found = _connected_repository(syncer, settings)
+        if found is None:
+            return result
+        repository, client = found
+        if client is None:
+            step = f"sign in to GitHub, then add this machine's key to {repository}"
+        else:
+            added = syncer.add_deploy_key()
+            deploy_key, step = added["deploy_key"], added["message"]
+    except (GitHubError, SyncError) as error:
+        step = f"this machine's deploy key could not be added on GitHub ({error.message}); add it again"
+    return {**result, "repository": repository, "deploy_key": deploy_key, "steps": [step]}
 
 
 def _preview(syncer) -> dict:
@@ -419,6 +455,15 @@ class SyncUI:
     def loop(self):
         return self.service.user_sync
 
+    def passive(self, method: str, path: str) -> bool:
+        """Whether a request is one the page makes by itself (``PASSIVE``), which leaves the service
+        idle. A sign-in's polls are activity while one is in progress: an update that restarts the
+        service would end it, and the device code with it."""
+        if (method, path) == ("GET", DEVICE) and self.sign_in is not None \
+                and self.clock() < self.sign_in["expires"]:
+            return False
+        return is_passive(method, path)
+
     async def handle(self, request, path: str):
         methods = ROUTES.get(path)
         if methods is None:
@@ -440,8 +485,9 @@ class SyncUI:
             code, value = failure(error)
             return _json(value, code)
 
-    async def _queued(self, command: str, call):
-        outcome = await self.loop.perform(command, call, queued=True)
+    async def _queued(self, command: str, call, *, plain: bool = False):
+        """``call(syncer)`` in the sync task; ``plain`` for one that changes nothing the task tracks."""
+        outcome = await self.loop.perform(command, call, queued=True, plain=plain)
         return _json(outcome["result"], outcome["code"])
 
     async def _at_once(self, command: str, call):
@@ -463,11 +509,12 @@ class SyncUI:
 
     async def device_start(self, request, body):
         _fields(body, {})
+        generation = self.account_generation  # before GitHub answers: a Forget meanwhile cancels this one
         device = await self._work(lambda syncer: syncer.github_account().start_sign_in())
         now = self.clock()
         self.sign_in = {"id": secrets.token_urlsafe(16), "device": device, "lock": asyncio.Lock(),
                         "next": now + device.interval, "expires": now + device.expires_in,
-                        "generation": self.account_generation}
+                        "generation": generation}
         return _json({"attempt": self.sign_in["id"], **device.public()})
 
     async def device_poll(self, request, body):
@@ -642,12 +689,14 @@ class SyncUI:
         return await self._at_once("scopes", lambda syncer: syncer.change_scopes(**fields, confirm=confirm))
 
     # --- machines: this repository's deploy keys on GitHub -------------------------------
+    # Queued, as a new key may be replacing the key files they read; "plain": the task reads no
+    # status after them.
 
     async def machines(self, request, body):
-        return _json(await self._work(_machines))
+        return await self._queued("machines", _machines, plain=True)
 
     async def remove_machine(self, request, body):
         key_id = _fields(body, {"id": "number"}).get("id")
         if not key_id or key_id <= 0:
             raise BadRequest("id must be a deploy key's id")
-        return _json(await self._work(_remove_machine, key_id))
+        return await self._queued("remove_machine", lambda syncer: _remove_machine(syncer, key_id), plain=True)

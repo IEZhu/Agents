@@ -35,7 +35,7 @@ from src.version import agents_core_version
 from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
 from .sync_loop import DRAINING
-from .sync_ui import SyncUI, is_passive, is_sync_path
+from .sync_ui import SyncUI, is_sync_path
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
@@ -193,7 +193,7 @@ class FlowsUI:
         # a queued one must not hold the drain that would end it.
         counted = not syncing
         # The Sync page's polls are not activity: an open page must not hold back an automatic update.
-        active = not (syncing and is_passive(request.method, path))
+        active = not (syncing and self.sync.passive(request.method, path))
         if counted:
             self.service.inflight += 1
         if active:
