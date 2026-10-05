@@ -197,6 +197,10 @@ def _write_private(path: Path, data: bytes) -> None:
 _RETRY_DELAY = 0.05
 
 
+class _Changed(Exception):
+    """A library file changed after sync read it; sync never writes over it."""
+
+
 def _sharing_violation(error: OSError) -> bool:
     """Windows refuses to replace or delete a file that another process holds open."""
     return getattr(error, "winerror", None) in (5, 32)  # access denied, sharing violation
@@ -1270,10 +1274,10 @@ class Syncer:
             if after is None and (rules.reason(path) is not None or local is None):
                 continue
             try:
-                if after is None:
-                    _retrying(target.unlink)
-                else:
-                    _retrying(user_library.atomic_write, target, contents[after])
+                _retrying(self._replace, target, local, None if after is None else contents[after])
+            except _Changed:  # edited without the lock while a write was retried
+                held_remote.add(path)
+                continue
             except OSError as error:
                 self._log(f"could not {'delete' if after is None else 'write'} {path}: {error}")
                 held_remote.add(path)
@@ -1319,6 +1323,19 @@ class Syncer:
             return scope.blob_id(target.read_bytes())
         except FileNotFoundError:
             return None
+
+    @classmethod
+    def _replace(cls, target: Path, expected: str | None, data: bytes | None) -> None:
+        """Write ``data`` over ``target``, or delete it for ``None``, while it still holds ``expected``.
+
+        Each attempt checks again, so an edit made between retries is never overwritten.
+        """
+        if cls._current_blob(target) != expected:
+            raise _Changed(target)
+        if data is None:
+            target.unlink()
+        else:
+            user_library.atomic_write(target, data)
 
     def _reconcile_held(self, git: Git, settings: Settings, state: dict, plan: _Plan) -> bool:
         """Settle paths whose remote version was not written because the local file was held.
@@ -1370,10 +1387,11 @@ class Syncer:
                     remaining.append(path)
                     continue
                 failed_writes[path] = local  # the local text is kept now; only the replacement is left
-                if committed is None:
-                    _retrying(target.unlink)
-                else:
-                    _retrying(user_library.atomic_write, target, self._read_blobs(git, [committed])[committed])
+                data = None if committed is None else self._read_blobs(git, [committed])[committed]
+                _retrying(self._replace, target, local, data)
+            except _Changed:  # edited without the lock while the replacement was retried
+                remaining.append(path)
+                continue
             except OSError as error:
                 self._log(f"could not reconcile {path}: {error}")
                 remaining.append(path)

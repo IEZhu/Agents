@@ -1324,6 +1324,30 @@ def test_a_file_a_reader_holds_open_for_a_moment_is_written_on_a_retry(pair, mon
     assert records(a) == [] and a.sync._state()["held_remote"] == []
 
 
+def test_an_edit_made_while_a_write_is_retried_is_never_overwritten(pair, monkeypatch):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom B\n")
+    b.run()
+    target, real_write, failures = a.lib / "common" / "shared.md", user_library.atomic_write, []
+
+    def edited_while_held_open(path, data):
+        if Path(path) == target and not failures:
+            failures.append(path)
+            target.write_text("# Shared\n\nmanual edit on A\n")  # bypasses the lock, between two attempts
+            raise sharing_violation(path)
+        return real_write(path, data)
+
+    monkeypatch.setattr(engine_module, "_RETRY_DELAY", 0)
+    monkeypatch.setattr(user_library, "atomic_write", edited_while_held_open)
+    a.run()
+    assert a.text("common/shared.md") == "# Shared\n\nmanual edit on A\n"
+    monkeypatch.undo()
+    a.run()
+    assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
+    [record] = records(a)
+    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nmanual edit on A\n"
+
+
 def test_files_a_reader_keeps_open_are_written_next_cycle_without_conflicts(pair, monkeypatch):
     a, b = pair
     b.save("user:shared", "# Shared\n\nfrom B\n")
