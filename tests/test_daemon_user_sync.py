@@ -6,10 +6,11 @@ part replaced, so it needs no repository either. Intervals are fractions of a se
 """
 import asyncio
 from collections import namedtuple
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 import socket
+import struct
 import threading
 import time
 from types import SimpleNamespace
@@ -19,10 +20,11 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 
 from src import user_library
-from src.daemon import control
+from src.daemon import control, sync_loop
 from src.daemon.app import create_app
 from src.daemon.state import write_json
 from src.daemon.sync_loop import UserSync, library_fingerprint
+from src.file_lock import file_lock
 from src.user_sync.engine import Settings, SyncError, Syncer
 
 TOKEN = "x" * 48
@@ -58,17 +60,25 @@ class FakeSyncer:
         self.running = threading.Event()
         self.result = None            # what run() returns instead of a plain success
         self.errors = {}              # method name -> exception to raise
+        self.hold_next_status = False  # the next status() waits for status_released
+        self.holding_status = threading.Event()
+        self.status_released = threading.Event()
 
     def _fail(self, name):
         if name in self.errors:
             raise self.errors[name]
 
     def settings(self):
-        return self.config if self.set_up else None
+        """A snapshot, as the engine loads ``user-sync.json`` afresh on every call."""
+        return SimpleNamespace(**vars(self.config)) if self.set_up else None
 
     def status(self):
         with self.guard:
             self.statuses += 1
+            hold, self.hold_next_status = self.hold_next_status, False
+        if hold:
+            self.holding_status.set()
+            self.status_released.wait(10)
         if not self.set_up:
             return {"state": "off", "reason": None, "message": "sync is not set up", "conflicts": 0}
         state = "paused" if self.config.paused else "waiting_for_access" if not self.config.started \
@@ -299,14 +309,55 @@ async def test_update_transaction_holds_the_loop(tmp_path):
     app, service = make_app(tmp_path, syncer, debounce=.1)
     barrier = service.directory / "transaction.json"
     write_json(barrier, {"phase": "probation"})
-    async with running(app):
+    async with running(app) as http:
         user_library.notify(syncer.library, ["common/a.md"])
         await asyncio.sleep(.6)
         assert syncer.runs == []  # neither the catch-up cycle nor the change
+        # A transaction file left behind must not stop sync silently.
+        assert (await http.get("/health")).json()["user_sync"]["held"] == "update"
+        assert (await http.get("/admin/user-sync/status")).json()["loop"]["held"] == "update"
         barrier.unlink()
         await settled(service, syncer, 1)
         await asyncio.sleep(.4)
         assert len(syncer.runs) == 1  # the held change and fetch ran as one cycle
+        assert (await http.get("/health")).json()["user_sync"]["held"] is None
+
+
+# --- the hand-off from the OS scheduler -------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_only_the_service_entry_point_hands_off_from_the_scheduler(tmp_path, scheduled_sync_calls):
+    syncer = FakeSyncer(tmp_path / "library")
+    app, service = make_app(tmp_path, syncer)
+    async with running(app):
+        await settled(service, syncer, 1)
+    assert scheduled_sync_calls == []  # tests and other callers of create_app never reach the scheduler
+    assert service.user_sync.hand_off_schedule is False
+    assert create_app(tmp_path / "service", TOKEN, hand_off_schedule=True).state.service.user_sync.hand_off_schedule
+
+
+@pytest.mark.asyncio
+async def test_the_loop_hands_off_once_when_asked(tmp_path, scheduled_sync_calls):
+    syncer = FakeSyncer(tmp_path / "library")
+    app, service = make_app(tmp_path, syncer, hand_off_schedule=True)
+    async with running(app) as http:
+        await settled(service, syncer, 1)
+        await http.post("/admin/drain")
+        await http.post("/admin/resume")
+        await asyncio.sleep(.5)  # more scans after a drain and a resume
+    assert scheduled_sync_calls == [None]  # this installation, once
+
+
+@pytest.mark.asyncio
+async def test_a_failed_hand_off_is_logged_and_sync_goes_on(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(control, "stop_scheduled_sync", lambda installation=None: "failed: launchctl refused")
+    syncer = FakeSyncer(tmp_path / "library")
+    app, service = make_app(tmp_path, syncer, hand_off_schedule=True)
+    with caplog.at_level("WARNING", logger="src.daemon.sync_loop"):
+        async with running(app):
+            await settled(service, syncer, 1)
+    assert "the scheduled sync run of this installation stays: failed: launchctl refused" in caplog.text
 
 
 # --- io_pending and the drain -----------------------------------------------------------------
@@ -383,8 +434,71 @@ async def test_admin_drain_waits_for_the_last_cycle_and_resume_continues(tmp_pat
         response = await http.post("/admin/user-sync/run")
         assert response.status_code == 200 and response.json()["status"] == "synced"
         assert len(syncer.runs) == 3 and syncer.runs[2].force is True
+        user_library.notify(syncer.library, ["common/b.md"])
+        await asyncio.sleep(.05)
         assert (await http.post("/admin/drain")).json()["io_pending"] >= 1  # a second drain flushes again
         await until(lambda: service.health()["io_pending"] == 0)
+        assert len(syncer.runs) == 4 and syncer.runs[3].force is False
+        assert service.user_sync.due is None
+
+
+@pytest.mark.asyncio
+async def test_a_drain_after_a_resume_gets_its_own_last_cycle(tmp_path):
+    """drain, resume while the drain's last cycle still runs, a save, drain again: two last cycles."""
+    syncer = FakeSyncer(tmp_path / "library")
+    app, service = make_app(tmp_path, syncer, debounce=60, drain_budget=2.0)
+    async with running(app) as http:
+        await settled(service, syncer, 1)
+        user_library.notify(syncer.library, ["common/a.md"])
+        await asyncio.sleep(.05)
+        syncer.release.clear()  # the first drain's last cycle takes a moment
+        await http.post("/admin/drain")
+        await until(syncer.running.is_set)
+        await http.post("/admin/resume")  # e.g. the controller's drain timed out on other work
+        user_library.notify(syncer.library, ["common/b.md"])  # saved after that cycle read the library
+        await asyncio.sleep(.05)
+        assert (await http.post("/admin/drain")).json()["io_pending"] >= 2
+        syncer.release.set()
+        await until(lambda: service.health()["io_pending"] == 0, timeout=8)
+        assert len(syncer.runs) == 3 and syncer.runs[2].force is False
+        assert service.user_sync.due is None and not service.user_sync.flush_wanted
+
+
+@pytest.mark.asyncio
+async def test_the_last_cycle_waits_for_saves_still_in_flight(tmp_path):
+    """The drain's last cycle starts only after the requests admitted before the drain end."""
+    syncer = FakeSyncer(tmp_path / "library")
+    released, saved = asyncio.Event(), []
+
+    def runtime(port):
+        mcp = FastMCP("test", host="127.0.0.1", port=port, stateless_http=True, json_response=True)
+
+        @mcp.tool()
+        async def save():
+            await released.wait()
+            saved.append(time.monotonic())
+            user_library.notify(syncer.library, ["common/from-mcp.md"])  # what save_flow reports
+            return "saved"
+        return mcp, None
+    directory = tmp_path / "service"
+    directory.mkdir()
+    app = create_app(directory, TOKEN, runtime_loader=runtime)
+    service = app.state.service
+    service.user_sync = UserSync(service, syncer=syncer, debounce=60, scan_every=.2, drain_budget=1.0)
+    async with running(app) as http:
+        await settled(service, syncer, 1)
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "save", "arguments": {}}}
+        call = asyncio.create_task(http.post("/mcp", json=payload,
+                                             headers={"Accept": "application/json, text/event-stream"}))
+        await until(lambda: service.inflight == 1)
+        drained = (await http.post("/admin/drain")).json()
+        assert drained["inflight"] == 1 and drained["io_pending"] >= 1
+        await asyncio.sleep(.4)
+        assert len(syncer.runs) == 1 and service.user_sync.drain_deadline is None  # waits for the save
+        released.set()
+        assert (await call).status_code == 200
+        await until(lambda: service.health()["io_pending"] == 0)
+        assert len(syncer.runs) == 2 and syncer.runs[1].time > saved[0]
 
 
 # --- admin endpoints --------------------------------------------------------------------------
@@ -439,6 +553,55 @@ async def test_admin_endpoints_answer_json(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_a_pause_during_a_cycle_keeps_the_loop_off(tmp_path):
+    """The cycle read the settings before the pause; its outcome must not turn the loop back on."""
+    syncer = FakeSyncer(tmp_path / "library")
+    app, service = make_app(tmp_path, syncer, debounce=.1, scan_every=30)  # no scan corrects it meanwhile
+    async with running(app) as http:
+        await settled(service, syncer, 1)
+        syncer.release.clear()
+        user_library.notify(syncer.library, ["common/a.md"])
+        await until(syncer.running.is_set)  # the cycle runs; it read "not paused"
+        paused = await http.post("/admin/user-sync/pause")
+        assert paused.status_code == 200 and service.user_sync.active is False
+        syncer.release.set()
+        await settled(service, syncer, 2)
+        assert service.user_sync.active is False
+        loop = (await http.get("/admin/user-sync/status")).json()["loop"]
+        assert loop["active"] is False and loop["last_cycle"]["trigger"] == "change"  # the cycle still counts
+
+
+@pytest.mark.asyncio
+async def test_a_pause_during_a_job_keeps_the_loop_off(tmp_path):
+    """Pause answers at once; the start job read the settings before it and must not undo it."""
+    syncer = FakeSyncer(tmp_path / "library", started=False)
+    app, service = make_app(tmp_path, syncer, scan_every=30)  # no scan corrects the loop meanwhile
+    async with running(app) as http:
+        await until(lambda: service.user_sync.armed and not service.user_sync.calls)
+        original_start = syncer.start
+
+        def start(confirm):
+            result = original_start(confirm)
+            syncer.hold_next_status = True  # the job's status read, after its settings read, waits
+            return result
+        syncer.start = start
+        starting = asyncio.create_task(http.post("/admin/user-sync/start", json={"confirm": "abc123"}))
+        await until(syncer.holding_status.is_set)
+        paused = await http.post("/admin/user-sync/pause")  # not queued behind the running job
+        assert paused.status_code == 200 and paused.json()["state"] == "paused"
+        assert service.user_sync.active is False
+        syncer.status_released.set()
+        assert (await starting).status_code == 200
+        await asyncio.sleep(.3)
+        assert service.user_sync.active is False  # the job's earlier read does not turn it back on
+        assert (await http.get("/admin/user-sync/status")).json()["loop"]["active"] is False
+        assert syncer.runs == []
+        resumed = await http.post("/admin/user-sync/resume")
+        assert resumed.status_code == 200 and service.user_sync.active is True
+        await until(lambda: len(syncer.runs) == 1)  # resume catches up
+
+
+@pytest.mark.asyncio
 async def test_admin_endpoints_refuse_bad_requests(tmp_path):
     syncer = FakeSyncer(tmp_path / "library", started=False)
     app, service = make_app(tmp_path, syncer)
@@ -449,13 +612,20 @@ async def test_admin_endpoints_refuse_bad_requests(tmp_path):
             response = await http.post("/admin/user-sync/setup", json=body)
             assert response.status_code == 400 and response.json()["error"] == "invalid_request", body
         assert (await http.post("/admin/user-sync/setup", content=b"{not json")).status_code == 400
+        deep = await http.post("/admin/user-sync/setup", content=b"[" * 60000 + b"]" * 60000)
+        assert deep.status_code == 413  # larger than 64 KiB
+        nested = await http.post("/admin/user-sync/setup", content=b"[" * 30000 + b"]" * 30000)
+        assert nested.status_code == 400 and nested.json()["error"] == "invalid_request"  # RecursionError
         assert (await http.post("/admin/user-sync/run", content=b"{" + b" " * 70000 + b"}")).status_code == 413
+        exact = b"{" + b" " * (64 * 1024 - 2) + b"}"  # 64 KiB exactly: accepted
+        assert (await http.post("/admin/user-sync/check", content=exact)).status_code == 200
         assert (await http.post("/admin/user-sync/start")).status_code == 400  # the preview's hash is required
         assert (await http.post("/admin/user-sync/check", json={"force": True})).status_code == 400
         assert (await http.get("/admin/user-sync/run")).status_code == 405
         assert (await http.post("/admin/user-sync/status")).status_code == 405
         assert (await http.post("/admin/user-sync/resolve")).status_code == 404
-        assert syncer.calls == []
+        assert syncer.calls == [("check", {})]
+        syncer.calls.clear()
 
         syncer.errors["check"] = SyncError("lock_held", "another sync of this library is running", state="busy")
         refused = await http.post("/admin/user-sync/check")
@@ -478,10 +648,23 @@ async def test_health_summary_is_short_and_holds_no_secrets(tmp_path):
         await settled(service, syncer, 1)
         health = (await http.get("/health")).json()
         assert health["user_sync"] == {"state": "synced", "reason": None, "last_success": "2026-10-05T10:00:00+00:00",
-                                       "conflicts": 2, "pending": 0}
+                                       "conflicts": 2, "pending": 0, "held": None}
         text = json.dumps(health)
         for secret in (PUBLIC_KEY, "AAAAC3Nza", "me@example.com", "github.com/me/library", "user-sync"):
             assert secret not in text
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_leaves_while_sending_gets_json(tmp_path):
+    from starlette.requests import Request
+    app, service = make_app(tmp_path, FakeSyncer(tmp_path / "library"))
+
+    async def receive():
+        return {"type": "http.disconnect"}
+    request = Request({"type": "http", "method": "POST", "path": "/admin/user-sync/run", "headers": [],
+                       "query_string": b""}, receive)
+    response = await service.user_sync.handle(request, "run")
+    assert response.status_code == 400 and json.loads(response.body)["error"] == "invalid_request"
 
 
 # --- the command line -------------------------------------------------------------------------
@@ -507,6 +690,123 @@ def test_cli_falls_back_to_the_engine_when_the_service_is_down(tmp_path, monkeyp
     assert control.main(["--state", str(state), "status"]) == 0
     service = json.loads(capsys.readouterr().out)
     assert service["state"] == "stopped" and service["user_sync"]["state"] == "off"
+
+
+def configured(tmp_path, port):
+    """A controller state directory whose service listens (or not) on ``port``."""
+    state = tmp_path / "state"
+    write_json(state / "service.json", {"port": port, "installation": str(tmp_path / "install")})
+    (state / "token").write_text(TOKEN + "\n")
+    return state
+
+
+@contextmanager
+def misbehaving(mode):
+    """A port whose server never answers, resets, or answers with a 500 or a status."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(4)
+    listener.settimeout(.1)
+    stop = threading.Event()
+
+    def read_request(connection):
+        data = b""
+        while b"\r\n\r\n" not in data:
+            data += connection.recv(65536)
+        head, _, body = data.partition(b"\r\n\r\n")
+        length = next((int(line.split(b":")[1]) for line in head.split(b"\r\n")
+                       if line.lower().startswith(b"content-length:")), 0)
+        while len(body) < length:
+            body += connection.recv(65536)
+
+    def answer(connection, status, body, kind):
+        connection.sendall(b"HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+                           % (status, kind, len(body), body))
+
+    def serve():
+        while not stop.is_set():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                continue
+            with connection:
+                if mode == "hang":
+                    stop.wait(5)
+                    continue
+                if mode == "reset":  # close at once with a TCP reset
+                    connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+                    continue
+                read_request(connection)
+                if mode == "html500":
+                    answer(connection, b"500 Internal Server Error", b"<html>oops</html>", b"text/html")
+                elif mode == "json500":
+                    answer(connection, b"500 Internal Server Error",
+                           b'{"status": "error", "reason": "internal", "message": "RuntimeError: boom"}',
+                           b"application/json")
+                else:  # a status that needs attention
+                    answer(connection, b"200 OK", b'{"state": "attention", "reason": "stale", "loop": {}}',
+                           b"application/json")
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield listener.getsockname()[1]
+    finally:
+        stop.set()
+        thread.join(5)
+        listener.close()
+
+
+@pytest.mark.parametrize("mode, reason", [("hang", "timeout"), ("reset", "service_unreachable"),
+                                          ("html500", "service_error"), ("json500", "internal")])
+def test_cli_never_bypasses_a_service_that_answers_badly(tmp_path, monkeypatch, mode, reason):
+    """Only a refused connection runs the engine here: a slow or failing service may still finish."""
+    calls = []
+    monkeypatch.setattr(sync_loop, "direct", lambda *arguments: calls.append(arguments[2]) or (200, {}))
+    monkeypatch.setattr(sync_loop, "LONG_REQUEST_TIMEOUT", .5)
+    with misbehaving(mode) as port:
+        failed, result = control.Controller(configured(tmp_path, port)).user_sync("run", {})
+    assert failed and calls == [] and result["via"] == "service" and result["reason"] == reason
+
+
+def test_cli_falls_back_only_when_nothing_listens(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(sync_loop, "direct", lambda *arguments: calls.append(arguments[2]) or (200, {"status": "synced"}))
+    failed, result = control.Controller(configured(tmp_path, free_port())).user_sync("run", {})
+    assert not failed and calls == ["run"] and result == {"status": "synced", "via": "direct"}
+
+
+def test_cli_status_fails_when_sync_needs_attention(tmp_path):
+    with misbehaving("attention") as port:
+        failed, result = control.Controller(configured(tmp_path, port)).user_sync("status", {})
+    assert failed and result["state"] == "attention" and result["via"] == "service"
+    assert control.Controller._sync_failed(200, {"state": "synced"}) is False
+    assert control.Controller._sync_failed(409, {"status": "busy", "reason": "lock_held"}) is False
+    assert control.Controller._sync_failed(503, {"error": "draining"}) is True
+
+
+def test_the_direct_fallback_holds_the_session_lease(tmp_path, monkeypatch, capsys):
+    """As python -m src.user_sync: never while an update is installed, and an update waits for it."""
+    state = configured(tmp_path, free_port())
+    monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(tmp_path / "library"))
+    lease = tmp_path / "install" / "data" / ".sessions.lock"
+    with file_lock(lease, blocking=False):  # an update activating
+        assert control.main(["--state", str(state), "user-sync", "run"]) == 0
+    busy = json.loads(capsys.readouterr().out)
+    assert busy == {"status": "busy", "reason": "busy", "message": "an update of Agents-Core is being installed; "
+                    "try again shortly", "via": "direct"}
+    seen = []
+
+    def status(self):
+        try:
+            with file_lock(lease, blocking=False):
+                seen.append("free")
+        except BlockingIOError:
+            seen.append("held")
+        return {"state": "off", "reason": None, "conflicts": 0}
+    monkeypatch.setattr(Syncer, "status", status)
+    assert control.main(["--state", str(state), "user-sync", "status"]) == 0
+    assert json.loads(capsys.readouterr().out)["via"] == "direct" and seen == ["held"]
 
 
 def test_cli_runs_through_the_service(tmp_path, monkeypatch, capsys):
@@ -555,6 +855,8 @@ async def test_service_and_direct_runs_never_overlap(tmp_path, monkeypatch, caps
     (library / ".git").mkdir(parents=True)  # the lock lives there; no repository is needed
     monkeypatch.setenv("AGENTS_USER_FLOWS_DIR", str(library))
     app, service = make_app(tmp_path)  # the default: the engine on the service's state directory
+    write_json(service.directory / "service.json", {"port": free_port(), "installation": str(tmp_path / "install")})
+    (service.directory / "token").write_text(TOKEN + "\n")  # the service "is down" for the CLI: direct runs
     (service.directory / "user-sync").mkdir()
     Settings(remote="git@github.com:me/library.git", name="Me", email="me@example.com", label="mac-test",
              started="2026-10-05T00:00:00+00:00").save(service.directory / "user-sync" / "user-sync.json")

@@ -15,8 +15,11 @@ repository. In the daemon one task drives it:
 * "Sync now" (``/admin/user-sync/run``) runs a forced cycle.
 
 Nothing automatic runs before the service is ready, while sync is off, waiting for access or
-paused, or while an update transaction (``maintenance.json`` or ``transaction.json``) runs.
-Cycles and the admin operations that change the repository run one at a time, in the task.
+paused, or while an update transaction (``maintenance.json`` or ``transaction.json``) runs; the
+summary then says ``held: "update"``. Cycles and the admin operations that change the repository
+run one at a time, in the task. Pause and resume answer at once; every read of the settings is
+numbered, and only a read that started later replaces what the task knows, so a cycle or job that
+read them before a pause never turns the loop back on.
 
 Engine calls run in daemon threads and count in ``io_pending``, so ``auto-update`` and a drain
 wait for them. They do not use the service's executor: its shutdown and the interpreter's exit
@@ -24,7 +27,12 @@ both wait for executor threads, and a cycle can wait up to a minute for each net
 the service drains, one last cycle commits and pushes what is left, within ``drain_budget``
 seconds of the last admitted request. A call still running then is abandoned: it no longer counts
 in ``io_pending`` and the task ends without it; the engine's sync lock and its stale-lock cleanup
-make a killed cycle harmless.
+make a killed cycle harmless. Each drain has a number, so a drain that a resume cut short and the
+next drain each get their last cycle.
+
+Only the service's entry point (``bootstrap.serve``) sets ``hand_off_schedule``: when the loop
+starts it removes the scheduled run of #168 (``control.stop_scheduled_sync``), which would only
+compete with the daemon for the sync lock.
 
 This module imports nothing outside the standard library at load time, so the controller's
 ``user-sync`` command can use its helpers (``operation``, ``direct``) without the service.
@@ -33,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -165,11 +174,29 @@ def service_library(installation) -> Path | None:
     return Path(configured).expanduser() if configured else None
 
 
+@contextmanager
+def session_lease(installation):
+    """The shared lease of ``data/.sessions.lock`` that stdio servers and ``python -m src.user_sync``
+    hold: an update activates only when nobody holds it, and while it activates nobody gets it."""
+    from src.file_lock import file_lock
+    from src.user_sync.engine import SyncError
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(file_lock(Path(installation) / "data" / ".sessions.lock", shared=True,
+                                          blocking=False))
+        except BlockingIOError:
+            raise SyncError("busy", "an update of Agents-Core is being installed; try again shortly",
+                            state="busy") from None
+        yield
+
+
 def direct(directory, installation, command: str, arguments: dict) -> tuple[int, dict]:
     """One user-sync command with the engine in this process, for when the service is down.
 
     The state directory is the service's (``<directory>/user-sync``), as the service uses it. The
     engine's sync lock keeps this run from overlapping a running service: one gets ``lock_held``.
+    Like ``python -m src.user_sync`` it holds the installation's session lease, so it never runs
+    while an update is installed (``busy``).
     """
     try:
         call = operation(command, arguments)
@@ -177,8 +204,9 @@ def direct(directory, installation, command: str, arguments: dict) -> tuple[int,
         return 400, {"error": "invalid_request", "message": str(error)}
     try:
         from src.user_sync.engine import Syncer
-        syncer = Syncer(library=service_library(installation), state_dir=Path(directory) / "user-sync")
-        return 200, call(syncer)
+        with session_lease(installation):
+            syncer = Syncer(library=service_library(installation), state_dir=Path(directory) / "user-sync")
+            return 200, call(syncer)
     except Exception as error:
         return failure(error)
 
@@ -188,8 +216,8 @@ def direct_summary(directory, installation) -> dict:
     code, status = direct(directory, installation, "status", {})
     if code != 200:
         return {"state": "unknown", "reason": status.get("reason"), "last_success": None,
-                "conflicts": 0, "pending": 0}
-    return summary_of(status)
+                "conflicts": 0, "pending": 0, "held": None}
+    return {**summary_of(status), "held": None}
 
 
 # --- helpers ----------------------------------------------------------------------------------
@@ -262,12 +290,14 @@ class UserSync:
     Everything except the engine calls runs on the service's event loop, so the scheduling state
     needs no lock. ``syncer`` replaces the engine in tests; by default the engine syncs the
     service's library with ``<state directory>/user-sync``. ``minute`` is the length of one
-    ``fetch_minutes`` step in seconds.
+    ``fetch_minutes`` step in seconds. ``hand_off_schedule`` removes the scheduled run of #168
+    once, when automatic sync begins; only ``bootstrap.serve`` turns it on.
     """
 
     def __init__(self, service, syncer=None, *, debounce=DEBOUNCE_SECONDS, scan_every=SCAN_SECONDS,
-                 drain_budget=DRAIN_SECONDS, recheck=RECHECK_SECONDS, minute=60.0):
-        self._syncer_injected = syncer is not None
+                 drain_budget=DRAIN_SECONDS, recheck=RECHECK_SECONDS, minute=60.0, hand_off_schedule=False):
+        self.hand_off_schedule = hand_off_schedule
+        self.handed_off = False
         self.service = service
         self._syncer = syncer
         self._syncer_guard = threading.Lock()
@@ -286,12 +316,17 @@ class UserSync:
         self.retry_due = None          # the engine accepts a cycle again after a network failure
         self.next_fetch = self.next_scan = 0.0
         self.hold_until = None         # an update transaction runs; look again at this time
+        self.held = None               # "update" while that transaction holds automatic sync
         self.clean = None              # the library's fingerprint when it was last seen in sync
         self.syncing = False
         self.last_status = None
         self.last_cycle = None
+        self.seen = 0                  # the number of the settings read that ``active`` reflects
+        self._reads = 0
+        self._reads_guard = threading.Lock()
         self.drain_requested = False
-        self.flush_wanted = False      # the drain's last cycle did not end yet
+        self.drain_generation = 0      # drains that want a last cycle, counted
+        self.flushed = 0               # the last drain whose last cycle ended or is no longer wanted
         self.drain_deadline = None
 
     # --- the service's view (event loop) ---------------------------------------------
@@ -310,15 +345,21 @@ class UserSync:
             return
         self.drain_requested = True
         self.drain_deadline = None
-        self.flush_wanted = self.armed and self.task is not None and not self.task.done()
+        if self.armed and self.task is not None and not self.task.done():
+            self.drain_generation += 1
         self.wake()
 
     def resume(self) -> None:
         """The drain ended without a stop (``/admin/resume``); a later drain flushes again."""
         self.drain_requested = False
         self.drain_deadline = None
-        self.flush_wanted = False
+        self.flushed = self.drain_generation  # a running last cycle still counts as an engine call
         self.wake()
+
+    @property
+    def flush_wanted(self) -> bool:
+        """A drain's last cycle has not ended yet."""
+        return self.flushed < self.drain_generation
 
     @property
     def pending(self) -> int:
@@ -328,19 +369,25 @@ class UserSync:
         return len(self.calls) + (1 if self.flush_wanted else 0)
 
     def summary(self) -> dict | None:
-        """The short status for /health, from the last status the task read; None before that."""
+        """The short status for /health, from the last status the task read; None before that.
+
+        ``held`` is ``"update"`` while an update transaction holds automatic sync: a
+        ``maintenance.json`` or ``transaction.json`` that stays behind needs ``recover``.
+        """
+        if self.last_status is None and not self.syncing and self.held is None:
+            return None
+        short = summary_of(self.last_status or {})
         if self.syncing:
-            short = summary_of(self.last_status or {})
             short.update(state="syncing", reason=None)
-            return short
-        return None if self.last_status is None else summary_of(self.last_status)
+        short["held"] = self.held
+        return short
 
     def loop_info(self) -> dict:
         now = time.monotonic()
         running = self.armed and self.active
         return {"state": "draining" if self.service.state == "draining"
                 else "running" if self.armed else "waiting_for_ready",
-                "active": running, "syncing": self.syncing,
+                "active": running, "syncing": self.syncing, "held": self.held,
                 "next_fetch_seconds": round(max(0.0, self.next_fetch - now), 1) if running else None,
                 "last_cycle": self.last_cycle}
 
@@ -374,14 +421,18 @@ class UserSync:
             return reply({"error": "method_not_allowed"}, 405, Allow=method)
         arguments = {}
         if method == "POST":
+            from starlette.requests import ClientDisconnect
             raw = b""
-            async for chunk in request.stream():
-                raw += chunk
-                if len(raw) > MAX_BODY:
-                    return reply({"error": "invalid_request", "message": "the request is too large"}, 413)
+            try:
+                async for chunk in request.stream():
+                    raw += chunk
+                    if len(raw) > MAX_BODY:  # larger than 64 KiB
+                        return reply({"error": "invalid_request", "message": "the request is too large"}, 413)
+            except ClientDisconnect:
+                return reply({"error": "invalid_request", "message": "the client left before the body ended"}, 400)
             try:
                 arguments = json.loads(raw) if raw.strip() else {}
-            except ValueError:
+            except (ValueError, RecursionError):  # RecursionError: nesting deeper than the parser allows
                 return reply({"error": "invalid_request", "message": "the body must be JSON"}, 400)
         try:
             call = operation(command, arguments)
@@ -458,16 +509,20 @@ class UserSync:
         if kind is None:
             return self._next_time()
         if kind == "scan":
-            self._note_scan(await self._engine(self._scan_work, self.clean, True))
+            self._note_scan(await self._engine(self._scan_work, self.clean, True, self.last_status is None))
         else:
             await self._cycle(kind)
         return time.monotonic()
 
     async def _arm(self) -> None:
         syncer = await self._engine(self._engine_syncer)
-        if self._syncer_injected is False:  # the real engine: a scheduled job would compete with the loop
-            from .control import stop_scheduled_sync
-            await self._engine(stop_scheduled_sync)
+        if self.hand_off_schedule and not self.handed_off:
+            # The daemon runs the loop; a scheduled run of #168 would only compete for the sync lock.
+            self.handed_off = True
+            from . import control
+            outcome = await self._engine(control.stop_scheduled_sync)
+            if outcome not in ("removed", "none"):
+                logger.warning("User sync: the scheduled sync run of this installation stays: %s", outcome)
         self.library = Path(syncer.library)
         self.unsubscribe = user_library.subscribe(self._heard)
         self.armed = True
@@ -496,7 +551,7 @@ class UserSync:
         self.due = None  # the cycle reads the library after every change heard so far
         self.syncing = True
         try:
-            probe = await self._engine(self._cycle_work, barrier)
+            probe = await self._engine(self._cycle_work, barrier, self.last_status is None)
         finally:
             self.syncing = False
         self._note_cycle(probe, trigger)
@@ -523,33 +578,45 @@ class UserSync:
                 future.set_result(outcome)
 
     async def _drain(self) -> None:
-        """One last cycle when something is left to push, then wait for a resume or the stop."""
+        """The last cycle of every drain that wants one, then wait for a resume or the stop.
+
+        A drain that a resume cut short while its last cycle ran, and the drain after it, each
+        have a number: the next one gets its own last cycle when the earlier one ends.
+        """
         self._reject_queued()
-        try:
-            # Requests admitted before the drain finish first: their saves belong in the last cycle.
-            while self.service.state == "draining" and self._deadline() is None:
-                await asyncio.sleep(.05)
-            deadline = self._deadline()
-            if self.flush_wanted and deadline is not None and time.monotonic() < deadline \
-                    and await self._final_wanted():
-                # The last cycle runs during an update transaction as well: the service stops next.
-                await self._cycle("drain", barrier=False)
-        except Abandoned:
-            pass
-        finally:
-            self.flush_wanted = False
-        while self.service.state == "draining" and not self.service.stop.is_set():
+        while self.service.state == "draining":
+            if self.flush_wanted:
+                generation = self.drain_generation
+                try:
+                    await self._flush()
+                except Abandoned:
+                    pass
+                finally:
+                    self.flushed = max(self.flushed, generation)
+                continue
+            if self.service.stop.is_set():
+                return
             self.wake_event.clear()
             await self._sleep(None)
-        if not self.service.stop.is_set():  # resumed, or the warmup ended a drain it overlapped
-            self.drain_requested = False
-            self.drain_deadline = None
+        # Resumed, or the warmup ended a drain it overlapped: a later drain flushes again.
+        self.drain_requested = False
+        self.drain_deadline = None
+        self.flushed = self.drain_generation
+
+    async def _flush(self) -> None:
+        # Requests admitted before the drain finish first: their saves belong in the last cycle.
+        while self.service.state == "draining" and self._deadline() is None:
+            await asyncio.sleep(.05)
+        deadline = self._deadline()
+        if deadline is not None and time.monotonic() < deadline and await self._final_wanted():
+            # The last cycle runs during an update transaction as well: the service stops next.
+            await self._cycle("drain", barrier=False)
 
     async def _final_wanted(self) -> bool:
         """Whether the last cycle has work: a change heard, or one the scan finds."""
         if self.due is not None:
             return True
-        probe = await self._engine(self._scan_work, self.clean, False)
+        probe = await self._engine(self._scan_work, self.clean, False, False)
         self._note_scan(probe)
         status = probe.get("status")
         return bool(probe.get("active")) and status is not None and status.get("state") in UNSYNCED
@@ -658,34 +725,45 @@ class UserSync:
         fingerprint = library_fingerprint(syncer.library)
         return fingerprint, syncer.status()
 
+    def _read_settings(self, syncer) -> tuple[int, object]:
+        """The settings, numbered in the order the reads started: a later read sees every earlier
+        write, so the task applies a read only when no later one was applied (a pause during a
+        cycle or a job)."""
+        with self._reads_guard:
+            self._reads += 1
+            number = self._reads
+        return number, syncer.settings()
+
     def _status_work(self) -> dict:
         return self._engine_syncer().status()
 
-    def _scan_work(self, clean: str | None, barrier: bool) -> dict:
+    def _scan_work(self, clean: str | None, barrier: bool, need_status: bool) -> dict:
         syncer = self._engine_syncer()
-        settings = syncer.settings()
+        seen, settings = self._read_settings(syncer)
         if not _active(settings):
-            return {"active": False, "settings": settings, "status": syncer.status()}
+            return {"active": False, "seen": seen, "settings": settings, "status": syncer.status()}
         if barrier and self._in_update():
-            return {"active": True, "blocked": True, "settings": settings}
+            return {"active": True, "blocked": True, "seen": seen, "settings": settings,
+                    "status": syncer.status() if need_status else None}
         fingerprint = library_fingerprint(syncer.library)
         status = None if fingerprint == clean else syncer.status()
-        return {"active": True, "settings": settings, "fingerprint": fingerprint, "status": status}
+        return {"active": True, "seen": seen, "settings": settings, "fingerprint": fingerprint, "status": status}
 
-    def _cycle_work(self, barrier: bool) -> dict:
+    def _cycle_work(self, barrier: bool, need_status: bool) -> dict:
         syncer = self._engine_syncer()
-        settings = syncer.settings()
+        seen, settings = self._read_settings(syncer)
         if not _active(settings):
-            return {"active": False, "settings": settings, "status": syncer.status()}
+            return {"active": False, "seen": seen, "settings": settings, "status": syncer.status()}
         if barrier and self._in_update():
-            return {"active": True, "blocked": True, "settings": settings}
+            return {"active": True, "blocked": True, "seen": seen, "settings": settings,
+                    "status": syncer.status() if need_status else None}
         try:
             result = syncer.run()
         except Exception as error:  # the engine reports expected failures in its result
             result = failure(error)[1]
         fingerprint, status = self._observe(syncer)
-        return {"active": True, "settings": settings, "result": result, "fingerprint": fingerprint,
-                "status": status}
+        return {"active": True, "seen": seen, "settings": settings, "result": result,
+                "fingerprint": fingerprint, "status": status}
 
     def _job_work(self, call, observe: bool) -> dict:
         syncer = self._engine_syncer()
@@ -693,9 +771,10 @@ class UserSync:
             code, result = 200, call(syncer)
         except Exception as error:
             code, result = failure(error)
-        outcome = {"code": code, "result": result, "settings": None, "fingerprint": None, "status": None}
+        outcome = {"code": code, "result": result, "seen": None, "settings": None, "fingerprint": None,
+                   "status": None}
         try:
-            outcome["settings"] = syncer.settings()
+            outcome["seen"], outcome["settings"] = self._read_settings(syncer)
             if observe:
                 outcome["fingerprint"], outcome["status"] = self._observe(syncer)
             elif code == 200 and isinstance(result, dict) and "state" in result:
@@ -717,25 +796,40 @@ class UserSync:
         # for retry_at, and "syncing" means another runner has the library.
         self.clean = None if fingerprint is None or state in ("pending", "syncing", "offline") else fingerprint
 
-    def _inactive(self, probe: dict) -> None:
-        self.active = False
-        self.due = self.retry_due = self.clean = None
+    def _apply_settings(self, probe: dict) -> bool | None:
+        """Take ``active`` from the settings a probe read; None when a later read was applied."""
+        seen = probe.get("seen")
+        if seen is None or seen <= self.seen:
+            return None
+        self.seen = seen
+        active = _active(probe.get("settings"))
+        if active and not self.active:
+            self.next_fetch = time.monotonic()  # set up, started or resumed: catch up at once
+        if not active:
+            self.due = self.retry_due = self.clean = self.held = self.hold_until = None
+        self.active = active
+        return active
+
+    def _hold(self, probe: dict, now: float) -> None:
+        """An update transaction holds automatic sync: look again soon, and say so in the summary."""
+        self.hold_until, self.held = now + self.recheck, "update"
         if isinstance(probe.get("status"), dict):
             self.last_status = probe["status"]
 
     def _note_scan(self, probe: dict) -> None:
         now = time.monotonic()
         self.next_scan = now + self.scan_every
+        applied = self._apply_settings(probe)
+        if applied is None:
+            return  # a later read of the settings, a pause or resume, decides
+        if not applied:
+            if isinstance(probe.get("status"), dict):
+                self.last_status = probe["status"]
+            return
         if probe.get("blocked"):
-            self.hold_until = now + self.recheck
+            self._hold(probe, now)
             return
-        self.hold_until = None
-        if not probe.get("active"):
-            self._inactive(probe)
-            return
-        if not self.active:  # set up, started or resumed elsewhere: catch up at once
-            self.active = True
-            self.next_fetch = now
+        self.hold_until = self.held = None
         status = probe.get("status")
         if status is None:
             return  # unchanged since the library was last seen in sync
@@ -745,39 +839,36 @@ class UserSync:
 
     def _note_cycle(self, probe: dict, trigger: str) -> None:
         now = time.monotonic()
-        if probe.get("blocked"):
-            self.hold_until = now + self.recheck
-            if trigger == "change" and self.due is None:
-                self.due = now
+        applied = self._apply_settings(probe)
+        if "result" not in probe:  # nothing ran: sync was off or paused, or an update held it
+            if probe.get("blocked") and self.active:
+                self._hold(probe, now)
+                if trigger == "change" and self.due is None:
+                    self.due = now
+            elif applied is False and isinstance(probe.get("status"), dict):
+                self.last_status = probe["status"]
+                self.next_scan = now + self.scan_every
             return
-        self.hold_until = None
+        # The cycle ran; a pause during it is already applied and keeps the loop off.
+        self.hold_until = self.held = None
         self.next_scan = now + self.scan_every
-        if not probe.get("active"):
-            self._inactive(probe)
-            return
-        self.active = True
         self.next_fetch = now + self._fetch_seconds(probe.get("settings"))
         result = probe.get("result") or {}
         self._record(trigger, result)
         self._remember(probe.get("status"), probe.get("fingerprint"))
-        if result.get("status") == "lock_held" and self.due is None:
+        if result.get("status") == "lock_held" and self.due is None and self.active:
             self.due = now + self.debounce  # another runner has the library; look again soon
 
     def _note_job(self, command: str, outcome: dict) -> None:
         now = time.monotonic()
-        settings = outcome.get("settings")
-        was_active, self.active = self.active, _active(settings)
+        applied = self._apply_settings(outcome)
         self.hold_until = None
         self.next_scan = now
         if command in CYCLES and outcome.get("code") == 200:
             self._record("manual" if command == "run" else "start", outcome.get("result") or {})
-            self.next_fetch = now + self._fetch_seconds(settings)
-        elif self.active and not was_active:
-            self.next_fetch = now
-        if command == "resume" and self.active:
+            self.next_fetch = now + self._fetch_seconds(outcome.get("settings"))
+        if command == "resume" and applied:
             self.due = now  # catch up with what changed while paused
-        if not self.active:
-            self.due = self.retry_due = None
         self.clean = None
         self._remember(outcome.get("status"), outcome.get("fingerprint"))
 

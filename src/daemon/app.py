@@ -44,7 +44,7 @@ def load_runtime(port):
 
 
 class Service:
-    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime):
+    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
         self.directory = Path(directory)
         self.token = token
         self.port = port
@@ -68,7 +68,8 @@ class Service:
         self.stop = asyncio.Event()
         self.requests = set()
         self.flows_ui = FlowsUI(self)
-        self.user_sync = UserSync(self)
+        # Only the service's entry point hands the library over from the OS scheduler (#168).
+        self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
 
     def health(self):
         import sys
@@ -276,10 +277,12 @@ class Service:
             closing.set()
 
 
-def create_app(directory, token, port=8765, runtime_loader=load_runtime):
+def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
+    """``hand_off_schedule``: the user-sync task removes the scheduled sync run of #168 when it
+    starts; only ``bootstrap.serve`` sets it, so tests never reach the OS scheduler."""
     if not token or len(token) < 32:
         raise ValueError("A private bearer token of at least 32 characters is required")
-    service = Service(directory, token, port, runtime_loader)
+    service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule)
     app = Starlette(lifespan=service.lifespan)
     # Route the original scope directly so MCP receives the request state.
     app.router.default = service

@@ -64,7 +64,8 @@ def serve(directory=None, probation=None):
         load_dotenv(root / ".env", override=False)
         from .app import create_app
         import uvicorn
-        app = create_app(directory, token, config["port"])
+        # The daemon runs the sync loop, so it removes the scheduled sync run of #168.
+        app = create_app(directory, token, config["port"], hand_off_schedule=True)
         # proxy_headers=False: scope["client"] must stay the socket's peer, because the
         # editor's automatic sign-in looks up who owns that exact connection.
         uvicorn.run(app, host="127.0.0.1", port=config["port"], workers=1, proxy_headers=False,
