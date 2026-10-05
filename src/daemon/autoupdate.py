@@ -3,9 +3,11 @@
 A second LaunchAgent runs ``auto-update run`` every ``interval`` seconds. Each
 run is cheap when there is nothing to do: it fetches the tracked branch and
 returns. When a fast-forward is available it waits for the service to be idle
-and then runs the same controller transaction as ``update`` (drain, stop,
-fast-forward, reindex, probation, ready, rollback on failure). Clients use
-stateless HTTP, so they reach the restarted process on their next request.
+and then runs the same controller transaction as ``update``: build the target
+and its stores while the service serves, check again that it is idle, then
+drain, stop, fast-forward, move the stores in, probation, ready, rollback on
+failure. Clients use stateless HTTP, so they reach the restarted process on
+their next request.
 
 Once per embedding model generation (`src/model_migration.py`) a run also
 switches the service to the default model, with no new commit needed: the
@@ -197,6 +199,17 @@ def _enabled_on_disk(controller):
     return bool((read_json(controller.directory / "service.json", {}).get("auto_update") or {}).get("enabled"))
 
 
+def _readers_refusal(controller, daemon_pid):
+    """Defer while a stdio server holds the installation; unknown readers do not defer."""
+    try:
+        readers = other_readers(controller, daemon_pid)
+    except (subprocess.SubprocessError, OSError):
+        return None  # unknown: offline_update still refuses a held lease, after a restart
+    if readers:
+        return {"state": "deferred", "reason": f"stdio readers hold the installation: {readers}"}
+    return None
+
+
 def _precheck(controller):
     """Preconditions rechecked under the control lock; a refusal result or None."""
     if not _enabled_on_disk(controller):
@@ -208,7 +221,8 @@ def _precheck(controller):
     if health.get("inflight") or health.get("io_pending") or \
             health.get("idle_seconds", 0) < settings(controller)["idle_seconds"]:
         return {"state": "deferred", "reason": "service is busy"}
-    return None
+    # A stdio server may have started while the update was built.
+    return _readers_refusal(controller, health.get("pid"))
 
 
 def _run(controller):
@@ -235,12 +249,8 @@ def _run(controller):
     idle = settings(controller)["idle_seconds"]
     if health.get("inflight") or health.get("io_pending") or health.get("idle_seconds", 0) < idle:
         return _record(controller, {**found, "state": "deferred", "reason": "service is busy"})
-    try:
-        readers = other_readers(controller, health.get("pid"))
-    except (subprocess.SubprocessError, OSError):
-        readers = None  # unknown: offline_update still refuses a held lease, after a restart
-    if readers:
-        return _record(controller, {**found, "state": "deferred", "reason": f"stdio readers hold the installation: {readers}"})
+    if refusal := _readers_refusal(controller, health.get("pid")):
+        return _record(controller, {**found, **refusal})
     if not _enabled_on_disk(controller):
         return {"state": "disabled"}
     from .update import TargetMoved, offline_update

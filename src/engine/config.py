@@ -447,9 +447,14 @@ AUTO_UPDATE_GIT_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_TIMEOUT", 30, lo=1)
 # Throttle: skip the network fetch if the last check was within this many
 # seconds (stdio servers respawn frequently). 0 disables throttling.
 AUTO_UPDATE_MIN_INTERVAL = _int_env("AGENTS_AUTO_UPDATE_INTERVAL", 900, lo=0)
-# The reindex subprocess loads the embedding model and re-embeds all .mdc
-# files, so it needs a generous ceiling.
-AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 600, lo=1)
+# The reindex subprocess loads the embedding model and re-embeds changed stores.
+# The shared daemon's updater runs at the LaunchAgent's Background priority: on
+# 2026-10-04 the skills store took about six minutes there (28 s at normal
+# priority), and a model switch rebuilding both stores came close to the former
+# 600 s. A build that hits the ceiling fails and is retried every run, so on a
+# slower machine a short ceiling means an update that never lands; this one only
+# stops a hung build.
+AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 3600, lo=1)
 # Two-phase staged update (the default). When on, the background daemon does NOT
 # mutate the live install: it prepares the new version + freshly-built indexes in
 # an isolated git worktree under AUTO_UPDATE_STAGING_DIR and writes a marker; the

@@ -477,15 +477,53 @@ retain source history.
 
 Updates require a clean target branch, a fast-forward, and unchanged dependency
 manifests. Clients may stay connected (see [Drain and connected
-clients](#drain-and-connected-clients)). The controller enters
-maintenance, waits up to 60 seconds for drain,
-stops the service, and acquires the exclusive installation lease and updater
-lock. A running stdio server of this installation blocks the update. Reindexing
-runs in a separate process only while the daemon is stopped. Git and reindex
-subprocesses retain leases until they exit. While the service is installed, this
-installation's stdio servers do not self-update, and during maintenance or an unfinished
-transaction they exit at startup with
-`Shared service is in maintenance; use the controller to recover`.
+clients](#drain-and-connected-clients)).
+
+The update is built while the service keeps serving. Holding the updater lock,
+the controller checks out the target in a worktree under `data/.prepared/<sha>`.
+It copies the live skill and implant indexes there and runs the reindex in a
+separate process with the service's interpreter and model. The reindex re-embeds
+only an index whose sources changed. While it re-embeds, a second model process
+runs next to the service. A target that moved or changes dependency manifests is
+refused before anything is built. The reindex gets the installation's `.env`
+under the controller's own settings, as the service does. The build records
+the settings that shape the embeddings (`EMBEDDING_*`, `AGENTS_MODEL_*` and
+`FASTEMBED_*`). If they change while it builds or at any point before
+activation, which checks them once more after the stop, the build is not
+activated and is made again, so the restarted service does not re-embed its
+indexes during warmup. Every build passes
+activation's checks before the service stops, so a build that activation would
+refuse fails here. A failed build leaves the service and the live tree untouched,
+and the next run retries it.
+
+A build can take minutes: scheduled runs build at the updater LaunchAgent's
+`Background` priority (see [automatic updates](#automatic-updates-opt-in)). The
+controller does not hold the control lock while it builds, so `stop`, `restart`
+and `auto-update disable` keep working, and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`
+(default 3600 s) only stops a hung build. Afterwards the controller takes the
+control lock again. If the service configuration changed meanwhile, it defers,
+and the next run builds for the new configuration. A scheduled run then checks
+again that the service is ready and idle and that no stdio server holds the
+installation. If that changed, it defers and keeps the build, and the next
+scheduled run uses that build without rebuilding; a manual `update` always
+builds anew.
+
+Only then does the controller enter maintenance, wait up to 60 seconds for drain,
+stop the service, and acquire the exclusive installation lease and the updater
+lock. A running stdio server of this installation blocks the update. Activation
+backs up the live indexes, fast-forwards the checkout to the built commit and
+moves the built indexes into `data/`. These are file operations only, so the
+service is down for its stop, the activation and its warmup. Before the build
+moved ahead of the stop, the reindex ran while the service was down: on
+2026-10-04 an update that added one skill kept it down for six minutes, and
+Claude Code, which stops reconnecting after about 17 seconds, had to be
+reconnected by hand. A failed fast-forward or move restores the previous code
+and indexes. If the tree changed after the build was checked, activation discards
+the build and the service restarts on the previous code. A rollback or `recover`
+also discards the build, so a partly moved build is never activated later. Git
+and reindex subprocesses retain leases until they exit. While the service is installed, this installation's stdio servers do not
+self-update, and during maintenance or an unfinished transaction they exit at
+startup with `Shared service is in maintenance; use the controller to recover`.
 
 After the file transaction, writer leases are released and the same LaunchAgent
 receives a single-use probation admission. The update succeeds only after
@@ -493,10 +531,10 @@ readiness. A failed warmup restores code and indexes and checks readiness of the
 restored runtime. The controller journal remains until readiness completes; use
 `recover` after interruption. Do not delete journals manually.
 
-A manual `update` always drains and restarts a running service, even when there
-is nothing to apply. When it applies a commit or switches the embedding model, it
-also starts a stopped service for probation and leaves it running; `auto-update`
-leaves a stopped service alone.
+A manual `update` with nothing to apply and no model switch pending leaves the
+service running. When it applies a commit or switches the embedding model, it
+drains and restarts a running service, and it also starts a stopped service for
+probation and leaves it running; `auto-update` leaves a stopped service alone.
 
 While the service runs, update the installation only with `update` or
 `auto-update`: `install.sh`, `git pull` or `scripts/init_repo.sh` in the checkout
@@ -536,10 +574,17 @@ this installation is running, since `update` would stop the service only to find
 it busy. A stopped service is left stopped. An unfinished transaction blocks
 further runs until `recover`.
 
-Downtime is the stop, the reindex, and the warmup. The reindex re-embeds only
-when skills or implants changed, and only one model is loaded at a time. The
-last outcome is in `auto-update.json` and the history in `auto-update.log`, both
-in the private state directory. `uninstall` also removes the updater.
+Downtime is the stop, the activation and the warmup; the build runs before the
+stop. The updater LaunchAgent runs as a `Background` process with low-priority
+I/O, and its reindex inherits that throttling. A skills index that rebuilds in
+about 30 seconds at normal priority took about six minutes in a scheduled run,
+which is why the build must not run while the service is down. A model switch
+that rebuilt both indexes there came close to the former 600 s ceiling, so
+`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` now defaults to 3600 s: a build that hits
+the ceiling fails and is retried on every run, so a short ceiling on a slower
+machine means an update that never lands. The last outcome
+is in `auto-update.json` and the history in `auto-update.log`, both in the private
+state directory. `uninstall` also removes the updater.
 
 ### Embedding model
 
@@ -555,10 +600,12 @@ generation ([src/model_migration.py](../src/model_migration.py)) moves to
 2. After the drain, stop and file update, it saves `service.json` and the skill and
    implant indexes in `rollback/` under the private state directory, writes the new
    model into `service.json` and rebuilds the indexes with it, holding the
-   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 600 s; in
+   installation leases (`AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`, default 3600 s; in
    the [2026-10-03 measurements](embedding-models-eval-results.md#results) a
-   harrier index build peaked at 2.8 GB). A file update that rolled back
-   (`MERGE_FAILED`, `REINDEX_FAILED`) leaves the switch pending for the next update.
+   harrier index build peaked at 2.8 GB). Unlike a file update, this rebuild still
+   runs while the service is down. A file update that failed to build or to
+   activate (`PREPARE_…`, `ACTIVATE_…` or `INVALID_…`) leaves the switch pending
+   for the next update.
 3. Probation starts the service on the new model. When it fails, the transaction
    restores the previous `service.json`, indexes and code and starts the service
    again; `recover` does the same after an interrupted switch.
