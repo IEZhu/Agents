@@ -38,6 +38,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          # The GitHub token's real Keychain and Credential Manager round trips
+          # (tests/test_user_sync_github.py) write a uniquely named item and delete it.
+          # Linux runners have no Secret Service session, so that test skips there.
+          - os: windows-latest
+            real_secret_store: "1"
+          - os: macos-latest
+            real_secret_store: "1"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     defaults:
@@ -56,8 +64,10 @@ jobs:
         run: python -m pip install pytest python-dotenv pyyaml
       - name: Show the git and OpenSSH versions sync runs with
         run: git version && (ssh -V 2>&1 || true)
-      - name: Sync the library between two machines through a local bare repository
+      - name: Sync through local bare repositories, GitHub through a fake API
         env:
-          # Throwaway runners: install, query and remove a real scheduled job on each OS.
+          # Throwaway runners: install, query and remove a real scheduled job on each OS,
+          # and use the real Keychain and Credential Manager where the matrix allows it.
           AGENTS_TEST_REAL_SCHEDULER: "1"
+          AGENTS_TEST_REAL_SECRET_STORE: ${{ matrix.real_secret_store || '0' }}
         run: python -m pytest tests/test_user_sync*.py -v
