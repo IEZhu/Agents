@@ -270,7 +270,8 @@ def test_sync_that_is_set_up_is_reported_without_a_question_and_left_alone(tmp_p
                                 environ={installer.REMOTE: "git@git.example.com:me/other.git", **IDENTITY})
         assert result["status"] == "set_up" and "Sync between machines is on" in said
         assert "change nothing once sync has started" in said and "-m src.user_sync status" in said
-        assert f"cd {ROOT}" in said or "cd /" in said  # commands say where they run
+        where = f"in {ROOT}, run " in said if os.name == "nt" else (f"cd {ROOT}" in said or "cd /" in said)
+        assert where  # commands say where they run
         assert "AGENTS_GITHUB_TOKEN was not used: sync is already set up" in said
     assert files(tmp_path) == before
 
@@ -978,6 +979,7 @@ def test_the_summary_of_a_pending_setup_names_the_next_step(tmp_path, bare, remo
 
 def test_commands_say_where_they_run_also_on_windows(monkeypatch):
     root = str(installer.installation_root())
+    monkeypatch.setattr(installer, "_windows", lambda: False)
     assert installer.command("src.user_sync", "status").startswith("cd ")
     monkeypatch.setattr(installer, "_windows", lambda: True)
     windows = installer.command("src.user_sync", "status")
