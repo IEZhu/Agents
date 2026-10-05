@@ -26,7 +26,7 @@ without dirtying or switching any git branch.
 | Machine-local data | A group's `.repo.json` keeps only its normalized origin; `.repo.local.json` keeps this machine's clone path; a group without an origin is machine-local | A library shared between machines must not carry one machine's paths, and a key made from a path means nothing on another machine |
 | Library files | `.agents-library.json` (format 1), `.gitignore` and `.gitattributes` (`* -text`) at the root, created by the first write and never overwritten | They mark the library and keep temporary files, machine-local files and line-ending conversion out of a repository that holds it |
 | Change notifications | Each write passes the paths it changed to the listeners in `src/user_library.py`, also when it fails part way | A sync runner can react to writes instead of polling, and misses no file that changed |
-| Publishing | None: no branches, commits or pushes | The flow lives in files; sharing through a repository is out of scope |
+| Publishing | None by default. Opt-in sync of the whole library through one private git repository per user ([user-sync.md](user-sync.md), #173) | The flow lives in files; sync replicates those files without changing how the library reads or writes them |
 | Editor | Served by the existing daemon at `/ui`; a browser of the daemon's OS user signs in by itself, others with a one-use code from `python -m src.daemon flows-ui` | One installation to run, nothing to type; the browser never holds the MCP bearer token |
 
 ## Rejected alternative
@@ -61,8 +61,8 @@ metrics are therefore not implemented; `run_flow` still returns a
 - One library per installation. Several installations need
   `AGENTS_USER_FLOWS_DIR` pointed at one directory to share flows.
 - History is kept indefinitely; pruning is manual.
-- Sync of the library between machines through a private git repository is
-  planned in #173; the machine-local split, library files and change
-  notifications above prepare it (#169).
+- Sync of the library between machines through a private git repository:
+  the engine and command line are in [user-sync.md](user-sync.md) (#165); the
+  daemon loop, scheduled runs, GitHub sign-in and the web UI follow in #173.
 - Possible next steps: a run ledger with outcomes, and a line diff between a copy
   and its built-in in the editor.
