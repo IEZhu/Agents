@@ -94,6 +94,9 @@ _EMAIL = re.compile(r"[^@\s<>]+@[^@\s<>]+")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,99}")
 _CONFLICT_ID = re.compile(r"[0-9]{8}T[0-9]{12}Z-[0-9a-f]{10}")
 _VERSION_FILE = re.compile(r"[0-9]{8}T[0-9]{12}Z-[0-9a-f]{12}(?:-deleted)?\.md")
+_SENDER = re.compile(rf"^{TRAILER}: ([a-z0-9][a-z0-9-]{{0,31}})[ \t]*$", re.M)
+# The remote commits a cycle reads for the labels of the machines that made them.
+SENDER_COMMITS = 100
 _ZERO = "0" * 40
 
 
@@ -1904,7 +1907,8 @@ class Syncer:
 
     def _run_locked(self, settings: Settings, state: dict, confirm: str | None) -> dict:
         state["last_attempt"] = _now_iso(self._clock())
-        result = {"status": "synced", "sent": [], "received": [], "conflicts": [], "pushed": False}
+        result = {"status": "synced", "sent": [], "received": [], "received_from": [], "conflicts": [],
+                  "pushed": False}
         try:
             self._check_git()
             git = self._repository(settings, create=True)
@@ -1915,6 +1919,8 @@ class Syncer:
             for attempt in range(PUSH_ATTEMPTS):
                 outcome = self._cycle(git, settings, state, confirm=confirm)
                 result["received"] += outcome["received"]
+                result["received_from"] += [label for label in outcome["received_from"]
+                                            if label not in result["received_from"]]
                 result["conflicts"] += outcome["conflicts"]
                 if outcome["push"] is None:
                     break
@@ -1970,7 +1976,8 @@ class Syncer:
                         raise SyncError("confirmation_needed", f"{len(deleted)} of {total} library files would "
                                                                f"be deleted from {place}; review the preview and confirm")
             self._withdraw_approvals(plan.scopes)
-            outcome = {"received": [], "conflicts": plan.conflicts, "push": None, "integrated": plan.head,
+            outcome = {"received": [], "received_from": [], "conflicts": plan.conflicts, "push": None,
+                       "integrated": plan.head,
                        "sent": changed_paths(plan.remote_tree if remote_head else plan.current, plan.target),
                        "new_groups": sorted(self._groups_in(plan.target) - self._groups_in(plan.remote_tree))}
             if plan.kind in ("merge", "join", "push"):
@@ -1978,6 +1985,7 @@ class Syncer:
                 # unreferenced if anything below fails.
                 outcome["push"] = self._commit_target(git, settings, plan)
             if plan.kind in ("merge", "join", "fast_forward"):
+                outcome["received_from"] = self._senders(git, plan.head, remote_head)
                 applied = self._apply(git, state, plan)
                 self._save_state(state)  # held_remote is on disk before the branch moves
                 self._set_head(git, settings, remote_head, plan.head)
@@ -1989,6 +1997,24 @@ class Syncer:
                                 for p, v in sorted(plan.snapshot.blocked.items())]
             state["held"] = [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())]
         return outcome
+
+    def _senders(self, git: Git, integrated: str | None, remote_head: str) -> list[str]:
+        """Labels from the ``Agents-Sync-Machine`` trailers of the remote commits being integrated.
+
+        Newest first, each once, from at most ``SENDER_COMMITS`` commits. The web editor names them
+        when a flow it shows was updated. Only a description: a failure leaves the list empty.
+        """
+        revisions = [remote_head] + ([f"^{integrated}"] if integrated else [])
+        try:
+            log = git.text("log", "-z", f"--max-count={SENDER_COMMITS}", "--format=%B", *revisions, "--")
+        except GitError:
+            return []
+        labels: list[str] = []
+        for message in log.split("\0"):
+            for label in _SENDER.findall(message):
+                if label not in labels:
+                    labels.append(label)
+        return labels
 
     def _push(self, git: Git, settings: Settings, commit: str, integrated: str | None) -> bool:
         """True when pushed (the branch moves to ``commit``); False on a non-fast-forward rejection."""
@@ -2102,6 +2128,7 @@ class Syncer:
                          if not p.endswith((".md", ".json")) and change_label(p))
         entry = {"time": _now_iso(self._clock()), "result": outcome, "machine": settings.label,
                  "sent": flows(result["sent"]), "received": flows(result["received"]),
+                 "received_from": list(result.get("received_from") or ()) if result["received"] else [],
                  "scripts": scripts, "conflicts": len(result["conflicts"])}
         if new_groups:
             entry["new_groups"] = new_groups
@@ -2296,19 +2323,90 @@ class Syncer:
             user_library.notify(self.library, [SCOPES_PATH])
         return {"status": "saved", **self.scopes()}
 
-    def configure(self, *, fetch_minutes: int | None = None, ask_new_repositories: bool | None = None) -> dict:
-        """Change the fetch interval (1 to 60 minutes) or the "ask before uploading" setting."""
+    def configure(self, *, fetch_minutes: int | None = None, ask_new_repositories: bool | None = None,
+                  name: str | None = None, email: str | None = None, label: str | None = None) -> dict:
+        """Change the fetch interval (1 to 60 minutes), the "ask before uploading" setting, or the
+        commit identity and machine label.
+
+        Unlike ``setup`` with the same remote, a new identity or label needs no network and no sync
+        lock: the remote, this machine's key and the deploy key's title on GitHub stay as they are.
+        """
         if fetch_minutes is not None and (isinstance(fetch_minutes, bool) or not isinstance(fetch_minutes, int)
                                           or not 1 <= fetch_minutes <= 60):
             raise SyncError("invalid", "the fetch interval must be 1 to 60 minutes")
+        identity = any(value is not None for value in (name, email, label))
 
         def change(settings):
+            if identity:
+                wanted = (settings.name if name is None else name, settings.email if email is None else email,
+                          settings.label if label is None else label)
+                validate_identity(*wanted)
+                settings.name, settings.email, settings.label = wanted
             if fetch_minutes is not None:
                 settings.fetch_minutes = fetch_minutes
             if ask_new_repositories is not None:
                 settings.ask_new_repositories = bool(ask_new_repositories)
-        self._update_settings(change)
+        settings = self._update_settings(change)
+        if identity:
+            self._write_support_files(settings)  # the isolated gitconfig carries the identity
+            self._log(f"identity or label changed; this machine is {settings.label}")
         return self.status()
+
+    def regenerate_key(self) -> dict:
+        """Replace this machine's SSH key, for one that leaked or that GitHub lost.
+
+        On a repository of the connected GitHub account the new key becomes a deploy key with write
+        access first; only then are the key files replaced and the old deploy key removed, so this
+        machine never depends on a key GitHub does not have. A failure to remove the old key is
+        reported, not raised. Elsewhere the new public key is returned to add by hand; until it is
+        added, the remote refuses this machine.
+        """
+        settings = self._require_settings()
+        remote = self._remote(settings)
+        if remote.kind != "ssh":
+            raise SyncError("invalid", "this remote does not use an SSH key")
+        old = keys.public_key(self.state_dir)
+        account = self.github_account()
+        repository = hosted_repository(remote, account.host)
+        client = None
+        if repository:
+            status = account.status()
+            if status["connected"] and status["reconnect_needed"]:
+                raise SyncError("reconnect_needed", "reconnect the GitHub account first, so that the new key "
+                                                    "can become a deploy key of the repository")
+            if status["connected"]:
+                client = account.client()
+        fresh = keys.key_path(self.state_dir).with_name(f"{keys.KEY_NAME}.new")
+        with self._sync_lock_for(settings, create=False):  # no cycle uses the key while it changes
+            try:
+                public = keys.generate_key(fresh, settings.label)
+            except keys.SSHKeyError as error:
+                raise SyncError("ssh", str(error)) from None
+            try:
+                if client is not None:
+                    client.add_deploy_key(repository, public, settings.label)
+                keys.install_key(fresh, self.state_dir)
+            except BaseException:
+                keys.discard_key(fresh)
+                raise
+            self._log("replaced this machine's key")
+            if client is None:
+                return {"status": "replaced", "public_key": public, "deploy_key": "manual",
+                        "message": "add the new public key to the repository as a deploy key with write "
+                                   "access and remove the old one; until then the remote refuses this machine"}
+            removed, message = False, f"added the new key to {repository} and removed the old one"
+            try:
+                found = client.find_deploy_key(repository, old) if old else None
+                if found is not None:
+                    client.delete_deploy_key(repository, found.id)
+                    removed = True
+                else:
+                    message = f"added the new key to {repository}; GitHub had no deploy key of the old one"
+            except github_api.GitHubError as error:
+                message = (f"added the new key to {repository}, but the old deploy key could not be removed "
+                           f"({error.message}); remove it on GitHub")
+        return {"status": "replaced", "public_key": public, "deploy_key": "added", "repository": repository,
+                "old_key_removed": removed, "message": message}
 
     def pause(self) -> dict:
         self._update_settings(lambda settings: setattr(settings, "paused", True))

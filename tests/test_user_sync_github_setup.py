@@ -808,3 +808,57 @@ def test_the_wizard_never_takes_the_identity_from_the_users_git_configuration(tm
     assert not [prompt for prompt in ask.prompts if "Work" in prompt or "corp" in prompt]  # no defaults from git
     assert plain_git("--git-dir", str(bare), "log", "-1", "--format=%an <%ae>|%cn <%ce>", "main") == \
         "Owner <owner@example.com>|Owner <owner@example.com>"
+
+
+# --- a new key for this machine (#170) ----------------------------------------------------------
+
+
+@needs_ssh_keygen
+def test_a_new_key_is_added_on_github_before_the_old_one_is_removed(fake, tmp_path):
+    state = tmp_path / "state"
+    syncer = make_syncer(tmp_path, signed_in(fake, state))
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    old = keys.public_key(state)
+    fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 201,
+               {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(state, key_id=11)])  # the old key
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11", 204, None)
+    result = syncer.regenerate_key()
+    new = keys.public_key(state)
+    assert result == {"status": "replaced", "public_key": new, "deploy_key": "added", "repository": REPOSITORY,
+                      "old_key_removed": True,
+                      "message": f"added the new key to {REPOSITORY} and removed the old one"}
+    assert new != old and new.endswith(" agents-core-sync:laptop")
+    added = posted_keys(fake)[-1]
+    assert added.json["key"] == " ".join(new.split()[:2]) and added.json["read_only"] is False
+    methods = [(request.method, request.path) for request in fake.requests[-3:]]
+    assert methods == [("POST", f"/api/v3/repos/{REPOSITORY}/keys"), ("GET", f"/api/v3/repos/{REPOSITORY}/keys"),
+                       ("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11")]
+
+
+@needs_ssh_keygen
+def test_a_new_key_that_github_refuses_leaves_the_old_one(fake, tmp_path):
+    state = tmp_path / "state"
+    account = signed_in(fake, state)
+    syncer = make_syncer(tmp_path, account)
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 403, {"message": "Resource not accessible"})
+    with pytest.raises(GitHubError) as refused:
+        syncer.regenerate_key()
+    assert refused.value.code == "forbidden"
+    assert keys.public_key(state) == old and keys.key_path(state).read_bytes() == old_private
+    assert sorted(path.name for path in state.glob("id_ed25519*")) == ["id_ed25519", "id_ed25519.pub"]
+    # The old key's removal may fail: the new key works, and the answer says what is left to do.
+    fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 201,
+               {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 502, None)
+    result = syncer.regenerate_key()
+    assert result["old_key_removed"] is False and "could not be removed" in result["message"]
+    assert keys.public_key(state) != old
+    account.mark_reconnect_needed()  # GitHub refused the token: no new key that only GitHub could make work
+    with pytest.raises(SyncError) as reconnect:
+        syncer.regenerate_key()
+    assert reconnect.value.reason == "reconnect_needed"

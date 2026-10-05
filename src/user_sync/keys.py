@@ -39,8 +39,16 @@ def key_path(state: Path) -> Path:
 
 def public_key(state: Path) -> str | None:
     """``ssh-ed25519 AAAA… agents-core-sync:<label>``, or None before the key exists."""
+    return _read_public(key_path(state))
+
+
+def _public_of(private: Path) -> Path:
+    return private.with_name(private.name + ".pub")
+
+
+def _read_public(private: Path) -> str | None:
     try:
-        return (key_path(state).with_suffix(".pub")).read_text(encoding="ascii").strip() or None
+        return _public_of(private).read_text(encoding="ascii").strip() or None
     except (OSError, UnicodeDecodeError):
         return None
 
@@ -51,8 +59,12 @@ def ensure_key(state: Path, label: str) -> str:
     existing = public_key(state)
     if private.is_file() and existing:
         return existing
-    for leftover in (private, private.with_suffix(".pub")):
-        leftover.unlink(missing_ok=True)
+    return generate_key(private, label)
+
+
+def generate_key(private: Path, label: str) -> str:
+    """A new ed25519 pair at ``private`` and ``<private>.pub``, replacing any; returns its public line."""
+    discard_key(private)
     try:
         result = subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
                                  f"agents-core-sync:{label}", "-f", str(private)],
@@ -60,11 +72,22 @@ def ensure_key(state: Path, label: str) -> str:
                                 stdin=subprocess.DEVNULL, **no_window())
     except (OSError, subprocess.SubprocessError) as error:
         raise SSHKeyError(f"ssh-keygen could not run ({error}); install OpenSSH") from None
-    if result.returncode != 0 or not public_key(state):
+    if result.returncode != 0 or not _read_public(private):
         raise SSHKeyError(f"ssh-keygen failed: {result.stderr.strip() or result.returncode}")
     if os.name == "posix":
         private.chmod(0o600)
-    return public_key(state)
+    return _read_public(private)
+
+
+def install_key(private: Path, state: Path) -> None:
+    """Make the pair at ``private`` this machine's key: the private file first, then the public one."""
+    os.replace(private, key_path(state))
+    os.replace(_public_of(private), _public_of(key_path(state)))
+
+
+def discard_key(private: Path) -> None:
+    for path in (private, _public_of(private)):
+        path.unlink(missing_ok=True)
 
 
 def fingerprint(line: str) -> str:
