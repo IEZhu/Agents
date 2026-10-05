@@ -1296,3 +1296,16 @@ def test_text_changed_between_reading_and_merging_is_never_uploaded(pair, monkey
     result = b.run()
     assert result["status"] == "pending"
     assert TOKEN.encode() not in remote_objects(b.remote)
+
+
+def test_windows_links_are_name_surrogates_and_placeholders_are_files():
+    from types import SimpleNamespace
+    reparse = 0x400
+
+    def info(tag):
+        return SimpleNamespace(st_mode=0o100644, st_file_attributes=reparse, st_reparse_tag=tag)
+
+    assert scope.is_link(info(0xA000000C)) and scope.is_link(info(0xA0000003))  # symlink, junction
+    assert not scope.is_link(info(0x9000001A))  # a OneDrive placeholder
+    assert scope.is_link(info(0))  # unknown: never followed, never taken for deleted
+    assert not scope.is_link(SimpleNamespace(st_mode=0o100644, st_file_attributes=0x20))

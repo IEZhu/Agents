@@ -184,16 +184,25 @@ def is_content(path: str) -> bool:
 _NAME_SURROGATE = 0x20000000  # Windows reparse tags of links (symlinks, junctions), not cloud placeholders
 
 
-def is_link(info: os.stat_result) -> bool:
+def is_link(info, path=None) -> bool:
     """A symlink, or on Windows a name-surrogate reparse point such as an NTFS junction.
 
     OneDrive and Dropbox placeholders are reparse points too, but not name surrogates: they are
-    ordinary files and directories here.
+    ordinary files and directories here. ``os.DirEntry.stat`` may leave the reparse tag empty, so
+    it is read again from ``path``; a reparse point whose tag stays unknown counts as a link, which
+    is never followed and whose content is never taken for deleted.
     """
     if stat.S_ISLNK(info.st_mode):
         return True
-    reparse = getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-    return bool(reparse and getattr(info, "st_reparse_tag", 0) & _NAME_SURROGATE)
+    if not getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+        return False
+    tag = getattr(info, "st_reparse_tag", 0)
+    if not tag and path is not None:
+        try:
+            tag = getattr(os.lstat(path), "st_reparse_tag", 0)
+        except OSError:
+            return True
+    return bool(tag & _NAME_SURROGATE) if tag else True
 
 
 def repo_group(path: str) -> str | None:
@@ -340,7 +349,7 @@ def walk(root: Path, unreadable: set[str] | None = None):
                 continue
             try:
                 info = entry.stat(follow_symlinks=False)
-                if is_link(info):
+                if is_link(info, entry.path):
                     if entry.is_dir(follow_symlinks=True) and unreadable is not None:
                         unreadable.add(relative)  # a linked directory: its files are unknown, not deleted
                         continue
@@ -370,7 +379,7 @@ def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozen
         except OSError:
             result.held[relative] = {"reason": "unreadable", "size": 0}
             continue
-        if not stat.S_ISREG(info.st_mode) or is_link(info):
+        if not stat.S_ISREG(info.st_mode) or is_link(info, entry.path):
             result.held[relative] = {"reason": "not_regular", "size": 0}
             continue
         if info.st_size > MAX_FILE_BYTES:

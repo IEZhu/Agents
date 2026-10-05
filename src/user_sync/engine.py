@@ -1262,7 +1262,7 @@ class Syncer:
                 continue
             except OSError:
                 return None
-            if not stat.S_ISDIR(info.st_mode) or scope.is_link(info):
+            if not stat.S_ISDIR(info.st_mode) or scope.is_link(info, current):
                 return None
         target = current / parts[-1]
         try:
@@ -1271,7 +1271,7 @@ class Syncer:
             return target
         except OSError:
             return None
-        return target if stat.S_ISREG(info.st_mode) and not scope.is_link(info) else None
+        return target if stat.S_ISREG(info.st_mode) and not scope.is_link(info, target) else None
 
     @staticmethod
     def _current_blob(target: Path) -> str | None:
