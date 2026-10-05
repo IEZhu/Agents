@@ -109,7 +109,15 @@ def parse_scopes(data: bytes | None) -> Scopes:
     for group in parsed["exclude"]:
         if not is_group(group):
             raise ScopeError(f"{SCOPES_PATH}: unknown scope group {group!r}")
+    for path in parsed["exclude_files"]:
+        if is_control_file(path):
+            raise ScopeError(f"{SCOPES_PATH}: {path} is part of the library's sync and cannot be excluded")
     return Scopes(**parsed)
+
+
+def is_control_file(path: str) -> bool:
+    """The library files sync itself relies on: the marker, git settings, exclusions and records."""
+    return path in LIBRARY_FILES or path == SYNC_DIR or path.startswith(f"{SYNC_DIR}/")
 
 
 def merge_scopes(base: Scopes, local: Scopes, remote: Scopes) -> Scopes:

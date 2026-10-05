@@ -325,6 +325,7 @@ class _Plan:
     held_files: frozenset = frozenset()
     scopes: Scopes = field(default_factory=Scopes)   # the merged exclusions
     rules: Rules | None = None                       # scope rules of the target
+    remote_executable: set = field(default_factory=set)  # remote files with mode 100755
     remote_sizes: dict = field(default_factory=dict)  # blob id -> size, for the preview
 
 
@@ -542,14 +543,16 @@ class Syncer:
     def _is_ancestor(self, git: Git, older: str, newer: str) -> bool:
         return git.run("merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
 
-    def _tree_entries(self, git: Git, commit: str | None) -> tuple[dict[str, str], dict[str, tuple]]:
-        """``(regular files: path -> blob id, other entries: path -> (mode, id))`` of ``commit``.
+    def _tree_entries(self, git: Git, commit: str | None) -> tuple[dict[str, str], dict[str, tuple], set[str]]:
+        """``(regular files: path -> blob id, other entries: path -> (mode, id), executable paths)``.
 
         Other entries (symlinks, submodules) never materialize; a commit keeps them as they were.
+        Sync carries contents, not permissions: an executable file keeps mode 100755 in the
+        repository while its content is unchanged, and is written without the executable bit.
         """
         if commit is None:
-            return {}, {}
-        files, other = {}, {}
+            return {}, {}, set()
+        files, other, executable = {}, {}, set()
         for record in git.run("ls-tree", "-r", "-z", "--full-tree", commit).stdout.split(b"\0"):
             if not record:
                 continue
@@ -561,9 +564,11 @@ class Syncer:
                 continue
             if kind == "blob" and mode in ("100644", "100755"):
                 files[path] = blob
+                if mode == "100755":
+                    executable.add(path)
             else:
                 other[path] = (mode, blob)
-        return files, other
+        return files, other, executable
 
     def _tree(self, git: Git, commit: str | None) -> dict[str, str]:
         return self._tree_entries(git, commit)[0]
@@ -609,11 +614,13 @@ class Syncer:
     def _store_bytes(self, git: Git, data: bytes) -> str:
         return git.text("hash-object", "-w", "--stdin", input=data)
 
-    def _write_tree(self, git: Git, tree: dict[str, str], other: dict[str, tuple] | None = None) -> str:
+    def _write_tree(self, git: Git, tree: dict[str, str], other: dict[str, tuple] | None = None,
+                    executable: set[str] = frozenset()) -> str:
         index = self.library / ".git" / TEMPORARY_INDEX
         index.unlink(missing_ok=True)
         try:
-            entries = [f"100644 blob {blob}\t{path}" for path, blob in sorted(tree.items())]
+            entries = [f"{'100755' if path in executable else '100644'} blob {blob}\t{path}"
+                       for path, blob in sorted(tree.items())]
             entries += [f"{mode} {'commit' if mode == '160000' else 'blob'} {blob}\t{path}"
                         for path, (mode, blob) in sorted((other or {}).items()) if path not in tree]
             git.run("update-index", "-z", "--index-info",
@@ -623,9 +630,9 @@ class Syncer:
             index.unlink(missing_ok=True)
 
     def _commit(self, git: Git, settings: Settings, tree: dict[str, str], parents, summary: str,
-                other: dict[str, tuple] | None = None) -> str:
+                other: dict[str, tuple] | None = None, executable: set[str] = frozenset()) -> str:
         message = f"sync({settings.label}): {summary}\n\n{TRAILER}: {settings.label}\n"
-        arguments = ["commit-tree", self._write_tree(git, tree, other)]
+        arguments = ["commit-tree", self._write_tree(git, tree, other, executable)]
         for parent in parents:
             arguments += ["-p", parent]
         return git.text(*arguments, input=message.encode("utf-8"))
@@ -978,11 +985,14 @@ class Syncer:
             _private_dir(self.state_dir)
             _write_private(empty, b"")
         environment = gitcmd.clean_environment()
+        # Outside any repository: a caller's repository-local configuration (insteadOf) must not
+        # redirect the probe to another URL.
         environment.update(GIT_CONFIG_GLOBAL=str(empty), GIT_CONFIG_NOSYSTEM="1",
-                           GIT_TERMINAL_PROMPT="0", GIT_ALLOW_PROTOCOL="https")
+                           GIT_TERMINAL_PROMPT="0", GIT_ALLOW_PROTOCOL="https",
+                           GIT_CEILING_DIRECTORIES=str(self.state_dir.parent))
         try:
             result = subprocess.run(["git", "ls-remote", remote.https_url],
-                                    capture_output=True, timeout=30, env=environment,
+                                    capture_output=True, timeout=30, env=environment, cwd=self.state_dir,
                                     stdin=subprocess.DEVNULL, **gitcmd.no_window())
         except (OSError, subprocess.SubprocessError):
             return "unknown"
@@ -1011,8 +1021,8 @@ class Syncer:
               *, joining: bool) -> _Plan:
         """Read the library and work out the cycle. Call under the library lock; changes nothing."""
         head = self._rev(git, f"refs/heads/{settings.branch}")
-        current, _ = self._tree_entries(git, head)
-        remote_tree, remote_other = self._tree_entries(git, remote_head)
+        current, _, _ = self._tree_entries(git, head)
+        remote_tree, remote_other, remote_executable = self._tree_entries(git, remote_head)
         last_seen = state.get("remote_head")
         rewritten = bool(remote_head and last_seen and settings.started and remote_head != last_seen
                          and not self._is_ancestor(git, last_seen, remote_head))
@@ -1044,6 +1054,7 @@ class Syncer:
         local_files.update({blob: path for path, blob in snap.files.items()})
         desired = self._desired(snap, current, state.get("held_remote", ()))
         plan = _Plan(head, remote_head, snap, current, desired, remote_tree, remote_other, base,
+                     remote_executable=remote_executable,
                      target=desired, rewritten=rewritten, held_groups=held_groups, held_files=held_files,
                      scopes=effective, rules=Rules(effective, snap.portable, held_groups, held_files))
         if remote_head is None:
@@ -1194,7 +1205,8 @@ class Syncer:
         summary = describe(old, tree)
         if plan.conflicts:
             summary += f" ({len(plan.conflicts)} conflict{'s' if len(plan.conflicts) > 1 else ''})"
-        return self._commit(git, settings, tree, parents, summary, plan.remote_other)
+        executable = {path for path in plan.remote_executable if tree.get(path) == plan.remote_tree.get(path)}
+        return self._commit(git, settings, tree, parents, summary, plan.remote_other, executable)
 
     def _apply(self, git: Git, state: dict, plan: _Plan) -> dict:
         """Write ``plan.target`` over the working tree; never touches a file this run did not read.
@@ -1320,6 +1332,9 @@ class Syncer:
                     user_library.atomic_write(destination, data)
                     if destination.read_bytes() != data:
                         raise OSError(f"{name} was not written")
+                if self._current_blob(target) != local:  # edited meanwhile without the lock: keep it held
+                    remaining.append(path)
+                    continue
                 user_library.atomic_write(target, self._read_blobs(git, [committed])[committed])
             except OSError as error:
                 self._log(f"could not reconcile {path}: {error}")
@@ -1600,6 +1615,9 @@ class Syncer:
         """``keep`` the current version, use ``mine`` (the kept local version), or ``dismiss``."""
         if action not in ("keep", "mine", "dismiss"):
             raise SyncError("invalid", "action must be keep, mine or dismiss")
+        settings = self.settings()
+        if settings is not None:
+            self._check_library(settings)
         if not _CONFLICT_ID.fullmatch(conflict_id or ""):
             raise SyncError("invalid", "unknown conflict")
         record_path = self.library / CONFLICTS_DIR / f"{conflict_id}.json"
@@ -1724,7 +1742,12 @@ class Syncer:
         for group in [*exclude, *include, *approve]:
             if not scope.is_group(group):
                 raise SyncError("invalid", f"unknown scope group {group!r}")
+        for path in [*exclude_files, *include_files, *approve_files]:
+            if not isinstance(path, str) or scope.is_control_file(path):
+                raise SyncError("invalid", f"{path} is part of the library's sync and cannot be excluded")
         settings = self.settings()
+        if settings is not None:
+            self._check_library(settings)
         state = self._state()
         with self._library_lock():
             current = self._working_scopes()

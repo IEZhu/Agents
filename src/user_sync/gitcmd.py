@@ -83,7 +83,8 @@ class Remote:
         """The same repository over HTTPS, for the anonymous visibility check."""
         if self.kind == "file":
             return None
-        return f"https://{self.host}/{self.path.strip('/')}"
+        port = f":{self.port}" if self.kind == "https" and self.port else ""  # an SSH port is not an HTTPS one
+        return f"https://{self.host}{port}/{self.path.strip('/')}"
 
 
 def parse_remote(url: str, *, allow_file: bool = False) -> Remote:

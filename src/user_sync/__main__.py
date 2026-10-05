@@ -18,7 +18,7 @@ runs it holds the installation's shared session lease, so an update never replac
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import json
 import sys
 
@@ -166,12 +166,14 @@ def _load_env() -> None:
 @contextmanager
 def _session_lease():
     """The shared lease stdio servers hold; an update activates only when nobody holds it."""
-    try:
-        with file_lock(installation_root() / "data" / ".sessions.lock", shared=True, blocking=False):
-            yield
-    except BlockingIOError:
-        raise SyncError("busy", "an update of Agents-Core is being installed; try again shortly",
-                        state="busy") from None
+    with ExitStack() as stack:
+        try:  # only taking the lease can mean an update; errors inside the command are its own
+            stack.enter_context(file_lock(installation_root() / "data" / ".sessions.lock",
+                                          shared=True, blocking=False))
+        except BlockingIOError:
+            raise SyncError("busy", "an update of Agents-Core is being installed; try again shortly",
+                            state="busy") from None
+        yield
 
 
 def _failure(error: Exception) -> dict:
@@ -182,8 +184,9 @@ def _failure(error: Exception) -> dict:
     from src.user_sync.scope import ScopeError
     if isinstance(error, SyncError):
         return {"status": error.state, "reason": error.reason, "message": error.message}
-    reason = {ScopeError: "scopes_invalid", SSHKeyError: "ssh", GitError: "git_error",
-              RemoteError: "unknown_remote", FlowError: "invalid"}.get(type(error), "library_unreadable")
+    reasons = ((ScopeError, "scopes_invalid"), (SSHKeyError, "ssh"), (GitError, "git_error"),
+               (RemoteError, "unknown_remote"), (FlowError, "invalid"))
+    reason = next((name for kind, name in reasons if isinstance(error, kind)), "library_unreadable")
     return {"status": "attention", "reason": reason, "message": str(error)}
 
 

@@ -25,33 +25,32 @@ from src.user_sync.engine import SyncError, Syncer
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 
 
-def plain_git(*args, cwd=None, input=None) -> str:
-    """git for test fixtures, isolated from the developer's configuration."""
+def git_bytes(*args, cwd=None, input=None) -> bytes:
+    """git for test fixtures, isolated from the developer's configuration and inherited GIT_* variables."""
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
                        GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.com",
                        GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.com")
-    result = subprocess.run(["git", *args], cwd=cwd, env=environment, capture_output=True,
-                            input=input, check=True)
-    return result.stdout.decode().strip()
+    return subprocess.run(["git", *args], cwd=cwd, env=environment, capture_output=True,
+                          input=input, check=True).stdout
+
+
+def plain_git(*args, cwd=None, input=None) -> str:
+    return git_bytes(*args, cwd=cwd, input=input).decode().strip()
 
 
 def remote_files(remote: Path, branch: str = "main") -> dict[str, bytes]:
-    try:
-        listing = plain_git("--git-dir", str(remote), "ls-tree", "-r", "--name-only", branch)
-    except subprocess.CalledProcessError:
+    """The files of the remote branch's last commit; empty while the branch does not exist."""
+    if subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "--verify", "--quiet", branch],
+                      capture_output=True, env={"PATH": os.environ.get("PATH", "")}).returncode != 0:
         return {}
-    return {path: subprocess.run(["git", "--git-dir", str(remote), "show", f"{branch}:{path}"],
-                                 capture_output=True, env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull}).stdout
-            for path in listing.splitlines()}
+    listing = plain_git("--git-dir", str(remote), "ls-tree", "-r", "--name-only", branch)
+    return {path: git_bytes("--git-dir", str(remote), "show", f"{branch}:{path}") for path in listing.splitlines()}
 
 
 def remote_objects(remote: Path) -> bytes:
     """Every object the remote holds, reachable or not: what was pushed, in any commit."""
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
-    return subprocess.run(["git", "--git-dir", str(remote), "cat-file", "--batch-all-objects", "--batch"],
-                          capture_output=True, env=environment, check=True).stdout
+    return git_bytes("--git-dir", str(remote), "cat-file", "--batch-all-objects", "--batch")
 
 
 @contextmanager
@@ -1309,3 +1308,56 @@ def test_windows_links_are_name_surrogates_and_placeholders_are_files():
     assert not scope.is_link(info(0x9000001A))  # a OneDrive placeholder
     assert scope.is_link(info(0))  # unknown: never followed, never taken for deleted
     assert not scope.is_link(SimpleNamespace(st_mode=0o100644, st_file_attributes=0x20))
+
+
+def test_an_executable_file_keeps_its_mode_in_the_remote_while_unchanged(pair, tmp_path):
+    a, b = pair
+    clone = tmp_path / "tool"
+    plain_git("clone", "--quiet", str(a.remote), str(clone))
+    (clone / "common" / "helper.sh").write_text("#!/bin/sh\necho hi\n")
+    plain_git("add", "common/helper.sh", cwd=clone)
+    plain_git("update-index", "--chmod=+x", "common/helper.sh", cwd=clone)
+    plain_git("commit", "--quiet", "-m", "an executable helper", cwd=clone)
+    plain_git("push", "--quiet", "origin", "main", cwd=clone)
+    b.run()
+    b.save("user:other", "# Other\n")
+    b.run()
+    mode = plain_git("--git-dir", str(a.remote), "ls-tree", "main", "common/helper.sh").split()[0]
+    assert mode == "100755"
+
+
+@pytest.mark.parametrize("path", [".agents-sync/scopes.json", ".agents-library.json", ".agents-sync/conflicts/x.json"])
+def test_the_library_control_files_cannot_be_excluded(pair, path):
+    a, _ = pair
+    with pytest.raises(SyncError):
+        a.sync.change_scopes(exclude_files=[path])
+    with pytest.raises(scope.ScopeError):
+        scope.parse_scopes(json.dumps({"exclude_files": [path]}).encode())
+
+
+def test_the_privacy_probe_keeps_an_https_port_and_runs_outside_any_repository(tmp_path, monkeypatch):
+    assert gitcmd.parse_remote("https://git.example.com:8443/me/lib.git").https_url == \
+        "https://git.example.com:8443/me/lib.git"
+    assert gitcmd.parse_remote("ssh://git@git.example.com:2222/me/lib.git").https_url == \
+        "https://git.example.com/me/lib.git"
+    seen = {}
+
+    def fake_run(command, **options):
+        seen.update(options)
+        return subprocess.CompletedProcess(command, 128, b"", b"fatal: could not read Username")
+
+    monkeypatch.setattr(engine_module.subprocess, "run", fake_run)
+    syncer = Syncer(tmp_path / "library", tmp_path / "state")
+    verdict = syncer.anonymous_visibility(gitcmd.parse_remote("https://git.example.com/me/lib.git"))
+    assert verdict == "private"
+    assert seen["cwd"] == syncer.state_dir and seen["env"]["GIT_CEILING_DIRECTORIES"] == str(syncer.state_dir.parent)
+
+
+def test_scope_changes_and_resolutions_refuse_another_library(pair, tmp_path):
+    a, _ = pair
+    other = Syncer(tmp_path / "elsewhere", a.state, allow_file_remote=True, visibility=lambda r: "private")
+    with pytest.raises(SyncError) as refused:
+        other.change_scopes(exclude=["history"])
+    assert refused.value.reason == "library_mismatch"
+    with pytest.raises(SyncError):
+        other.resolve("20261005T000000000000Z-0123456789", "keep")

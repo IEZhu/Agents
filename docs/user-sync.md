@@ -21,7 +21,10 @@ python -m src.user_sync check      # access, and the remote is empty or an Agent
 python -m src.user_sync preview    # what would be uploaded and downloaded, and the conflicts
 python -m src.user_sync start --confirm <hash from preview>
 python -m src.user_sync run        # one cycle; --force ignores the retry delay
-python -m src.user_sync status | conflicts | pause | resume | disconnect
+python -m src.user_sync status
+python -m src.user_sync conflicts
+python -m src.user_sync pause      # resume continues
+python -m src.user_sync disconnect
 python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-repositories]
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
@@ -58,6 +61,11 @@ covers the list of files it would upload. When another machine includes a group 
 this machine's own copies wait for `scope --approve <group>` (or `--approve-file`) here. A
 repository group that is new to the library is uploaded and announced in the activity; with
 `--ask-new-repositories` it waits for `scope --approve repos/<key>` instead.
+
+Sync carries contents, not permissions: a file another tool committed as executable keeps its mode
+in the repository while its content is unchanged, and is written to the library without the
+executable bit. The library's own files (`.agents-library.json`, `.gitignore`, `.gitattributes`
+and everything under `.agents-sync/`) cannot be excluded.
 
 Files that sync never handles but finds in the remote (a `README.md` added in GitHub's web UI, a
 directory a newer version syncs) stay in the repository as they are; they are neither written to
