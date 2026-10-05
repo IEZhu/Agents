@@ -336,6 +336,8 @@ class UserSync:
         self.clean = None              # the library's fingerprint when it was last seen in sync
         self.syncing = False
         self.last_status = None
+        self.last_status_at = None     # monotonic time of that status: the Sync page's polls reuse it
+        self._status_reading = None    # the status read in flight, shared by concurrent callers
         self.last_cycle = None
         self.seen = 0                  # the number of the settings read that ``active`` reflects
         self._reads = 0
@@ -470,11 +472,29 @@ class UserSync:
 
     # --- operations for front ends: the admin endpoints and the web UI (sync_ui) ----------
 
-    async def status_view(self) -> dict:
-        """The engine's status with the loop's (``loop``), as ``/admin/user-sync/status`` answers it."""
-        status = await self._engine(self._status_work)
-        self.last_status = status
+    async def status_view(self, *, fresh: bool = True) -> dict:
+        """The engine's status with the loop's (``loop``), as ``/admin/user-sync/status`` answers it.
+
+        ``fresh=False`` (the Sync page's polls) returns the status the loop knows while it is younger
+        than a scan interval: scans read it again whenever the library changes, and a scan that finds
+        the library unchanged confirms it. Concurrent reads share one computation.
+        """
+        if not fresh and self.last_status is not None and self.last_status_at is not None \
+                and time.monotonic() - self.last_status_at < self.scan_every:
+            return {**self.last_status, "loop": self.loop_info()}
+        if self._status_reading is None:
+            self._status_reading = asyncio.ensure_future(self._read_status())
+            self._status_reading.add_done_callback(_seen)
+        status = await asyncio.shield(self._status_reading)
         return {**status, "loop": self.loop_info()}
+
+    async def _read_status(self) -> dict:
+        try:
+            status = await self._engine(self._status_work)
+            self._keep_status(status)
+            return status
+        finally:
+            self._status_reading = None
 
     async def perform(self, command: str, call, *, queued: bool) -> dict:
         """``call(syncer)`` for a front end; returns ``{"code", "result", ...}``.
@@ -828,11 +848,14 @@ class UserSync:
 
     # --- bookkeeping (event loop) --------------------------------------------------------
 
+    def _keep_status(self, status: dict) -> None:
+        self.last_status, self.last_status_at = status, time.monotonic()
+
     def _remember(self, status, fingerprint=None) -> None:
         """Keep the engine's status; a library seen in sync needs no status until it changes."""
         if not isinstance(status, dict):
             return
-        self.last_status = status
+        self._keep_status(status)
         state = status.get("state")
         self.retry_due = _monotonic_at(status.get("retry_at")) if state == "offline" else None
         # Attention without a change of the library needs no cycle on every scan; offline waits
@@ -857,7 +880,7 @@ class UserSync:
         """An update transaction holds automatic sync: look again soon, and say so in the summary."""
         self.hold_until, self.held = now + self.recheck, "update"
         if isinstance(probe.get("status"), dict):
-            self.last_status = probe["status"]
+            self._keep_status(probe["status"])
 
     def _note_scan(self, probe: dict) -> None:
         now = time.monotonic()
@@ -867,15 +890,17 @@ class UserSync:
             return  # a later read of the settings, a pause or resume, decides
         if not applied:
             if isinstance(probe.get("status"), dict):
-                self.last_status = probe["status"]
+                self._keep_status(probe["status"])
             return
         if probe.get("blocked"):
             self._hold(probe, now)
             return
         self.hold_until = self.held = None
         status = probe.get("status")
-        if status is None:
-            return  # unchanged since the library was last seen in sync
+        if status is None:  # unchanged since the library was last seen in sync: what the loop knows holds
+            if self.last_status is not None:
+                self.last_status_at = now
+            return
         self._remember(status, probe.get("fingerprint"))
         if status.get("state") in UNSYNCED and self.due is None:
             self.due = now
@@ -889,7 +914,7 @@ class UserSync:
                 if trigger == "change" and self.due is None:
                     self.due = now
             elif applied is False and isinstance(probe.get("status"), dict):
-                self.last_status = probe["status"]
+                self._keep_status(probe["status"])
                 self.next_scan = now + self.scan_every
             return
         # The cycle ran; a pause during it is already applied and keeps the loop off.
@@ -919,7 +944,7 @@ class UserSync:
         entry = {"time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "trigger": trigger,
                  "status": result.get("status"), "reason": result.get("reason"),
                  "sent": len(result.get("sent") or ()), "received": len(result.get("received") or ()),
-                 "received_from": list(result.get("received_from") or ()),
+                 "received_from": list(result.get("received_from") or ())[:10],
                  "conflicts": len(result.get("conflicts") or ()), "pushed": bool(result.get("pushed"))}
         previous = self.last_cycle or {}
         if (previous.get("status"), previous.get("reason")) != (entry["status"], entry["reason"]) \

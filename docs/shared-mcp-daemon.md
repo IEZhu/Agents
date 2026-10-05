@@ -446,7 +446,11 @@ words: `Synced 2m ago`, `3 pending`, `Syncing…`, `Offline, retry 14:05`, `Paus
 takes no width from the open item's controls and the header keeps its one row at
 1250 px. A click opens the Sync page in place of the list and the item; a tab, or
 the chip again, returns to what was open, unsaved text included. The page reads the status
-when it loads and every 30 seconds while the browser tab is visible.
+when it loads and every 30 seconds while the browser tab is visible; a status that
+cannot be read shows as "Sync status unavailable", not as the last one that could.
+These polls take the status the daemon read during its last scan (at most a scan
+interval old) and do not count as activity, so an open page never holds back an
+automatic update; opening the Sync page and the page's own actions read it afresh.
 
 While sync is off, the page is a wizard:
 
@@ -470,10 +474,13 @@ Once sync has started, the page has these sections:
 
 - **Status**: state, last success and attempt, repository (`owner/name` on GitHub,
   never with credentials), branch, pending changes and next fetch; Sync now,
-  Pause or Resume, and the fetch interval. A confirmation the engine waits for (a
-  rewritten remote, a mass deletion) shows its preview with "Confirm and sync".
-- **Machines**: this machine's label and the repository's deploy keys on GitHub,
-  with Remove for the other machines.
+  Pause or Resume (which answer at once, also while another request of the page
+  runs), and the fetch interval. A confirmation the engine waits for (a rewritten
+  remote, a mass deletion) shows its preview with "Confirm and sync".
+- **Machines**: this machine's label and the deploy keys Agents-Core added to the
+  repository on GitHub (titled `Agents-Core <label>`), with Remove for the other
+  machines. Deploy keys that sync did not add are listed apart, under "Other deploy
+  keys", and never removed from here.
 - **Conflicts**: Open (a flow opens in the editor with the kept version beside the
   current text in the split pane; another file shows both versions here), Keep
   current, Use mine (a normal save of the kept version) and Dismiss.
@@ -482,17 +489,23 @@ Once sync has started, the page has these sections:
   (after their upload list), and "ask before uploading".
 - **Access**: the GitHub account (Reconnect; Forget account, with the page where
   the authorization is revoked) or manual SSH, this machine's public key with Copy,
-  Check access and Regenerate key.
+  Check access and Regenerate key. For a repository on GitHub, a new key needs the
+  account signed in: the new key becomes a deploy key first and the old one is
+  removed after it; for another host, you add the new public key yourself.
 - **Identity**: commit name and email, machine label.
 - **Activity**: the last 20 cycles with their time, result, the flows sent and
   received and the machines they came from; changed non-Markdown files (scripts)
   are marked separately.
 - **Disconnect**: the library's files and `.git` stay; this machine's key is deleted
-  here and, on GitHub, removed from the repository's deploy keys.
+  here and, while the GitHub account is signed in, removed from the repository's
+  deploy keys (otherwise the page says to remove it in the repository's settings).
 
 A flow open in the editor that a cycle updates shows "Updated from laptop at 14:02"
 with Reload. Unsaved text stays: saving it meets `flow_conflict`, and the message
-names the sync while the split pane shows the synced text.
+names the sync while the split pane shows the synced text. A flow that a cycle
+deleted says so, and its text stays in the editor to copy. A setup that stopped at
+the host's fingerprints, and then the page was reloaded, shows the fingerprints
+again.
 
 The page calls only the daemon, under `/ui/api/sync`, with the editor's
 protections: loopback Host, the session cookie, `X-Agents-UI` and a same-origin
@@ -503,20 +516,28 @@ a sign-in's device code.
 
 | Route | Body or query | Runs |
 |---|---|---|
-| `GET /ui/api/sync` | — | the engine's status with `loop`, `started`, `conflict_list`, `repository` and `github` |
-| `POST /ui/api/sync/github/device`, then `GET …/github/device?attempt=` | — | at once; a poll sooner than GitHub's interval is answered without asking GitHub, and polls of one sign-in run one at a time |
-| `GET …/github/libraries`, `POST …/github/create` (`name`), `…/github/add-key`, `…/github/forget` | — | at once (GitHub's API only) |
-| `POST /ui/api/sync/setup` | `github` (`owner/name`) or `remote`; `name`, `email`; optional `label`, `trust_host_key`, `ask_new_repositories` | queued |
-| `POST …/check`, `GET …/preview`, `POST …/start` (`confirm`, optional `confirm_private`), `POST …/run` (optional `confirm`), `POST …/key/regenerate`, `POST …/disconnect` | | queued |
+| `GET /ui/api/sync` | optional `fresh=1` | the engine's status with `loop`, `started`, `conflict_list` (at most 50; `conflict_total` counts them all), `repository`, `github` and `host_key_unconfirmed`; without `fresh=1`, a status the loop read within a scan interval |
+| `POST /ui/api/sync/github/device`, then `GET …/github/device?attempt=` | — | at once; a poll sooner than GitHub's interval is answered without asking GitHub, polls of one sign-in run one at a time, and a sign-in that GitHub grants after Forget account keeps nothing |
+| `GET …/github/libraries`, `POST …/github/create` (`name`), `…/github/forget` | — | at once (GitHub's API only) |
+| `POST /ui/api/sync/setup` | `github` (`owner/name`) or `remote`; `name`, `email`; optional `label`, `trust_host_key`, `ask_new_repositories`; or `again` (with an optional `trust_host_key`): setup with the remote and identity sync keeps | queued |
+| `POST …/check`, `GET …/preview`, `POST …/start` (`confirm`, optional `confirm_private`), `POST …/run` (optional `confirm`), `POST …/key/regenerate`, `POST …/github/add-key`, `POST …/disconnect` | | queued |
 | `PUT /ui/api/sync/settings` | `fetch_minutes`, `ask_new_repositories`, `name`, `email`, `label`, `paused` | at once |
 | `GET …/conflict?id=`, `POST …/conflicts/resolve` (`id`, `action`: `keep`, `mine` or `dismiss`) | | at once |
 | `GET`, `PUT …/scopes` | `exclude`, `include`, `approve`, `approve_files`, `confirm` | at once; including or approving answers `confirmation_needed` with `hash` and `upload` until the same request carries that hash |
-| `GET …/machines`, `POST …/machines/remove` (`id`) | | at once (GitHub's API only); this machine's key is refused |
+| `GET …/machines`, `POST …/machines/remove` (`id`) | | at once (GitHub's API only); `managed` marks the keys sync added; this machine's key (`this_machine`) and keys sync did not add (`not_a_machine`) are refused |
 
 Queued operations run in the sync task, one at a time with its cycles (see below).
 These requests do not count in `inflight`: like `/admin/user-sync/*` they follow the
-sync task's drain. A refusal answers 409 with `status`, `reason` and `message`, a body
-that does not fit the route 400.
+sync task's drain. Bodies are JSON objects of at most 64 KiB (413 otherwise). Answers:
+
+- 400 with `status`, `reason` (`invalid_request`, or `identity` for a name, email
+  or label that sync or git would refuse, checked before anything is stored) and
+  `message` for a body or parameter that does not fit the route;
+- 404 for an unknown route, and for a sign-in poll whose attempt is unknown or over
+  (`reason: no_sign_in`);
+- 409 with `status`, `reason` and `message` when the engine or GitHub refuses;
+- 503 with `error: draining` and a `message` while the service drains;
+- 500 without a traceback for an unexpected failure.
 
 ## User library sync
 

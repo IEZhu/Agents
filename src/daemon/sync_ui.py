@@ -4,14 +4,16 @@
 session cookie and the ``X-Agents-UI`` header with a same-origin ``Origin``. A GET here needs the
 header too, and an ``Origin`` it carries must be the page's own, so no other page, not even one
 served on another loopback port, can start one. These requests do not count in ``inflight``: like
-``/admin/user-sync/*`` they follow the sync task's drain.
+``/admin/user-sync/*`` they follow the sync task's drain. The page's polls (``PASSIVE``) leave the
+service idle, so an open page never holds back an automatic update.
 
-Engine operations that run git or reach the remote (check, preview, setup, start, run, a new key
-and disconnect) go through the daemon's sync task (``UserSync.perform(queued=True)``), one at a
-time with its cycles. Settings, scopes and conflicts change at once, as pause and resume do, and
-the task learns the settings they leave. GitHub API calls that never touch the repository
-(sign-in, the libraries of the account, a new repository, machines, Forget account) run in their
-own threads, counted in ``io_pending``.
+Engine operations that run git, reach the remote or read this machine's key while a new one may
+replace it (check, preview, setup, start, run, a new key, adding the key on GitHub again and
+disconnect) go through the daemon's sync task (``UserSync.perform(queued=True)``), one at a time
+with its cycles. Settings, scopes and conflicts change at once, as pause and resume do, and the
+task learns the settings they leave. GitHub API calls that never touch the repository (sign-in, the
+libraries of the account, a new repository, machines, Forget account) run in their own threads,
+counted in ``io_pending``.
 
 No answer carries the GitHub token, this machine's private key or a sign-in's device code: the
 device code stays here between the start of a sign-in and its polls, and only
@@ -24,23 +26,29 @@ import asyncio
 import base64
 import binascii
 import hmac
+import json
 import os
 from pathlib import Path
 import secrets
 import stat
 import time
 
+from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 
 from src.user_sync import keys, scope
-from src.user_sync.engine import SyncError, default_label, hosted_repository
+from src.user_sync.engine import SyncError, default_label, hosted_repository, validate_identity
 from src.user_sync.github import DEFAULT_REPO_NAME, GitHubError, parse_public_key
-from src.user_sync.gitcmd import RemoteError, parse_remote
+from src.user_sync.gitcmd import RemoteError, config_value, parse_remote
 from .sync_loop import DRAINING, Abandoned, Draining, Unavailable, failure
 
 PREFIX = "/ui/api/sync"
+MAX_BODY = 64 * 1024     # as /admin/user-sync: every body here is small
 TEXT_LIMIT = 512 * 1024  # a conflict's texts shown side by side
-DEPLOY_KEY_TITLE = "Agents-Core "  # how setup titles a machine's deploy key on GitHub
+CONFLICTS_LISTED = 50    # conflict records the status lists; `conflict_total` counts them all
+# The title GitHubClient.add_deploy_key gives a machine's deploy key ("Agents-Core <label>"): keys
+# with another title are not machines of this library, and the page never removes them.
+DEPLOY_KEY_TITLE = "Agents-Core "
 CONFLICT_FIELDS = ("id", "path", "flow", "repo_key", "kind", "kept", "machine", "time", "deleted_on")
 
 # path -> {method: handler}
@@ -65,6 +73,9 @@ ROUTES = {
     f"{PREFIX}/key/regenerate": {"POST": "regenerate_key"},
     f"{PREFIX}/disconnect": {"POST": "disconnect"},
 }
+# What the page asks by itself, on a timer or to fill a view: it keeps the service idle.
+PASSIVE = frozenset({("GET", PREFIX), ("GET", f"{PREFIX}/scopes"), ("GET", f"{PREFIX}/machines"),
+                     ("GET", f"{PREFIX}/conflict"), ("GET", f"{PREFIX}/github/device")})
 
 _KINDS = {
     "text": ("a string", lambda value: isinstance(value, str) and len(value) <= 4096),
@@ -79,8 +90,16 @@ def is_sync_path(path: str) -> bool:
     return path == PREFIX or path.startswith(PREFIX + "/")
 
 
+def is_passive(method: str, path: str) -> bool:
+    return (method, path) in PASSIVE
+
+
 class BadRequest(ValueError):
-    """A body or parameter that does not fit the route."""
+    """A body or parameter that does not fit the route; ``reason`` names what (400)."""
+
+    def __init__(self, message: str, *, reason: str = "invalid_request", code: int = 400):
+        super().__init__(message)
+        self.reason, self.code = reason, code
 
 
 def _json(value, status: int = 200, **headers) -> JSONResponse:
@@ -100,28 +119,84 @@ def _fields(body: dict, allowed: dict) -> dict:
     return {name: body[name] for name in allowed if body.get(name) is not None}
 
 
+def _check_identity(name=None, email=None, label=None) -> None:
+    """Refuse, before anything is stored, what the engine or its isolated gitconfig would refuse.
+
+    Values that are not given are not checked here; the engine checks what it keeps.
+    """
+    try:
+        validate_identity("Owner" if name is None else name, "owner@example.com" if email is None else email,
+                          "machine" if label is None else label)
+        for value in (name, email):
+            if value is not None:
+                config_value(value)
+    except SyncError as error:
+        raise BadRequest(error.message, reason="identity") from None
+    except ValueError as error:
+        raise BadRequest(str(error), reason="identity") from None
+
+
+async def _read_body(request) -> dict:
+    """The JSON object a request carries, read in pieces up to ``MAX_BODY``."""
+    raw = b""
+    try:
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > MAX_BODY:
+                raise BadRequest("the request is too large", reason="too_large", code=413)
+    except ClientDisconnect:
+        raise BadRequest("the client left before the body ended") from None
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError):  # RecursionError: nesting deeper than the parser allows
+        raise BadRequest("the body must be a JSON object") from None
+    if not isinstance(value, dict):
+        raise BadRequest("the body must be a JSON object")
+    return value
+
+
 # --- engine work, run in threads --------------------------------------------------------------
 
 
-def _text_of(library: Path, relative) -> str | None:
-    """A library file's UTF-8 text, or None: never through a link or outside the library."""
-    if not isinstance(relative, str) or not scope.portable_name(relative):
-        return None
+def _read_library(library: Path, relative) -> tuple[str | None, bool]:
+    """A file that sync handles, inside the library: ``(text, False)``, or ``(None, True)`` for bytes
+    that are not UTF-8.
+
+    ``(None, False)`` for anything else: a path sync never handles (``.git`` among them), a link on
+    the way, a file that is missing, too large, or that another one replaced between the checks and
+    the read (it is opened without following a link, and must be the file the checks saw).
+    """
+    if not isinstance(relative, str) or not scope.portable_name(relative) or scope.groups(relative) is None:
+        return None, False
     current, info = Path(library), None
     for part in relative.split("/"):
         current = current / part
         try:
             info = os.lstat(current)
         except OSError:
-            return None
+            return None, False
         if scope.is_link(info, current):
-            return None
+            return None, False
     if info is None or not stat.S_ISREG(info.st_mode) or info.st_size > TEXT_LIMIT:
-        return None
+        return None, False
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
     try:
-        return current.read_bytes().decode("utf-8")
-    except (OSError, UnicodeDecodeError):
-        return None
+        descriptor = os.open(current, flags)
+    except OSError:
+        return None, False
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+            return None, False
+        data = stream.read(TEXT_LIMIT + 1)
+    if len(data) > TEXT_LIMIT:
+        return None, False
+    try:
+        return data.decode("utf-8"), False
+    except UnicodeDecodeError:
+        return None, True
 
 
 def _summary(record: dict) -> dict:
@@ -144,7 +219,8 @@ def _conflict(syncer, conflict_id: str) -> dict:
     mine, binary = None, False
     version = record.get("local_version")
     if isinstance(version, str):
-        mine = _text_of(syncer.library, version) if version.startswith(".history/") else None
+        if version.startswith(".history/"):
+            mine, binary = _read_library(syncer.library, version)
     elif isinstance(record.get("local_content"), str):
         mine = record["local_content"]
     elif isinstance(record.get("local_content_base64"), str):
@@ -152,7 +228,8 @@ def _conflict(syncer, conflict_id: str) -> dict:
             mine = base64.b64decode(record["local_content_base64"], validate=True).decode("utf-8")
         except (binascii.Error, ValueError):
             binary = True
-    return {**_summary(record), "current": _text_of(syncer.library, record.get("path")), "mine": mine,
+    current, current_binary = _read_library(syncer.library, record.get("path"))
+    return {**_summary(record), "current": current, "current_binary": current_binary, "mine": mine,
             "binary": binary}
 
 
@@ -173,13 +250,16 @@ def _remote_of(syncer, settings):
 
 
 def _extras(syncer) -> dict:
-    """What the page needs beyond the engine's status: whether sync started, the conflicts and the
-    repository as ``owner/name`` (GitHub) or ``host/path``, never with credentials."""
+    """What the page needs beyond the engine's status: whether sync started, the conflicts, the
+    repository as ``owner/name`` (GitHub) or ``host/path`` (never with credentials) and whether the
+    host's key still waits for the owner's confirmation."""
     settings = syncer.settings()
     account = syncer.github_account()
+    records = syncer.conflicts()
     extras = {"started": settings.started if settings else None, "github": _github(account),
-              "conflict_list": [_summary(record) for record in syncer.conflicts()],
-              "repository": None, "github_repository": None, "ssh": False}
+              "conflict_list": [_summary(record) for record in records[:CONFLICTS_LISTED]],
+              "conflict_total": len(records), "repository": None, "github_repository": None, "ssh": False,
+              "host_key_unconfirmed": False}
     if settings is None:
         extras["suggested_label"] = default_label()
         return extras
@@ -188,6 +268,8 @@ def _extras(syncer) -> dict:
         hosted = hosted_repository(remote, account.host)
         extras.update(repository=hosted or remote.display, github_repository=hosted, ssh=remote.kind == "ssh",
                       private_confirmed=settings.private_confirmed)
+        if remote.kind == "ssh":  # a setup that stopped at the fingerprints, or that a reload interrupted
+            extras["host_key_unconfirmed"] = not keys.trusted_keys(syncer.known_hosts, remote.host, remote.port)
     return extras
 
 
@@ -213,6 +295,8 @@ def _material(line) -> tuple[str, str] | None:
 
 
 def _machines(syncer) -> dict:
+    """The repository's deploy keys on GitHub. ``managed`` marks the machines of this library: keys
+    with the title sync gives them; the others are listed for information only."""
     settings = syncer.settings()
     if settings is None:
         return {"available": False, "label": None, "machines": [], "message": "Sync is not set up."}
@@ -227,9 +311,11 @@ def _machines(syncer) -> dict:
     mine = _material(keys.public_key(syncer.state_dir))
     machines = []
     for key in client.deploy_keys(repository):
-        label = key.title[len(DEPLOY_KEY_TITLE):] if key.title.startswith(DEPLOY_KEY_TITLE) else key.title
-        machines.append({"id": key.id, "title": key.title, "label": label, "read_only": key.read_only,
-                         "created_at": key.created_at, "this": mine is not None and _material(key.key) == mine})
+        managed = key.title.startswith(DEPLOY_KEY_TITLE)
+        machines.append({"id": key.id, "title": key.title, "managed": managed,
+                         "label": key.title[len(DEPLOY_KEY_TITLE):] if managed else key.title,
+                         "read_only": key.read_only, "created_at": key.created_at,
+                         "this": mine is not None and _material(key.key) == mine})
     return {**base, "available": True, "repository": repository, "machines": machines}
 
 
@@ -244,6 +330,9 @@ def _remove_machine(syncer, key_id: int) -> dict:
     key = next((item for item in client.deploy_keys(repository) if item.id == key_id), None)
     if key is None:
         raise SyncError("invalid", f"{repository} has no such deploy key")
+    if not key.title.startswith(DEPLOY_KEY_TITLE):
+        raise SyncError("not_a_machine", f"{key.title} is not a machine of this library; remove it in the "
+                                         "repository's settings if it should go")
     mine = _material(keys.public_key(syncer.state_dir))
     if mine is not None and _material(key.key) == mine:
         raise SyncError("this_machine", "this is this machine's key; disconnect to stop syncing here")
@@ -288,6 +377,15 @@ def _disconnect(syncer) -> dict:
     return {**result, **note}
 
 
+def _setup_again(syncer, trust_host_key):
+    """Setup with what sync keeps, for a setup that stopped at the host's fingerprints."""
+    settings = syncer.settings()
+    if settings is None:
+        raise SyncError("not_set_up", "sync is not set up", state="off")
+    return syncer.setup(remote=settings.remote, name=settings.name, email=settings.email, label=settings.label,
+                        branch=settings.branch, trust_host_key=trust_host_key)
+
+
 def _preview(syncer) -> dict:
     preview = syncer.preview()
     settings = syncer.settings()
@@ -304,18 +402,24 @@ def _scopes(syncer) -> dict:
 
 
 class SyncUI:
-    """``/ui/api/sync…`` of one service; ``sign_in`` is the GitHub sign-in in progress, if any."""
+    """``/ui/api/sync…`` of one service.
+
+    ``sign_in`` is the GitHub sign-in in progress, if any. ``account_generation`` counts Forget
+    account: a sign-in started before one stores nothing, and ``_account`` orders the two.
+    """
 
     def __init__(self, service, *, clock=time.monotonic):
         self.service = service
         self.clock = clock
-        self.sign_in = None  # {"id", "device", "lock", "next", "expires"}
+        self.sign_in = None  # {"id", "device", "lock", "next", "expires", "generation"}
+        self.account_generation = 0
+        self._account = asyncio.Lock()
 
     @property
     def loop(self):
         return self.service.user_sync
 
-    async def handle(self, request, path: str, read_body):
+    async def handle(self, request, path: str):
         methods = ROUTES.get(path)
         if methods is None:
             return _json({"error": "not_found"}, 404)
@@ -323,13 +427,11 @@ class SyncUI:
         if name is None:
             return _json({"error": "method_not_allowed"}, 405, Allow=", ".join(sorted(methods)))
         try:
-            body = await read_body(request) if request.method in ("POST", "PUT") else {}
-        except Exception as error:  # FlowError: not a JSON object, or too large
-            return _json({"error": "invalid_request", "message": str(error).split(": ", 1)[-1]}, 400)
-        try:
+            body = await _read_body(request) if request.method in ("POST", "PUT") else {}
             return await getattr(self, name)(request, body)
         except BadRequest as error:
-            return _json({"error": "invalid_request", "message": str(error)}, 400)
+            return _json({"error": "invalid_request", "status": "error", "reason": error.reason,
+                          "message": str(error)}, error.code)
         except Unavailable:
             return _json({"error": "unavailable", "message": "the sync task is not running"}, 503)
         except (Abandoned, Draining):
@@ -353,7 +455,8 @@ class SyncUI:
     # --- status ------------------------------------------------------------------------
 
     async def status(self, request, body):
-        view = await self.loop.status_view()
+        """``?fresh=1`` reads the engine; otherwise a status the loop read within a scan interval."""
+        view = await self.loop.status_view(fresh=request.query_params.get("fresh") == "1")
         return _json({**view, **await self._work(_extras)})
 
     # --- GitHub sign-in: the device code stays here ------------------------------------
@@ -363,7 +466,8 @@ class SyncUI:
         device = await self._work(lambda syncer: syncer.github_account().start_sign_in())
         now = self.clock()
         self.sign_in = {"id": secrets.token_urlsafe(16), "device": device, "lock": asyncio.Lock(),
-                        "next": now + device.interval, "expires": now + device.expires_in}
+                        "next": now + device.interval, "expires": now + device.expires_in,
+                        "generation": self.account_generation}
         return _json({"attempt": self.sign_in["id"], **device.public()})
 
     async def device_poll(self, request, body):
@@ -384,21 +488,31 @@ class SyncUI:
             if self.clock() < attempt["next"]:  # asked sooner than GitHub's interval: answer for it
                 return _json({"state": "pending", "interval": device.interval})
             try:
-                result = await self._work(lambda syncer: syncer.github_account().poll_sign_in(device))
+                result = await self._work(lambda syncer: syncer.github_account().device_flow().poll(device))
             except GitHubError as error:
                 if error.code == "network":  # a short outage must not end the sign-in
                     attempt["next"] = self.clock() + device.interval
                     return _json({"state": "pending", "interval": device.interval, "message": error.message})
-                if self.sign_in is attempt:
-                    self.sign_in = None
+                self._end(attempt)
                 raise
             attempt["next"] = self.clock() + device.interval  # slow_down raised the interval
-            if result.get("state") != "connected":
-                return _json({"state": result.get("state"), "interval": result.get("interval", device.interval)})
-            if self.sign_in is attempt:
-                self.sign_in = None
-            return _json({"state": "connected", "github": {key: value for key, value in result.items()
-                                                           if key != "state"}})
+            if result.token is None:
+                return _json({"state": result.state, "interval": result.interval})
+            async with self._account:  # Forget account either ran before (nothing is kept) or runs after
+                if self.account_generation != attempt["generation"]:
+                    self._end(attempt)
+                    return _json({"status": "attention", "reason": "cancelled",
+                                  "message": "The GitHub account was forgotten while this sign-in waited; "
+                                             "nothing was kept."}, 409)
+                try:
+                    github = await self._work(lambda syncer: syncer.github_account().complete_sign_in(result.token))
+                finally:
+                    self._end(attempt)
+            return _json({"state": "connected", "github": github})
+
+    def _end(self, attempt) -> None:
+        if self.sign_in is attempt:
+            self.sign_in = None
 
     async def libraries(self, request, body):
         def work(syncer):
@@ -417,14 +531,17 @@ class SyncUI:
         return _json(await self._work(work))
 
     async def add_key(self, request, body):
-        """This machine's public key as a deploy key again, when GitHub lost it (``github add-key``)."""
+        """This machine's public key as a deploy key again, when GitHub lost it (``github add-key``).
+        Queued: a new key may be replacing the files it reads."""
         _fields(body, {})
-        return _json(await self._work(lambda syncer: syncer.add_deploy_key()))
+        return await self._queued("add_key", lambda syncer: syncer.add_deploy_key())
 
     async def forget(self, request, body):
         _fields(body, {})
-        self.sign_in = None
-        result = await self._work(lambda syncer: syncer.github_account().forget())
+        async with self._account:
+            self.account_generation += 1  # a sign-in still waiting for GitHub keeps nothing
+            self.sign_in = None
+            result = await self._work(lambda syncer: syncer.github_account().forget())
         return _json({"status": "forgotten", "github": None, "revoke_url": result.get("revoke_url"),
                       "message": "The GitHub authorization is deleted from this machine; revoke it on GitHub "
                                  "as well."})
@@ -433,14 +550,20 @@ class SyncUI:
 
     async def setup(self, request, body):
         fields = _fields(body, {"github": "text", "remote": "text", "name": "text", "email": "text",
-                                "label": "text", "trust_host_key": "text", "ask_new_repositories": "flag"})
+                                "label": "text", "trust_host_key": "text", "ask_new_repositories": "flag",
+                                "again": "flag"})
+        if fields.pop("again", False):  # what sync keeps, as before a reload: the fingerprints again
+            if set(fields) - {"trust_host_key"}:
+                raise BadRequest("again takes only trust_host_key")
+            return await self._queued("setup", lambda syncer: _setup_again(syncer, fields.get("trust_host_key")))
         github, remote = fields.pop("github", "").strip(), fields.pop("remote", "").strip()
         if bool(github) == bool(remote):
             raise BadRequest("give either github (owner/name) or remote (an SSH URL)")
         if not (fields.get("name", "").strip() and fields.get("email", "").strip()):
-            raise BadRequest("name and email are required")
+            raise BadRequest("name and email are required", reason="identity")
         options = {name: value.strip() if isinstance(value, str) else value for name, value in fields.items()
                    if value != ""}
+        _check_identity(options.get("name"), options.get("email"), options.get("label"))
         if github:
             return await self._queued("setup", lambda syncer: syncer.setup_github(github, **options))
         return await self._queued("setup", lambda syncer: syncer.setup(remote=remote, **options))
@@ -487,6 +610,7 @@ class SyncUI:
         paused = fields.pop("paused", None)
         if not fields and paused is None:
             raise BadRequest("nothing to change")
+        _check_identity(fields.get("name"), fields.get("email"), fields.get("label"))
         outcome = None
         if fields:
             outcome = await self.loop.perform("configure", lambda syncer: syncer.configure(**fields), queued=False)

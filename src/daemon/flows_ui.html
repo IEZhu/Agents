@@ -256,6 +256,8 @@ details.persona summary { cursor: pointer; }
 #sync-page .meta { word-break: normal; overflow-wrap: anywhere; }
 /* Headings take the focus when the page or a step opens; the ring shows for the keyboard only. */
 #sync-page [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+/* A control that waits for the page's request keeps the focus; it only looks and acts disabled. */
+#sync-page [aria-disabled="true"] { opacity: .5; cursor: default; }
 .sync-preview { display: flex; flex-direction: column; gap: 4px; }
 .sync-preview ul { margin: 0; padding-left: 1.4em; }
 .sync-preview li { overflow-wrap: anywhere; }
@@ -372,7 +374,7 @@ const state = { tab: "flows", category: "user", flows: [], repos: [], current: n
 const sync = { status: null, gen: 0, timer: null, shown: false, parts: null, controls: [], busy: false,
   wizard: null, device: null, deviceTimer: null, onConnected: null, seen: null, notice: null,
   scopes: null, scopesLoading: false, scopeHost: null, scopeConfirm: null, machines: null, review: null,
-  compare: null, keyMissing: false, revokeUrl: null };
+  compare: null, keyMissing: false, revokeUrl: null, unavailable: false, pausing: false };
 // Every list load bumps `gen`; a response that arrives for an older load is dropped.
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
 const KIND_LABEL = { agents: "Agents", rules: "Rules", skills: "Skills", implants: "Implants" };
@@ -787,7 +789,8 @@ async function save() {
         setEditorView("source");
         clearSyncNotice();
       } catch (_) {}
-      notice(synced ? "Sync updated this flow from " + synced.from + " at " + synced.at + " while you edited it. Your text is kept on the left."
+      notice(synced && synced.deleted ? "Sync deleted this flow on " + synced.from + " at " + synced.at + " while you edited it. Your text is kept here; copy it to keep it."
+        : synced ? "Sync updated this flow from " + synced.from + " at " + synced.at + " while you edited it. Your text is kept on the left."
         : "This flow changed elsewhere (chat or another window). Your text is kept on the left.", "error");
     } else {
       notice(error.message, "error");
@@ -1727,19 +1730,23 @@ function syncChip(status, now) {
     return { text: at ? "Offline, retry " + at : "Offline", tone: "warn" };
   }
   if (status.state !== "synced" && status.state !== "pending") return { text: "Needs attention", tone: "warn" };
-  if (status.conflicts) return { text: plural(status.conflicts, "conflict"), tone: "warn" };
+  const conflicts = status.conflict_total ?? status.conflicts;  // counted fresh with each answer
+  if (conflicts) return { text: plural(conflicts, "conflict"), tone: "warn" };
   if (status.state === "pending") return { text: (status.pending || 0) + " pending", tone: "busy" };
   return { text: status.last_success ? "Synced " + ago(status.last_success, now) : "Synced", tone: status.stale ? "warn" : "ok" };
 }
 
 function renderChip() {
-  const chip = $("sync-chip"), shown = state.signedOut ? null : syncChip(sync.status, Date.now());
+  const chip = $("sync-chip");
+  // A status that could not be read is not shown as the last one that could.
+  const shown = state.signedOut ? null : sync.unavailable && sync.status ? { text: "Sync status unavailable", tone: "warn" }
+    : syncChip(sync.status, Date.now());
   chip.classList.toggle("hidden", !shown);
   if (shown) {
     chip.textContent = shown.text;
     chip.dataset.tone = shown.tone;
     chip.setAttribute("aria-label", "Library sync: " + shown.text);
-    chip.title = "Library sync: " + shown.text + (sync.status.message ? ". " + sync.status.message : "");
+    chip.title = "Library sync: " + shown.text + (!sync.unavailable && sync.status.message ? ". " + sync.status.message : "");
   }
   schedulePlacement();  // the chip's width decides where the open item's controls fit
 }
@@ -1751,18 +1758,24 @@ function scheduleSyncPoll() {
   sync.timer = setTimeout(() => { sync.timer = null; refreshSync(); }, SYNC_POLL_MS);
 }
 
-// Reads the status; a refresh that a newer one overtook is dropped.
-async function refreshSync() {
+// Reads the status; a refresh that a newer one overtook is dropped. Polls take the status the daemon
+// read within its last scan; `fresh` (opening the Sync page, after its own actions) reads it now.
+async function refreshSync(fresh) {
   if (state.signedOut) return;
   const gen = ++sync.gen;
-  let status = null;
+  let status = null, failed = false;
   try {
-    status = await api("/ui/api/sync");
+    status = await api("/ui/api/sync" + (fresh ? "?fresh=1" : ""));
   } catch (error) {
     if (error.signedOut) return;
+    failed = true;
   }
   if (gen !== sync.gen) return;
   if (status) applySyncStatus(status);
+  else if (failed && !sync.unavailable) {
+    sync.unavailable = true;
+    renderChip();
+  }
   scheduleSyncPoll();
 }
 
@@ -1778,6 +1791,7 @@ document.addEventListener("visibilitychange", () => {
 
 function applySyncStatus(status) {
   sync.status = status;
+  sync.unavailable = false;
   renderChip();
   noticeSyncedFlow(status).catch(() => {});
   renderSyncPage(false);
@@ -1797,11 +1811,18 @@ async function noticeSyncedFlow(status) {
   if (!flow || state.draft || !["user", "repo"].includes(flow.source)) return;
   const hit = fresh.filter((entry) => (entry.received || []).includes(flow.id)).pop();
   if (!hit) return;
-  const latest = await api("/ui/api/flow?" + flowParams(flow));
-  if (state.current !== flow || latest.flow.revision === flow.revision) return;  // reloaded, or another repository's flow
+  let latest = null;
+  try {
+    latest = await api("/ui/api/flow?" + flowParams(flow));
+  } catch (error) {
+    if (error.status !== 404) return;  // 404: the cycle deleted it, which the notice says too
+  }
+  if (state.current !== flow || (latest && latest.flow.revision === flow.revision)) return;  // reloaded, or another repository's flow
   const from = (hit.received_from || []).join(", ") || "another machine";
-  sync.notice = { id: flow.id, repo: flow.repo_key || "", from, at: clockTime(hit.time) };
-  $("sync-notice-text").textContent = "Updated from " + from + " at " + sync.notice.at + ".";
+  sync.notice = { id: flow.id, repo: flow.repo_key || "", from, at: clockTime(hit.time), deleted: !latest };
+  $("sync-notice-text").textContent = latest ? "Updated from " + from + " at " + sync.notice.at + "."
+    : "Deleted on " + from + " at " + sync.notice.at + " by sync. Your text is still here; copy it to keep it.";
+  $("sync-reload").classList.toggle("hidden", !latest);
   $("sync-notice").classList.remove("hidden");
 }
 
@@ -1835,11 +1856,15 @@ function showSyncPage() {
   sync.parts = null;
   renderSyncPage(true);
   $("sync-title").focus();
-  refreshSync();
+  refreshSync(true);
 }
+
+// The tab of what shows again; where the focus goes when it was on the page that is hidden.
+const currentTab = () => Array.from($("tabs").children).find((button) => button.dataset.tab === state.tab);
 
 function hideSyncPage() {
   if (!sync.shown) return;
+  const focused = $("sync-page").contains(document.activeElement);
   sync.shown = false;
   $("sync-page").classList.add("hidden");
   $("main").classList.remove("hidden");
@@ -1851,6 +1876,7 @@ function hideSyncPage() {
   }
   $("new").classList.toggle("hidden", state.tab !== "flows");
   showPane($("item-actions").dataset.pane || "welcome");
+  if (focused && currentTab()) currentTab().focus();
 }
 
 $("sync-chip").addEventListener("click", () => (sync.shown ? hideSyncPage() : showSyncPage()));
@@ -1889,23 +1915,35 @@ function node(tag, parent, text, className) {
   return element;
 }
 
-// The page's controls wait while one of its requests runs; `dataset.off` keeps one disabled.
+// The page's controls wait while one of its requests runs. A waiting control stays focusable and
+// focused: it is marked aria-disabled and its handler ignores the input. `dataset.off` disables one
+// for good (a switch for a group that never syncs, Start before privacy is confirmed); `dataset.free`
+// never waits (Pause and Resume).
 function control(element) {
-  element.disabled = sync.busy || element.dataset.off === "1";
   sync.controls.push(element);
   if (sync.controls.length > 400) sync.controls = sync.controls.filter((item) => item.isConnected !== false);
+  markControl(element);
   return element;
 }
 
-function setControls() {
-  for (const element of sync.controls) element.disabled = sync.busy || element.dataset.off === "1";
+function markControl(element) {
+  element.disabled = element.dataset.off === "1";
+  if (sync.busy && !element.dataset.free) element.setAttribute("aria-disabled", "true");
+  else element.removeAttribute("aria-disabled");
 }
 
-function action(parent, label, handler, className) {
+function setControls() {
+  for (const element of sync.controls) markControl(element);
+}
+
+// `options.name` gives a button in a list its own accessible name ("Remove linux-9f9f").
+function action(parent, label, handler, className, options = {}) {
   const button = node("button", parent, label, className);
   button.setAttribute("type", "button");
+  if (options.name) button.setAttribute("aria-label", options.name);
+  if (options.free) button.dataset.free = "1";
   button.addEventListener("click", () => {
-    if (sync.busy) return;
+    if (sync.busy && !options.free) return;
     Promise.resolve(handler()).catch((error) => { if (!error.signedOut) syncAlert(error.message, "error"); });
   });
   return control(button);
@@ -1932,7 +1970,13 @@ function checkbox(parent, label, checked, onChange, off) {
   box.checked = !!checked;
   if (off) box.dataset.off = "1";
   row.appendChild(document.createTextNode(label));
-  box.addEventListener("change", () => onChange(box.checked));
+  box.addEventListener("change", () => {
+    if (sync.busy) {  // a waiting page takes no input: the switch goes back
+      box.checked = !box.checked;
+      return;
+    }
+    onChange(box.checked);
+  });
   return control(box);
 }
 
@@ -1985,7 +2029,7 @@ async function copyText(text, done) {
 function keyBlock(parent, text) {
   const row = node("div", parent, null, "bar");
   node("code", row, text, "sync-key sync-grow");
-  action(row, "Copy", () => copyText(text, "The public key is copied."));
+  action(row, "Copy", () => copyText(text, "The public key is copied."), "", { name: "Copy the public key" });
 }
 
 function identityProblem(name, email, label, labelRequired) {
@@ -2077,7 +2121,7 @@ async function pollSignIn() {
   sync.onConnected = null;
   if (next) next(); else rerenderSync();
   syncAlert("Signed in to GitHub as @" + result.github.login + ".", "ok");
-  refreshSync();
+  refreshSync(true);
 }
 
 function cancelSignIn() {
@@ -2260,9 +2304,20 @@ function wizardAccess(card, wizard) {
       radio(group, "sync-host-key", fingerprint, fingerprint, wizard.trust === fingerprint, (value) => { wizard.trust = value; });
     }
     const bar = node("div", card, null, "bar");
-    action(bar, "Back", () => goWizard({ step: "identity", setup: null }));
-    action(bar, "Trust this key", () => (wizard.trust ? setUpSync(wizard.trust)
+    if (!wizard.again) action(bar, "Back", () => goWizard({ step: "identity", setup: null }));
+    const trust = () => (wizard.again ? setUpAgain(wizard.trust) : setUpSync(wizard.trust));
+    action(bar, "Trust this key", () => (wizard.trust ? trust()
       : syncAlert("Choose the fingerprint that matches the host's.", "error")), "primary");
+    return;
+  }
+  if (!setup && status.host_key_unconfirmed) {
+    // A setup that stopped at the host's fingerprints, then a reload: ask the host again.
+    node("p", card, "The host key of " + (status.repository || "the repository's host") + " is not confirmed yet.");
+    action(node("div", card, null, "bar"), "Show the host keys", () => setUpAgain(), "primary");
+    if (!wizard.askedAgain) {
+      wizard.askedAgain = true;
+      Promise.resolve().then(() => setUpAgain());
+    }
     return;
   }
   const where = wizard.mode === "github" ? wizard.repository : status.repository || wizard.remote;
@@ -2282,6 +2337,16 @@ function wizardAccess(card, wizard) {
   action(bar, "Start over", () => disconnectSync(true));
   if (sync.keyMissing) action(bar, "Add this machine's key on GitHub", addDeployKey);
   action(bar, "Check access", checkAccess, "primary");
+}
+
+// Setup again with what sync keeps (remote, identity, label), for a setup that stopped at the
+// host's fingerprints; with `trust`, the fingerprint the owner confirmed.
+async function setUpAgain(trust) {
+  const wizard = sync.wizard;
+  const result = await syncTask(() => post("/setup", trust ? { again: true, trust_host_key: trust } : { again: true }));
+  if (!result || sync.wizard !== wizard) return;
+  goWizard({ setup: result, step: "access", check: null, again: true });
+  if (result.status !== "host_key_unconfirmed") refreshSync(true);
 }
 
 // Access to the repository: from the wizard, which then goes on, or from the dashboard.
@@ -2304,6 +2369,7 @@ async function checkAccess() {
     if (result) syncAlert(works, "ok");
     else if (refused) syncAlert(refused.message, "error");
     if (sync.parts) renderAccessPart();
+    if (result || refused) refreshSync(true);
     return;
   }
   if (sync.wizard !== wizard || (!result && !refused)) return;
@@ -2439,7 +2505,7 @@ async function startSync() {
     syncAlert((result.message || "The preview changed") + ". Review the new preview.", "error");
     return;
   }
-  await refreshSync();
+  await refreshSync(true);
   if (sync.status && sync.status.started) syncAlert("Sync started: " + cycleText(result), "ok");
   else syncAlert(result.message || "Sync did not start.", "error");
 }
@@ -2522,7 +2588,7 @@ async function changeScope(target, how, confirmHash) {
     sync.scopes = { ...result, ask_new_repositories: !!(sync.scopes && sync.scopes.ask_new_repositories) };
     syncAlert(how === "exclude" ? target + " no longer syncs; its files stay on every machine."
       : how === "include" ? target + " syncs again." : target + " is approved and uploads with the next sync.", "ok");
-    refreshSync();
+    refreshSync(true);
   }
   renderScopes();  // a refusal puts the switch back
 }
@@ -2535,8 +2601,25 @@ async function saveSettings(changes, done) {
     return null;
   }
   if (done) syncAlert(done, "ok");
-  await refreshSync();
+  await refreshSync(true);
   return result;
+}
+
+// Pause and Resume answer at once in the daemon, also while a cycle or a queued job runs, so they
+// never wait for the page's other request either.
+async function setPaused(paused) {
+  if (sync.pausing) return;
+  sync.pausing = true;
+  try {
+    await api("/ui/api/sync/settings", { method: "PUT", body: { paused } });
+  } catch (error) {
+    if (!error.signedOut) syncAlert(error.message, "error");
+    return;
+  } finally {
+    sync.pausing = false;
+  }
+  syncAlert(paused ? "Sync is paused." : "Sync resumed.", "ok");
+  await refreshSync(true);
 }
 
 // --- the dashboard, once sync has started ---------------------------------------------------
@@ -2549,7 +2632,8 @@ const FETCH_MINUTES = [1, 2, 5, 10, 15, 30, 60];
 
 // What identifies a control across a rebuild: a button's label, or the label around a field.
 const controlKey = (element) => (["INPUT", "SELECT"].includes(element.tagName) && element.parentNode
-  ? "field:" + element.parentNode.textContent : "button:" + element.textContent);
+  ? "field:" + element.parentNode.textContent
+  : "button:" + ((element.getAttribute && element.getAttribute("aria-label")) || element.textContent));
 
 // Before `host` is rebuilt under the keyboard focus: returns what gives the focus back once it is
 // built, to the control with the same label, else to `fallback`.
@@ -2623,14 +2707,23 @@ function renderStatusPart() {
   if (status.size_warning) node("p", host, "The repository is larger than 200 MiB.", "notice");
   const bar = node("div", host, null, "bar");
   action(bar, "Sync now", () => syncNow(), "primary");
-  if (status.state === "paused") action(bar, "Resume", () => saveSettings({ paused: false }, "Sync resumed."));
-  else action(bar, "Pause", () => saveSettings({ paused: true }, "Sync is paused."));
+  const paused = status.state === "paused";
+  action(bar, paused ? "Resume" : "Pause", () => setPaused(!paused), "", { free: true });
   const every = node("label", bar, null, "sync-option");
   every.appendChild(document.createTextNode("Fetch every"));
   const select = control(node("select", every));
-  for (const minutes of FETCH_MINUTES) select.appendChild(new Option(plural(minutes, "minute"), String(minutes)));
-  select.value = String(status.fetch_minutes || 5);
-  select.addEventListener("change", () => saveSettings({ fetch_minutes: Number(select.value) }, "Saved."));
+  const minutes = Number(status.fetch_minutes) || 5;  // the command line may have set one the list lacks
+  for (const value of [...new Set([...FETCH_MINUTES, minutes])].sort((a, b) => a - b)) {
+    select.appendChild(new Option(plural(value, "minute"), String(value)));
+  }
+  select.value = String(minutes);
+  select.addEventListener("change", () => {
+    if (sync.busy) {
+      select.value = String(minutes);
+      return;
+    }
+    saveSettings({ fetch_minutes: Number(select.value) }, "Saved.");
+  });
   if (status.reason === "confirmation_needed") renderReview(host);
 }
 
@@ -2663,7 +2756,7 @@ async function syncNow(confirmHash) {
   // Attention after a cycle (a scanner hit, a group to approve) or a held lock is a notice, not a failure.
   const kind = ok ? "ok" : ["attention", "offline", "lock_held"].includes(result.status) ? "" : "error";
   syncAlert((ok ? "Synced: " : "") + cycleText(result), kind);
-  await refreshSync();
+  await refreshSync(true);
 }
 
 function renderMachinesPart() {
@@ -2682,15 +2775,27 @@ function renderMachinesPart() {
     node("p", host, machines.message, "meta");
     return;
   }
+  const ours = machines.machines.filter((machine) => machine.managed);
+  const others = machines.machines.filter((machine) => !machine.managed);
   const list = node("ul", host, null, "sync-list");
-  for (const machine of machines.machines) {
+  for (const machine of ours) {
     const item = node("li", list);
     node("span", item, machine.label + (machine.this ? " (this machine)" : "") + (machine.read_only ? ", read-only" : ""), "sync-grow");
     if (machine.created_at) node("span", item, "added " + dateTime(machine.created_at), "meta");
-    if (!machine.this) action(item, "Remove", () => removeMachine(machine), "danger");
+    if (!machine.this) action(item, "Remove", () => removeMachine(machine), "danger", { name: "Remove " + machine.label });
   }
-  if (!machines.machines.length) node("p", host, "GitHub lists no deploy keys.", "meta");
-  node("p", host, "Each machine is a deploy key of " + machines.repository + ". Removing one stops that machine from syncing; its files stay there.", "meta");
+  if (!ours.length) node("p", host, "GitHub lists no machine of this library.", "meta");
+  node("p", host, "Each machine is a deploy key that Agents-Core added to " + machines.repository + ". Removing one stops that machine from syncing; its files stay there.", "meta");
+  if (!others.length) return;
+  // Keys that sync did not add (a CI system's, a person's): shown, never removed from here.
+  node("h4", host, "Other deploy keys");
+  node("p", host, "Agents-Core did not add these keys, and does not remove them; manage them in the repository's settings on GitHub.", "meta");
+  const foreign = node("ul", host, null, "sync-list");
+  for (const key of others) {
+    const item = node("li", foreign);
+    node("span", item, key.title + (key.read_only ? ", read-only" : ""), "sync-grow");
+    if (key.created_at) node("span", item, "added " + dateTime(key.created_at), "meta");
+  }
 }
 
 async function loadMachines() {
@@ -2715,8 +2820,20 @@ async function removeMachine(machine) {
   loadMachines();
 }
 
+// What a conflict is about, unique among the records: a flow's text, its persona or override marker,
+// or another file by its path.
+function conflictSubject(record) {
+  const path = record.path || "", flow = record.flow;
+  if (!flow) return path;
+  const where = record.repo_key ? " in " + record.repo_key : "";
+  if (path.endsWith(".md")) return flow + where;
+  if (path.startsWith("personas/")) return flow + where + " (persona)";
+  if (path.endsWith(".meta.json")) return flow + where + " (override marker)";
+  return path;
+}
+
 function conflictText(record) {
-  const what = record.flow ? record.flow + (record.repo_key ? " (" + record.repo_key + ")" : "") : record.path;
+  const what = conflictSubject(record);
   if (record.kind === "deletion_undone") {
     return what + (record.deleted_on === "local" ? ": deleted here and changed on another machine; the changed version is back."
       : ": changed here and deleted on another machine; your version stays.");
@@ -2736,19 +2853,24 @@ function renderConflictsPart() {
     const text = node("div", item, null, "sync-grow");
     node("div", text, conflictText(record));
     node("small", text, "Recorded " + dateTime(record.time) + (record.machine ? " by " + record.machine : ""), "meta");
-    const bar = node("div", item, null, "bar");
-    action(bar, "Open", () => openConflict(record));
-    action(bar, "Keep current", () => resolveConflict(record, "keep"));
-    action(bar, "Use mine", () => resolveConflict(record, "mine"));
-    action(bar, "Dismiss", () => resolveConflict(record, "dismiss"));
+    const bar = node("div", item, null, "bar"), what = conflictSubject(record);
+    action(bar, "Open", () => openConflict(record), "", { name: "Open the conflict on " + what });
+    action(bar, "Keep current", () => resolveConflict(record, "keep"), "", { name: "Keep the current version of " + what });
+    action(bar, "Use mine", () => resolveConflict(record, "mine"), "", { name: "Use my version of " + what });
+    action(bar, "Dismiss", () => resolveConflict(record, "dismiss"), "", { name: "Dismiss the conflict on " + what });
     if (sync.compare && sync.compare.id === record.id) renderComparison(item, sync.compare);
+  }
+  const total = sync.status.conflict_total || records.length;
+  if (total > records.length) {
+    node("p", host, "And " + (total - records.length) + " more; they show here as these are resolved, and python -m src.user_sync conflicts lists them all.", "meta");
   }
 }
 
 // A file that is not a flow's text: its current and its kept version side by side, read-only.
 function renderComparison(parent, detail) {
   const panes = node("div", parent, null, "panes split");
-  for (const [label, text] of [["Current", detail.current], ["Yours, kept by sync", detail.binary ? "(binary content)" : detail.mine]]) {
+  for (const [label, text] of [["Current", detail.current_binary ? "(not text: binary content)" : detail.current],
+    ["Yours, kept by sync", detail.binary ? "(not text: binary content)" : detail.mine]]) {
     const pane = node("div", panes, null, "pane");
     node("span", pane, label, "meta");
     const area = node("textarea", pane);
@@ -2777,13 +2899,18 @@ async function openConflict(record) {
     return;
   }
   if (!sameFlow(state.current, record.flow, record.repo_key)) return;  // unsaved text of another flow stayed
+  $("content").focus();
+  if (detail.binary) {
+    notice("The version sync kept is not text; it stays in the flow's history. On the Sync page, “Use mine” restores it.");
+    return;
+  }
   if (typeof detail.mine !== "string") return;
   showSide("Your version, kept by sync on " + dateTime(record.time) + " (read-only)", detail.mine);
   notice("Sync kept your version on the right. Copy what you need into the text on the left and save. On the Sync page, “Use mine” restores it and “Keep current” resolves the conflict.");
 }
 
 async function resolveConflict(record, how) {
-  const what = record.flow || record.path;
+  const what = conflictSubject(record);
   const question = how !== "mine" || !record.mine ? null
     : record.mine === "deleted" ? "Use mine deletes " + what + " again, as this machine did. Its text stays in history."
       : "Use mine makes your kept version of " + what + " current again; the current text goes to history.";
@@ -2793,7 +2920,7 @@ async function resolveConflict(record, how) {
   if (sync.compare && sync.compare.id === record.id) sync.compare = null;
   syncAlert(how === "mine" ? "Your version of " + what + " is current." : how === "keep" ? "The current version of " + what + " stays."
     : "The conflict on " + what + " is dismissed.", "ok");
-  await refreshSync();
+  await refreshSync(true);
 }
 
 function renderScopesPart() {
@@ -2807,7 +2934,7 @@ function renderScopesPart() {
     for (const entry of announced) {
       const item = node("li", list);
       node("span", item, (entry.origin || entry.group) + ", " + dateTime(entry.time), "sync-grow");
-      action(item, "Exclude", () => changeScope(entry.group, "exclude"));
+      action(item, "Exclude", () => changeScope(entry.group, "exclude"), "", { name: "Exclude " + (entry.origin || entry.group) });
     }
   }
   const waiting = [...(status.pending_groups || []).map((group) => [group, "approve"]),
@@ -2818,7 +2945,7 @@ function renderScopesPart() {
     for (const [target, how] of waiting) {
       const item = node("li", list);
       node("span", item, target, "sync-grow");
-      action(item, "Approve", () => changeScope(target, how), "primary");
+      action(item, "Approve", () => changeScope(target, how), "primary", { name: "Approve " + target });
     }
   }
   node("h4", host, "Groups");
@@ -2866,21 +2993,38 @@ function renderAccessPart() {
 }
 
 async function forgetAccount() {
-  if (!confirm("Forget the GitHub account on this machine? Sync goes on with this machine's deploy key; listing machines and creating repositories need a new sign-in.")) return;
+  if (!confirm("Forget the GitHub account on this machine? Sync goes on with this machine's deploy key; listing machines, a new key and creating repositories need a new sign-in.")) return;
   const result = await syncTask(() => post("/github/forget"));
   if (!result) return;
   sync.revokeUrl = result.revoke_url || null;
   syncAlert(result.message, "ok");
-  await refreshSync();
+  await refreshSync(true);
   loadMachines();
 }
 
+// On GitHub the daemon adds the new key and removes the old one, which needs the account; on
+// another host the owner adds the new key.
+function regenerateQuestion(status) {
+  const github = status.github;
+  if (status.github_repository) {
+    if (!github || !github.connected || github.reconnect_needed) return null;  // the daemon refuses: say why
+    return "Create a new key for this machine? Agents-Core adds it to " + status.github_repository
+      + " on GitHub, then removes the old one.";
+  }
+  return "Create a new key for this machine? You then add its public key to the repository as a deploy key with write access and remove the old one; until then this machine cannot sync.";
+}
+
 async function regenerateKey() {
-  if (!confirm("Create a new key for this machine? On GitHub the new key is added and the old one removed. On another host you add the new key yourself, and until then this machine cannot sync.")) return;
+  const question = regenerateQuestion(sync.status);
+  if (question === null) {
+    syncAlert("Sign in to GitHub first: the new key becomes a deploy key of " + sync.status.github_repository + " before the old one goes.", "error");
+    return;
+  }
+  if (!confirm(question)) return;
   const result = await syncTask(() => post("/key/regenerate"));
   if (!result) return;
   syncAlert(result.message, result.deploy_key === "manual" ? "" : "ok");
-  await refreshSync();
+  await refreshSync(true);
   loadMachines();
 }
 
@@ -2939,7 +3083,7 @@ async function disconnectSync(startOver) {
   if (!result) return;
   Object.assign(sync, { wizard: null, parts: null, scopes: null, scopeConfirm: null, machines: null, review: null,
     compare: null, keyMissing: false });
-  await refreshSync();
+  await refreshSync(true);
   syncAlert("Sync is off on this machine. " + (result.deploy_key_message || ""), "ok");
 }
 

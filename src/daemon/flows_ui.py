@@ -34,7 +34,8 @@ from src.user_flows import FlowLibrary
 from src.version import agents_core_version
 from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
-from .sync_ui import SyncUI, is_sync_path
+from .sync_loop import DRAINING
+from .sync_ui import SyncUI, is_passive, is_sync_path
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
@@ -187,13 +188,16 @@ class FlowsUI:
         if session_key is None:
             return await self._json({"error": "session_required"}, 401)(scope, receive, send)
         if self.service.state == "draining":
-            return await self._json({"error": "draining"}, 503)(scope, receive, send)
+            return await self._json(DRAINING if syncing else {"error": "draining"}, 503)(scope, receive, send)
         # Sync's operations follow the sync task's drain, as /admin/user-sync does (sync_loop.py):
         # a queued one must not hold the drain that would end it.
         counted = not syncing
+        # The Sync page's polls are not activity: an open page must not hold back an automatic update.
+        active = not (syncing and is_passive(request.method, path))
         if counted:
             self.service.inflight += 1
-        self.service.last_activity = time.monotonic()
+        if active:
+            self.service.last_activity = time.monotonic()
         try:
             response = await self._api(request, path)
             renewed = await asyncio.to_thread(self._new_cookie, session_key)
@@ -202,7 +206,8 @@ class FlowsUI:
         finally:
             if counted:
                 self.service.inflight -= 1
-            self.service.last_activity = time.monotonic()
+            if active:
+                self.service.last_activity = time.monotonic()
         return await response(scope, receive, send)
 
     @staticmethod
@@ -287,7 +292,7 @@ class FlowsUI:
 
     async def _api(self, request: Request, path: str):
         if is_sync_path(path):
-            return await self.sync.handle(request, path, self._body)
+            return await self.sync.handle(request, path)
         query = request.query_params
         try:
             if path == "/ui/api/workspaces" and request.method == "GET":

@@ -9,11 +9,13 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 import socket
+import threading
 
 import httpx
 import pytest
 
 from src import user_library
+from src.daemon.sync_loop import DRAINING
 from src.daemon.sync_ui import ROUTES
 from src.flows import FlowCatalog
 from src.user_flows import FlowLibrary
@@ -46,6 +48,7 @@ class UISyncer(FakeSyncer):
         (self.state_dir / keys.KEY_NAME).write_text(PRIVATE)  # served by no route
         (self.state_dir / f"{keys.KEY_NAME}.pub").write_text(THIS_KEY + "\n")
         self.allow_file_remote = False
+        self.known_hosts = self.state_dir / "known_hosts"
         self.account = account
         vars(self.config).update(remote=f"git@github.com:{REPOSITORY}.git", name="Me", email="me@example.com",
                                  label="mac-0001", branch="main", private_confirmed=False,
@@ -350,15 +353,22 @@ async def test_each_route_uses_the_queue_only_for_git_and_the_network(tmp_path, 
                 ("PUT", "/ui/api/sync/settings", {"paused": False}),
                 ("PUT", "/ui/api/sync/scopes", {"exclude": ["history"]}),
                 ("POST", "/ui/api/sync/conflicts/resolve", {"id": "20261005T120000000000Z-aaaaaaaaaa", "action": "keep"}),
+                ("POST", "/ui/api/sync/github/add-key", {}),
+                ("POST", "/ui/api/sync/setup", {"again": True, "trust_host_key": "SHA256:y"}),
                 ("POST", "/ui/api/sync/disconnect", {})]:
             response = await call(method, path, body)
             assert response.status_code == 200, (path, response.text)
         assert decided == [("setup", True), ("setup", True), ("check", True), ("preview", True), ("start", True),
                            ("run", True), ("regenerate_key", True), ("configure", False), ("resume", False),
-                           ("scopes", False), ("resolve", False), ("disconnect", True)]
+                           ("scopes", False), ("resolve", False), ("add_key", True), ("setup", True),
+                           ("disconnect", True)]
         names = [name for name, _ in syncer.calls]
         assert names == ["setup_github", "setup", "check", "preview", "setup", "start", "regenerate_key", "configure",
-                         "resume", "change_scopes", "resolve", "disconnect"]
+                         "resume", "change_scopes", "resolve", "add_deploy_key", "setup", "disconnect"]
+        # Setup again takes what sync keeps: the remote, the identity, the label and the branch.
+        assert syncer.calls[12][1] == {"remote": f"git@github.com:{REPOSITORY}.git", "name": "Me",
+                                       "email": "me@example.com", "label": "mac-0001", "branch": "main",
+                                       "trust_host_key": "SHA256:y"}
         assert syncer.calls[0][1] == {"repository": REPOSITORY, "name": "Me", "email": "me@example.com",
                                       "label": "mac-0001"}
         assert syncer.calls[1][1]["trust_host_key"] == "SHA256:x"
@@ -435,13 +445,16 @@ async def test_machines_are_the_deploy_keys_and_this_one_cannot_be_removed(fake,
     syncer = UISyncer(tmp_path, signed_in(fake, account))
     listed = [{"id": 11, "title": "Agents-Core mac-0001", "key": key_material(THIS_KEY), "read_only": False},
               {"id": 12, "title": "Agents-Core linux-9f9f", "key": key_material(OTHER_KEY), "read_only": False,
-               "created_at": "2026-10-01T08:00:00Z"}]
+               "created_at": "2026-10-01T08:00:00Z"},
+              {"id": 13, "title": "CI deploy", "key": key_material(public_key(5)), "read_only": True}]
     fake.reply("GET", KEYS_PATH, 200, listed, repeat=True)
     async with ui(tmp_path, syncer) as (call, _):
         machines = (await call("GET", "/ui/api/sync/machines")).json()
         assert machines["available"] and machines["repository"] == REPOSITORY and machines["label"] == "mac-0001"
-        assert [(m["id"], m["label"], m["this"]) for m in machines["machines"]] == [(11, "mac-0001", True),
-                                                                                (12, "linux-9f9f", False)]
+        assert [(m["id"], m["label"], m["this"], m["managed"]) for m in machines["machines"]] == [
+            (11, "mac-0001", True, True), (12, "linux-9f9f", False, True), (13, "CI deploy", False, False)]
+        foreign = await call("POST", "/ui/api/sync/machines/remove", {"id": 13})
+        assert foreign.status_code == 409 and foreign.json()["reason"] == "not_a_machine"
         own = await call("POST", "/ui/api/sync/machines/remove", {"id": 11})
         assert own.status_code == 409 and own.json()["reason"] == "this_machine"
         missing = await call("POST", "/ui/api/sync/machines/remove", {"id": 99})
@@ -495,3 +508,148 @@ async def test_disconnect_reports_a_deploy_key_it_could_not_remove(fake, tmp_pat
         done = (await call("POST", "/ui/api/sync/disconnect", {})).json()
         assert done["status"] == "off" and done["deploy_key"] == "failed"
         assert "remove it on GitHub" in done["deploy_key_message"] and ("disconnect", {}) in syncer.calls
+
+
+# --- polls, the status cache, draining and limits ---------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_pages_polls_leave_the_service_idle(tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer, scan_every=30) as (call, service):
+        assert (await call("PUT", "/ui/api/sync/settings", {"fetch_minutes": 10})).status_code == 200
+        acted, idle = service.last_activity, []
+        for path in ("/ui/api/sync", "/ui/api/sync/scopes", "/ui/api/sync/machines",
+                     "/ui/api/sync/conflict?id=x", "/ui/api/sync/github/device?attempt=x"):
+            await asyncio.sleep(.06)
+            await call("GET", path)
+            idle.append(service.health()["idle_seconds"])
+        assert service.last_activity == acted  # an open page never holds back an automatic update
+        assert idle == sorted(idle) and idle[-1] >= .2
+        await call("POST", "/ui/api/sync/check", {})
+        assert service.last_activity > acted  # what the owner asks for is activity
+
+
+@pytest.mark.asyncio
+async def test_polls_reuse_the_last_scans_status_and_reads_share_one_computation(tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer, scan_every=30) as (call, service):
+        await until(lambda: service.user_sync.last_status is not None)  # the first scan read it
+        before = syncer.statuses
+        cached = (await call("GET", "/ui/api/sync")).json()
+        assert cached["state"] == "waiting_for_access" and cached["loop"]["state"] == "running"
+        assert syncer.statuses == before  # within a scan interval: what the loop read
+        await call("GET", "/ui/api/sync?fresh=1")
+        assert syncer.statuses == before + 1
+        syncer.hold_next_status = True
+        both = asyncio.gather(call("GET", "/ui/api/sync?fresh=1"), call("GET", "/ui/api/sync?fresh=1"))
+        await asyncio.get_running_loop().run_in_executor(None, syncer.holding_status.wait, 5)
+        syncer.status_released.set()
+        assert [response.status_code for response in await both] == [200, 200]
+        assert syncer.statuses == before + 2  # the two reads shared one
+        service.user_sync.last_status_at -= 31  # older than a scan interval: read again
+        await call("GET", "/ui/api/sync")
+        assert syncer.statuses == before + 3
+        assert (await call.http.get("/admin/user-sync/status")).status_code == 200
+        assert syncer.statuses == before + 4  # the admin endpoint always reads
+
+
+@pytest.mark.asyncio
+async def test_a_draining_service_says_so_and_a_large_body_is_refused_unread(tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer) as (call, service):
+        big = await call.http.post("/ui/api/sync/check", content=b"{" + b" " * (70 * 1024) + b"}", headers=UI)
+        assert big.status_code == 413 and big.json()["reason"] == "too_large"
+        exact = await call.http.post("/ui/api/sync/check", content=b"{" + b" " * (64 * 1024 - 2) + b"}", headers=UI)
+        assert exact.status_code == 200
+        service.state = "draining"
+        try:
+            draining = await call("GET", "/ui/api/sync")
+        finally:
+            service.state = "ready"
+        assert draining.status_code == 503 and draining.json() == DRAINING
+
+
+@pytest.mark.asyncio
+async def test_an_identity_git_cannot_hold_is_refused_before_anything_is_stored(tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer) as (call, _):
+        for body in ({"email": "me\x01@example.com"}, {"name": "Me\x02"}, {"label": "Desk"}, {"name": " "}):
+            refused = await call("PUT", "/ui/api/sync/settings", body)
+            assert refused.status_code == 400, body
+            assert (refused.json()["status"], refused.json()["reason"]) == ("error", "identity"), body
+        setup = await call("POST", "/ui/api/sync/setup", {"github": REPOSITORY, "name": "Me", "email": "me\x01@x.com"})
+        assert setup.status_code == 400 and setup.json()["reason"] == "identity"
+        assert syncer.calls == []
+
+
+# --- sign-in against Forget account ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_sign_in_that_ends_after_forget_account_keeps_nothing(fake, tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    fake.reply("POST", "/login/device/code", 200, {"device_code": DEVICE_CODE, "user_code": "WDJB-MJHT",
+                                                   "verification_uri": "https://github.com/login/device",
+                                                   "expires_in": 900, "interval": 5})
+    async with ui(tmp_path, syncer) as (call, service):
+        now = [1000.0]
+        service.flows_ui.sync.clock = lambda: now[0]
+        attempt = (await call("POST", "/ui/api/sync/github/device", {})).json()["attempt"]
+        waiting, release = threading.Event(), threading.Event()
+        make_flow = account.device_flow
+
+        class Slow:  # GitHub grants the sign-in while another tab forgets the account
+            def poll(self, device):
+                waiting.set()
+                release.wait(10)
+                return make_flow().poll(device)
+        account.device_flow = Slow
+        fake.reply("POST", "/login/oauth/access_token", 200, GRANTED)
+        now[0] += 5
+        polling = asyncio.create_task(call("GET", f"/ui/api/sync/github/device?attempt={attempt}"))
+        await asyncio.get_running_loop().run_in_executor(None, waiting.wait, 5)
+        assert (await call("POST", "/ui/api/sync/github/forget", {})).status_code == 200
+        release.set()
+        polled = await polling
+        assert polled.status_code == 409 and polled.json()["reason"] == "cancelled"
+        assert account._store.token is None and account.status()["connected"] is False
+        assert not [request for request in fake.requests if request.path == "/api/v3/user"]  # never even checked
+        no_secrets(call.texts)
+
+
+# --- conflicts and the status's extras ------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_conflict_texts_come_only_from_files_sync_handles(tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    library = syncer.library
+    (library / ".git").mkdir(parents=True)
+    (library / ".git" / "config").write_text("[core]\n\tsecret = not for the page\n")
+    version = ".history/common/doc/20261005T120000000000Z-aaaaaaaaaaaa.md"
+    (library / version).parent.mkdir(parents=True)
+    (library / version).write_bytes(b"\xff\xfe not UTF-8")
+    conflicts = library / ".agents-sync" / "conflicts"
+    conflicts.mkdir(parents=True)
+    (conflicts / "20261005T120000000000Z-aaaaaaaaaa.json").write_text(json.dumps(
+        {"path": ".git/config", "kind": "both_changed", "kept": "remote", "local_version": version}))
+    for number in range(1, 55):  # 55 records in all
+        (conflicts / f"20261005T{number:012d}Z-{number:010x}.json").write_text(json.dumps(
+            {"path": f"common/f{number}.md", "kind": "both_changed", "kept": "remote", "local_content": "x"}))
+    async with ui(tmp_path, syncer) as (call, _):
+        detail = (await call("GET", "/ui/api/sync/conflict?id=20261005T120000000000Z-aaaaaaaaaa")).json()
+        assert (detail["current"], detail["current_binary"]) == (None, False)  # .git is not the library's
+        assert (detail["mine"], detail["binary"]) == (None, True)  # kept, but not text
+        status = (await call("GET", "/ui/api/sync?fresh=1")).json()
+        assert len(status["conflict_list"]) == 50 and status["conflict_total"] == 55
+        assert all("not for the page" not in text for text in call.texts)
+
+
+@pytest.mark.asyncio
+async def test_the_status_says_when_the_hosts_key_waits_for_confirmation(tmp_path, account):
+    syncer = UISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer) as (call, _):
+        assert (await call("GET", "/ui/api/sync?fresh=1")).json()["host_key_unconfirmed"] is True
+        syncer.known_hosts.write_text("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBmFjZWJvb2t\n")
+        assert (await call("GET", "/ui/api/sync?fresh=1")).json()["host_key_unconfirmed"] is False

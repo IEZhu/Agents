@@ -40,7 +40,8 @@ function element(id = "", tag = "") {
     setAttribute(name, value) { self.attrs[name] = String(value); if (name === "id" && !elements.has(value)) elements.set(value, self); },
     scrollIntoView() { self.scrolled += 1; },
     contains: (node) => node === self || self.children.some((child) => child.nodeType !== 3 && child.contains(node)),
-    removeAttribute() {}, querySelector: () => element(), querySelectorAll: () => [], showModal() {}, close() {},
+    removeAttribute(name) { delete self.attrs[name]; }, getAttribute: (name) => (name in self.attrs ? self.attrs[name] : null),
+    querySelector: () => element(), querySelectorAll: () => [], showModal() {}, close() {},
     focus() { self.focused += 1; },
   };
   return self;
@@ -54,6 +55,8 @@ const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
 let signedIn = ["search", "render", "persona_race", "agents"].includes(scenario) || isUi || isSync;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
+const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
+const confirms = [];  // every question the page asked with confirm()
 const puts = [];
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
@@ -80,7 +83,10 @@ async function fetchStub(path, init = {}) {
   }
   if (!signedIn) return respond(401, { error: "session_required" });
   if (isSync && path.startsWith("/ui/api/sync")) {
-    return respond(...syncAnswer(init.method || "GET", path, init.body ? JSON.parse(init.body) : null));
+    const method = init.method || "GET", hold = syncHolds[method + " " + path.split("?")[0]];
+    const answer = syncAnswer(method, path, init.body ? JSON.parse(init.body) : null);
+    if (hold) await hold.promise;  // the scenario decides when this request answers
+    return respond(...answer);
   }
   if (isSync) return respond(...uiData(path, init));
   if (isUi && init.method === "DELETE") {
@@ -110,6 +116,7 @@ function uiData(path, init) {
   }
   if (path.startsWith("/ui/api/flow?")) {
     const id = new URLSearchParams(path.split("?")[1]).get("id");
+    if (deletedFlows.has(id)) return [404, { status: "error", error: "flow_not_found: use list_flows to discover available flows" }];
     return [200, { flow: { id, source: "user", title: id.slice(5), revision: revisions[id] || "rev1", source_path: "p" },
                    content: savedText[id] ?? DOCS[id], history: [] }];
   }
@@ -203,10 +210,16 @@ function syncAnswer(method, path, body) {
   syncCalls.push([method, path, body]);
   const queue = syncReplies[method + " " + path.split("?")[0]];
   if (queue && queue.length) return queue.length > 1 ? queue.shift() : queue[0];
-  if (method === "GET" && path === "/ui/api/sync") return [200, syncState];
+  if (method === "GET" && path.split("?")[0] === "/ui/api/sync") return [200, syncState];
   return [404, { error: "not_found" }];
 }
 const reply = (key, ...answers) => { syncReplies[key] = answers; };
+const syncHolds = {};  // "METHOD /path" -> { promise, release }: that request answers when released
+const hold = (key) => {
+  let release;
+  syncHolds[key] = { promise: new Promise((resolve) => { release = resolve; }), release: () => { delete syncHolds[key]; release(); } };
+  return syncHolds[key];
+};
 const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 const FLOW_CONFLICT = { id: "20261005T120000000000Z-aaaaaaaaaa", path: "common/doc.md", flow: "user:doc", repo_key: null,
                         kind: "both_changed", kept: "remote", machine: "laptop", time: "2026-10-05T12:00:00+00:00",
@@ -229,7 +242,13 @@ const started = () => ({
   github: { connected: true, login: "octocat", host: "github.com", reconnect_needed: false, warning: null },
   loop: { state: "running", active: true, syncing: false, held: null, next_fetch_seconds: 240, last_cycle: null },
 });
-if (scenario === "sync_dashboard" || scenario === "sync_notice") syncState = started();
+if (["sync_dashboard", "sync_notice", "sync_more"].includes(scenario)) syncState = started();
+// Set up over SSH, stopped at the host's fingerprints, then the page was reloaded.
+if (scenario === "sync_hostkey") {
+  syncState = { ...SYNC_OFF, state: "waiting_for_access", started: null, suggested_label: undefined,
+                repository: "git.example.com/me/library", ssh: true, host_key_unconfirmed: true, label: "laptop",
+                identity: { name: "Owner", email: "owner@example.com" }, public_key: PUBLIC_KEY };
+}
 
 const docHandlers = {};
 const windowHandlers = {};
@@ -278,7 +297,8 @@ const context = vm.createContext({
   },
   location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
   history: { replaceState() {} },
-  fetch: fetchStub, alert() {}, confirm: () => true, setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
+  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return true; },
+  setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
   console, URLSearchParams,
   Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
 });
@@ -629,8 +649,10 @@ if (isSync) {
       alert: alertText().text,
     };
   };
-  const calls = (from = 0) => syncCalls.slice(from).filter(([method, path]) => !(method === "GET" && path === "/ui/api/sync"));
-  const statusReads = () => syncCalls.filter(([method, path]) => method === "GET" && path === "/ui/api/sync").length;
+  const isStatus = ([method, path]) => method === "GET" && path.split("?")[0] === "/ui/api/sync";
+  const calls = (from = 0) => syncCalls.slice(from).filter((call) => !isStatus(call));
+  const statusReads = () => syncCalls.filter(isStatus).length;
+  const freshReads = () => syncCalls.filter((call) => isStatus(call) && call[1].endsWith("?fresh=1")).length;
   const chip = () => ({ text: byId("sync-chip").textContent, hidden: byId("sync-chip").classes.has("hidden"),
                         tone: byId("sync-chip").dataset.tone, pressed: byId("sync-chip").attrs["aria-pressed"],
                         label: byId("sync-chip").attrs["aria-label"] });
@@ -818,9 +840,10 @@ if (isSync) {
   if (scenario === "sync_dashboard") {
     out.chip = chip();
     reply("GET /ui/api/sync/machines", [200, { available: true, label: "mac-1a2b", repository: "octocat/agents-library",
-      machines: [{ id: 1, title: "Agents-Core mac-1a2b", label: "mac-1a2b", read_only: false, this: true },
+      machines: [{ id: 1, title: "Agents-Core mac-1a2b", label: "mac-1a2b", read_only: false, this: true, managed: true },
                  { id: 2, title: "Agents-Core linux-9f9f", label: "linux-9f9f", read_only: false, this: false,
-                   created_at: "2026-10-01T08:00:00Z" }] }]);
+                   created_at: "2026-10-01T08:00:00Z", managed: true },
+                 { id: 3, title: "CI deploy", label: "CI deploy", read_only: true, this: false, managed: false }] }]);
     reply("GET /ui/api/sync/scopes", [200, { groups: [{ group: "common", syncs: true }, { group: "repos/abc",
       origin: "github.com/o/r", syncs: true }], ask_new_repositories: false }]);
     await openPage();
@@ -882,6 +905,124 @@ if (isSync) {
     process.exit(0);
   }
 
+  if (scenario === "sync_focus") {
+    // keepFocus, as a rebuild calls it: what had the focus gets it back, found by its name.
+    const make = (tag, text, attrs = {}) => {
+      const made = documentStub.createElement(tag);
+      made.tagName = tag.toUpperCase();
+      made.textContent = text;
+      for (const [name, value] of Object.entries(attrs)) made.setAttribute(name, value);
+      return made;
+    };
+    const host = make("div", ""), fallback = make("h3", "Machines");
+    let inside = [];
+    host.contains = (node) => node === host || inside.includes(node);
+    host.querySelectorAll = () => inside;
+    const field = (label) => { const box = make("input", ""); box.parentNode = { textContent: label }; return box; };
+    const run = (focused, rebuilt) => {
+      documentStub.activeElement = focused;
+      const restore = context.keepFocus(host, fallback);
+      inside = rebuilt;
+      restore();
+      return rebuilt.map((node) => node.focused).concat(fallback.focused);
+    };
+    const oldRemove = make("button", "Remove", { "aria-label": "Remove linux-9f9f" });
+    inside = [make("button", "Remove", { "aria-label": "Remove desk-0001" }), oldRemove];
+    out.same_name = run(oldRemove, [make("button", "Remove", { "aria-label": "Remove desk-0001" }),
+                                    make("button", "Remove", { "aria-label": "Remove linux-9f9f" })]);
+    const oldBox = field("Personal flows");
+    inside = [oldBox];
+    out.same_field = run(oldBox, [field("Persona choices"), field("Personal flows")]);
+    const gone = make("button", "Pause");
+    inside = [gone];
+    out.fallback = run(gone, [make("button", "Resume")]);
+    out.outside = run(make("button", "Elsewhere"), [make("button", "Elsewhere")]);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (scenario === "sync_hostkey") {
+    reply("POST /ui/api/sync/setup",
+          [200, { status: "host_key_unconfirmed", host: "git.example.com", label: "laptop",
+                  fingerprints: ["SHA256:aaaa", "SHA256:bbbb"], message: "compare a fingerprint" }],
+          [200, { status: "waiting_for_access", label: "laptop", public_key: PUBLIC_KEY, remote: "git.example.com/me/library" }]);
+    await openPage();
+    await sleep(30);
+    out.fingerprints = { ...snapshot(), radios: findAll(root(), (n) => n.type === "radio").map((n) => n.value) };
+    await choose("SHA256:bbbb");
+    syncState = { ...syncState, host_key_unconfirmed: false };
+    await click("Trust this key");
+    await sleep(20);
+    out.trusted = { ...snapshot(), key: (findAll(root(), hasClass("sync-key"))[0] || {}).textContent };
+    out.calls = calls();
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (scenario === "sync_more") {
+    syncState = { ...started(), fetch_minutes: 3 };  // set from the command line, not in the list
+    reply("GET /ui/api/sync/machines", [200, { available: true, label: "mac-1a2b", repository: "octocat/agents-library",
+      machines: [{ id: 1, title: "Agents-Core mac-1a2b", label: "mac-1a2b", this: true, managed: true },
+                 { id: 2, title: "Agents-Core linux-9f9f", label: "linux-9f9f", this: false, managed: true },
+                 { id: 3, title: "CI deploy", label: "CI deploy", read_only: true, this: false, managed: false }] }]);
+    reply("GET /ui/api/sync/scopes", [200, { groups: [{ group: "common", syncs: true }], ask_new_repositories: false }]);
+    const part = (key) => byId("sync-body").children.find((card) => card.attrs["aria-labelledby"] === "sync-part-" + key);
+    const opened = freshReads();
+    await openPage();
+    await sleep(20);
+    out.fresh_on_open = freshReads() - opened;
+    const select = findAll(part("status"), (n) => n.tag === "select")[0];
+    out.interval = { options: select.children.map((option) => option.value), value: select.value };
+    out.machines = textOf(part("machines"));
+    out.remove_buttons = findAll(part("machines"), (n) => n.tag === "button").map((n) => n.attrs["aria-label"]);
+    out.names = findAll(root(), (n) => n.tag === "button" && n.attrs["aria-label"]).map((n) => n.attrs["aria-label"]);
+    // A request in flight: the clicked control keeps the focus (aria-disabled, never disabled); Pause works.
+    const running = hold("POST /ui/api/sync/run");
+    reply("POST /ui/api/sync/run", [200, { status: "synced", sent: [], received: [], conflicts: [], pushed: false }]);
+    await click("Sync now", 0, part("status"));
+    const now = buttonsNamed("Sync now", part("status"))[0], pause = buttonsNamed("Pause", part("status"))[0];
+    out.busy = { sync_now: [now.attrs["aria-disabled"] ?? null, now.disabled], pause: [pause.attrs["aria-disabled"] ?? null, pause.disabled] };
+    reply("PUT /ui/api/sync/settings", [200, { state: "paused" }]);
+    const beforePause = calls().length;
+    fire(pause, "click");
+    await sleep(25);
+    out.paused_while_busy = calls().slice(beforePause).map(([method, path, body]) => [method, path, body]);
+    running.release();
+    await sleep(40);
+    out.after = { sync_now: [buttonsNamed("Sync now", part("status"))[0].attrs["aria-disabled"] ?? null] };
+    // Fresh reads after actions only; polls take the scanned status.
+    const polled = freshReads();
+    await fireTimers(30000);
+    out.fresh_on_poll = freshReads() - polled;
+    // A poll that fails says so instead of showing the last state.
+    reply("GET /ui/api/sync", [500, { error: "boom" }]);
+    await fireTimers(30000);
+    out.unavailable = chip();
+    delete syncReplies["GET /ui/api/sync"];
+    await fireTimers(30000);
+    out.available_again = chip();
+    // A file that is not text is said to be so.
+    reply("GET /ui/api/sync/conflict", [200, { ...PERSONA_CONFLICT, current: null, current_binary: true, mine: null, binary: true }]);
+    await click("Open", 1, part("conflicts"));
+    out.binary = findAll(part("conflicts"), (n) => n.tag === "textarea").map((n) => n.value);
+    // Regenerate key says what happens on GitHub; signed out it says why it cannot.
+    reply("POST /ui/api/sync/key/regenerate", [200, { status: "replaced", deploy_key: "added", public_key: PUBLIC_KEY, message: "added" }]);
+    await click("Regenerate key", 0, part("access"));
+    out.regenerate_question = confirms.at(-1);
+    syncState = { ...syncState, github: null };
+    await fireTimers(30000);
+    const regenerations = calls().filter(([, path]) => path === "/ui/api/sync/key/regenerate").length;
+    await click("Regenerate key", 0, part("access"));
+    out.signed_out = { alert: alertText(), posts: calls().filter(([, path]) => path === "/ui/api/sync/key/regenerate").length - regenerations };
+    // Leaving the page with the focus on it puts the focus on the tab that shows.
+    documentStub.activeElement = byId("sync-page");
+    const focusedBefore = byId("tabs").children[0].focused;
+    fire(byId("sync-chip"), "click");
+    out.tab_focused = byId("tabs").children[0].focused - focusedBefore;
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
   if (scenario === "sync_notice") {
     const notice = () => ({ hidden: byId("sync-notice").classes.has("hidden"), text: byId("sync-notice-text").textContent });
     await open(0);  // user:doc at rev1
@@ -914,6 +1055,17 @@ if (isSync) {
     fire(byId("sync-reload"), "click");
     await sleep(40);
     out.reloaded = { ...notice(), content: byId("content").value };
+    // A cycle deleted the open flow: said so, without Reload, and a save names the sync.
+    deletedFlows.add("user:doc");
+    syncState = { ...syncState, activity: [...syncState.activity, receive("user:doc", "2026-10-05T14:04:00+00:00", ["desk"])] };
+    byId("content").value = "# Kept text\n";
+    fire(byId("content"), "input");
+    await fireTimers(30000);
+    out.deleted = { ...notice(), reload_hidden: byId("sync-reload").classes.has("hidden") };
+    putStatus = 409;
+    fire(byId("save"), "click");
+    await sleep(60);
+    out.deleted_save = { notice: byId("notice").textContent, content: byId("content").value };
     console.log(JSON.stringify(out));
     process.exit(0);
   }

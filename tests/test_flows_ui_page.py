@@ -919,3 +919,75 @@ def test_the_sync_page_keeps_the_header_budget_and_the_csp():
     assert re.search(r"versionEnd: \$\(\"brand\"\)", script)
     assert run("place") == {"on_pane": "tab", "past_corner": "inline", "after_version": "inline",
                             "too_wide": "row", "narrow": "stack"}
+
+
+# --- the review round of #170: focus, busy controls, fresh reads, names and robustness -----------
+
+def test_a_rebuilt_part_gives_the_focus_back_to_the_same_control():
+    result = run_sync("sync_focus")
+    assert result["same_name"] == [0, 1, 0]  # "Remove linux-9f9f", not the first "Remove"
+    assert result["same_field"] == [0, 1, 0]  # a switch found by its label
+    assert result["fallback"] == [0, 1]  # Pause became Resume: the part's heading
+    assert result["outside"] == [0, 1]  # focus elsewhere is left alone (the heading count stays 1)
+
+
+@pytest.fixture(scope="module")
+def more():
+    return run_sync("sync_more")
+
+
+def test_a_busy_page_keeps_the_focus_and_pause_still_answers(more):
+    assert more["busy"] == {"sync_now": ["true", False], "pause": [None, False]}  # aria-disabled, never disabled
+    assert more["paused_while_busy"] == [["PUT", "/ui/api/sync/settings", {"paused": True}]]
+    assert more["after"] == {"sync_now": [None]}
+
+
+def test_polls_take_the_scanned_status_and_the_page_reads_fresh_when_it_opens(more):
+    assert more["fresh_on_open"] == 1 and more["fresh_on_poll"] == 0
+
+
+def test_a_failed_poll_says_the_status_is_unavailable(more):
+    assert more["unavailable"]["text"] == "Sync status unavailable" and more["unavailable"]["tone"] == "warn"
+    assert more["available_again"]["text"] == "2 conflicts"
+
+
+def test_list_buttons_have_names_of_their_own_and_foreign_keys_stay(more):
+    names = more["names"]
+    assert len(names) == len(set(names))
+    assert {"Remove linux-9f9f", "Open the conflict on user:doc", "Use my version of user:doc (persona)",
+            "Approve repos/def", "Copy the public key"} <= set(names)
+    assert more["remove_buttons"] == ["Remove linux-9f9f"]  # neither this machine nor a key sync did not add
+    assert "Other deploy keys" in more["machines"] and "CI deploy, read-only" in more["machines"]
+
+
+def test_an_interval_set_elsewhere_shows_in_the_list(more):
+    assert more["interval"] == {"options": ["1", "2", "3", "5", "10", "15", "30", "60"], "value": "3"}
+
+
+def test_bytes_that_are_not_text_say_so(more):
+    assert more["binary"] == ["(not text: binary content)", "(not text: binary content)"]
+
+
+def test_regenerate_key_asks_what_github_will_do_and_refuses_while_signed_out(more):
+    assert more["regenerate_question"] == ("Create a new key for this machine? Agents-Core adds it to "
+                                           "octocat/agents-library on GitHub, then removes the old one.")
+    assert more["signed_out"]["posts"] == 0
+    assert more["signed_out"]["alert"]["text"].startswith("Sign in to GitHub first")
+    assert more["tab_focused"] == 1  # leaving the page moves the focus to the tab that shows
+
+
+def test_a_reload_at_the_host_key_step_shows_the_fingerprints_again():
+    result = run_sync("sync_hostkey")
+    assert result["fingerprints"]["radios"] == ["SHA256:aaaa", "SHA256:bbbb"]
+    assert result["fingerprints"]["buttons"] == ["Trust this key"]
+    assert result["calls"] == [["POST", "/ui/api/sync/setup", {"again": True}],
+                               ["POST", "/ui/api/sync/setup", {"again": True, "trust_host_key": "SHA256:bbbb"}]]
+    assert result["trusted"]["key"].startswith("ssh-ed25519 ") and "Check access" in result["trusted"]["buttons"]
+
+
+def test_a_flow_that_sync_deleted_while_open_says_so():
+    result = run_sync("sync_notice")
+    assert result["deleted"] == {"hidden": False, "reload_hidden": True,
+                                 "text": "Deleted on desk at 14:04 by sync. Your text is still here; copy it to keep it."}
+    assert result["deleted_save"] == {"content": "# Kept text\n", "notice": (
+        "Sync deleted this flow on desk at 14:04 while you edited it. Your text is kept here; copy it to keep it.")}
