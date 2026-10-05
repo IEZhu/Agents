@@ -202,6 +202,7 @@ langfuse = _LazyLangfuse()
 # interpreter exit). The queues are bounded: when a sink is stuck and its queue
 # is full, new writes are dropped with an error in the server log.
 LOG_DRAIN_TIMEOUT_SECONDS = 10.0
+HISTORY_SYNC_DRAIN_SECONDS = 2.0
 LOG_QUEUE_MAX = 256
 
 
@@ -266,6 +267,10 @@ def drain_pending_logs(timeout: float = LOG_DRAIN_TIMEOUT_SECONDS) -> bool:
     deadline = time.monotonic() + timeout
     done = _history_worker.drain(deadline)
     done = _langfuse_worker.drain(deadline) and done
+    sync = sys.modules.get("src.user_sync.history")
+    if sync is not None:
+        # Briefly: what is left is caught up by the next run of a process with sync.
+        sync.drain(max(0.0, min(HISTORY_SYNC_DRAIN_SECONDS, deadline - time.monotonic())))
     if not done:
         logger.warning("Log writes still pending after %.0fs drain; abandoning them", timeout)
         # Later exit hooks must not wait for the same stuck sink again.
@@ -1244,7 +1249,7 @@ async def read_history(
     limit: int = 20,
     since: ta.opt_str("Optional ISO8601 prefix; only entries at or after it.") = None,
     query: ta.opt_str("Optional text to search the history for.") = None,
-    machine: ta.opt_str("Optional machine label, or `local` for this machine's own entries.") = None,
+    machine: ta.opt_str("Optional machine label, or `local` for this checkout's own entries.") = None,
     ctx: Context | None = None,
 ) -> str:
     """Read recent history entries or run a lazy semantic search.
@@ -1256,9 +1261,9 @@ async def read_history(
       when the content of history.md or the embedding configuration changes),
       then returns semantically nearest entries with cosine distance.
 
-    With user library sync, entries of the user's other machines for this
+    With user library sync, the entries the user's machines shared for this
     repository are merged in, one per entry hash; ``machine`` keeps one
-    machine label's entries, or ``local`` this machine's own.
+    machine label's entries, or ``local`` this checkout's own.
 
     Returns JSON:
       {entries: [...], total, mode, workspace: {root, source}, pid,
@@ -1266,7 +1271,7 @@ async def read_history(
       mode ∈ {"recency", "semantic"}. history_last_error ({code, errno, path,
       at}) is present only after a history write failed.
 
-    Entry shape depends on mode (machine: null for this machine's entries):
+    Entry shape depends on mode (machine: null for this checkout's own entries):
     - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
     - semantic: {id, distance, document, timestamp, intent, tags, machine}.
     """

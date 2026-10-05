@@ -18,10 +18,11 @@ Three classes:
   numpy cost.
 
 With the user library sync installed (``set_sync``; the MCP servers do it at
-startup), each appended entry is also offered to the sync, and reads merge this
-machine's journal (``history.md`` and ``history/*.md``) with the other
-machines' entries for the same repository (``src/user_sync/history.py``).
-This module never imports the sync itself.
+startup), each append tells the sync's worker that the checkout changed (it
+never waits for it), and reads merge the checkout's journal (``history.md`` and
+``history/*.md``) with the entries the user's machines shared for the same
+repository (``src/user_sync/history.py``), newest month first. This module
+never imports the sync itself.
 """
 
 from __future__ import annotations
@@ -36,8 +37,10 @@ import logging
 import os
 import re
 import shutil
+import stat
 import threading
-from dataclasses import asdict, dataclass, field
+from collections import OrderedDict
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.memory import config as _memory_config
@@ -132,14 +135,80 @@ def _archive_names(archive_dir: str) -> List[str]:
         return []
 
 
+def _month_after(month: str) -> str:
+    """``YYYY-MM-01T00:00:00`` of the month after ``month``: no entry of a ``month`` file is that late."""
+    year, number = int(month[:4]), int(month[5:7])
+    year, number = (year + 1, 1) if number == 12 else (year, number + 1)
+    return f"{year:04d}-{number:02d}-01T00:00:00"
+
+
+# --- Parsed files ------------------------------------------------------------
+
+class _ParsedFiles:
+    """Entries of history files by path, kept while a file's size and mtime stay the same.
+
+    Archives and other machines' segments rarely change, so repeated reads and
+    index checks parse only what changed. Bounded by file count and bytes.
+    """
+
+    def __init__(self, max_files: int = 256, max_bytes: int = 64 * 1024 * 1024):
+        self._items: "OrderedDict[str, tuple]" = OrderedDict()
+        self._bytes = 0
+        self._max_files, self._max_bytes = max_files, max_bytes
+        self._lock = threading.Lock()
+
+    def load(self, path: str) -> Optional[Tuple[str, Tuple[HistoryEntry, ...]]]:
+        """``(sha256 of the bytes, entries)``, or None when ``path`` is not a regular file.
+
+        Other read errors propagate; entries are shared, so callers copy before changing them.
+        """
+        try:
+            info = os.stat(path)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        key = (info.st_size, info.st_mtime_ns)
+        with self._lock:
+            cached = self._items.get(path)
+            if cached is not None and cached[0] == key:
+                self._items.move_to_end(path)
+                return cached[1], cached[2]
+        with open(path, "rb") as stream:
+            data = stream.read()
+            info = os.fstat(stream.fileno())
+        digest = hashlib.sha256(data).hexdigest()
+        entries = tuple(HistoryReader._parse(data.decode("utf-8", "replace")))
+        with self._lock:
+            previous = self._items.pop(path, None)
+            if previous is not None:
+                self._bytes -= previous[3]
+            if len(data) == info.st_size:  # unchanged while it was read: safe to keep
+                self._items[path] = ((info.st_size, info.st_mtime_ns), digest, entries, len(data))
+                self._bytes += len(data)
+                while self._items and (len(self._items) > self._max_files or self._bytes > self._max_bytes):
+                    _, dropped = self._items.popitem(last=False)
+                    self._bytes -= dropped[3]
+        return digest, entries
+
+
+_PARSED = _ParsedFiles()
+
+
+def parsed_file(path: str) -> Optional[Tuple[str, Tuple[HistoryEntry, ...]]]:
+    """``(sha256, entries)`` of a history file through the shared parse cache; see ``_ParsedFiles``."""
+    return _PARSED.load(path)
+
+
 # --- Sync with the user's other machines (optional) -------------------------
 
 @dataclass(frozen=True)
 class MachineHistory:
-    """Other machines' history of one repository, as the user library sync finds it.
+    """The synced history of one repository, as the user library sync finds it.
 
-    ``label`` names this machine; ``files`` holds ``(label, path)`` of the other
-    machines' history segments for the same repository.
+    ``label`` names this machine. ``files`` holds ``(label, path)`` of history
+    segments of the same repository: other machines', and this machine's own
+    from its other checkouts of the repository (their label is ``label``).
     """
     label: str
     files: Tuple[Tuple[str, str], ...] = ()
@@ -151,11 +220,12 @@ _sync = None
 def set_sync(integration):
     """Install the user library sync integration, or remove it with None; returns the previous one.
 
-    ``integration.exported(history_path, block)`` is called after each append,
-    once every history lock is released; ``integration.machines(history_path)``
-    returns a ``MachineHistory``, or None while the repository's history does
-    not take part in sync. Without an integration the history is this
-    machine's journal only. ``src.user_sync.history.install`` sets it.
+    ``integration.appended(history_path)`` is called after each append, once
+    every history lock is released, and must return at once;
+    ``integration.machines(history_path)`` returns a ``MachineHistory``, or None
+    while the repository's history does not take part in sync. Without an
+    integration the history is this machine's journal only.
+    ``src.user_sync.history.install`` sets it.
     """
     global _sync
     previous, _sync = _sync, integration
@@ -173,15 +243,15 @@ def _machine_history(history_path: str) -> Optional[MachineHistory]:
         return None
 
 
-def _exported(history_path: str, block: str) -> None:
-    """Offer an appended entry to the sync; its failure never fails the append."""
+def _appended(history_path: str) -> None:
+    """Tell the sync that an entry was appended; its failure never fails the append."""
     integration = _sync
     if integration is None:
         return
     try:
-        integration.exported(history_path, block)
+        integration.appended(history_path)
     except Exception:
-        logger.warning("could not share a history entry of %s", history_path, exc_info=True)
+        logger.warning("could not schedule sharing the history of %s", history_path, exc_info=True)
 
 
 def entry_blocks(content: str) -> List[Tuple[HistoryEntry, str]]:
@@ -203,74 +273,112 @@ def entry_blocks(content: str) -> List[Tuple[HistoryEntry, str]]:
     return out
 
 
-def history_files(
-    history_path: str,
-    archive_dir: Optional[str] = None,
-    machines: Optional[MachineHistory] = None,
-) -> List[Tuple[Optional[str], str, str]]:
-    """``(machine, path, text)`` of every file of the merged history.
+def _journal_texts(history_path: str, archive_dir: Optional[str], since_month: Optional[str]) -> List[str]:
+    """This machine's journal, oldest first: archives from ``since_month`` on, a pending rotation, history.md.
 
-    This machine's files come first, with machine None: the monthly archives,
-    a rotation an interruption left pending, then ``history.md``; they are read
-    under a shared history lock, so a concurrent rotation is never seen half
-    way. The caller must not hold that lock. Other machines' segments follow
-    in the order of ``machines.files``; they need no lock, because the sync
-    replaces whole files. Missing or unreadable segments are skipped.
+    ``history.md`` and the pending file are read under the shared history lock;
+    the archives after it, without the lock: rotation replaces or creates them
+    whole, so an entry that moved meanwhile is read twice (and deduplicated),
+    never missed, and a reader never keeps an archive open while rotation runs.
     """
     archive_dir = archive_dir or os.path.join(os.path.dirname(history_path), "history")
     pending = history_path + ".rotating"
-    out: List[Tuple[Optional[str], str, str]] = []
-    # A repository without any history gets no lock file from a read.
-    if os.path.exists(history_path) or os.path.exists(pending) or _archive_names(archive_dir):
+    live: List[str] = []
+    if os.path.exists(history_path) or os.path.exists(pending):
         with _reading(history_path):
-            names = _archive_names(archive_dir)  # again under the lock: rotation may have added one
-            for path in [os.path.join(archive_dir, name) for name in names] + [pending, history_path]:
+            for path in (pending, history_path):
                 try:
                     with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                        text = fh.read()
+                        live.append(fh.read())
                 except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
                     continue
-                if text:
-                    out.append((None, path, text))
-    for label, path in (machines.files if machines else ()):
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
-        except OSError:
+    older = []
+    for name in _archive_names(archive_dir):
+        if since_month and name[:7] < since_month:
             continue
-        if text:
-            out.append((label, path, text))
+        try:
+            with open(os.path.join(archive_dir, name), "r", encoding="utf-8", errors="replace") as fh:
+                older.append(fh.read())
+        except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+            continue
+    return older + live
+
+
+def journal_blocks(
+    history_path: str,
+    archive_dir: Optional[str] = None,
+    since_month: Optional[str] = None,
+) -> List[Tuple[HistoryEntry, str]]:
+    """Entries of this machine's journal with their blocks (see ``entry_blocks``), oldest file first.
+
+    ``since_month`` (``YYYY-MM``) skips archives of earlier months, which hold
+    no entry from that month on.
+    """
+    out: List[Tuple[HistoryEntry, str]] = []
+    for text in _journal_texts(history_path, archive_dir, since_month):
+        out.extend(entry_blocks(text))
     return out
 
 
-def merge_entries(files) -> List[HistoryEntry]:
-    """A union by entry id of ``(machine, path, text)`` files, oldest first.
+def _older_sources(archive_dir: str, machines: MachineHistory):
+    """``(bound, side, machine, path)`` of the archives and segments, newest month first.
 
-    This machine's copy (machine None) wins over another machine's; between
-    copies from the same side, the later one wins.
+    ``bound`` is a time no entry of the file reaches: an archive or segment of
+    a month holds nothing later than that month (None when the name tells
+    nothing, read first). This machine's archives (side 0) come before
+    segments (side 1) of the same month.
+    """
+    out = []
+    for name in _archive_names(archive_dir):
+        out.append((_month_after(name[:7]), 0, None, os.path.join(archive_dir, name)))
+    for label, path in machines.files:
+        month = os.path.basename(path)[:7]
+        bound = _month_after(month) if re.fullmatch(r"[0-9]{4}-(?:0[1-9]|1[0-2])", month) else None
+        out.append((bound, 1, label, path))
+    out.sort(key=lambda source: source[1])
+    out.sort(key=lambda source: source[0] or "~", reverse=True)  # stable: archives stay first
+    return out
+
+
+def _merge_into(chosen: Dict[str, HistoryEntry], machine: Optional[str], entries) -> None:
+    """Add entries to a union by id: this machine's journal (machine None) wins, then the later copy."""
+    for entry in entries:
+        current = chosen.get(entry.id)
+        if current is not None:
+            if (current.machine is None) != (machine is None):
+                if machine is not None:
+                    continue
+            elif entry.timestamp <= current.timestamp:
+                continue
+        chosen[entry.id] = replace(entry, machine=machine)
+
+
+def merge_entries(files) -> List[HistoryEntry]:
+    """A union by entry id of ``(machine, entries)`` pairs, oldest first.
+
+    This machine's journal (machine None) wins over a segment; between copies
+    from the same side, the later one wins.
     """
     chosen: Dict[str, HistoryEntry] = {}
-    for machine, _path, text in files:
-        for entry in HistoryReader._parse(text):
-            entry.machine = machine
-            current = chosen.get(entry.id)
-            if current is None:
-                chosen[entry.id] = entry
-            elif (current.machine is None) != (entry.machine is None):
-                if entry.machine is None:
-                    chosen[entry.id] = entry
-            elif entry.timestamp > current.timestamp:
-                chosen[entry.id] = entry
+    for machine, entries in files:
+        _merge_into(chosen, machine, entries)
     return sorted(chosen.values(), key=lambda e: (e.timestamp, e.id))
 
 
-def _wanted_machine(machine: Optional[str], machines: Optional[MachineHistory]):
-    """``(filter on, wanted machine value)``: ``local`` and this machine's label mean None."""
+def _machine_filter(machine: Optional[str], machines: Optional[MachineHistory]):
+    """A predicate for ``read_history(machine=...)``, or None for every entry.
+
+    ``local`` keeps this workspace's journal; this machine's label also keeps
+    what this machine wrote in its other checkouts; another label, that machine's.
+    """
     machine = (machine or "").strip()
     if not machine:
-        return False, None
-    own = machines.label if machines else None
-    return True, None if machine in ("local", own) else machine
+        return None
+    if machine == "local":
+        return lambda entry: entry.machine is None
+    if machines is not None and machine == machines.label:
+        return lambda entry: entry.machine in (None, machine)
+    return lambda entry: entry.machine == machine
 
 
 # --- Writer ------------------------------------------------------------------
@@ -367,9 +475,9 @@ class HistoryWriter:
                     _ROTATION_WARNED.add(key)
                     logger.warning("history rotation failed for %s: %s", self.history_path, err)
 
-        # Outside every history lock: the sync takes the library lock, which a
-        # sync run holds for its local steps, and must never wait while holding ours.
-        _exported(self.history_path, block)
+        # Outside every history lock, and it only schedules the work: sharing the
+        # entry waits for the library lock in the sync's own worker, never here.
+        _appended(self.history_path)
 
         result: Dict[str, Any] = {
             "status": "recorded",
@@ -625,9 +733,56 @@ class HistoryReader:
             return []
         return self._parse(content)
 
+    def _live_files(self) -> List[Tuple[str, str, Tuple[HistoryEntry, ...]]]:
+        """``(path, sha256, entries)`` of a pending rotation and ``history.md``, under the shared lock."""
+        pending = self.history_path + ".rotating"
+        if not (os.path.exists(self.history_path) or os.path.exists(pending)):
+            return []
+        out = []
+        with _reading(self.history_path):
+            for path in (pending, self.history_path):
+                parsed = parsed_file(path)
+                if parsed is not None:
+                    out.append((path, parsed[0], parsed[1]))
+        return out
+
+    @staticmethod
+    def _older_file(machine: Optional[str], path: str):
+        """``(sha256, entries)`` of an archive or segment; an unreadable segment is skipped, an archive is not."""
+        if machine is None:
+            return parsed_file(path)
+        try:
+            return parsed_file(path)
+        except OSError:
+            return None
+
+    def merged_files(self, machines: MachineHistory) -> List[Tuple[Optional[str], str, str, Tuple[HistoryEntry, ...]]]:
+        """``(machine, path, sha256, entries)`` of every file of the merged history.
+
+        ``history.md`` and a pending rotation are read under the shared history
+        lock, the archives after it (rotation replaces or creates them whole, so
+        an entry that moved meanwhile is read twice and deduplicated, never
+        missed) and the segments without any history lock.
+        """
+        files = [(None, path, digest, entries) for path, digest, entries in self._live_files()]
+        for _bound, _side, machine, path in _older_sources(self.archive_dir, machines):
+            parsed = self._older_file(machine, path)
+            if parsed is not None:
+                files.append((machine, path, parsed[0], parsed[1]))
+        return files
+
+    def journal_entries(self) -> List[HistoryEntry]:
+        """This checkout's whole journal (``history.md``, a pending rotation, ``history/*.md``), parsed once per change."""
+        entries = [entry for _, _, items in self._live_files() for entry in items]
+        for name in _archive_names(self.archive_dir):
+            parsed = parsed_file(os.path.join(self.archive_dir, name))
+            if parsed is not None:
+                entries.extend(parsed[1])
+        return entries
+
     def read_merged(self, machines: MachineHistory) -> List[HistoryEntry]:
-        """This machine's journal with its archives, and the other machines' entries; see ``merge_entries``."""
-        return merge_entries(history_files(self.history_path, self.archive_dir, machines))
+        """Every entry of the merged history, oldest first; see ``merge_entries``."""
+        return merge_entries((machine, entries) for machine, _, _, entries in self.merged_files(machines))
 
     def read_recent(
         self,
@@ -638,20 +793,56 @@ class HistoryReader:
         """Newest-first list, optionally filtered by ``since`` (ISO timestamp prefix).
 
         With the user library sync set up for this repository, the list is the
-        merged history of every machine; otherwise ``history.md`` alone.
-        ``machine`` keeps only the entries of one machine label, or with
-        ``local`` (or this machine's label) only this machine's own entries.
+        merged history (``history.md``, ``history/*.md`` and the synced
+        segments), read newest month first until ``limit`` is filled; otherwise
+        ``history.md`` alone. ``machine`` filters as ``_machine_filter`` says.
         """
         limit = max(1, limit) if limit > 0 else 20
         machines = _machine_history(self.history_path)
-        entries = self.read_all() if machines is None else self.read_merged(machines)
-        active, wanted = _wanted_machine(machine, machines)
-        if active:
-            entries = [e for e in entries if e.machine == wanted]
+        keep = _machine_filter(machine, machines)
+        if machines is None:
+            entries = self.read_all()
+        else:
+            entries = self._recent_merged(machines, limit, since, keep)
+        if keep is not None:
+            entries = [e for e in entries if keep(e)]
         entries.sort(key=lambda e: e.timestamp, reverse=True)
         if since:
             entries = [e for e in entries if e.timestamp >= since]
         return entries[:limit]
+
+    def _recent_merged(self, machines: MachineHistory, limit: int, since: Optional[str], keep) -> List[HistoryEntry]:
+        """The merged entries that can be among the ``limit`` newest kept ones.
+
+        Months are read newest first; once ``limit`` kept entries are newer than
+        everything an older file can hold, the older files are not read. (An
+        entry in both this machine's journal and a newer segment may then show
+        the segment's copy: the journal copy is older than every entry shown.)
+        """
+        chosen: Dict[str, HistoryEntry] = {}
+        for _path, _digest, entries in self._live_files():
+            _merge_into(chosen, None, entries)
+
+        def enough(bound: str) -> bool:
+            if since and bound <= since:
+                return True
+            times = sorted((e.timestamp for e in chosen.values() if (keep is None or keep(e))
+                            and (not since or e.timestamp >= since)), reverse=True)
+            return len(times) >= limit and bound <= times[limit - 1]
+
+        sources = _older_sources(self.archive_dir, machines)
+        index = 0
+        while index < len(sources):
+            bound = sources[index][0]
+            if bound is not None and enough(bound):
+                break
+            while index < len(sources) and sources[index][0] == bound:
+                _bound, _side, source_machine, path = sources[index]
+                parsed = self._older_file(source_machine, path)
+                if parsed is not None:
+                    _merge_into(chosen, source_machine, parsed[1])
+                index += 1
+        return list(chosen.values())
 
     # ------------------------------------------------------------------ parser
     @staticmethod
@@ -770,12 +961,12 @@ class HistoryStore:
                 store = self._ensure(machines, embed_texts)
                 if store.count() == 0:
                     return []
-            active, wanted = _wanted_machine(machine, machines)
-            result = store.query(vec, n_results=store.count() if active else limit)
+            keep = _machine_filter(machine, machines)
+            result = store.query(vec, n_results=store.count() if keep else limit)
             out: List[Dict[str, Any]] = []
             for i, eid in enumerate(result.ids):
                 meta = result.metadatas[i] or {}
-                if active and meta.get("machine") != wanted:
+                if keep is not None and not keep(HistoryEntry(eid, "", "", "", "", machine=meta.get("machine"))):
                     continue
                 out.append({
                     "id": eid,
@@ -798,7 +989,7 @@ class HistoryStore:
         revision, index schema, preprocessing, fastembed version), compared with
         ``.history_fingerprint`` in ``data_dir``; a missing index file also
         triggers a rebuild. For a merged history, the first part hashes every
-        file of it instead (``history_files``).
+        file of it instead (``HistoryReader.merged_files``).
 
         Thread-safe: serialized via ``_index_lock`` so concurrent
         ``read_history(query=...)`` calls don't race on rebuild.
@@ -826,21 +1017,29 @@ class HistoryStore:
                 return self._store
 
             from src.engine.embedder import model_fingerprint
-            with file_lock(_sidecar(self.history_path)):
+            with _reading(self.history_path):
                 # Content-based invalidation catches edits that preserve mtimes.
-                with open(self.history_path, "rb") as source:
-                    digest = hashlib.sha256(source.read()).hexdigest() + ":" + model_fingerprint()
-                self._refresh(digest, embed_texts)
+                try:
+                    with open(self.history_path, "rb") as source:
+                        data = source.read()
+                except FileNotFoundError:
+                    data = b""
+            digest = hashlib.sha256(data).hexdigest() + ":" + model_fingerprint()
+            # Embedding runs under the index's own lock, never the history lock:
+            # appends and readers do not wait for the model.
+            with file_lock(os.path.join(self.data_dir, f".{self.store_name}.lock")):
+                self._refresh(digest, embed_texts, load=lambda: HistoryReader._parse(data.decode("utf-8")))
             return self._store
 
     def _ensure_merged(self, machines: MachineHistory, embed_texts=None):
         """The index of the merged history; embeds only entries it has not embedded yet.
 
-        The files are read once, under a shared history lock that is released
-        before any embedding, so appends never wait for the model; the digest
-        and the entries come from the same reading.
+        The files are read once (``HistoryReader.merged_files``; unchanged ones
+        come from the parse cache) and the shared history lock is released
+        before any embedding, so appends and readers never wait for the model;
+        the digest and the entries come from the same reading.
         """
-        files = history_files(self.history_path, self.archive_dir, machines)
+        files = HistoryReader(self.history_path, self.archive_dir).merged_files(machines)
         if not files:
             if self._store.count() > 0:
                 self._store.clear()
@@ -851,13 +1050,12 @@ class HistoryStore:
             return self._store
         from src.engine.embedder import model_fingerprint
         digest = hashlib.sha256(b"merged history\0")
-        for machine, path, text in files:
-            digest.update(f"{machine or ''}\0{os.path.basename(path)}\0".encode("utf-8"))
-            digest.update(hashlib.sha256(text.encode("utf-8")).digest())
-        # Rebuilds of one index from several processes take turns, as under the history lock.
+        for machine, path, sha, _entries in files:
+            digest.update(f"{machine or ''}\0{os.path.basename(path)}\0{sha}\0".encode("utf-8"))
+        # Rebuilds of one index from several processes take turns.
         with file_lock(os.path.join(self.data_dir, f".{self.store_name}.lock")):
             self._refresh(digest.hexdigest() + ":" + model_fingerprint(), embed_texts,
-                          load=lambda: merge_entries(files))
+                          load=lambda: merge_entries((machine, entries) for machine, _, _, entries in files))
         return self._store
 
     def _refresh(self, digest: str, embed_texts=None, load=None) -> None:
@@ -894,14 +1092,14 @@ class HistoryStore:
                  entries: Optional[List[HistoryEntry]] = None) -> None:
         """Replace the index with every current entry.
 
-        ``entries`` defaults to those of ``history.md``; a merged history
-        passes its own, already one per id. With *reuse_vectors*, an entry
+        ``entries`` defaults to those of ``history.md``; the callers pass the
+        entries they hashed. With *reuse_vectors*, an entry
         whose id and formatted document are already stored keeps its vector,
         so only new or edited entries are embedded; the caller passes it only
         when the stored vectors come from the current embedding fingerprint.
         """
-        if entries is None:  # the caller holds the history lock
-            entries = HistoryReader(self.history_path)._read_unlocked()
+        if entries is None:
+            entries = HistoryReader(self.history_path).read_all()
         if not entries:
             self._store.clear()
             self._store.save()
@@ -971,7 +1169,8 @@ __all__ = [
     "HistoryWriter",
     "MachineHistory",
     "entry_blocks",
-    "history_files",
+    "journal_blocks",
     "merge_entries",
+    "parsed_file",
     "set_sync",
 ]

@@ -94,13 +94,15 @@ log_interaction(..., intent, action, outcome, files?, tags?)
   ├─ format markdown entry
   ├─ sidecar lock + fcntl.flock (POSIX) + append to history.md
   ├─ maybe_rotate() if file > 512 KB → archive to history/YYYY-MM.md
-  ├─ with user library sync: after the locks are released, copy the entry to this
-  │    machine's segment in the library (src/user_sync/history.py)
+  ├─ with user library sync: after the locks are released, mark the checkout for the
+  │    sync worker, which shares its new entries of an approved repository later
+  │    (src/user_sync/history.py); the append never waits for it
   └─ return {status:"recorded", entry_id, path}
 
 read_history(limit=20, since?, query?, machine?)
-  ├─ with user library sync for this repository: entries = history.md + history/*.md
-  │    + the other machines' segments, a union by entry hash (this machine's copy wins)
+  ├─ with user library sync for this checkout: entries = history.md + history/*.md
+  │    + the shared segments of its key, a union by entry hash (the checkout's copy wins),
+  │    read newest month first; unchanged files come from a parse cache
   ├─ if query:
   │    ├─ HistoryStore.ensure_index()        # lazy: refresh when the content of the history
   │    │                                     # files or the embedding fingerprint changes; embeds
@@ -217,7 +219,8 @@ Entry template:
 - Dedup: scan the last 50 entries by id before append. Duplicates short-circuit.
 - Append-only. Past entries are never edited or deleted.
 - Writes take a stable sidecar lock next to the target: `.history.md.lock` for history appends and index rebuilds, `.CLAUDE.md.lock` for managed-section writes, and `.agents-description.lock` in the described `repo_path` for summary writes. Each is an OS lock on a lock file that persists in the client repository and serializes concurrent sessions across processes: `flock` on POSIX, `LockFileEx` on Windows. On a Windows file system without byte-range locks, such as some network shares, the lock is in memory and serializes only threads within one process. History appends also hold a process-wide mutex and `fcntl.flock` on `history.md` itself. Readers take `.history.md.lock` shared, so they never see a rotation half way and never keep `history.md` open while rotation moves it (which fails on Windows).
-- With user library sync, an appended entry is also copied to `repos/<key>/history/<label>/<YYYY-MM>.md` in the library, with one more field line, `**Machine:** <label>`; the heading and hash stay the same. The parser ignores unknown fields and reads this one into the entry's `machine`. The copy takes the library lock only after the history lock is released. See [Repository history](user-sync.md#repository-history).
+- Index rebuilds read and hash under the shared history lock and embed under the index's own lock in its data directory, so appends and readers never wait for the model.
+- With user library sync, the entries of an approved repository are also appended to `repos/<key>/history/<label>/<YYYY-MM>.md` in the library by the sync's worker, with one more field line, `**Machine:** <label>`; the heading and hash stay the same. The parser ignores unknown fields and reads this one into the entry's `machine`. The worker takes the library lock without waiting and never while a history lock is held. See [Repository history](user-sync.md#repository-history).
 - Rotation: when `os.path.getsize > 512 KB` — move file to `history/YYYY-MM.md` (month from the last entry's timestamp), create a fresh `history.md` with a header pointing to the archive.
 - UTF-8, `\n` line endings.
 - `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
@@ -310,15 +313,15 @@ async def read_history(
     ctx: Context | None = None,
 ) -> str:
     """Read recent entries (limit/since) or run a lazy semantic search (query).
-    limit is clamped to 1–500. With user library sync, entries of the user's
-    other machines for this repository are merged in, one per entry hash;
-    machine keeps one machine label's entries, or `local` this machine's own.
+    limit is clamped to 1–500. With user library sync, the entries the user's
+    machines shared for this repository are merged in, one per entry hash;
+    machine keeps one machine label's entries, or `local` the checkout's own.
 
     Returns JSON: {entries: [...], total, mode}.
     mode ∈ {"recency", "semantic"}.
     A missing or invalid workspace, or any failure, returns {status, error}.
 
-    Entry shape depends on mode (machine is null for this machine's entries):
+    Entry shape depends on mode (machine is null for the checkout's own entries):
     - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
     - semantic: {id, distance, document, timestamp, intent, tags, machine}.
     """

@@ -66,6 +66,7 @@ from src.user_sync.scope import CONFLICTS_DIR, MAX_FILE_BYTES, SCOPES_PATH, Rule
 
 SETTINGS_FILE = "user-sync.json"
 STATE_FILE = "user-sync-state.json"
+HISTORY_STATE_FILE = "user-sync-history.json"   # src.user_sync.history: checkouts, waiting entries, failures
 LOG_FILE = "user-sync.log"
 LOG_BYTES = 1024 * 1024
 LOG_BACKUPS = 3
@@ -251,6 +252,7 @@ class Settings:
     private_confirmed: bool = False     # the owner confirmed privacy where no check exists
     approved_groups: list[str] = field(default_factory=list)
     approved_files: list[str] = field(default_factory=list)
+    history_repositories: list[str] = field(default_factory=list)  # keys whose history.md this machine shares
 
     @classmethod
     def load(cls, path: Path) -> "Settings | None":
@@ -861,7 +863,16 @@ class Syncer:
                 name, result["reason"] = "attention", "stale"
                 result["message"] = f"no successful sync since {state.get('last_success')}"
         result["state"] = name
+        result.update(self._history_status())  # reported only; it never changes the state
         return result
+
+    def _history_status(self) -> dict:
+        """Repositories whose history waits for approval here, the last history failure, other origins."""
+        try:
+            from src.user_sync import history
+            return history.status(self.state_dir)
+        except Exception:  # noqa: BLE001 - status must always answer
+            return {}
 
     # --- setup ------------------------------------------------------------------------
 
@@ -1882,6 +1893,11 @@ class Syncer:
 
     def resume(self) -> dict:
         self._update_settings(lambda settings: setattr(settings, "paused", False))
+        try:  # entries of approved repositories written while paused follow now
+            from src.user_sync import history
+            history.request_catch_up(self.state_dir, self.library)
+        except Exception:  # noqa: BLE001 - resuming never fails on history; the next run catches up
+            self._log("history catch-up after resume failed")
         return self.status()
 
     def disconnect(self) -> dict:
@@ -1889,7 +1905,7 @@ class Syncer:
         settings = self._require_settings()
         # The settings lock keeps a concurrent pause or approval from saving the settings back.
         with self._sync_lock_for(settings, create=False), file_lock(self.state_dir / "settings.lock"):
-            for name in (SETTINGS_FILE, STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
+            for name in (SETTINGS_FILE, STATE_FILE, HISTORY_STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
                 (self.state_dir / name).unlink(missing_ok=True)
         self._log("disconnected")
         return {"status": "off", "message": "sync is off; the library files and its .git stay. "
