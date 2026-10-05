@@ -58,11 +58,12 @@ a hidden Task Scheduler task on Windows (`pythonw.exe`, least privilege, only wh
 logged on), a systemd user timer on Linux or one crontab line where `systemctl --user` cannot reach
 a user manager, and a LaunchAgent on macOS unless the daemon is installed, which runs its own loop.
 Enabling again replaces the interval; `disable` removes the job. Paths a scheduler would misread
-are refused rather than quoted wrongly.
+are refused rather than quoted wrongly. A scheduler that fails or hangs is reported with the
+reason `schedule`.
 
 A stdio MCP server runs one cycle about ten seconds after a write to the library (a saved flow, a
-persona or a switch) while sync is set up, started and not paused; a cycle that finds the sync
-lock held retries a few seconds later. The command never blocks the request that saved.
+persona or a switch) while sync is set up, started and not paused, and no other runner holds the
+sync lock; a run that finds it busy is tried again a few seconds later. The command never blocks the request that saved.
 
 ## What syncs
 

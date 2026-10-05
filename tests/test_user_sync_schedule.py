@@ -752,3 +752,51 @@ def test_the_command_line_schedules_runs_with_explicit_directories(tmp_path, mon
     assert calls == [(7, {"state_dir": state.resolve(), "library": library.resolve()})]
     assert main(["--state", str(state), "--library", str(library), "schedule", "enable", "--interval", "3"]) == 0
     assert calls[-1][0] == 3
+
+
+def _settings(state, **values):
+    from src.user_sync import engine
+    state.mkdir(parents=True, exist_ok=True)
+    engine.Settings(remote="git@github.com:me/lib.git", name="Owner", email="owner@example.com",
+                    label="a", **values).save(state / engine.SETTINGS_FILE)
+
+
+def test_the_command_line_checks_an_explicit_interval_even_zero(tmp_path, monkeypatch, capsys):
+    from src.user_sync.__main__ import main
+
+    def no_scheduler(argv, input=None):
+        raise AssertionError(f"ran {argv}")
+
+    monkeypatch.setattr(schedule, "run_command", no_scheduler)
+    state = tmp_path / "state"
+    _settings(state, fetch_minutes=7)
+    assert main(["--state", str(state), "--library", str(tmp_path / "library"),
+                 "schedule", "enable", "--interval", "0", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["reason"] == "schedule" and "from 1 to 60" in result["message"]
+
+
+def test_a_scheduler_that_hangs_is_reported_without_a_traceback(tmp_path, monkeypatch, capsys):
+    from src.user_sync.__main__ import main
+
+    def hangs(*args, **kwargs):
+        raise subprocess.TimeoutExpired(["launchctl", "print"], 30)
+
+    monkeypatch.setattr(schedule, "status", hangs)
+    assert main(["--state", str(tmp_path / "state"), "--library", str(tmp_path / "library"),
+                 "schedule", "status", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "schedule"
+
+
+def test_an_unmapped_error_of_another_command_is_internal(tmp_path, monkeypatch, capsys):
+    from src.user_sync import engine
+    from src.user_sync.__main__ import main
+
+    def broken(self, *args, **kwargs):
+        raise ValueError("a defect")
+
+    monkeypatch.setattr(engine.Syncer, "status", broken)
+    assert main(["--state", str(tmp_path / "state"), "--library", str(tmp_path / "library"),
+                 "status", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["reason"] == "internal" and result["message"] == "a defect"

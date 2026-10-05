@@ -10,6 +10,7 @@ import time
 import pytest
 
 from src import user_library
+from src.file_lock import file_lock
 from src.user_sync import trigger as sync_trigger
 
 
@@ -343,6 +344,10 @@ def test_the_stdio_trigger_follows_the_sync_settings(tmp_path, monkeypatch):
         assert trigger._is_ready() is False  # set up, not started
         settings.started = "2026-10-05T12:00:00+00:00"
         settings.save(state / engine.SETTINGS_FILE)
+        assert trigger._is_ready() is True
+        (tmp_path / "library" / ".git").mkdir(parents=True)
+        with file_lock(tmp_path / "library" / ".git" / engine.SYNC_LOCK, blocking=False):
+            assert trigger._is_ready() is False  # another runner is syncing: tried again shortly
         assert trigger._is_ready() is True
         settings.paused = True
         settings.save(state / engine.SETTINGS_FILE)

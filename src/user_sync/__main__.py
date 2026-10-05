@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack, contextmanager
 import json
+import subprocess
 import sys
 
 from src.file_lock import file_lock
@@ -120,7 +121,8 @@ def _execute(syncer: Syncer, arguments) -> dict | list:
         settings = syncer.settings()
         if settings is None:
             raise SyncError("not_set_up", "set up sync before scheduling it", state="off")
-        return schedule.enable(arguments.interval or settings.fetch_minutes,
+        minutes = settings.fetch_minutes if arguments.interval is None else arguments.interval
+        return schedule.enable(minutes,
                                state_dir=syncer.state_dir, library=syncer.library)
     if name == "scope":
         changes = dict(exclude=arguments.exclude, include=arguments.include,
@@ -192,8 +194,9 @@ def _session_lease():
         yield
 
 
-def _failure(error: Exception) -> dict:
-    """Every expected failure as a reason, never a traceback."""
+def _failure(error: Exception, command: str | None = None) -> dict:
+    """Every expected failure as a reason, never a traceback; an unmapped error of a command other
+    than ``schedule`` (whose scheduler errors have no type of their own) is ``internal``."""
     from src.flows import FlowError
     from src.user_sync.gitcmd import GitError, RemoteError
     from src.user_sync.keys import SSHKeyError
@@ -202,7 +205,8 @@ def _failure(error: Exception) -> dict:
         return {"status": error.state, "reason": error.reason, "message": error.message}
     reasons = ((ScopeError, "scopes_invalid"), (SSHKeyError, "ssh"), (GitError, "git_error"),
                (RemoteError, "unknown_remote"), (FlowError, "invalid"), (OSError, "library_unreadable"))
-    reason = next((name for kind, name in reasons if isinstance(error, kind)), "schedule")
+    fallback = "schedule" if command == "schedule" else "internal"
+    reason = next((name for kind, name in reasons if isinstance(error, kind)), fallback)
     return {"status": "attention", "reason": reason, "message": str(error)}
 
 
@@ -217,8 +221,8 @@ def main(argv=None) -> int:
         with _session_lease():
             result = _execute(Syncer(arguments.library, arguments.state), arguments)
     except (SyncError, ScopeError, SSHKeyError, GitError, RemoteError, FlowError, OSError,
-            RuntimeError, ValueError) as error:
-        result = _failure(error)
+            RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        result = _failure(error, arguments.command)
         failed = result["status"] != "busy"
     else:
         status = result.get("state") or result.get("status") if isinstance(result, dict) else "ok"
