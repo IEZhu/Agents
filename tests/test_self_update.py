@@ -493,6 +493,39 @@ def test_prepare_diverged_skips(repos, staging, tmp_path, monkeypatch):
     assert self_update._read_prepared_marker() is None
 
 
+def test_prepare_records_the_given_model_and_checks_the_target_first(repos, staging, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    old, checked = _head(repos.local), []
+
+    status = self_update.prepare_update(
+        str(repos.local), "origin", "main",
+        reindex_fn=staging.builder, staging_parent=staging.parent,
+        embedding_model="service-model", validate_target=lambda *shas: checked.append(shas),
+    )
+
+    assert status == PreparedStatus.PREPARED
+    assert checked == [(old, _head(repos.upstream))]
+    assert self_update._read_prepared_marker()["embedding_model"] == "service-model"
+
+
+def test_prepare_target_refusal_builds_nothing(repos, tmp_path, monkeypatch):
+    monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
+    _commit(repos.upstream, "file.txt", "v2\n", "update")
+    parent, built = tmp_path / "staging", []
+
+    def refuse(old, target):
+        raise RuntimeError("refused")
+
+    with pytest.raises(RuntimeError, match="refused"):
+        self_update.prepare_update(
+            str(repos.local), "origin", "main",
+            reindex_fn=built.append, staging_parent=str(parent), validate_target=refuse,
+        )
+    assert built == [] and not parent.exists()
+    assert self_update._read_prepared_marker() is None
+
+
 def test_prepare_reindex_failure_aborts_clean(repos, tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / ".prepared_update.json"))
     _commit(repos.upstream, "file.txt", "v2\n", "update")

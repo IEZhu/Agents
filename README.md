@@ -314,7 +314,7 @@ AGENTS_AUTO_UPDATE_REMOTE=origin
 AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
-AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=600   # seconds per index build (staged or in-place)
+AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=3600  # seconds per index build (staged or in-place); stops only a hung build
 AGENTS_AUTO_UPDATE_STAGING=1             # 0 = synchronous in-place update at an idle start
 # AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
