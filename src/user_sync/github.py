@@ -529,6 +529,13 @@ def _is_private(info: RepoInfo) -> bool:
     return info.private and info.visibility == "private"
 
 
+def privacy(info: RepoInfo) -> str:
+    """``private`` when only the owner and collaborators can read the repository, else ``internal`` or ``public``."""
+    if info.visibility == "internal":
+        return "internal"
+    return "private" if _is_private(info) else "public"
+
+
 def _deploy_key(payload) -> DeployKey:
     data = payload if isinstance(payload, dict) else {}
     key_id, title, key, read_only = data.get("id"), data.get("title"), data.get("key"), data.get("read_only")
@@ -635,10 +642,11 @@ class GitHubClient:
     def require_private(self, full_name: str) -> RepoInfo:
         """The repository, or ``public_repo`` unless only its owner and collaborators can read it."""
         info = self.repository(full_name)
-        if info.visibility == "internal":
+        verdict = privacy(info)
+        if verdict == "internal":
             raise GitHubError("public_repo", f"{info.full_name} is internal: every member of the enterprise "
                                              "can read it. Use a private repository for the library.")
-        if not _is_private(info):
+        if verdict != "private":
             raise GitHubError("public_repo", f"{info.full_name} is public. Agents-Core syncs the library "
                                              "only to a private repository.")
         return info

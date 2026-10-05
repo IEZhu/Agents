@@ -1,8 +1,9 @@
 # User library sync
 
-Status: the engine and its command line are implemented (#165). The daemon loop (#167), scheduled
-runs and the terminal wizard (#168), GitHub sign-in (#166), the web UI (#170) and installer
-integration (#171) are separate parts of the [epic #173](https://github.com/IEZhu/Agents/issues/173).
+Status: the engine and its command line (#165), GitHub sign-in through the API (#166) and the
+terminal wizard (#168) are implemented. The daemon loop (#167), scheduled runs (#168), the web UI
+(#170) and installer integration (#171) are separate parts of the
+[epic #173](https://github.com/IEZhu/Agents/issues/173).
 
 Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
 machines through one private git repository with one branch, which is never force-pushed. The
@@ -14,9 +15,12 @@ installation changes.
 Every runner uses `src/user_sync/` (standard library and the git CLI only). Without the daemon:
 
 ```bash
-python -m src.user_sync setup --remote git@github.com:me/agents-library.git \
+python -m src.user_sync setup      # in a terminal: the wizard below walks through everything
+python -m src.user_sync github login                          # GitHub: sign in with a device code
+python -m src.user_sync setup --github me/agents-library --name "My Name" --email me@example.com
+python -m src.user_sync setup --remote git@git.example.com:me/agents-library.git \
     --name "My Name" --email me@example.com [--label laptop] [--ask-new-repositories]
-# add the printed public key to the repository as a deploy key with write access
+# another host: add the printed public key to the repository as a deploy key with write access
 python -m src.user_sync check      # access, and the remote is empty or an Agents-Core library
 python -m src.user_sync preview    # what would be uploaded and downloaded, and the conflicts
 python -m src.user_sync start --confirm <hash from preview>
@@ -29,11 +33,12 @@ python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-reposit
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]
+python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key
 ```
 
-Each command takes `--json`. `--state DIR` and `--library DIR` before the command name the private
-state directory and the library explicitly; scheduled runs pass both, so they never depend on the
-scheduler's environment. The command line reads the installation's `.env` like the MCP servers,
+Each command takes `--json`; prompts and the sign-in code then go to stderr. `--state DIR` and
+`--library DIR` before the command name the private state directory and the library explicitly;
+scheduled runs pass both, so they never depend on the scheduler's environment. The command line reads the installation's `.env` like the MCP servers,
 and holds the installation's shared session lease while it runs, so an update never replaces the
 code under it. Setup records the library; a run on another library stops with
 `library_mismatch`.
@@ -43,6 +48,51 @@ Hosts other than github.com print their host key fingerprints at setup; confirm 
 keys are refreshed from its API on every setup. Where privacy cannot be checked over HTTPS,
 `--confirm-private` records the owner's confirmation. Setting up another remote starts a new
 history there: one root commit with the current files, so old commits never travel to it.
+
+### The wizard
+
+`python -m src.user_sync setup` without `--remote` or `--github`, in a terminal, asks step by step:
+GitHub sign-in with a device code (it opens the browser when it can) or an SSH URL for another
+host; the repository (a new private one, a library found on the account, or another private
+repository by `OWNER/NAME`); the commit name and email, which it never reads from your git
+configuration; and the machine label. It then sets up sync (on GitHub it adds this machine's
+deploy key; elsewhere it shows the public key and the host key fingerprints to confirm), checks
+access, asks to confirm privacy where the host cannot be checked, and shows the preview: uploads,
+downloads, conflicts, files the secret scanner held back and repository groups with their
+origins. Sync starts only after you type `yes`. Without a terminal, `setup` prints its usage and
+exits with code 2.
+
+## GitHub
+
+Setup does not need the `gh` CLI: Agents-Core signs in to the GitHub API itself
+(`src/user_sync/github.py`) and uses it to create the repository, check its privacy and manage
+deploy keys. Git never uses the GitHub token: it runs on this machine's deploy key.
+
+- **Sign-in.** `github login` runs the OAuth device flow of the Agents-Core OAuth App: open
+  `https://github.com/login/device`, enter the printed code, and approve the `repo` scope, which
+  creating a private repository needs. The app's client ID ships in the code once the owner has
+  registered the app; until then, and for forks or GitHub Enterprise Server, set
+  `AGENTS_GITHUB_CLIENT_ID` (and `AGENTS_GITHUB_HOST`), for example in the installation's `.env`.
+- **The token** is kept in the macOS Keychain, the Windows Credential Manager or the Secret Service
+  (`secret-tool`), never in the library, logs or settings. Where none of them works, it goes to a
+  private file in the state directory, and `github status` says so. `github logout` (Forget
+  account) deletes it from this machine and prints the page where you revoke it on GitHub.
+- **Repository.** `github libraries` lists your private repositories that hold an Agents-Core
+  library; `github create [NAME]` creates an empty private repository (default `agents-library`).
+  `setup --github OWNER/NAME` checks through the API that the repository exists and is private,
+  runs setup with its SSH URL and adds this machine's public key as a deploy key with write access
+  (titled `Agents-Core <label>`), unless GitHub already has it. A repository that does not exist
+  is refused with a hint to run `github create`.
+- **Privacy.** For a repository on the signed-in account's host, the check before the first upload
+  and the daily check ask GitHub's API: public and internal repositories are refused. When GitHub
+  refuses the token (it was revoked), the account shows "reconnect needed" in `github status`,
+  the anonymous check decides instead, and sync keeps running on the deploy key. Any other API
+  failure leaves privacy unknown, which only the first upload refuses without `--confirm-private`.
+- **A refused key.** When `check` is refused on a repository of the signed-in account, its error
+  says whether GitHub still has this machine's deploy key; `github add-key` adds it again.
+- **Port 443.** When `check` cannot reach `git@github.com:…` on port 22 (some networks block it),
+  it tries `ssh://git@ssh.github.com:443/OWNER/NAME.git`, GitHub's SSH service on port 443, and
+  keeps that as the remote when it works. Its host keys are written with github.com's at setup.
 
 ## What syncs
 
@@ -139,9 +189,10 @@ normal save (or, for a deletion, a normal delete, which keeps the text in the fl
   `format_newer`.
 - A commit that would delete at least 10 of the owner's files (flows, personas, switches; history
   and records do not count) and more than half of them waits for the owner's confirmation.
-- A public remote is refused before the first upload and checked again daily: an anonymous
-  `git ls-remote` over HTTPS with an empty configuration, because a credential helper would make a
-  private repository look public. GitHub's API check arrives with #166.
+- A public remote is refused before the first upload and checked again daily. A repository of the
+  signed-in GitHub account is checked through the API, which also refuses an internal one; other
+  remotes get an anonymous `git ls-remote` over HTTPS with an empty configuration, because a
+  credential helper would make a private repository look public.
 - The secret scanner looks for PEM private keys, GitHub, GitLab, AWS, Slack and `sk-` tokens and
   `password=` in every file about to be committed; a hit keeps that file out of the commit and sets
   `attention: secret`.
@@ -171,8 +222,11 @@ to `attention` after 72 hours.
 ## Private files
 
 Settings (`user-sync.json`), state (`user-sync-state.json`), this machine's key, `known_hosts`,
-the isolated `gitconfig`, an empty hooks directory and `user-sync.log` (1 MiB, three backups) live
-in a private per-installation directory, never in the library:
+the isolated `gitconfig`, an empty hooks directory, `user-sync.log` (1 MiB, three backups) and the
+GitHub account's record (`github-account.json`: host, login and where the token is, never the
+token itself; `github-token` only in the file fallback) live in a private per-installation
+directory, never in the library. The token's entry in the OS secret store is named
+`agents-core-sync-<id>`:
 
 - macOS: `~/Library/Application Support/Agents-Core/<id>/user-sync`, inside the daemon's state
   directory (`AGENTS_SERVICE_DIR`, or the directory an installed daemon recorded in
@@ -189,5 +243,10 @@ in a private per-installation directory, never in the library:
 joining cases, every row of the conflict table, exclusions (checked against every object the remote
 holds, not only its last tree), the scanner, privacy, a hostile global git configuration, symlinks,
 concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
-seeded random edits on both machines. The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux,
-Windows and macOS.
+seeded random edits on both machines. `tests/test_user_sync_github.py` covers the device flow,
+token storage and every API call against a fake GitHub on `127.0.0.1`, and
+`tests/test_user_sync_github_setup.py` the privacy check, `setup --github`, `add-key`, port 443
+and the wizard, with git going to a local bare repository through a fake SSH command. The real
+Keychain, Credential Manager and Secret Service are used only when `AGENTS_TEST_REAL_SECRET_STORE=1`.
+The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and
+macOS, and sets that variable on the Windows and macOS jobs.
