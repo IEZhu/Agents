@@ -851,3 +851,42 @@ def test_undoing_a_flow_deletion_keeps_changes_from_both_sides():
     assert blobs[result.tree["common/x.md"]] == b"# X\n\nedited\n"
     assert blobs[result.tree["personas/common/x.json"]] == b'{"persona": {"agent": "a"}}\n'
     assert [(c["kind"], c["deleted_on"]) for c in result.conflicts] == [("deletion_undone", "remote")]
+
+
+def _library_files(m: Machine) -> dict[str, bytes]:
+    return {p.relative_to(m.lib).as_posix(): p.read_bytes() for p in sorted(m.lib.rglob("*"))
+            if p.is_file() and ".git" not in p.relative_to(m.lib).parts[:1] and p.name != ".lock"}
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_random_edits_on_two_machines_converge_without_losing_text(machine, seed):
+    """Random saves, deletions, overlays and switches on two machines, synced in random order."""
+    import random
+    rnd = random.Random(seed)
+    a, b = machine("a"), machine("b")
+    a.save("user:f1", "# f1\n")
+    a.connect()
+    b.connect()
+    written = set()
+    for step in range(8):
+        m, flow = rnd.choice((a, b)), rnd.choice(("f1", "f2", "f3"))
+        operation = rnd.choice(("save", "save", "delete", "overlay", "switch", "sync", "sync"))
+        if operation == "save":
+            text = f"# {flow}\n\n{m.name} {seed} {step}\n"
+            m.save(f"user:{flow}", text)
+            written.add(text.encode())
+        elif operation == "delete" and m.revision(f"user:{flow}"):
+            m.flows.delete(f"user:{flow}", expected_revision=m.revision(f"user:{flow}"))
+        elif operation == "overlay" and (m.lib / f"common/{flow}.md").exists():
+            (m.lib / "personas" / "common").mkdir(parents=True, exist_ok=True)
+            user_library.atomic_write(m.lib / f"personas/common/{flow}.json",
+                                      json.dumps({"persona": {"agent": f"{m.name}{step}"}}).encode())
+        elif operation == "switch":
+            m.switch("rules", rnd.choice(("r1", "r2")), rnd.random() < 0.5)
+        elif operation == "sync":
+            assert m.run()["status"] in ("synced", "attention")
+    for m in (a, b, a, b):
+        assert m.run()["status"] == "synced"
+    assert _library_files(a) == _library_files(b)
+    kept = set(_library_files(a).values())
+    assert {text for text in written if text not in kept} == set()  # every text: current, in .history or a record
