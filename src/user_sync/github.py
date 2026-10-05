@@ -15,8 +15,8 @@ sync goes on.
 * The token has the ``repo`` scope, which creating a private repository needs. It
   lives in the OS secret store: the macOS Keychain through ``/usr/bin/security``,
   the Windows Credential Manager through ``ctypes``, the Secret Service through
-  ``secret-tool`` when that works; otherwise in a private file in the state
-  directory, which the status reports as a warning.
+  ``secret-tool`` when that works; otherwise, or when that store refuses the token,
+  in a private file in the state directory, which the status reports as a warning.
 * ``GitHubAccount`` is what callers use: status, sign-in, a client, "reconnect
   needed" after a 401 and "Forget account". Its ``github-account.json`` holds no
   secret. The caller passes the private state directory and the per-installation
@@ -57,6 +57,7 @@ from typing import Any, Callable, Iterator, NamedTuple, Protocol
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 from src.file_lock import file_lock
 from src.user_library import MARKER
@@ -80,6 +81,10 @@ SECURITY = "/usr/bin/security"
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 100
 POLL_NETWORK_RETRIES = 3
+# Checking a new token right after the device flow: a short outage must not lose it.
+SIGN_IN_ATTEMPTS = 3
+SIGN_IN_RETRY_DELAY = 5
+MAX_RATE_LIMIT_WAIT = 60
 
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?")
@@ -248,15 +253,18 @@ def _redact(text: str, *secrets: str | None) -> str:
     return text
 
 
-def _github_message(payload) -> str:
-    """GitHub's ``message`` and the messages of its ``errors``, for an error text."""
+def _github_message(payload, *secrets: str | None) -> str:
+    """GitHub's ``message`` and the messages of its ``errors``, for an error text.
+
+    ``secrets`` are redacted before the text is shortened, so no cut leaves part of one.
+    """
     if not isinstance(payload, dict):
         return ""
     parts = [payload.get("message")]
     errors = payload.get("errors")
     for item in errors if isinstance(errors, list) else ():
         parts.append((item.get("message") or item.get("code")) if isinstance(item, dict) else item)
-    return "; ".join(str(part) for part in parts if part)[:300]
+    return _redact("; ".join(str(part) for part in parts if part), *secrets)[:300]
 
 
 def _rate_limit(status: int, headers, message: str) -> GitHubError | None:
@@ -412,26 +420,34 @@ class DeviceFlow:
                 return result.token
 
     def _post(self, path: str, fields: dict) -> dict:
-        """POST a form; returns the JSON object, including OAuth errors, which GitHub sends with status 200."""
+        """POST a form and return GitHub's JSON object.
+
+        Rate limits, a missing endpoint and server errors are mapped first, whatever the
+        body says. Only then is a JSON object an OAuth answer: on 200, where GitHub also
+        sends errors such as ``authorization_pending``, or an ``error`` on 400 or 401.
+        """
         request = urllib.request.Request(
             self.web_url + path, data=urllib.parse.urlencode(fields).encode("ascii"), method="POST",
             headers={"Accept": "application/json", "User-Agent": USER_AGENT,
                      "Content-Type": "application/x-www-form-urlencoded"})
         status, headers, raw = _send(self._opener, request, self.timeout)
         payload = _json(raw)
-        if isinstance(payload, dict) and (status == 200 or isinstance(payload.get("error"), str)):
-            return payload
-        limited = _rate_limit(status, headers, "")
+        payload = payload if isinstance(payload, dict) else None
+        text = str(payload.get("error_description") or payload.get("error") or "") if payload else ""
+        limited = _rate_limit(status, headers, text)
         if limited is not None:
             raise limited
-        if status == 200:
-            raise GitHubError("unexpected_response", f"{self.web_url} did not answer the device sign-in")
         if status == 404:
             raise GitHubError("not_found", f"{self.web_url} offers no device sign-in for this OAuth App; "
                                            "check AGENTS_GITHUB_HOST and AGENTS_GITHUB_CLIENT_ID.", status=status)
         if status >= 500:
             raise GitHubError("network", f"GitHub is unavailable (HTTP {status}); try again later.",
                               status=status)
+        if payload is not None and (status == 200 or (status in (400, 401)
+                                                      and isinstance(payload.get("error"), str))):
+            return payload
+        if status == 200:
+            raise GitHubError("unexpected_response", f"{self.web_url} did not answer the device sign-in")
         raise GitHubError("oauth", f"GitHub refused the device sign-in (HTTP {status}).", status=status)
 
 
@@ -698,7 +714,7 @@ class GitHubClient:
         return bool(repo and self.login) and repo.split("/")[0].lower() != self.login.lower()
 
     def _failure(self, status: int, headers, payload, repo: str | None) -> GitHubError:
-        message = _redact(_github_message(payload), self._token)
+        message = _github_message(payload, self._token)
         if status == 401:
             if self._on_unauthorized is not None:
                 try:
@@ -718,13 +734,15 @@ class GitHubClient:
                 where = f" at {link[1]}" if link else " in your GitHub settings"
                 return GitHubError("org_approval", f"The organization that owns {subject} requires SAML single "
                                                    f"sign-on: authorize Agents-Core for it{where}.", status=status)
-            if "oauth app access restrictions" in message.lower() or self._foreign(repo):
+            if "oauth app access restrictions" in message.lower():
                 return GitHubError("org_approval", f"GitHub refused access to {subject}.{_ORG_APPROVAL} "
-                                                   f"({message or 'HTTP 403'})", status=status)
+                                                   f"({message})", status=status)
+            # Any other 403, also on another account's repository (a collaborator lacking
+            # admin rights, for example), is not known to be an approval question.
             hint = " If it belongs to an organization, the organization may need to approve the Agents-Core " \
                    "OAuth App." if repo else ""
-            return GitHubError("forbidden", f"GitHub refused access to {subject}: {message or 'HTTP 403'}.{hint}",
-                               status=status)
+            detail = message.rstrip(".") or "HTTP 403"
+            return GitHubError("forbidden", f"GitHub refused access to {subject}: {detail}.{hint}", status=status)
         if status == 404:
             hint = _ORG_APPROVAL if self._foreign(repo) else ""
             return GitHubError("not_found", f"GitHub found no {repo or 'such resource'}, or this account cannot "
@@ -1014,12 +1032,14 @@ class FileStore:
         _write_private(self.path, _check_token(token).encode("ascii"))
 
     def delete(self) -> None:
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError as error:
-            raise GitHubError("storage", f"Cannot delete {self.path}: {error.strerror or error}") from None
+        """Delete the token and any temporary copy that a killed write left next to it."""
+        for path in (self.path, *self.path.parent.glob(f".{TOKEN_FILE}.*")):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise GitHubError("storage", f"Cannot delete {path}: {error.strerror or error}") from None
 
 
 def default_store(directory: str | Path, name: str, *, platform: str | None = None) -> SecretStore:
@@ -1067,10 +1087,11 @@ class GitHubAccount:
 
     ``directory`` is the installation's private state directory and ``name`` its
     secret name (for example ``agents-core-sync-<installation id>``). There,
-    ``github-account.json`` records the host, the login, the storage backend and
-    whether a reconnect is needed; the token stays in the backend recorded at
-    sign-in. ``web_url``/``api_url`` replace the bases derived from ``host`` (tests
-    use a local fake GitHub); ``store`` replaces the automatic choice of a store.
+    ``github-account.json`` records the host, the login, the storage backend, an ID
+    of the sign-in and whether a reconnect is needed; the token stays in the backend
+    recorded at sign-in. ``web_url``/``api_url`` replace the bases derived from
+    ``host`` (tests use a local fake GitHub); ``store`` replaces this machine's
+    default store.
     """
 
     def __init__(self, directory: str | Path, name: str, *, host: str | None = None,
@@ -1098,8 +1119,10 @@ class GitHubAccount:
         if login and not connected:
             warning = (f"Signed in to {meta.get('host')}, but this installation now uses {self.host}; "
                        "sign in again.")
-        elif connected and meta.get("storage") == FileStore.backend:
-            warning = FileStore.WARNING
+        elif connected and _backend(meta) == FileStore.backend:
+            failure = meta.get("storage_error")
+            warning = FileStore.WARNING + (f" The OS secret store failed: {failure}"
+                                           if isinstance(failure, str) and failure else "")
         return {"connected": connected, "host": self.host, "login": login if connected else None,
                 "reconnect_needed": connected and meta.get("reconnect_needed") is True,
                 "storage": _backend(meta) if connected else None,
@@ -1122,64 +1145,87 @@ class GitHubAccount:
     def wait_for_sign_in(self, device: DeviceCode, *, sleep: Callable[[float], None] = time.sleep,
                          clock: Callable[[], float] = time.monotonic) -> dict:
         """Block until the user enters the code (the terminal wizard); returns the status."""
-        return self.complete_sign_in(self.device_flow().wait(device, sleep=sleep, clock=clock))
+        token = self.device_flow().wait(device, sleep=sleep, clock=clock)
+        return self.complete_sign_in(token, sleep=sleep)
 
-    def complete_sign_in(self, token: str) -> dict:
+    def complete_sign_in(self, token: str, *, sleep: Callable[[float], None] = time.sleep) -> dict:
         """Check the token, keep it in the secret store and record the login; returns the status.
 
-        Nothing is stored unless GitHub accepts the token. A new sign-in replaces the
-        previous one and removes old copies of the token from other stores.
+        Nothing is stored unless GitHub accepts the token; a network failure, or a rate
+        limit that ends within a minute, is retried a few times before the token is
+        given up. When the secret store fails, the token goes to the private file and
+        the status says why. The record is written after the token, and a failed write
+        removes the token again. A new sign-in gets a new ID, replaces the previous one
+        and removes old copies of the token from other stores.
         """
-        login = GitHubClient(token, api_url=self.api_url).user()
+        login = self._login(token, sleep)
         with self._lock():
             previous = self._read()
-            store = self._store or default_store(self.directory, self.name)
-            store.save(token)
+            store, failure = self._keep(token)
+            record = {"host": self.host, "login": login, "storage": store.backend, "sign_in": uuid.uuid4().hex,
+                      "connected_at": _now(), "reconnect_needed": False}
+            if failure:
+                record["storage_error"] = failure
+            try:
+                self._write(record)
+            except BaseException:
+                _delete_quietly(store)  # no token stays behind without a record that points to it
+                raise
             for backend in {_backend(previous), FileStore.backend} - {None, store.backend}:
-                self._discard(backend)
-            self._write({"host": self.host, "login": login, "storage": store.backend,
-                         "connected_at": _now(), "reconnect_needed": False})
+                stale = self._store_for(backend)
+                if stale is not None:
+                    _delete_quietly(stale)
         return self.status()
 
     def client(self) -> GitHubClient:
-        """A client with the stored token; a 401 from it marks "reconnect needed".
+        """A client with the stored token; a 401 from it marks its sign-in "reconnect needed".
 
-        Raises ``auth`` when no account is connected to this host or its token is gone,
-        ``storage`` when the secret store cannot be read.
+        The client keeps the ID of the sign-in it was made for, so a 401 for an old token
+        never marks a newer sign-in. Raises ``auth`` when no account is connected to this
+        host or its token is gone, ``storage`` when the secret store cannot be read.
         """
         meta = self._read()
         if not self._connected(meta):
             raise GitHubError("auth", f"No GitHub account on {self.host} is connected; sign in first.")
+        sign_in = _sign_in_id(meta)
         store = self._store_for(_backend(meta))
         token = store.load() if store is not None else None
         if token is None or not _TOKEN.fullmatch(token):
-            self.mark_reconnect_needed()
+            try:
+                self._mark_reconnect_needed(sign_in)
+            except GitHubError as error:
+                logger.warning("Could not record that the GitHub account needs a reconnect: %s", error.message)
             raise GitHubError("auth", "The stored GitHub authorization is missing; reconnect the GitHub account.")
         return GitHubClient(token, api_url=self.api_url, login=meta["login"],
-                            on_unauthorized=self.mark_reconnect_needed)
+                            on_unauthorized=lambda: self._mark_reconnect_needed(sign_in))
 
     def mark_reconnect_needed(self) -> None:
-        """Record that GitHub refused the token. Only a status: git sync keeps running on the deploy key."""
-        with self._lock():
-            meta = self._read()
-            if meta.get("login") and meta.get("reconnect_needed") is not True:
-                self._write({**meta, "reconnect_needed": True})
+        """Record that GitHub refused the current sign-in's token.
+
+        Only a status: git sync keeps running on the deploy key.
+        """
+        self._mark_reconnect_needed(None)
 
     def forget(self) -> dict:
-        """Delete the stored token and the metadata ("Forget account"); returns the status and ``revoke_url``.
+        """Delete the stored token and the record ("Forget account"); returns the status and ``revoke_url``.
 
-        The token stays valid on GitHub until the user revokes it at ``revoke_url``:
-        revoking through the API needs the OAuth App's client secret, which does not
-        ship. A store that fails to delete keeps the metadata, so Forget can be retried.
+        The token is deleted from the store the record names, from this machine's default
+        store and from the private file, so a lost or unreadable record leaves no token
+        behind. If a deletion fails, the record stays and the error says so: Forget can be
+        retried. The token stays valid on GitHub until the user revokes it at
+        ``revoke_url``: revoking through the API needs the OAuth App's client secret,
+        which does not ship.
         """
         with self._lock():
             meta = self._read()
-            stores = [self._store_for(backend) for backend in {_backend(meta), FileStore.backend} - {None}]
-            if self._store is not None and self._store not in stores:
-                stores.append(self._store)
-            for store in stores:
-                if store is not None:
+            failures = []
+            for store in self._stores_to_clear(meta):
+                try:
                     store.delete()
+                except GitHubError as error:
+                    failures.append(error.message)
+            if failures:
+                raise GitHubError("storage", "Forget did not finish; try again. " + "; ".join(failures))
             try:
                 (self.directory / ACCOUNT_FILE).unlink()
             except FileNotFoundError:
@@ -1188,6 +1234,58 @@ class GitHubAccount:
                 raise GitHubError("storage", f"Cannot delete {ACCOUNT_FILE}: {error.strerror or error}") from None
         return {**self.status(), "revoke_url": f"{self.web_url}/settings/applications"}
 
+    def _login(self, token: str, sleep: Callable[[float], None]) -> str:
+        """The login of a new token; a failure that may pass soon is retried, so the token is not lost to it."""
+        client = GitHubClient(token, api_url=self.api_url)
+        attempt = 1
+        while True:
+            try:
+                return client.user()
+            except GitHubError as error:
+                delay = _retry_delay(error)
+                if delay is None or attempt >= SIGN_IN_ATTEMPTS:
+                    raise
+            attempt += 1
+            sleep(delay)
+
+    def _keep(self, token: str) -> tuple[SecretStore, str | None]:
+        """Save the token in this machine's store, or in the private file if that store fails.
+
+        Returns the store that holds the token and, after a fallback, why the first one failed.
+        """
+        store = self._store or default_store(self.directory, self.name)
+        try:
+            store.save(token)
+            return store, None
+        except GitHubError as error:
+            if error.code != "storage" or store.backend == FileStore.backend:
+                raise
+            failure = error.message
+        logger.warning("%s; the GitHub token goes to a private file instead", failure)
+        _delete_quietly(store)  # nothing half-saved stays behind
+        fallback = FileStore(self.directory)
+        fallback.save(token)
+        return fallback, failure
+
+    def _mark_reconnect_needed(self, sign_in: str | None) -> None:
+        """Mark sign-in ``sign_in`` (None: the current one), unless a newer sign-in replaced it."""
+        with self._lock():
+            meta = self._read()
+            if not meta.get("login") or meta.get("reconnect_needed") is True:
+                return
+            if sign_in is not None and _sign_in_id(meta) != sign_in:
+                return
+            self._write({**meta, "reconnect_needed": True})
+
+    def _stores_to_clear(self, meta: dict) -> list[SecretStore]:
+        """The recorded store, this machine's default store and the private file, each once."""
+        stores: dict[str, SecretStore] = {}
+        for store in (self._store_for(_backend(meta)), self._store or default_store(self.directory, self.name),
+                      FileStore(self.directory)):
+            if store is not None:
+                stores.setdefault(store.backend, store)
+        return list(stores.values())
+
     def _connected(self, meta: dict) -> bool:
         return isinstance(meta.get("login"), str) and bool(meta["login"]) and meta.get("host") == self.host
 
@@ -1195,15 +1293,6 @@ class GitHubAccount:
         if self._store is not None and backend == self._store.backend:
             return self._store
         return open_store(backend, self.directory, self.name) if backend else None
-
-    def _discard(self, backend: str) -> None:
-        """Remove an old copy of the token; a failure is logged, not raised."""
-        store = self._store_for(backend)
-        try:
-            if store is not None:
-                store.delete()
-        except GitHubError as error:
-            logger.warning("Could not remove the old GitHub token from %s: %s", backend, error.message)
 
     @contextmanager
     def _lock(self) -> Iterator[None]:
@@ -1232,6 +1321,30 @@ class GitHubAccount:
 
 
 def _backend(meta: dict) -> str | None:
-    """The storage backend that the account metadata records."""
+    """The storage backend that the account record names."""
     backend = meta.get("storage")
     return backend if isinstance(backend, str) and backend else None
+
+
+def _sign_in_id(meta: dict) -> str:
+    """The recorded sign-in's ID; ``connected_at`` stands in for a record without one."""
+    return str(meta.get("sign_in") or meta.get("connected_at") or "")
+
+
+def _delete_quietly(store: SecretStore) -> None:
+    """Remove a copy of the token that nothing needs any more; a failure is logged, not raised."""
+    try:
+        store.delete()
+    except GitHubError as error:
+        logger.warning("Could not remove the GitHub token from %s: %s", store.backend, error.message)
+
+
+def _retry_delay(error: GitHubError) -> float | None:
+    """Seconds to wait before trying again after ``error``; None when waiting cannot help."""
+    if error.code == "network":
+        return SIGN_IN_RETRY_DELAY
+    if error.code == "rate_limited" and error.reset_at is not None:
+        wait = error.reset_at - time.time()
+        if wait <= MAX_RATE_LIMIT_WAIT:
+            return max(wait, 1.0)
+    return None

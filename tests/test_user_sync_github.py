@@ -1,10 +1,10 @@
 """GitHub account for library sync (src/user_sync/github.py) against a fake GitHub on 127.0.0.1.
 
-Standard library and pytest only: CI runs the user-sync tests on Linux, Windows and
-macOS. The real OS secret stores are used only with AGENTS_TEST_REAL_SECRET_STORE=1,
-because on a developer machine they would write to the real keychain. Every other
-test injects a store or simulates the store's tool, and ``no_real_secret_store``
-fails a test that would reach a real one.
+Standard library and pytest only, so that the file runs on Linux, Windows and macOS.
+The real OS secret stores are used only with AGENTS_TEST_REAL_SECRET_STORE=1, which
+is meant for CI jobs: on a developer machine they would write to the real keychain.
+Every other test injects a store or simulates the store's tool, and
+``no_real_secret_store`` fails a test that would reach a real one.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import uuid
 
@@ -29,8 +30,10 @@ import pytest
 from src.user_sync import github
 
 TOKEN = "gho_Q8xk2LmZ7vNw4Rt1Ys9Bc3Df6Gh0Jp5Ke"
+OLD_TOKEN = "gho_previous_token_value"
 DEVICE_CODE = "3584d83530557fdd1f46af8289938c8ef79f9dc5"
 SECRETS = (TOKEN, TOKEN.encode().hex(), DEVICE_CODE)
+FRAGMENT = 8  # any piece of a secret this long counts as a leak
 REAL_RUN = subprocess.run
 REAL_DEFAULT_STORE = github.default_store
 REAL_CREDENTIAL_API = github._CredentialApi
@@ -56,9 +59,11 @@ def no_real_secret_store(monkeypatch):
 
 
 def assert_secret_free(*texts: str) -> None:
+    """No secret, nor any piece of one of FRAGMENT characters or more, appears in ``texts``."""
+    pieces = {secret[start:start + FRAGMENT] for secret in SECRETS for start in range(len(secret) - FRAGMENT + 1)}
     for text in texts:
-        for secret in SECRETS:
-            assert secret not in text
+        leaked = sorted(piece for piece in pieces if piece in text)
+        assert not leaked, f"secret pieces leaked: {leaked}"
 
 
 # --- a fake GitHub -----------------------------------------------------------------
@@ -339,6 +344,41 @@ def test_a_rate_limited_device_request_reports_when_to_retry(fake):
     assert caught.value.code == "rate_limited" and caught.value.reset_at is not None
 
 
+@pytest.mark.parametrize("status, payload, headers, code", [
+    (404, {"error": "Not Found"}, {}, "not_found"),
+    (429, {"error": "rate_limited"}, {"Retry-After": "30"}, "rate_limited"),
+    (403, {"error": "rate_limited"}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1900000000"}, "rate_limited"),
+    (503, {"error": "temporarily_unavailable"}, {}, "network"),
+    (403, {"error": "forbidden"}, {}, "oauth"),
+])
+def test_the_status_is_mapped_before_an_error_body(fake, status, payload, headers, code):
+    fake.reply("POST", "/login/device/code", status, payload, headers)
+    with pytest.raises(github.GitHubError) as caught:
+        github.DeviceFlow("Iv1.test", web_url=fake.url).start()
+    assert (caught.value.code, caught.value.status) == (code, status)
+    if code == "not_found":
+        assert "AGENTS_GITHUB_HOST" in caught.value.message and "AGENTS_GITHUB_CLIENT_ID" in caught.value.message
+    if code == "rate_limited":
+        assert caught.value.reset_at is not None
+
+
+@pytest.mark.parametrize("status", [400, 401])
+def test_an_oauth_error_is_also_accepted_on_400_and_401(fake, status):
+    fake.reply("POST", "/login/oauth/access_token", status, {"error": "access_denied"})
+    device = github.DeviceCode(DEVICE_CODE, "WDJB-MJHT", "https://github.com/login/device", 5, 900)
+    with pytest.raises(github.GitHubError) as caught:
+        github.DeviceFlow("Iv1.test", web_url=fake.url).poll(device)
+    assert caught.value.code == "access_denied"
+
+
+def test_the_blocking_helper_retries_a_server_error_that_has_an_error_body(fake):
+    fake.reply("POST", "/login/oauth/access_token", 503, {"error": "temporarily_unavailable"})
+    script_polls(fake, GRANTED)
+    device = github.DeviceCode(DEVICE_CODE, "WDJB-MJHT", "https://github.com/login/device", 1, 900)
+    flow = github.DeviceFlow("Iv1.test", web_url=fake.url)
+    assert flow.wait(device, sleep=lambda seconds: None, clock=lambda: 0.0) == TOKEN
+
+
 # --- REST API ------------------------------------------------------------------------
 
 def test_user_returns_the_login_with_the_api_headers(fake):
@@ -490,7 +530,8 @@ RATE_RESET = 1900000000
     ("acme/lib", 403, {"message": "Although you appear to have the correct authorization credentials, the `acme` "
                                   "organization has enabled OAuth App access restrictions, meaning that data access "
                                   "to third-parties is limited."}, {}, "org_approval"),
-    ("acme/lib", 403, {"message": "Resource not accessible"}, {}, "org_approval"),
+    ("acme/lib", 403, {"message": "Resource not accessible"}, {}, "forbidden"),
+    ("friend/lib", 403, {"message": "Must have admin rights to Repository."}, {}, "forbidden"),  # a collaborator
     ("acme/lib", 403, {"message": "Resource protected by organization SAML enforcement."},
      {"X-GitHub-SSO": "required; url=https://github.com/orgs/acme/sso?authorization_request=A1"}, "org_approval"),
     ("octocat/lib", 403, {"message": "Must have admin rights to Repository."}, {}, "forbidden"),
@@ -520,6 +561,16 @@ def test_api_errors_map_to_stable_codes_without_the_token(fake, full_name, statu
         assert datetime.fromtimestamp(RATE_RESET, timezone.utc).strftime("%Y-%m-%d %H:%M") in error.message
     if code == "org_approval" and "X-GitHub-SSO" not in headers:
         assert "approve the Agents-Core OAuth App" in error.message
+    if code == "forbidden":
+        assert "may need to approve the Agents-Core OAuth App" in error.message and ".." not in error.message
+
+
+def test_redaction_happens_before_a_long_message_is_cut(fake):
+    for filler in range(262, 301, 2):  # the 300-character cut falls at every point of the token
+        fake.reply("GET", "/api/v3/repos/octocat/lib", 422, {"message": "x" * filler + TOKEN})
+        with pytest.raises(github.GitHubError) as caught:
+            client(fake).repository("octocat/lib")
+        assert_secret_free(caught.value.message, repr(caught.value))
 
 
 def test_an_absurd_rate_limit_reset_still_reports_the_rate_limit(fake):
@@ -782,6 +833,30 @@ def test_the_credential_manager_store_marshals_a_generic_local_credential():
     assert_secret_free(str(caught.value))
 
 
+@pytest.mark.skipif(ctypes.sizeof(ctypes.c_void_p) != 8, reason="the expected offsets are those of 64-bit Windows")
+def test_the_credential_structure_has_the_64_bit_credentialw_layout():
+    """wincred.h's CREDENTIALW on x64, checked independently: the fake API reuses the module's structure."""
+    fields = [name for name, _ in github._Credential._fields_]
+    assert fields == ["Flags", "Type", "TargetName", "Comment", "LastWritten", "CredentialBlobSize",
+                      "CredentialBlob", "Persist", "AttributeCount", "Attributes", "TargetAlias", "UserName"]
+    assert [getattr(github._Credential, name).offset for name in fields] == [0, 4, 8, 16, 24, 32, 40, 48, 52, 56,
+                                                                             64, 72]
+    assert ctypes.sizeof(github._Credential) == 80 and ctypes.sizeof(github._FileTime) == 8
+
+
+@pytest.mark.parametrize("name", ["x -A", "x\nadd-generic-password -A -s y", 'x"y', "x'y", "x;y", "-x", "", "x" * 129])
+def test_hostile_secret_names_are_refused_before_anything_runs(tools, tmp_path, name):
+    makers = (lambda: github.KeychainStore(name), lambda: github.SecretToolStore(name),
+              lambda: github.CredentialManagerStore(name, api=FakeCredentialApi()),
+              lambda: github.GitHubAccount(tmp_path, name, web_url="http://127.0.0.1:9",
+                                           api_url="http://127.0.0.1:9/api/v3", store=MemoryStore()))
+    for make in makers:
+        with pytest.raises(github.GitHubError) as caught:
+            make()
+        assert caught.value.code == "config"
+    assert tools.calls == []  # nothing reached `security -i` or secret-tool
+
+
 def test_the_default_store_is_the_os_store_where_one_works(monkeypatch, tmp_path):
     name = "agents-core-sync-test"
     security = tmp_path / "security"
@@ -977,3 +1052,113 @@ def test_unreadable_metadata_counts_as_not_connected(fake, tmp_path):
     (state / github.ACCOUNT_FILE).write_text(json.dumps({"host": acct.host, "login": "octocat", "storage": ["x"]}))
     assert acct.status()["storage"] is None
     assert acct.forget()["connected"] is False
+
+
+def test_a_401_for_an_old_token_never_marks_a_newer_sign_in(fake, tmp_path):
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"}, repeat=True)
+    state = tmp_path / "state"
+    acct = account(fake, state, MemoryStore())
+    acct.complete_sign_in(OLD_TOKEN)
+    first = json.loads((state / github.ACCOUNT_FILE).read_text())["sign_in"]
+    stale = acct.client()  # a sync run that started before the reconnect
+    acct.complete_sign_in(TOKEN)  # the user reconnects in the web UI meanwhile
+    assert json.loads((state / github.ACCOUNT_FILE).read_text())["sign_in"] != first
+    fake.reply("GET", "/api/v3/repos/octocat/lib", 401, {"message": "Bad credentials"})
+    with pytest.raises(github.GitHubError) as caught:
+        stale.repository("octocat/lib")
+    assert caught.value.code == "auth" and acct.status()["reconnect_needed"] is False
+    fake.reply("GET", "/api/v3/repos/octocat/lib", 401, {"message": "Bad credentials"})
+    with pytest.raises(github.GitHubError):
+        acct.client().repository("octocat/lib")
+    assert acct.status()["reconnect_needed"] is True
+
+
+def test_forget_empties_the_default_store_also_without_a_readable_record(fake, tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    default = MemoryStore()  # this machine's default store, chosen as in production: not injected
+    monkeypatch.setattr(github, "default_store", lambda directory, name, **kwargs: default)
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"}, repeat=True)
+    acct = github.GitHubAccount(state, "agents-core-sync-test", web_url=fake.url, api_url=fake.api,
+                                client_id="Iv1.test")
+    for damage in ("none", "unreadable", "deleted"):
+        acct.complete_sign_in(TOKEN)
+        assert default.token == TOKEN
+        (state / f".{github.TOKEN_FILE}.k3j2h1").write_text(TOKEN)  # a write killed before its rename
+        if damage == "unreadable":
+            (state / github.ACCOUNT_FILE).write_text("{truncated")
+        elif damage == "deleted":
+            (state / github.ACCOUNT_FILE).unlink()
+        assert acct.forget()["connected"] is False
+        assert default.token is None, damage
+        assert sorted(path.name for path in state.iterdir()) == ["github-account.lock"]
+
+
+def test_a_failed_deletion_keeps_the_record_so_forget_can_be_retried(fake, tmp_path):
+    class Locked(MemoryStore):
+        def delete(self):
+            raise github.GitHubError("storage", "The macOS Keychain did not delete the GitHub token: locked")
+
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    acct = account(fake, tmp_path / "state", Locked())
+    acct.complete_sign_in(TOKEN)
+    with pytest.raises(github.GitHubError) as caught:
+        acct.forget()
+    assert caught.value.code == "storage" and "locked" in caught.value.message
+    assert acct.status()["connected"] is True
+
+
+def test_a_failed_record_write_takes_the_token_back(fake, tmp_path, monkeypatch):
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    store = MemoryStore()
+    acct = account(fake, tmp_path / "state", store)
+
+    def full_disk(meta):
+        raise github.GitHubError("storage", "Cannot write github-account.json: No space left on device")
+
+    monkeypatch.setattr(acct, "_write", full_disk)
+    with pytest.raises(github.GitHubError) as caught:
+        acct.complete_sign_in(TOKEN)
+    assert caught.value.code == "storage" and store.token is None and acct.status()["connected"] is False
+
+
+def test_a_short_outage_after_the_device_flow_does_not_lose_the_token(fake, tmp_path):
+    fake.reply("GET", "/api/v3/user", 502, None)
+    fake.reply("GET", "/api/v3/user", 429, {"message": "Too Many Requests"}, {"Retry-After": "2"})
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    store, sleeps = MemoryStore(), []
+    status = account(fake, tmp_path / "state", store).complete_sign_in(TOKEN, sleep=sleeps.append)
+    assert status["connected"] and store.token == TOKEN
+    assert len(sleeps) == 2 and sleeps[0] == github.SIGN_IN_RETRY_DELAY and 1 <= sleeps[1] <= 2
+
+
+def test_the_login_check_gives_up_after_a_few_attempts_or_on_a_long_rate_limit(fake, tmp_path):
+    store, sleeps = MemoryStore(), []
+    acct = account(fake, tmp_path / "state", store)
+    for _ in range(github.SIGN_IN_ATTEMPTS):
+        fake.reply("GET", "/api/v3/user", 502, None)
+    with pytest.raises(github.GitHubError) as caught:
+        acct.complete_sign_in(TOKEN, sleep=sleeps.append)
+    assert caught.value.code == "network" and len(sleeps) == github.SIGN_IN_ATTEMPTS - 1
+    fake.reply("GET", "/api/v3/user", 403, {"message": "API rate limit exceeded"},
+               {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(time.time()) + 3600)})
+    sleeps.clear()
+    with pytest.raises(github.GitHubError) as caught:
+        acct.complete_sign_in(TOKEN, sleep=sleeps.append)
+    assert caught.value.code == "rate_limited" and sleeps == [] and store.token is None
+
+
+def test_a_store_that_refuses_the_token_falls_back_to_the_file_with_a_warning(fake, tmp_path):
+    class Refusing(MemoryStore):
+        def save(self, token):
+            raise github.GitHubError("storage", "The macOS Keychain did not store the GitHub token: "
+                                                "User interaction is not allowed.")
+
+    state = tmp_path / "state"
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    acct = account(fake, state, Refusing())
+    status = acct.complete_sign_in(TOKEN)
+    assert (status["connected"], status["storage"]) == (True, "file")
+    assert status["warning"].startswith(github.FileStore.WARNING)
+    assert "User interaction is not allowed" in status["warning"]
+    assert github.FileStore(state).load() == TOKEN and acct.client().login == "octocat"
+    assert_secret_free(json.dumps(status), (state / github.ACCOUNT_FILE).read_text())
