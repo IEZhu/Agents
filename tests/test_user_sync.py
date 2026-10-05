@@ -750,6 +750,13 @@ def test_an_identity_git_would_refuse_or_rewrite_is_refused(name, email):
     assert error.value.reason == "identity"
 
 
+@pytest.mark.parametrize("label", ["local", "Laptop", "-laptop", "a" * 33])
+def test_a_label_that_is_reserved_or_malformed_is_refused(label):
+    with pytest.raises(SyncError) as error:
+        engine_module.validate_identity("Owner", "owner@example.com", label)
+    assert error.value.reason == "identity"
+
+
 def test_an_unexpected_error_in_a_cycle_shows_in_the_status(pair, monkeypatch):
     a, b = pair
     b.save("user:shared", "# Shared\n\nfrom B\n")

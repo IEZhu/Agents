@@ -152,7 +152,8 @@ normal save (or, for a deletion, a normal delete, which keeps the text in the fl
   this machine's key only, sync's own `known_hosts` with strict checking, an empty `ssh_config`
   and no agent. The minimum git version is 2.32 (`GIT_CONFIG_GLOBAL`).
 - The key is ed25519 with the comment `agents-core-sync:<label>`; the label defaults to the
-  platform and a random suffix, never the hostname.
+  platform and a random suffix, never the hostname. `local` is reserved: it names this machine's
+  own entries when history is filtered by machine.
 
 ## States
 

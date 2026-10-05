@@ -280,8 +280,9 @@ def validate_identity(name: str, email: str, label: str) -> None:
         raise SyncError("identity", "a commit name with letters or digits is required")
     if not isinstance(email, str) or not _EMAIL.fullmatch(email) or _control(email):
         raise SyncError("identity", "a commit email is required")
-    if not isinstance(label, str) or not _LABEL.fullmatch(label):
-        raise SyncError("identity", "the machine label must be 1-32 lowercase letters, digits or dashes")
+    if not isinstance(label, str) or not _LABEL.fullmatch(label) or label == "local":
+        raise SyncError("identity", "the machine label must be 1-32 lowercase letters, digits or dashes, "
+                                    "and not \"local\", which names this machine's own history")
 
 
 # --- describing changes -------------------------------------------------------------------
