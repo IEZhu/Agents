@@ -40,7 +40,7 @@ in a private per-installation directory (``default_state_dir``), never in the li
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta, timezone
 import base64
@@ -80,6 +80,8 @@ ACTIVITY_LIMIT = 20
 ANNOUNCED_LIMIT = 50
 SIZE_WARNING = 200 * 1024 * 1024
 STALE_GIT_LOCK_SECONDS = 10
+# A status probe takes the sync lock for a moment; a runner that starts just then waits this long.
+SYNC_LOCK_GRACE_SECONDS = 0.2
 TRAILER = "Agents-Sync-Machine"
 # A commit that deletes at least this many of the owner's files (not history or records), and
 # more than half of them, waits for confirmation: a broken script or a wrong ``rm`` must not empty
@@ -416,11 +418,18 @@ class Syncer:
     @contextmanager
     def _sync_lock(self):
         """The single-syncer lock; raises ``SyncError(lock_held)`` when another runner has it."""
-        try:
-            with file_lock(self.library / ".git" / SYNC_LOCK, blocking=False):
-                yield
-        except BlockingIOError:
-            raise SyncError("lock_held", "another sync of this library is running", state="busy") from None
+        deadline = time.monotonic() + SYNC_LOCK_GRACE_SECONDS
+        with ExitStack() as stack:
+            while True:
+                try:
+                    stack.enter_context(file_lock(self.library / ".git" / SYNC_LOCK, blocking=False))
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise SyncError("lock_held", "another sync of this library is running",
+                                        state="busy") from None
+                    time.sleep(0.02)
+            yield
 
     @contextmanager
     def _sync_lock_for(self, settings: Settings, *, create: bool = True):
@@ -1681,6 +1690,18 @@ class Syncer:
         if updated != current:
             user_library.notify(self.library, [SCOPES_PATH])
         return {"status": "saved", **self.scopes()}
+
+    def configure(self, *, fetch_minutes: int | None = None, ask_new_repositories: bool | None = None) -> dict:
+        """Change the fetch interval (1 to 60 minutes) or the "ask before uploading" setting."""
+        settings = self._require_settings()
+        if fetch_minutes is not None:
+            if isinstance(fetch_minutes, bool) or not isinstance(fetch_minutes, int) or not 1 <= fetch_minutes <= 60:
+                raise SyncError("invalid", "the fetch interval must be 1 to 60 minutes")
+            settings.fetch_minutes = fetch_minutes
+        if ask_new_repositories is not None:
+            settings.ask_new_repositories = bool(ask_new_repositories)
+        settings.save(self.settings_path)
+        return self.status()
 
     def pause(self) -> dict:
         settings = self._require_settings()

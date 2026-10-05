@@ -22,6 +22,7 @@ python -m src.user_sync preview    # what would be uploaded and downloaded, and 
 python -m src.user_sync start --confirm <hash from preview>
 python -m src.user_sync run        # one cycle; --force ignores the retry delay
 python -m src.user_sync status | conflicts | pause | resume | disconnect
+python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-repositories]
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]

@@ -1174,3 +1174,12 @@ def test_the_macos_state_directory_follows_an_installed_daemon(tmp_path, monkeyp
     assert engine_module.default_state_dir() == tmp_path / "service" / "user-sync"
     monkeypatch.setenv("AGENTS_SERVICE_DIR", str(tmp_path / "env-service"))
     assert engine_module.default_state_dir() == (tmp_path / "env-service").resolve() / "user-sync"
+
+
+def test_configure_validates_the_fetch_interval(pair):
+    a, _ = pair
+    assert a.sync.configure(fetch_minutes=15)["fetch_minutes"] == 15
+    for wrong in (0, 61, True, "5"):
+        with pytest.raises(SyncError):
+            a.sync.configure(fetch_minutes=wrong)
+    assert a.sync.configure(ask_new_repositories=True)["ask_new_repositories"] is True

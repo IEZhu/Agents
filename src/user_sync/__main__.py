@@ -5,6 +5,7 @@
     python -m src.user_sync start --confirm <preview hash>
     python -m src.user_sync resolve <conflict id> keep|mine|dismiss
     python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--allow-secret PATH] …
+    python -m src.user_sync configure [--fetch-minutes N] [--[no-]ask-new-repositories]
 
 Every command accepts ``--json`` for machine-readable output. The exit code is 0 unless sync
 needs attention, a command failed, or the arguments were wrong (2).
@@ -70,6 +71,10 @@ def _parser() -> argparse.ArgumentParser:
                               ("--approve-file", "upload a held file on this machine")):
         scopes.add_argument(option, action="append", default=[], metavar="VALUE", help=help_text)
     scopes.add_argument("--confirm", metavar="HASH", help="confirm a change that uploads more")
+    configure = command("configure", "change the fetch interval or the ask-before-upload setting")
+    configure.add_argument("--fetch-minutes", type=int, metavar="MINUTES", help="1-60")
+    configure.add_argument("--ask-new-repositories", action=argparse.BooleanOptionalAction, default=None,
+                           help="ask before uploading flows of a repository that is new to the library")
     command("pause", "pause sync on this machine")
     command("resume", "resume sync on this machine")
     command("disconnect", "stop syncing on this machine; files and .git stay")
@@ -98,6 +103,9 @@ def _execute(syncer: Syncer, arguments) -> dict | list:
         return syncer.conflicts()
     if name == "resolve":
         return syncer.resolve(arguments.id, arguments.action)
+    if name == "configure":
+        return syncer.configure(fetch_minutes=arguments.fetch_minutes,
+                                ask_new_repositories=arguments.ask_new_repositories)
     if name == "scope":
         changes = dict(exclude=arguments.exclude, include=arguments.include,
                        exclude_files=arguments.exclude_file, include_files=arguments.include_file,
