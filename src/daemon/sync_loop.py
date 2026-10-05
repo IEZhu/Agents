@@ -267,6 +267,7 @@ class UserSync:
 
     def __init__(self, service, syncer=None, *, debounce=DEBOUNCE_SECONDS, scan_every=SCAN_SECONDS,
                  drain_budget=DRAIN_SECONDS, recheck=RECHECK_SECONDS, minute=60.0):
+        self._syncer_injected = syncer is not None
         self.service = service
         self._syncer = syncer
         self._syncer_guard = threading.Lock()
@@ -464,6 +465,9 @@ class UserSync:
 
     async def _arm(self) -> None:
         syncer = await self._engine(self._engine_syncer)
+        if self._syncer_injected is False:  # the real engine: a scheduled job would compete with the loop
+            from .control import stop_scheduled_sync
+            await self._engine(stop_scheduled_sync)
         self.library = Path(syncer.library)
         self.unsubscribe = user_library.subscribe(self._heard)
         self.armed = True

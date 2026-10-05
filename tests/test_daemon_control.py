@@ -11,6 +11,14 @@ from src.engine.embedding_prompts import COMPLETE, local_copy, pinned_revision
 from src.model_migration import DEFAULT_MODEL, GENERATION
 
 
+
+@pytest.fixture(autouse=True)
+def no_real_scheduler(monkeypatch):
+    """``install`` removes the scheduled sync run (#168); tests never reach the real scheduler."""
+    calls = []
+    monkeypatch.setattr(control, "stop_scheduled_sync", lambda installation=None: calls.append(installation) or "unchanged")
+    return calls
+
 def _default_model_copy(cache):
     """A published plain-file copy of the default model, as materialize() leaves it."""
     copy = Path(local_copy(DEFAULT_MODEL, str(cache)))
@@ -172,3 +180,17 @@ def test_probation_nonce_reaches_serve_whatever_its_first_character(tmp_path, mo
     control.main(arguments[3:])  # what launchd passes after `python -m src.daemon`
 
     assert received == {"probation": nonce}
+
+
+def test_install_removes_the_scheduled_sync_run(tmp_path, monkeypatch, no_real_scheduler):
+    """The daemon runs the sync loop itself (#167); a job from before would compete with it."""
+    root = tmp_path / "install"
+    root.mkdir()
+    monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
+    monkeypatch.setattr(control.socket, "socket", MagicMock())
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
+    monkeypatch.setattr(control, "pin_model", lambda model, cache: {"model_artifact": "a", "model_path": "p"})
+    result = control.Controller(tmp_path / "state").install()
+    assert result["scheduled_sync"] == "unchanged"
+    assert no_real_scheduler == [root]
