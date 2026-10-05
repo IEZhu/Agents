@@ -454,3 +454,13 @@ def test_cli_wizard_reads_answers_and_a_cancelled_wizard_uploads_nothing(tmp_pat
     assert (result["status"], result["reason"]) == ("cancelled", "cancelled")
     assert ask.prompts[-1].startswith("Your email for commits") and said
     assert remote_files(bare) == {} and not (tmp_path / "state" / "user-sync.json").exists()
+
+
+def test_the_sync_status_shows_the_github_account_without_its_token(fake, tmp_path):
+    state = tmp_path / "state"
+    syncer = make_syncer(tmp_path, signed_in(fake, state))
+    syncer.setup(remote="git@github.com:me/agents-library.git", name="Owner", email="owner@example.com",
+                 label="a")
+    status = syncer.status()
+    assert status["github"]["connected"] is True and status["github"]["login"] == "octocat"
+    assert TOKEN not in json.dumps(status)

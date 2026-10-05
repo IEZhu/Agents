@@ -866,6 +866,7 @@ class Syncer:
             "announced_groups": state.get("announced_groups", []),
             "activity": state.get("activity", [])[-ACTIVITY_LIMIT:],
             "public_key": keys.public_key(self.state_dir), "size": state.get("size"),
+            "github": self._github_status(),
             "size_warning": (state.get("size") or 0) > SIZE_WARNING,
             "reason": None, "message": None, "pending": 0, "stale": False,
         }
@@ -960,12 +961,13 @@ class Syncer:
         github.com's keys are refreshed from its API on every setup; another host's keys are kept
         until the owner confirms a new fingerprint.
         """
-        github = remote.host == "github.com" and remote.port in (None, 22)
+        github = (remote.host, remote.port) in (("github.com", None), ("github.com", 22),
+                                                 (gitcmd.GITHUB_443_HOST, 443))
         if not github and confirmed is None and keys.trusted_keys(self.known_hosts, remote.host, remote.port):
             return None
         try:
-            if github:
-                keys.write_known_hosts(self.known_hosts, remote.host, remote.port, self._github_host_keys())
+            if github:  # written for github.com and for ssh.github.com on port 443 alike
+                keys.write_known_hosts(self.known_hosts, "github.com", None, self._github_host_keys())
                 return None
             offered = self._scan_host_keys(remote.host, remote.port)
         except keys.SSHKeyError as error:
@@ -1053,7 +1055,7 @@ class Syncer:
 
     def _keep_port_443(self, settings: Settings, git: Git, url: str) -> None:
         settings.remote = url
-        settings.save(self.settings_path)
+        self._update_settings(lambda current: setattr(current, "remote", url))
         git.run("config", "agents-sync.remote", url)  # the same repository: setup keeps its history
         self._log(f"github.com is unreachable on port 22; sync uses {url}")
 
@@ -1168,6 +1170,14 @@ class Syncer:
         return github_api.privacy(info)
 
     # --- GitHub -------------------------------------------------------------------------
+
+    def _github_status(self) -> dict | None:
+        """The account's status (login, reconnect needed; never the token), or None without one."""
+        try:
+            status = self.github_account().status()
+        except Exception:  # an unreadable record must not break the sync status
+            return None
+        return status if status.get("connected") or status.get("reconnect_needed") else None
 
     def github_account(self) -> github_api.GitHubAccount:
         """This installation's GitHub account (#166): sign-in, the token and the API."""
