@@ -852,15 +852,16 @@ class Syncer:
                 result["public_key"] = keys.ensure_key(self.state_dir, label)
             except keys.SSHKeyError as error:
                 raise SyncError("ssh", str(error)) from None
-        settings = existing if existing else Settings(remote=remote, name=name, email=email, label=label)
-        settings.remote, settings.name, settings.email, settings.label, settings.branch = \
-            remote, name, email, label, branch
-        settings.library = str(self.library)
-        if ask_new_repositories is not None:
-            settings.ask_new_repositories = ask_new_repositories
-        if confirm_private is not None:
-            settings.private_confirmed = confirm_private
-        settings.save(self.settings_path)
+        with file_lock(self.state_dir / "settings.lock"):  # keeps a concurrent pause or approval
+            settings = self.settings() or Settings(remote=remote, name=name, email=email, label=label)
+            settings.remote, settings.name, settings.email, settings.label, settings.branch = \
+                remote, name, email, label, branch
+            settings.library = str(self.library)
+            if ask_new_repositories is not None:
+                settings.ask_new_repositories = ask_new_repositories
+            if confirm_private is not None:
+                settings.private_confirmed = confirm_private
+            settings.save(self.settings_path)
         self._write_support_files(settings)
         if remote_info.kind == "ssh":
             unconfirmed = self._trust_host(remote_info, trust_host_key)
