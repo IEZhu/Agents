@@ -27,6 +27,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch makes the running check of the older head pointless.
+concurrency:
+  group: user-sync-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     strategy:
