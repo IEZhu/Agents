@@ -182,6 +182,15 @@ _WORKSPACES: dict[str, tuple[float, _Workspace]] = {}
 _WORKSPACES_GUARD = threading.Lock()
 
 
+def _root_key(path) -> str:
+    """The one spelling of a checkout's root that the registry and every lookup use.
+
+    Links resolved, and on Windows also short names (``RUNNER~1``), forward slashes and case:
+    ``git`` prints ``C:/Users/...`` where Python spells ``C:\\Users\\...``.
+    """
+    return os.path.normcase(os.path.realpath(os.path.expanduser(str(path))))
+
+
 def _top_level(root: str) -> bool:
     try:
         result = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"],
@@ -191,14 +200,14 @@ def _top_level(root: str) -> bool:
     if result.returncode != 0 or not result.stdout.strip():
         return False
     try:
-        return Path(result.stdout.strip()).resolve() == Path(root).resolve()
+        return _root_key(result.stdout.strip()) == _root_key(root)
     except OSError:
         return False
 
 
 def _workspace(root) -> _Workspace:
     """A checkout's key, origin and whether it is the top level; remembered for a few seconds."""
-    root = str(Path(root).expanduser().resolve())
+    root = _root_key(root)
     now = time.monotonic()
     with _WORKSPACES_GUARD:
         cached = _WORKSPACES.get(root)
@@ -228,13 +237,22 @@ def _register(machine: _Machine, workspace: _Workspace, fresh=frozenset()) -> di
     entries as ``unreviewed``: approval covered what the owner saw, not this checkout's past.
     ``fresh`` are ids this process appended through sync in that checkout: new turns, not past.
     """
-    current = _roots(machine).get(workspace.root)
+    registry = _roots(machine)
+    current = registry.get(workspace.root)
+    if current is None:  # kept under another spelling (an older version, another platform's form)?
+        current = next((value for root, value in registry.items() if _root_key(root) == workspace.root), None)
     joins = current is None or current.get("key") != workspace.key or current.get("origin") != workspace.origin
     unreviewed = sorted(_journal_ids(workspace.root) - set(fresh)) \
         if joins and workspace.key in machine.approved else []
 
     def change(state):
-        record = state.setdefault("roots", {}).setdefault(workspace.root, {})
+        roots = state.setdefault("roots", {})
+        for root in [root for root in roots if root != workspace.root and _root_key(root) == workspace.root]:
+            moved = roots.pop(root)
+            kept = roots.setdefault(workspace.root, moved)
+            if kept is not moved and moved.get("unreviewed"):
+                kept["unreviewed"] = sorted(set(kept.get("unreviewed") or ()) | set(moved["unreviewed"]))
+        record = roots.setdefault(workspace.root, {})
         if record.get("key") != workspace.key or record.get("origin") != workspace.origin:
             record.clear()
             record.update(key=workspace.key, origin=workspace.origin, watermark=None)
@@ -401,12 +419,14 @@ def _header_origin(path: Path) -> str | None:
     except OSError:
         return None
     origin = None
-    if head.startswith("---\n"):
-        for line in head.split("\n")[1:]:
+    lines = head.lstrip("\ufeff").splitlines()  # CRLF from a Windows text-mode write, or a BOM
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            line = line.strip()
             if line == "---":
                 break
-            if line.startswith("repo: "):
-                origin = line[len("repo: "):].strip()
+            if line.startswith("repo:"):
+                origin = line[len("repo:"):].strip() or None
                 break
     with _CACHE_GUARD:
         _HEADERS[str(path)] = (key, origin)
@@ -474,8 +494,7 @@ def _segments(repo: _Repository, scopes: scope.Scopes | None = None, *, own: boo
                 continue
             origin = _header_origin(path)
             if origin != repo.origin:
-                if origin:
-                    foreign.append(origin)
+                foreign.append(origin or "unknown")  # never skipped silently
                 continue
             found.append((label, path))
     return found, sorted(set(foreign))
@@ -965,7 +984,7 @@ class _Exporter:
             if root is None:
                 pending["every"] = True
             else:
-                ids = pending["roots"].setdefault(str(root), set())
+                ids = pending["roots"].setdefault(_root_key(root), set())
                 if fresh:
                     ids.add(fresh)
             if self._thread is None or not self._thread.is_alive():
@@ -986,8 +1005,9 @@ class _Exporter:
                 done = set()
                 if pending["every"]:
                     done = {result["root"] for result in reconcile_all(state_dir=state_dir, library=library)}
+                done = {_root_key(root) for root in done}
                 for root, fresh in sorted(pending["roots"].items()):
-                    if str(Path(root).resolve()) not in done:
+                    if root not in done:
                         reconcile(root, state_dir=state_dir, library=library, fresh=frozenset(fresh))
             except Exception:  # noqa: BLE001 - the worker must survive; reconcile records its own failures
                 logger.warning("sharing history between machines failed", exc_info=True)
@@ -1071,7 +1091,7 @@ class Integration:
         view = machine_history(root, state_dir=self.state_dir, library=self.library)
         if view is not None:
             machine = _machine(self.state_dir, self.library)
-            if machine is not None and str(Path(root).resolve()) not in _roots(machine):
+            if machine is not None and _root_key(root) not in _roots(machine):
                 _EXPORTER.mark(self.state_dir, self.library, root)  # register it, so its entries can wait
         return view
 
@@ -1146,25 +1166,26 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
         if not _shared(workspace):
             raise SyncError("no_origin", f"{path} has no origin remote: its history stays on this machine")
         _register(machine, workspace)
-    registry = _roots(machine)
     roots: dict[str, list[str]] = {}
     origins: dict[str, str] = {}
-    for root, record in sorted(registry.items()):
+    unreviewed: dict[str, set[str]] = {}
+    for root, record in sorted(_roots(machine).items()):
         key = record.get("key")
         if not isinstance(key, str) or not os.path.isdir(root) or (keys and key not in keys):
             continue
         workspace = _workspace(root)
         if not _shared(workspace) or workspace.key != key:
             continue
-        roots.setdefault(key, []).append(workspace.root)
+        if workspace.root not in roots.get(key, []):
+            roots.setdefault(key, []).append(workspace.root)
         origins[key] = workspace.origin
+        unreviewed.setdefault(workspace.root, set()).update(record.get("unreviewed") or ())
     scopes = _scopes(machine.library)
     repositories, notes = [], []
     for key in sorted(roots):
         repo = _Repository(machine, key, origins[key])
         approved = key in machine.approved
-        review = set().union(*(set(registry[root].get("unreviewed") or ()) for root in roots[key])) \
-            if approved else None
+        review = set().union(*(unreviewed.get(root, set()) for root in roots[key])) if approved else None
         if approved and not review:
             notes.append({"key": key, "origin": repo.origin, "reason": "approved"})
             continue
@@ -1259,9 +1280,10 @@ def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | No
         lambda settings: setattr(settings, "history_repositories", sorted(_approved(settings) | set(covered))))
 
     def release(state):  # the owner saw these checkouts' past entries
-        for value in covered.values():
-            for root in value["checkouts"]:
-                state.get("roots", {}).get(root, {}).pop("unreviewed", None)
+        checkouts = {root for value in covered.values() for root in value["checkouts"]}
+        for root, record in state.get("roots", {}).items():
+            if _root_key(root) in checkouts:
+                record.pop("unreviewed", None)
     _change_state(machine.state_dir, release)
     results = reconcile_all(state_dir=machine.state_dir, library=machine.library, keys=set(covered), full=True,
                             deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))

@@ -1319,3 +1319,67 @@ def test_bounded_recency_reads_equal_a_full_merge(tmp_path, seed):
                 [(e.id, e.timestamp, e.machine) for e in expected[:limit]], (seed, limit, since, machine)
     finally:
         journal.set_sync(previous)
+
+
+# --- Windows spellings ---------------------------------------------------------------------------
+
+
+def test_a_part_with_windows_line_endings_is_still_read_by_its_header(shared, clock):
+    """Text mode on Windows writes CRLF: the header must still name its origin, and be reported."""
+    a, _ = shared
+    stranger = a.machine.lib / SEGMENTS / "machine-z" / "2026-10.md"
+    stranger.parent.mkdir(parents=True)
+    stranger.write_bytes(b"\xef\xbb\xbf---\r\nrepo: github.com/other/project\r\nmachine: machine-z\r\n---\r\n"
+                         b"\r\n## 2026-10-05T09:30:00+00:00 | aaaaaaaaaaaa\r\n**Intent:** not this repository\r\n"
+                         b"**Action:** a\r\n**Outcome:** o\r\n**Machine:** machine-z\r\n\r\n")
+    a.log("ours")
+    assert "not this repository" not in [e.intent for e in a.read()]
+    assert a.status()["history_other_origin"] == [{"key": KEY, "origin": NORMALIZED,
+                                                  "found": ["github.com/other/project"]}]
+    same = a.machine.lib / SEGMENTS / "machine-y" / "2026-10.md"  # another machine of this repository
+    same.parent.mkdir(parents=True)
+    same.write_bytes(f"---\r\nrepo: {NORMALIZED}\r\n---\r\n\r\n## 2026-10-05T09:31:00+00:00 | bbbbbbbbbbbb\r\n"
+                     "**Intent:** from machine-y\r\n**Action:** a\r\n**Outcome:** o\r\n**Machine:** machine-y\r\n\r\n"
+                     .encode())
+    assert [(e.intent, e.machine) for e in a.read() if e.machine == "machine-y"] == [("from machine-y", "machine-y")]
+
+
+def test_a_part_without_a_header_is_reported_not_skipped_silently(shared, clock):
+    a, _ = shared
+    headless = a.machine.lib / SEGMENTS / "machine-z" / "2026-10.md"
+    headless.parent.mkdir(parents=True)
+    headless.write_bytes(b"\n## 2026-10-05T09:30:00+00:00 | aaaaaaaaaaaa\n**Intent:** x\n**Machine:** machine-z\n\n")
+    a.log("ours")
+    assert "x" not in [e.intent for e in a.read()]
+    assert a.status()["history_other_origin"] == [{"key": KEY, "origin": NORMALIZED, "found": ["unknown"]}]
+
+
+def test_one_checkout_under_another_spelling_stays_one_checkout(tmp_path, shared, clock):
+    """A registry written with another spelling of a checkout (on Windows: a short name, the drive
+    letter's case or forward slashes) is found and merged, never looked up by the wrong key."""
+    a, _ = shared
+    machine = history_sync._machine(a.machine.state, a.machine.lib)
+    key = history_sync._root_key(a.repo)
+    other = key + os.sep + "." + os.sep  # the same directory, spelled differently
+    clone = Box(tmp_path, "a7", a.machine.remote, machine=a.machine)
+    clock.now = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    clone.writer.append_entry("old work, spelled otherwise", "a", "o")
+    clone_key = history_sync._root_key(clone.repo)
+
+    def respell(state):
+        roots = state["roots"]
+        roots[other] = roots.pop(key)
+        roots[clone_key + os.sep] = {"key": KEY, "origin": NORMALIZED, "watermark": None,
+                                     "unreviewed": sorted(history_sync._journal_ids(clone_key))}
+    history_sync._change_state(machine.state_dir, respell)
+    preview = a.export()  # no KeyError for a registry key spelled otherwise
+    assert [entry["intent"] for repo in preview["repositories"] for entry in repo["entries"]] == \
+        ["old work, spelled otherwise"]
+    clock.now = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+    a.log("after the respelling")
+    clone.log("a new turn in the clone")
+    roots = history_sync._roots(machine)
+    assert sorted(roots) == sorted([key, clone_key])  # each checkout once, under its normal spelling
+    assert roots[clone_key]["unreviewed"]  # its unreviewed past moved with it
+    assert "old work, spelled otherwise" not in a.exported()
+    assert {"after the respelling", "a new turn in the clone"} <= set(a.exported())
