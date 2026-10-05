@@ -461,10 +461,19 @@ warmup. Triggers:
 
 Nothing runs by itself while sync is off, waiting for access (set up but not
 started) or paused, or while `maintenance.json` or `transaction.json` shows an
-update transaction; a held cycle runs when the transaction ends. Cycles, `run`,
-`setup`, `check`, `preview`, `start` and `disconnect` run one at a time, so the
-service's own operations do not collide. Engine calls run in their own threads
-and count in `io_pending`: automatic updates and a drain wait for them.
+update transaction; a held cycle runs when the transaction ends, and until then
+the summary says `held: "update"` (a file that stays behind after an interrupted
+update needs `recover`). Cycles, `run`, `setup`, `check`, `preview`, `start` and
+`disconnect` run one at a time, so the service's own operations do not collide.
+`pause` and `resume` answer at once, also while one of them runs: the loop
+follows the settings it read last, so a cycle or job that read them before a
+pause never turns sync back on. Engine calls run in their own threads and count
+in `io_pending`: automatic updates and a drain wait for them.
+
+When the service starts, and at `install`, it removes this installation's
+scheduled sync run (`python -m src.user_sync schedule`), which would only compete
+with the daemon's loop for the sync lock; a removal that fails is logged in
+`service.log`. `uninstall` says how to schedule runs again.
 
 On drain (`stop`, `restart`, `update`, a logout), once the requests admitted
 before the drain have ended, the task commits and pushes what is left in one last
@@ -474,7 +483,8 @@ abandoned: it stops counting, the task ends, and the stopping process ends it.
 The engine's sync lock and its stale-lock cleanup make that harmless; the next
 start syncs what was left. This last cycle also runs during an update
 transaction, which stops the service next. After `/admin/resume` the loop
-continues, and a later drain flushes again.
+continues, and every later drain gets its own last cycle, also one that starts
+while the previous drain's last cycle still runs.
 
 Use the commands below while the daemon runs. The engine's own command line
 (`python -m src.user_sync`), which also lists and resolves conflicts and changes
@@ -496,17 +506,21 @@ Each command calls the service and prints its JSON answer with `"via": "service"
 When nothing listens on the service's port, or the service is not installed, it
 runs the same engine operation in the command's own process (`"via": "direct"`)
 on the service's library (`AGENTS_USER_FLOWS_DIR` from the environment or `.env`)
-and its state directory. A service that answers slowly or with an error is not
-bypassed, so an operation it may still finish never runs twice. The exit code is 1
-when the answer is an error or the state needs attention. `setup` also takes
-`--branch`, `--trust-host-key SHA256:…` and `--confirm-private`, as in
+and its state directory, holding the installation's session lease like the
+engine's command line: while an update is installed it answers `busy` and runs
+nothing. A service that answers slowly (`timeout`), resets the connection
+(`service_unreachable`) or answers with something other than its JSON
+(`service_error`) is not bypassed, so an operation it may still finish never runs
+twice. The exit code is 1 when the answer is an error or the state needs
+attention, `status` included; `busy`, like `lock_held`, is not an error. `setup`
+also takes `--branch`, `--trust-host-key SHA256:…` and `--confirm-private`, as in
 [the engine's command line](user-sync.md#command-line).
 
 The service's endpoints need the bearer token like every `/admin` path:
 
 | Endpoint | Body (JSON) | Answer |
 |---|---|---|
-| `GET /admin/user-sync/status` | — | the engine's status and `loop`: `state`, `active`, `syncing`, `next_fetch_seconds`, `last_cycle` |
+| `GET /admin/user-sync/status` | — | the engine's status and `loop`: `state`, `active`, `syncing`, `held`, `next_fetch_seconds`, `last_cycle` |
 | `POST /admin/user-sync/run` | optional `confirm` | one cycle that ignores the retry delay |
 | `POST /admin/user-sync/setup` | `remote`, `name`, `email`; optional `label`, `branch`, `ask_new_repositories`, `trust_host_key`, `confirm_private` | the engine's setup result, with the public key to add as a deploy key |
 | `POST /admin/user-sync/check`, `preview` | — | the engine's results |
@@ -514,13 +528,14 @@ The service's endpoints need the bearer token like every `/admin` path:
 | `POST /admin/user-sync/pause`, `resume`, `disconnect` | — | the engine's results |
 
 An engine refusal answers 409 with `status`, `reason` and `message` (for example
-`lock_held` from `check` while another runner holds the library); an invalid
-body 400, a body over 64 KiB 413, a wrong method 405, an unexpected failure 500
-without a traceback, and a draining service 503 for everything except `status`,
-`pause` and `resume`. `/health` and the controller's `status` include
-`user_sync`: `state` (`syncing` while a cycle runs), `reason`, `last_success`,
-`conflicts` and `pending`, never the key, the remote, the identity or a path.
-When the service does not answer, `status` reads that summary with the engine.
+`lock_held` from `check` while another runner holds the library); a body that is
+not a JSON object, or a client that leaves while sending it, 400, a body larger
+than 64 KiB 413, a wrong method 405, an unexpected failure 500 without a
+traceback, and a draining service 503 for everything except `status`, `pause`
+and `resume`. `/health` and the controller's `status` include `user_sync`:
+`state` (`syncing` while a cycle runs), `reason`, `last_success`, `conflicts`,
+`pending` and `held`, never the key, the remote, the identity or a path. When the
+service does not answer, `status` reads that summary with the engine.
 
 ## Memory and errors
 

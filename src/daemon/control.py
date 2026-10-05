@@ -122,6 +122,9 @@ class Controller:
                 if isinstance(reason, TimeoutError):
                     return True, {"status": "error", "reason": "timeout", "via": "service",
                                   "message": "the service did not answer in time; the operation may still finish there"}
+                if isinstance(reason, (RuntimeError, ValueError)):  # an answer that is not the service's JSON
+                    return True, {"status": "error", "reason": "service_error", "via": "service",
+                                  "message": f"{type(reason).__name__}: {reason}"}
                 if not isinstance(reason, ConnectionRefusedError):
                     return True, {"status": "error", "reason": "service_unreachable",
                                   "message": f"{type(reason).__name__}: {reason}", "via": "service"}
@@ -133,7 +136,12 @@ class Controller:
 
     @staticmethod
     def _sync_failed(code, result):
-        return code >= 400 or result.get("status") in ("attention", "error")
+        """Exit 1 for an error or a state that needs attention; ``busy`` (another runner or an update
+        holds the library) is not a failure, as in ``python -m src.user_sync``."""
+        state = result.get("state") or result.get("status")  # status answers name it "state"
+        if state == "busy":
+            return False
+        return code >= 400 or state in ("attention", "error")
 
     def sync_summary(self):
         """The short sync status when the service does not answer; never raises."""
@@ -258,13 +266,22 @@ class Controller:
 
 def stop_scheduled_sync(installation=None):
     """Remove the scheduled sync run (#168): the daemon runs the sync loop itself, and a job from
-    before the install would only compete with it for the sync lock. Never fails the caller."""
+    before the install would only compete with it for the sync lock.
+
+    Returns ``removed``, ``none`` (nothing was scheduled) or ``failed: <reason>``; never raises.
+    """
     try:
         from src.user_sync import schedule
         options = {"installation": installation} if installation else {}
-        return "removed" if schedule.disable(**options).get("scheduled") is False else "unchanged"
+        found = schedule.status(**options)
+        # A plist that launchd has not loaded yet (``interval_minutes``) would load at the next login.
+        if not (found.get("scheduled") or found.get("interval_minutes")):
+            return "none"
+        if schedule.disable(**options).get("scheduled"):
+            return "failed: the scheduled run is still loaded"
+        return "removed"
     except Exception as error:  # the sync lock still keeps the two from overlapping
-        return f"not removed: {error}"
+        return f"failed: {error}"
 
 
 def main(argv=None):
