@@ -832,3 +832,22 @@ def test_an_unreadable_directory_is_not_a_deletion(pair):
         common.chmod(0o700)
     assert result["status"] in ("synced", "attention")
     assert {"common/shared.md", "common/second.md"} <= set(remote_files(a.remote))
+
+
+def test_undoing_a_flow_deletion_keeps_changes_from_both_sides():
+    """Remote deleted the flow but changed its overlay; local edited the text: nothing is lost."""
+    blobs = {}
+
+    def blob(data: bytes) -> str:
+        key = scope.blob_id(data)
+        blobs[key] = data
+        return key
+
+    base = {"common/x.md": blob(b"# X\n"), "personas/common/x.json": blob(b'{"persona": null}\n')}
+    local = {"common/x.md": blob(b"# X\n\nedited\n"), "personas/common/x.json": base["personas/common/x.json"]}
+    remote = {"personas/common/x.json": blob(b'{"persona": {"agent": "a"}}\n')}
+    result = merging.merge(base, local, remote, blobs.__getitem__, label="m",
+                           now=datetime(2026, 10, 5, tzinfo=timezone.utc))
+    assert blobs[result.tree["common/x.md"]] == b"# X\n\nedited\n"
+    assert blobs[result.tree["personas/common/x.json"]] == b'{"persona": {"agent": "a"}}\n'
+    assert [(c["kind"], c["deleted_on"]) for c in result.conflicts] == [("deletion_undone", "remote")]

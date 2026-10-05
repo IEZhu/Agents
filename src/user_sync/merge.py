@@ -181,31 +181,39 @@ class Merger:
     # --- flows as units -------------------------------------------------------------------
 
     def _flow_units(self, paths: set[str]) -> set[str]:
-        """Resolve deletions of whole flows against edits on the other side; returns handled paths."""
+        """Undo the deletion of a whole flow that the other side edited; returns the handled paths.
+
+        The deleting side's missing members count as unchanged, then each member merges by the
+        ordinary rules, so no member's change from either side is lost.
+        """
         handled = set()
-        units = {unit for unit in map(flow_unit, paths) if unit}
-        for unit in sorted(units):
+        for unit in sorted({unit for unit in map(flow_unit, paths) if unit}):
             members = unit_members(*unit)
             text = members[0]
-            if text not in self.base:
-                continue
-            for deleted, edited, side in (("local", "remote", self.remote), ("remote", "local", self.local)):
-                deleting = self.local if deleted == "local" else self.remote
-                if text in deleting or text not in side:
-                    continue
-                if all(side.get(m) == self.base.get(m) for m in members):
-                    continue  # deleted on one side, untouched on the other: the deletion stands
-                for member in members:
-                    self._put(member, side.get(member))
-                self._record(text, "deletion_undone", edited, deleted_on=deleted)
-                handled.update(members)
-                break
+            if text not in self.base or (text in self.local) == (text in self.remote):
+                continue  # a new flow, or deleted on both or neither side: the ordinary rules apply
+            deleted_on = "local" if text not in self.local else "remote"
+            deleting, editing = (self.local, self.remote) if deleted_on == "local" else (self.remote, self.local)
+            if all(editing.get(m) == self.base.get(m) for m in members):
+                continue  # deleted on one side and untouched on the other: the deletion stands
+            restored = {m: deleting[m] if m in deleting else self.base.get(m) for m in members}
+            for member in members:
+                local, remote = (restored[member], self.remote.get(member)) if deleted_on == "local" \
+                    else (self.local.get(member), restored[member])
+                self._merge_path(member, local=local, remote=remote)
+            self._record(text, "deletion_undone", "remote" if deleted_on == "local" else "local",
+                         deleted_on=deleted_on)
+            handled.update(members)
         return handled
 
     # --- one path -------------------------------------------------------------------------
 
-    def _merge_path(self, path: str) -> None:
-        b, l, r = self.base.get(path), self.local.get(path), self.remote.get(path)
+    _UNSET = object()
+
+    def _merge_path(self, path: str, *, local=_UNSET, remote=_UNSET) -> None:
+        b = self.base.get(path)
+        l = self.local.get(path) if local is self._UNSET else local
+        r = self.remote.get(path) if remote is self._UNSET else remote
         if l == r:
             self._put(path, l)
         elif l == b:
