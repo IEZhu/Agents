@@ -1197,10 +1197,16 @@ class GitHubAccount:
             except BaseException:
                 _delete_quietly(store)  # no token stays behind without a record that points to it
                 raise
-            for backend in {_backend(previous), FileStore.backend} - {None, store.backend}:
+            leftover = []
+            for backend in sorted({_backend(previous), FileStore.backend, *_leftover(previous)} - {None, store.backend}):
                 stale = self._store_for(backend)
-                if stale is not None:
-                    _delete_quietly(stale)
+                if stale is not None and not _delete_quietly(stale):
+                    leftover.append(backend)  # Forget must clear it, or say that it could not
+            if leftover:
+                try:
+                    self._write({**record, "leftover": leftover})
+                except GitHubError as error:
+                    logger.warning("Could not record where an earlier GitHub token stays: %s", error.message)
         return self.status()
 
     def client(self) -> GitHubClient:
@@ -1237,21 +1243,35 @@ class GitHubAccount:
 
         The token is deleted from the store the record names, from this machine's default
         store and from the private file, so a lost or unreadable record leaves no token
-        behind. If a deletion fails, the record stays and the error says so: Forget can be
-        retried. The token stays valid on GitHub until the user revokes it at
-        ``revoke_url``: revoking through the API needs the OAuth App's client secret,
-        which does not ship.
+        behind. The record stays, and the error says so, when the deletion fails in the store
+        the record names, in the private file, in a store that may still hold an earlier
+        sign-in's token (``leftover``), or in any store when the record is unreadable or names
+        a store this version does not know: Forget can be retried, from a session where that
+        store works. Another store's failure is only logged: a Keychain that refuses in an SSH
+        session, where sign-in kept the token in the private file and nothing was left in the
+        Keychain, must not block Forget for good. The token stays valid on GitHub until the
+        user revokes it at ``revoke_url``: revoking through the API needs the OAuth App's
+        client secret, which does not ship.
         """
         with self._lock():
             meta = self._read()
+            recorded = _backend(meta)
+            strict = recorded is None or self._store_for(recorded) is None
+            required = {recorded, FileStore.backend, *_leftover(meta)}
             failures = []
             for store in self._stores_to_clear(meta):
                 try:
                     store.delete()
                 except GitHubError as error:
-                    failures.append(error.message)
+                    if strict or store.backend in required:
+                        failures.append(error.message)
+                    else:
+                        logger.warning("Forget: %s (the account record names the %s store, and no earlier "
+                                       "token was left here)", error.message, recorded)
             if failures:
-                raise GitHubError("storage", "Forget did not finish; try again. " + "; ".join(failures))
+                raise GitHubError("storage", "Forget did not finish; try again where the system's secret store "
+                                             "works (a desktop session), or revoke the token at "
+                                             f"{self.web_url}/settings/applications. " + "; ".join(failures))
             try:
                 (self.directory / ACCOUNT_FILE).unlink()
             except FileNotFoundError:
@@ -1304,10 +1324,11 @@ class GitHubAccount:
             self._write({**meta, "reconnect_needed": True})
 
     def _stores_to_clear(self, meta: dict) -> list[SecretStore]:
-        """The recorded store, this machine's default store and the private file, each once."""
+        """The recorded store, stores that may hold an earlier token, this machine's default store and
+        the private file, each once."""
         stores: dict[str, SecretStore] = {}
-        for store in (self._store_for(_backend(meta)), self._store or default_store(self.directory, self.name),
-                      FileStore(self.directory)):
+        for store in (self._store_for(_backend(meta)), *(self._store_for(backend) for backend in _leftover(meta)),
+                      self._store or default_store(self.directory, self.name), FileStore(self.directory)):
             if store is not None:
                 stores.setdefault(store.backend, store)
         return list(stores.values())
@@ -1357,12 +1378,23 @@ def _sign_in_id(meta: dict) -> str:
     return str(meta.get("sign_in") or meta.get("connected_at") or "")
 
 
-def _delete_quietly(store: SecretStore) -> None:
-    """Remove a copy of the token that nothing needs any more; a failure is logged, not raised."""
+def _delete_quietly(store: SecretStore) -> bool:
+    """Remove a copy of the token that nothing needs any more; a failure is logged, not raised.
+
+    Returns False when the copy may still be there.
+    """
     try:
         store.delete()
     except GitHubError as error:
         logger.warning("Could not remove the GitHub token from %s: %s", store.backend, error.message)
+        return False
+    return True
+
+
+def _leftover(meta: dict) -> list[str]:
+    """Stores that may still hold an earlier sign-in's token: removing it failed at sign-in."""
+    stores = meta.get("leftover")
+    return [backend for backend in stores if isinstance(backend, str) and backend] if isinstance(stores, list) else []
 
 
 def _retry_delay(error: GitHubError) -> float | None:
