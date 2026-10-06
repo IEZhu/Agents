@@ -1,8 +1,8 @@
 # User library sync
 
-Status: the engine and its command line (#165), GitHub sign-in through the API (#166), and
-scheduled runs, the stdio trigger and the terminal wizard (#168) are implemented. The daemon loop
-(#167), the web UI (#170) and installer integration (#171) are separate parts of the
+Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
+runs, the stdio trigger and the terminal wizard (#168), and the sync loop of the macOS daemon (#167)
+are implemented. The web UI (#170) and installer integration (#171) are separate parts of the
 [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
 Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
@@ -12,7 +12,9 @@ installation changes.
 
 ## Command line
 
-Every runner uses `src/user_sync/` (standard library and the git CLI only). Without the daemon:
+Every runner uses `src/user_sync/` (standard library and the git CLI only). Where the macOS
+daemon runs, it syncs by itself; use `python -m src.daemon user-sync …`, described in
+[User library sync](shared-mcp-daemon.md#user-library-sync). Without the daemon:
 
 ```bash
 python -m src.user_sync setup      # in a terminal: the wizard below walks through everything

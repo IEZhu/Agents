@@ -124,3 +124,22 @@ def persona_components(tmp_path, monkeypatch):
     monkeypatch.setattr(rules, "RULES_DIR", str(root / "rules"))
     monkeypatch.setattr(rules, "RULES_ENABLED", True)
     return root
+
+
+@pytest.fixture(autouse=True)
+def scheduled_sync_calls(monkeypatch):
+    """Tests never reach the OS scheduler (#168) through the daemon.
+
+    ``src.daemon.control.stop_scheduled_sync`` removes this installation's scheduled sync run
+    with launchctl, systemctl or crontab; ``install`` and the daemon's sync task call it. Here it
+    only records the installation of each call (None for the default) and reports ``none``.
+    """
+    from src.daemon import control  # standard library only, on every platform
+
+    calls = []
+
+    def record(installation=None):
+        calls.append(installation)
+        return "none"
+    monkeypatch.setattr(control, "stop_scheduled_sync", record)
+    return calls
