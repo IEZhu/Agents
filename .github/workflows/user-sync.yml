@@ -66,5 +66,8 @@ jobs:
         run: git version && (ssh -V 2>&1 || true)
       - name: Sync through local bare repositories, GitHub through a fake API
         env:
+          # Throwaway runners: install, query and remove a real scheduled job on each OS,
+          # and use the real Keychain and Credential Manager where the matrix allows it.
+          AGENTS_TEST_REAL_SCHEDULER: "1"
           AGENTS_TEST_REAL_SECRET_STORE: ${{ matrix.real_secret_store || '0' }}
         run: python -m pytest tests/test_user_sync*.py -v

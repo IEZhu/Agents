@@ -1,8 +1,8 @@
 # User library sync
 
-Status: the engine and its command line (#165), GitHub sign-in through the API (#166) and the
-terminal wizard (#168) are implemented. The daemon loop (#167), scheduled runs (#168), the web UI
-(#170) and installer integration (#171) are separate parts of the
+Status: the engine and its command line (#165), GitHub sign-in through the API (#166), and
+scheduled runs, the stdio trigger and the terminal wizard (#168) are implemented. The daemon loop
+(#167), the web UI (#170) and installer integration (#171) are separate parts of the
 [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
 Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
@@ -108,6 +108,26 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
   is then the error `check` reports. Setup for the same repository keeps the port 443 URL and the
   sync history. Only `check` moves to port 443; an offline run on port 22 names it. The host keys
   for port 443 are written with github.com's at setup.
+
+## Running without the daemon
+
+```bash
+python -m src.user_sync schedule enable [--interval MINUTES]   # default: the fetch interval, 5
+python -m src.user_sync schedule disable | status
+```
+
+`schedule enable` installs one job per installation that runs
+`python -m src.user_sync --state <dir> --library <dir> run` every few minutes for the current user:
+a hidden Task Scheduler task on Windows (`pythonw.exe`, least privilege, only while the user is
+logged on), a systemd user timer on Linux or one crontab line where `systemctl --user` cannot reach
+a user manager, and a LaunchAgent on macOS unless the daemon is installed, which runs its own loop.
+Enabling again replaces the interval; `disable` removes the job. Paths a scheduler would misread
+are refused rather than quoted wrongly. A scheduler that fails or hangs is reported with the
+reason `schedule`.
+
+A stdio MCP server runs one cycle about ten seconds after a write to the library (a saved flow, a
+persona or a switch) while sync is set up, started and not paused, and no other runner holds the
+sync lock; a run that finds it busy is tried again a few seconds later. The command never blocks the request that saved.
 
 ## What syncs
 

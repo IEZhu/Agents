@@ -1460,6 +1460,15 @@ if __name__ == "__main__":
     from src.self_update import log_last_update, start_background_update
     log_last_update()
     readiness.when_done(start_background_update)
+    # Library sync (#168): a save in this server reaches the user's other machines about ten
+    # seconds later when sync is set up; started after the warmup, like the update.
+    def _start_library_sync():
+        try:
+            from src.user_sync.trigger import start_for_stdio
+            start_for_stdio()
+        except Exception:
+            logger.exception("Library sync trigger did not start")
+    readiness.when_done(_start_library_sync)
     try:
         mcp.run()
     finally:
