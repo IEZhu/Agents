@@ -13,6 +13,9 @@
 #   AGENTS_REPO_URL   repository URL (default: https://github.com/IEZhu/Agents.git)
 #   AGENTS_BRANCH     branch to install (default: main)
 #   AGENTS_ASSUME_YES=1  skip the confirmation (also the behavior without a TTY)
+#   AGENTS_USER_SYNC_*   set up sync between machines without questions; init_repo.sh
+#                        never asks about it under --yes (README, "Sync between machines")
+#   AGENTS_GITHUB_TOKEN  for that setup on GitHub: passed to init_repo.sh only, never to git
 
 # All logic lives in main(), called on the last line, so a truncated download
 # never runs a partial script.
@@ -21,6 +24,12 @@ main() {
     # Inherited Git variables (hooks, wrappers) could redirect git to another repository.
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
           GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+    # A GitHub token for sync setup reaches init_repo.sh only, as a prefix assignment on its
+    # exec, never git or any other child: keep it in a variable that is not exported (a local
+    # inherits the export attribute of a variable of the same name that the caller exported).
+    local sync_github_token="${AGENTS_GITHUB_TOKEN:-}"
+    export -n sync_github_token
+    unset AGENTS_GITHUB_TOKEN
 
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
     local repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
@@ -99,9 +108,9 @@ main() {
         case "$arg" in --yes|-y) ;; *) init_args+=("$arg") ;; esac
     done
     if [ "$have_tty" = true ] && [ ! -t 0 ]; then
-        exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty
+        AGENTS_GITHUB_TOKEN="$sync_github_token" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty
     fi
-    exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}"
+    AGENTS_GITHUB_TOKEN="$sync_github_token" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}"
 }
 
 main "$@"
