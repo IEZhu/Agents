@@ -1557,3 +1557,107 @@ def test_scope_changes_and_resolutions_refuse_another_library(pair, tmp_path):
     assert refused.value.reason == "library_mismatch"
     with pytest.raises(SyncError):
         other.resolve("20261005T000000000000Z-0123456789", "keep")
+
+
+# --- for the web UI (#170): who sent a received change, identity, a new key ---------------------
+
+
+def test_a_received_change_names_the_machines_that_sent_it(pair, machine):
+    a, b = pair
+    b.save("user:shared", "# Shared\n\nfrom b\n")
+    assert b.run()["received_from"] == []  # it only sent
+    c = machine("c")
+    c.connect()
+    c.save("user:other", "# Other\n")
+    c.run()
+    result = a.run()
+    assert result["received"] and result["received_from"] == ["machine-c", "machine-b"]  # newest first, once each
+    entry = a.sync.status()["activity"][-1]
+    assert entry["received_from"] == ["machine-c", "machine-b"] and entry["machine"] == "machine-a"
+    a.save("user:shared", "# Shared\n\nfrom a\n")
+    sent = a.run()
+    assert sent["received_from"] == [] and a.sync.status()["activity"][-1]["received_from"] == []
+
+
+def test_configure_changes_the_identity_and_label_without_touching_the_remote(pair, remote):
+    a, _ = pair
+    remote_before = a.sync.settings().remote
+    status = a.sync.configure(name="New Owner", email="new@example.com", label="desk")
+    assert status["identity"] == {"name": "New Owner", "email": "new@example.com"} and status["label"] == "desk"
+    assert a.sync.settings().remote == remote_before
+    assert 'name = "New Owner"' in a.sync.gitconfig.read_text()
+    a.save("user:shared", "# Shared\n\nby desk\n")
+    assert a.run()["pushed"]
+    log = plain_git("--git-dir", str(remote), "log", "-1", "--format=%an <%ae>%n%B", "main")
+    assert log.startswith("New Owner <new@example.com>") and "Agents-Sync-Machine: desk" in log
+    for wrong in ({"label": "Desk!"}, {"email": "nobody"}, {"name": " "}):
+        with pytest.raises(SyncError) as refused:
+            a.sync.configure(**wrong)
+        assert refused.value.reason == "identity"
+    assert a.sync.settings().label == "desk" and a.sync.configure(label=None)["label"] == "desk"
+
+
+@pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="needs ssh-keygen")
+def test_a_new_key_by_hand_returns_the_public_key_to_add(tmp_path):
+    syncer, _ = _ssh_machine(tmp_path, "git@git.example.invalid: Permission denied (publickey).")
+    old = keys.public_key(syncer.state_dir)
+    old_private = keys.key_path(syncer.state_dir).read_bytes()
+    result = syncer.regenerate_key()
+    assert result["status"] == "replaced" and result["deploy_key"] == "manual"
+    assert result["public_key"] == keys.public_key(syncer.state_dir) != old
+    assert result["public_key"].endswith(" agents-core-sync:ssh-test")
+    assert keys.key_path(syncer.state_dir).read_bytes() != old_private
+    assert sorted(path.name for path in syncer.state_dir.glob("id_ed25519*")) == ["id_ed25519", "id_ed25519.pub"]
+    assert syncer.status()["public_key"] == result["public_key"]
+
+
+def test_a_new_key_needs_an_ssh_remote(pair):
+    a, _ = pair
+    with pytest.raises(SyncError) as refused:
+        a.sync.regenerate_key()
+    assert refused.value.reason == "invalid"
+
+
+def test_received_from_reads_real_trailers_only_newest_first_and_at_most_ten(pair, tmp_path, remote, monkeypatch):
+    a, _ = pair
+    clone = tmp_path / "by-hand"
+    plain_git("clone", "--quiet", str(remote), str(clone))
+    (clone / "common" / "shared.md").write_text("# Shared\n\nby hand\n")
+    plain_git("add", "common/shared.md", cwd=clone)
+    # In the body, not in the closing trailer block: not a machine; nor is a label sync would refuse.
+    plain_git("commit", "--quiet", "-m", "edit by hand\n\nAgents-Sync-Machine: in-the-body\n\nthe end", cwd=clone)
+    plain_git("commit", "--quiet", "--allow-empty", "-m", "odd\n\nAgents-Sync-Machine: Not A Label", cwd=clone)
+    for number in range(1, 13):
+        plain_git("commit", "--quiet", "--allow-empty", "-m", f"m{number}\n\nAgents-Sync-Machine: m{number:02d}",
+                  cwd=clone)
+    plain_git("commit", "--quiet", "--allow-empty", "-m", "again\n\nAgents-Sync-Machine: m12", cwd=clone)
+    plain_git("push", "--quiet", "origin", "main", cwd=clone)
+    held = []
+    original = Syncer._senders
+
+    def senders(self, *arguments):  # read before the library lock, which writers of flows wait for
+        try:
+            with file_lock(self.library / ".lock", blocking=False):
+                held.append(False)
+        except BlockingIOError:
+            held.append(True)
+        return original(self, *arguments)
+    monkeypatch.setattr(Syncer, "_senders", senders)
+    result = a.run()
+    assert result["received"] == ["common/shared.md"]
+    assert result["received_from"] == [f"m{number:02d}" for number in range(12, 2, -1)]
+    assert a.sync.status()["activity"][-1]["received_from"] == result["received_from"]
+    assert held == [False]
+
+
+def test_configure_refuses_an_identity_git_cannot_hold_before_saving_anything(pair):
+    a, _ = pair
+    settings_before = a.sync.settings_path.read_bytes()
+    gitconfig_before = a.sync.gitconfig.read_bytes()
+    for wrong in ({"email": "me\x01@example.com"}, {"name": "Me\x02"}, {"label": "Desk"},
+                  {"name": "New", "email": "new\x7f@example.com\x03"}):
+        with pytest.raises(SyncError) as refused:
+            a.sync.configure(**wrong)
+        assert refused.value.reason == "identity", wrong
+    assert a.sync.settings_path.read_bytes() == settings_before
+    assert a.sync.gitconfig.read_bytes() == gitconfig_before

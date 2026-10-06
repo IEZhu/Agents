@@ -20,7 +20,7 @@ from src.user_flows import FlowLibrary
 from src.user_sync import engine as engine_module, keys, wizard
 from src.user_sync.__main__ import main as cli
 from src.user_sync.engine import SyncError, Syncer
-from src.user_sync.github import GitHubAccount, GitHubError
+from src.user_sync.github import GitHubAccount, GitHubClient, GitHubError
 from src.user_sync.gitcmd import parse_remote
 from tests.test_user_sync import plain_git, remote_files
 from tests.test_user_sync_github import (  # noqa: F401  (fake and no_real_secret_store are fixtures)
@@ -231,10 +231,11 @@ def test_setup_github_adds_this_machines_deploy_key_once(fake, tmp_path):
     [posted] = posted_keys(fake)
     assert posted.json == {"title": "Agents-Core laptop", "key": " ".join(first["public_key"].split()[:2]),
                            "read_only": False}
-    assert syncer.settings().remote == SSH_URL
+    assert syncer.settings().remote == SSH_URL and syncer.settings().deploy_key_id == 11
     fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(tmp_path / "state")])
     second = syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
     assert second["deploy_key"] == "present" and len(posted_keys(fake)) == 1
+    assert syncer.settings().deploy_key_id == 7  # the one GitHub has
 
 
 def test_setup_github_refuses_a_missing_or_public_repository_and_needs_an_account(fake, tmp_path):
@@ -271,6 +272,7 @@ def test_check_tells_whether_the_deploy_key_is_still_there_and_add_key_restores_
     fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 201,
                {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
     assert syncer.add_deploy_key()["status"] == "added" and len(posted_keys(fake)) == 2
+    assert syncer.settings().deploy_key_id == 12  # recorded as this machine's deploy key
     fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(tmp_path / "state", 12)])
     assert syncer.add_deploy_key()["status"] == "present" and len(posted_keys(fake)) == 2
     fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(tmp_path / "state", 12)])
@@ -533,6 +535,25 @@ def test_check_withdraws_the_key_setup_added_when_the_repository_holds_other_con
     assert refused.value.details == {"deploy_key": "removed", "repository": REPOSITORY}
     assert ("DELETE", "/11") in key_requests(fake) and syncer.settings().deploy_key_id is None
     assert syncer.settings().remote == (PORT_443_URL if blocked else SSH_URL)  # reached over 443: kept
+
+
+@needs_ssh_keygen
+def test_check_keeps_a_deploy_key_that_setup_found_rather_than_added(fake, tmp_path, bare):
+    transport = Transport(tmp_path, bare)
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    keys.ensure_key(state, "laptop")  # the owner added this machine's key on GitHub before setup
+    syncer = make_syncer(tmp_path, signed_in(fake, state), ssh_command=transport.command,
+                         visibility=lambda remote: "private")
+    script_repository(fake, keys_listed=[deploy_key(state, 7)])
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    settings = syncer.settings()
+    assert settings.deploy_key_id == 7 and settings.deploy_key_added is False
+    push_foreign_content(tmp_path, bare)
+    with pytest.raises(SyncError) as refused:
+        syncer.check()
+    assert refused.value.reason == "unknown_remote" and "removed" not in refused.value.message
+    assert ("DELETE", "/7") not in key_requests(fake) and syncer.settings().deploy_key_id == 7
 
 
 @needs_ssh_keygen
@@ -808,3 +829,344 @@ def test_the_wizard_never_takes_the_identity_from_the_users_git_configuration(tm
     assert not [prompt for prompt in ask.prompts if "Work" in prompt or "corp" in prompt]  # no defaults from git
     assert plain_git("--git-dir", str(bare), "log", "-1", "--format=%an <%ae>|%cn <%ce>", "main") == \
         "Owner <owner@example.com>|Owner <owner@example.com>"
+
+
+# --- a new key for this machine (#170) ----------------------------------------------------------
+
+
+@needs_ssh_keygen
+def test_a_new_key_is_added_on_github_before_the_old_one_is_removed(fake, tmp_path):
+    state = tmp_path / "state"
+    syncer = make_syncer(tmp_path, signed_in(fake, state))
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    old = keys.public_key(state)
+    fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 201,
+               {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 200, [deploy_key(state, key_id=11)])  # the old key
+    fake.reply("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11", 204, None)
+    result = syncer.regenerate_key()
+    new = keys.public_key(state)
+    assert result == {"status": "replaced", "public_key": new, "deploy_key": "added", "repository": REPOSITORY,
+                      "old_key_removed": True,
+                      "message": f"added the new key to {REPOSITORY} and removed the old one"}
+    assert new != old and new.endswith(" agents-core-sync:laptop")
+    added = posted_keys(fake)[-1]
+    assert added.json["key"] == " ".join(new.split()[:2]) and added.json["read_only"] is False
+    methods = [(request.method, request.path) for request in fake.requests[-3:]]
+    assert methods == [("POST", f"/api/v3/repos/{REPOSITORY}/keys"), ("GET", f"/api/v3/repos/{REPOSITORY}/keys"),
+                       ("DELETE", f"/api/v3/repos/{REPOSITORY}/keys/11")]
+
+
+@needs_ssh_keygen
+def test_a_new_key_that_github_refuses_leaves_the_old_one(fake, tmp_path):
+    state = tmp_path / "state"
+    account = signed_in(fake, state)
+    syncer = make_syncer(tmp_path, account)
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 403, {"message": "Resource not accessible"})
+    with pytest.raises(GitHubError) as refused:
+        syncer.regenerate_key()
+    assert refused.value.code == "forbidden"
+    assert keys.public_key(state) == old and keys.key_path(state).read_bytes() == old_private
+    assert sorted(path.name for path in state.glob("id_ed25519*")) == ["id_ed25519", "id_ed25519.pub"]
+    # The old key's removal may fail: the new key works, and the answer says what is left to do.
+    fake.reply("POST", f"/api/v3/repos/{REPOSITORY}/keys", 201,
+               {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False})
+    fake.reply("GET", f"/api/v3/repos/{REPOSITORY}/keys", 502, None)
+    result = syncer.regenerate_key()
+    assert result["old_key_removed"] is False and "could not be removed" in result["message"]
+    assert keys.public_key(state) != old
+    account.mark_reconnect_needed()  # GitHub refused the token: no new key that only GitHub could make work
+    with pytest.raises(SyncError) as reconnect:
+        syncer.regenerate_key()
+    assert reconnect.value.reason == "reconnect_needed"
+
+
+KEYS = f"/api/v3/repos/{REPOSITORY}/keys"
+NEW_KEY = {"id": 12, "title": "Agents-Core laptop", "key": "ssh-ed25519 AAAA", "read_only": False}
+
+
+def key_files(state: Path) -> list[str]:
+    return sorted(path.name for path in state.glob("id_ed25519*"))
+
+
+def set_up_on_github(fake, tmp_path):
+    state = tmp_path / "state"
+    account = signed_in(fake, state)
+    syncer = make_syncer(tmp_path, account)
+    script_repository(fake)
+    syncer.setup_github(REPOSITORY, name="Owner", email="owner@example.com", label="laptop")
+    return syncer, account, state
+
+
+@needs_ssh_keygen
+def test_a_new_key_for_a_github_repository_needs_the_account_signed_in(fake, tmp_path):
+    syncer, account, state = set_up_on_github(fake, tmp_path)
+    old = keys.public_key(state)
+    account.forget()  # Forget account: a key made now could not become a deploy key
+    asked = len(fake.requests)
+    with pytest.raises(SyncError) as refused:
+        syncer.regenerate_key()
+    assert refused.value.reason == "not_signed_in" and REPOSITORY in refused.value.message
+    assert keys.public_key(state) == old and len(fake.requests) == asked and key_files(state) == ["id_ed25519",
+                                                                                                    "id_ed25519.pub"]
+
+
+@needs_ssh_keygen
+def test_a_new_key_that_cannot_be_installed_is_taken_off_github_again(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+
+    def refuse(private, state_dir, public, **options):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(engine_module.keys, "install_key", refuse)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("DELETE", f"{KEYS}/12", 204, None)
+    with pytest.raises(SyncError) as failed:
+        syncer.regenerate_key()
+    assert failed.value.reason == "ssh" and "could not be installed (Permission denied)" in failed.value.message
+    assert [request.path for request in fake.requests if request.method == "DELETE"] == [f"{KEYS}/12"]
+    assert keys.public_key(state) == old and keys.key_path(state).read_bytes() == old_private
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+    # When GitHub does not take it back, the error names the key left there.
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 13})
+    fake.reply("DELETE", f"{KEYS}/13", 502, None)
+    with pytest.raises(SyncError) as left:
+        syncer.regenerate_key()
+    assert f"the new deploy key 13 (Agents-Core laptop) could not be removed from {REPOSITORY}" in left.value.message
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+
+
+def derived(state: Path) -> str:
+    """``type base64`` of the public key that ssh derives from this machine's private key."""
+    return " ".join(keys.derive_public(keys.key_path(state)).split()[:2])
+
+
+def material(line: str | None) -> str | None:
+    return " ".join(line.split()[:2]) if line else None
+
+
+@needs_ssh_keygen
+def test_a_new_private_key_in_place_rolls_forward_and_is_never_discarded(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    real_replace = keys.os.replace
+
+    def replace(source, target):  # the public half cannot move: it is written from the public line
+        if str(source).endswith(".pub") and ".new-" in str(source):
+            raise OSError(5, "Input/output error")
+        return real_replace(source, target)
+    monkeypatch.setattr(keys.os, "replace", replace)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("GET", KEYS, 200, [deploy_key(state, key_id=11)])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    result = syncer.regenerate_key()
+    assert result["status"] == "replaced" and result["old_key_removed"] is True
+    assert keys.public_key(state) == result["public_key"] != old
+    assert keys.key_path(state).read_bytes() != old_private and key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+    assert syncer.settings().deploy_key_id == 12
+
+
+@needs_ssh_keygen
+def test_a_public_file_that_cannot_be_written_leaves_the_new_key_working_and_recorded(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old = keys.public_key(state)
+    listed_old = deploy_key(state, key_id=11)
+    real_replace = keys.os.replace
+
+    def replace(source, target):
+        if str(source).endswith(".pub") and ".new-" in str(source):
+            raise OSError(5, "Input/output error")
+        return real_replace(source, target)
+    monkeypatch.setattr(keys.os, "replace", replace)
+
+    def no_space(path, data):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(keys, "write_private", no_space)
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 14})
+    fake.reply("GET", KEYS, 200, [listed_old, {**NEW_KEY, "id": 14}])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    with pytest.raises(SyncError) as half:
+        syncer.regenerate_key()
+    assert half.value.reason == "ssh"
+    for part in (f"the new key is in place and {REPOSITORY} has it", "No space left on device",
+                 "the old deploy key is removed", "Regenerate the key again"):
+        assert part in half.value.message, part
+    # The old public file is gone, so ssh derives the new one from the private key; no leftover stays.
+    assert key_files(state) == ["id_ed25519"] and derived(state) != material(old)
+    assert syncer.settings().deploy_key_id == 14
+    assert [r.path for r in fake.requests if r.method == "DELETE"] == [f"{KEYS}/11"]
+    # The next new key removes deploy key 14, found by its recorded id and by the derived key.
+    monkeypatch.undo()
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 15})
+    fake.reply("GET", KEYS, 200, [{**NEW_KEY, "id": 14, "key": derived(state)}, {**NEW_KEY, "id": 15}])
+    fake.reply("DELETE", f"{KEYS}/14", 204, None)
+    again = syncer.regenerate_key()
+    assert again["old_key_removed"] is True and key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+    assert [r.path for r in fake.requests if r.method == "DELETE"] == [f"{KEYS}/11", f"{KEYS}/14"]
+    assert material(keys.public_key(state)) == derived(state) and syncer.settings().deploy_key_id == 15
+
+
+@needs_ssh_keygen
+def test_a_private_key_that_cannot_move_changes_nothing_and_github_hears_first(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    real_replace, real_discard = keys.os.replace, keys.discard_key
+    events = []
+
+    def replace(source, target):
+        if ".new-" in str(source) and not str(source).endswith(".pub"):
+            raise PermissionError(13, "Permission denied")
+        return real_replace(source, target)
+
+    def discard(private):
+        events.append("discard")
+        if len(events) > 1:  # the first is generate_key's own: the undo cannot delete the new pair
+            raise PermissionError(13, "Permission denied")
+        return real_discard(private)
+
+    def delete(self, repository, key_id):
+        events.append(f"delete {key_id}")
+        return real_delete(self, repository, key_id)
+    real_delete = GitHubClient.delete_deploy_key
+    monkeypatch.setattr(keys.os, "replace", replace)
+    monkeypatch.setattr(engine_module.keys, "discard_key", discard)
+    monkeypatch.setattr(GitHubClient, "delete_deploy_key", delete)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("DELETE", f"{KEYS}/12", 204, None)
+    with pytest.raises(SyncError) as failed:
+        syncer.regenerate_key()
+    assert failed.value.reason == "ssh" and "Permission denied" in failed.value.message
+    assert events == ["discard", "delete 12", "discard"]  # GitHub first: a local failure leaves it right
+    assert keys.public_key(state) == old and keys.key_path(state).read_bytes() == old_private
+    assert syncer.settings().deploy_key_id == 11
+
+
+@needs_ssh_keygen
+def test_an_interrupt_after_the_new_private_key_moved_keeps_it(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old = keys.public_key(state)
+    real_replace = keys.os.replace
+    interrupted = []
+
+    def replace(source, target):  # Ctrl-C between the private key's move and the public half's
+        if str(source).endswith(".pub") and ".new-" in str(source) and not interrupted:
+            interrupted.append(source)
+            raise KeyboardInterrupt()
+        return real_replace(source, target)
+    monkeypatch.setattr(keys.os, "replace", replace)
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 16})
+    asked = len(fake.requests)
+    with pytest.raises(KeyboardInterrupt):
+        syncer.regenerate_key()
+    assert [r.method for r in fake.requests[asked:]] == ["POST"]  # nothing taken off GitHub, nothing looked up
+    assert derived(state) != material(old) and material(keys.public_key(state)) == derived(state)
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"] and syncer.settings().deploy_key_id == 16
+
+
+@needs_ssh_keygen
+def test_an_interrupt_before_the_new_private_key_moved_takes_its_deploy_key_off_github(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    real_replace = keys.os.replace
+
+    def replace(source, target):
+        if ".new-" in str(source) and not str(source).endswith(".pub"):
+            raise KeyboardInterrupt()
+        return real_replace(source, target)
+    monkeypatch.setattr(keys.os, "replace", replace)
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 17})
+    fake.reply("DELETE", f"{KEYS}/17", 204, None)
+    with pytest.raises(KeyboardInterrupt):
+        syncer.regenerate_key()
+    assert [r.path for r in fake.requests if r.method == "DELETE"] == [f"{KEYS}/17"]
+    assert keys.public_key(state) == old and keys.key_path(state).read_bytes() == old_private
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"] and syncer.settings().deploy_key_id == 11
+
+
+@needs_ssh_keygen
+def test_another_sync_holding_the_lock_takes_the_new_deploy_key_off_github(fake, tmp_path):
+    from src.file_lock import file_lock
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old = keys.public_key(state)
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 17})
+    fake.reply("DELETE", f"{KEYS}/17", 204, None)
+    with file_lock(syncer.library / ".git" / engine_module.SYNC_LOCK, blocking=False):
+        with pytest.raises(SyncError) as busy:
+            syncer.regenerate_key()
+    assert (busy.value.reason, busy.value.state) == ("lock_held", "busy") and keys.public_key(state) == old
+    assert [r.path for r in fake.requests if r.method == "DELETE"] == [f"{KEYS}/17"]
+    assert key_files(state) == ["id_ed25519", "id_ed25519.pub"]
+
+
+@needs_ssh_keygen
+def test_setup_derives_a_missing_public_file_instead_of_making_a_new_key(fake, tmp_path):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    old, old_private = keys.public_key(state), keys.key_path(state).read_bytes()
+    keys.key_path(state).with_name("id_ed25519.pub").unlink()
+    result = syncer.setup(remote=SSH_URL, name="Owner", email="owner@example.com", label="laptop")
+    assert keys.key_path(state).read_bytes() == old_private  # still the key GitHub has
+    assert result["public_key"] == keys.public_key(state) and material(result["public_key"]) == material(old)
+    assert syncer.settings().deploy_key_id == 11
+    syncer.setup(remote="git@github.com:octocat/other.git", name="Owner", email="owner@example.com", label="laptop")
+    assert syncer.settings().deploy_key_id is None  # a deploy key of another repository
+
+
+@needs_ssh_keygen
+def test_github_hears_of_the_new_key_before_and_of_the_old_one_after_the_sync_lock(fake, tmp_path, monkeypatch):
+    syncer, _, state = set_up_on_github(fake, tmp_path)
+    seen = []
+    real_add, real_list, real_install = GitHubClient.add_deploy_key, GitHubClient.deploy_keys, keys.install_key
+
+    def add(self, *arguments):
+        seen.append(("add", syncer._lock_busy()))
+        return real_add(self, *arguments)
+
+    def listed(self, *arguments):
+        seen.append(("list", syncer._lock_busy()))
+        return real_list(self, *arguments)
+
+    def install(*arguments, **options):
+        seen.append(("install", syncer._lock_busy()))
+        return real_install(*arguments, **options)
+    monkeypatch.setattr(GitHubClient, "add_deploy_key", add)
+    monkeypatch.setattr(GitHubClient, "deploy_keys", listed)
+    monkeypatch.setattr(engine_module.keys, "install_key", install)
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("GET", KEYS, 200, [deploy_key(state, key_id=11)])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    syncer.regenerate_key()
+    assert seen == [("add", False), ("install", True), ("list", False)]
+
+
+@needs_ssh_keygen
+def test_cli_changes_the_identity_and_makes_a_new_key(fake, tmp_path, cli_account, capsys):
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    cli_account.complete_sign_in(TOKEN)
+    script_repository(fake)
+    assert run_cli(tmp_path, "setup", "--github", REPOSITORY, "--name", "Owner", "--email", "owner@example.com",
+                   "--label", "laptop") == 0
+    capsys.readouterr()
+    assert run_cli(tmp_path, "configure", "--name", "New Owner", "--label", "desk", "--json") == 0
+    configured = json.loads(capsys.readouterr().out)
+    assert configured["identity"] == {"name": "New Owner", "email": "owner@example.com"}
+    assert configured["label"] == "desk"
+    assert run_cli(tmp_path, "configure", "--email", "not an email", "--json") == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == "identity"
+    old = keys.public_key(tmp_path / "state")
+    fake.reply("POST", KEYS, 201, NEW_KEY)
+    fake.reply("GET", KEYS, 200, [deploy_key(tmp_path / "state", key_id=11)])
+    fake.reply("DELETE", f"{KEYS}/11", 204, None)
+    assert run_cli(tmp_path, "github", "regenerate-key", "--json") == 0
+    replaced = json.loads(capsys.readouterr().out)
+    assert replaced["status"] == "replaced" and replaced["old_key_removed"] is True
+    assert replaced["public_key"] == keys.public_key(tmp_path / "state") != old
+    fake.reply("POST", KEYS, 201, {**NEW_KEY, "id": 13})
+    fake.reply("GET", KEYS, 200, [deploy_key(tmp_path / "state", key_id=12)])
+    fake.reply("DELETE", f"{KEYS}/12", 204, None)
+    assert run_cli(tmp_path, "github", "regenerate-key") == 0
+    out = capsys.readouterr().out
+    assert "github regenerate-key: replaced" in out and "public key: ssh-ed25519 " in out

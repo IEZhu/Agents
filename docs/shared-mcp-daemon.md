@@ -332,8 +332,8 @@ The daemon serves a local settings page at `/ui` with five tabs.
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
 pane scrolls on its own, and the detail pane scrolls separately when its content is
-taller). The header holds the version, the controls of the open item, the tabs
-and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
+taller). The header holds the version, the [sync status](#sync-page), the
+controls of the open item, the tabs and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
 the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
 "Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
 "Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its
@@ -437,6 +437,132 @@ the bare `http://127.0.0.1:<port>/ui` address, which never carries a code. A cop
 cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
 `/ui` and useful only on the loopback port.
 
+### Sync page
+
+A chip under the version says how [user library sync](user-sync.md) stands, in
+words: `Synced 2m ago`, `3 pending`, `Syncing…`, `Offline, retry 14:05`, `Paused`,
+`Needs attention` (a setup that has not started included), `2 conflicts` or
+`Sync off`. It sits under the version, in the height the version's line had, so it
+takes no width from the open item's controls and the header keeps its one row at
+1250 px. A click opens the Sync page in place of the list and the item; a tab, or
+the chip again, returns to what was open, unsaved text included. The page reads the status
+when it loads and every 30 seconds while the browser tab is visible; a status that
+cannot be read shows as "Sync status unavailable", not as the last one that could.
+These polls take the status the daemon keeps while it is younger than a scan
+interval, counted from its read or from the last scan that confirmed it. A scan
+confirms it only when nothing changed in the library or in sync's own files (the
+settings, the state and this machine's key pair) since that status was read with
+the library in sync, so what the command line changes (`configure`, `run`,
+`github regenerate-key`, `disconnect`) shows within a scan. A status read that
+started before a newer one was kept, or before an operation that changed what it
+says ended, is not kept. Opening the Sync page and the page's own actions read the
+status afresh, and no poll replaces such a read while it runs. Polls do not count
+as activity, so an open page never holds back an automatic update; a GitHub
+sign-in's polls do while the sign-in waits for its code, because an update would
+end it.
+
+While sync is off, the page is a wizard:
+
+1. **Connect.** GitHub sign-in shows the code on the page with a link to GitHub's
+   device page; the daemon asks GitHub for the code and polls it, so neither the
+   device code nor the token reaches the browser. Another host takes an SSH URL.
+2. **Repository** (GitHub): a library found on the account, a new private
+   repository (default `agents-library`) or another private one by `OWNER/NAME`.
+3. **Identity**: the commit name and email (required) and the machine label. Setup
+   follows: another host's key fingerprints to confirm, this machine's public key
+   to add as a deploy key (on GitHub it is added, and a missing one can be added
+   again), and Check access.
+4. **What syncs**: every scope group on by default; including one again first lists
+   the files it would upload. "Ask before uploading" is set here too.
+5. **Preview**: uploads, downloads, deletions on this machine, conflicts, files the
+   scanner held back and repository groups with their origins. Where privacy cannot
+   be checked, the owner confirms it. Start sync sends the preview's hash, so a plan
+   that changed meanwhile is shown again instead of started.
+
+Once sync has started, the page has these sections:
+
+- **Status**: state, last success and attempt, repository (`owner/name` on GitHub,
+  never with credentials), branch, pending changes and next fetch; Sync now,
+  Pause or Resume (which answer at once, also while another request of the page
+  runs), and the fetch interval. A confirmation the engine waits for (a rewritten
+  remote, a mass deletion) shows its preview with "Confirm and sync".
+- **Machines**: this machine's label and the deploy keys Agents-Core added to the
+  repository on GitHub (titled `Agents-Core <label>`), with Remove for the other
+  machines. Deploy keys that sync did not add are listed apart, under "Other deploy
+  keys", and never removed from here. This machine's key is marked in either list:
+  found by its public key, or by the deploy key recorded as this machine's when sync
+  added or found it (`deploy_key_id` in `user-sync.json`).
+- **Conflicts**: Open (a flow opens in the editor with the kept version beside the
+  current text in the split pane; another file shows both versions here), Keep
+  current, Use mine (a normal save of the kept version) and Dismiss.
+- **What syncs**: the groups with their switches, repositories uploaded for the
+  first time with a one-click Exclude, groups waiting for approval with Approve
+  (after their upload list), and "ask before uploading".
+- **Access**: the GitHub account (Reconnect; Forget account, with the page where
+  the authorization is revoked) or manual SSH, this machine's public key with Copy,
+  Check access and Regenerate key. For a repository on GitHub, a new key needs the
+  account signed in: the new key becomes a deploy key first and the old one is
+  removed after it; for another host, you add the new public key yourself.
+- **Identity**: commit name and email, machine label.
+- **Activity**: the last 20 cycles with their time, result, the flows sent and
+  received and the machines they came from; changed non-Markdown files (scripts)
+  are marked separately.
+- **Disconnect**: the library's files and `.git` stay; this machine's key is deleted
+  here and, while the GitHub account is signed in, its deploy key (found by the key,
+  or by the recorded `deploy_key_id`) is removed from the repository (otherwise the
+  page says to remove it in the repository's settings).
+
+A flow open in the editor that a cycle updates shows "Updated from laptop at 14:02"
+with Reload. Unsaved text stays: saving it meets `flow_conflict`, and the message
+names the sync while the split pane shows the synced text. A flow that a cycle
+deleted says so, and its text stays in the editor to copy. A setup that stopped at
+the host's fingerprints, and then the page was reloaded, shows the fingerprints
+again. On GitHub, where nothing waits for a confirmation, such a setup (one that
+stopped before GitHub's host keys were stored) offers Set up again, which stores
+them and adds this machine's deploy key, as the first setup does. The page chooses
+between the wizard and its steps by whether sync is set up and started, which every
+answer reads afresh, never by a status that may be a scan old.
+
+While a request of the page runs, its other controls wait: buttons ignore clicks,
+text fields are read-only and switches and choices go back, so nothing typed
+meanwhile is lost or sent half-changed. Pause and Resume never wait.
+
+The page calls only the daemon, under `/ui/api/sync`, with the editor's
+protections: loopback Host, the session cookie, `X-Agents-UI` and a same-origin
+`Origin`. A GET here needs the header too, and an `Origin` it carries must be the
+page's own, because some reads reach the network. Answers carry
+`Cache-Control: no-store` and never the GitHub token, this machine's private key or
+a sign-in's device code.
+
+| Route | Body or query | Runs |
+|---|---|---|
+| `GET /ui/api/sync` | optional `fresh=1` | the engine's status with `loop`, `set_up`, `started`, `conflict_list` (at most 50; `conflict_total` counts them all), `repository`, `github` and `host_key_unconfirmed`, which are read with every request; the status itself, without `fresh=1`, is the one the daemon keeps (read, or confirmed by a scan, within a scan interval: see above), and with `fresh=1` a read of its own that starts with the request |
+| `POST /ui/api/sync/github/device`, then `GET …/github/device?attempt=` | — | at once; a poll sooner than GitHub's interval is answered without asking GitHub, polls of one sign-in run one at a time, and a sign-in that GitHub grants after Forget account keeps nothing |
+| `GET …/github/libraries`, `POST …/github/create` (`name`), `…/github/forget` | — | at once (GitHub's API only) |
+| `POST /ui/api/sync/setup` | `github` (`owner/name`) or `remote`; `name`, `email`; optional `label`, `trust_host_key`, `ask_new_repositories`; or `again` (with an optional `trust_host_key`): setup with the remote and identity sync keeps, followed on a repository of the signed-in GitHub account by this machine's deploy key | queued |
+| `POST …/check`, `GET …/preview`, `POST …/start` (`confirm`, optional `confirm_private`), `POST …/run` (optional `confirm`), `POST …/key/regenerate`, `POST …/github/add-key`, `POST …/disconnect` | | queued |
+| `PUT /ui/api/sync/settings` | `fetch_minutes`, `ask_new_repositories`, `name`, `email`, `label`, `paused` | at once |
+| `GET …/conflict?id=`, `POST …/conflicts/resolve` (`id`, `action`: `keep`, `mine` or `dismiss`) | | at once |
+| `GET`, `PUT …/scopes` | `exclude`, `include`, `approve`, `approve_files`, `confirm` | at once; including or approving answers `confirmation_needed` with `hash` and `upload` until the same request carries that hash |
+| `GET …/machines`, `POST …/machines/remove` (`id`) | | queued, because they read this machine's key, which a new key may be replacing (GitHub's API only; no status is read after them); `managed` marks the keys sync added and `this` this machine's key; this machine's key (`this_machine`) and keys sync did not add (`not_a_machine`) are refused |
+
+Queued operations run in the sync task, one at a time with its cycles (see below).
+These requests do not count in `inflight`: like `/admin/user-sync/*` they follow the
+sync task's drain. Bodies are JSON objects of at most 64 KiB (413 otherwise). Answers:
+
+- 400 with `status`, `reason` (`invalid_request`, or `identity` for a name, email
+  or label that sync or git would refuse, checked before anything is stored) and
+  `message` for a body or parameter that does not fit the route;
+- 404 for an unknown route, and for a sign-in poll whose attempt is unknown or over
+  (`reason: no_sign_in`);
+- 409 with `status`, `reason` and `message` when the engine or GitHub refuses, among
+  them a sign-in poll after its code expired (`reason: expired_token`, which ends
+  the attempt) and one that Forget account cancelled (`reason: cancelled`);
+- 503 with `error: draining` and a `message` while the service drains, and with
+  `error: unavailable` when the sync task is not running, for a queued operation
+  that would never start;
+- 500 without a traceback for an unexpected failure.
+
 ## User library sync
 
 When [user library sync](user-sync.md) is set up and started, the daemon runs its
@@ -457,15 +583,17 @@ warmup. Triggers:
   default 5), and one right after the service becomes ready. After a network
   failure the next cycle waits for the engine's `retry_at` (1, 2, 5, 10, then
   every 30 minutes); "Sync now" does not.
-- **Sync now:** `user-sync run` or `POST /admin/user-sync/run`.
+- **Sync now:** `user-sync run`, `POST /admin/user-sync/run` or the [Sync page](#sync-page).
 
 Nothing runs by itself while sync is off, waiting for access (set up but not
 started) or paused, or while `maintenance.json` or `transaction.json` shows an
 update transaction; a held cycle runs when the transaction ends, and until then
 the summary says `held: "update"` (a file that stays behind after an interrupted
 update needs `recover`). Cycles, `run`, `setup`, `check`, `preview`, `start` and
-`disconnect` run one at a time, so the service's own operations do not collide.
-`pause` and `resume` answer at once, also while one of them runs: the loop
+`disconnect`, and the Sync page's operations that run git or reach the remote (a new
+key included), run one at a time, so the service's own operations do not collide.
+`pause` and `resume` answer at once, also while one of them runs, and so do the
+page's settings, scopes and conflicts: the loop
 follows the settings it read last, so a cycle or job that read them before a
 pause never turns sync back on. Engine calls run in their own threads and count
 in `io_pending`: automatic updates and a drain wait for them.
