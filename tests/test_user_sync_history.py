@@ -128,7 +128,7 @@ def isolated_sync():
     previous = journal.set_sync(None)
     installed = history_sync._EXPORTER.installed
     history_sync._EXPORTER.installed = False
-    for cache in (history_sync._WORKSPACES, history_sync._HEADERS, history_sync._KNOWN):
+    for cache in (history_sync._WORKSPACES, history_sync._HEADERS, history_sync._KNOWN, history_sync._VERDICTS):
         cache.clear()
     yield
     assert history_sync.drain(60)
@@ -1131,11 +1131,42 @@ def test_a_new_turn_in_a_waiting_repository_never_rereads_the_whole_journal(two,
         return real(root, since_month)
 
     monkeypatch.setattr(history_sync, "_journal", journal_read)
-    with history_sync._CACHE_GUARD:  # other tests log the same entries at the same times
+    with history_sync._CACHE_GUARD:  # a cold cache: both entries need a verdict, and history.md holds both
         history_sync._VERDICTS.clear()
     a.log("second")
     assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 2}]
     assert reads and None not in reads  # the current month held the new turn
+
+
+def test_entries_rotated_into_an_earlier_month_are_still_counted(two, clock, monkeypatch):
+    a, _ = two
+    monkeypatch.setattr(history_sync, "_now", lambda: "2026-10-05T12:00:00+00:00")
+    clock.now = datetime(2026, 9, 30, 23, 59, 50, tzinfo=timezone.utc)
+    a.writer.rotation_kb = 1
+    a.log("late in september " + "x" * 600)
+    a.log("the last turn of september " + "x" * 600)  # this append rotates into history/2026-09.md
+    a.writer.rotation_kb = 512
+    reads, real = [], history_sync._journal
+
+    def journal_read(root, since_month=None):
+        reads.append(since_month)
+        return real(root, since_month)
+
+    monkeypatch.setattr(history_sync, "_journal", journal_read)
+    with history_sync._CACHE_GUARD:  # a restarted server: no verdicts yet
+        history_sync._VERDICTS.clear()
+    clock.now = datetime(2026, 10, 5, 9, 0, tzinfo=timezone.utc)
+    a.log("october")
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 3}]
+    assert reads == ["2026-10", None]  # the archive of September only when the current month lacked them
+
+
+def test_more_waiting_entries_than_the_verdict_cache_holds_are_all_counted(two, clock, monkeypatch):
+    a, _ = two
+    monkeypatch.setattr(history_sync, "_VERDICTS", history_sync._Recent(3))
+    for number in range(5):
+        a.log(f"turn {number}")
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 5}]
 
 
 def test_entries_that_stay_local_are_not_counted_as_waiting(two, clock):

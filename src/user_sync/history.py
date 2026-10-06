@@ -800,22 +800,24 @@ def _waiting(repo: _Repository, roots: dict[str, dict], approved: bool) -> int:
         ids = _journal_ids(root) if not approved else set(record.get("unreviewed") or ())
         for entry_id in ids - shared:
             candidates.setdefault(entry_id, root)
+    # The verdicts are counted from this call's own copy: the cache is bounded, and with more
+    # waiting entries than it holds, reading the count back from it would cap the count.
     with _CACHE_GUARD:
-        unknown = {entry_id for entry_id in candidates
-                   if _VERDICTS.get((repo.label, repo.origin, entry_id), _MISSING) is _MISSING}
+        verdicts = {entry_id: _VERDICTS.get((repo.label, repo.origin, entry_id), _MISSING)
+                    for entry_id in candidates}
+    unknown = {entry_id for entry_id, verdict in verdicts.items() if verdict is _MISSING}
     current = _now()[:7]
     for root in {candidates[entry_id] for entry_id in unknown}:
         wanted = {entry_id for entry_id in unknown if candidates[entry_id] == root}
         for since in (current, None):  # a new turn is in history.md: the whole journal only when needed
             for entry_id, (entry, body) in _journal(root, since).items():
                 if entry_id in wanted:
-                    _item(entry, body, repo.label, repo.origin)
+                    item, reason = _item(entry, body, repo.label, repo.origin)
+                    verdicts[entry_id] = None if item is not None else reason
                     wanted.discard(entry_id)
             if not wanted:
                 break
-    with _CACHE_GUARD:
-        return sum(1 for entry_id in candidates
-                   if _VERDICTS.get((repo.label, repo.origin, entry_id), "unknown") is None)
+    return sum(1 for verdict in verdicts.values() if verdict is None)
 
 
 def _set_waiting(machine: _Machine, repo: _Repository, count: int) -> None:
