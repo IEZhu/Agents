@@ -6,6 +6,7 @@
     python -m src.user_sync resolve <conflict id> keep|mine|dismiss
     python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--allow-secret PATH] …
     python -m src.user_sync configure [--fetch-minutes N] [--[no-]ask-new-repositories]
+    python -m src.user_sync schedule enable [--interval MINUTES] | disable | status
     python -m src.user_sync history export [--repo KEY]... [--path PATH]... [--confirm HASH]
     python -m src.user_sync history revoke KEY
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack, contextmanager
 import json
+import subprocess
 import sys
 
 from src.file_lock import file_lock
@@ -77,6 +79,10 @@ def _parser() -> argparse.ArgumentParser:
     configure.add_argument("--fetch-minutes", type=int, metavar="MINUTES", help="1-60")
     configure.add_argument("--ask-new-repositories", action=argparse.BooleanOptionalAction, default=None,
                            help="ask before uploading flows of a repository that is new to the library")
+    schedule = command("schedule", "run sync every few minutes without the daemon (OS scheduler)")
+    schedule.add_argument("action", choices=("enable", "disable", "status"))
+    schedule.add_argument("--interval", type=int, metavar="MINUTES",
+                          help="minutes between runs, 1-60 (default: the fetch interval setting)")
     command("pause", "pause sync on this machine")
     command("resume", "resume sync on this machine")
     command("disconnect", "stop syncing on this machine; files and .git stay")
@@ -121,6 +127,18 @@ def _execute(syncer: Syncer, arguments) -> dict | list:
     if name == "configure":
         return syncer.configure(fetch_minutes=arguments.fetch_minutes,
                                 ask_new_repositories=arguments.ask_new_repositories)
+    if name == "schedule":
+        from src.user_sync import schedule
+        if arguments.action == "disable":
+            return schedule.disable()
+        if arguments.action == "status":
+            return schedule.status()
+        settings = syncer.settings()
+        if settings is None:
+            raise SyncError("not_set_up", "set up sync before scheduling it", state="off")
+        minutes = settings.fetch_minutes if arguments.interval is None else arguments.interval
+        return schedule.enable(minutes,
+                               state_dir=syncer.state_dir, library=syncer.library)
     if name == "history":
         from src.user_sync import history
         if arguments.history_command == "revoke":
@@ -218,8 +236,9 @@ def _session_lease():
         yield
 
 
-def _failure(error: Exception) -> dict:
-    """Every expected failure as a reason, never a traceback."""
+def _failure(error: Exception, command: str | None = None) -> dict:
+    """Every expected failure as a reason, never a traceback; an unmapped error of a command other
+    than ``schedule`` (whose scheduler errors have no type of their own) is ``internal``."""
     from src.flows import FlowError
     from src.user_sync.gitcmd import GitError, RemoteError
     from src.user_sync.keys import SSHKeyError
@@ -227,8 +246,9 @@ def _failure(error: Exception) -> dict:
     if isinstance(error, SyncError):
         return {"status": error.state, "reason": error.reason, "message": error.message}
     reasons = ((ScopeError, "scopes_invalid"), (SSHKeyError, "ssh"), (GitError, "git_error"),
-               (RemoteError, "unknown_remote"), (FlowError, "invalid"))
-    reason = next((name for kind, name in reasons if isinstance(error, kind)), "library_unreadable")
+               (RemoteError, "unknown_remote"), (FlowError, "invalid"), (OSError, "library_unreadable"))
+    fallback = "schedule" if command == "schedule" else "internal"
+    reason = next((name for kind, name in reasons if isinstance(error, kind)), fallback)
     return {"status": "attention", "reason": reason, "message": str(error)}
 
 
@@ -242,8 +262,9 @@ def main(argv=None) -> int:
     try:
         with _session_lease():
             result = _execute(Syncer(arguments.library, arguments.state), arguments)
-    except (SyncError, ScopeError, SSHKeyError, GitError, RemoteError, FlowError, OSError) as error:
-        result = _failure(error)
+    except (SyncError, ScopeError, SSHKeyError, GitError, RemoteError, FlowError, OSError,
+            RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        result = _failure(error, arguments.command)
         failed = result["status"] != "busy"
     else:
         status = result.get("state") or result.get("status") if isinstance(result, dict) else "ok"
