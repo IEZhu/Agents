@@ -27,6 +27,7 @@ import sys
 
 LOCAL_TIMEOUT = 10
 NETWORK_TIMEOUT = 60
+GITHUB_443_HOST = "ssh.github.com"  # GitHub's SSH over port 443, for networks that block port 22
 # GIT_CONFIG_GLOBAL, on which the isolation rests, arrived in git 2.32.
 MIN_GIT_VERSION = (2, 32)
 
@@ -72,8 +73,8 @@ class Remote:
 
     @property
     def github(self) -> tuple[str, str] | None:
-        """``(owner, name)`` for a github.com repository."""
-        if self.host.lower() != "github.com":
+        """``(owner, name)`` for a github.com repository, also through ``ssh.github.com`` (port 443)."""
+        if self.host.lower() not in ("github.com", GITHUB_443_HOST):
             return None
         parts = re.sub(r"[.]git$", "", self.path.strip("/")).split("/")
         return (parts[0], parts[1]) if len(parts) == 2 and all(parts) else None
@@ -83,8 +84,9 @@ class Remote:
         """The same repository over HTTPS, for the anonymous visibility check."""
         if self.kind == "file":
             return None
+        host = "github.com" if self.host == GITHUB_443_HOST else self.host
         port = f":{self.port}" if self.kind == "https" and self.port else ""  # an SSH port is not an HTTPS one
-        return f"https://{self.host}{port}/{self.path.strip('/')}"
+        return f"https://{host}{port}/{self.path.strip('/')}"
 
 
 def parse_remote(url: str, *, allow_file: bool = False) -> Remote:
