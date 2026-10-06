@@ -783,10 +783,10 @@ def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = No
     ours = existing is not None and made_here(syncer, existing)
     replacing = existing is not None and not _same_target(existing, repository, remote, host,
                                                           syncer.allow_file_remote)
+    if existing is not None and not ours:  # the wizard's or the web UI's: never taken over, same target or not
+        raise SyncError("connected", f"sync is set up for {_display(existing.remote, syncer.allow_file_remote)} "
+                                     f"but not started, and not from the environment; {_clear_the_way(syncer)}")
     if replacing:
-        if not ours:
-            raise SyncError("connected", f"sync is set up for {_display(existing.remote, syncer.allow_file_remote)} "
-                                         f"but not started, and not from the environment; {_clear_the_way(syncer)}")
         say(f"  Replacing the setup for {_display(existing.remote, syncer.allow_file_remote)}, which setup from "
             "the environment made and which never started.")
     problem = blocker(syncer)

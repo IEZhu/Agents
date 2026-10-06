@@ -616,6 +616,17 @@ def test_env_setup_never_replaces_a_setup_it_did_not_make(tmp_path, bare):
     assert "-m src.user_sync setup" in message
 
 
+def test_env_setup_never_takes_over_a_wizard_setup_for_the_same_remote(tmp_path, bare):
+    syncer = machine(tmp_path)
+    syncer.setup(remote=str(bare), name="Wizard Owner", email="wizard@example.com", label="desk")  # stopped there
+    with pytest.raises(SyncError) as refused:
+        from_env(syncer, {installer.REMOTE: str(bare), **IDENTITY})
+    assert refused.value.reason == "connected" and "-m src.user_sync setup" in refused.value.message
+    settings = syncer.settings()
+    assert (settings.name, settings.email, settings.label) == ("Wizard Owner", "wizard@example.com", "desk")
+    assert not settings.started and remote_files(bare) == {}
+
+
 def test_env_setup_reruns_with_confirm_private(tmp_path, bare, scheduler):
     syncer = machine(tmp_path, visibility=lambda remote: "unknown")
     save(syncer)
