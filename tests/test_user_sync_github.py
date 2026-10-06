@@ -1116,7 +1116,82 @@ def test_forget_finishes_when_a_store_that_never_held_the_token_refuses(fake, tm
     with caplog.at_level("WARNING", logger=github.__name__):
         assert acct.forget()["connected"] is False
     assert sorted(path.name for path in state.iterdir()) == ["github-account.lock"]
-    assert "User interaction is not allowed" in caplog.text and TOKEN not in caplog.text
+    assert "User interaction is not allowed" in caplog.text
+    assert_secret_free(caplog.text)
+    with pytest.raises(github.GitHubError) as again:  # no record: the default store might hold a token
+        acct.forget()
+    assert again.value.code == "storage" and "desktop session" in again.value.message
+
+
+class Switchable(MemoryStore):
+    """A system store that works on the desktop and refuses in an SSH session."""
+    backend = "switchable-keychain"
+    refuse = False
+
+    def save(self, token):
+        if self.refuse:
+            raise github.GitHubError("storage", "The macOS Keychain did not save the GitHub token: refused")
+        super().save(token)
+
+    def delete(self):
+        if self.refuse:
+            raise github.GitHubError("storage", "The macOS Keychain did not delete the GitHub token: refused")
+        super().delete()
+
+
+def switchable_account(fake, state, monkeypatch, keychain):
+    opened = github.open_store
+    monkeypatch.setattr(github, "default_store", lambda directory, name, **kwargs: keychain)
+    monkeypatch.setattr(github, "open_store", lambda backend, directory, name: keychain
+                        if backend == keychain.backend else opened(backend, directory, name))
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"}, repeat=True)
+    return github.GitHubAccount(state, "agents-core-sync-test", web_url=fake.url, api_url=fake.api,
+                                client_id="Iv1.test")
+
+
+def test_forget_never_reports_success_while_an_earlier_token_stays_in_a_refusing_store(fake, tmp_path,
+                                                                                        monkeypatch):
+    keychain, state = Switchable(), tmp_path / "state"
+    acct = switchable_account(fake, state, monkeypatch, keychain)
+    acct.complete_sign_in(TOKEN)  # on the desktop: the Keychain holds it
+    assert keychain.token == TOKEN
+    keychain.refuse = True  # later, over SSH: the next sign-in goes to the file, the old copy stays
+    acct.complete_sign_in(TOKEN)
+    assert acct.status()["storage"] == github.FileStore.backend and keychain.token == TOKEN
+    with pytest.raises(github.GitHubError) as refused:
+        acct.forget()
+    assert refused.value.code == "storage" and "desktop session" in refused.value.message
+    assert acct.status()["connected"] is True  # the record stays, so Forget can finish later
+    keychain.refuse = False  # back on the desktop
+    assert acct.forget()["connected"] is False and keychain.token is None
+    assert sorted(path.name for path in state.iterdir()) == ["github-account.lock"]
+
+
+def test_forget_keeps_the_record_when_the_private_file_cannot_be_deleted(fake, tmp_path, monkeypatch):
+    keychain, state = Switchable(), tmp_path / "state"
+    acct = switchable_account(fake, state, monkeypatch, keychain)
+    acct.complete_sign_in(TOKEN)
+    (state / github.TOKEN_FILE).write_text(TOKEN)  # a plaintext copy, for example from an earlier fallback
+
+    def stuck(self):
+        raise github.GitHubError("storage", "Cannot delete the GitHub token file: Operation not permitted")
+
+    monkeypatch.setattr(github.FileStore, "delete", stuck)
+    with pytest.raises(github.GitHubError) as refused:
+        acct.forget()
+    assert refused.value.code == "storage" and acct.status()["connected"] is True
+
+
+def test_a_record_naming_an_unknown_store_makes_every_failure_count(fake, tmp_path, monkeypatch):
+    keychain, state = Switchable(), tmp_path / "state"
+    acct = switchable_account(fake, state, monkeypatch, keychain)
+    acct.complete_sign_in(TOKEN)
+    record = json.loads((state / github.ACCOUNT_FILE).read_text())
+    (state / github.ACCOUNT_FILE).write_text(json.dumps({**record, "storage": "a-newer-store"}))
+    keychain.refuse = True
+    with pytest.raises(github.GitHubError) as refused:
+        acct.forget()
+    assert refused.value.code == "storage"
 
 
 def test_a_failed_deletion_keeps_the_record_so_forget_can_be_retried(fake, tmp_path):

@@ -76,7 +76,11 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
 - **The token** is kept in the macOS Keychain, the Windows Credential Manager or the Secret Service
   (`secret-tool`), never in the library, logs or settings. Where none of them works, it goes to a
   private file in the state directory, and `github status` says so. `github logout` (Forget
-  account) deletes it from this machine and prints the page where you revoke it on GitHub.
+  account) deletes it from this machine and prints the page where you revoke it on GitHub. A
+  store that refuses (the Keychain in an SSH session) does not stop it when that store never held
+  the token. When it may still hold an earlier sign-in's token, the account stays and the error
+  says to run `github logout` where the store works (a desktop session) or to revoke the token on
+  GitHub.
 - **Repository.** `github libraries` lists your private repositories that hold an Agents-Core
   library; `github create [NAME]` creates an empty private repository (default `agents-library`).
   Before anything changes here or on GitHub, `setup --github OWNER/NAME` checks through the API
