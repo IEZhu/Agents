@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse
 from src.version import agents_core_version
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
+from .sync_loop import UserSync
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def load_runtime(port):
 
 
 class Service:
-    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime):
+    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
         self.directory = Path(directory)
         self.token = token
         self.port = port
@@ -67,6 +68,8 @@ class Service:
         self.stop = asyncio.Event()
         self.requests = set()
         self.flows_ui = FlowsUI(self)
+        # Only the service's entry point hands the library over from the OS scheduler (#168).
+        self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
 
     def health(self):
         import sys
@@ -79,10 +82,12 @@ class Service:
                 "model_ready": self.transport is not None,
                 "inflight": self.inflight, "streams": self.streams,
                 "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
-                "io_pending": self.io.inflight if self.io else 0,
+                # User sync's engine calls run in their own threads (sync_loop.py) and count here too.
+                "io_pending": (self.io.inflight if self.io else 0) + self.user_sync.pending,
                 "loop_lag_max_seconds": round(self.loop_lag_max, 6),
                 "startup_loop_lag_max_seconds": round(self.startup_loop_lag_max, 6),
-                "inference_pending": inference.pending if inference else 0}
+                "inference_pending": inference.pending if inference else 0,
+                "user_sync": self.user_sync.summary()}
 
     async def start_runtime(self):
         try:
@@ -91,6 +96,7 @@ class Service:
             async with mcp.session_manager.run():
                 self.transport = transport
                 self.state = "ready"
+                self.user_sync.wake()  # automatic sync waits for readiness
                 await self.stop.wait()
         except Exception:
             self.state = "failed"
@@ -125,18 +131,23 @@ class Service:
         runtime = asyncio.create_task(self.start_runtime())
         diagnostics = asyncio.create_task(self.retain_diagnostics())
         loop_monitor = asyncio.create_task(self.monitor_loop())
+        # Automatic sync begins once the service is ready; admin operations work from the start.
+        self.user_sync.start()
         try:
             yield
         finally:
             self.state = "draining"
             self.close_streams()
+            self.user_sync.drain()
             deadline = time.monotonic() + 60
-            while (self.inflight or self.io.inflight) and time.monotonic() < deadline:
+            while (self.inflight or self.io.inflight or self.user_sync.pending) and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
             self.stop.set()
+            self.user_sync.wake()
             await runtime
             await diagnostics
             await loop_monitor
+            await self.user_sync.finish()
             # Queued log_interaction writes run on their own executor; flush them
             # before the process can exit.
             if self.server is not None:
@@ -161,11 +172,17 @@ class Service:
             # Clients reconnect their streams to the next process; stateless
             # requests carry no session, so nothing else is lost.
             self.close_streams()
+            # Sync pushes what is left; io_pending covers it until it ends or is abandoned.
+            self.user_sync.drain()
             return await JSONResponse(self.health())(scope, receive, send)
         if path == "/admin/resume" and request.method == "POST":
             if self.transport is not None:
                 self.state = "ready"
+                self.user_sync.resume()
             return await JSONResponse(self.health())(scope, receive, send)
+        if path.startswith("/admin/user-sync/"):
+            response = await self.user_sync.handle(request, path[len("/admin/user-sync/"):])
+            return await response(scope, receive, send)
         if path == "/admin/ui/code" and request.method == "POST":
             code = self.flows_ui.issue_code()
             return await JSONResponse({"code": code, "url": f"http://127.0.0.1:{self.port}/ui#code={code}"})(
@@ -260,10 +277,12 @@ class Service:
             closing.set()
 
 
-def create_app(directory, token, port=8765, runtime_loader=load_runtime):
+def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
+    """``hand_off_schedule``: the user-sync task removes the scheduled sync run of #168 when it
+    starts; only ``bootstrap.serve`` sets it, so tests never reach the OS scheduler."""
     if not token or len(token) < 32:
         raise ValueError("A private bearer token of at least 32 characters is required")
-    service = Service(directory, token, port, runtime_loader)
+    service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule)
     app = Starlette(lifespan=service.lifespan)
     # Route the original scope directly so MCP receives the request state.
     app.router.default = service
