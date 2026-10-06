@@ -17,6 +17,7 @@ from src.version import agents_core_version
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
 from .sync_loop import UserSync
+from .usage import Usage, app_name, observing
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class Service:
         self.startup_loop_lag_max = 0.0
         self.stop = asyncio.Event()
         self.requests = set()
+        self.usage = Usage(self)  # answer counts and the apps that use the daemon (#187)
         self.flows_ui = FlowsUI(self)
         # Only the service's entry point hands the library over from the OS scheduler (#168).
         self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
@@ -195,17 +197,19 @@ class Service:
             return await JSONResponse({"error": "not_found"}, 404)(scope, receive, send)
         if self.state != "ready":
             return await JSONResponse({"error": self.state}, 503)(scope, receive, send)
+        app = app_name(request.headers.get("x-agents-client"))
         if request.method == "GET":
-            return await self.stream(request, scope, receive, send)
+            return await self.stream(request, scope, receive, send, app)
         if self.inflight >= MAX_INFLIGHT:
             return await JSONResponse({"error": "busy"}, 503, headers={"Retry-After": "1"})(scope, receive, send)
         self.inflight += 1  # Admission occurs before the first await.
         self.last_activity = time.monotonic()
+        self.usage.apps.request(app)
         jobs = []
         tracking = request_jobs.set(jobs)
         async def handle():
             try:
-                await self.dispatch(request, scope, receive, send)
+                await self.dispatch(request, scope, receive, send, app)
             finally:
                 await finish_jobs(jobs)
                 self.inflight -= 1
@@ -217,18 +221,21 @@ class Service:
         # A transport disconnect cannot cancel an already submitted mutation.
         await asyncio.shield(task)
 
-    async def dispatch(self, request, scope, receive, send):
+    async def dispatch(self, request, scope, receive, send, app=None):
         identity = request.headers.get("x-agents-workspace")
         root, error = None, None
         try:
             root = await asyncio.to_thread(self.registry.resolve, identity)
         except WorkspaceError as failure:
             error = str(failure)
-        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error)
+        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app)
         scope.setdefault("state", {})["client_context"] = context
+        if request.method == "POST":
+            # Only an initialize names the client (clientInfo); the transport still reads every byte.
+            receive = observing(receive, self.usage.apps, app, identity if root else None)
         await self.transport(scope, receive, send)
 
-    async def stream(self, request, scope, receive, send):
+    async def stream(self, request, scope, receive, send, app=None):
         if self.streams >= MAX_STREAMS:
             return await JSONResponse({"error": "busy"}, 503, headers={"Retry-After": "1"})(scope, receive, send)
         response = {"started": False, "ended": False}
@@ -260,8 +267,9 @@ class Service:
 
         self.stream_closers.add(closing)
         self.streams += 1
+        self.usage.apps.stream_opened(app)
         try:
-            await self.dispatch(request, scope, closable_receive, tracked_send)
+            await self.dispatch(request, scope, closable_receive, tracked_send, app)
             if closing.is_set():
                 # The client is still connected: finish the response so it sees
                 # an ended stream, not a reset, and reconnects to the next process.
@@ -272,6 +280,7 @@ class Service:
         finally:
             self.stream_closers.discard(closing)
             self.streams -= 1
+            self.usage.apps.stream_closed(app)
 
     def close_streams(self):
         for closing in list(self.stream_closers):

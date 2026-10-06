@@ -12,7 +12,8 @@ survives daemon restarts and updates; ``flows-ui --revoke`` replaces the key and
 ends every session. Every UI request must use the loopback Host; mutations,
 sign-in included, also need a matching Origin and the ``X-Agents-UI`` header,
 which a cross-site page cannot send. Library sync (``/ui/api/sync…``, ``sync_ui.py``)
-asks for the header on GET as well, because some of its reads reach the network.
+asks for the header on GET as well, because some of its reads reach the network, and so do
+the statistics (``/ui/api/stats``, ``usage.py``), which only the page reads.
 """
 import asyncio
 import hashlib
@@ -45,6 +46,7 @@ KEY_FILE = "ui_session_key"
 KEY_BYTES = 32
 COOKIE = "agents_flows_ui"
 MAX_BODY = 512 * 1024
+STATS_PATH = "/ui/api/stats"
 PAGE = Path(__file__).with_name("flows_ui.html")
 AUTO_OFF_FILE = "ui_auto_sign_in_off"
 # A proxy's own process says nothing about who sent the request it relays.
@@ -179,7 +181,7 @@ class FlowsUI:
                                         or request.headers.get("x-agents-ui") != "1"):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
-        if syncing and request.method == "GET" and not self._page_request(request):
+        if (syncing or path == STATS_PATH) and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
             response = await self._login(request)
@@ -192,8 +194,9 @@ class FlowsUI:
         # Sync's operations follow the sync task's drain, as /admin/user-sync does (sync_loop.py):
         # a queued one must not hold the drain that would end it.
         counted = not syncing
-        # The Sync page's polls are not activity: an open page must not hold back an automatic update.
-        active = not (syncing and self.sync.passive(request.method, path))
+        # The Sync page's and the statistics' polls are not activity: an open page must not hold
+        # back an automatic update.
+        active = not ((syncing and self.sync.passive(request.method, path)) or path == STATS_PATH)
         if counted:
             self.service.inflight += 1
         if active:
@@ -295,6 +298,8 @@ class FlowsUI:
             return await self.sync.handle(request, path)
         query = request.query_params
         try:
+            if path == STATS_PATH and request.method == "GET":
+                return self._json(await asyncio.to_thread(self.service.usage.stats))
             if path == "/ui/api/workspaces" and request.method == "GET":
                 records = await asyncio.to_thread(read_json, self.service.registry.path, {})
                 return self._json({"workspaces": [
