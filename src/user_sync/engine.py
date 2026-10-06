@@ -66,6 +66,7 @@ from src.user_sync.scope import CONFLICTS_DIR, MAX_FILE_BYTES, SCOPES_PATH, Rule
 
 SETTINGS_FILE = "user-sync.json"
 STATE_FILE = "user-sync-state.json"
+HISTORY_STATE_FILE = "user-sync-history.json"   # src.user_sync.history: checkouts, waiting entries, failures
 LOG_FILE = "user-sync.log"
 LOG_BYTES = 1024 * 1024
 LOG_BACKUPS = 3
@@ -296,6 +297,7 @@ class Settings:
     approved_files: list[str] = field(default_factory=list)
     github_repository: str | None = None  # ``owner/name`` that ``setup --github`` chose
     deploy_key_id: int | None = None      # the deploy key ``setup --github`` added there, until sync starts
+    history_repositories: list[str] = field(default_factory=list)  # keys whose history.md this machine shares
 
     @classmethod
     def load(cls, path: Path) -> "Settings | None":
@@ -914,7 +916,16 @@ class Syncer:
                 name, result["reason"] = "attention", "stale"
                 result["message"] = f"no successful sync since {state.get('last_success')}"
         result["state"] = name
+        result.update(self._history_status())  # reported only; it never changes the state
         return result
+
+    def _history_status(self) -> dict:
+        """Repositories whose history waits for approval here, the last history failure, other origins."""
+        try:
+            from src.user_sync import history
+            return history.status(self.state_dir)
+        except Exception:  # noqa: BLE001 - status must always answer
+            return {}
 
     # --- setup ------------------------------------------------------------------------
 
@@ -1990,6 +2001,30 @@ class Syncer:
             state["held"] = [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())]
         return outcome
 
+    def _pending_message(self, state: dict) -> str:
+        """What waits for ``scope --approve`` here: a group holding only shared history is named so."""
+        groups = state.get("pending_groups", [])
+        if groups and not state.get("pending_files") and all(self._history_only(group) for group in groups):
+            return ("the shared history of " + ", ".join(groups) + " waits for your approval on this "
+                    "machine before it uploads (scope --approve " + groups[0] + ")")
+        return "flows wait for your approval on this machine before they upload"
+
+    def _history_only(self, group: str) -> bool:
+        """True when a repository group holds nothing but its history segments and metadata."""
+        if (self.library / "personas" / group).exists() or (self.library / ".history" / group).exists():
+            return False
+        directory = self.library / group
+        for current, folders, names in os.walk(directory, followlinks=False):
+            relative = Path(current).relative_to(directory).parts
+            if relative[:1] == ("history",):
+                folders.clear()
+                continue
+            if not relative and "history" in folders:
+                folders.remove("history")
+            if any(name not in (REPO_META, REPO_LOCAL) for name in names) or (relative and names):
+                return False
+        return True
+
     def _push(self, git: Git, settings: Settings, commit: str, integrated: str | None) -> bool:
         """True when pushed (the branch moves to ``commit``); False on a non-fast-forward rejection."""
         result = git.run("push", "--porcelain", "origin", f"{commit}:refs/heads/{settings.branch}",
@@ -2074,8 +2109,7 @@ class Syncer:
             state.update(state="attention", reason="secret",
                          message="files with possible credentials were not uploaded")
         elif state.get("pending_groups") or state.get("pending_files"):
-            state.update(state="attention", reason="new_repository",
-                         message="flows wait for your approval on this machine before they upload")
+            state.update(state="attention", reason="new_repository", message=self._pending_message(state))
         state["size"] = self._repository_size(git)
         self._remember(state, result, outcome="ok", settings=settings,
                        new_groups=new_groups if result["pushed"] else [])
@@ -2316,14 +2350,23 @@ class Syncer:
 
     def resume(self) -> dict:
         self._update_settings(lambda settings: setattr(settings, "paused", False))
-        return self.status()
+        catch_up = None
+        try:  # entries of approved repositories written while paused follow now
+            from src.user_sync import history
+            catch_up = history.request_catch_up(self.state_dir, self.library)
+        except Exception:  # noqa: BLE001 - resuming never fails on history; the next run catches up
+            self._log("history catch-up after resume failed")
+        result = self.status()
+        if catch_up:
+            result["history_catch_up"] = catch_up
+        return result
 
     def disconnect(self) -> dict:
         """Stop syncing here. Library files and ``.git`` stay; this machine's key is deleted."""
         settings = self._require_settings()
         # The settings lock keeps a concurrent pause or approval from saving the settings back.
         with self._sync_lock_for(settings, create=False), file_lock(self.state_dir / "settings.lock"):
-            for name in (SETTINGS_FILE, STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
+            for name in (SETTINGS_FILE, STATE_FILE, HISTORY_STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
                 (self.state_dir / name).unlink(missing_ok=True)
         self._log("disconnected")
         return {"status": "off", "message": "sync is off; the library files and its .git stay. "

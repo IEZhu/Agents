@@ -10,6 +10,8 @@
     python -m src.user_sync configure [--fetch-minutes N] [--[no-]ask-new-repositories]
     python -m src.user_sync schedule enable [--interval MINUTES] | disable | status
     python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key
+    python -m src.user_sync history export [--repo KEY]... [--path PATH]... [--confirm HASH]
+    python -m src.user_sync history revoke KEY
 
 Every command accepts ``--json`` for machine-readable output; prompts and sign-in codes then go
 to stderr. The exit code is 0 unless sync needs attention, a command failed or was cancelled, or
@@ -101,6 +103,19 @@ def _parser() -> argparse.ArgumentParser:
     command("pause", "pause sync on this machine")
     command("resume", "resume sync on this machine")
     command("disconnect", "stop syncing on this machine; files and .git stay")
+    history = commands.add_parser("history", help="share repositories' history.md with your other machines")
+    history_commands = history.add_subparsers(dest="history_command", required=True)
+    export = history_commands.add_parser(
+        "export", help="list the entries this machine has not shared yet; --confirm shares those repositories")
+    export.add_argument("--json", action="store_true", help="print JSON")
+    export.add_argument("--repo", action="append", default=[], metavar="KEY",
+                        help="only this repository key (repeatable)")
+    export.add_argument("--path", action="append", default=[], metavar="PATH",
+                        help="also a checkout this machine has not used since sync was set up (repeatable)")
+    export.add_argument("--confirm", metavar="HASH", help="the preview's hash: approve and share these repositories")
+    revoke = history_commands.add_parser("revoke", help="share nothing more of a repository from this machine")
+    revoke.add_argument("--json", action="store_true", help="print JSON")
+    revoke.add_argument("key", help="the repository key")
     hub = commands.add_parser("github", help="the GitHub account: sign-in, the library repository, deploy keys")
     actions = hub.add_subparsers(dest="github_command", required=True)
     for name, help_text in (("login", "sign in with a device code"),
@@ -168,6 +183,12 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         minutes = settings.fetch_minutes if arguments.interval is None else arguments.interval
         return schedule.enable(minutes,
                                state_dir=syncer.state_dir, library=syncer.library)
+    if name == "history":
+        from src.user_sync import history
+        if arguments.history_command == "revoke":
+            return history.revoke(arguments.key, state_dir=syncer.state_dir, library=arguments.library)
+        return history.export(state_dir=syncer.state_dir, library=arguments.library, keys=arguments.repo,
+                              paths=arguments.path, confirm=arguments.confirm)
     if name == "scope":
         changes = dict(exclude=arguments.exclude, include=arguments.include,
                        exclude_files=arguments.exclude_file, include_files=arguments.include_file,
@@ -241,10 +262,33 @@ def _print(result, command: str) -> None:
             print(f"  {key}: {value}")
     if result.get("warning"):
         print(f"  warning: {result['warning']}")
-    for repository in result.get("repositories", []):
-        print(f"  {repository['full_name']}  {repository['ssh_url']}")
-    if result.get("truncated"):
-        print(f"  only the {result['checked']} most recently pushed repositories were searched")
+    if command == "github libraries":
+        for repository in result.get("repositories", []):
+            print(f"  {repository['full_name']}  {repository['ssh_url']}")
+        if result.get("truncated"):
+            print(f"  only the {result['checked']} most recently pushed repositories were searched")
+    else:
+        for repo in result.get("repositories", []):  # history export
+            stays = ", ".join(f"{count} {reason}" for reason, count in repo.get("skipped", {}).items())
+            print(f"  {repo['origin']} ({repo['key']}): {repo['count']} entries"
+                  + (f"; staying on this machine: {stays}" if stays else ""))
+            for entry in repo.get("entries", []):
+                print(f"    {entry['timestamp'][:19].replace('T', ' ')}Z  {entry['intent']:<80}  {entry['id']}")
+        for note in result.get("notes", []):
+            print(f"  {note.get('origin') or note['key']}: {note['reason']}")
+        if result.get("repositories"):
+            count = len(result["repositories"])
+            print(f"  total: {result.get('entries', 0)} entries in {count} "
+                  f"{'repository' if count == 1 else 'repositories'}")
+    if result.get("history_catch_up", {}).get("message"):  # resume
+        print(f"  history: {result['history_catch_up']['message']}")
+    for repo in result.get("history_waiting", []):  # status
+        print(f"  history waiting for approval: {repo['origin']} ({repo['key']}), {repo['entries']} entries")
+    if result.get("history_error"):
+        error = result["history_error"]
+        print(f"  history sharing failed at {error.get('time')}: {error.get('reason')} {error.get('message') or ''}")
+    for repo in result.get("history_other_origin", []):
+        print(f"  history of {repo['key']} names another origin: {', '.join(repo.get('found', []))}")
     if result.get("public_key"):
         print(f"  public key: {result['public_key']}")
     for fingerprint in result.get("fingerprints", []):

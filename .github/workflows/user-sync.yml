@@ -8,6 +8,7 @@ on:
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
+      - src/memory/history.py
       - tests/test_user_sync*.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
@@ -19,6 +20,7 @@ on:
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
+      - src/memory/history.py
       - tests/test_user_sync*.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
@@ -47,7 +49,8 @@ jobs:
           - os: macos-latest
             real_secret_store: "1"
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Windows runs the two-machine git cycles slowly; with the history tests a run there passed 15 minutes.
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -70,4 +73,4 @@ jobs:
           # and use the real Keychain and Credential Manager where the matrix allows it.
           AGENTS_TEST_REAL_SCHEDULER: "1"
           AGENTS_TEST_REAL_SECRET_STORE: ${{ matrix.real_secret_store || '0' }}
-        run: python -m pytest tests/test_user_sync*.py -v
+        run: python -m pytest tests/test_user_sync*.py -v --durations=15
