@@ -8,6 +8,7 @@ GitHub, a network or an OS secret store.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -782,6 +783,70 @@ def test_cli_json_sends_the_sign_in_code_and_the_prompts_to_stderr(fake, tmp_pat
     assert json.loads(out.out)["status"] == "cancelled"
     assert "Where is the library's repository?" in out.err and "SSH URL of the repository" in out.err
     assert "Your name for commits" in out.err and "Where is" not in out.out
+
+
+def test_a_browser_opened_during_json_login_cannot_write_into_the_json(fake, tmp_path, cli_account, capfd):
+    script_device_flow(fake)
+
+    def chatty_browser(url):
+        os.write(1, b"browser output on its inherited stdout\n")
+        return True
+
+    assert run_cli(tmp_path, "github", "login", "--json", open_browser=chatty_browser,
+                   sleep=lambda seconds: None) == 0
+    out = capfd.readouterr()
+    assert json.loads(out.out)["login"] == "octocat"
+    assert "browser output" in out.err
+
+
+def test_cli_login_never_hands_the_link_to_a_console_browser(fake, tmp_path, cli_account, monkeypatch, capsys):
+    script_device_flow(fake)
+    monkeypatch.setenv("DISPLAY", ":0")
+    lynx = wizard.webbrowser.GenericBrowser("lynx")
+    started = []
+    monkeypatch.setattr(lynx, "open", lambda url, *args, **kwargs: started.append(url) or True)
+    monkeypatch.setattr(wizard.webbrowser, "get", lambda *args: lynx)
+    monkeypatch.setattr(wizard.webbrowser, "open", lambda url, *args, **kwargs: started.append(url) or True)
+    assert run_cli(tmp_path, "github", "login", "--json", sleep=lambda seconds: None) == 0
+    assert json.loads(capsys.readouterr().out)["login"] == "octocat" and started == []
+
+
+@pytest.mark.parametrize("platform", ["linux", "freebsd14"])
+def test_no_browser_opens_without_a_display(monkeypatch, platform):
+    monkeypatch.setattr(wizard.sys, "platform", platform)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    def never(*args, **kwargs):
+        raise AssertionError("webbrowser was asked although there is no display")
+
+    monkeypatch.setattr(wizard.webbrowser, "get", never)
+    assert wizard.open_in_browser("https://github.com/login/device") is False
+
+
+@pytest.mark.parametrize("console", [
+    lambda: wizard.webbrowser.GenericBrowser("lynx"),
+    lambda: type("Elinks", (wizard.webbrowser.UnixBrowser,), {"background": False})("elinks"),
+], ids=["generic", "unix-foreground"])
+def test_a_console_browser_is_never_started(monkeypatch, console):
+    monkeypatch.setattr(wizard.sys, "platform", "linux")
+    monkeypatch.setenv("DISPLAY", ":0")
+    browser = console()
+    opened = []
+    monkeypatch.setattr(browser, "open", lambda url, *args, **kwargs: opened.append(url) or True)
+    monkeypatch.setattr(wizard.webbrowser, "get", lambda *args: browser)
+    assert wizard.open_in_browser("https://github.com/login/device") is False and opened == []
+
+
+def test_a_graphical_browser_is_used(monkeypatch):
+    monkeypatch.setattr(wizard.sys, "platform", "linux")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    browser = wizard.webbrowser.BackgroundBrowser("firefox")
+    opened = []
+    monkeypatch.setattr(browser, "open", lambda url, *args, **kwargs: opened.append(url) or True)
+    monkeypatch.setattr(wizard.webbrowser, "get", lambda *args: browser)
+    assert wizard.open_in_browser("https://github.com/login/device") is True
+    assert opened == ["https://github.com/login/device"]
 
 
 @needs_ssh_keygen

@@ -10,6 +10,8 @@ before the owner types "yes" under the preview.
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
 from typing import Callable
 import webbrowser
@@ -35,8 +37,29 @@ class Cancelled(Exception):
     """The owner stopped the wizard; nothing was uploaded."""
 
 
+def open_in_browser(url: str) -> bool:
+    """Open ``url`` in a graphical browser; True when one took it.
+
+    Never a console browser (lynx, w3m, links, ``www-browser``): ``webbrowser`` waits for it in this
+    terminal, so device-flow polling would not start while the code expires. So on Linux and other
+    POSIX systems without ``DISPLAY`` or ``WAYLAND_DISPLAY`` (an SSH session to a server) nothing
+    opens, and a browser that ``webbrowser`` runs and waits for is skipped. The caller has printed
+    the link anyway.
+    """
+    if sys.platform not in ("darwin", "win32") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
+    try:
+        browser = webbrowser.get()
+    except webbrowser.Error:
+        return False
+    if type(browser) is webbrowser.GenericBrowser or (isinstance(browser, webbrowser.UnixBrowser)
+                                                      and not browser.background):
+        return False
+    return bool(browser.open(url))
+
+
 def run(syncer: Syncer, *, ask: Ask = input, say: Say = print,
-        open_browser: Callable[[str], object] = webbrowser.open,
+        open_browser: Callable[[str], object] = open_in_browser,
         sleep: Callable[[float], None] = time.sleep) -> dict:
     """Set up and start sync interactively; returns the result as the other commands do."""
     existing = syncer.settings()

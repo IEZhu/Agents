@@ -35,7 +35,12 @@ python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-reposit
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]
-python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key
+python -m src.user_sync github login          # sign in with a device code
+python -m src.user_sync github status
+python -m src.user_sync github libraries      # your private repositories that hold a library
+python -m src.user_sync github create [NAME]  # a new private repository (default agents-library)
+python -m src.user_sync github add-key        # this machine's deploy key, again
+python -m src.user_sync github logout         # Forget account
 ```
 
 Each command takes `--json`; prompts and the sign-in code then go to stderr. `--state DIR` and
@@ -54,9 +59,9 @@ history there: one root commit with the current files, so old commits never trav
 ### The wizard
 
 `python -m src.user_sync setup` without `--remote` or `--github`, in a terminal, asks step by step:
-GitHub sign-in with a device code (it opens the browser when it can) or an SSH URL for another
-host; the repository (a new private one, a library found on the account, or another private
-repository by `OWNER/NAME`); the commit name and email, which it never reads from your git
+GitHub sign-in with a device code (it opens a graphical browser when there is one) or an SSH URL
+for another host; the repository (a new private one, a library found on the account, or another
+private repository by `OWNER/NAME`); the commit name and email, which it never reads from your git
 configuration; and the machine label. It then sets up sync (on GitHub it adds this machine's
 deploy key; elsewhere it shows the public key and the host key fingerprints to confirm), checks
 access, asks to confirm privacy where the host cannot be checked, and shows the preview: uploads,
@@ -72,8 +77,10 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
 
 - **Sign-in.** `github login` runs the OAuth device flow of the Agents-Core OAuth App: open
   `https://github.com/login/device`, enter the printed code, and approve the `repo` scope, which
-  creating a private repository needs. The app's client ID ships in the code once the owner has
-  registered the app; until then, and for forks or GitHub Enterprise Server, set
+  creating a private repository needs. The page opens in a graphical browser when there is one; in
+  an SSH session without `DISPLAY` or `WAYLAND_DISPLAY`, or with only a console browser such as
+  lynx or w3m, you open the printed link yourself. The app's client ID ships in the code once the
+  owner has registered the app; until then, and for forks or GitHub Enterprise Server, set
   `AGENTS_GITHUB_CLIENT_ID` (and `AGENTS_GITHUB_HOST`), for example in the installation's `.env`.
 - **The token** is kept in the macOS Keychain, the Windows Credential Manager or the Secret Service
   (`secret-tool`), never in the library, logs or settings. Where none of them works, it goes to a
@@ -115,7 +122,8 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
 
 ```bash
 python -m src.user_sync schedule enable [--interval MINUTES]   # default: the fetch interval, 5
-python -m src.user_sync schedule disable | status
+python -m src.user_sync schedule disable
+python -m src.user_sync schedule status
 ```
 
 `schedule enable` installs one job per installation that runs

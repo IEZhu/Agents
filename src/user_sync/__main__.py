@@ -25,11 +25,11 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack, contextmanager
 import json
+import os
 import subprocess
 import sys
 import time
 from types import SimpleNamespace
-import webbrowser
 
 from src.file_lock import file_lock
 from src.user_sync.engine import SyncError, Syncer, installation_root
@@ -317,8 +317,27 @@ def _console(json_output: bool, ask=None, say=None, open_browser=None, sleep=Non
         stream.flush()
         return input()
 
-    return SimpleNamespace(ask=ask or default_ask, say=say or default_say,
-                           open_browser=open_browser or webbrowser.open, sleep=sleep or time.sleep)
+    from src.user_sync import wizard
+    opener = open_browser or wizard.open_in_browser
+    if json_output:
+        opener = _keeping_stdout(opener)
+    return SimpleNamespace(ask=ask or default_ask, say=say or default_say, open_browser=opener,
+                           sleep=sleep or time.sleep)
+
+
+def _keeping_stdout(opener):
+    """``opener`` with file descriptor 1 pointed at stderr while it runs: a browser it starts inherits
+    stdout and may write to it, which would corrupt the JSON that stdout carries."""
+    def open_browser(url: str):
+        sys.stdout.flush()
+        saved = os.dup(1)
+        try:
+            os.dup2(2, 1)
+            return opener(url)
+        finally:
+            os.dup2(saved, 1)
+            os.close(saved)
+    return open_browser
 
 
 def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, interactive=None) -> int:
