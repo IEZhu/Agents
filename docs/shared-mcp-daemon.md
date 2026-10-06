@@ -439,7 +439,7 @@ cookie works until revoked, like any bearer cookie; it is HttpOnly, limited to
 
 ### Sync page
 
-A chip next to the version says how [user library sync](user-sync.md) stands, in
+A chip under the version says how [user library sync](user-sync.md) stands, in
 words: `Synced 2m ago`, `3 pending`, `Syncing…`, `Offline, retry 14:05`, `Paused`,
 `Needs attention` (a setup that has not started included), `2 conflicts` or
 `Sync off`. It sits under the version, in the height the version's line had, so it
