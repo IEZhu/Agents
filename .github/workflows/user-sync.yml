@@ -8,6 +8,7 @@ on:
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
+      - src/memory/history.py
       - tests/test_user_sync*.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
@@ -19,6 +20,7 @@ on:
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
+      - src/memory/history.py
       - tests/test_user_sync*.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
@@ -39,7 +41,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Windows runs the two-machine git cycles slowly; with the history tests a run there passed 15 minutes.
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -60,4 +63,4 @@ jobs:
         env:
           # Throwaway runners: install, query and remove a real scheduled job on each OS.
           AGENTS_TEST_REAL_SCHEDULER: "1"
-        run: python -m pytest tests/test_user_sync*.py -v
+        run: python -m pytest tests/test_user_sync*.py -v --durations=15
