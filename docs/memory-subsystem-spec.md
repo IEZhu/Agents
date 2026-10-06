@@ -224,6 +224,8 @@ Entry template:
 - Rotation: when `os.path.getsize > 512 KB` — move file to `history/YYYY-MM.md` (month from the last entry's timestamp), create a fresh `history.md` with a header pointing to the archive.
 - UTF-8, `\n` line endings.
 - `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
+  `log_interaction` writes `answer_timestamp`, and `client` when the daemon knows the app that called
+  (`X-Agents-Client`, see [Statistics](shared-mcp-daemon.md#statistics)).
 
 ### 4.3 MCP Tool Signatures (added to `src/server.py`)
 

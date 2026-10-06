@@ -18,6 +18,9 @@ from src.client_paths import client_config_path
 
 SERVER = "Agents-Core"
 DESKTOP_SERVER = "Agents-Core-Desktop"
+# X-Agents-Client of each managed client: the daemon counts requests per app (usage.py, #187).
+APPS = {"claude": "claude-code", "claude-project": "claude-code", "codex": "codex", "cursor": "cursor",
+        "desktop": "claude-desktop"}
 TRANSPORT_KEYS = {"type", "command", "args", "env", "env_vars", "cwd", "url", "headers", "http_headers",
                   "env_http_headers", "bearer_token", "bearer_token_env_var", "http_headers_helper"}
 
@@ -108,17 +111,19 @@ class ClientMigration:
             return json.loads(content) if content is not None else {}
         return content.decode() if content is not None else ""
 
-    def headers(self, identity=None):
+    def headers(self, identity=None, app=None):
         headers = {"Authorization": "Bearer " + self.token}
         if identity: headers["X-Agents-Workspace"] = identity
+        if app: headers["X-Agents-Client"] = app
         return headers
 
-    def bridge(self, identity=None):
+    def bridge(self, identity=None, app=None):
         node = self.config.get("node")
         if not node or not Path(node).is_file(): raise ValueError("An absolute Node executable is required")
-        private = self.directory / "bridges" / ((identity or "routing") + ".json")
+        # One file per app and workspace: the headers name the app.
+        private = self.directory / "bridges" / ((f"{app}-" if app else "") + (identity or "routing") + ".json")
         private_dir(private.parent)
-        write_json(private, {"url": self.url, "headers": self.headers(identity)})
+        write_json(private, {"url": self.url, "headers": self.headers(identity, app)})
         return {"command": node, "args": [str(Path(self.config["installation"]) / "bridge/stdio.mjs"), str(private)]}
 
     @property
@@ -130,7 +135,8 @@ class ClientMigration:
         path = client_config_path(client, root, home=home, config_path=config_path)
         self.config_targets[str(path)] = {"client": client, "path": str(path), "workspace": str(root) if root else None}
         identity = self.registry.register(root) if root else None
-        headers = self.headers(identity)
+        app = APPS.get(client)
+        headers = self.headers(identity, app)
         if client == "codex":
             original = self.read_config(path, as_json=False)
             old_entry = tomllib.loads(original).get("mcp_servers", {}).get(SERVER, {})
@@ -138,7 +144,7 @@ class ClientMigration:
             entry["url"] = self.url
             if tracked(path):
                 # Helper reads a private bridge config; it never embeds the token.
-                bridge = self.bridge(identity)
+                bridge = self.bridge(identity, app)
                 entry["http_headers_helper"] = shlex.join([bridge["command"], str(Path(self.config["installation"]) / "bridge/headers.mjs"), bridge["args"][1]])
             else: entry["http_headers"] = headers
             return path, replace_toml_server(original, SERVER, entry), bool("http_headers" in entry)
@@ -151,7 +157,7 @@ class ClientMigration:
             if root is None: raise ValueError("claude-project requires a workspace")
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
-            entry = self.bridge(identity) if tracked(path) else {"type": "http", "url": self.url, "headers": headers}
+            entry = self.bridge(identity, app) if tracked(path) else {"type": "http", "url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "claude-deny-desktop":
             document = self.read_config(path)
@@ -162,13 +168,13 @@ class ClientMigration:
         elif client == "cursor":
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
-            entry = self.bridge(identity) if tracked(path) else {"url": self.url, "headers": headers}
+            entry = self.bridge(identity, app) if tracked(path) else {"url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "desktop":
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
             previous = servers.pop(SERVER, servers.get(DESKTOP_SERVER, {}))
-            servers[DESKTOP_SERVER] = transport_entry(previous, self.bridge(identity))
+            servers[DESKTOP_SERVER] = transport_entry(previous, self.bridge(identity, app))
         else: raise ValueError("Unknown client")
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         return path, content, self.token in content

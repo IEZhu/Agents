@@ -74,6 +74,12 @@ with a private configuration outside the repository. Secrets are neither printed
 nor written to tracked configurations. Untracked files containing a token are
 added to the local Git exclude file.
 
+Each managed entry also names its app in an `X-Agents-Client` header
+(`claude-code`, `claude-desktop`, `codex` or `cursor`), so the settings page
+counts requests per app (see [Statistics](#statistics)). The private bridge
+configuration is one file per app and workspace. A configuration written
+before this header counts as `unknown` until `migrate` runs again.
+
 The Desktop bridge is named `Agents-Core-Desktop`. Desktop migration also adds
 denials for its namespace in Claude Code while retaining other policies. Verify
 the Code tab separately: importing Desktop servers can create a lightweight
@@ -575,6 +581,39 @@ sync task's drain. Bodies are JSON objects of at most 64 KiB (413 otherwise). An
   `error: unavailable` when the sync task is not running, for a queued operation
   that would never start;
 - 500 without a traceback for an unexpected failure.
+
+### Statistics
+
+`GET /ui/api/stats` tells how Agents-Core is used on this machine
+([#187](https://github.com/IEZhu/Agents/issues/187)); the landing page
+([#188](https://github.com/IEZhu/Agents/issues/188)) shows it. It has the Sync
+page's protections, `X-Agents-UI` on GET included, and answers with
+`Cache-Control: no-store`. Its polls are not activity, so an open page never
+holds back an automatic update. Nothing leaves the machine, and no answer holds the
+text of a query or an answer.
+
+- **Answers** come from `history.md` and the monthly archives `history/YYYY-MM.md`
+  of every registered workspace: answers today and over 7 and 30 days, per day for
+  the last 30 days, and per agent, repository, persona action and app over the
+  30 days. An entry counts under the agent of its `Persona (…)` line, else under
+  the default `Agent: <name>` action, else as `unknown`. Text parsing only, off the
+  event loop: each file is kept as a compact summary (time, agent, persona action,
+  app) while its inode, size and modification time stay the same, and archives
+  older than the window are not read. A workspace whose directory is gone or
+  unreadable is listed in `skipped`; the others still count.
+- **Events** are the 50 newest answers across workspaces: the time, agent, persona
+  action, repository and app.
+- **Apps** are counted as they use the service, by the `X-Agents-Client` header
+  (requests without it count as `unknown`): whether the app is connected now (an
+  open notification stream, or a request within `connected_window_seconds`, 300),
+  when it was last seen, its requests today, and the client name and version
+  from its latest MCP `initialize` with the workspace it named. With stateless HTTP,
+  `initialize` is the only request that carries them. Apps that run Agents-Core
+  over stdio do not show as connected; their answers still count through
+  `history.md`.
+
+`log_interaction` from a known app also writes `client` into the entry's `**Meta:**`,
+so answers count per app from then on; older entries count as `unknown`.
 
 ## User library sync
 
