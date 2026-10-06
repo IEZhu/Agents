@@ -1093,6 +1093,32 @@ def test_forget_empties_the_default_store_also_without_a_readable_record(fake, t
         assert sorted(path.name for path in state.iterdir()) == ["github-account.lock"]
 
 
+def test_forget_finishes_when_a_store_that_never_held_the_token_refuses(fake, tmp_path, monkeypatch, caplog):
+    """A Keychain that refuses in an SSH session: sign-in kept the token in the file; Forget still ends."""
+    class Refusing(MemoryStore):
+        backend = "keychain"
+
+        def save(self, token):
+            raise github.GitHubError("storage", "The macOS Keychain did not save the GitHub token: "
+                                                "User interaction is not allowed")
+
+        def delete(self):
+            raise github.GitHubError("storage", "The macOS Keychain did not delete the GitHub token: "
+                                                "User interaction is not allowed")
+
+    state = tmp_path / "state"
+    monkeypatch.setattr(github, "default_store", lambda directory, name, **kwargs: Refusing())
+    fake.reply("GET", "/api/v3/user", 200, {"login": "octocat"})
+    acct = github.GitHubAccount(state, "agents-core-sync-test", web_url=fake.url, api_url=fake.api,
+                                client_id="Iv1.test")
+    acct.complete_sign_in(TOKEN)
+    assert acct.status()["storage"] == github.FileStore.backend
+    with caplog.at_level("WARNING", logger=github.__name__):
+        assert acct.forget()["connected"] is False
+    assert sorted(path.name for path in state.iterdir()) == ["github-account.lock"]
+    assert "User interaction is not allowed" in caplog.text and TOKEN not in caplog.text
+
+
 def test_a_failed_deletion_keeps_the_record_so_forget_can_be_retried(fake, tmp_path):
     class Locked(MemoryStore):
         def delete(self):

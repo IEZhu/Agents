@@ -1237,19 +1237,26 @@ class GitHubAccount:
 
         The token is deleted from the store the record names, from this machine's default
         store and from the private file, so a lost or unreadable record leaves no token
-        behind. If a deletion fails, the record stays and the error says so: Forget can be
-        retried. The token stays valid on GitHub until the user revokes it at
-        ``revoke_url``: revoking through the API needs the OAuth App's client secret,
-        which does not ship.
+        behind. If the deletion from the store the record names fails, or from any store
+        when there is no readable record, the record stays and the error says so: Forget can
+        be retried. Another store's failure is only logged: a Keychain that refuses in an SSH
+        session, where sign-in kept the token in the private file, must not block Forget for
+        good. The token stays valid on GitHub until the user revokes it at ``revoke_url``:
+        revoking through the API needs the OAuth App's client secret, which does not ship.
         """
         with self._lock():
             meta = self._read()
+            recorded = _backend(meta)
             failures = []
             for store in self._stores_to_clear(meta):
                 try:
                     store.delete()
                 except GitHubError as error:
-                    failures.append(error.message)
+                    if recorded is None or store.backend == recorded:
+                        failures.append(error.message)
+                    else:
+                        logger.warning("Forget: %s; the account record names the %s store, which held "
+                                       "the token", error.message, recorded)
             if failures:
                 raise GitHubError("storage", "Forget did not finish; try again. " + "; ".join(failures))
             try:
