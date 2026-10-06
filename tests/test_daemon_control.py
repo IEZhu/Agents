@@ -5,10 +5,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.daemon import control
+from src.daemon.control import stop_scheduled_sync as real_stop_scheduled_sync  # before conftest's recorder
 from src.daemon.clients import ClientMigration
 from src.daemon.state import read_json
 from src.engine.embedding_prompts import COMPLETE, local_copy, pinned_revision
 from src.model_migration import DEFAULT_MODEL, GENERATION
+
+
+# tests/conftest.py records every call of control.stop_scheduled_sync (scheduled_sync_calls), so no
+# test here reaches the OS scheduler.
 
 
 def _default_model_copy(cache):
@@ -172,3 +177,41 @@ def test_probation_nonce_reaches_serve_whatever_its_first_character(tmp_path, mo
     control.main(arguments[3:])  # what launchd passes after `python -m src.daemon`
 
     assert received == {"probation": nonce}
+
+
+def test_install_removes_the_scheduled_sync_run(tmp_path, monkeypatch, scheduled_sync_calls):
+    """The daemon runs the sync loop itself (#167); a job from before would compete with it."""
+    root = tmp_path / "install"
+    root.mkdir()
+    monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
+    monkeypatch.setattr(control.socket, "socket", MagicMock())
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
+    monkeypatch.setattr(control, "pin_model", lambda model, cache: {"model_artifact": "a", "model_path": "p"})
+    result = control.Controller(tmp_path / "state").install()
+    assert result["scheduled_sync"] == "none"
+    assert scheduled_sync_calls == [root]
+
+
+@pytest.mark.parametrize("found, left, expected", [
+    ({"scheduled": False, "interval_minutes": None}, None, "none"),
+    ({"scheduled": True, "interval_minutes": 5}, {"scheduled": False}, "removed"),
+    ({"scheduled": False, "interval_minutes": 5}, {"scheduled": False}, "removed"),  # launchd loads it at login
+    ({"scheduled": True, "interval_minutes": 5}, {"scheduled": True}, "failed: the scheduled run is still loaded"),
+])
+def test_stop_scheduled_sync_reports_what_it_did(monkeypatch, found, left, expected):
+    from src.user_sync import schedule
+    disabled = []
+    monkeypatch.setattr(schedule, "status", lambda **options: found)
+    monkeypatch.setattr(schedule, "disable", lambda **options: disabled.append(options) or left)
+    assert real_stop_scheduled_sync("/opt/agents") == expected
+    assert disabled == ([] if expected == "none" else [{"installation": "/opt/agents"}])
+
+
+def test_stop_scheduled_sync_never_raises(monkeypatch):
+    from src.user_sync import schedule
+
+    def refuse(**options):
+        raise RuntimeError("launchctl refused")
+    monkeypatch.setattr(schedule, "status", refuse)
+    assert real_stop_scheduled_sync() == "failed: launchctl refused"
