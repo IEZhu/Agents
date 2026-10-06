@@ -1,9 +1,9 @@
 # User library sync
 
-Status: the engine and its command line (#165), scheduled runs and the stdio trigger (#168), and
-the sync loop of the macOS daemon (#167) are implemented. The terminal wizard (#168), GitHub
-sign-in (#166), the web UI
-(#170) and installer integration (#171) are separate parts of the
+Status: the engine and its command line (#165), scheduled runs and the stdio trigger (#168), the
+sync loop of the macOS daemon (#167), and the merge of each repository's history across machines
+(#172, [Repository history](#repository-history)) are implemented. The terminal wizard (#168),
+GitHub sign-in (#166), the web UI (#170) and installer integration (#171) are separate parts of the
 [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
 Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
@@ -33,6 +33,9 @@ python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-reposit
 python -m src.user_sync resolve <conflict id> keep|mine|dismiss
 python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--exclude-file PATH] \
     [--include-file PATH] [--allow-secret PATH] [--approve repos/<key>] [--confirm HASH]
+python -m src.user_sync history export [--repo KEY]... [--path PATH]...   # entries not shared yet
+python -m src.user_sync history export --confirm <hash from the preview>
+python -m src.user_sync history revoke <key>
 ```
 
 Each command takes `--json`. `--state DIR` and `--library DIR` before the command name the private
@@ -73,7 +76,7 @@ sync lock; a run that finds it busy is tried again a few seconds later. The comm
 | Synced by default | Never synced |
 |---|---|
 | `common/**` (personal flows), `personas/**`, `components.json`, `.history/**` | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
-| `repos/<key>/**` for keys derived from an `origin`, with their personas and history | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
+| `repos/<key>/**` for keys derived from an `origin`, with their personas, flow history and [repository history](#repository-history) | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
 Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
@@ -97,6 +100,113 @@ Files that sync never handles but finds in the remote (a `README.md` added in Gi
 directory a newer version syncs) stay in the repository as they are; they are neither written to
 nor deleted from the library. A `.repo.json` written before #169 that still holds a clone path is
 split first: the path moves to `.repo.local.json`.
+
+## Repository history
+
+Each checkout's `history.md`, which `log_interaction` appends to, stays that checkout's append-only
+journal: entries from other machines are never written into it. A repository's entries leave this
+machine only after the owner has seen them:
+
+```bash
+python -m src.user_sync history export                        # every entry waiting here
+python -m src.user_sync history export --repo <key> --json    # one repository, the full list
+python -m src.user_sync history export --confirm <hash>       # approve them and share them
+python -m src.user_sync history revoke <key>                  # share nothing more of it from here
+```
+
+Approval covers a repository's future entries on this machine and exactly the past entries the
+owner saw. The preview lists, for each repository with an `origin`, every entry that waits on this
+machine, as one line (UTC time, the intent cut to about 80 characters, and the entry hash), with
+totals; entries the secret scanner flags are counted as staying here. What waits:
+
+- for a repository not approved here, every entry of its checkouts not shared yet;
+- for an approved one, the past of a checkout that joined it later: another clone or worktree, or
+  a checkout whose `origin` changed to it. The entries such a checkout held when this machine first
+  saw it wait as unreviewed; the turns logged there after that follow the approval.
+
+The preview covers the checkouts this machine has seen since sync was set up (a registry in the
+private state directory); `--path PATH` adds one Agents-Core has not used here since, and its past
+waits like the others. The hash covers each listed repository's checkouts and the hashes of its
+listed entries up to the newest one. Entries written in those checkouts after the preview (for
+example the turn of the agent that ran it) leave it valid; another checkout, or an older entry it
+did not list, changes it. `--confirm` records the keys as approved in this machine's settings
+(`history_repositories`), releases the listed entries and shares them; it waits at most a few
+seconds in total for a busy library and says what it left to a later run. `revoke` withdraws the
+approval: nothing more is shared, segments already shared stay, and its failure and other-origin
+reports are cleared. Approval is per machine: another machine's approval never shares this
+machine's entries.
+
+`status` reports, without changing the sync state: `history_waiting`, the repositories with entries
+waiting for the owner here and how many could be shared (entries the scanner keeps local are not
+counted, so approving always clears it); `history_repositories`, the approved keys;
+`history_error`, the last failure of an approved repository with its reason and time; and
+`history_other_origin`, keys whose segments or group name another origin, approved or not.
+
+Shared entries live in this machine's segments of the library:
+
+```
+repos/<key>/history/<label>/<YYYY-MM>.md     this machine's entries of that month (UTC)
+repos/<key>/history/<label>/<YYYY-MM>-2.md   the continuation once a part would pass 4 MiB
+```
+
+A part starts with a short header (repository origin, machine label, month, format) and holds the
+entry blocks of `history.md` with one more field line, `**Machine:** <label>`. The heading, and with
+it the entry's content hash, is the same on every machine. Only the machine with that label writes
+its files, so segments never conflict; keep machine labels unique (setup's default label has a
+random suffix).
+
+Sharing is a catch-up rather than a copy per append: for each approved repository and each of its
+checkouts on this machine, the reviewed entries missing from this machine's segment are appended,
+deduplicated by entry hash. It does not depend on the clock: `history.md` is read whole every time,
+and a per-checkout watermark (the newest entry handled, never later than now) only lets a run skip
+archive months before it, so a turn logged with a wrong clock, ahead or behind, stops nothing. One
+worker thread per process runs it after appends, when a server or the daemon starts, on `resume`
+and right after approval; a checkout marked while a catch-up of every checkout waits runs after it.
+It takes the library's `.lock` without waiting and retries with backoff for about 30 seconds (from
+the command line, a few seconds in total); when the lock stays held, the entries wait for the next
+run. It reads the settings again under the lock, so a `revoke` or `pause` that came meanwhile wins.
+`log_interaction` never waits for it, and a server leaving waits for it at most two seconds in all.
+
+Each run writes each part it changes with one append and one `fsync`; a new part is written whole.
+A crash or a full disk can still cut the last block of a part short. Such a block does not count as
+shared: the next run cuts it off and appends the entry again whole. Until then, readers on other
+machines leave out a part's last block when its `**Machine:**` line is missing.
+
+Only a checkout's top level (`git rev-parse --show-toplevel`) with an `origin` takes part: a
+workspace in a subfolder of a repository keeps its history local, as does a repository without an
+`origin`. Exclusions apply on top: nothing is shared while `history` or `repos/<key>` is excluded,
+and a month whose part is excluded file by file stays on this machine until that file is included
+again. Entries the secret scanner would flag stay in `history.md`, because one hit would keep the
+whole month's segment out of every commit, and so does an entry larger than a part. A repository
+whose group is new to the library is announced, or with `--ask-new-repositories` waits for
+`scope --approve repos/<key>` as well, as for its flows; the state then says that the shared history
+of that group waits.
+
+`read_history` merges a checkout's journal (`history.md`, `history/*.md`) with the segments of its
+key: other machines' entries, and this machine's own entries from its other checkouts of the
+repository. It is a union by entry hash, where the checkout's own copy wins, ordered by time and
+read newest month first until `limit` is filled. Each entry carries `machine`: null for the
+checkout's own entries, this machine's label for entries from its other checkouts, and another
+machine's label for that machine's entries. `read_history(machine=…)` keeps one label's entries;
+`local` keeps this checkout's own, and this machine's label keeps
+everything this machine wrote. Parts whose header, or whose group's `.repo.json`, names another
+origin are left out and reported as `other_origin`. On a machine where `history` or `repos/<key>`
+is excluded, nothing is merged. The semantic index covers the merged entries and embeds only
+entries it has not embedded yet. Without sync set up on the machine, in a subfolder workspace or
+for a repository without an `origin`, `read_history` reads `history.md` alone, as before.
+
+### Growth and pruning
+
+This version prunes nothing automatically. Each machine adds one file per approved repository and
+month, about the size of that month's entries in `history.md`: by default `log_interaction` stores
+the request and the answer, typically 1 to 5 KB per entry, so 100 turns a day come to roughly 3 to
+15 MB a month for one machine and repository, in parts of at most 4 MiB. Every cycle reads and scans
+the segments like other library files, and they count toward the 200 MiB repository size warning;
+the mass-deletion guard does not count them. Deleting old months from the library by hand removes
+them from the remote's current tree and, at their next sync, from every other machine's library,
+so their `read_history` loses those entries (each machine's own `history.md` keeps its own). It
+does not make the repository smaller: sync never rewrites history, so the old versions stay in the
+remote's git history.
 
 ## One cycle
 
@@ -188,15 +298,19 @@ and other items), `syncing`, `offline` (with `retry_at`), `paused`, or `attentio
 machine), `scopes_invalid`, `foreign_git`, `library_mismatch`, `library_unreadable`, `git_error`,
 `internal` (an unexpected error; the traceback is in `user-sync.log`, and the next cycle tries
 again) or `stale`. It also reports the conflict count, the last success, the activity of the
-last 20 cycles (sent and received flows, changed non-Markdown files listed separately) and newly
-uploaded repository groups. `stale` turns true 24 hours after the last success, and the state turns
+last 20 cycles (sent and received flows, changed non-Markdown files listed separately), newly
+uploaded repository groups and the [repository history](#repository-history) fields
+(`history_waiting`, `history_repositories`, `history_error`, `history_other_origin`). `stale`
+turns true 24 hours after the last success, and the state turns
 to `attention` after 72 hours.
 
 ## Private files
 
-Settings (`user-sync.json`), state (`user-sync-state.json`), this machine's key, `known_hosts`,
-the isolated `gitconfig`, an empty hooks directory and `user-sync.log` (1 MiB, three backups) live
-in a private per-installation directory, never in the library:
+Settings (`user-sync.json`), state (`user-sync-state.json`), the repository history state
+(`user-sync-history.json`: the checkouts seen, their watermarks, waiting counts and the last
+failure), this machine's key, `known_hosts`, the isolated `gitconfig`, an empty hooks directory and
+`user-sync.log` (1 MiB, three backups) live in a private per-installation directory, never in the
+library:
 
 - macOS: `~/Library/Application Support/Agents-Core/<id>/user-sync`, inside the daemon's state
   directory (`AGENTS_SERVICE_DIR`, or the directory an installed daemon recorded in
@@ -205,7 +319,8 @@ in a private per-installation directory, never in the library:
 - Linux and others: `$XDG_STATE_HOME/agents-core/<id>/user-sync` (default `~/.local/state`).
 
 `<id>` is the first 16 hex digits of the SHA-256 of the installation path, as for the daemon.
-`disconnect` deletes the settings, state and key; the library files and `flows/.user/.git` stay.
+`disconnect` deletes the settings, both state files and the key; the library files and
+`flows/.user/.git` stay.
 
 ## Tests
 
@@ -213,5 +328,17 @@ in a private per-installation directory, never in the library:
 joining cases, every row of the conflict table, exclusions (checked against every object the remote
 holds, not only its last tree), the scanner, privacy, a hostile global git configuration, symlinks,
 concurrent saves, push races, offline retries, refused keys, stale git locks, mass deletions and
-seeded random edits on both machines. The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux,
-Windows and macOS.
+seeded random edits on both machines. `tests/test_user_sync_history.py` adds clones of one project
+for the repository history: nothing shared before approval, the preview (also limited to one
+repository, and changed by another checkout or an older entry), waiting counts that leave out what
+stays local, revocation, also while a run waits for the library; the past of a clone, a worktree or
+a changed origin that joins an approved repository; the catch-up at a server's start, after a pause,
+a failed export, a lock held past the wait, a failure between parts or a wrong clock in either
+direction; coalesced runs that never drop a checkout; exclusions on both machines, subfolder
+workspaces, other origins, the merged and filtered `read_history` (also across two checkouts on one
+machine, and against a full merge for random journals), bounded reads, segments that never conflict,
+the 4 MiB continuation, one write per part and run, appends in place, entries torn after their
+heading or by a lost final blank line, caches that tell a replaced file by its inode,
+`log_interaction`, readers and the exit drain while the library lock or an index rebuild is held
+(with a fake embedder). The
+[User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and macOS.
