@@ -16,6 +16,7 @@
   --r-block: 22px; --r-list: 18px; --r-dialog: 16px; --r-tab: 14px; --r-joint: 13px; --r-text: 12px;
   --r-toc: 11px; --r-persona: 10px; --r-notice: 9px; --r-code: 8px; --r-field: 7px; --r-button: 6px;
   --r-item: 5px; --r-toc-item: 3px; --r-inline: 2px; --r-pill: 999px;
+  --r-card: 20px; --r-step: 4px; --r-bar: 1px;
   /* The space around and between the panels, the list's width, and where the tab may start: to the
      right of the pane's rounded corner and of its own joint. */
   --edge: 12px; --list-width: 280px;
@@ -45,6 +46,9 @@ header > * { margin: 8px 0 var(--edge); }
 #brand { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 0; height: 32px;
   margin-right: auto; min-width: 0; }
 header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; }
+/* The version opens the landing page from every tab, and still reads as the page's heading. */
+#version-link { color: inherit; text-decoration: none; }
+#version-link:hover, #version-link:focus-visible { text-decoration: underline; }
 /* The state is in the words, about 100 px of them; the colors only repeat it. */
 #sync-chip { font-size: 11px; line-height: 12px; padding: 1px 6px; white-space: nowrap; color: var(--muted);
   background: var(--chip); border: 0; border-radius: var(--r-pill); }
@@ -261,6 +265,58 @@ details.persona summary { cursor: pointer; }
 .sync-preview { display: flex; flex-direction: column; gap: 4px; }
 .sync-preview ul { margin: 0; padding-left: 1.4em; }
 .sync-preview li { overflow-wrap: anywhere; }
+/* The landing page (#188) takes the place of the list and the item, like the Sync page; only it scrolls. */
+#landing { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--edge) var(--edge); }
+#landing > * { width: 100%; max-width: 72rem; margin: 0 auto var(--edge); }
+#landing-title { margin-top: 0; margin-bottom: var(--edge); font-size: 18px; }
+#landing [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+#landing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--edge); }
+.card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px; background: var(--panel);
+  border-radius: var(--r-card); outline: 1px solid transparent; outline-offset: -1px; }
+.card.wide { grid-column: 1 / -1; }
+.card-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card h3 { margin: 0; font-size: 15px; }
+.card h4 { margin: 4px 0 0; font-size: 13px; }
+.card p { margin: 0; }
+.card .meta { word-break: normal; overflow-wrap: anywhere; }
+.links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.links a { color: var(--accent); }
+.headline { font-size: 22px; font-weight: 600; }
+/* One bar per day; its level (0-8 of the busiest day) sets the height, so no style is written by script. */
+.chart { display: flex; align-items: flex-end; gap: 2px; height: 56px; padding-top: 4px; }
+.chart span { flex: 1 1 0; min-width: 2px; height: 1px; background: var(--line); border-radius: var(--r-bar) var(--r-bar) 0 0; }
+.chart span:not([data-level="0"]) { background: var(--accent); }
+.chart span[data-level="1"] { height: 12.5%; } .chart span[data-level="2"] { height: 25%; }
+.chart span[data-level="3"] { height: 37.5%; } .chart span[data-level="4"] { height: 50%; }
+.chart span[data-level="5"] { height: 62.5%; } .chart span[data-level="6"] { height: 75%; }
+.chart span[data-level="7"] { height: 87.5%; } .chart span[data-level="8"] { height: 100%; }
+.tops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tops ol, .events { margin: 4px 0 0; padding-left: 1.4em; }
+.tops li, .events li { overflow-wrap: anywhere; }
+.app-list, .dirs { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.app-list > li, .dirs > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 0;
+  border-top: 1px solid var(--line); }
+.app-list > li:first-child, .dirs > li:first-child { border-top: 0; }
+.app-list small { flex: 1 1 100%; }
+/* The state is in the words; the mark and the color only repeat it. */
+.app-state { color: var(--muted); }
+.app-state[data-state="connected"] { color: var(--ok); }
+.dirs code { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.dirs button { padding: 2px 8px; }
+/* Top to bottom at every width, so no arrow is left at the end of a wrapped row. */
+.diagram { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.diagram .step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; min-width: 0; padding: 5px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-step); background: var(--code-bg);
+  transition: background-color .3s ease, border-color .3s ease, box-shadow .3s ease; }
+.diagram .step strong { flex: none; font-size: 12px; }
+.diagram .step span { flex: 1 1 10rem; min-width: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+/* The step an answer is on: the accent outlines it (the tint belongs to the open item's pane). */
+.diagram .step.lit { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--panel); }
+.diagram .arrow { margin-left: 14px; line-height: 1; color: var(--muted); }
+.event-line { min-height: 1.45em; font-size: 13px; }
+.landing-off { display: flex; align-items: center; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .diagram .step { transition: none; } }
+@media (max-width: 760px) { #landing-grid, .tops { grid-template-columns: minmax(0, 1fr); } }
 dialog { border: 1px solid var(--line); border-radius: var(--r-dialog); background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
@@ -277,7 +333,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <body>
 <header>
   <div id="brand">
-    <h1 id="version">Agents-Core {{VERSION}}</h1>
+    <h1 id="version"><a id="version-link" href="#overview" title="Overview of this installation">Agents-Core {{VERSION}}</a></h1>
     <button id="sync-chip" class="hidden" type="button" aria-pressed="false" aria-controls="sync-page"></button>
   </div>
   <div id="item-actions" class="hidden" role="group" aria-label="Item actions">
@@ -352,6 +408,18 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   <div class="sync-head"><h2 id="sync-title" tabindex="-1">Library sync</h2></div>
   <div id="sync-alert" class="notice hidden" role="status"></div>
   <div id="sync-body"></div>
+</section>
+<section id="landing" class="hidden" aria-labelledby="landing-title">
+  <h2 id="landing-title" tabindex="-1">Overview</h2>
+  <div id="landing-alert" class="notice hidden" role="status"></div>
+  <div id="landing-grid">
+    <section class="card" aria-labelledby="about-title"><h3 id="about-title">About</h3><div id="about-body" class="card-body"></div></section>
+    <section class="card" aria-labelledby="stats-title"><h3 id="stats-title">Statistics</h3><div id="stats-body" class="card-body"></div></section>
+    <section class="card" aria-labelledby="how-title"><h3 id="how-title">How it works</h3><div id="how-body" class="card-body"></div></section>
+    <section class="card" aria-labelledby="apps-title"><h3 id="apps-title">AI apps</h3><div id="apps-body" class="card-body"></div></section>
+    <section class="card wide" aria-labelledby="system-title"><h3 id="system-title">Model, directories and sizes</h3><div id="system-body" class="card-body"></div></section>
+  </div>
+  <label class="landing-off"><input type="checkbox" id="landing-off"> Don't show on open</label>
 </section>
 <dialog id="create">
   <form method="dialog">
@@ -429,6 +497,9 @@ function showSignIn() {
   sync.timer = sync.deviceTimer = sync.device = sync.onConnected = null;
   $("sync-page").classList.add("hidden");
   $("sync-chip").classList.add("hidden");
+  landing.shown = false;
+  stopLanding();
+  $("landing").classList.add("hidden");
   $("signin").classList.remove("hidden");
 }
 
@@ -1844,19 +1915,39 @@ $("sync-reload").addEventListener("click", () => {
 
 // --- the Sync page ------------------------------------------------------------------------
 
-// It takes the place of the list and the item under the same header; a tab, or the chip again,
-// returns to what was open, unsaved text included.
-function showSyncPage() {
-  if (state.signedOut || sync.shown) return;
-  sync.shown = true;
+// A page in the place of the list and the item (Sync, the landing page): no tab is active.
+function leaveSections() {
   $("main").classList.add("hidden");
   $("item-actions").classList.add("hidden");
   $("new").classList.add("hidden");
-  $("sync-page").classList.remove("hidden");
   for (const button of $("tabs").children) {
     button.classList.remove("active");
     button.setAttribute("aria-pressed", "false");
   }
+}
+
+// The list and the item again, as they were, unsaved text included; the tab takes the focus when it
+// was on the page that hid.
+function showSections(focusTab) {
+  $("main").classList.remove("hidden");
+  for (const button of $("tabs").children) {
+    const on = button.dataset.tab === state.tab;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-pressed", String(on));
+  }
+  $("new").classList.toggle("hidden", state.tab !== "flows");
+  showPane($("item-actions").dataset.pane || "welcome");
+  if (focusTab && currentTab()) currentTab().focus();
+}
+
+// It takes the place of the list and the item under the same header; a tab, or the chip again,
+// returns to what was open, unsaved text included.
+function showSyncPage() {
+  if (state.signedOut || sync.shown) return;
+  hideLanding();
+  sync.shown = true;
+  leaveSections();
+  $("sync-page").classList.remove("hidden");
   $("sync-chip").setAttribute("aria-pressed", "true");
   syncAlert("");
   sync.parts = null;
@@ -1873,16 +1964,8 @@ function hideSyncPage() {
   const focused = $("sync-page").contains(document.activeElement);
   sync.shown = false;
   $("sync-page").classList.add("hidden");
-  $("main").classList.remove("hidden");
   $("sync-chip").setAttribute("aria-pressed", "false");
-  for (const button of $("tabs").children) {
-    const on = button.dataset.tab === state.tab;
-    button.classList.toggle("active", on);
-    button.setAttribute("aria-pressed", String(on));
-  }
-  $("new").classList.toggle("hidden", state.tab !== "flows");
-  showPane($("item-actions").dataset.pane || "welcome");
-  if (focused && currentTab()) currentTab().focus();
+  showSections(focused);
 }
 
 $("sync-chip").addEventListener("click", () => (sync.shown ? hideSyncPage() : showSyncPage()));
@@ -2430,7 +2513,10 @@ const PREVIEW_KINDS = { push: "Upload this library to the empty repository.",
   none: "Nothing to transfer." };
 
 function bytes(count) {
-  return count < 1024 ? count + " B" : count < 1048576 ? (count / 1024).toFixed(1) + " KiB" : (count / 1048576).toFixed(1) + " MiB";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let size = count, unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  return unit ? size.toFixed(1) + " " + units[unit] : size + " " + units[0];
 }
 
 function previewList(parent, title, items) {
@@ -3118,6 +3204,370 @@ async function disconnectSync(startOver) {
   syncAlert("Sync is off on this machine. " + (result.deploy_key_message || ""), "ok");
 }
 
+// --- the landing page (#188) --------------------------------------------------------------
+
+// It takes the place of the list and the item, like the Sync page. /ui opens it unless "Don't show
+// on open" is checked; the version in the header opens it from every tab either way.
+const LANDING_OFF = "agents-ui-landing-off";
+const LANDING_POLL_MS = 30000;
+const EVENT_STEP_MS = 1200;  // how long an answer lights each step of the diagram
+const APP_NAMES = { "claude-code": "Claude Code", "claude-desktop": "Claude Desktop", codex: "Codex", cursor: "Cursor" };
+const landing = { shown: false, gen: 0, timer: null, overview: null, stats: null, overviewFailed: false,
+  statsFailed: false, seen: null, queue: [], event: null, step: -1, ticker: null, steps: [], eventLine: null };
+
+// Without storage the page cannot know the choice, and it opens.
+function landingOff() {
+  try { return localStorage.getItem(LANDING_OFF) === "1"; } catch (_) { return false; }
+}
+
+function setLandingOff(off) {
+  try { localStorage.setItem(LANDING_OFF, off ? "1" : "0"); } catch (_) {}
+}
+
+function reducedMotion() {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { return false; }
+}
+
+function landingAlert(text, kind = "") {
+  const box = $("landing-alert");
+  box.textContent = text || "";
+  box.className = "notice" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+}
+
+// `opened`: the version was chosen, so the page's heading takes the focus; on load it stays where it is.
+function showLanding(opened = true) {
+  if (state.signedOut || landing.shown) return;
+  hideSyncPage();
+  landing.shown = true;
+  leaveSections();
+  $("landing").classList.remove("hidden");
+  $("landing-off").checked = landingOff();
+  landingAlert("");
+  renderLanding();
+  if (!opened) return;  // the start-up reads after its sign-in
+  $("landing-title").focus();
+  refreshLanding();
+}
+
+function stopLanding() {
+  clearTimeout(landing.timer);
+  clearTimeout(landing.ticker);
+  landing.timer = landing.ticker = landing.event = null;
+  landing.step = -1;
+  landing.queue = [];
+}
+
+function hideLanding() {
+  if (!landing.shown) return;
+  const focused = $("landing").contains(document.activeElement);
+  landing.shown = false;
+  stopLanding();
+  $("landing").classList.add("hidden");
+  showSections(focused);
+}
+
+$("version-link").addEventListener("click", (event) => {
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;  // a new browser tab: #overview
+  event.preventDefault();
+  showLanding();
+});
+$("landing-off").addEventListener("change", (event) => setLandingOff(event.target.checked));
+
+function scheduleLandingPoll() {
+  clearTimeout(landing.timer);
+  landing.timer = null;
+  if (!landing.shown || state.signedOut || document.visibilityState === "hidden") return;
+  landing.timer = setTimeout(() => { landing.timer = null; refreshLanding(false); }, LANDING_POLL_MS);
+}
+
+// The overview when the page opens (the daemon measures its sizes at most every few minutes), the
+// statistics with every poll. A read that a newer one overtook is dropped.
+async function refreshLanding(withOverview = true) {
+  if (!landing.shown || state.signedOut) return;
+  const gen = ++landing.gen;
+  const read = (path) => api(path).then((data) => ({ data }), (error) => ({ error }));
+  const [overview, stats] = await Promise.all([
+    withOverview || !landing.overview ? read("/ui/api/overview") : null, read("/ui/api/stats")]);
+  if (gen !== landing.gen || !landing.shown) return;
+  if ([overview, stats].some((result) => result && result.error && result.error.signedOut)) return;
+  if (overview) {
+    if (overview.data) landing.overview = overview.data;
+    landing.overviewFailed = !overview.data;
+  }
+  if (stats.data) {
+    landing.stats = stats.data;
+    queueEvents(stats.data.events || []);
+  }
+  landing.statsFailed = !stats.data;
+  renderLanding();
+  scheduleLandingPoll();
+}
+
+// A hidden browser tab asks nothing and runs nothing; showing it again reads the statistics at once.
+document.addEventListener("visibilitychange", () => {
+  if (!landing.shown) return;
+  if (document.visibilityState === "hidden") stopLanding();
+  else refreshLanding(false);
+});
+
+function renderLanding() {
+  if (!landing.shown) return;
+  renderAbout();
+  renderStats();
+  renderHow();
+  renderApps();
+  renderSystem();
+}
+
+// A size the daemon measured; a directory that does not exist has none.
+const sizeText = (value) => (typeof value === "number" ? bytes(value) : "missing");
+
+function duration(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const minutes = Math.floor(total / 60), hours = Math.floor(minutes / 60), days = Math.floor(hours / 24);
+  if (days) return days + "d " + (hours % 24) + "h";
+  if (hours) return hours + "h " + (minutes % 60) + "m";
+  return minutes ? minutes + "m" : total + "s";
+}
+
+function placeholder(parent, failed, what) {
+  node("p", parent, failed ? what + " could not be read; the page tries again in a moment." : "Loading…", "meta");
+}
+
+function renderAbout() {
+  const body = $("about-body");
+  body.replaceChildren();
+  node("p", body, "Agents-Core routes each request of your AI apps to the agent that fits it, and loads that "
+    + "agent's rules, skills and implants into the conversation.");
+  node("p", body, "It runs flows, step-by-step instructions kept as Markdown, and keeps each repository's "
+    + "answers in its history.md, which the apps can search.");
+  const repository = landing.overview && landing.overview.repository;
+  const links = node("p", body, null, "links");
+  const github = repository && /^https:\/\/github\.com\//.test(repository.repository || "");
+  for (const [key, label] of [["repository", github ? "GitHub" : "Repository"], ["readme", "README"],
+                              ["docs", "Documentation"], ["issues", "Issues"]]) {
+    const url = repository && repository[key];
+    if (!url || !SAFE_HTTPS.test(url)) continue;
+    const link = node("a", links, label);
+    link.setAttribute("href", url);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+  if (!links.children.length && landing.overview) node("span", links, "This installation has no repository link (no origin).", "meta");
+}
+
+function topList(parent, title, rows) {
+  const part = node("div", parent);
+  node("h4", part, title);
+  if (!rows.length) {
+    node("p", part, "None yet", "meta");
+    return;
+  }
+  const list = node("ol", part);
+  for (const [name, count] of rows) node("li", list, name + " · " + count);
+}
+
+function renderStats() {
+  const body = $("stats-body");
+  body.replaceChildren();
+  const stats = landing.stats;
+  if (!stats) return placeholder(body, landing.statsFailed, "The statistics");
+  const answers = stats.answers || {};
+  node("p", body, plural(answers.last_30_days || 0, "answer") + " in 30 days", "headline");
+  node("p", body, "Today " + (answers.today || 0) + " · last 7 days " + (answers.last_7_days || 0), "meta");
+  const days = Array.isArray(answers.per_day) ? answers.per_day : [];
+  const peak = Math.max(0, ...days.map((day) => day.answers || 0));
+  const chart = node("div", body, null, "chart");
+  chart.setAttribute("role", "img");
+  chart.setAttribute("aria-label", "Answers per day over the last 30 days" + (peak ? ", at most " + peak + " a day" : ": none"));
+  for (const day of days) {
+    const bar = node("span", chart);
+    bar.dataset.level = String(day.answers ? Math.max(1, Math.round(8 * day.answers / peak)) : 0);
+    bar.title = day.date + ": " + plural(day.answers || 0, "answer");
+  }
+  if (!answers.last_30_days) node("p", body, "No answers in the last 30 days.", "meta");
+  const tops = node("div", body, null, "tops");
+  topList(tops, "Top agents", (answers.per_agent || []).slice(0, 5).map((item) => [item.agent, item.answers]));
+  topList(tops, "Repositories", (answers.per_repository || []).slice(0, 5).map((item) => [item.name, item.answers]));
+  node("p", body, "The service has been running for " + duration(stats.uptime_seconds) + ".", "meta");
+  const skipped = (stats.skipped || []).filter((item) => item.name);
+  if (skipped.length) {
+    node("p", body, "Not counted: " + skipped.map((item) => item.name + " (" + item.reason + ")").join(", ") + ".", "meta");
+  }
+}
+
+// --- How it works: a request's path, and the newest answers running along it --------------
+
+// An entry logged again later has the same id at another time (#187): both are answers.
+const eventKey = (event) => event.workspace + "|" + event.id + "|" + event.time;
+
+function eventText(event) {
+  return clockTime(event.time) + " " + (APP_NAMES[event.app] || event.app || "An app") + " → " + event.agent
+    + (event.action ? " (" + event.action + ")" : "") + " → " + event.repository;
+}
+
+// New answers run along the diagram one at a time, oldest first. The first statistics run the three
+// newest, so the diagram shows what it does as soon as the page opens.
+function queueEvents(events) {
+  const fresh = landing.seen ? events.filter((event) => !landing.seen.has(eventKey(event))) : events.slice(0, 3);
+  landing.seen = new Set(events.map(eventKey));
+  if (reducedMotion() || !fresh.length) return;
+  landing.queue = landing.queue.concat(fresh.slice(0, 5).reverse()).slice(-5);  // a busy hour never piles up
+  if (!landing.event) nextEvent();
+}
+
+function nextEvent() {
+  clearTimeout(landing.ticker);
+  landing.ticker = null;
+  landing.event = landing.queue.shift() || null;
+  landing.step = landing.event ? 0 : -1;
+  lightStep();
+  if (landing.event) landing.ticker = setTimeout(advanceEvent, EVENT_STEP_MS);
+}
+
+function advanceEvent() {
+  landing.ticker = null;
+  if (!landing.shown || !landing.event) return;
+  if (landing.step >= landing.steps.length - 1) return nextEvent();
+  landing.step += 1;
+  lightStep();
+  landing.ticker = setTimeout(advanceEvent, EVENT_STEP_MS);
+}
+
+function lightStep() {
+  landing.steps.forEach((item, index) => item.classList.toggle("lit", index === landing.step));
+  if (!landing.eventLine) return;
+  const latest = landing.stats && (landing.stats.events || [])[0];
+  landing.eventLine.textContent = landing.event ? eventText(landing.event)
+    : latest ? "Latest: " + eventText(latest) : landing.stats ? "No answers yet." : "";
+}
+
+function renderHow() {
+  const body = $("how-body");
+  body.replaceChildren();
+  const overview = landing.overview || {}, stats = landing.stats || {};
+  const counts = overview.counts;
+  const connected = (stats.apps || []).filter((app) => app.connected && app.app !== "unknown")
+    .map((app) => APP_NAMES[app.app] || app.app);
+  const repositories = ((stats.answers || {}).per_repository || []).length;
+  const steps = [
+    ["AI app", connected.length ? connected.join(", ") : "Claude Code, Claude Desktop, Codex, Cursor"],
+    ["Agents-Core", overview.version ? "version " + overview.version : "the local service"],
+    ["Embedding model", overview.model ? overview.model.name : "picks the agent"],
+    ["Agent", counts ? plural(counts.agents, "agent") + "; " + plural(counts.rules, "rule") + ", "
+      + plural(counts.skills, "skill") + ", " + plural(counts.implants, "implant") : "with rules, skills and implants"],
+    ["Answer", "back in the app"],
+    ["history.md", repositories ? repositories + (repositories === 1 ? " repository" : " repositories") + " in 30 days"
+      : "one per repository"],
+  ];
+  const list = node("ol", body, null, "diagram");
+  list.setAttribute("aria-label", "The path of a request");
+  landing.steps = [];
+  steps.forEach(([title, value], index) => {
+    if (index) node("li", list, "↓", "arrow").setAttribute("aria-hidden", "true");
+    const item = node("li", list, null, "step");
+    node("strong", item, title);
+    node("span", item, value);
+    landing.steps.push(item);
+  });
+  if (!reducedMotion()) {
+    landing.eventLine = node("p", body, null, "event-line");
+    lightStep();
+    return;
+  }
+  // Reduced motion: the diagram stays still, and the answers are a list under it.
+  landing.eventLine = null;
+  const events = (stats.events || []).slice(0, 10);
+  if (!events.length) {
+    node("p", body, landing.stats ? "No answers yet." : "", "meta");
+    return;
+  }
+  node("h4", body, "Latest answers");
+  const recent = node("ol", body, null, "events");
+  for (const event of events) node("li", recent, eventText(event));
+}
+
+// --- AI apps, and what the service keeps on disk --------------------------------------------
+
+function appState(key, configured, live) {
+  if (live && live.connected) return ["connected", "●"];
+  if (configured[key] && configured[key].configured) return ["configured", "○"];
+  return ["not set up", "–"];
+}
+
+function renderApps() {
+  const body = $("apps-body");
+  body.replaceChildren();
+  if (!landing.overview && !landing.stats) return placeholder(body, landing.overviewFailed && landing.statsFailed, "The apps");
+  const configured = (landing.overview && landing.overview.apps) || {};
+  const live = new Map(((landing.stats && landing.stats.apps) || []).map((app) => [app.app, app]));
+  const others = [...live.keys()].filter((key) => !(key in APP_NAMES) && key !== "unknown");
+  const list = node("ul", body, null, "app-list");
+  const now = Date.now();
+  for (const key of [...Object.keys(APP_NAMES), ...others]) {
+    const app = live.get(key);
+    const [word, mark] = appState(key, configured, app);
+    const row = node("li", list);
+    node("strong", row, APP_NAMES[key] || key);
+    const status = node("span", row, null, "app-state");
+    status.dataset.state = word === "not set up" ? "none" : word;
+    node("span", status, mark).setAttribute("aria-hidden", "true");
+    node("span", status, " " + word);
+    const details = [];
+    if (app && app.client) details.push(app.client + (app.version ? " " + app.version : ""));
+    if (app && app.last_seen) details.push("last seen " + ago(app.last_seen, now));
+    if (app && app.requests_today) details.push(plural(app.requests_today, "request") + " today");
+    if (details.length) node("small", row, details.join(" · "), "meta");
+  }
+  const unknown = live.get("unknown");
+  if (unknown && unknown.requests_today) {
+    node("p", body, plural(unknown.requests_today, "request") + " today came without an app's name, last "
+      + ago(unknown.last_seen, now) + ". A configuration written before this version names no app; run "
+      + "python -m src.daemon migrate again to name it.", "meta");
+  }
+  node("p", body, "An app that runs Agents-Core over stdio, without the service, never shows as connected; its answers still count.", "meta");
+}
+
+function fact(parent, term, value) {
+  node("dt", parent, term);
+  node("dd", parent, value);
+}
+
+async function copyPath(path, button) {
+  try {
+    await navigator.clipboard.writeText(path);
+    button.textContent = "Copied";
+  } catch (_) {
+    landingAlert("This browser does not allow copying here; select the path and copy it.", "error");
+  }
+}
+
+function renderSystem() {
+  const body = $("system-body");
+  body.replaceChildren();
+  const overview = landing.overview;
+  if (!overview) return placeholder(body, landing.overviewFailed, "The overview");
+  const model = overview.model || {}, counts = overview.counts || {}, flows = counts.flows || {};
+  const facts = node("dl", body, null, "facts");
+  fact(facts, "Version", "Agents-Core " + overview.version);
+  fact(facts, "Embedding model", (model.name || "unknown") + " · " + sizeText(model.size));
+  fact(facts, "Components", [plural(counts.agents || 0, "agent"), plural(counts.rules || 0, "rule"),
+                             plural(counts.skills || 0, "skill"), plural(counts.implants || 0, "implant")].join(", "));
+  fact(facts, "Flows", (flows.builtin || 0) + " built-in, " + (flows.personal || 0) + " personal, "
+    + (flows.repository || 0) + " in repositories");
+  const list = node("ul", body, null, "dirs");
+  for (const place of overview.directories || []) {
+    const row = node("li", list);
+    node("strong", row, place.label);
+    node("code", row, place.path);
+    node("span", row, sizeText(place.size), "meta");
+    const copy = node("button", row, "Copy");
+    copy.type = "button";
+    copy.setAttribute("aria-label", "Copy the path of " + place.label);
+    copy.addEventListener("click", () => copyPath(place.path, copy));
+  }
+}
+
 // --- tabs --------------------------------------------------------------------------------
 
 async function showTab(tab) {
@@ -3146,7 +3596,9 @@ async function showTab(tab) {
 }
 for (const button of $("tabs").children) {
   button.addEventListener("click", () => {
-    hideSyncPage();  // a tab leaves the Sync page, back to what was open there
+    // A tab leaves the Sync page or the landing page, back to what was open there.
+    hideSyncPage();
+    hideLanding();
     showTab(button.dataset.tab).catch((e) => { if (!e.signedOut) alert(e.message); });
   });
 }
@@ -3168,6 +3620,11 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); } });
 
 (async () => {
+  // /ui opens the landing page unless "Don't show on open" is checked; #overview, the version's link
+  // opened in a new browser tab, opens it either way.
+  const overviewLink = location.hash === "#overview";
+  if (overviewLink) history.replaceState(null, "", location.pathname);
+  if (overviewLink || !landingOff()) showLanding(false);
   try {
     await login();
     await loadList();
@@ -3180,6 +3637,7 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
     nav.appendChild(message);
   }
   // After the first request, so a sign-in it needed is not attempted twice.
+  if (landing.shown) refreshLanding();
   await refreshSync();
 })();
 </script>

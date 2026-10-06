@@ -1036,3 +1036,93 @@ def test_a_flow_that_sync_deleted_while_open_says_so():
                                  "text": "Deleted on desk at 14:04 by sync. Your text is still here; copy it to keep it."}
     assert result["deleted_save"] == {"content": "# Kept text\n", "notice": (
         "Sync deleted this flow on desk at 14:04 while you edited it. Your text is kept here; copy it to keep it.")}
+
+
+# --- the landing page (#188) ------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def landing():
+    return run("landing")
+
+
+def test_ui_opens_the_landing_page_in_place_of_the_list_and_the_item(landing):
+    assert landing["start"] == {"landing": True, "main": False, "active_tabs": [], "item_actions": False,
+                                "new_flow": False, "reads": ["/ui/api/overview", "/ui/api/stats"]}
+
+
+def test_each_block_renders_from_the_api(landing):
+    cards = landing["cards"]
+    assert "routes each request" in cards["about"]
+    assert landing["links"] == [
+        ["GitHub", "https://github.com/IEZhu/Agents", "noopener noreferrer"],
+        ["README", "https://github.com/IEZhu/Agents#readme", "noopener noreferrer"],
+        ["Documentation", "https://github.com/IEZhu/Agents/blob/HEAD/docs/README.md", "noopener noreferrer"],
+        ["Issues", "https://github.com/IEZhu/Agents/issues", "noopener noreferrer"]]
+    assert cards["stats"].startswith("16 answers in 30 days") and "Today 4 · last 7 days 10" in cards["stats"]
+    assert "software_engineer · 9" in cards["stats"] and "Agents · 12" in cards["stats"]
+    assert "running for 3h 12m." in cards["stats"] and "Not counted: gone (missing)." in cards["stats"]
+    # One bar per day, its level a share of the busiest day.
+    assert len(landing["chart"]) == 30 and landing["chart"][10] == "8" and landing["chart"][29] == "4"
+    assert landing["chart"].count("0") == 23
+    assert landing["app_states"] == ["connected", "none", "configured", "none"]
+    assert "● connected" in cards["apps"] and "○ configured" in cards["apps"] and "– not set up" in cards["apps"]
+    assert "claude-code 2.0.14 · last seen 1m ago · 12 requests today" in cards["apps"]
+    assert "3 requests today came without an app's name" in cards["apps"]
+    assert "45 agents; 6 rules, 70 skills, 57 implants" in cards["how"] and "2 repositories in 30 days" in cards["how"]
+    assert "microsoft/harrier-oss-v1-270m · 1.1 GiB" in cards["system"]
+    assert "28 built-in, 3 personal, 2 in repositories" in cards["system"]
+    assert "/opt/agents2.0 GiBCopy" in cards["system"] and "/opt/agents/logsmissingCopy" in cards["system"]
+
+
+def test_answers_run_along_the_diagram_one_step_at_a_time(landing):
+    assert landing["steps"] == 6 and landing["lit"] == [0] and landing["step_timers"] == 1
+    assert landing["lit_after_a_step"] == [1]
+    # The first statistics run their three newest answers, oldest first.
+    assert re.fullmatch(r"\d\d:\d\d An app → software_engineer → Agents", landing["event_line"])
+    assert landing["events_list"] == []
+
+
+def test_the_page_polls_the_statistics_and_reads_the_overview_when_it_opens(landing):
+    assert landing["reads_after_a_poll"] == ["/ui/api/overview", "/ui/api/stats", "/ui/api/stats"]
+
+
+@pytest.mark.parametrize("scenario", ["landing", "landing_stored_off"])
+def test_every_tab_leaves_the_landing_page_and_the_version_opens_it_again(scenario):
+    tabs = run(scenario)["tabs"]
+    assert [entry["tab"] for entry in tabs] == ["flows", "agents", "rules", "skills", "implants"]
+    assert all(entry["left"] and entry["back"] for entry in tabs), tabs
+
+
+def test_the_choice_sends_ui_to_flows_and_survives_a_reload(landing):
+    assert landing["stored"] == [["agents-ui-landing-off", "1"]]
+    reloaded = run("landing_stored_off")
+    assert reloaded["start"] == {"landing": False, "main": True, "active_tabs": ["flows"], "item_actions": False,
+                                 "new_flow": True, "reads": []}
+
+
+def test_the_landing_page_opens_without_storage():
+    result = run("landing_nostorage")
+    assert result["start"]["landing"] and result["cards"]["stats"].startswith("16 answers") and result["stored"] == []
+
+
+def test_with_reduced_motion_the_diagram_stays_still_and_the_answers_are_a_list():
+    result = run("landing_reduced")
+    assert result["lit"] == [] and result["step_timers"] == 0 and result["lit_after_a_step"] == []
+    assert result["event_line"] is None and len(result["events_list"]) == 4
+    assert result["events_list"][0].endswith("Claude Code → ux_designer (switch) → Agents")
+
+
+def test_empty_statistics_and_an_app_that_is_configured_but_not_connected():
+    result = run("landing_empty")
+    assert result["cards"]["stats"].startswith("0 answers in 30 days")
+    assert "No answers in the last 30 days." in result["cards"]["stats"] and set(result["chart"]) == {"0"}
+    assert result["app_states"] == ["configured", "none", "configured", "none"]
+    assert result["event_line"] == "No answers yet." and result["step_timers"] == 0
+
+
+def test_the_landing_page_keeps_still_under_reduced_motion_and_stacks_on_narrow_screens():
+    html, _, style = page_parts()
+    assert 'id="version-link" href="#overview"' in html
+    assert re.search(r"\.card \{[^}]*border-radius: var\(--r-card\)", style)
+    assert re.search(r"@media \(prefers-reduced-motion: reduce\) \{ \.diagram \.step \{ transition: none; \} \}", style)
+    assert re.search(r"@media \(max-width: 760px\) \{ #landing-grid, \.tops \{ grid-template-columns: minmax\(0, 1fr\); \} \}", style)

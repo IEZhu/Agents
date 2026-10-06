@@ -225,7 +225,7 @@ Entry template:
 - UTF-8, `\n` line endings.
 - `tags` — free-form `#hashtags`; `metadata` — flat JSON, if provided, serialized inline as `**Meta:** {...}`.
   `log_interaction` writes `answer_timestamp`, and `client` when the daemon knows the app that called
-  (`X-Agents-Client`, see [Statistics](shared-mcp-daemon.md#statistics)).
+  (`X-Agents-Client`, see [Overview and statistics](shared-mcp-daemon.md#overview-and-statistics)).
 
 ### 4.3 MCP Tool Signatures (added to `src/server.py`)
 
