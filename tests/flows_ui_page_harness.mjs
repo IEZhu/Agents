@@ -82,6 +82,7 @@ async function fetchStub(path, init = {}) {
     return respond(200, { status: "ok" });
   }
   if (!signedIn) return respond(401, { error: "session_required" });
+  if (scenario.startsWith("landing")) return respond(...landingData(path, init));
   if (isSync && path.startsWith("/ui/api/sync")) {
     const method = init.method || "GET";
     const hold = syncHolds[method + " " + path] || syncHolds[method + " " + path.split("?")[0]];
@@ -259,10 +260,55 @@ if (scenario === "sync_hostkey_github") {
                 public_key: PUBLIC_KEY, github: { connected: true, login: "octocat", host: "github.com" } };
 }
 
+// --- the landing page (#188): a scripted /ui/api/overview and /ui/api/stats ---------------
+const LANDING_OVERVIEW = {
+  version: "26.10.06.1200",
+  repository: { repository: "https://github.com/IEZhu/Agents", readme: "https://github.com/IEZhu/Agents#readme",
+                docs: "https://github.com/IEZhu/Agents/blob/HEAD/docs/README.md", issues: "https://github.com/IEZhu/Agents/issues" },
+  model: { name: "microsoft/harrier-oss-v1-270m", size: 1181116006 },
+  counts: { agents: 45, rules: 6, skills: 70, implants: 57, flows: { builtin: 28, personal: 3, repository: 2 } },
+  directories: [{ id: "installation", label: "Installation", path: "/opt/agents", size: 2147483648 },
+                { id: "logs", label: "Logs of stdio servers", path: "/opt/agents/logs", size: null }],
+  apps: { "claude-code": { configured: true, scopes: ["claude:user"] }, "claude-desktop": { configured: false, scopes: [] },
+          codex: { configured: true, scopes: ["codex:user"] }, cursor: { configured: false, scopes: [] } },
+};
+const landingDay = (offset, answers) => ({ date: new Date(Date.now() - offset * 86400000).toISOString().slice(0, 10), answers });
+const landingEvent = (number, app, agent, action, repository) => ({
+  id: number.toString(16).padStart(12, "0"), time: minutesAgo(number), agent, action, workspace: "w-1", repository, app });
+const LANDING_STATS = {
+  computed_at: new Date().toISOString(), uptime_seconds: 3 * 3600 + 12 * 60, connected_window_seconds: 300,
+  answers: { today: 4, last_7_days: 10, last_30_days: 16,
+             per_day: Array.from({ length: 30 }, (_, index) => landingDay(29 - index, index === 29 ? 4 : index === 10 ? 8 : index % 7 === 0 ? 1 : 0)),
+             per_agent: [{ agent: "software_engineer", answers: 9 }, { agent: "lawyer", answers: 7 }],
+             per_repository: [{ workspace: "w-1", name: "Agents", answers: 12 }, { workspace: "w-2", name: "site", answers: 4 }],
+             per_action: { keep: 10, switch: 4, refresh: 1, restore: 0, other: 0, none: 1 },
+             per_app: [{ app: "claude-code", answers: 12 }, { app: "unknown", answers: 4 }] },
+  events: [landingEvent(1, "claude-code", "ux_designer", "switch", "Agents"), landingEvent(2, "codex", "lawyer", "keep", "site"),
+           landingEvent(3, null, "software_engineer", null, "Agents"), landingEvent(4, "cursor", "lawyer", "keep", "site")],
+  skipped: [{ workspace: "w-3", name: "gone", reason: "missing" }],
+  apps: [{ app: "claude-code", connected: true, streams: 1, last_seen: minutesAgo(1), requests_today: 12, client: "claude-code",
+           version: "2.0.14", initialized: minutesAgo(50), workspace: "Agents" },
+         { app: "unknown", connected: false, streams: 0, last_seen: minutesAgo(30), requests_today: 3, client: null, version: null,
+           initialized: null, workspace: null }],
+};
+const LANDING_EMPTY = { ...LANDING_STATS, uptime_seconds: 42, events: [], skipped: [], apps: [],
+  answers: { today: 0, last_7_days: 0, last_30_days: 0, per_day: Array.from({ length: 30 }, (_, index) => landingDay(29 - index, 0)),
+             per_agent: [], per_repository: [], per_action: {}, per_app: [] } };
+function landingData(path, init) {
+  if (path === "/ui/api/overview") return [200, LANDING_OVERVIEW];
+  if (path === "/ui/api/stats") return [200, scenario === "landing_empty" ? LANDING_EMPTY : LANDING_STATS];
+  return agentsData(path, init);  // the flows, the other tabs and the sync status
+}
+
 const docHandlers = {};
 const windowHandlers = {};
 let narrowNow = false;  // ui_place: the stylesheet's narrow layout applies
 const storage = new Map(scenario === "ui_narrow_stored" ? [["agents-ui-toc-hidden", "0"]] : []);
+// The landing page (#188) opens /ui unless its choice says otherwise; the other scenarios start where
+// they always did, on Flows, and their reports leave the choice out.
+const LANDING_OFF = "agents-ui-landing-off";
+if (!scenario.startsWith("landing") || scenario === "landing_stored_off") storage.set(LANDING_OFF, "1");
+const stored = () => [...storage.entries()].filter(([key]) => key !== LANDING_OFF || scenario.startsWith("landing"));
 // The page's timers of a second or more (the 30 s status poll, the sign-in poll) never run by
 // themselves: a scenario fires them, and none keeps Node alive at the end.
 const timers = [];
@@ -296,13 +342,14 @@ const context = vm.createContext({
   document: documentStub,
   window: {
     addEventListener(type, handler) { (windowHandlers[type] = windowHandlers[type] || []).push(handler); },
-    matchMedia: () => ({ matches: scenario.includes("narrow") || narrowNow }),
+    matchMedia: (query) => ({ matches: query.includes("reduced-motion") ? scenario.includes("reduced")
+                                                                    : scenario.includes("narrow") || narrowNow }),
   },
   // ui_place measures stub boxes; the page reads the header gap, the pane's corner and the joint.
   getComputedStyle: () => ({ columnGap: "8px", borderTopLeftRadius: "22px", width: "13px" }),
   localStorage: {
-    getItem: (key) => { if (scenario === "ui_nostorage") throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
-    setItem: (key, value) => { if (scenario === "ui_nostorage") throw new Error("denied"); storage.set(key, value); },
+    getItem: (key) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
+    setItem: (key, value) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); storage.set(key, value); },
   },
   location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
   history: { replaceState() {} },
@@ -314,6 +361,7 @@ const context = vm.createContext({
 for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants"].entries()) {
   const button = element();
   button.dataset.tab = tab;
+  if (tab === "flows") button.classes.add("active");  // as the markup has it
   byId("tabs").children[index] = button;
 }
 vm.runInContext(script, context);
@@ -546,14 +594,14 @@ if (isUi) {
     console.log(JSON.stringify({ signed_out: signedOut, late, after: panes() }));
     process.exit(0);
   }
-  out.stored_at_start = [...storage.entries()];
+  out.stored_at_start = stored();
   out.initial_toc_hidden = byId("e-view").classes.has("toc-hidden");
   if (scenario === "ui_nostorage" || scenario.startsWith("ui_narrow")) {
     await open(0);
     out.opened = snap("e-view");
     fire(byId("e-toc"), "click");
     out.after_header_button = snap("e-view");
-    out.stored_after = [...storage.entries()];
+    out.stored_after = stored();
     console.log(JSON.stringify(out));
     process.exit(0);
   }
@@ -563,7 +611,7 @@ if (isUi) {
   fire(findAll(byId("e-view"), hasClass("md-toc-item"))[1], "click");
   out.heading_scrolled = findAll(byId("e-view"), (n) => n.tag === "h2").map((n) => n.scrolled);
   fire(findAll(byId("e-view"), hasClass("md-toc-hide"))[0], "click");
-  out.hidden = { ...snap("e-view"), stored: [...storage.entries()], focus_moved: byId("e-toc").focused };
+  out.hidden = { ...snap("e-view"), stored: stored(), focus_moved: byId("e-toc").focused };
   // The panel's own button leaves the pointer on the panel: the hover reveal waits until it is over something else.
   const part = (root, name) => findAll(root, hasClass(name))[0];
   const dismissed = (root) => root.classes.has("toc-dismissed");
@@ -583,7 +631,7 @@ if (isUi) {
   await open(0);
   out.remembered = snap("e-view");
   fire(byId("e-toc"), "click");
-  out.revealed = { ...snap("e-view"), stored: [...storage.entries()] };
+  out.revealed = { ...snap("e-view"), stored: stored() };
   // Source: edit, see the edit rendered, then save from Source.
   fire(seg("e-seg", 1), "click");
   out.source = { panes_hidden: byId("panes").classes.has("hidden"), view_hidden: byId("e-view").classes.has("hidden"), seg: byId("e-seg").children.map((b) => b.classes.has("active")) };
@@ -618,6 +666,55 @@ if (isUi) {
   out.skill_dismissal.over_edge = pointerOver(cView, "md-edge");
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
+
+if (scenario.startsWith("landing")) {
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent
+    : (node.textContent || "") + node.children.map(textOf).join(""));
+  const view = () => ({
+    landing: !byId("landing").classes.has("hidden"), main: !byId("main").classes.has("hidden"),
+    active_tabs: byId("tabs").children.filter((button) => button.classes.has("active")).map((button) => button.dataset.tab),
+    item_actions: !byId("item-actions").classes.has("hidden"), new_flow: !byId("new").classes.has("hidden"),
+  });
+  const reads = () => requests.filter((path) => ["/ui/api/overview", "/ui/api/stats"].includes(path));
+  const steps = () => findAll(byId("how-body"), hasClass("step"));
+  const lit = () => steps().map((step, index) => (step.classes.has("lit") ? index : -1)).filter((index) => index >= 0);
+  const eventLine = () => findAll(byId("how-body"), hasClass("event-line")).map(textOf)[0] ?? null;
+  const out = { start: { ...view(), reads: reads() } };
+  if (out.start.landing) {
+    out.cards = Object.fromEntries(["about", "stats", "how", "apps", "system"].map((name) => [name, textOf(byId(name + "-body"))]));
+    out.links = findAll(byId("about-body"), (n) => n.tag === "a").map((a) => [a.textContent, a.attrs.href, a.attrs.rel]);
+    out.chart = (findAll(byId("stats-body"), hasClass("chart"))[0] || { children: [] }).children.map((bar) => bar.dataset.level);
+    out.app_states = findAll(byId("apps-body"), hasClass("app-state")).map((status) => status.dataset.state);
+    out.steps = steps().length;
+    out.lit = lit();
+    out.event_line = eventLine();
+    out.events_list = findAll(byId("how-body"), hasClass("events")).flatMap((list) => list.children.map(textOf));
+    out.step_timers = pendingTimers(1200).length;
+    await fireTimers(1200);
+    out.lit_after_a_step = lit();
+    out.poll_timers = pendingTimers(30000).length;
+    await fireTimers(30000);
+    out.reads_after_a_poll = reads();
+  }
+  // Every tab leaves the landing page, and the version opens it again from there.
+  out.tabs = [];
+  for (const tab of ["flows", "agents", "rules", "skills", "implants"]) {
+    await openTab(tab);
+    const left = view();
+    fire(byId("version-link"), "click", { preventDefault() {} });
+    await sleep(30);
+    const back = view();
+    out.tabs.push({ tab, left: !left.landing && left.main && left.active_tabs.join() === tab,
+                    back: back.landing && !back.main && !back.active_tabs.length && !back.item_actions && !back.new_flow });
+  }
+  out.reads_at_end = reads();
+  const box = byId("landing-off");
+  box.checked = true;
+  fire(box, "change", { target: box });
+  out.stored = stored();
   console.log(JSON.stringify(out));
   process.exit(0);
 }
