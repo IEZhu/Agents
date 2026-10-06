@@ -255,7 +255,14 @@ remote it is the folder name plus a path hash. Each repository folder keeps the
 origin in `.repo.json` and this machine's clone path in `.repo.local.json`; a
 folder without an origin belongs to this machine only. The library root holds
 `.agents-library.json`, `.gitignore` and `.gitattributes`, which prepare it for
-sync between machines ([#173](https://github.com/IEZhu/Agents/issues/173)).
+[sync between machines](../docs/user-sync.md). Once sync is set up (setup offers it;
+later `python -m src.user_sync setup`, or the Sync page of the daemon's settings),
+personal and repository flows, persona choices, the switches and the flows'
+history reach your other machines whenever both sides sync: with the shared
+daemon every few minutes and after each save; without it every 5 minutes through
+the scheduled run that setup offers (`python -m src.user_sync schedule enable`),
+and otherwise only in the cycle that follows each save made through Agents-Core.
+Repository folders without an origin stay on this machine.
 `repo:` flows need the caller's workspace, like `run_flow`; without one,
 `get_flow`, `save_flow` and `delete_flow` return `repo_scope_unavailable` for them.
 

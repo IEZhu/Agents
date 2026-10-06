@@ -5,17 +5,26 @@ REM ==================================================
 REM This script sets up the development environment after cloning.
 REM
 REM Usage:
-REM   scripts\init_repo.bat [--skip-env] [--skip-index] [--skip-mcp]
+REM   scripts\init_repo.bat [--yes] [--skip-env] [--skip-index] [--skip-mcp]
 REM   py -3 scripts\install_instructions.py [--clients codex,claude]
 REM     Update only client instructions, without running MCP or dependency setup.
 REM
 REM Flags:
+REM   --yes, -y      Do not ask whether to set up sync between machines (also
+REM                  AGENTS_ASSUME_YES=1). The other prompts still ask; without a
+REM                  console on stdin they take their defaults.
 REM   --skip-env     Skip .env file creation (useful if already configured)
 REM   --skip-index   Skip embedding model download and index pre-build
 REM   --skip-mcp     Skip MCP configuration and client instruction updates
 REM   --help         Show this help message
 
 setlocal enabledelayedexpansion
+REM cmd cannot keep a variable from its children, so a GitHub token for sync setup
+REM (AGENTS_GITHUB_TOKEN) is cleared before any of them runs and never passed on. On
+REM Windows only a separate `python -m src.user_sync setup --from-env` reads it.
+set "_SYNC_TOKEN_GIVEN=false"
+if defined AGENTS_GITHUB_TOKEN set "_SYNC_TOKEN_GIVEN=true"
+set "AGENTS_GITHUB_TOKEN="
 chcp 65001 >nul 2>&1
 
 REM Where users should report unexpected script failures (see :fatal_exit at end).
@@ -46,6 +55,11 @@ REM ============== Parse Arguments ==============
 set "SKIP_ENV=false"
 set "SKIP_INDEX=false"
 set "SKIP_MCP=false"
+REM As in init_repo.sh: AGENTS_ASSUME_YES=1, true or yes counts as --yes.
+set "ASSUME_YES=false"
+if "!AGENTS_ASSUME_YES!"=="1" set "ASSUME_YES=true"
+if "!AGENTS_ASSUME_YES!"=="true" set "ASSUME_YES=true"
+if "!AGENTS_ASSUME_YES!"=="yes" set "ASSUME_YES=true"
 
 :parse_args
 if "%~1"=="" goto :args_done
@@ -53,6 +67,8 @@ if "%~1"=="" goto :args_done
 if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"
 if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"
 if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"
+if /I "%~1"=="--yes"         set "ASSUME_YES=true"
+if /I "%~1"=="-y"            set "ASSUME_YES=true"
 if /I "%~1"=="--help" goto :show_help
 if /I "%~1"=="-h"     goto :show_help
 shift
@@ -62,11 +78,13 @@ goto :parse_args
 echo Agents Repository Initialization Script (Windows)
 echo(
 echo Usage:
-echo   scripts\init_repo.bat [--skip-env] [--skip-index] [--skip-mcp]
+echo   scripts\init_repo.bat [--yes] [--skip-env] [--skip-index] [--skip-mcp]
 echo   py -3 scripts\install_instructions.py [--clients codex,claude]
 echo     Update only client instructions, without running MCP or dependency setup.
 echo(
 echo Flags:
+echo   --yes, -y      Do not ask whether to set up sync between machines
+echo                  (also AGENTS_ASSUME_YES=1); the other prompts still ask
 echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
 echo   --skip-mcp     Skip MCP configuration and client instruction updates
@@ -615,6 +633,26 @@ if "!_BOTH_CLIENTS!"=="true" call :warn_duplicate_registration
 
 :mcp_done
 
+REM ============== Sync Between Machines ==============
+REM The personal library (flows\.user) can sync between the user's machines through a
+REM private git repository (docs\user-sync.md). The step is src\user_sync\installer.py,
+REM as in init_repo.sh: with a terminal and without --yes it asks once; --yes never
+REM asks; AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE in the environment (never
+REM from .env) set sync up without a question, without the GitHub token here. It never
+REM touches an existing flows\.user\.git by itself, and a failure here never fails setup.
+
+echo(
+echo %CYAN%===============================%NC%
+echo %BLUE%  Sync Between Machines%NC%
+echo %CYAN%===============================%NC%
+set "_SYNC_FLAG="
+if "!ASSUME_YES!"=="true" set "_SYNC_FLAG=--yes"
+if "!_SYNC_TOKEN_GIVEN!"=="true" echo   AGENTS_GITHUB_TOKEN is not used here: on Windows only a separate `python -m src.user_sync setup --from-env` reads it. See docs\user-sync.md
+pushd "%REPO_ROOT%"
+"%PYTHON_ABS%" -m src.user_sync installer !_SYNC_FLAG!
+if errorlevel 1 echo   %YELLOW%WARNING:%NC% The sync step did not finish; setup continues. See docs\user-sync.md
+popd
+
 REM ============== Final Summary ==============
 
 echo(
@@ -663,6 +701,12 @@ echo      If MCP sampling is unavailable it returns %CYAN%status="needs_summary"
 echo      and you finalize the write with %CYAN%write_repo_summary(...)%NC%.
 echo      History is appended to history.md each turn via log_interaction(...) (called by Claude per the routing protocol).
 echo(
+
+REM Sync between machines: its state, background sync and how to turn either on
+REM (src\user_sync\installer.py).
+pushd "%REPO_ROOT%"
+"%PYTHON_ABS%" -m src.user_sync installer --summary 2>nul
+popd
 
 REM ============== LLM Instructions Block ==============
 REM Printed only as a fallback — when the routing section could not be injected

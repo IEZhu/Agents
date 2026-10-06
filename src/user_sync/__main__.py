@@ -4,6 +4,8 @@
     python -m src.user_sync setup        # the wizard, in a terminal
     python -m src.user_sync setup --github OWNER/NAME --name … --email …
     python -m src.user_sync setup --remote git@github.com:me/agents-library.git --name … --email …
+    python -m src.user_sync setup --from-env   # AGENTS_USER_SYNC_*, without a question
+    python -m src.user_sync installer [--yes] | installer --summary   # the installers' sync step
     python -m src.user_sync start --confirm <preview hash>
     python -m src.user_sync resolve <conflict id> keep|mine|dismiss
     python -m src.user_sync scope [--exclude GROUP] [--include GROUP] [--allow-secret PATH] …
@@ -16,6 +18,11 @@
 Every command accepts ``--json`` for machine-readable output; prompts and sign-in codes then go
 to stderr. The exit code is 0 unless sync needs attention, a command failed or was cancelled, or
 the arguments were wrong (2).
+
+``installer`` and ``setup --from-env`` are described in ``src.user_sync.installer``. Their variables
+(``AGENTS_USER_SYNC_*``) count only from the process environment, never from ``.env``, and every
+command takes ``AGENTS_GITHUB_TOKEN`` out of its own environment before anything else, so no child
+process inherits it; only those two receive it.
 
 ``--state DIR`` and ``--library DIR`` (before the command) name the private state directory and
 the library explicitly; scheduled runs pass both, so they never depend on the scheduler's
@@ -60,6 +67,9 @@ def _parser() -> argparse.ArgumentParser:
     target.add_argument("--remote", help="git@host:owner/repo, ssh://… or https://…")
     target.add_argument("--github", metavar="OWNER/NAME",
                         help="a private repository of the connected GitHub account; adds this machine's deploy key")
+    target.add_argument("--from-env", action="store_true",
+                        help="set up from AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE, _NAME, _EMAIL and "
+                             "_LABEL (and AGENTS_GITHUB_TOKEN) without a question")
     setup.add_argument("--name", help="commit author name (required with --remote or --github)")
     setup.add_argument("--email", help="commit author email (required with --remote or --github)")
     setup.add_argument("--label", help="this machine's label (default: platform and a random suffix)")
@@ -104,6 +114,10 @@ def _parser() -> argparse.ArgumentParser:
     schedule.add_argument("action", choices=("enable", "disable", "status"))
     schedule.add_argument("--interval", type=int, metavar="MINUTES",
                           help="minutes between runs, 1-60 (default: the fetch interval setting)")
+    installer = command("installer", "the installers' sync step: report, set up from AGENTS_USER_SYNC_*, "
+                                     "or ask once in a terminal")
+    installer.add_argument("--yes", action="store_true", help="never ask (install.sh and updates)")
+    installer.add_argument("--summary", action="store_true", help="only say how to turn sync on, unless it runs")
     command("pause", "pause sync on this machine")
     command("resume", "resume sync on this machine")
     command("disconnect", "stop syncing on this machine; files and .git stay")
@@ -145,6 +159,24 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         return syncer.status()
     if name == "run":
         return syncer.run(force=arguments.force, confirm=arguments.confirm)
+    if name == "setup" and arguments.from_env:
+        from src.user_sync import installer
+        return installer.from_env(syncer, say=console.say, environ=arguments.environment,
+                                  token=arguments.environment.get(installer.TOKEN), ignored=arguments.ignored,
+                                  branch=arguments.branch, trust_host_key=arguments.trust_host_key,
+                                  confirm_private=arguments.confirm_private, confirm_owner=arguments.confirm_owner,
+                                  ask_new_repositories=arguments.ask_new_repositories)
+    if name == "installer":
+        from src.user_sync import installer, wizard
+        if arguments.summary:  # no token here: the summary only reads
+            return installer.summary(syncer, say=console.say)
+        return installer.step(syncer, assume_yes=arguments.yes or installer.assume_yes(arguments.environment),
+                              interactive=console.interactive, ask=console.ask, say=console.say,
+                              open_browser=console.open_browser, environ=arguments.environment,
+                              token=arguments.environment.get(installer.TOKEN), ignored=arguments.ignored,
+                              run_wizard=lambda: wizard.run(syncer, ask=console.ask, say=console.say,
+                                                            open_browser=console.open_browser,
+                                                            sleep=console.sleep))
     if name == "setup" and arguments.github:
         return syncer.setup_github(arguments.github, name=arguments.name, email=arguments.email,
                                    label=arguments.label, branch=arguments.branch,
@@ -358,8 +390,10 @@ def _failure(error: Exception, command: str | None = None) -> dict:
     return {"status": "attention", "reason": reason, "message": str(error)}
 
 
-def _console(json_output: bool, ask=None, say=None, open_browser=None, sleep=None) -> SimpleNamespace:
-    """Prompts and notices for the wizard and ``github login``; on stderr when stdout carries JSON."""
+def _console(json_output: bool, ask=None, say=None, open_browser=None, sleep=None,
+             interactive: bool = False) -> SimpleNamespace:
+    """Prompts and notices for the wizard, ``github login`` and the installer step; on stderr when stdout
+    carries JSON. ``interactive``: a terminal on stdin, where the installer step may ask."""
     stream = sys.stderr if json_output else sys.stdout
 
     def default_say(text: str) -> None:
@@ -375,7 +409,7 @@ def _console(json_output: bool, ask=None, say=None, open_browser=None, sleep=Non
     if json_output:
         opener = _keeping_stdout(opener)
     return SimpleNamespace(ask=ask or default_ask, say=say or default_say, open_browser=opener,
-                           sleep=sleep or time.sleep)
+                           sleep=sleep or time.sleep, interactive=interactive)
 
 
 def _keeping_stdout(opener):
@@ -393,36 +427,83 @@ def _keeping_stdout(opener):
     return open_browser
 
 
+def _terminal() -> bool:
+    """Whether someone can answer at stdin. On Windows ``isatty`` is true for NUL as well, so the
+    handle must also be a console that answers ``GetConsoleMode``."""
+    stream = sys.stdin
+    try:
+        if stream is None or not stream.isatty():
+            return False
+        if os.name != "nt":
+            return True
+        import ctypes
+        from ctypes import wintypes
+        import msvcrt
+        get_mode = ctypes.WinDLL("kernel32", use_last_error=True).GetConsoleMode
+        get_mode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        get_mode.restype = wintypes.BOOL
+        mode = wintypes.DWORD()
+        return bool(get_mode(msvcrt.get_osfhandle(stream.fileno()), ctypes.byref(mode)))
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _tolerant_output() -> None:
+    """Replace characters the output cannot encode, such as a flow name in a Windows pipe's code page,
+    instead of failing half way through a setup."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):  # not a text stream that can change
+            pass
+
+
 def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, interactive=None) -> int:
     """``ask``, ``say``, ``open_browser``, ``sleep`` and ``interactive`` (a terminal on stdin) are for tests."""
+    from src.user_sync import installer
+    # First of all: the token leaves this process's environment, so that no child process inherits
+    # it, and the sync variables are read as the process environment gives them, before .env.
+    environment = installer.take_environment()
     parser = _parser()
     arguments = parser.parse_args(argv)
-    wizard = arguments.command == "setup" and not (arguments.remote or arguments.github)
+    terminal = _terminal() if interactive is None else interactive
+    from_env = arguments.command == "setup" and arguments.from_env
+    wizard = arguments.command == "setup" and not (arguments.remote or arguments.github or from_env)
+    # These narrate as they go; the result is printed only for a failure they did not report.
+    narrated = from_env or arguments.command == "installer"
     if arguments.command == "setup":
-        if arguments.remote or arguments.github:
+        if from_env:
+            if arguments.name or arguments.email or arguments.label:
+                parser.setup_parser.error("--from-env reads the name, email and label from AGENTS_USER_SYNC_NAME, "
+                                          "AGENTS_USER_SYNC_EMAIL and AGENTS_USER_SYNC_LABEL")
+        elif arguments.remote or arguments.github:
             if not (arguments.name and arguments.email):
                 parser.setup_parser.error("--name and --email are required with --remote or --github")
-        elif not (sys.stdin.isatty() if interactive is None else interactive):
+        elif not terminal:
             parser.setup_parser.print_usage(sys.stderr)
-            print("setup needs --remote or --github, or a terminal for the wizard", file=sys.stderr)
+            print("setup needs --remote, --github or --from-env, or a terminal for the wizard", file=sys.stderr)
             return 2
+    if narrated:
+        _tolerant_output()
     _load_env()
+    arguments.environment = environment
+    arguments.ignored = installer.forget_dotenv(environment)  # what .env set does not count
     from src.flows import FlowError
     from src.user_sync.gitcmd import GitError, RemoteError
     from src.user_sync.keys import SSHKeyError
     from src.user_sync.scope import ScopeError
     from src.user_sync.wizard import Cancelled
-    console = _console(arguments.json, ask, say, open_browser, sleep)
-    interrupted = False
+    console = _console(arguments.json, ask, say, open_browser, sleep, terminal)
+    interrupted = raised = False
     try:
         with _session_lease():
             result = _execute(Syncer(arguments.library, arguments.state), arguments, console)
     except (SyncError, ScopeError, SSHKeyError, GitError, RemoteError, FlowError, GitHubError,
             Cancelled, EOFError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-        result = _failure(error, arguments.command)
+        result, raised = _failure(error, arguments.command), True
         failed = result["status"] != "busy"
     except KeyboardInterrupt as error:
-        result, failed, interrupted = _failure(error), True, True
+        result, failed, interrupted, raised = _failure(error), True, True, True
     else:
         status = result.get("state") or result.get("status") if isinstance(result, dict) else "ok"
         failed = status in ("attention", "error")
@@ -431,12 +512,15 @@ def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, intera
             failed = True
             result = {**result, "message": f"sync did not start ({status}): "
                                            f"{result.get('message') or 'run status for details'}"}
+    summary = arguments.command == "installer" and arguments.summary
     if arguments.json:
         json.dump(result, sys.stdout, indent=2, ensure_ascii=False)
         print()
-    else:
+    elif not summary and (raised or not narrated):
         command = arguments.command if arguments.command != "github" else f"github {arguments.github_command}"
         _print(result, command)
+    if summary:  # a line in the installer's summary is never worth a failed setup
+        return 0
     return 130 if interrupted else 1 if failed else 0
 
 

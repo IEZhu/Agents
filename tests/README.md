@@ -72,14 +72,14 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
 | Skills, implants and rules, and their on/off switches | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py`, `test_component_toggles.py` |
 | Embedding model, its prompts, batching and the one-time model switch | `test_embedder.py`, `test_embedding_prompts.py`, `test_model_migration.py` (no model is loaded); the service's switch is in `test_daemon_update.py` |
-| Installers: one-command install, version checks, client profiles, instructions and migration | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py` |
+| Installers: one-command install, version checks, client profiles, instructions, migration and the sync step | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; an update from a terminal that runs the real sync step and leaves the library's `.git` byte for byte; the GitHub token reaching `init_repo.sh` and never git; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py`, `test_installer_sync.py` (both installers' sync section around a stub, the GitHub token only for the step; a pseudo-terminal on Unix, `cmd.exe` on Windows) |
 | Agent frontmatter and metadata | `scripts/validate_agents.py` |
 | Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
 | Repository memory and `log_interaction` | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_per_repo_memory.py`, `test_log_interaction_async.py`, `test_log_interaction_contract.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_config_client_root.py`, `test_daemon.py`, `test_thread_inventory.py` (the `thread-close` helper) |
 | Cloud issue-agent dispatch, startup acknowledgement and its deletion, reactions and receipt collapse | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
 | Personal and repository flows, the `/ui` settings page and its sign-in | `test_user_flows.py`, `test_component_toggles.py` (switches and the Agents listing), `test_daemon_peer.py` (loopback owner lookup per OS), `test_flows_ui_page.py` (page script in Node through `flows_ui_page_harness.mjs`; skipped without `node`) |
-| Sync of the personal library between machines | `test_user_sync.py` (two libraries as two machines against a local bare repository), `test_user_sync_github.py` and `test_user_sync_github_setup.py` (GitHub sign-in, API and the wizard against a fake GitHub), `test_user_sync_history.py` (each repository's history merged across machines), `test_user_sync_schedule.py` and `test_user_sync_trigger.py` (scheduled runs with a fake OS, the stdio trigger); the User sync workflow runs them on Linux, Windows and macOS. `test_daemon_user_sync.py` covers the daemon's sync loop, its admin endpoints and `user-sync` command with a fake engine (no git); `test_sync_ui.py` the web UI's `/ui/api/sync` routes (access checks, the queue, no secret in any answer) with a fake engine and a fake GitHub, and `test_flows_ui_page.py` the header chip, the Sync page and its wizard |
+| Sync of the personal library between machines | `test_user_sync.py` (two libraries as two machines against a local bare repository), `test_user_sync_github.py` and `test_user_sync_github_setup.py` (GitHub sign-in, API and the wizard against a fake GitHub), `test_user_sync_history.py` (each repository's history merged across machines), `test_user_sync_schedule.py` and `test_user_sync_trigger.py` (scheduled runs with a fake OS, the stdio trigger), `test_user_sync_install.py` (the installers' sync step and setup from `AGENTS_USER_SYNC_*`); the User sync workflow runs them on Linux, Windows and macOS. `test_daemon_user_sync.py` covers the daemon's sync loop, its admin endpoints and `user-sync` command with a fake engine (no git); `test_sync_ui.py` the web UI's `/ui/api/sync` routes (access checks, the queue, no secret in any answer) with a fake engine and a fake GitHub, and `test_flows_ui_page.py` the header chip, the Sync page and its wizard |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
 | Updates, startup and readiness | `test_self_update.py`, `test_startup.py`, `test_readiness.py`, `test_startup_handshake.py` (slow; a fake `fastembed`, no model), `test_langfuse_compat.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
@@ -107,6 +107,13 @@ The same workflow runs Codex discovery and managed-instruction migration checks.
 and alternate client profiles, using native `cmd.exe` on Windows and Bash on Unix.
 It checks exact configuration targets, preserved inactive profiles, and paths with
 spaces without modifying the user's client files.
+`test_installer_sync.py` runs each installer's token handling, argument parsing,
+sync section and summary line around a stub of `python -m src.user_sync`: `--yes`
+and `AGENTS_ASSUME_YES` reach the step, which then never asks; stdin from NUL is no
+console; the GitHub token reaches no child on Windows and only the step on Unix
+(fake `pip`, `git` and `python` report it); and a failing step never fails setup.
+On Unix it also runs the real step in a pseudo-terminal, in a copy of the
+installation.
 `test_installer_instructions.py` executes the actual template selection, skip guard
 and Codex instruction hook from each installer in temporary directories. Unix
 uses Bash; Windows uses native `cmd.exe`. These focused checks cover template
@@ -124,7 +131,7 @@ To reproduce the workflow job locally in PowerShell with Python 3.11+ selected:
 ```powershell
 python -m pip install pytest python-dotenv
 $env:AGENTS_TEST_PYTHON310 = 'C:\absolute\path\to\Python310\python.exe'
-python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
+python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_installer_sync.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
 ```
 
 The workflow sets `core.autocrlf false` before checkout so the byte-exact

@@ -12,13 +12,15 @@ import subprocess
 import sys
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from src.file_lock import file_lock
 from src.model_migration import DEFAULT_MODEL, GENERATION
 from .state import state_dir, private_dir, read_json, write_json, atomic_private
 
 
+# The service is on loopback: no proxy from http_proxy ever sees a request or its bearer token.
+LOOPBACK = build_opener(ProxyHandler({}))
 # Models fastembed downloads into its Hugging Face cache, by cache directory.
 HF_CACHE_MODELS = {"intfloat/multilingual-e5-large": "models--qdrant--multilingual-e5-large-onnx"}
 
@@ -83,7 +85,7 @@ class Controller:
         request = Request(f"http://127.0.0.1:{self.config['port']}{path}", data=data, method=method,
                           headers=headers)
         try:
-            with urlopen(request, timeout=timeout) as response:
+            with LOOPBACK.open(request, timeout=timeout) as response:
                 value = json.load(response)
                 return (response.status, value) if status else value
         except HTTPError as error:
@@ -186,7 +188,7 @@ class Controller:
             self.write_plist()
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
         return {"state": "installed", "directory": str(self.directory), "port": port,
-                "scheduled_sync": stop_scheduled_sync(root)}
+                "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
 
     def write_plist(self, probation=None):
         arguments = [self.config["python"], "-m", "src.daemon", "--state", str(self.directory), "serve"]
@@ -262,6 +264,26 @@ class Controller:
         return {"state": "uninstalled", "retained": "private backups, token, workspace registry and history indexes",
                 "user_sync": "the daemon no longer syncs the library; to keep syncing without it run "
                              "`python -m src.user_sync schedule enable`"}
+
+
+def sync_note(directory):
+    """What ``install`` says about user library sync (#171): set up, pending or off, and what to do.
+
+    ``directory`` is the service's state directory, the one ``install --state`` chose: the service
+    and the engine keep sync's settings in its ``user-sync``.
+    """
+    try:
+        settings = read_json(Path(directory) / "user-sync" / "user-sync.json")
+    except (OSError, ValueError):
+        settings = None
+    finish = ("run `python -m src.daemon start`, then `python -m src.daemon flows-ui` and open its Sync page, "
+              "or `python -m src.user_sync setup` in a terminal")
+    if isinstance(settings, dict) and settings.get("started"):
+        return ("set up: the service runs the sync loop once it starts; "
+                "`python -m src.daemon user-sync status` shows its state")
+    if isinstance(settings, dict):
+        return "pending: sync is set up but has not started; to finish it, " + finish
+    return "off: to sync personal flows between machines, " + finish
 
 
 def stop_scheduled_sync(installation=None):

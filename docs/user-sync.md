@@ -3,8 +3,8 @@
 Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
 runs, the stdio trigger and the terminal wizard (#168), the sync loop of the macOS daemon (#167),
 the merge of each repository's history across machines (#172,
-[Repository history](#repository-history)) and the status, Sync page and wizard of the web UI
-(#170) are implemented. Installer integration (#171) is a separate part of the
+[Repository history](#repository-history)), the status, Sync page and wizard of the web UI (#170)
+and the installers' step with setup from the environment (#171) are implemented, as parts of the
 [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
 Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
@@ -180,6 +180,110 @@ reason `schedule`.
 A stdio MCP server runs one cycle about ten seconds after a write to the library (a saved flow, a
 persona or a switch) while sync is set up, started and not paused, and no other runner holds the
 sync lock; a run that finds it busy is tried again a few seconds later. The command never blocks the request that saved.
+
+## Installers
+
+`scripts/init_repo.sh` and `scripts/init_repo.bat` run `python -m src.user_sync installer`
+(`src/user_sync/installer.py`) after the client configuration, and `installer --summary` in their
+summary. The summary says whether sync is on, whether it runs in the background (the daemon, or the
+scheduled run) and how to turn either on. With a terminal and without `--yes`, the step asks once:
+"Set up sync between your machines now? [y/N]". On macOS, yes opens the daemon's settings page
+when the daemon answers `/health` as ready and serves the Sync page (its page calls
+`/ui/api/sync`); otherwise it starts [the wizard](#the-wizard), without a connection error. The
+one-use link is printed only when no browser opened it. After the wizard has started sync on a
+machine without the daemon, it asks "Also sync every 5 minutes in the background? [Y/n]" and, by
+default, runs `schedule enable`. It asks nothing under `--yes` or `AGENTS_ASSUME_YES=1`
+(`install.sh` always passes `--yes`; on Windows `--yes` stops only this question), without a
+terminal (on Windows, a console that answers `GetConsoleMode`: `isatty` is true for NUL too), when
+sync is set up (it reports the state), when git 2.32 or newer or `ssh-keygen` is missing, or when
+the library has a `.git` that sync did not create, which it only reads. By itself the step changes
+no settings, key or `.git`: it only holds the installation's session lease (`data/.sessions.lock`)
+while it runs and deletes a marker of setup from the environment that a disconnected setup left
+behind (see below). A failure never fails setup; a setup that did not start exits 1, so the
+installer warns. For a setup that has not started, the summary names where it stopped and the
+next step: confirming another host's key, confirming privacy, waiting for the network, adding the
+deploy key, or reviewing the preview and starting with its hash. The daemon's `update` and
+`auto-update` do not run the installers.
+
+### Setup from the environment
+
+`python -m src.user_sync setup --from-env`, which the step also runs whenever one of the first two
+variables is set, also under `--yes`, sets sync up without a question:
+
+| Variable | Meaning |
+|---|---|
+| `AGENTS_USER_SYNC_REPO` | `OWNER/NAME` of a private repository on the GitHub host (`AGENTS_GITHUB_HOST`) |
+| `AGENTS_USER_SYNC_REMOTE` | instead, an SSH URL; one on the GitHub host is handled as `OWNER/NAME` |
+| `AGENTS_USER_SYNC_NAME`, `AGENTS_USER_SYNC_EMAIL` | the commit identity, required |
+| `AGENTS_USER_SYNC_LABEL` | this machine's label, optional |
+| `AGENTS_GITHUB_TOKEN` | optional, for a repository on the GitHub host: a token with the `repo` scope |
+
+They count only as the command's process environment gives them: the command line reads them
+before the installation's `.env`, removes what `.env` adds and says so, so that an update never
+continues a setup. Every command of `python -m src.user_sync` takes `AGENTS_GITHUB_TOKEN` out of
+its own environment before anything else, so no child process it starts (git, ssh, ssh-keygen, the
+browser) inherits it; only the step and `setup --from-env` receive it, never `installer --summary`.
+`init_repo.sh` keeps the token in a variable that is not exported and gives it to the step's
+command alone; `install.sh` gives it to `init_repo.sh` alone, never to git. `init_repo.bat` clears
+it, because cmd cannot keep a variable from its children, and says that on Windows only a
+separate `setup --from-env` reads it. Run that command with the token scoped to it, from the
+installation root:
+
+```bash
+read -rs t
+AGENTS_GITHUB_TOKEN="$t" AGENTS_USER_SYNC_REPO=me/agents-library AGENTS_USER_SYNC_NAME="My Name" \
+    AGENTS_USER_SYNC_EMAIL=me@example.com .venv/bin/python -m src.user_sync setup --from-env
+unset t
+```
+
+In PowerShell, where the token lives in the session's environment until it is removed:
+
+```powershell
+$secure = Read-Host -AsSecureString "GitHub token"
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:AGENTS_GITHUB_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+$env:AGENTS_USER_SYNC_REPO = "me/agents-library"
+$env:AGENTS_USER_SYNC_NAME = "My Name"
+$env:AGENTS_USER_SYNC_EMAIL = "me@example.com"
+.venv\Scripts\python.exe -m src.user_sync setup --from-env
+Remove-Item Env:AGENTS_GITHUB_TOKEN
+```
+
+The token is checked with GitHub and kept in the secret store like a device-flow sign-in
+(`complete_sign_in`), and never printed. A token GitHub refuses (wrong or expired), or one that
+cannot see the repository (a private repository needs the `repo` scope), is reported with the
+variable's name and that scope. With it, or with an account connected earlier, setup adds
+this machine's deploy key through the API; otherwise it prints the public key to add by hand and
+stops at `waiting_for_access`, and the installer's summary suggests running it again. Setup then
+checks access and privacy, prints the preview and starts sync, except that a join that keeps
+conflicts stops at `confirmation_needed` with the `preview` and `start --confirm <hash>` commands.
+Where privacy cannot be checked, another host's key needs confirming, or the repository belongs to
+another owner, it stops with the command to rerun with `--confirm-private`, `--trust-host-key` or
+`--confirm-owner OWNER`. On a machine without the daemon it then
+enables the scheduled run (`schedule enable`, every `fetch_minutes`, 5 by default) and says so.
+`setup --from-env` and the step say once which of these variables `.env` set. The commands the
+step and setup print themselves say where to run them, since `-m src…` works only in the
+installation: `cd <installation> && …` on macOS and Linux, `in <installation>, run …` on Windows,
+where cmd and PowerShell chain commands differently. Commands quoted in the engine's own messages
+(`python -m src.user_sync …`) run there too.
+
+Running again with the same variables continues a setup that stopped. A setup that it made itself
+and that never started may be replaced by a run with another remote: `user-sync-from-env.json` in
+the sync state directory records its remote and this machine's public key, which `disconnect`
+deletes. The marker is written whenever setup saved the settings, also when it stopped after that
+(a mistyped or unreachable host, a refused deploy key), and it follows the settings. GitHub accepts
+a key as the deploy key of one repository only: once the new repository has passed the checks of
+`setup --github` (private, its owner, empty or a library), this machine's deploy key is removed
+from the old repository through the API and the settings forget its id (`deploy_key_id`); without
+the API, or when that fails, this machine gets a new key pair, and setup names the old repository,
+which may still hold the old key. A key GitHub still refuses is reported with that repository and `disconnect`. Every
+other setup that has not started is refused, as is a library `.git` while sync has no settings
+here, even one left by an earlier sync; the message lists the ways out: finish it with the wizard,
+or `disconnect` (and move the library's `.git` away, when there is one) and run again. Once sync has started it
+changes nothing. The exit code is 1 when setup stopped, sync did not start (`offline`,
+`lock_held` and the like, reported as `attention` with that reason) or sync needs attention;
+waiting for the deploy key is not an error.
 
 ## What syncs
 
@@ -458,7 +562,11 @@ heading or by a lost final blank line, caches that tell a replaced file by its i
 (with a fake embedder). `tests/test_user_sync_github.py` covers the device flow,
 token storage and every API call against a fake GitHub on `127.0.0.1`, and
 `tests/test_user_sync_github_setup.py` the privacy check, `setup --github`, `add-key`, a new key, port 443
-and the wizard, with git going to a local bare repository through a fake SSH command. The real
+and the wizard, with git going to a local bare repository through a fake SSH command.
+`tests/test_user_sync_install.py` covers the installers' step and setup from the environment: the
+question, the settings page on a fake daemon, background sync with a fake scheduler, the token
+kept from child processes, `.env` ignored, exit codes, reruns, replacing a setup (a deploy key
+moved on a fake GitHub), the pending summary and loopback calls that skip an HTTP proxy. The real
 Keychain, Credential Manager and Secret Service are used only when `AGENTS_TEST_REAL_SECRET_STORE=1`.
 The [User sync workflow](../.github/workflows/user-sync.yml) runs these tests on Linux, Windows and
 macOS, and sets `AGENTS_TEST_REAL_SECRET_STORE` on the Windows and macOS jobs.
