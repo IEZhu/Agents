@@ -306,7 +306,8 @@ work, and drain ends them cleanly
 so a client's next request reaches the restarted process without a new session.
 A client keeps the tool list it read when it connected, though: a changed tool
 declaration, such as the result size of `run_flow` and `get_flow`, reaches it only
-after it reconnects MCP or starts a new session.
+after it lists the tools again. Reconnect MCP (`/mcp` in Claude Code); a new
+session can reuse a cached tool list.
 A request sent during the stop window fails and can be retried. After
 `token rotate`, however, clients must reconnect MCP (see [Service control](#service-control)).
 

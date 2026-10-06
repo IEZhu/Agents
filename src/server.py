@@ -329,30 +329,27 @@ def _flow_error(error: Exception) -> str:
 # Claude Code saves an MCP tool's text result longer than 50,000 characters to a file and gives the
 # model a pointer, unless the tool declares a larger size in its tools/list entry; it accepts at most
 # 500,000 (#196).
-UNDECLARED_RESULT_SIZE = 50_000
 RESULT_SIZE_CEILING = 500_000
 # json.dumps writes a control character as \u00XX: no byte of a flow becomes more than six characters.
 _ESCAPED_CHARS_PER_BYTE = 6
-# The rest of a result: ids, titles, the instruction and the list of saved versions.
+# The rest of a result: ids, revisions, the instruction and the list of saved versions.
 _RESULT_METADATA_CHARS = 64 * 1024
 
 
 def flow_result_size(max_flow_bytes: int = MAX_FLOW_BYTES) -> int:
     """Characters a flow tool's result may take before Claude Code moves it to a file.
 
-    A result carries two JSON-escaped texts of up to ``max_flow_bytes`` each: get_flow a flow and, for a
-    local copy, its built-in (``upstream``); run_flow a flow and its persona bundle, usually far smaller
-    (27,000 characters for pr-review's), though a persona that selects many components can be larger.
-    The metadata allowance alone keeps it above Claude Code's default; it never exceeds the ceiling, so
-    a larger result still goes to a file.
+    A result carries up to three JSON-escaped texts of up to ``max_flow_bytes`` each: the flow, its
+    title (the first heading, which can be the whole flow) and, from get_flow for a local copy, its
+    built-in (``upstream``). run_flow carries a persona bundle instead, usually far smaller than a flow,
+    though a persona that selects many components can be larger. The metadata allowance alone keeps the
+    size above Claude Code's default; it never exceeds the ceiling, so a larger result still goes to a
+    file.
     """
-    return min(RESULT_SIZE_CEILING, 2 * _ESCAPED_CHARS_PER_BYTE * max_flow_bytes + _RESULT_METADATA_CHARS)
+    return min(RESULT_SIZE_CEILING, 3 * _ESCAPED_CHARS_PER_BYTE * max_flow_bytes + _RESULT_METADATA_CHARS)
 
 
 FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
-# The result is the JSON text alone. With FastMCP's automatic structured output, Claude Code puts
-# {"result": "<that JSON>"} in the conversation instead: the flow escaped twice and longer.
-FLOW_TOOL = {"meta": FLOW_RESULT_META, "structured_output": False}
 
 
 @mcp.tool()
@@ -372,7 +369,7 @@ async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
         return _flow_error(error)
 
 
-@mcp.tool(**FLOW_TOOL)
+@mcp.tool(meta=FLOW_RESULT_META)
 async def get_flow(flow: str, version: ta.opt_str("Optional version id of the flow; defaults to the current one.") = None, ctx: Context | None = None) -> str:
     """Read a flow's Markdown, revision and saved versions before editing it.
 
@@ -430,7 +427,7 @@ async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = N
         return _flow_error(error)
 
 
-@mcp.tool(**FLOW_TOOL)
+@mcp.tool(meta=FLOW_RESULT_META)
 async def run_flow(
     flow: Annotated[str, Field(description="Flow id, ID.md, flows/ID.md, or builtin:/user:/repo:<id>.")],
     request: Annotated[str, Field(description="The user's scope, PR/MR URL and constraints.")] = "",
