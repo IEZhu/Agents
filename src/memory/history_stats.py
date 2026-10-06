@@ -137,23 +137,25 @@ class FileSummaries:
 
 
 def _workspace_answers(root: Path, files: FileSummaries, since_month: str) -> Iterable[Answer]:
-    """This workspace's answers by entry id: its archives from ``since_month`` on, a pending
-    rotation and ``history.md``. A rotation that moves an entry meanwhile shows it twice, once."""
+    """This workspace's answers: its archives from ``since_month`` on, a pending rotation and
+    ``history.md``. An entry that a rotation moves meanwhile shows in two files and counts once; the
+    same content logged again later (the writer deduplicates only its recent entries) has the same
+    id at another time and counts again."""
     if not root.is_dir():
         raise FileNotFoundError(f"{root} is not a directory")
     history = str(root / "history.md")
     archive_dir = str(root / "history")
-    chosen: dict[str, Answer] = {}
+    chosen: dict[tuple[str, str], Answer] = {}
     for name in _archive_names(archive_dir):
         if name[:7] >= since_month:
             for answer in files.answers(os.path.join(archive_dir, name)):
-                chosen[answer.id] = answer
+                chosen[(answer.id, answer.time)] = answer
     pending = history + ".rotating"
     if os.path.exists(history) or os.path.exists(pending):
         with _reading(history):
             for path in (pending, history):
                 for answer in files.answers(path):
-                    chosen[answer.id] = answer
+                    chosen[(answer.id, answer.time)] = answer
     return chosen.values()
 
 

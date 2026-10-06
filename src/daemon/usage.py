@@ -62,7 +62,7 @@ class AppActivity:
         if key not in self._apps and len(self._apps) >= MAX_APPS:
             key = UNKNOWN
         record = self._apps.setdefault(key, {
-            "last_seen": None, "streams": 0, "day": None, "requests_today": 0,
+            "last_seen": None, "last_request": None, "streams": 0, "day": None, "requests_today": 0,
             "client": None, "version": None, "initialized": None, "workspace": None})
         record["last_seen"] = now
         day = dt.datetime.fromtimestamp(now).date()
@@ -72,7 +72,9 @@ class AppActivity:
 
     def request(self, app: str | None) -> None:
         with self._lock:
-            self._record(app, self.clock())["requests_today"] += 1
+            record = self._record(app, self.clock())
+            record["requests_today"] += 1
+            record["last_request"] = record["last_seen"]
 
     def stream_opened(self, app: str | None) -> None:
         with self._lock:
@@ -107,7 +109,9 @@ class AppActivity:
         with self._lock:
             return [{
                 "app": app,
-                "connected": record["streams"] > 0 or now - record["last_seen"] <= CONNECTED_SECONDS,
+                # A closed stream is when the app was last seen, not a request: it does not keep it connected.
+            "connected": record["streams"] > 0 or (record["last_request"] is not None
+                                                   and now - record["last_request"] <= CONNECTED_SECONDS),
                 "streams": record["streams"],
                 "last_seen": _iso(record["last_seen"]),
                 "requests_today": record["requests_today"] if record["day"] == today else 0,

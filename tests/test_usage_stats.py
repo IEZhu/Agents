@@ -75,6 +75,14 @@ def test_counts_per_day_agent_repository_action_and_app(tmp_path):
     assert QUERY not in text and ANSWER not in text and "Reviewed the contract" not in text
 
 
+def test_the_same_content_logged_again_later_counts_again_and_a_rotation_copy_once(tmp_path):
+    root = tmp_path / "repo"
+    again = block(1, NOW - DAY, "Agent: lawyer")  # the writer's tail no longer held the first one
+    write(root / "history" / "2026-10.md", block(1, NOW - 3 * DAY, "Agent: lawyer"), again)
+    write(root / "history.md", again, block(2, NOW, "Agent: lawyer"))  # moved by a rotation in progress
+    assert summarize([("w", "repo", root)], now=NOW, files=FileSummaries())["last_7_days"] == 3
+
+
 def test_days_are_counted_in_the_local_zone(tmp_path):
     root = tmp_path / "repo"
     write(root / "history.md", block(1, dt.datetime(2026, 10, 5, 21, 30, tzinfo=dt.timezone.utc), "Agent: lawyer"))
@@ -151,9 +159,10 @@ def test_an_initialize_makes_its_app_connected_until_the_window_passes():
     apps.stream_opened("codex")  # an open notification stream is a connection, however old
     now[0] += 10 * CONNECTED_SECONDS
     assert apps.snapshot()[0]["connected"] and apps.snapshot()[0]["streams"] == 1
-    apps.stream_closed("codex")
-    now[0] += CONNECTED_SECONDS + 1
-    assert not apps.snapshot()[0]["connected"] and apps.snapshot()[0]["streams"] == 0
+    apps.stream_closed("codex")  # the app was there until now, but a closed stream is not a request
+    (codex,) = apps.snapshot()
+    assert not codex["connected"] and codex["streams"] == 0
+    assert codex["last_seen"] == dt.datetime.fromtimestamp(now[0], dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def test_requests_without_a_valid_app_count_as_unknown_and_apps_are_bounded():
