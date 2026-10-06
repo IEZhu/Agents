@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse
 from src.version import agents_core_version
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
+from .overview import Overview
 from .sync_loop import UserSync
 from .usage import Usage, app_name, observing
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
@@ -70,6 +71,7 @@ class Service:
         self.stop = asyncio.Event()
         self.requests = set()
         self.usage = Usage(self)  # answer counts and the apps that use the daemon (#187)
+        self.overview = Overview(self)  # the landing page's facts about the installation (#188)
         self.flows_ui = FlowsUI(self)
         # Only the service's entry point hands the library over from the OS scheduler (#168).
         self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)

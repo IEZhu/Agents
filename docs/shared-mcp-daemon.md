@@ -76,7 +76,7 @@ added to the local Git exclude file.
 
 Each managed entry also names its app in an `X-Agents-Client` header
 (`claude-code`, `claude-desktop`, `codex` or `cursor`), so the settings page
-counts requests per app (see [Statistics](#statistics)). The private bridge
+counts requests per app (see [Overview and statistics](#overview-and-statistics)). The private bridge
 configuration is one file per app and workspace. A configuration written
 before this header counts as `unknown` until `migrate` runs again.
 
@@ -317,6 +317,31 @@ A request sent during the stop window fails and can be retried. After
 ```
 
 The daemon serves a local settings page at `/ui` with five tabs.
+
+`/ui` opens on an overview of the installation
+([#188](https://github.com/IEZhu/Agents/issues/188)) in the place of the list and
+the item, with no tab active:
+
+- **About**: what Agents-Core does, with links to the repository of the
+  installation's `origin`, its README, the documentation map and its issues.
+- **Statistics**: answers today and over 7 and 30 days, a 30-day chart, the top
+  agents and repositories, and how long the service has been running.
+- **How it works**: a request's path from the app through Agents-Core, the
+  embedding model and the agent to the answer and `history.md`, each step with
+  its live values. The newest answers run along it one at a time; under
+  `prefers-reduced-motion` it stays still and lists them instead.
+- **AI apps**: Claude Code, Claude Desktop, Codex and Cursor, each connected,
+  configured or not set up, in words.
+- **Model, directories and sizes**: the version, the embedding model and its size,
+  the counts of agents, rules, skills, implants and flows, and each directory with
+  its path, size and **Copy**.
+
+**Don't show on open**, kept in the browser, opens Flows instead; without browser
+storage the overview still opens. The version in the header opens the overview from
+every tab either way, and `/ui#overview` opens it in a new browser tab. The page
+reads `GET /ui/api/overview` when it opens and `GET /ui/api/stats` every 30
+seconds while the browser tab is visible (see
+[Overview and statistics](#overview-and-statistics)). Below 760 px the blocks stack.
 
 - **Flows** edit [personal and repository
   flows](../flows/README.md#personal-and-repository-flows). A User/System switch
@@ -582,7 +607,7 @@ sync task's drain. Bodies are JSON objects of at most 64 KiB (413 otherwise). An
   that would never start;
 - 500 without a traceback for an unexpected failure.
 
-### Statistics
+### Overview and statistics
 
 `GET /ui/api/stats` tells how Agents-Core is used on this machine
 ([#187](https://github.com/IEZhu/Agents/issues/187)); the landing page
@@ -614,6 +639,16 @@ text of a query or an answer.
 
 `log_interaction` from a known app also writes `client` into the entry's `**Meta:**`,
 so answers count per app from then on; older entries count as `unknown`.
+
+`GET /ui/api/overview` has the same protections and also tells nothing it does not
+need: the version; links to the repository of the installation's `origin`, its
+credentials stripped; the embedding model and its size in the model cache; the
+counts of agents, rules, skills, implants and flows (built-in, personal and in
+repositories); the directories (the installation, `data/`, the service directory,
+personal flows, the model cache and the stdio servers' logs) with their sizes; and
+per app whether a client configuration this machine has holds an Agents-Core entry
+(read like `audit`, without any header value). Sizes are measured off the event loop,
+without following symlinks, at most every 5 minutes; the rest is read with each request.
 
 ## User library sync
 
